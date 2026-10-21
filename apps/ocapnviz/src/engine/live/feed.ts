@@ -27,7 +27,7 @@ export type FeedState = {
 	 * departure retires exactly that node and no other. */
 	hostOfScope: Map<string, string>;
 	/** Producer scope -> the sessions it is watching. A producer leaving takes
-	 * its view of them with it, and the endpoint no longer synthesizes a close
+	 * its view of them with it, and the endpoint does not synthesize a close
 	 * per session to say so. It reports the departure, and this is what turns
 	 * that into the right ending for each session the viewer was shown. */
 	sessionsOfScope: Map<string, Set<string>>;
@@ -273,7 +273,7 @@ export function convertEvent(
 		return out;
 	}
 	// A live record while a batch is open means the endpoint sent no
-	// end-of-batch mark. An older one, or another producer of this
+	// end-of-batch mark. Another producer of this
 	// schema. Draw what is held rather than stranding it. This is a
 	// backstop and not the boundary: a quiet feed may send no live
 	// record for minutes, and the batch must not wait on one.

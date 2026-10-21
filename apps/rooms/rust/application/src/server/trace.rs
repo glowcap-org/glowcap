@@ -27,7 +27,6 @@ pub const MAX_SUBSCRIBER_QUEUE_BYTES: usize = 8 << 20;
 pub const REFUSED_CLOSE_CODE: u16 = 4403;
 pub const REFUSED_REASON: &str = "rooms trace: this endpoint requires its capability";
 pub const PRODUCER_LIMIT_CLOSE_CODE: u16 = 1013;
-pub const CAP_PARAM: &str = "cap";
 pub const PUBLISH_PATH: &str = "/publish";
 pub const CHANNEL_PATH: &str = "/captp";
 /// The exporter owns the exact producer route, including deployment prefixes.

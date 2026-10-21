@@ -71,7 +71,7 @@ their snapshots, and new readers see the committed pages. LMDB's reader table,
 the small lock file that processes share, is memory-mapped, and the read
 failure tests do not cover it.
 
-The build patches the pinned LMDB source and fails if an LMDB update no longer
+The build patches the pinned LMDB source and fails if an LMDB update no longer <!-- status-allow: runtime state or operation ordering -->
 matches the patch. The file format is LMDB's own. [Stability](../stability.md)
 lists what the failure tests cover.
 
@@ -116,7 +116,7 @@ try engine.close();
 engine = try Lmdb.open(path, .{ .opening = .{ .id = expected_store_id, .mode = .open } });
 ```
 
-After installation the old engine refuses all work, even when the rename
+After installation the old engine refuses all work, even when the rename <!-- status-allow: runtime state or operation ordering -->
 fails, so close it and reopen.
 
 `beginCompaction` returns an owned operation with `prepare`, `install`,

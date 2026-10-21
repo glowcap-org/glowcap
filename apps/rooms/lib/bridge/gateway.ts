@@ -41,7 +41,6 @@ export const GatewayFactSchema = z.strictObject({
 	label: nonemptyText(MAX_FORM_LABEL),
 	value: nonemptyText(MAX_FORM_VALUE),
 });
-export type GatewayFact = z.infer<typeof GatewayFactSchema>;
 
 /** How long a connection or a lease may be named. Ids and the titles that
  * usually restate them share this bound, and a bridge holds a user-authored
@@ -61,7 +60,7 @@ export const GatewayLeaseSchema = z.strictObject({
 	roomName: z.nullable(nonemptyText(MAX_ROOM)),
 	/** The Rooms publication id of the room this lease became, when it has one.
 	 * The room-moderation surface matches its own room against this to know it
-	 * administers the lease behind it. Empty for a lease with no room yet. */
+	 * administers the lease behind it. Empty for a lease with no room yet.  status-allow: pending state or quoted runtime label */
 	publicationId: boundedText(128),
 });
 export type GatewayLease = z.infer<typeof GatewayLeaseSchema>;
@@ -88,7 +87,6 @@ export const GatewayLeaseRemovalSchema = z.strictObject({
 	keep: nonemptyText(MAX_FORM_LABEL),
 	commit: nonemptyText(MAX_FORM_LABEL),
 });
-export type GatewayLeaseRemoval = z.infer<typeof GatewayLeaseRemovalSchema>;
 
 /** The gateway as its bridge describes it right now. */
 export const BridgeGatewaySchema = z.strictObject({
@@ -127,10 +125,6 @@ export function parseBridgeGateway(raw: unknown): BridgeGateway {
 	const parsed = z.safeParse(BridgeGatewaySchema, decoded);
 	if (!parsed.success) throw new Error("the bridge gateway answered an invalid description");
 	return parsed.data;
-}
-
-export function encodeBridgeGateway(gateway: BridgeGateway): string {
-	return JSON.stringify(gateway);
 }
 
 export type { BridgeAnswers, BridgeForm };

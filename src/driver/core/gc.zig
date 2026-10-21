@@ -140,7 +140,7 @@ fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEn
 fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
     if (event.kind() != .resolve) return;
     // The policy collects the question the event settled, by identity. A
-    // question the session no longer holds cannot be collected, because its
+    // question the session no longer holds cannot be collected, because its status-allow: lifecycle transition
     // position may already name a new question, and it reports the same
     // underflow a gc-answers for a missing row reports.
     const answer = event.resolveTarget();

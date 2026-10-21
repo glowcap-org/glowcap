@@ -9,16 +9,14 @@
 Changing transports does not change the [CapTP]($link.page('concepts'))
 session. It changes who you can
 reach and what the path between you proves.
-**Implemented** means glowcap has the path, not that it is released, audited,
-or fit for irreplaceable data.
 
-| Transport | Status | Use it for | What the path proves |
+| Transport | Network requirement | Use it for | What the path proves |
 | --- | --- | --- | --- |
-| `iroh` | Implemented | Peers outside the browser that need discovery or NAT traversal, and [Spritely Goblins](https://spritely.institute/goblins/) through glowcap's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
-| `webrtc` | Implemented | Browsers talking directly | The DataChannel is encrypted. Who the peer is is vouched for by the signaling service that introduced it. |
-| `noise-tcp` | Implemented | glowcap peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. It works only between glowcap peers. |
-| `noise-relay` | Implemented | glowcap peers, sealed, through a relay | The same Noise handshake, peer to peer. The relay only sees ciphertext. |
-| `onion` | Implemented | Meeting Goblins as it ships, on the standardized path | Tor proves you reached the service you dialed and hides where both ends are. It proves this only to the dialing side, inside the Tor daemon, so glowcap does not treat it as proof of who the CapTP peer is. |
+| `iroh` | Untrusted network | Peers outside the browser that need discovery or NAT traversal, and [Spritely Goblins](https://spritely.institute/goblins/) through glowcap's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
+| `webrtc` | Untrusted network | Browsers talking directly | The DataChannel is encrypted. Who the peer is is vouched for by the signaling service that introduced it. |
+| `noise-tcp` | Untrusted network | glowcap peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. It works only between glowcap peers. |
+| `noise-relay` | Untrusted network | glowcap peers, sealed, through a relay | The same Noise handshake, peer to peer. The relay only sees ciphertext. |
+| `onion` | Untrusted network | Meeting Goblins as it ships, on the standardized path | Tor proves you reached the service you dialed and hides where both ends are. It proves this only to the dialing side, inside the Tor daemon, so glowcap does not treat it as proof of who the CapTP peer is. |
 | `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
 | `keyed-relay` | Trusted network only | Peers through a relay, cleartext | Same key demand. The relay reads every frame, and nothing proves who is on the far side. |
 | `tcp` | Testing only | Cleartext testing against Goblins, through glowcap's adapter | A host:port. Nothing is proved and nothing is encrypted. |

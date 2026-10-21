@@ -1,4 +1,4 @@
-// The capability occurrences this server currently holds, grouped by what
+// The capability occurrences this server holds, grouped by what
 // each one is.
 //
 // Flat, the list would be a column of nine repeating words with the interesting

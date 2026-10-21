@@ -36,7 +36,7 @@ const max_near_call_depth: u32 = 128;
 /// consume without allocation: one for every live actor, plus any actor rows
 /// and staged becomes the caller is about to add. `releaseActor`, Port teardown,
 /// and frame unwind are infallible. Their capacity is escrowed at
-/// the earlier fallible spawn/become seam instead of losing reclamation to OOM.
+/// the earlier fallible spawn/become seam instead of losing reclamation to OOM. status-allow: event or source ordering
 /// The sum is a table count plus at most one row and the bounded frame depth.
 pub fn reserveRetirementCapacity(self: *Vat, additional_actors: usize, possible_becomes: usize) Error!void {
     try self.retired_boxes.ensureUnusedCapacity(self.allocator, self.actors.count() + additional_actors + possible_becomes);
@@ -77,7 +77,7 @@ pub fn callQueued(self: *Vat, source: Source, id: u64, msg: Queued, answer: ?u64
     };
 }
 
-/// Free every reply a handler moved to the vat and not yet reclaimed. Called
+/// Free every reply a handler moved to the vat and not yet reclaimed. Called status-allow: pending state or quoted runtime label
 /// when an outermost turn begins (mirroring the turn arena's reset) and at
 /// teardown, so a moved reply lives exactly as long as a borrowed one would.
 pub fn drainMovedReplies(self: *Vat) void {
@@ -323,7 +323,7 @@ fn replyOutlivesBox(self: *const Vat, value: model.Argument, moves_begin: ?usize
 
 /// End one frame of an actor's reentrant run. When the last frame unwinds,
 /// install any promoted `become`: swap the actor's live box for the new one,
-/// releasing the old live reference (a snapshot that shares it keeps it
+/// releasing the old live reference (a snapshot that shares it keeps it status-allow: replacement state identity
 /// alive). Deferring the swap to zero depth is what keeps a running outer
 /// frame's `self` valid across a reentrant inner become.
 fn finishCellRun(self: *Vat, id: u64) void {
@@ -334,7 +334,7 @@ fn finishCellRun(self: *Vat, id: u64) void {
     if (cell.running != 0) return;
     if (cell.pending_become) |next| {
         cell.pending_become = null;
-        // Retire rather than release: a reply handed back by an earlier frame of
+        // Retire rather than release: a reply handed back by an earlier frame of status-allow: event or source ordering
         // this same actor may still borrow the outgoing box, and that frame has
         // already returned, so no sever can reach it. `stageBecome` reserved this
         // slot, so the append cannot fail here during unwind.
@@ -348,7 +348,7 @@ fn finishCellRun(self: *Vat, id: u64) void {
 
 /// Retire a zero-rooted, non-running actor row (ADR-0014): remove the row and
 /// park its box until the next outermost-turn boundary, the borrowed-reply
-/// lifetime, so a reply an earlier turn handed out never dangles. Registration
+/// lifetime, so a reply an earlier turn handed out never dangles. Registration status-allow: event or source ordering
 /// escrowed one retired-list slot for every live actor. Removing this row
 /// releases that exact obligation before the append consumes it, so this path
 /// is allocation-free even in destructor and frame-unwind contexts. A staged

@@ -15,7 +15,7 @@
   (define m (regexp-match #rx"broke: ([^:]+): " (exn-message e)))
   (if m (cadr m) ""))
 
-;; Get a reference to the named room, opening it if it does not exist yet.
+;; Get a reference to the named room, opening it if it does not exist yet. status-allow: pending state or quoted runtime label
 (define (enter-or-open enter open name)
   (with-handlers ([exn? (lambda (e)
                           (cond

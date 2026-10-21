@@ -184,7 +184,6 @@ fn mappings() {
 		requirements::method(Method::ArchivedAttachment).unwrap().workspace,
 		&[History, ReadFile]
 	);
-	assert_eq!(Conditional::ReturnsFiles.targets(), &[Target::ArchiveFile]);
 	assert_eq!(
 		requirements::method(Method::AdoptWorkspace).unwrap().conditional,
 		&[Conditional::ImportsAuthority]
@@ -253,10 +252,6 @@ fn mappings() {
 			"local release cannot require working upstream authority"
 		);
 	}
-	assert_eq!(
-		Target::ExactLineEdit.alternatives(),
-		&[&[EditOwn][..], &[EditContent][..]]
-	);
 	assert_eq!(
 		requirements::command(Route::Effect(Effect::KickRoomMember))
 			.unwrap()

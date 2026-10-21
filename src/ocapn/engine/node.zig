@@ -137,7 +137,7 @@ pub const Node = struct {
     /// the exact local actor it names. This is node-wide because all Ports of
     /// one Host project the same Vat. Keeping it here spends no bytes per Peer.
     local_object_projection: ?engine.bootstrap.gifts.LocalObjectProjection = null,
-    /// Optional Host-owned directory used to authenticate a signed give before
+    /// Optional Host-owned directory used to authenticate a signed give before status-allow: purpose clause
     /// its out-of-order deposit exists. Node-wide, so it costs no bytes per
     /// registered Peer.
     gifter_session_resolver: ?engine.bootstrap.gifts.GifterSessionResolver = null,
@@ -312,7 +312,7 @@ pub const Node = struct {
     pub const advertisedLocator = locator_catalog.advertisedLocator;
     pub const acceptableLocator = locator_catalog.acceptableLocator;
 
-    /// Install the local-object seam used to retain exact gifts across Ports.
+    /// Install the local-object seam used to retain exact gifts across Ports. status-allow: purpose clause
     /// A standalone sans-io Node leaves this unset and keeps protocol
     /// references verbatim.
     pub fn setLocalObjectProjection(self: *Node, projection: engine.bootstrap.gifts.LocalObjectProjection) void {

@@ -31,7 +31,7 @@ pub const DrainResult = enum { drained, yielded, outbound_blocked };
 ///   them or call `host.freeAction`, since the skeleton does not free them)
 pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
     // A new pass is the pressure-yield boundary: the embedder ran its reactor
-    // since the last one, so a previously refused resume pump gets one fresh
+    // since the last one, so a previously refused resume pump gets one fresh status-allow: ownership and operation ordering
     // bounded attempt (see `Host.resume_pump_refused`).
     host.resume_pump_refused = false;
     while (try host.peekAction()) |next| {

@@ -359,7 +359,7 @@
 
 (printf "racket zig-smoke OK: queue saturation stays exact through serve and repeated close\n")
 
-;; ── Pipelined projections (ADR-0004/ADR-0004) ─────────────────────────────────
+;; ── Pipelined projections (ADR-0004) ─────────────────────────────────
 ;; `session-untag`/`session-index` project a tag/element out of a far
 ;; vow *before it settles*, each returning a new pipelinable vow. The board's
 ;; `make` returns a `("assigned" label 7)` row wrapped in a "task" tag; `untag`
@@ -482,7 +482,7 @@
 (define ub-session (open-test-session (tcp-locator "127.0.0.1" (server-port ub-server))))
 (semaphore-wait ub-ready)
 (define ub-cap (session-fetch ub-session "svc"))
-;; Fire the failing verb and never await it. No later operation exists yet:
+;; Fire the failing verb and never await it. No later operation exists yet: status-allow: pending state or quoted runtime label
 ;; creation itself must flush the deliver and let the server observe it.
 (void (session-send-promise ub-session ub-cap 'boom))
 (semaphore-wait ub-boom-seen)

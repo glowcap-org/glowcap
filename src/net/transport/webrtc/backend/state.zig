@@ -74,7 +74,7 @@ pub const Backend = struct {
     by_id: std.AutoHashMap(usize, Fd),
     /// Offerer bring-ups in flight by signaling exchange fd.
     pending_dials: std.AutoHashMap(Fd, signaling.DialRow),
-    /// Adopted answerers not yet open.
+    /// Adopted answerers not yet open. status-allow: pending state or quoted runtime label
     adopting: std.AutoHashMap(Fd, signaling.AdoptRow),
     /// Guards fd minting and the fixed-capacity foreign-thread inbox. No
     /// `std.Io` token crosses this seam, so the critical section contains only

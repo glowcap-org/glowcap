@@ -1,6 +1,8 @@
 //! Exact live facts reconciled into durable Rooms intent. A fact carries the
 //! generation or route it observed. Obsolete observations do not write state.
 mod room_context;
+#[cfg(test)]
+mod tests;
 pub use super::fields::{Bearer, Field, Id, Text};
 use super::{
 	Checkpoint,

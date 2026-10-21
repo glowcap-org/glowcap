@@ -14,8 +14,8 @@ A standard OCapN locator names one transport and one designator. So a program
 that listens on two transports looks like two separate peers, and a sturdyref
 written for one of them only works over that one path. glowcap's `id` locator
 names the peer by its durable public key instead and lists the paths that reach
-it as hints. Its wire names are not part of OCapN yet, so they live in
-`glowcap-next`, glowcap's own experimental CapTP version (see [Standing]($link.ref('standing'))).
+it as hints. OCapN does not define its wire names, so they live in
+`glowcap-next`, glowcap's own experimental CapTP version (see [Wire format]($link.ref('wire-format'))).
 
 # One peer, several routes
 
@@ -116,13 +116,13 @@ the publisher's session with that directory. Revoking or disconnecting it
 removes the room from the directory, but a room already handed to a reader
 stays live.
 
-# [Standing]($section.id('standing'))
+# [Wire format]($section.id('wire-format'))
 
-OCapN has not specified multi-homing yet. Its meeting notes discuss ideas from
-locators that name several netlayers (OCapN's word for a transport) to a vat id that does not depend on any
-transport. Everything described here is built and checked
+OCapN does not specify multi-homing. Its meeting notes discuss ideas from
+locators that name several netlayers (OCapN's word for a transport) to a vat id
+that does not depend on any transport. Everything described here is built and
+checked
 ([ADR-0036](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0036-identity-and-multihome-routing.md)).
-The open part is the wire format, which stays a `glowcap-next` extension until
-OCapN specifies a compatible one. Until then, peers that do not negotiate it
-never see these route hints. [What you can depend on]($link.page('stability'))
+The wire format is a `glowcap-next` extension, so peers that do not negotiate
+it never see these route hints. [What you can depend on]($link.page('stability'))
 lists the checks.

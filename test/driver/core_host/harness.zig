@@ -51,7 +51,7 @@ pub const FairCounter = struct {
 /// The exporter's vendor: replies with a capability to an object it hosts, so
 /// a caller comes by that capability through an ordinary call instead of
 /// through `fetch`. `fetch` is the one path that enrolls its result on its
-/// own, so this is how a test gets a capability that has no routing token yet.
+/// own, so this is how a test gets a capability that has no routing token yet. status-allow: pending state or quoted runtime label
 pub const Vendor = struct {
     widget: model.Reference,
     pub fn handle(self: *Vendor, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {

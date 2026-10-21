@@ -6,7 +6,7 @@
 pub mod irc;
 use super::{
 	super::{
-		faces::{Visibility, link_face, stewardship_rows},
+		faces::{link_face, stewardship_rows},
 		journal::Journal,
 	},
 	Category, MAX_MEMBERS_PER_ROOM, ReferenceKind,
@@ -362,9 +362,4 @@ impl<C: Copy + Ord, R: Clone> View<'_, C, R> {
 		}
 		out
 	}
-}
-
-/// The rows a visibility word sorts under, for tests and the inspect page.
-pub fn visibility_name(visibility: Visibility) -> &'static str {
-	visibility.name()
 }

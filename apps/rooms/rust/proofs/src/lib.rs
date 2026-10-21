@@ -29,7 +29,6 @@ mod command_admission;
 ))]
 mod content_policy;
 mod content_session;
-mod controller_commands;
 mod conversation;
 mod direct_client;
 mod direct_line;
@@ -43,7 +42,6 @@ mod failures;
 mod files;
 mod grant_protocol;
 mod grants;
-mod handed_rooms;
 mod host;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod host_files;
@@ -55,11 +53,9 @@ mod operator_views;
 mod reconciliation;
 mod registration_client;
 mod room;
-mod room_links;
 mod room_operation;
 mod room_view;
 mod session_capacity;
-mod session_commands;
 mod session_events;
 #[cfg(any(
 	all(test, not(target_arch = "wasm32")),
@@ -71,8 +67,6 @@ mod session_executor;
 	all(target_arch = "wasm32", feature = "async-host")
 ))]
 mod session_foreign;
-mod session_results;
-mod session_state;
 #[cfg(any(
 	all(test, not(target_arch = "wasm32")),
 	all(target_arch = "wasm32", feature = "async-host")
@@ -118,23 +112,17 @@ pub extern "C" fn rooms_contract_proof() -> u32 {
 	command_admission::run();
 	content_session::run();
 	session_capacity::run();
-	controller_commands::run();
 	reconciliation::run();
-	session_commands::run();
-	session_results::run();
 	snapshot::run();
 	session_events::run();
 	operator_views::run();
 	sources::run();
 	signaling_client::run();
-	session_state::run();
 	grant_protocol::run();
 	documents::run();
 	files::run();
 	failures::run();
 	room::run();
-	room_links::run();
-	handed_rooms::run();
 	host::run();
 	1
 }

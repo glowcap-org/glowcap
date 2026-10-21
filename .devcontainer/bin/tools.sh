@@ -11,7 +11,7 @@
 # Mutating verbs require explicit tool names; there is no implicit install of
 # every tool. Each requested tool is attempted and its outcome reported;
 # the first failure's status is returned so a later success cannot hide an
-# earlier failure. Exit codes: 1 install/verification failure, 2 upstream
+# earlier failure. Exit codes: 1 install/verification failure, 2 upstream status-allow: event or source ordering
 # query failure, 64 invalid usage, 75 lock contention.
 #
 # Runs inside the devcontainer only.
@@ -54,7 +54,7 @@ validate_tools() {
 }
 
 # Attempt every tool and return the first failure's status, so a later
-# success cannot hide an earlier failure.
+# success cannot hide an earlier failure. status-allow: event or source ordering
 run_for_each() {
     local verb="$1" tool rc first_rc=0
     shift

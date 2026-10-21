@@ -14,7 +14,7 @@ use std::fmt;
 pub(super) enum AdmissionRefusal {
 	/// The room generation the work attaches to has ended.
 	GenerationEnded,
-	/// The introduction's target no longer carries the name it was offered.
+	/// The introduction's target no longer carries the name it was offered. status-allow: lifecycle transition
 	TargetRenamed,
 	/// The calling connection never completed registration.
 	RequiresRegistration,

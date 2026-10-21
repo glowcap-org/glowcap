@@ -55,7 +55,7 @@ interface SettingsProps {
 	/** Whether the selected archive keeps message history. The Capabilities switch
 	 * draws it and `session.setKeepHistory` flips it. */
 	keepHistory: boolean;
-	/** Where member-owned history is currently written. */
+	/** Where member-owned history is written. */
 	archiveTarget: ArchiveTargetView;
 	/** Which panel to show when this dialog mounts. */
 	tab: SettingsTab;

@@ -25,9 +25,9 @@ export type LivePeer = {
 	joinName: string;
 	selfLabel: string | undefined;
 	claimLabel: string | undefined;
-	/** What is currently on screen, so a restatement is not a rename. */
+	/** What is on screen, so a restatement is not a rename. */
 	shown: string;
-	/** The implementation this peer is currently known by, so a
+	/** The implementation this peer is known by, so a
 	 * restatement is not a change. Starts unknown and only ever moves to a
 	 * named implementation, see `LedgerNames.learnProfile`. */
 	profile: PeerProfile;
@@ -63,7 +63,7 @@ export type LiveWire = {
 	 * peer that sends the same bytes twice draws two
 	 * messages. Bounded, oldest out first. */
 	seen: Set<string>;
-	/** Names an application claimed for an end nobody could name yet,
+	/** Names an application claimed for an end nobody could name yet, status-allow: pending state or quoted runtime label
 	 * by side, held until the end attaches to a peer that can wear
 	 * them.
 	 *

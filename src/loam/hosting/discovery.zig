@@ -174,7 +174,7 @@ pub const Discovery = struct {
     }
 
     /// Reports queued reads and settlements so an embedding drains the Host
-    /// again after cold discovery, even when there are no actor calls yet.
+    /// again after cold discovery, even when there are no actor calls yet. status-allow: pending state or quoted runtime label
     pub fn advanceProgress(self: *Discovery) !bool {
         var progressed = false;
         for (self.groups, 0..) |*slot, index| if (slot.*) |*group| {

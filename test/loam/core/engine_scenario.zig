@@ -12,7 +12,7 @@ pub const Options = struct {
 };
 
 /// `f` is the fixture module of the calling test root. `engine` is an opened
-/// engine that has committed no record yet, and `metadata` is what its open
+/// engine that has committed no record yet, and `metadata` is what its open status-allow: pending state or quoted runtime label
 /// returned. The close case runs last and leaves the engine for its owner to
 /// close once the active transaction ends.
 pub fn exercise(comptime f: type, engine: anytype, metadata: f.core.Metadata, options: Options) !void {

@@ -13,7 +13,7 @@ import { takeOperationsCap } from "./operations.ts";
 import { MAX_OPERATIONS_ROWS } from "./limits.ts";
 import { boundedText, nonemptyText } from "./schema.ts";
 
-/** One named object the inspect capability can currently see. */
+/** One named object the inspect capability can see. */
 const diagnosticKind = nonemptyText(64 * 1024);
 const diagnosticName = nonemptyText(64 * 1024);
 const diagnosticNote = boundedText(64 * 1024);
@@ -30,7 +30,7 @@ const DiagnosticWireRowsSchema = z.array(
 	z.tuple([diagnosticKind, diagnosticName, diagnosticNote]),
 ).check(z.maxLength(MAX_OPERATIONS_ROWS));
 
-/** Fetch the inspect object and ask it what this directory currently holds. */
+/** Fetch the inspect object and ask it what this directory holds. */
 export async function takeDiagnostics(session: Session, pasted: string): Promise<{
 	cap: Ref;
 	rows: DiagnosticRow[];

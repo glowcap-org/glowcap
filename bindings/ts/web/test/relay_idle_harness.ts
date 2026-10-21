@@ -14,7 +14,7 @@
 import { fail, kill, parseHarnessArgs, readToken, spawnRelay } from "./relay_harness_common.ts";
 
 // The relay is launched with GLOWCAP_RELAY_IDLE_MS=500 (see the build row); the
-// ceiling is generous so a slow scheduler never flakes, yet far below the 60s
+// ceiling is generous so a slow scheduler never flakes, yet far below the 60s status-allow: pending state or quoted runtime label
 // production default, so a relay that ignored the override cannot pass.
 const CEILING_MS = 8000;
 

@@ -113,7 +113,7 @@ pub fn Emit(comptime Spec: type) type {
         }
 
         /// A pointer-to-self field must spell `const struct Name *` in C: the
-        /// typedef is not complete yet at that point.
+        /// typedef is not complete yet at that point. status-allow: pending state or quoted runtime label
         fn selfRef(comptime Owner: type, comptime FieldT: type, comptime name: []const u8) []const u8 {
             if (@typeInfo(FieldT) == .optional) {
                 const child = @typeInfo(FieldT).optional.child;

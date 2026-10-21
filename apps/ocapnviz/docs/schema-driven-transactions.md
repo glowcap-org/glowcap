@@ -109,7 +109,7 @@ They mutate nothing and need no engine. Every cascade operation consumes them an
 
 `cascadeDelete` carries a visited set. Cycles cannot form in the current schema, but the guard is cheap.
 `cascadeRewrite` ends with a straggler check: it re-runs the three discovery functions against its own result and throws
-if any reference to the old id survives. That check is the net for a missing entry in the edge maps.
+if any reference to the old id survives. That check is the net for a missing entry in the edge maps. <!-- status-allow: runtime state or operation ordering -->
 
 ## Transactions
 

@@ -58,7 +58,7 @@ where
 }
 
 /// The binding's single owner for an FFI driver's generic listener handle.
-/// Closing it seals admission and releases accepted sessions not yet yielded.
+/// Closing it seals admission and releases accepted sessions not yet yielded. status-allow: pending state or quoted runtime label
 /// Sessions already returned to the application remain owned by their Host.
 pub(crate) struct LoopListener {
 	lp: Rc<crate::driver_loop::LoopShared>,

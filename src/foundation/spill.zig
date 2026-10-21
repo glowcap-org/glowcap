@@ -20,7 +20,7 @@
 const std = @import("std");
 
 /// A contiguous, growable holding area for stream bytes that have arrived but
-/// not yet been consumed as a whole frame.
+/// not yet been consumed as a whole frame. status-allow: pending state or quoted runtime label
 ///
 /// The lifecycle is: `absorbBytes` what could not be consumed, read the waiting
 /// prefix back with `bytes`, and `consume` the frames the parser delimits out of

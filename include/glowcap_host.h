@@ -530,8 +530,8 @@ int32_t glowcap_host_pending_dial_introducer(GlowcapHost *host, uint64_t ticket,
    do not release it here. */
 int32_t glowcap_host_reference_exporter(GlowcapHost *host, const GlowcapReference *reference, GlowcapHostSession **out_session);
 /* Resolve a dial without opening a socket: the transport dispatch, designator
-   validation, host:port resolution, and peer-id reachability decision every binding
-   used to re-express, done once here. transport/designator are the locator's
+   validation, host:port resolution, and peer-id reachability decision, made once here
+   for every binding. transport/designator are the locator's
    pieces (from glowcap_host_pending_dial or glowcap_uri_parse_peer);
    direct_addresses_hint is the locator's direct-addresses hint (NULL/0 = none);
    posture_policy is a GLOWCAP_DIAL_POSTURE_* choosing the peer-id reachability rule,

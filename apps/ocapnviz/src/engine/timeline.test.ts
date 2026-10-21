@@ -124,7 +124,7 @@ Deno.test(
 		// Explicit `entities` entries win over event-payload values,
 		// the transform only fills GAPS, never overwrites. Allows
 		// the user to author a different identity (label, profile)
-		// in entities even if an observation still carries the old.
+		// in entities even if an observation still carries the old. status-allow: replacement state identity
 		const doc = TimelineDocument.parse({
 			id: "test",
 			duration: 5000,

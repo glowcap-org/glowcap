@@ -130,8 +130,8 @@ test "a reply aliasing state survives an inner reentrant become" {
     defer vat.deinit();
 
     const a = try vat.spawn(AliasedBecomer, .{ .label = "old-name".* });
-    // The reply reflects the state the turn ran as, the old label, and its
-    // bytes stay live even though the inner become's install freed the old box
+    // The reply reflects the state the turn ran as, the old label, and its status-allow: replacement state identity
+    // bytes stay live even though the inner become's install freed the old box status-allow: replacement state identity
     // as the near-call returned.
     const reply = try vat.near(a, .{ .verb = "outer" });
     try std.testing.expectEqualStrings("old-name", reply.bytes);
@@ -245,7 +245,7 @@ test "a turn's local send built in turn.arena survives the next turn's arena res
 }
 
 /// Returns a fresh, distinct greeting from `turn.arena` each turn, so a stale
-/// borrow of an earlier reply's storage cannot accidentally hold the same bytes.
+/// borrow of an earlier reply's storage cannot accidentally hold the same bytes. status-allow: event or source ordering
 const ArenaGreeter = struct {
     n: u32 = 0,
 

@@ -607,7 +607,7 @@ test "libglowcap_host: feed_bytes stops at the session-open transition so a coal
     // One feed of the whole buffer dispatches exactly the hello: the session
     // just opened, and the frames coalesced behind it wait in the session's
     // own tail, the fetch has not answered, because its target is not
-    // published yet.
+    // published yet. status-allow: pending state or quoted runtime label
     try expectOk(cd.glowcap_host_session_feed_bytes(accepted, &buf, len));
     try std.testing.expect(cd.glowcap_host_session_is_open(accepted) != 0);
 

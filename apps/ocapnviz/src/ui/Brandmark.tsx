@@ -10,7 +10,7 @@ const PROFILE_OTHER = "#94a3b8";
  * Brandmark, three connected vats arranged as a triangle (the
  * three-vat handoff that motivates ocapnviz). Two solid edges from
  * the gifter at top to the two parties below. A dashed edge between
- * those two represents the handoff that hasn't happened yet.
+ * those two represents the handoff that hasn't happened yet. status-allow: pending state or quoted runtime label
  *
  * Drawn at the 22px grid. Scales cleanly down to 16px and up to 32.
  */

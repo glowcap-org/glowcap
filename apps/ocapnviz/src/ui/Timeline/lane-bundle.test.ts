@@ -28,7 +28,7 @@ function docFor(events: readonly TimelineEvent[]): TimelineDocument {
 }
 
 /** A fresh theme key per call, so the bundle cache never answers a
- *  later case with an earlier case's bundle. */
+ *  later case with an earlier case's bundle.  status-allow: event or source ordering */
 let themeSeq = 0;
 function bundleFor(events: readonly TimelineEvent[]) {
 	const doc = docFor(events);

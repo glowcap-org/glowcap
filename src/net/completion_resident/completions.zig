@@ -155,7 +155,7 @@ pub fn Machine(comptime Self: type) type {
         /// `beforeWait` ran first, so the turn's queue is in the kernel.
         /// The watches are armed here, as the park begins: a descriptor
         /// that reads ready now ends the park at once, where a watch armed
-        /// earlier would have been reaped by a verb and left the park
+        /// earlier would have been reaped by a verb and left the park status-allow: event or source ordering
         /// asleep beside the wake it announced.
         pub fn park(self: *Self, timeout_ms: i32) bool {
             armWatches(self);

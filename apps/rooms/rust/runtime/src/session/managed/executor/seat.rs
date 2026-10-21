@@ -53,7 +53,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Seat<P> {
 			},
 		);
 		drop(jobs);
-		// Dropping its task cancels the old worker before it polls again.
+		// Dropping its task cancels the old worker before it polls again. status-allow: replacement state identity
 		drop(superseded);
 		let retirement = owner.memberships.retirement(id);
 		if let Some(retirement) = &retirement {

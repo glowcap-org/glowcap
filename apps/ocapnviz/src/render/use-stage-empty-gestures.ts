@@ -92,7 +92,7 @@ export function useStageEmptyGestures(args: {
 	} = args;
 
 	// Preview-selection: while a rubber-band drag is in flight, entities
-	// currently inside the marquee paint a hover-like ring. Stored separately
+	// inside the marquee paint a hover-like ring. Stored separately
 	// from the committed selection because the commit only lands on drag-end.
 	const previewSelectionRef = useRef<ReadonlySet<EntityRefKey>>(
 		EMPTY_ENTITY_SET,
@@ -251,7 +251,7 @@ export function useStageEmptyGestures(args: {
 	//   shift              → add captured to selection
 	//   shift + option     → remove captured from selection
 	//   neither            → replace selection with captured
-	//   option alone       → reserved (no marquee meaning yet)
+	//   option alone       → reserved (no marquee meaning yet) status-allow: pending state or quoted runtime label
 	const rubberBandModRef = useRef<{ shift: boolean; alt: boolean }>({
 		shift: false,
 		alt: false,
@@ -459,7 +459,7 @@ export function useStageEmptyGestures(args: {
 						rubberBandModRef.current.alt = true;
 					}
 					// Live "would be selected" preview, recompute each
-					// move. The set is small (only entities currently
+					// move. The set is small (only entities
 					// enclosed) so allocation cost is bounded by the visible
 					// scene complexity, which is what the user already pays
 					// for in renderFrame.
@@ -521,8 +521,7 @@ export function useStageEmptyGestures(args: {
 				// Paused-pan emits pan-step directly (FSM does the delta
 				// math against panOrigin). Apply to the viewport AND
 				// translate the in-flight marquee by the same delta so
-				// it stays anchored to its world position (doc § 11.2,
-				// "marquee origin transforms with pan"). The user sees
+				// it stays anchored to its world position. The user sees
 				// the marquee slide with the world it's selecting.
 				const viewport = viewportRef.current;
 				if (viewport) {

@@ -51,7 +51,7 @@ pub const CryptoError = error{
 
 /// A per-session Ed25519 public key: the raw 32-byte `q` value.
 ///
-/// It's only ever used to check signatures. A key never grants authority. That
+/// It's only ever used to check signatures. A key never grants authority. That status-allow: purpose clause
 /// always lives in a `Reference`.
 pub const PeerKey = struct {
     bytes: [peer_key_bytes]u8,

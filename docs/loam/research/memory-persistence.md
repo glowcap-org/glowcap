@@ -148,7 +148,6 @@ The Vat offers opt-in local snapshots and immutable state replacement, and its
 snapshots do not rewind the network. The `src/loam/collections/` HAMT provides
 structural sharing in memory and no disk durability. Keep those distinctions when
 reusing their mechanisms. See
-[ADR-0015](../../decisions/adr/ADR-0015-persistent-collections-and-time-travel.md) and
 [ADR-0015](../../decisions/adr/ADR-0015-persistent-collections-and-time-travel.md).
 
 ## Existing implementation is the baseline

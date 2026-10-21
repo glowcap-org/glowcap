@@ -26,7 +26,7 @@ for (const target of [room, direct]) {
 				f.apply();
 				assertEquals(store.activeConv(f.page.projection)?.key, view.key);
 				// Choosing the same room again is a new gesture, even while its
-				// earlier selection receipt still waits for acknowledgment.
+				// earlier selection receipt still waits for acknowledgment. status-allow: event or source ordering
 				f.navigation.choice = { id: row.id, operation: "next-choice" };
 				f.projection.apply();
 				assertEquals(f.selected().persistId, row.id);

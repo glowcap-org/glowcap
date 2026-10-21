@@ -146,12 +146,6 @@ export function parseOperatorRetireAnswer(raw: unknown): OperatorRetireBatch {
 	return { retired: Number(raw[0]), remaining: Number(raw[1]), refused: raw[2] };
 }
 
-/** Encode a retire batch back into its passable tuple, for a durable session
- * relaying the operator's own answer. */
-export function operatorRetireAnswer(batch: OperatorRetireBatch): import("@glowcap/runtime").Argument {
-	return [BigInt(batch.retired), BigInt(batch.remaining), batch.refused];
-}
-
 export async function snapshotOperator(
 	session: Session,
 	cap: Ref,

@@ -28,13 +28,7 @@
  *   growth. Clear (remount) is the relief valve. A producer that
  *   doesn't need the Payload pane can turn payloads off
  *   (`enableTrace`'s `payloadCap: 0`).
- * - No "live cursor at head" UI affordance yet, playback runs at
- *   wall-clock speed (`speed = 1`).
- *
- * These are documented limitations of the lightweight integration.
- * A future engine refactor (append-only TimelineDocument with a
- * true live cursor) would address them as a separate piece of
- * work.
+ * - Playback runs at wall-clock speed (`speed = 1`) without a live-head control.
  */
 
 import { Engine } from "../engine.ts";
@@ -99,7 +93,7 @@ export function makeLiveAppender(opts: {
 /** What dialing a feed takes, and what it hands back.
  *
  *  Both reports are optional and both are released by `dispose`, so a feed
- *  the caller no longer owns can never write into it. */
+ *  the caller no longer owns can never write into it.  status-allow: lifecycle transition */
 export type FeedDial = {
 	/** The complete OCapN sturdyref announced by the trace endpoint. */
 	sturdyref: string;

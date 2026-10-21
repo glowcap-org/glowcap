@@ -36,7 +36,7 @@ pub const Open = struct {
     /// the caller's borrowed locator at stage time. Redeem rows re-read the
     /// route's own view at re-issue. Freed when the row leaves the set.
     dial_locator: ?model.PeerLocator = null,
-    /// The 1-based number of the attempt currently in flight.
+    /// The 1-based number of the attempt in flight.
     dial_attempt: u32 = 1,
 
     pub const Stage = union(enum) {

@@ -223,7 +223,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// must be retried. Bounds the next wait like an owed close, so the
         /// wake channel cannot silently go deaf.
         wake_rearm_pending: bool = false,
-        /// A cancellation the backend has not admitted yet. Kept separate from
+        /// A cancellation the backend has not admitted yet. Kept separate from status-allow: pending state or quoted runtime label
         /// `wake_cancel_pending`: a refused submit mints no completion, while an
         /// admitted cancel must be drained even if the target recv wins first.
         wake_cancel_submit_pending: bool = false,
@@ -238,7 +238,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// One slot adopts at a time on this single-threaded loop, so this
         /// belongs here rather than costing every connection a byte.
         adopting_teardown_deferred: bool = false,
-        /// How many connections currently carry a deadline stamp. Zero on a
+        /// How many connections carry a deadline stamp. Zero on a
         /// healthy loop. Both deadline sweeps are `O(max_conns)`, so running
         /// them per poll batch would put the per-connection cost this loop
         /// refuses onto its quietest path. Maintained solely by `setWaiting`.
@@ -436,7 +436,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 // being served to completion.
                 _ = Lifecycle.teardown(self, slot);
             };
-            // Both counts are edge-triggered against slots that no longer
+            // Both counts are edge-triggered against slots that no longer status-allow: lifecycle transition
             // exist, so a missed release here is a silent drift that only
             // shows up as a table walk that never stops finding work.
             std.debug.assert(self.waiting_count == 0);

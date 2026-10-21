@@ -33,6 +33,8 @@ import {
 	DEFAULT_SIZES,
 	DEFAULT_VISIBILITY,
 	type LayoutSizes,
+	loadPersistedLayoutSizes,
+	loadPersistedStageVisibility,
 	SIZES_STORAGE_KEY,
 	THEME_STORAGE_KEY,
 	VISIBILITY_STORAGE_KEY,
@@ -48,14 +50,8 @@ export function useLayoutSizes(): [
 ] {
 	const [sizes, setSizes] = useState<LayoutSizes>(() => {
 		if (typeof globalThis.window === "undefined") return DEFAULT_SIZES;
-		const raw = loadStoredValue(SIZES_STORAGE_KEY);
-		if (!raw) return DEFAULT_SIZES;
-		try {
-			const parsed = JSON.parse(raw) as Partial<LayoutSizes>;
-			return clampSizes({ ...DEFAULT_SIZES, ...parsed });
-		} catch {
-			return DEFAULT_SIZES;
-		}
+		const stored = loadPersistedLayoutSizes();
+		return stored === null ? DEFAULT_SIZES : clampSizes(stored);
 	});
 	useEffect(() => {
 		persistStoredValue(
@@ -98,14 +94,7 @@ export function useStageVisibility(): [
 ] {
 	const [visibility, setVisibility] = useState<StageVisibility>(() => {
 		if (typeof globalThis.window === "undefined") return DEFAULT_VISIBILITY;
-		const raw = loadStoredValue(VISIBILITY_STORAGE_KEY);
-		if (!raw) return DEFAULT_VISIBILITY;
-		try {
-			const parsed = JSON.parse(raw) as Partial<StageVisibility>;
-			return { ...DEFAULT_VISIBILITY, ...parsed };
-		} catch {
-			return DEFAULT_VISIBILITY;
-		}
+		return loadPersistedStageVisibility() ?? DEFAULT_VISIBILITY;
 	});
 	useEffect(() => {
 		persistStoredValue(
@@ -155,7 +144,7 @@ export function useTheme(): [Theme, () => void] {
 export type ShortcutSink = { current: KeyboardShortcutBindings | null };
 
 /**
- * The app's one keyboard listener. Returns the gestures currently
+ * The app's one keyboard listener. Returns the gestures
  * held, and the sink a view publishes its shortcut bindings into.
  *
  * One listener, not one per concern, because precedence between

@@ -28,7 +28,7 @@ pub const Lmdb = struct {
     dbi: c_uint,
     lock: custody.owner_lock.Held,
     /// LMDB's reader table, which holds at least `Options.max_readers` and
-    /// more when an earlier open left a larger lock file.
+    /// more when an earlier open left a larger lock file. status-allow: event or source ordering
     reader_capacity: usize,
     environment_open: bool = true,
     metadata: core.Metadata,

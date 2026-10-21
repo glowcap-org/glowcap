@@ -180,7 +180,7 @@ test "partner identity: a session whose partner has not spoken yet reports no id
     defer server.deinit();
 
     // Accepted, but no partner bytes have been fed, so no `op:start-session`
-    // has arrived and there is no key yet.
+    // has arrived and there is no key yet. status-allow: pending state or quoted runtime label
     const accepted = try publishAndOpenAccepted(&server, "tcp", "127.0.0.1:7004", "");
     try std.testing.expectError(error.HandshakeIncomplete, server.partnerIdentity(accepted));
 }

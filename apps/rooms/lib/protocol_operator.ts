@@ -14,7 +14,7 @@
  * administer this server's listeners. `list` (the same verb name the directory
  * uses, on a different object) answers one row per transport this server
  * knows, live or not: the transport, its description and reference link, the
- * knobs its `up` takes, why an `up` would refuse today, and, while the
+ * knobs its `up` takes, why an `up` would refuse and, while the
  * listener is up, its id and locator. `serving` marks the listener whose
  * locator this server announced, the one the web relay dials.
  * `up(transport, options?)` brings a listener up on a transport from the list
@@ -32,7 +32,7 @@ export const DOWN = "down";
 /** The Rooms operator's stewardship verbs. `giveSteward(name)` returns the
  * current durable authority for one server-owned room, creating it when none
  * has been issued. `revokeSteward(name)` rotates that authority: copied links
- * and already-live references from the old generation both stop governing. */
+ * and already-live references from the old generation both stop governing.  status-allow: replacement state identity */
 export const GIVE_STEWARD = "giveSteward";
 export const GIVE_MANAGER = "giveManager";
 export const REVOKE_STEWARD = "revokeSteward";

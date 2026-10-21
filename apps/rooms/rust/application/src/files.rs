@@ -271,7 +271,7 @@ impl Record {
 						waker.wake();
 					}
 					// This offset can never become pending again. The ticket may
-					// remain alive, but it no longer spends a waiting-reader slot.
+					// remain alive, but it no longer spends a waiting-reader slot. status-allow: lifecycle transition
 					return false;
 				}
 				true

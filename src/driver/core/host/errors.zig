@@ -15,7 +15,7 @@ pub const HostError = error{
     /// work may still be driven to its terminal barrier, but no application
     /// operation or session open may begin after this point (ADR-0030).
     HostClosing,
-    /// This session is finishing or terminating and no longer admits application
+    /// This session is finishing or terminating and no longer admits application status-allow: lifecycle transition
     /// operations, while protocol progress remains legal during finish.
     SessionClosing,
     /// This session already owns every operation slot representable by its
@@ -70,7 +70,7 @@ pub const HostError = error{
     /// dropped, not mis-sent (the node's fail-closed contract).
     CapabilityRouteUnavailable,
     /// `partnerIdentity` was asked for an identity the partner has not sent
-    /// yet: its `op:start-session` has not arrived with a key.
+    /// yet: its `op:start-session` has not arrived with a key. status-allow: pending state or quoted runtime label
     HandshakeIncomplete,
     /// `partnerIdentity` was asked on a session opened with
     /// `Options.verify_partner` off. Nothing about the partner was proved, so
@@ -137,7 +137,7 @@ pub const HostError = error{
     /// `bindVerifiedChannelKey` arrived after the partner's `op:start-session`
     /// was applied. The chokepoint that weighs a partner's durable claim has
     /// already run, so this proof is too late to be the evidence it was for.
-    /// The mirror of `HandshakeIncomplete`: one names a fact not yet knowable,
+    /// The mirror of `HandshakeIncomplete`: one names a fact not yet knowable, status-allow: pending state or quoted runtime label
     /// this one a fact stated too late to count.
     HandshakeAlreadyApplied,
     /// `feed` or another whole-frame verb was aimed at a sealed session. The

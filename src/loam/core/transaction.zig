@@ -72,7 +72,7 @@ pub const Metadata = struct {
         var next = self;
         next.incarnation = try std.math.add(u64, self.incarnation, 1);
         next.last_sequence = 0;
-        // In-memory roots from the old opening are gone. Never resume its
+        // In-memory roots from the old opening are gone. Never resume its status-allow: replacement state identity
         // sweep using a partial mark set; rebuild from the new opening's roots.
         if (next.collection.phase != .idle) next.collection = .{ .phase = .clearing };
         return next;

@@ -2,10 +2,10 @@
  * The cursor while a gesture is running, driven through the two real
  * authorities it answers to: the pointer FSM and the keyboard.
  *
- * The defect these pin: releasing Space mid-drag reverted the cursor to a
- * plain arrow while the canvas was still panning under the user's hand. The
- * pan itself was right, and `pointer-machine.ts` owns it. What was wrong is
- * that the cursor asked the keyboard, which cannot answer.
+ * The invariant these pin: releasing Space mid-drag leaves the cursor grabbing
+ * while the canvas pans under the user's hand. `pointer-machine.ts` owns the
+ * pan, and the cursor reads it from the FSM, because the keyboard cannot
+ * answer.
  *
  * It cannot answer because a key press does not decide what a gesture is.
  * `resolveGesture` does, at the pointer-down, and from then on the FSM holds
@@ -123,7 +123,7 @@ function cursor(
 
 const IDLE = IDLE_MACHINE;
 
-// ── The reported bug, and its mirror ─────────────────────────────
+// ── Space released mid-pan, and its mirror ─────────────────────────────
 
 Deno.test("Space released mid-pan: the cursor keeps grabbing", () => {
 	// Space first, so the press itself resolves to a pan. There is no
@@ -173,7 +173,7 @@ Deno.test("Space released mid-marquee: the cursor returns to the marquee", () =>
 Deno.test("a pan offered is grab; a pan running is grabbing", () => {
 	const held = press(NO_HELD_GESTURES, " ");
 	// Offered: the key is down and the pointer is over the stage, but no press
-	// has resolved to anything yet.
+	// has resolved to anything yet. status-allow: pending state or quoted runtime label
 	const hovering = run(IDLE, [moveTo(0)]);
 	assertEquals(cursor(hovering, { held }), "grab");
 	// Running: the press resolved, and the FSM holds the pan from here.

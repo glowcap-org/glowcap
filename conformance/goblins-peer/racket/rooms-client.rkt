@@ -244,7 +244,7 @@
   (values (<- mycapn 'enliven (ocapn-sturdyref node directory-swiss))
           (node->locator ($ netlayer 'our-location))))
 
-;; Enter `name`, opening it when there is no such room yet. Another peer may
+;; Enter `name`, opening it when there is no such room yet. Another peer may status-allow: pending state or quoted runtime label
 ;; open the room after our failed enter, so an open collision retries enter.
 ;; Both verbs answer with a live reference to that room; `on-error` hears the
 ;; reason when none of the three attempts works.

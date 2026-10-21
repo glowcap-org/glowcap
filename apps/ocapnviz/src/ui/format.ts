@@ -10,7 +10,7 @@
  *   rounding a stored fact for display hid real spacing and read
  *   as "the app is imprecise". A typed-edit SEED especially must
  *   not round: committing a rounded seed writes the rounding back
- *   into the doc (a focused-then-blurred coordinate used to
+ *   into the doc (a focused-then-blurred coordinate would
  *   quantize its pin to integers and cold-recompute the layout).
  *
  * - **A moving readout reads coarse and stable.** The transport

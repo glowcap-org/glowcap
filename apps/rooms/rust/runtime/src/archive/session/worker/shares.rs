@@ -2,28 +2,6 @@
 use super::*;
 
 impl<B: Backend, P: Platform> Worker<B, P> {
-	pub(super) async fn issued_shares(&mut self) -> Result<Vec<rooms_glowcap::client::archive::ShareView>, Error> {
-		match &self.targets.selected {
-			Selection::Peer(peer) => return peer.archive.shares().await.map_err(Error::peer),
-			Selection::Unavailable(_) => return Err(Error::closed("the selected archive peer is unavailable")),
-			Selection::Local => {}
-		}
-		if !self.backend.durable_shares() {
-			return Ok(Vec::new());
-		}
-		let specs = self.backend.active_shares().await?;
-		if specs.is_empty() {
-			return Ok(Vec::new());
-		}
-		let Some(issuer) = self.issuer.as_mut() else {
-			return Err(Error::refused(
-				"this Rooms session has not published lookup names for its issued archive shares",
-			));
-		};
-		issuer.reconcile(specs.clone(), &self.state)?;
-		issuer.listing(&specs)
-	}
-
 	pub(super) async fn issue_share(
 		&mut self,
 		share: rooms_application::archive::shares::Share,

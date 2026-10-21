@@ -6,7 +6,7 @@
 // lines, and directories live in `store/`. This file is who is in a room, where
 // this reader stands, and what they have been offered.
 
-import type { BridgeFacts, DirId, Invitation, RoomCarries, RoomConv } from "./types.ts";
+import type { BridgeFacts, DirId, RoomCarries, RoomConv } from "./types.ts";
 import { NO_MEMBERS, NO_TYPERS, type PageProjection, type State } from "./store/core.ts";
 import type { RoomMemberState } from "../../lib/room/presence.ts";
 import { isSubjectEmpty, type Subject } from "../../lib/room/subject.ts";
@@ -303,30 +303,6 @@ export function setRoomStanding(projection: PageProjection, key: string, standin
 	put(projection, { ...conv, standing });
 }
 
-/** Record what this room handed this membership, once subscribing has answered.
- *
- * Replaced whole rather than added to, because a fresh subscribe is a fresh set
- * of references: a grant that stopped being answered has stopped being held. */
-// ── Rooms somebody handed you ──────────────────────────────────────────────
-
-/** Put an invitation in front of the reader. */
-export function addInvite(projection: PageProjection, invite: Invitation): void {
-	projection.set({ invites: [...projection.get().invites, invite] });
-}
-
-/** Forget one, however it was answered. */
-export function dropInvite(projection: PageProjection, id: string): void {
-	const invites = projection.get().invites;
-	if (!invites.some((invite) => invite.id === id)) return;
-	projection.set({ invites: invites.filter((invite) => invite.id !== id) });
-}
-
-export function setGrants(projection: PageProjection, key: string, grants: ReadonlySet<string>): void {
-	const conv = getConv(projection, key);
-	if (conv?.type !== "room") return;
-	put(projection, { ...conv, grants });
-}
-
 /** Record what the conversation's current history request learned. */
 export function setEarlierHistory(
 	projection: PageProjection,
@@ -336,10 +312,6 @@ export function setEarlierHistory(
 	const conv = getConv(projection, key);
 	if (conv?.type !== "room" || conv.earlierHistory === earlierHistory) return;
 	put(projection, { ...conv, earlierHistory });
-}
-export function clearMembers(projection: PageProjection, key: string): void {
-	if (getConv(projection, key)?.type !== "room" || membersOf(projection, key).size === 0) return;
-	replaceMembers(projection, key, NO_MEMBERS);
 }
 
 /** Whether this room has said `name` is one of its members. */
@@ -353,13 +325,6 @@ export function membersOf(
 	s: Readonly<Pick<State, "members">> = projection.get(),
 ): ReadonlyMap<string, RoomMemberState> {
 	return key == null ? NO_MEMBERS : s.members.get(key) ?? NO_MEMBERS;
-}
-
-function replaceMembers(projection: PageProjection, key: string, roster: ReadonlyMap<string, RoomMemberState>): void {
-	const members = new Map(projection.get().members);
-	if (roster.size === 0) members.delete(key);
-	else members.set(key, roster);
-	projection.set({ members });
 }
 
 export function typersOf(

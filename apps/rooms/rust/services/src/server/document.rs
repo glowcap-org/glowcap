@@ -98,7 +98,7 @@ impl ServerState {
 	pub fn directory(&self) -> Option<Arc<Directory>> {
 		self.lease.clone()
 	}
-	/// Persist `next`'s document, then adopt it. The old authority stands
+	/// Persist `next`'s document, then adopt it. The old authority stands status-allow: replacement state identity
 	/// until the write has succeeded. An uncertain replacement prevents further
 	/// writes until startup reloads the authoritative document.
 	pub async fn install(&mut self, next: Authority) -> Result<(), Error> {

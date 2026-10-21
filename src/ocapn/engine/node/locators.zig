@@ -29,7 +29,7 @@ pub const Catalog = struct {
 
 /// Replace and select the complete locator for its transport. The caller may
 /// pass a locator borrowed from this same Catalog: retainCanonical returns the
-/// replacement's owned key before releasing the old snapshot, so selection
+/// replacement's owned key before releasing the old snapshot, so selection status-allow: replacement state identity
 /// never reads caller storage after replacement.
 pub fn setAdvertisedLocator(self: *Node, locator: model.PeerLocator) !void {
     self.locators.selected_transport = try retainCanonical(self, locator);

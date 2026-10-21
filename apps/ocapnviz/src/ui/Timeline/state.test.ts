@@ -55,8 +55,8 @@ Deno.test(
 	"zoomAround: a duration-only bound caps width at duration",
 	() => {
 		// Default maxWidth = duration, panMaxT = duration. Zoom-out
-		// is clamped because windowEnd can't exceed duration, Play /
-		// Build's historical "can't zoom past 1×".
+		// is clamped because windowEnd can't exceed duration, Play and
+		// Build "can't zoom past 1×".
 		const zoomedOut = zoomAround(BASE_VIEW, 50, 0.01, 100);
 		assertEquals(zoomedOut.windowEnd - zoomedOut.windowStart, 100);
 	},

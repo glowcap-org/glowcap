@@ -129,7 +129,7 @@ html:has(.app.covered) {
 	border-radius: 18px;
 	/* It clips, and can, because nothing inside it needs to leave. A menu opens
 	   into its own layer (`Menu.tsx`) rather than into the card that happens to
-	   hold the control, so a card no longer has to promise never to cut anything
+	   hold the control, so a card need not promise never to cut anything
 	   off on behalf of whatever somebody put in it. */
 	overflow: hidden;
 	/* The card settles the way the page does: raised paper cooling onto its

@@ -101,7 +101,7 @@ export class Playback {
 		// a document change without anyone reading the intents to find out. The
 		// default runs this way round: over-reporting costs a re-render
 		// nobody needed, while under-reporting leaves a panel showing a document
-		// that is no longer there.
+		// that is no longer there. status-allow: lifecycle transition
 		let docChanged = this.#intents.length > 0;
 		for (const intent of this.#intents) {
 			try {
@@ -359,7 +359,7 @@ export class Playback {
 		this.#prevT = 0;
 		// Force the next tick's layout / messages update to run, the
 		// entity world is empty so the cached "already updated for
-		// this t" promise no longer holds.
+		// this t" promise no longer holds. status-allow: lifecycle transition
 		this.#lastUpdateT = Number.NaN;
 		// Fresh entities do not carry the targets a settled early-out assumes.
 		this.host.layout.invalidateSettled();

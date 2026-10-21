@@ -250,7 +250,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !ActionOutcome {
             // Attempt-only action: pending row owns URI + parsed parts.
             // Unparseable gives never reach a dial action (acceptGive fails
             // them). Pre-flight reuses an already-open Host session the Node
-            // identity cache may have missed (earlier app dial, accepted
+            // identity cache may have missed (earlier app dial, accepted status-allow: event or source ordering
             // inbound hello). ADR-0007 session-pair uniqueness would refuse a
             // duplicate dial and break the redeem.
             const view = self.node.pendingDial(d.pending, d.route_index) orelse return .done;
@@ -420,7 +420,7 @@ pub fn retireTransportClosed(self: *Host, session: *HostSession, reason: []const
 }
 
 /// Retire a session whose sealed channel refused (ADR-0041): a handshake or
-/// record that did not verify. There may be no CapTP session at all yet, and
+/// record that did not verify. There may be no CapTP session at all yet, and status-allow: pending state or quoted runtime label
 /// after one opens no plaintext byte may follow the failure, so no `op:abort`
 /// is manufactured in either case. The embedder is told to close the transport
 /// and every later verb refuses `SessionCondemned`. Any ingress cancellation or
@@ -527,7 +527,7 @@ pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, messag
     };
     // Vows and queued turns cannot survive until an embedder observes CLOSE.
     // Break first so every admitted operation settles before close reaches its
-    // barrier, including listeners installed while an earlier break fires.
+    // barrier, including listeners installed while an earlier break fires. status-allow: event or source ordering
     session.served.port.breakFarVows(session.served.closeReason(message));
     self.cancelSessionIngress(session, message) catch |err| if (first_error == null) {
         first_error = err;

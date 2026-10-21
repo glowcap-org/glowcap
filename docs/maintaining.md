@@ -126,9 +126,10 @@ candidate without a green `gates` and `macos-runtime` run. Nothing is
 squashed or merged on the way, because either would replace the checked
 commit with one no check ran on.
 
-The site is published at `glowcap.org`. The site build installs a `CNAME`
-file naming that domain at the output root, so the Pages artifact carries it.
-The DNS records and the verified domain live in GitHub's settings.
+The site is published at `glowcap.org`. The custom domain is set in the
+repository's Pages settings, because a Pages deployment from Actions ignores a
+`CNAME` file in its artifact. The DNS records live with the domain's DNS host
+and the domain verification in the maintainer's GitHub account settings.
 
 Only the maintainer moves `main`. Pages and tagged releases each run
 `tools/check/require-main-check.py`, which requires a successful `check.yml`

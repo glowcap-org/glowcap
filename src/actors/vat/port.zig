@@ -113,7 +113,7 @@ pub const Port = struct {
     }
 
     /// Promise-pipelined eventual-send through this Port's answer namespace.
-    /// A vow whose question the session no longer holds is settled as far as
+    /// A vow whose question the session no longer holds is settled as far as status-allow: lifecycle transition
     /// this Port can tell, so pipelining onto it is refused.
     pub fn sendToAnswer(self: *Port, vat: *Vat, answer: engine.OutboundAnswerTarget, msg: Message) Error!Vow {
         if (!self.peer.session_state.hasLiveOutboundAnswer(answer)) return error.AlreadySettled;
@@ -165,7 +165,7 @@ pub const Port = struct {
         entry.value.func(entry.value.ctx, .{ .broken = reason });
     }
 
-    /// Reserve the exact listener table a not-yet-committed send will use.
+    /// Reserve the exact listener table a not-yet-committed send will use. status-allow: pending state or quoted runtime label
     /// Keeping this at the Port seam prevents Host and other adapters from
     /// reaching into Vat or per-session listener maps independently.
     pub fn reserveListener(self: *Port, vat: *Vat, location: VowLocation) Error!ListenerReservation {

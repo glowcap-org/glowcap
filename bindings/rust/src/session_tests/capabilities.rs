@@ -248,7 +248,7 @@ async fn turn_spawn_uses_the_host_after_the_originating_port_closes() {
 		.await;
 }
 
-// Pipelined projections (ADR-0004/ADR-0004): `RemotePromise::untag` / `index`
+// Pipelined projections (ADR-0004): `RemotePromise::untag` / `index`
 // reach into the value an answer will resolve to *before* it resolves, each
 // returning a new pipelinable promise. The board's `make` returns a Tagged
 // "task" wrapping one row `["assigned", label, 7]`; untag unwraps to that

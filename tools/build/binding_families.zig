@@ -438,7 +438,7 @@ const binding_families = [_]BindingFamily{
     },
     .{
         .aggregate_name = "bindings-webrtc-driver-provider",
-        .aggregate_desc = "Live WebRTC through the C provider: every binding dials the Zig answerer (ADR-0035) and accepts the Zig offerer (ADR-0035) with its own signaling (needs cargo + deno + python3 + racket)",
+        .aggregate_desc = "Live WebRTC through the C provider: every binding dials the Zig answerer and accepts the Zig offerer with its own signaling (ADR-0035) (needs cargo + deno + python3 + racket)",
         .needs_iroh_abi = false,
         .needs_webrtc_peers = true,
         .rows = &webrtc_rows.webrtc_driver_provider_clients,

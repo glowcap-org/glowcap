@@ -95,9 +95,6 @@ impl<C: Copy + Ord, R: Clone> Revision<C, R> {
 			.iter()
 			.map(|(connection, observer)| (*connection, observer))
 	}
-	pub fn is_watching(&self, connection: C) -> bool {
-		self.watchers.contains_key(&connection)
-	}
 }
 
 #[cfg(test)]

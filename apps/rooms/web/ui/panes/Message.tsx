@@ -37,8 +37,8 @@ import { MenuLayer, MenuList, MenuRow, useMenu } from "../Menu.tsx";
 import { Attached, mediaLayouts } from "../message/attach.tsx";
 /** Everything else one message can be asked to do.
  *
- * A menu rather than a row of marks, because the list is no longer two things
- * of one kind: copying is about the words and belongs on anybody's line, while
+ * A menu rather than a row of marks, because the list holds two kinds
+ * of thing: copying is about the words and belongs on anybody's line, while
  * changing and taking back are about authority and belong only on a line this
  * tab still holds the reference for. Side by side as icons, those read as one
  * set of controls that happens to be shorter on somebody else's message, which
@@ -259,7 +259,7 @@ function Bubble(
 			{
 				/* Changed since it was said: after the words, because it qualifies
 			    them rather than being one of them. Worth saying at all because a
-			    reader who answered what this used to say should be able to see that
+			    reader who answered what this used to say should be able to see that status-allow: purpose clause
 			    it moved under them, and worth saying *here* because drawn before
 			    the line it is about, it would read as a label on the message rather
 			    than a note at the end of it. */

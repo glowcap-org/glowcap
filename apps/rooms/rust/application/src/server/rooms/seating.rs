@@ -177,7 +177,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			)));
 		};
 		let mut effects = Effects::default();
-		// A proved reconnect may arrive before the old transport's terminal
+		// A proved reconnect may arrive before the old transport's terminal status-allow: replacement state identity
 		// edge; its claim distinguishes a replacement from a collision, so the
 		// old connection's seat goes rather than transferring with the name.
 		if let Some((key, holder)) = previous.filter(|(_, holder)| *holder != connection) {
@@ -296,7 +296,7 @@ pub(super) enum Departure {
 	Ended,
 	/// The same connection continuing one membership under a new seat.
 	Continued,
-	/// Another connection of the same peer took the name. The old seat goes
+	/// Another connection of the same peer took the name. The old seat goes status-allow: replacement state identity
 	/// quietly with everything its connection held.
 	Replaced,
 }

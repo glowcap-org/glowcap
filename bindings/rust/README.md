@@ -197,10 +197,10 @@ peer's address and key, and can carry proof that the channel was verified.
 Once the Host takes a channel, it closes as part of the Host's task:
 
 - Session release, `closed()`, and the first `serve()` observation wait for
-  resource retirement, even if an earlier close observer is cancelled.
+  resource retirement, even if an earlier close observer is cancelled. <!-- status-allow: runtime state or operation ordering -->
 - A physical-close refusal reaches both Session and Host shutdown observers
   without failing unrelated sessions or their next operation.
-- `serve()` reports a previously retained outbound failure instead of clean
+- `serve()` reports a previously retained outbound failure instead of clean <!-- status-allow: runtime state or operation ordering -->
   EOF.
 - A refused channel or handshake closes the transferred channel before
   returning its error. Cancelling an unfinished handshake abandons its

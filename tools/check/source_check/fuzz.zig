@@ -290,7 +290,7 @@ fn checkTargetsReplayRegressions(
         const name = source[at..@min(name_end, source.len)];
         // The target's body: its own braces, not "everything until the next
         // target". A file whose last target is a five-hundred-line harness gave
-        // every earlier target a body that swallowed the whole rest of the
+        // every earlier target a body that swallowed the whole rest of the status-allow: event or source ordering
         // file, so any one target's seed list satisfied all of them, the
         // per-file check this replaced, wearing per-target clothes.
         const body = testBody(source, at);

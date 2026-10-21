@@ -190,7 +190,7 @@ pub(super) async fn run() {
 					"empty and exact retries do not commit"
 				);
 				// Selection, acquisition and release share one candidate. Missing
-				// selection cannot strand an imported field or retire the old one.
+				// selection cannot strand an imported field or retire the old one. status-allow: replacement state identity
 				let mut intent = Intent::empty();
 				intent.operations = List::new(vec![session::workspace::Operations {
 					connection: None,

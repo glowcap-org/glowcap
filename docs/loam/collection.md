@@ -91,7 +91,7 @@ takes effect.
 - A retention made during the final phase needs no marking, because deletion
   is already over.
 - A cycle that follows a finished one starts with the roots. After an
-  interrupted one, it first clears the old tracing rows in separate batches.
+  interrupted one, it first clears the old tracing rows in separate batches. <!-- status-allow: runtime state or operation ordering -->
 
 [ADR-0050](../decisions/adr/ADR-0050-transactional-reclamation.md)
 records these rules, and the

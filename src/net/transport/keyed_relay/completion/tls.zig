@@ -69,7 +69,7 @@ pub fn Machine(
 
         /// Engine-open refusal has no client to retire. The dial transaction
         /// owns the returned failure. This state only records that its
-        /// pre-reserved storage no longer carries a live engine.
+        /// pre-reserved storage no longer carries a live engine. status-allow: lifecycle transition
         pub fn abandonPending(backend: *Backend, c: *RelayConn) void {
             const secure = backend.secure.get(c.id) orelse unreachable;
             std.debug.assert(secure.lifecycle == .pending);

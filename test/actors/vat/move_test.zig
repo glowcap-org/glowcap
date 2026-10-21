@@ -82,7 +82,7 @@ test "a reply aliasing state survives a same-turn become" {
     try std.testing.expectEqualStrings("beta", captured.buf[0..captured.len]);
 }
 
-/// A mutable actor that swaps its owned label for a fresh one and hands the old
+/// A mutable actor that swaps its owned label for a fresh one and hands the old status-allow: replacement state identity
 /// buffer to the reply with `turn.moveOut`, the headline use of the move: an
 /// O(1) transfer where copying the buffer onto the turn arena would be O(len).
 /// No `become` in sight. The move stands on its own.
@@ -176,7 +176,7 @@ test "moveOut under a live snapshot moves the copy-on-write clone, not the share
 }
 
 /// A mutable actor that `become`s while its reply rides `moveOut`, the moved
-/// bytes are vat-owned, so they outlive the old box with no sever-copy.
+/// bytes are vat-owned, so they outlive the old box with no sever-copy. status-allow: replacement state identity
 const MovingSwapper = struct {
     allocator: std.mem.Allocator,
     label: []u8,
@@ -219,7 +219,7 @@ test "moveOut hands an owned reply to the vat with no sever-copy across a become
 
 /// A mutable actor that moves one field out but replies with a borrow of a
 /// *different* field, and `become`s. The moved bytes are vat-owned, but the
-/// reply is not them, it borrows the old box, which the become frees, so the
+/// reply is not them, it borrows the old box, which the become frees, so the status-allow: replacement state identity
 /// vat must still sever it. The pointer-identity gate in `callLocal` is what
 /// this pins: `moveOut` must never blanket-disable the sever for a reply it
 /// does not actually own.

@@ -11,13 +11,12 @@
    is the in-row height: the buttons at the end of an entry, in a confirm, or
    under a well's form. A field and the button beside it share the first. A
    row of actions shares the second. Nothing here tunes a height per call
-   site, which is how three fields and three buttons came to stand at five
-   different heights before this sheet existed.
+   site, so fields and buttons stand at two heights and no more.
 
    The rule for where an act stands: words lead the line and controls end it.
    A switch sits at the end of its name, and a form's actions sit at the end
-   of the form, trailing, with the commitment last. The one exception is a card's own foot, where the
-   commitment fills the width because the card is about that one act. */
+   of the form, trailing, with the commitment last. The one exception is a
+   card's own foot, where the commitment fills the width because the card is about that one act. */
 
 /* ── Fields ─────────────────────────────────────────────────────────────── */
 /* A single-line field is exactly `--field-h` tall, so the button beside it

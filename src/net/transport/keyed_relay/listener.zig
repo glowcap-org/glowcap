@@ -160,7 +160,7 @@ pub const Box = struct {
         box.registration.result = null;
         box.listener_established = true;
         // The relay spent this registration when it paired the socket with a
-        // dialer. It is acceptable now, but no longer a cold-dial route.
+        // dialer. It is acceptable now, but no longer a cold-dial route. status-allow: lifecycle transition
     }
 };
 

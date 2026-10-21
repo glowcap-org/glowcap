@@ -106,7 +106,7 @@ const LiveBytesAllocator = struct {
 const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 pub const Scenario = enum {
-    /// Freshly constructed peer: a connection accepted but not yet active.
+    /// Freshly constructed peer: a connection accepted but not yet active. status-allow: pending state or quoted runtime label
     idle,
     /// One export registered and one deliver turn driven: a connection that has
     /// exchanged a message and settled.

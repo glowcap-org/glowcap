@@ -136,7 +136,7 @@ test "core host: partial handshake keeps dial authority until terminal closure" 
     const dialed = try host.openDialedLocator(tcpLocator(designator));
 
     // A stream may deliver only part of the length prefix before the hello.
-    // Negotiation still owns the dial, even though no session is open yet.
+    // Negotiation still owns the dial, even though no session is open yet. status-allow: pending state or quoted runtime label
     failing.fail_index = failing.alloc_index;
     try std.testing.expectError(error.OutOfMemory, host.feedBytes(dialed, "1"));
     try std.testing.expect(host.dialedSessionFor("tcp", designator) == dialed);
@@ -296,7 +296,7 @@ test "core host: a burst of accepts before any start-session indexes every partn
     // would never grow the map across those mints and would overflow
     // `putAssumeCapacity` once the burst passed the map's usable capacity.
     const allocator = std.testing.allocator;
-    const n = 8; // past AutoHashMap's minimal usable capacity, the old overflow point
+    const n = 8; // past AutoHashMap's minimal usable capacity
     var host = test_host.init(allocator, @as([32]u8, @splat(0x60)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 

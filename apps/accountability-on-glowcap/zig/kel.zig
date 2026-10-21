@@ -148,7 +148,7 @@ pub fn currentVerkey(allocator: std.mem.Allocator, kel: []const u8, aid: []const
         const verkey = decodeVerkey(key_b64) catch return LogError.MalformedLog;
 
         // Every event is self-addressing: its SAID is the digest of its own
-        // bytes, so an edited event no longer hashes to the name it goes by.
+        // bytes, so an edited event no longer hashes to the name it goes by. status-allow: lifecycle transition
         const draft = try draftOf(allocator, line, said, sig_b64);
         defer allocator.free(draft);
         if (!std.mem.eql(u8, &saidOf(draft), said)) return LogError.SaidMismatch;
@@ -178,7 +178,7 @@ pub fn currentVerkey(allocator: std.mem.Allocator, kel: []const u8, aid: []const
             }
 
             // The rotation is signed by the key it retires, which is what proves
-            // the holder of the old key authorized the handover.
+            // the holder of the old key authorized the handover. status-allow: replacement state identity
             const sig = decodeSig(sig_b64 orelse return LogError.MalformedLog) catch
                 return LogError.MalformedLog;
             var preimage_buf: [3 * SAID_LEN + 2]u8 = undefined;

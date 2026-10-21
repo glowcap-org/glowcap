@@ -47,13 +47,13 @@ test "a pair sharing a new key or value is evicted whole" {
 
     try link.put(allocator, wire(1), .from(10));
     try link.put(allocator, wire(2), .from(20));
-    // The same import bound to a new answer evicts the old answer's pair.
+    // The same import bound to a new answer evicts the old answer's pair. status-allow: replacement state identity
     try link.put(allocator, wire(3), .from(10));
     try std.testing.expect(link.getByKey(wire(1)) == null);
     try std.testing.expectEqual(@as(?model.AnswerName, wire(3)), link.getByValue(.from(10)));
     try std.testing.expectEqual(@as(usize, 2), link.len());
 
-    // The same answer bound to a new import evicts the old import's pair.
+    // The same answer bound to a new import evicts the old import's pair. status-allow: replacement state identity
     try link.put(allocator, wire(2), .from(21));
     try std.testing.expect(link.getByValue(.from(20)) == null);
     try std.testing.expectEqual(@as(?model.ImportPosition, .from(21)), link.getByKey(wire(2)));

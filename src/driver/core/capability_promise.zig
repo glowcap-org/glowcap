@@ -364,7 +364,7 @@ pub fn abandon(self: *Host, id: capability.PromiseId) void {
 }
 
 /// Admit one eventual send against a promise whose exporter session does not
-/// exist yet. The Host vow is public immediately. The owned values stay
+/// exist yet. The Host vow is public immediately. The owned values stay status-allow: pending state or quoted runtime label
 /// session-neutral until redemption selects the real route.
 pub fn queueSendValues(
     self: *Host,

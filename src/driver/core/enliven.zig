@@ -1,6 +1,6 @@
 //! Sturdyref enlivenment for the byte-fed host core: turning a complete
 //! sturdyref (ADR-0007) into a live capability, and the select-or-dial form
-//! (ADR-0007) that stages a dial first when no session to the peer is open yet.
+//! (ADR-0007) that stages a dial first when no session to the peer is open yet. status-allow: pending state or quoted runtime label
 //!
 //! Host owns parked rows, vows, and dial actions. Enlivenment selects its
 //! completion recipient before admission: ordinary APIs queue public outcomes,

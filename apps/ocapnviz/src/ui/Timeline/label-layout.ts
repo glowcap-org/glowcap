@@ -4,7 +4,7 @@
  * which labels survive a dense cluster and where they paint.
  *
  * Sticky-header semantics (variation 1): right-to-left single pass.
- * Later spans claim space first. Earlier ones shrink and eventually
+ * Later spans claim space first. Earlier ones shrink and eventually status-allow: event or source ordering
  * drop. Stable sort on `(startT, id)` keeps frames reproducible.
  */
 

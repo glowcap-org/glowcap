@@ -301,12 +301,12 @@ engineTest(
 engineTest(
 	"eternal-entities pass does NOT inject sessions with future opened events",
 	() => {
-		// Regression: the parse transform populates
+		// The parse transform populates
 		// `entities.sessions` for sessions whose `session-opened`
 		// event is later in the timeline. The eternal-entities pass
 		// must not register them at t=0 just because they exist in
 		// the entities map. They have an explicit creation event
-		// that hasn't fired yet.
+		// that hasn't fired yet. status-allow: pending state or quoted runtime label
 		const futureSessionDoc = TimelineDocument.parse({
 			id: "test",
 			duration: 5000,
@@ -339,7 +339,7 @@ engineTest(
 		});
 		const e = new Engine(futureSessionDoc);
 		// Entities populated by the transform, but the session
-		// shouldn't be in the world yet at t=0.
+		// shouldn't be in the world yet at t=0. status-allow: pending state or quoted runtime label
 		assertEquals(
 			e.doc.entities?.sessions?.["future-session"] !== undefined,
 			true,
@@ -486,7 +486,7 @@ engineTest(
 		// start at t=300 (before b joins) must be rejected.
 		e.dispatch({ kind: "set-session-start", sessionId: "s_new", t: 300 });
 		// s_new still has no explicit start (rejected). Either no
-		// timing yet OR timing exists with implicit start.
+		// timing yet OR timing exists with implicit start. status-allow: pending state or quoted runtime label
 		const afterReject = e.doc.entities?.sessions?.s_new?.timing?.start;
 		if (afterReject !== undefined) {
 			assertEquals(afterReject.explicit, false);

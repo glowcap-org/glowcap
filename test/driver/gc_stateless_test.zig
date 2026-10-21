@@ -71,7 +71,7 @@ test "stateless GC's fallback walk matches the threaded record for the same nest
     // The session's validate walk threads its introduced-import record onto
     // an ordinary deliver's event (`Event.introduced_far_imports`), so `gc`
     // reads it directly instead of re-walking the deliver's args, but a
-    // deliver surfaced by a path that does not thread one (today, a
+    // deliver surfaced by a path that does not thread one (such as a
     // pipelined call redirected to a local export,
     // `engine.pipeline.deliverDrainedCallLocally`) still needs the walk.
     // This forces that fallback explicitly, on the exact same nested
@@ -258,7 +258,7 @@ test "stateless GC refuses a resolve for a question already released" {
     try peer.session_state.releaseOutboundAnswer(.from(5));
     try std.testing.expectError(error.GcUnderflow, driver.core.testing.emitStatelessAfter(&peer, &event));
 
-    // The position asked again is a different question, and the old resolve
+    // The position asked again is a different question, and the old resolve status-allow: replacement state identity
     // cannot release it.
     try peer.session_state.installOutboundAnswer(.from(5));
     try std.testing.expectError(error.GcUnderflow, driver.core.testing.emitStatelessAfter(&peer, &event));

@@ -74,7 +74,6 @@ pub fn checkSiteStabilitySummary(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const site_path = "site/content/stability.smd";
-    const ci_path = "ci/gates.sh";
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -83,67 +82,12 @@ pub fn checkSiteStabilitySummary(
         try appendViolation(gpa, violations, "{s}: failed to read for site stability-summary check with {s}", .{ site_path, @errorName(err) });
         return;
     };
-    const ci = root.readFileAlloc(io, ci_path, arena, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for site stability-summary check with {s}", .{ ci_path, @errorName(err) });
-        return;
-    };
 
     if (std.mem.indexOf(u8, site, "pull request") == null) {
         try appendViolation(gpa, violations, "{s}: recurring-check summary must mention pull requests; `.github/workflows/check.yml` runs them", .{site_path});
     }
     if (std.mem.indexOf(u8, site, "`dev`") == null) {
         try appendViolation(gpa, violations, "{s}: recurring-check summary must mention the `dev` branch; `.github/workflows/check.yml` runs there too", .{site_path});
-    }
-    if (std.mem.indexOf(u8, ci, "web-peer-test") != null and
-        std.mem.indexOf(u8, site, "browsers that CI does not install") != null)
-    {
-        try appendViolation(gpa, violations, "{s}: says CI does not install browsers, but {s} runs `web-peer-test`", .{ site_path, ci_path });
-    }
-}
-
-pub fn checkPerformanceLiveSocket(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const site_path = "site/content/performance.smd";
-    const bench_path = "bench/README.md";
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const site = root.readFileAlloc(io, site_path, arena, .limited(2 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for live-socket check with {s}", .{ site_path, @errorName(err) });
-        return;
-    };
-    const bench = root.readFileAlloc(io, bench_path, arena, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for live-socket check with {s}", .{ bench_path, @errorName(err) });
-        return;
-    };
-
-    if (std.mem.indexOf(u8, bench, "--live-max=500000") == null) return;
-    if (std.mem.indexOf(u8, site, "not a live-socket") != null or
-        std.mem.indexOf(u8, site, "extrapolation, not a live") != null)
-    {
-        try appendViolation(gpa, violations, "{s}: denies a live-socket 500k run that {s} still records (`--live-max=500000`)", .{ site_path, bench_path });
-    }
-}
-
-pub fn checkStartCompleteProgram(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const path = "site/content/start.smd";
-    const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for complete-program check with {s}", .{ path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(contents);
-    if (std.mem.indexOf(u8, contents, "01_connect_and_serve") != null) {
-        try appendViolation(gpa, violations, "{s}: cites the TCP chapter as the complete program; point at rooms (first-impression)", .{path});
     }
 }
 

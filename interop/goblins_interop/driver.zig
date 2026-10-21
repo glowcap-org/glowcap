@@ -73,7 +73,7 @@ const pipelined_dialer_script = "conformance/goblins-peer/racket/goblins-tap-dia
 // glowcap's V1.0 `['break, reason-symbol]` resolver callback.
 const break_dialer_script = "conformance/goblins-peer/racket/glowcap-break-call.rkt";
 // Goblins-as-asker projection: sends canonical `op:get` / `op:index` against
-// glowcap's ADR-0004 responders (Goblins 0.18.0 has no app-level send yet).
+// glowcap's ADR-0004 responders (Goblins 0.18.0 has no app-level send).
 const projection_asker_script = "conformance/goblins-peer/racket/glowcap-projection-asker.rkt";
 // Export-side `op:listen`: Goblins `listen` on a settled remote object export.
 const export_listen_dialer_script = "conformance/goblins-peer/racket/glowcap-export-listen.rkt";

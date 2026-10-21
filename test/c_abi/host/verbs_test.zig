@@ -216,7 +216,7 @@ test "libglowcap_host: a malformed frame classifies CODEC, session_last_abort na
     const hosts = [_]?*cd.GlowcapHost{ dialer, acceptor };
     const pair = try openPair(&hosts, dialer, acceptor, "127.0.0.1:7001", &dials, &watches);
 
-    // No abort yet, on either accessor.
+    // No abort yet, on either accessor. status-allow: pending state or quoted runtime label
     var abort_info: c.GlowcapLastAbort = undefined;
     try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cd.glowcap_host_session_last_abort(pair.b, &abort_info));
     var kind_name: ?[*]const u8 = null;

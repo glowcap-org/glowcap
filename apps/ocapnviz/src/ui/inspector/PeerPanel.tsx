@@ -103,7 +103,7 @@ export function PeerFields(
 	// be edited. So in Build these read the arrival value too. Reading the
 	// playhead's value and writing the arrival value looks broken from the
 	// outside and is worse than broken: the write lands, and a keyframe stating
-	// the old value goes on winning, so the control reports that nothing
+	// the old value goes on winning, so the control reports that nothing status-allow: replacement state identity
 	// happened while the document says otherwise.
 	const label = editing
 		? peerGenesisValue(engine.doc, id, "label")

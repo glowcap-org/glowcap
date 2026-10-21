@@ -48,7 +48,7 @@ function laneChips(
  *
  *  Read through `pillSize`: raising `EDGE_CHIP_LABEL.fontPx` or its
  *  padding grows the chips this file separates, and the angle sweep below then
- *  fails on the stride that no longer clears them, instead of passing over
+ *  fails on the stride that no longer clears them, instead of passing over status-allow: lifecycle transition
  *  chips that now overlap on screen. */
 const WIDEST_CHIP = "capnp · glowcap-next";
 const CHIP = pillSize(WIDEST_CHIP.length, EDGE_CHIP_LABEL, true);
@@ -79,13 +79,12 @@ Deno.test("a lone session's chip sits on its own apex", () => {
 });
 
 Deno.test("a pair of chips clears at every corridor angle", () => {
-	// The defect in one assertion. A vertical corridor puts the lanes' thirty
-	// units of separation on the horizontal axis, where a chip needs its whole
-	// width, so the chips landed on top of one another. Every angle is
-	// checked because a fix that only worked on one axis would be the same bug
-	// rotated, and because the two separations are at right angles and partly
-	// cancel on the page. The shallow angles are where the first attempt at
-	// this still collided.
+	// A vertical corridor puts the lanes' thirty units of separation on the
+	// horizontal axis, where a chip needs its whole width, so chips must be
+	// placed to clear one another there. Every angle is checked because a
+	// placement that works on one axis fails when rotated, and because the two
+	// separations are at right angles and partly cancel on the page. The
+	// shallow angles are the hardest to clear.
 	//
 	// At 100% zoom, which is the only zoom a world-unit stride and a
 	// screen-sized chip agree at; `stage-labels.ts` says why one solve cannot

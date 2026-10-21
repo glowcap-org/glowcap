@@ -73,5 +73,5 @@ should never invoke directly. An internal script's header names its public
 caller so a future reader can find the owning interface.
 
 Remove a script when its caller disappears, its effect moves into a better
-owner, or the behavior no longer pays for its maintenance. Leave no orphan,
+owner, or the behavior no longer pays for its maintenance. Leave no orphan, <!-- status-allow: workflow sequence -->
 compatibility wrapper, or pair of scripts that each own half of one effect.

@@ -90,7 +90,7 @@ Deno.test("hitTestGutter: hidden-on-stage rows keep drag + eyeball", () => {
 	// Now that the eyeball gates STAGE rendering instead of timeline
 	// geometry, the row stays at full height and stays fully
 	// interactive, reorder + tap-to-select work whether or not the
-	// entity is currently hidden on the stage.
+	// entity is hidden on the stage.
 	const rows: RowDescriptor[] = [
 		{
 			kind: "entity-row",

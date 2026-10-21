@@ -233,7 +233,7 @@
 ;; handshake, so the drain defers it post-lock like every write and fire: a
 ;; slow exporter stalls that one redeem, never every thread sharing the host.
 ;; Proven with a deterministic stall in a raw byte relay: the redeem dial has
-;; connected, but the relay has not yet opened its exporter leg, so its
+;; connected, but the relay has not yet opened its exporter leg, so its status-allow: pending state or quoted runtime label
 ;; handshake parks, while a sibling connection on the recipient's host
 ;; completes a full send. Releasing the relay then lets the parked redeem
 ;; finish end-to-end, which also proves the whole hermetic three-party flow:

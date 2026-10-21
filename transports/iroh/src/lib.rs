@@ -137,7 +137,7 @@ const REACH_DISCOVERY_NO_RELAY: u32 = 2;
 const REACH_LOCAL_DISCOVERY: u32 = 3;
 
 /// `conn_try_read` / `conn_try_write` return this when the operation cannot make
-/// progress without blocking: no inbound bytes are buffered yet, or the outbound
+/// progress without blocking: no inbound bytes are buffered yet, or the outbound status-allow: pending state or quoted runtime label
 /// buffer has no room. The loop yields the connection and re-arms it on the next
 /// readiness event. Distinct from `0` (clean end of stream or zero-length write)
 /// and `-1` (error). Mirrors `GLOWCAP_IROH_WOULD_BLOCK` in the header and the
@@ -525,7 +525,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIro
 /// endpoint first.
 ///
 /// # Safety
-/// `ep` must be null or an owned endpoint handle not previously freed, and
+/// `ep` must be null or an owned endpoint handle not previously freed, and status-allow: ownership and operation ordering
 /// every connection minted from it must already have been released.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_free(ep: *mut GlowcapIrohEndpoint) -> i32 {

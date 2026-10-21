@@ -160,7 +160,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         allocator: std.mem.Allocator,
         backend: Backend,
         options: Options,
-        /// Records reaped from the kernel and not yet handed to the runtime.
+        /// Records reaped from the kernel and not yet handed to the runtime. status-allow: pending state or quoted runtime label
         /// `ready_pending` reports them, because no descriptor does.
         records: std.ArrayListUnmanaged(ReadyEvent) = .empty,
         /// Connections whose flushed batch starts at the next `beforeWait`.

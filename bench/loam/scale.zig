@@ -96,7 +96,7 @@ fn population(init: std.process.Init, report: *std.ArrayList(u8), profile: Profi
         });
 
         // Cold means evicted from Loam's record cache. LMDB's map and the OS
-        // page cache keep whatever the earlier phases touched.
+        // page cache keep whatever the earlier phases touched. status-allow: event or source ordering
         workload.store.evict();
         if (workload.store.cache.allocated_bytes != 0) return error.EagerResidency;
         const heap_setup = bytes.liveBytes();

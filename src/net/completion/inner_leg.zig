@@ -65,7 +65,7 @@ pub fn Lifecycle(
         const Conn = Types.Conn;
         const ConnId = Types.ConnId;
 
-        /// Release a synthetic handle the loop no longer waits on. Every
+        /// Release a synthetic handle the loop no longer waits on. Every status-allow: lifecycle transition
         /// external seat has settled, so nothing is published here. The inner
         /// descriptor is driven to closed and the row retires once no inner
         /// operation or lent buffer remains.

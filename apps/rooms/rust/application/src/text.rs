@@ -46,31 +46,6 @@ impl DocumentText {
 			Repr::Utf16(v) => v.capacity().saturating_mul(2),
 		}
 	}
-	/// Borrow ordinary JSON source, escaping literal isolated surrogates only
-	/// when necessary. An already escaped surrogate is an invalid JSON escape.
-	/// Do not repair it into a different valid string.
-	pub(crate) fn json_source(&self) -> Option<alloc::borrow::Cow<'_, str>> {
-		if let Some(text) = self.as_str() {
-			return Some(alloc::borrow::Cow::Borrowed(text));
-		}
-		let mut out = String::new();
-		let mut escaped = false;
-		for scalar in char::decode_utf16(self.utf16()) {
-			match scalar {
-				Ok(c) => {
-					out.push(c);
-					escaped = c == '\\' && !escaped;
-				}
-				Err(e) => {
-					if escaped {
-						return None;
-					}
-					write!(out, "\\u{:04x}", e.unpaired_surrogate()).ok()?;
-				}
-			}
-		}
-		Some(alloc::borrow::Cow::Owned(out))
-	}
 	/// The scalar-string view used by JavaScript URL parsing and TextEncoder.
 	/// Use only at those syntax boundaries. Stored document text stays lossless.
 	pub(crate) fn utf8_lossy(&self) -> alloc::borrow::Cow<'_, str> {

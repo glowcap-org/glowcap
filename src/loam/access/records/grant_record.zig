@@ -16,7 +16,7 @@ pub const GrantRecord = struct {
     lifecycle: Stamp = .{},
     children: ?records.ObjectId = null,
 
-    pub const format_version: u64 = 2;
+    pub const format_version: u64 = 1;
     /// Two 256-member selections, fixed identities, and 32 optional bounds.
     pub const max_encoded_bytes: usize = 32 * 1024;
     /// The parent edge, the resources both scopes select, and the children

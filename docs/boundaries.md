@@ -56,8 +56,7 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
   locator, so glowcap sends onion locators bare, except in a give to a peer it
   knows is glowcap. Goblins sessions and
   hosts on the default profile use `1.0`
-  ([ADR-0042](decisions/adr/ADR-0042-onion-interoperability.md),
-  [ADR-0042](decisions/adr/ADR-0042-onion-interoperability.md)).
+  ([ADR-0042](decisions/adr/ADR-0042-onion-interoperability.md)).
 - **CI does not test iroh hole-punching between separate NATs.** Opt-in checks
   cover discovery and relay use from one host. `discovery_no_relay` has no
   check because it needs a publishable direct address.

@@ -204,7 +204,7 @@ const program_seeds = blk: {
 /// time, and a program that needs one of them can say which.
 const ImportPick = enum { lowest, highest };
 
-/// The position of some import this peer currently holds, or null when it holds
+/// The position of some import this peer holds, or null when it holds
 /// none. A release for a position nobody holds is refused before it reaches any
 /// of the accounting worth exercising. With `releasable_only`, a row the
 /// session holds entirely for a release of its own, a pending listener's, is

@@ -38,7 +38,7 @@ export const VIEW: TimelineView = {
 	windowStart: 0,
 	windowEnd: 1000,
 	expandedLanes: new Set<LaneKind>(["peers", "sessions", "messages"]),
-	// Categories collapsed (today's default look). Expanded
+	// Categories collapsed (the default look). Expanded
 	// per-entity rows are covered in `events.test.ts`.
 	expandedCategories: new Set(),
 };

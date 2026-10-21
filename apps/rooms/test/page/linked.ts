@@ -17,7 +17,7 @@ export async function run(tab: Page): Promise<void> {
 	// Typed text shows in both halves, the two locks are one lock, and Enter in
 	// the rail submits the card itself, which is how the join after this phase
 	// happens. Every check below that the panel is still showing is the claim
-	// that the two are one form, made at the moment each half acts on the other.
+	// that the two are one form, made at the moment each half acts on the other. status-allow: state at observation
 	const railShowing = () =>
 		tab.evaluate(() => document.getElementById("newRoom")?.classList.contains("show") ?? false);
 	await tab.click("#newRoomBtn");

@@ -39,7 +39,7 @@ export class RegionRegistry {
 		});
 		return () => {
 			// Only what this registration put here. A remount can register the
-			// replacement element before tearing the old one down, and a disposer
+			// replacement element before tearing the old one down, and a disposer status-allow: replacement state identity
 			// that removed the name outright would take the live element's row with
 			// it: the region would stop being polled while it is still on screen,
 			// and its scene would sit at whatever rect it last saw.

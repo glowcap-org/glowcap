@@ -205,7 +205,9 @@ Deno.test("records arrive through the hosted inbox callback", async () => {
 		session: "p0/s1",
 		a: "rooms",
 		b: "alice",
+		transport: "tcp",
 		codec: "syrup",
+		captp_version: "1.0",
 	}));
 	assertEquals(seen.filter((ev) => ev.kind === "session-opened").length, 1);
 	feed.disconnect();
@@ -234,7 +236,9 @@ Deno.test("a malformed record is reported, not thrown", async () => {
 		session: "p0/s1",
 		a: "rooms",
 		b: "alice",
+		transport: "tcp",
 		codec: "syrup",
+		captp_version: "1.0",
 	}));
 	assertEquals(events.filter((ev) => ev.kind === "session-opened").length, 1);
 	feed.disconnect();
@@ -256,6 +260,8 @@ Deno.test("old replay sequence numbers still form an authoritative snapshot", as
 		seq: 10,
 		epoch: 1,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p0/s1",
 		a: "rooms",
 		b: "alice",
@@ -399,6 +405,7 @@ Deno.test({
 				v: 1,
 				sim_t_ns: 0,
 				kind: "ocapn.session-opened",
+				captp_version: "1.0",
 				session: "browser-proof-s1",
 				a: "rooms",
 				b: "alice",

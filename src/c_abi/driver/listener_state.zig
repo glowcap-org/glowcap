@@ -17,7 +17,7 @@ pub const State = union(enum) {
     /// Close has committed in HostRuntime and provider stop is still pending.
     /// The locator projection is already gone. Only listener_close may retry.
     closing,
-    /// Zig stop completed after an earlier WOULD_BLOCK. The retrying C
+    /// Zig stop completed after an earlier WOULD_BLOCK. The retrying C status-allow: event or source ordering
     /// caller owns final id retirement. No locator projection remains.
     retired,
 

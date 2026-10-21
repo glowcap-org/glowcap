@@ -20,8 +20,7 @@
  * Validated by injection, one per property: accumulating the node set again
  * fails the first two, and dropping the reuse lookup fails the third. The pin
  * and claim cases are covered by `engine-test/` and
- * `claim-placement-test/`, which caught a first version of the reuse whose key
- * left them out.
+ * `claim-placement-test/`, which hold that the reuse key includes them.
  *
  * Not covered: the era count still grows by two per reconnect, because each one
  * really is two topology moments. That is a cost, not a wrong picture, and
@@ -271,11 +270,11 @@ engineTest("a recompute reuses the arrangement it already holds", () => {
 });
 
 engineTest("a second session on the same pair is its own era", () => {
-	// The other side of the dedup, and the case a first version of the key got
-	// wrong. `bundleIndices` sorts the ids sharing a pair and indexes by position,
-	// so which lane a session rides depends on which ids are on that pair. Two
-	// eras carrying the same pairs under different ids are different problems, and
-	// collapsing them left a claim leaning on a lane its arc was not drawn along.
+	// The other side of the dedup. `bundleIndices` sorts the ids sharing a pair
+	// and indexes by position, so which lane a session rides depends on which
+	// ids are on that pair. Two eras carrying the same pairs under different ids
+	// are different problems, and collapsing them would leave a claim leaning on
+	// a lane its arc is not drawn along.
 	const e = roomEngine();
 	const before = e.layout.keyframes.length;
 	// A second wire between the peers that already have one: same pair, new id.

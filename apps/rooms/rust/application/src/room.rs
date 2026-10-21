@@ -3,7 +3,6 @@
 pub mod attachment;
 pub mod authority;
 pub mod carries;
-pub mod handoff;
 pub mod history;
 pub mod inbox;
 pub mod invitation;

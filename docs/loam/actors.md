@@ -138,7 +138,7 @@ change events all wait for the commit. Change events saved with the change
 carry sequence numbers and cursors, so they can be replayed and duplicates
 dropped. When a call on disk resumes, and before a deferred reply hands out a
 protected capability, Loam checks the grant as it is now. A cached copy of
-the content or an earlier event never stands in for that check.
+the content or an earlier event never stands in for that check. <!-- status-allow: runtime state or operation ordering -->
 
 Sleeping does not mean a message was durably accepted, and waiting calls can
 be lost if the process dies. A durable inbox or outbox would need its own

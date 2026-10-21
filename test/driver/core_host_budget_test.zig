@@ -469,7 +469,7 @@ test "a fed frame whose own dispatch amplifies past the budget fails that feed" 
 
     // The flood deliver is the client's one queued frame; feeding it drives
     // the fed connection's own turns past the budget inside the latched
-    // dispatch, which keeps today's failDispatch semantics: the feed fails.
+    // dispatch, which keeps the failDispatch semantics: the feed fails.
     var frame = (try pair.a.takeOutbound()) orelse return error.NoDeliverQueued;
     defer frame.deinit();
     try std.testing.expectError(

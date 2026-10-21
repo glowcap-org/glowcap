@@ -119,7 +119,7 @@ export function drawLaneStack({
 		if ((y - scrollY) > lanesMaxY) break;
 
 		if (!isExpandedCategory) {
-			// Collapsed view (today's look): one row, stacked-spans summary.
+			// Collapsed view: one row, stacked-spans summary.
 			const laneY = (y + LANE_GAP / 2) - scrollY;
 			const laneCenterY = laneY + laneHeight / 2;
 			// Top cull: only skip when the row is ENTIRELY above the
@@ -272,7 +272,7 @@ export function drawLaneStack({
 		// during the row loop so we can draw the bar after the rows
 		// finish, drawing it inline would risk being overwritten by
 		// the next row's zebra fill. `dropY` lines up with the TOP
-		// edge of the row currently occupying `finalIndex` (the row
+		// edge of the row occupying `finalIndex` (the row
 		// being dragged is dimmed in-place; the bar shows the
 		// landing slot, accounting for the rest of the rows shifting
 		// out of the way on commit).

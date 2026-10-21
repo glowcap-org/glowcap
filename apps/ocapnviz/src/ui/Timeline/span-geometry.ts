@@ -46,7 +46,7 @@ export type SpanRect = {
 	 *  fade as a "trails off to the left" cue. Hit-test ignores. */
 	leftClamped: boolean;
 	/** True when the unclamped right edge was past `plotX + plotWidth`
-	 *:  the span extends past the visible window OR the span is
+	 * :  the span extends past the visible window OR the span is
 	 *  open-ended (endT non-finite). Paint draws a right-edge fade.
 	 *  hit-test ignores. The open-ended case folds in here because
 	 *  it's the same paint behavior: a "trails off to the right" cue
@@ -62,7 +62,7 @@ export type SpanRect = {
  *  span is fully outside the visible plot band.
  *
  *  Single source of truth for "where does this span live on screen"
- *:  the resolver-as-renderer doctrine, extended into pixel space.
+ * :  the resolver-as-renderer doctrine, extended into pixel space.
  *  Paint reads it to decide long-pill vs stamp and to clamp the pill
  *  to the plot band. Hit-test reads it to build the click envelope.
  *  The two stay in lockstep by construction. */

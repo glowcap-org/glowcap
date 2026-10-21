@@ -192,7 +192,7 @@ const Preparation = union(enum) {
     /// Fills `prepared` in place for the same reason `Route.init` does.
     fn init(prepared: *Preparation, self: *Peer, route: *Route, introduced: *IntroducedImports) !void {
         // Reserve the whole possible batch once; a per-row reservation cannot
-        // express slots for rows that have not been appended yet.
+        // express slots for rows that have not been appended yet. status-allow: pending state or quoted runtime label
         var pending_batch = try self.beginPendingBatch(route.pendingPreparationCount(introduced));
         if (route.releasesIntroduced()) {
             prepared.* = .{ .release = try shortening.prepareIntroducedImportReleases(self, &pending_batch, introduced.mentions.items()) };

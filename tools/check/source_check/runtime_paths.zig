@@ -11,7 +11,7 @@
 //! asks for that sweep. This asks the build instead, which is the half that
 //! runs every time.
 //!
-//! Scoped to the trees that pass it today. A tree joins `roots` in the same
+//! Scoped to the trees that pass it. A tree joins `roots` in the same
 //! change that empties it, the way the sibling doc and scene checks were
 //! placed.
 //!
@@ -68,7 +68,7 @@ fn resolve(gpa: std.mem.Allocator, from_file: []const u8, link: []const u8) !?[]
 }
 
 /// Whether this literal is a path into the repository at all. An absolute URL
-/// names somewhere else entirely and a generated path may not be built yet.
+/// names somewhere else entirely and a generated path may not be built yet. status-allow: pending state or quoted runtime label
 fn isCheckable(literal: []const u8) bool {
     if (literal.len == 0) return false;
     if (std.mem.indexOf(u8, literal, "://") != null) return false;
@@ -91,7 +91,7 @@ fn checkFile(
         at = found + opener.len;
         // Whitespace here spans lines, so the argument written on its own line
         // reads the same as the argument written inline. That form is the one
-        // that hid a stale path from an earlier hand-written sweep.
+        // that hid a stale path from an earlier hand-written sweep. status-allow: event or source ordering
         var i = at;
         while (i < body.len and isSpace(body[i])) i += 1;
         // A computed first argument names no literal to check.

@@ -106,7 +106,7 @@ pub const BoundListener = struct { fd: i32, port: u16 };
 /// the blocking TCP tier. `SO_REUSEPORT` stays off for `openListener`'s
 /// identity reason. `SO_REUSEADDR` here is a restart contract with two
 /// generations: the kernel lets a bind reclaim a port whose previous owner
-/// left sockets in TIME_WAIT only when the old and the new listener both set
+/// left sockets in TIME_WAIT only when the old and the new listener both set status-allow: replacement state identity
 /// the option, so every blocking listener sets it unconditionally. A
 /// predecessor without it parks the port for the full TIME_WAIT minute, which
 /// is how a stateful server restarted onto its pinned port fails
@@ -179,7 +179,7 @@ pub fn setNoSigpipe(fd: i32) bool {
 /// Disable Nagle on a loop connection, dialed or accepted, matching the
 /// blocking TCP resident's unconditional stream policy. CapTP frames are
 /// small and the protocol does its own batching, so coalescing buys nothing.
-/// With Nagle on, a reply written while an earlier reply is still unacked
+/// With Nagle on, a reply written while an earlier reply is still unacked status-allow: event or source ordering
 /// waits out the peer's delayed-ACK timer, which turns a pipelined
 /// conversation into one ~40ms round per unit on loopback.
 pub fn setNodelay(comptime os: Os, fd: i32) bool {

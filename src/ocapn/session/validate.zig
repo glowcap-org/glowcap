@@ -69,7 +69,7 @@ fn validateProjectionOp(self: *Session, receiver: anytype, answer: model.AnswerP
 
 /// The one `op:start-session` kind rule, shared by all three dispatch
 /// validators: the session must still be negotiating, this half of the
-/// handshake must not have been observed yet (`half` names which flag the
+/// handshake must not have been observed yet (`half` names which flag the status-allow: pending state or quoted runtime label
 /// caller's direction owns), and the declared CapTP version must match the
 /// session's negotiated profile.
 fn validateStartSession(
@@ -392,8 +392,7 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *Intr
 /// signed envelope is the authority, and a short id costs one bounded retry
 /// against the fixed-width tag that keeps a partner-chosen length out of
 /// coordination state. This follows the same posture as `op:listen`'s operand
-/// count, recorded in `conformance/ocapn-findings`: interoperate with what runs
-/// today, and record the disagreement rather than settle it here.
+/// count, recorded in `conformance/ocapn-findings`: interoperate with the pinned implementations, and record the disagreement rather than settle it here.
 pub fn validateHandoffGiftId(self: *const Session, gift_id: []const u8) Error!void {
     try passable.validateHandoffGiftId(self.captp_version, gift_id);
 }

@@ -276,7 +276,7 @@ test "checkSpan ignores enum members, foreign types, and prose" {
 /// The memory rule's ledger names, one per entry, the symbol whose declaration
 /// carries the full derivation of a named allocation. That pointer is the whole
 /// mechanism keeping the rule from re-growing a second copy of every argument,
-/// so a name that no longer resolves silently turns the ledger back into
+/// so a name that no longer resolves silently turns the ledger back into status-allow: lifecycle transition
 /// folklore. It rots exactly like a doc comment and nothing else reads it: a
 /// `clonePeerLocator` the ledger cited through two rewrites had never existed
 /// under any name, and the copy it described was a raw-bytes dupe with a

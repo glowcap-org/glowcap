@@ -1,6 +1,6 @@
 //! A static doc that names code by a qualified name (`Host.close`,
 //! `Failure::parse`, `session.listen()`) names something the code still
-//! declares. A rename leaves the old name in prose that no compiler reads, so
+//! declares. A rename leaves the old name in prose that no compiler reads, so status-allow: replacement state identity
 //! this check reads it: when part of a name is still in the code and part is
 //! gone, the doc is stale. A name wholly from outside the repository passes.
 

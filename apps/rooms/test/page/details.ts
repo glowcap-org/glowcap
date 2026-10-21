@@ -110,11 +110,8 @@ export async function run(tab: Page): Promise<void> {
 	if (kind !== "Directory locator") {
 		fail(`the conversation card labeled the locator ${JSON.stringify(kind)}`);
 	}
-	// Against the catalog rather than a copy of the sentence. The words here are
-	// owned by `lib/text`, and a literal repeated in a proof is a second copy
-	// that a voice pass does not know it has to move: this assertion held a
-	// sentence the app had stopped saying, and only stopped being green when an
-	// unrelated failure earlier in the suite was fixed and the run reached it.
+	// Compare with the text catalog so the proof shares the application
+	// wording while checking that the conversation explains its reachability.
 	const reach = ((await tab.textContent("#convcardReach")) ?? "").replace(/\s+/g, " ").trim();
 	if (reach !== reachPublicRoom("#lobby")) {
 		fail(`the conversation card did not say why the locator is the directory's: ${JSON.stringify(reach)}`);

@@ -158,7 +158,7 @@ pub fn checkAdrRelations(
 
 /// An ADR may list aspirational acceptance scenarios without implemented
 /// evidence. Once it is accepted, or once a partial migration records its
-/// standing, prose alone is no longer enough: cite at least one in-tree test.
+/// standing, prose alone is no longer enough: cite at least one in-tree test. status-allow: lifecycle transition
 /// `checkMarkdownLinks` separately proves that the cited path resolves.
 pub fn checkAdrEvidenceLinks(
     io: std.Io,

@@ -80,7 +80,7 @@ test "relayed gift-id failure spends no allocation after the home fire" {
     try std.testing.expectEqualStrings("relayed promise could not be settled", settled.@"break".message);
 
     // The admission-time scheduler reservation becomes a recipient flush even
-    // though no carrier could be allocated yet. Once pressure clears, `step`
+    // though no carrier could be allocated yet. Once pressure clears, `step` status-allow: pending state or quoted runtime label
     // retries the stored settlement and emits the listener fire exactly once.
     try std.testing.expectEqual(recipient, node.nextAction().?.flush);
     failing.fail_index = std.math.maxInt(usize);

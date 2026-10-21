@@ -36,7 +36,7 @@ pub(super) struct Blobs {
 fn error(e: std::io::Error) -> DiskFailure {
 	DiskFailure::Storage(StorageError::Io(e))
 }
-/// Retained bytes this store can no longer stand behind.
+/// Retained bytes this store can no longer stand behind. status-allow: lifecycle transition
 fn corrupt(reason: &'static str) -> DiskFailure {
 	DiskFailure::Corrupt(reason.into())
 }

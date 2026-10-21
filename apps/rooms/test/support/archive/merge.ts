@@ -18,7 +18,7 @@
 //    never the stale one.
 // 3. A remaining tie means two archives hold the same state with possibly
 //    different content, and nothing local can say which revision is newer.
-//    The account currently selected for writes wins: it received the member's
+//    The account selected for writes wins: it received the member's
 //    most recent intent, which is the best available evidence of recency.
 //    With no write target in the set, the first-listed account wins, so the
 //    answer stays deterministic.
@@ -32,7 +32,7 @@ import { archiveRecordKey } from "../../../lib/archive/index.ts";
 import type { ArchiveRecord } from "../../../lib/archive/protocol.ts";
 
 /** One archive authority's current account: who keeps it, whether the member
- * writes to it now, and the records it currently reports. `K` is the caller's
+ * writes to it now, and the records it reports. `K` is the caller's
  * account identity, an attribution label, a custody handle, carried through
  * to each winner so the caller never maps back from a string. */
 export interface ArchiveAccount<K> {

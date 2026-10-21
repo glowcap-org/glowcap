@@ -59,7 +59,7 @@ const Slot = struct {
             // This exact immutable portrait, including historical edges, has
             // reported its collector obligations for the current local cycle.
             collection_reported: bool = false,
-            /// Landed by read-ahead and not yet pinned. While its snapshot is
+            /// Landed by read-ahead and not yet pinned. While its snapshot is status-allow: pending state or quoted runtime label
             /// current it counts against the read-ahead window, so read-ahead
             /// cannot outrun its consumer and evict what it loaded before
             /// demand arrives. A stale one is ordinary free room.

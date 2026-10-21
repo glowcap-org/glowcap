@@ -146,19 +146,9 @@ test "fuzz: arbitrary stream bytes never crash or leak a blocking frame read" {
 // slots. A count that drifts is exactly the defect these reviews kept catching,
 // and here it fails the build instead.
 //
-// A property test that passes proves nothing on its own, so this one was built
-// against defects rather than against the passing tree. Each of these was
-// injected into the loop and the search asked to find it, and each was found:
-// a batch abandoned after a failing completion; a deadline release skipped on
-// one path; a retried close that forgets
-// its counter; a closing connection that keeps its deadline stamp; one that
-// keeps its outbound over-mark; a reclaimed slot that never returns to the free
-// list; and a slot adopted without advancing its generation. Two of those had
-// escaped an earlier version of this file, and the escapes are what shaped it:
-// the backend hands back several completions at once because a batch of one can
-// never show the batch contract failing, and the closing-connection properties
-// are stated outright because a count compared against a walk of the same field
-// agrees with itself even when both have drifted.
+// The backend returns several completions together to expose batch-contract
+// failures. Closing-connection properties are asserted independently:
+// comparing a count with a walk of the same field can agree while both are wrong.
 //
 // What it reaches and what it does not, counted rather than assumed. Per
 // fifteen hundred schedules: the sink park fires about four thousand times, the
@@ -287,7 +277,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 //
 // Under `zig build test` the search does not run: the corpus is the regression
 // seeds alone, so the ratification is what the ordinary suite gets from this
-// target. It is not a small part: a corpus frame the codec no longer accepts
+// target. It is not a small part: a corpus frame the codec no longer accepts status-allow: lifecycle transition
 // whole fails it outright, with no fuzzer involved.
 
 /// Streams the fuzzer found here, replayed by the ordinary suite so a bug it

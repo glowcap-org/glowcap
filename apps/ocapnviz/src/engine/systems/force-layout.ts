@@ -264,7 +264,7 @@ export function runForce(
 
 /**
  * The angle between consecutive points of a phyllotaxis spiral, which is the
- * one angle that never lets a later point land on an earlier point's ray.
+ * one angle that never lets a later point land on an earlier point's ray. status-allow: event or source ordering
  */
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 

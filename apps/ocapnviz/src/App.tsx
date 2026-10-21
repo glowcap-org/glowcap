@@ -62,10 +62,9 @@ export function App() {
 	// `timelineIntrinsic` hoisted above `resetUi` so the reset
 	// handler can compose the intrinsic-aware bump in one go.
 	const [timelineIntrinsic, setTimelineIntrinsic] = useState(0);
-	// Dynamic floor published by TimelinePanel based on its measured
-	// control-row height. Replaces the hardcoded `BOTTOM_PANE_MIN`
-	// (which assumed a 40px control row but the actual chrome is
-	// ~45px), so drag-down can't squash the Overview onto the ruler.
+	// Floor published by TimelinePanel from its measured control-row
+	// height, so drag-down cannot squash the Overview onto the ruler.
+	// `BOTTOM_PANE_MIN` is the initial value.
 	const [timelineMinHeight, setTimelineMinHeight] = useState(
 		BOTTOM_PANE_MIN,
 	);
@@ -319,7 +318,7 @@ export function App() {
 		// second, because the clear names `newDoc` too.
 		clearSourceOverrides();
 		setNewDoc(newDocument());
-		// Build, not Play: there is nothing to play yet, and the reason to start an
+		// Build, not Play: there is nothing to play yet, and the reason to start an status-allow: pending state or quoted runtime label
 		// empty document is to put something in it.
 		dispatch({ type: "set-mode", mode: "build" });
 	}, [clearSourceOverrides, dispatch]);

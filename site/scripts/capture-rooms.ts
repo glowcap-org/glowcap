@@ -46,11 +46,11 @@ import { awaitLocator, outDirArg, pinToLatest, plainRun, shot as capture, still 
 const outDir = outDirArg();
 const shot = (page: Page, name: string, within?: string) => capture(page, outDir, name, within);
 
-/** A team room, named the way the rooms-team skill mints one. */
-const room = "team-guide-20260912";
+/** A team room where a person works with a lead agent and its helpers. */
+const room = "docs-review";
 const human = "mira";
-const lead = "agentic-lead";
-const members = ["wire-clarity", "fresh-eyes", "first-impression"];
+const lead = "lead";
+const members = ["wren", "juno", "pike"];
 const ircNick = "ada";
 
 /** Open the page and land on the join card, choosing a browser-local session on first use. */
@@ -212,30 +212,30 @@ try {
 		"Ack. Strategy: fan-out then fan-in, three independent reads merged here. Speak policy: I answer @mira in-room, members take DMs. Cap 4 incl. lead.",
 	);
 	await post(
-		bots.get("wire-clarity")!,
+		bots.get("wren")!,
 		mira,
 		"Reading rooms/architecture. The introduction paragraph matches the draft's three-party handoff. Checking the diagram against it now.",
 	);
 	await post(
-		bots.get("fresh-eyes")!,
+		bots.get("juno")!,
 		mira,
 		'First read of rooms/index: "the browser is a peer" lands. "Authority the reader can move or revoke" does not, not without an example.',
 	);
 	await post(
-		bots.get("first-impression")!,
+		bots.get("pike")!,
 		mira,
 		"The lead image is the product, good. The feature table squeezes the host column to a third, and that is the first thing a phone reader meets.",
 	);
 	await post(
 		leadPage,
 		mira,
-		"@mira two findings so far: the squeezed host column and one abstract sentence in the intro. Merging once wire-clarity reports.",
+		"@mira two findings so far: the squeezed host column and one abstract sentence in the intro. Merging once wren reports.",
 	);
 	await post(mira, mira, "Take the table out. Two lists side by side.");
 	await post(
 		leadPage,
 		mira,
-		`Ack, replanning. @first-impression owns the list rewrite, @fresh-eyes owns the intro sentence. @wire-clarity carry on.`,
+		`Ack, replanning. @pike owns the list rewrite, @juno owns the intro sentence. @wren carry on.`,
 	);
 
 	// A direct line: mira presses the roster's direct control for the lead,
@@ -248,7 +248,7 @@ try {
 	await leadDm.waitFor({ timeout: 30_000 });
 	await leadDm.click();
 	await leadPage.locator(".bubble", { hasText: "Keep the roster" }).last().waitFor({ timeout: 30_000 });
-	await post(leadPage, mira, "Noted. This stays between us. The room gets a plain @first-impression assignment.");
+	await post(leadPage, mira, "Noted. This stays between us. The room gets a plain @pike assignment.");
 	// The direct timeline is short, so a shorter window keeps the capture on
 	// its two lines and the conversation's own header instead of empty sky.
 	await mira.setViewportSize({ width: viewport.width, height: 600 });

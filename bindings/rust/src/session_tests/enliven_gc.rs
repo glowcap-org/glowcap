@@ -19,7 +19,7 @@ async fn gc_releases_fresh_and_cached_enliven_occurrences_independently() {
 			let first = session.enliven(&link).await.unwrap();
 			let second = session.enliven(&link).await.unwrap();
 			assert_eq!(first, second);
-			// Retain only the old opaque id as a test probe, not another owned Ref.
+			// Retain only the old opaque id as a test probe, not another owned Ref. status-allow: replacement state identity
 			let stale = Ref::bare_id(first.id());
 			drop(first);
 			session.shared.drain_gc().unwrap();

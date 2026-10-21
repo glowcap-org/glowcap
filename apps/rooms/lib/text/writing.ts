@@ -22,7 +22,7 @@ export const writingLead: LinkedText = [
 
 /** One thing a reader can write: what it does, and the source that does it.
  * Help renders the source through the real parser beside the source. */
-export interface WritingExample {
+interface WritingExample {
 	readonly what: string;
 	readonly source: string;
 }
@@ -55,7 +55,7 @@ export const writingMore: LinkedText = [
 
 /** One key or chord, and what it does. `mod` stands for the command key on
  * Apple hardware and Ctrl everywhere else. The component substitutes it. */
-export interface WritingShortcut {
+interface WritingShortcut {
 	readonly what: string;
 	readonly keys: readonly string[];
 }
@@ -75,7 +75,7 @@ export const writingShortcuts: readonly WritingShortcut[] = [
 
 /** The line under an empty, focused field: the keys a first keystroke needs,
  * and one way to the rest. */
-export interface ComposerHintItem {
+interface ComposerHintItem {
 	readonly key: string;
 	readonly does: string;
 }

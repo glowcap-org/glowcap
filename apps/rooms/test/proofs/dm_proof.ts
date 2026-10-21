@@ -41,7 +41,7 @@ async function locatorFrom(port: number): Promise<string> {
 			const text = (await res.text()).trim();
 			if (res.status === 200 && text.length > 0) return text;
 		} catch {
-			// not up yet
+			// not up yet status-allow: pending state or quoted runtime label
 		}
 		await new Promise((r) => setTimeout(r, 50));
 	}

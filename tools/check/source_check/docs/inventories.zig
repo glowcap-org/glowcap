@@ -38,7 +38,7 @@ pub fn checkResidentRoster(
     };
     const roster_docs = [_][]const u8{
         "docs/shipped.md",
-        // The page whose stated job is "the edges of what ships today". A
+        // The page whose stated job is "the edges of what ships". A
         // transport that ships without its edge written down fails here.
         "docs/boundaries.md",
         // The site inventory of every netlayer: choosing owns the roster
@@ -295,10 +295,9 @@ pub fn checkFuzzCorpusSeeds(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    // The seed list moved out of the codec target when every fuzz target began
-    // sharing it. The check follows it: pointed at the old path it would read a
-    // file with no seeds in it and pass, which is the quiet way a parity check
-    // stops being one.
+    // Every fuzz target shares the seed list. Pointed at a file without the
+    // seeds, the check would pass vacuously, which is the quiet way a parity
+    // check stops being one.
     const harness_path = "test/support/corpus_seeds.zig";
     const corpus_dir = "test/oracle/corpus";
 

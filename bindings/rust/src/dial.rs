@@ -124,7 +124,7 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 		let raw_session = session.raw_session();
 		opened = Some(session);
 		// Admit the owner task before reporting the connection to the core. Once
-		// `glowcap_host_dialed` commits, failure is no longer retryable as a dial;
+		// `glowcap_host_dialed` commits, failure is no longer retryable as a dial; status-allow: lifecycle transition
 		// this gate keeps task admission on the refusal side of that boundary.
 		let (serve_tx, serve_rx) = tokio::sync::oneshot::channel::<Session>();
 		if !try_spawn_local(async move {

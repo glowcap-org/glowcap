@@ -1,6 +1,6 @@
 //! A crate that writes `unsafe` declares where the unsafety has to be marked.
 //!
-//! At edition 2024 an `unsafe fn` body is no longer implicitly unsafe: each raw
+//! At edition 2024 an `unsafe fn` body requires explicit unsafe blocks: each raw
 //! operation inside one says so at the operation, which is the point of the
 //! change, because the alternative is a blanket claim on the signature that
 //! covers whatever the body grows into later. Rust only *warns* when a body has

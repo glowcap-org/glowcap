@@ -50,7 +50,7 @@ sampling during a collection. RSS is still not a language-heap measurement.
 
 At the default scale, a few kilobytes per connection are measured inside a
 process tens of megabytes large. Racket's heap growth and GC granularity can
-dominate the delta. A suite that expanded the heap during earlier phases may
+dominate the delta. A suite that expanded the heap during earlier phases may <!-- status-allow: measurement sequence -->
 therefore show a smaller connection delta than a lighter suite. Compare
 backends within one suite. Do not compare absolute memory numbers across
 suites as though they were allocations.

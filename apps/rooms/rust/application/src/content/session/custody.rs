@@ -136,7 +136,7 @@ macro_rules! custody {
 		}
 		pub enum Retained<'a, R: References> { $($kind(&'a Held<$kind, R::$kind>),)* }
 		/// Receipt results retain exact typed roles, never bearer strings or a
-		/// resource ID used to reconstruct a stronger capability.
+		/// resource ID used to reconstruct a stronger capability. status-allow: purpose clause
 		pub enum RetainedField<R: References> { $($kind(Held<$kind, R::$kind>),)* }
 		impl<R: References> PartialEq for RetainedField<R> where $(R::$kind: PartialEq,)* {
 			fn eq(&self, other: &Self) -> bool {

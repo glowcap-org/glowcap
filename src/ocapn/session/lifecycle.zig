@@ -117,7 +117,7 @@ pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
 
 /// Give the session the secret its peer-keyed tables hash under, before a
 /// peer-chosen position is held. Asserted rather than tolerated: a table
-/// re-keyed with rows in it could no longer find them.
+/// re-keyed with rows in it could no longer find them. status-allow: lifecycle transition
 pub fn keyWireTables(self: *Session, multiplier: u64) void {
     std.debug.assert(self.detached_inbound_answers == null);
     self.wire_hash_multiplier = multiplier;

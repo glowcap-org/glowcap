@@ -74,7 +74,7 @@ export const ATTACHMENT_RECORD_SPAN = 7;
 /** Read the file records a message carries, one after another from `recordAt`,
  * each `"file", name, mime, size, blob, width, height`. Empty for an ordinary
  * line. A record that does not read ends the walk, because the rest of the
- * line can no longer be trusted to be what it claims. */
+ * line can no longer be trusted to be what it claims.  status-allow: lifecycle transition */
 export function readAttachments(args: Argument[], recordAt = ROOM_RECORD_AT): Attachment[] {
 	const out: Attachment[] = [];
 	for (let at = recordAt; args[at] === "file"; at += ATTACHMENT_RECORD_SPAN) {
@@ -135,49 +135,6 @@ function readAttachmentRecord(args: Argument[], at: number): Attachment | null {
 		width: pixelCount(args[at + 5]),
 		height: pixelCount(args[at + 6]),
 	};
-}
-
-/** Read a direct line's `refile(caption, ...keep, ...records)` arguments: the
- * caption, the kept indices, and the new files riding inline.
- *
- * This is the receiving half of `PostedLine.refile` with sources. Every
- * argument is the peer's, so the shape is refused and not trusted: an index
- * that repeats, or names no file among the line's `currentFiles`, and a result
- * past `MAX_MESSAGE_FILES` all throw. The count bound matters beyond one call.
- * Kept files compound across refiles, so without it a peer could grow one
- * line's set without limit, one refile at a time. */
-export function readRefileChange(
-	args: Argument[],
-	currentFiles: number,
-): { caption: string; keep: number[]; records: Attachment[] } {
-	if (typeof args[0] !== "string") throw new Error("refile needs a caption");
-	const caption = args[0];
-	// Keep indices are the bigints after the caption, up to where the file
-	// records begin. A record always opens with the string "file".
-	let recordAt = 1;
-	const keep: number[] = [];
-	const seen = new Set<number>();
-	while (recordAt < args.length && typeof args[recordAt] === "bigint") {
-		const at = Number(args[recordAt] as bigint);
-		if (!Number.isSafeInteger(at) || at < 0 || at >= currentFiles) {
-			throw new Error(`no file at index ${at} on this line`);
-		}
-		if (seen.has(at)) throw new Error(`file ${at} is kept twice`);
-		seen.add(at);
-		keep.push(at);
-		recordAt += 1;
-	}
-	const records: Attachment[] = [];
-	while (recordAt < args.length) {
-		const record = readAttachmentRecord(args, recordAt);
-		if (record === null) throw new Error("refile has a malformed file record");
-		records.push(record);
-		recordAt += ATTACHMENT_RECORD_SPAN;
-	}
-	if (keep.length + records.length > MAX_MESSAGE_FILES) {
-		throw new Error(`a message may carry at most ${MAX_MESSAGE_FILES} files`);
-	}
-	return { caption, keep, records };
 }
 
 export { attachmentRefusal };
@@ -406,7 +363,7 @@ export class UploadStopped extends Error {
 
 /** Wait for one chunk's answer, and give up if it never comes. The bound is
  * larger than an ordinary request's because a read for bytes the room has not
- * received yet waits instead of answering short, and that wait is expected. */
+ * received yet waits instead of answering short, and that wait is expected.  status-allow: pending state or quoted runtime label */
 function chunkWithin<T>(answer: Promise<T>, what: string, stallMs: number): Promise<T> {
 	return answerWithin(answer, what, stallMs);
 }

@@ -225,7 +225,7 @@ pub fn setProviderFailure(out: ?*GlowcapProviderFailure, result: i32, cause: any
 /// The callback's returned status remains the primary classification authority.
 /// `secondaryResult` supplies the transport family's stable classification for
 /// the first later consequence. Names come from the chain so a failure that
-/// crossed an earlier archive boundary is not flattened back to its Zig proxy
+/// crossed an earlier archive boundary is not flattened back to its Zig proxy status-allow: event or source ordering
 /// error name.
 pub fn setProviderFailureChain(
     out: ?*GlowcapProviderFailure,

@@ -129,7 +129,7 @@ export function findDocIndexRefs(
  *
  * Class-1 (observation events in doc.recording.sources) is
  * excluded: observations are an immutable append-only
- * history that cascade operations never mutate. A rekey leaves the old
+ * history that cascade operations never mutate. A rekey leaves the old status-allow: replacement state identity
  * id in observation payloads and that is correct, the observation
  * faithfully records what the simulator saw at that moment. */
 export function assertNoRefsTo(

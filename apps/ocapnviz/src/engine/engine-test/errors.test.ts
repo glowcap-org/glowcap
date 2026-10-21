@@ -307,7 +307,7 @@ engineTest(
 			"precondition: entities entry still present",
 		);
 
-		// Before the fix this short-circuited as no-op.
+		// Deleting a peer is not a no-op.
 		e.dispatch({ kind: "delete-peer", peerId });
 		assertEquals(e.doc.entities?.peers?.[peerId], undefined);
 	},
@@ -490,11 +490,11 @@ engineTest("renameMessage rewrites sent + delivered events", () => {
 });
 
 engineTest("update-message swap after rename mutates entity from/to", () => {
-	// Regression: the update-message no-op guard must not look up the message
-	// via observation events, because cascadeRewrite leaves observations
-	// untouched. After rename, the renamed id wasn't
-	// findable that way, so every subsequent update-message silently
-	// no-op'd, including direction-swap from the Inspector.
+	// The update-message no-op guard must not look up the message via
+	// observation events, because cascadeRewrite leaves observations untouched.
+	// After a rename the renamed id is not findable that way, so the guard would
+	// silently no-op every later update-message, including a direction swap from
+	// the Inspector.
 	const e = new Engine(emptyAuthoredDoc());
 	const a = e.dispatch({
 		kind: "add-peer",

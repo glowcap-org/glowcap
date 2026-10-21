@@ -134,7 +134,7 @@ export class StageCamera {
 	#listeners = new Set<() => void>();
 	/** Set by whoever owns the viewport, cleared when it goes away. A command that
 	 *  arrives with no camera attached is dropped: the stage is mid-teardown or
-	 *  has not built its viewport yet, and there is nothing to move. */
+	 *  has not built its viewport yet, and there is nothing to move.  status-allow: pending state or quoted runtime label */
 	#port: StageCameraPort | null = null;
 	/** The wait for the camera to stop moving, and the view that wait is for.
 	 *  Restarted on every moved frame so a stream of pans collapses into one

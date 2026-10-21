@@ -5,50 +5,8 @@
 //! The class also fixes when a retry can help, through the same [`Retry`]
 //! vocabulary the wire's failure codes use, so an owner that only knows the
 //! class still answers "try again, or not?" correctly.
-use rooms_application::{failure::Retry, session::state};
+use rooms_application::failure::Retry;
 use std::{borrow::Cow, fmt, rc::Rc};
-
-/// A task owned by the shared session composition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Worker {
-	Storage,
-	Grants,
-	Directories,
-	Rooms,
-	Archive,
-	DirectDispatch,
-	DirectCommands,
-	HandedRooms,
-	RoomOffers,
-	OfferOutcomes,
-	DirectOutcomes,
-	RoomEvents,
-	DirectEvents,
-	Changes(&'static str),
-	Reconciliation,
-}
-
-impl Worker {
-	pub fn name(self) -> &'static str {
-		match self {
-			Self::Storage => "storage worker",
-			Self::Grants => "grant worker",
-			Self::Directories => "directory worker",
-			Self::Rooms => "room worker",
-			Self::Archive => "archive worker",
-			Self::DirectDispatch => "direct dispatcher",
-			Self::DirectCommands => "direct command worker",
-			Self::HandedRooms => "handed-room worker",
-			Self::RoomOffers => "room-offer worker",
-			Self::OfferOutcomes => "room-offer outcome drain",
-			Self::DirectOutcomes => "direct dispatch outcome drain",
-			Self::RoomEvents => "room event pump",
-			Self::DirectEvents => "direct event pump",
-			Self::Changes(owner) => owner,
-			Self::Reconciliation => "operations reconciler",
-		}
-	}
-}
 
 /// One failure, classed. `Clone` because a completion is retained for every
 /// concurrent observer of the owner that failed, so the typed sources sit
@@ -69,21 +27,16 @@ pub enum Error {
 	/// The intent, generation, or context the request named has been
 	/// superseded. Re-read the current state before asking again.
 	Stale(Cow<'static, str>),
-	/// A runtime owner or operation is no longer available.
+	/// A runtime owner or operation is no longer available. status-allow: lifecycle transition
 	Closed(Cow<'static, str>),
 	/// An effect was sent but its answer was lost, so whether it applied is
 	/// unknown. Only a withdrawal or a fresh observation is safe.
 	Uncertain(Cow<'static, str>),
-	State(state::Error),
 	/// The local CapTP binding failed: a session closed, a reference died, a
 	/// deferred turn could not be taken.
 	Captp(Rc<glowcap::Error>),
 	/// A Rooms peer refused the call, missed its deadline, or was lost.
 	Peer(Rc<rooms_glowcap::client::Error>),
-	WorkerEnded {
-		worker: Worker,
-		cause: Option<Box<Self>>,
-	},
 	/// A platform-independent storage owner failed. The adapter's concrete
 	/// error remains available as the source without coupling runtime to it.
 	Storage(Rc<dyn std::error::Error>),
@@ -125,19 +78,6 @@ impl Error {
 	/// (not the validator) knows the input came from a request.
 	pub fn invalid_by(error: impl fmt::Display) -> Self {
 		Self::Invalid(error.to_string().into())
-	}
-	/// A typed capacity refusal from below: the bound is the owner's, the
-	/// text is the bound's own.
-	pub fn exhausted_by(error: impl fmt::Display) -> Self {
-		Self::Exhausted(error.to_string().into())
-	}
-	/// A typed report from below that the state the request named has moved.
-	pub fn stale_by(error: impl fmt::Display) -> Self {
-		Self::Stale(error.to_string().into())
-	}
-	/// A typed report from below that an owner is gone.
-	pub fn closed_by(error: impl fmt::Display) -> Self {
-		Self::Closed(error.to_string().into())
 	}
 	/// The one place a classed failure becomes CapTP refusal text: the edge
 	/// where a hosted behavior answers its caller. Nothing inside the runtime
@@ -209,17 +149,6 @@ impl Error {
 			| Archive::Blob => Self::Invalid(text.into()),
 		}
 	}
-	/// A grant view the runtime built but could not answer with. Only the
-	/// policy arm carries the ledger's own verdict. The rest are this
-	/// projection's shape.
-	pub fn grant_view(error: rooms_application::grants::protocol::Refusal) -> Self {
-		use rooms_application::grants::protocol::Refusal;
-		match error {
-			Refusal::Policy(error) => Self::ledger(error),
-			Refusal::Access => Self::Refused(error.to_string().into()),
-			Refusal::Arguments | Refusal::Capability | Refusal::View => Self::Invalid(error.to_string().into()),
-		}
-	}
 	/// A session snapshot the runtime could not project. One that outgrew its
 	/// budget can be answered once the session holds less. The rest say the
 	/// gathered state itself is wrong.
@@ -254,11 +183,10 @@ impl Error {
 	pub fn retry(&self) -> Retry {
 		match self {
 			Self::Refused(_) => Retry::Never,
-			Self::State(error) => state_retry(error),
 			Self::Invalid(_) => Retry::AfterRequestChange,
 			Self::Busy(_) => Retry::Soon,
 			Self::Exhausted(_) => Retry::AfterStateChange,
-			Self::Stale(_) | Self::Closed(_) | Self::Uncertain(_) | Self::WorkerEnded { .. } => Retry::AfterStateChange,
+			Self::Stale(_) | Self::Closed(_) | Self::Uncertain(_) => Retry::AfterStateChange,
 			Self::Captp(error) => rooms_glowcap::client::binding_retry(error),
 			Self::Storage(_) => Retry::AfterStateChange,
 			Self::Peer(error) => error.retry(),
@@ -276,37 +204,6 @@ impl Error {
 			Ok(()) => self,
 			Err(error) => self.retain(error),
 		}
-	}
-}
-
-/// When asking again can help after the session state machine refused.
-///
-/// Spelled out rather than folded into one answer, because these arms differ
-/// in exactly the way a caller acts on: a borrowed state clears by itself, a
-/// full ledger clears when something drains, and an operation id that was
-/// already used never becomes free again.
-fn state_retry(error: &state::Error) -> Retry {
-	use state::Error as State;
-	match error {
-		// Nobody has to do anything; the borrow or the in-flight result ends.
-		State::Busy | State::ResultInFlight | State::Full => Retry::Soon,
-		// A monotonic revision or identifier space cannot drain by waiting.
-		State::Exhausted => Retry::AfterStateChange,
-		// The durable state has to be read again before this can be judged.
-		State::RecoveryRequired
-		| State::ResultNeedsRecovery
-		| State::Unresolved
-		| State::Abandoned
-		| State::Revision
-		| State::ResultChanged
-		| State::AdoptionClosed => Retry::AfterStateChange,
-		// The request names something this session will not accept under that
-		// name again, whatever the state does.
-		State::Reused | State::WrongOwner | State::OtherLedger => Retry::AfterRequestChange,
-		// Either a different name or a state that has it would do.
-		State::Missing => Retry::AfterRequestOrStateChange,
-		// The command itself does not validate.
-		State::Command(_) | State::Document | State::Checkpoint | State::Relation => Retry::AfterRequestChange,
 	}
 }
 
@@ -329,14 +226,9 @@ impl fmt::Display for Error {
 			| Self::Stale(error)
 			| Self::Closed(error)
 			| Self::Uncertain(error) => f.write_str(error),
-			Self::State(error) => error.fmt(f),
 			Self::Captp(error) => error.fmt(f),
 			Self::Peer(error) => error.fmt(f),
 			Self::Storage(error) => error.fmt(f),
-			Self::WorkerEnded { worker, cause } => match cause {
-				Some(cause) => write!(f, "session {} ended unexpectedly: {cause}", worker.name()),
-				None => write!(f, "session {} ended unexpectedly", worker.name()),
-			},
 			Self::Cleanup { primary, cleanup } => write!(f, "{primary}; cleanup also failed: {cleanup}"),
 		}
 	}
@@ -345,12 +237,10 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		match self {
-			Self::State(error) => Some(error),
 			Self::Captp(error) => Some(error.as_ref()),
 			Self::Peer(error) => Some(error.as_ref()),
 			Self::Storage(error) => Some(error.as_ref()),
 			Self::Cleanup { primary, .. } => Some(primary.as_ref()),
-			Self::WorkerEnded { cause, .. } => cause.as_deref().map(|error| error as _),
 			Self::Refused(_)
 			| Self::Invalid(_)
 			| Self::Busy(_)
@@ -362,11 +252,6 @@ impl std::error::Error for Error {
 	}
 }
 
-impl From<state::Error> for Error {
-	fn from(error: state::Error) -> Self {
-		Self::State(error)
-	}
-}
 impl From<glowcap::Error> for Error {
 	fn from(error: glowcap::Error) -> Self {
 		Self::Captp(Rc::new(error))
@@ -433,20 +318,6 @@ mod tests {
 		assert!(matches!(Error::ledger(Grant::Busy), Error::Busy(_)));
 		assert!(matches!(Error::ledger(Grant::ActiveLimit), Error::Exhausted(_)));
 		assert!(matches!(Error::ledger(Grant::LifetimeLimit), Error::Exhausted(_)));
-	}
-
-	/// The state machine's arms do not share one answer. Folding them into a
-	/// single verdict told a caller that a momentarily borrowed state would
-	/// never work again.
-	#[test]
-	fn a_busy_state_is_worth_asking_again_and_a_reused_id_never_is() {
-		use rooms_application::session::state::Error as State;
-		assert_eq!(Error::State(State::Busy).retry(), Retry::Soon);
-		assert_eq!(Error::State(State::Full).retry(), Retry::Soon);
-		assert_eq!(Error::State(State::Exhausted).retry(), Retry::AfterStateChange);
-		assert_eq!(Error::State(State::RecoveryRequired).retry(), Retry::AfterStateChange);
-		assert_eq!(Error::State(State::Reused).retry(), Retry::AfterRequestChange);
-		assert_eq!(Error::State(State::Missing).retry(), Retry::AfterRequestOrStateChange);
 	}
 
 	#[test]

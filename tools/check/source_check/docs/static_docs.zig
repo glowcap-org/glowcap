@@ -10,13 +10,19 @@ const appendViolation = util.appendViolation;
 
 /// Words that date a sentence to the moment it was written.
 const status_words = [_][]const u8{
-    "not yet",
+    "yet",
+    "used to",
+    "no longer",
+    "previously",
+    "earlier",
+    "formerly",
+    "legacy",
+    "the old",
     "today",
     "currently",
     "for now",
     "at the moment",
     "still required",
-    "yet to",
 };
 
 pub fn check(
@@ -30,6 +36,7 @@ pub fn check(
     const arena = arena_state.allocator();
     for (try corpus.load(io, arena, root, violations, gpa)) |entry| {
         try checkText(gpa, violations, entry.path, entry.text, entry.doc.kind == .static);
+        try @import("paragraphs.zig").checkRepeatedLinks(gpa, violations, entry.path, entry.text);
     }
     // The site renders every example source into a page, comments included.
     const examples = try util.collectSourceFiles(io, arena, root, "site/examples", &isAny) orelse return;
@@ -56,13 +63,43 @@ fn checkText(
         if (linksLocal(line)) {
             try appendViolation(gpa, violations, "{s}:{d}: links into `{s}`, which git ignores; no other checkout has that doc", .{ path, line_no, kinds.local_home });
         }
-        if (!static) continue;
-        for (status_words) |word| {
-            if (findWord(line, word) != null) {
-                try appendViolation(gpa, violations, "{s}:{d}: says `{s}`; a static doc states the present contract, and status belongs on a living page", .{ path, line_no, word });
-            }
-        }
+        if (static) try checkNarration(gpa, violations, path, line_no, line);
     }
+}
+
+pub fn checkNarration(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), path: []const u8, line_no: usize, line: []const u8) !void {
+    if (hasAllow(line)) return;
+    if (datedAsOf(line)) try appendViolation(gpa, violations, "{s}:{d}: dates a static contract with As of Month YYYY; move run dates to living records", .{ path, line_no });
+    for (status_words) |word| {
+        if (findWord(line, word) != null) try appendViolation(gpa, violations, "{s}:{d}: says `{s}`; state the present contract or give an inline status-allow reason for temporal semantics", .{ path, line_no, word });
+    }
+}
+
+/// An explicit reason exempts temporal ordering and quoted rule vocabulary.
+fn hasAllow(line: []const u8) bool {
+    const marker = "status-allow:";
+    const start = std.mem.indexOf(u8, line, marker) orelse return false;
+    return std.mem.trim(u8, line[start + marker.len ..], " \t->").len > 0;
+}
+fn datedAsOf(line: []const u8) bool {
+    const start = findWord(line, "as of") orelse return false;
+    var words = std.mem.tokenizeAny(u8, line[start + "as of".len ..], " \t");
+    const month = words.next() orelse return false;
+    const year = words.next() orelse return false;
+    if (year.len < 4) return false;
+    for (year[0..4]) |c| if (!std.ascii.isDigit(c)) return false;
+    if (year.len > 4 and std.ascii.isAlphanumeric(year[4])) return false;
+    for ([_][]const u8{ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" }) |name| {
+        if (std.ascii.eqlIgnoreCase(month, name)) return true;
+    }
+    return false;
+}
+
+test "dated narration and reasoned inline allows" {
+    try std.testing.expect(datedAsOf("As of October 2026, it works."));
+    try std.testing.expect(!datedAsOf("as of the last event"));
+    try std.testing.expect(!hasAllow("// status-allow: "));
+    try std.testing.expect(hasAllow("// earlier event // status-allow: event ordering"));
 }
 
 fn isAny(_: []const u8) bool {
@@ -87,9 +124,9 @@ fn findWord(line: []const u8, word: []const u8) ?usize {
     var i: usize = 0;
     while (i + word.len <= line.len) : (i += 1) {
         if (!std.ascii.eqlIgnoreCase(line[i .. i + word.len], word)) continue;
-        if (i > 0 and std.ascii.isAlphabetic(line[i - 1])) continue;
+        if (i > 0 and (std.ascii.isAlphabetic(line[i - 1]) or line[i - 1] == '/')) continue;
         const end = i + word.len;
-        if (end < line.len and std.ascii.isAlphabetic(line[end])) continue;
+        if (end < line.len and (std.ascii.isAlphabetic(line[end]) or line[end] == '/')) continue;
         return i;
     }
     return null;

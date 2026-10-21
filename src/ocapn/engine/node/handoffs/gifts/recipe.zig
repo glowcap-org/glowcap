@@ -95,8 +95,8 @@ pub fn putDiscoveredReserved(self: *Node, peer_handle: PeerHandle, location_byte
 
 /// Replace the discovered recipe with one complete route just verified by
 /// enlivenment. A sturdyref is authored as one `(location, swiss)` authority.
-/// If listener state changed since an earlier dial, its location is the newer
-/// advice and later gives must not stay pinned to the old route. Explicit
+/// If listener state changed since an earlier dial, its location is the newer status-allow: event or source ordering
+/// advice and later gives must not stay pinned to the old route. Explicit status-allow: replacement state identity
 /// application policy remains effective above it.
 pub fn replaceDiscovered(self: *Node, peer_handle: PeerHandle, location: model.PeerLocator) !void {
     const owned = try engine.encodePeerLocatorRecord(self.allocator, location);

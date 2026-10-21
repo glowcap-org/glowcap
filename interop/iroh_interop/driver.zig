@@ -222,7 +222,7 @@ fn callUnified(
 /// One serve-and-reach cycle for the durable-identity proof: `server` hosts the
 /// greeter while a fresh discovery client dials `dial_id` (a recorded sturdyref
 /// designator) by id alone, fetches, and calls. Both peers share the process
-/// address book, so `dial_id` resolves to whatever endpoint currently holds that
+/// address book, so `dial_id` resolves to whatever endpoint holds that
 /// node id, which is the point: the locator is stable, the endpoint behind it
 /// need not be.
 fn restartCycle(

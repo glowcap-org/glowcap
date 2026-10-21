@@ -14,12 +14,12 @@ import { doc } from "./fixtures.ts";
 // ──────────── What playback is allowed to recompute ────────────
 //
 // The keyframes are a pure function of the document, so playing a document
-// nobody edits must not re-derive them. It used to: the recompute was
-// triggered by the set of peers and sessions present in the world AT `t`,
-// which changes on any frame where something comes into view, so a document
-// whose sessions arrived steadily ran one d3-force convergence per era per
-// arrival and threw away keyframes identical to the ones it already had. On a
-// hand-built document that was three quarters of the frame.
+// nobody edits must not re-derive them. The recompute is not triggered by
+// the set of peers and sessions present in the world AT `t`, which changes on
+// any frame where something comes into view: a document whose sessions arrive
+// steadily would run one d3-force convergence per era per arrival and throw
+// away keyframes identical to the ones it already had. On a hand-built
+// document that is three quarters of the frame.
 //
 // Both halves are held here, because either one alone can be satisfied by a
 // broken engine: never recomputing makes live mode's later peers land at their
@@ -42,8 +42,8 @@ import { doc } from "./fixtures.ts";
 
 engineTest("playing an unedited document never recomputes the layout", () => {
 	// Peers and sessions that arrive across the timeline rather than all at
-	// t=0: entities appearing mid-playback are the condition that used to
-	// trigger the recompute, so a document where everything exists from the
+	// t=0: entities appearing mid-playback are the condition that would
+	// trigger a recompute, so a document where everything exists from the
 	// start would pass this test without exercising it.
 	const staggered = TimelineDocument.parse({
 		id: "staggered",

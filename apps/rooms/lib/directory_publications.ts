@@ -32,8 +32,6 @@ export const RoomInfoSchema = z.strictObject({
 );
 
 export type RoomInfo = z.infer<typeof RoomInfoSchema>;
-export type RoomEntryKind = RoomInfo["kind"];
-export type RoomOriginProof = RoomInfo["proof"];
 
 /** One live directory registration. `registrationId` distinguishes successive
  * holders of the same nickname and is not bearer authority. */

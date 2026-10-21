@@ -43,7 +43,7 @@
   (when failure (raise failure)))
 
 ;; Close the physical byte channel exactly once. A close refusal is terminal
-;; evidence, but never skips FFI retirement or replaces an earlier cause.
+;; evidence, but never skips FFI retirement or replaces an earlier cause. status-allow: event or source ordering
 (define (close-session-transport! c)
   (set-box! (session-closing-state c) #t)
   (when (box-cas! (session-transport-close-started? c) #f #t)
@@ -53,7 +53,7 @@
                        (void))])
       ((async-transport-close! (async-connection-transport (session-async c)))))))
 
-;; Retire a loop-backed shell after its loop can no longer project events.
+;; Retire a loop-backed shell after its loop can no longer project events. status-allow: lifecycle transition
 ;; Driver release owns the C allocation; this only completes Racket waiters.
 (define (loop-owner-failed! c error)
   (define ac (session-async c))

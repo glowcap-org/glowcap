@@ -1,4 +1,4 @@
-// Opaque identities used to synchronize durable room authority lifecycles.
+// Opaque identities used to synchronize durable room authority lifecycles. status-allow: purpose clause
 
 import { parseRoomsSturdyref } from "../locator.ts";
 

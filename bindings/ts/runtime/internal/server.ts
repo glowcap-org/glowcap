@@ -25,17 +25,17 @@ export class DriverServer {
 		return this.#listener;
 	}
 
-	/** The complete canonical locator currently advertised by the driver. */
+	/** The complete canonical locator advertised by the driver. */
 	get locator(): Locator {
 		return this.driverListener.locator();
 	}
 
-	/** The canonical URI currently advertised by the driver. */
+	/** The canonical URI advertised by the driver. */
 	get uri(): string {
 		return formatLocatorUri(this.locator);
 	}
 
-	/** The locator designator currently advertised by the driver. */
+	/** The locator designator advertised by the driver. */
 	get designator(): string {
 		return this.locator.designator;
 	}

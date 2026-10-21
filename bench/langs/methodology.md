@@ -70,7 +70,7 @@ divides by the connection count. If RSS cannot be read, the report leaves the
 field blank.
 
 This is process-level resident memory. Runtime heap growth, garbage-collector
-granularity, and pages faulted in during earlier work can dominate a small
+granularity, and pages faulted in during earlier work can dominate a small <!-- status-allow: measurement sequence -->
 connection delta. Use it for order-of-magnitude tracking within one runtime
 class.
 

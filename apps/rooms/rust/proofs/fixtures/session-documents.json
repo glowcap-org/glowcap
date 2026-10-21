@@ -1,7 +1,5 @@
 {
   "ceilings": {
-    "checkpoint": 786432,
-    "effects": 4194304,
     "grants": 131072,
     "bridge-secrets": 786432
   },

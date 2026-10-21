@@ -2,7 +2,7 @@
 ;; Goblins-canonical CapTP projection ops for interop wire send.
 ;;
 ;; Spritely Goblins 0.18.0 handles inbound `op:get` / `op:index` but has no
-;; application-level outbound projection send yet (`captp.rkt` notes the missing
+;; application-level outbound projection send (`captp.rkt` notes the missing
 ;; `<-hashmap-ref` operator). Interop scripts marshal the same record labels
 ;; Goblins already defines and write them on the live session through
 ;; `^tcp-netlayer`'s `interop-send`.

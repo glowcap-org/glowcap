@@ -19,6 +19,8 @@ Deno.test("an unverified claim is session-scoped, not an identity", () => {
 			v: 1,
 			sim_t_ns: t_ns,
 			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
 			session,
 			a: "rooms",
 			b: "127.0.0.1:0",
@@ -140,6 +142,8 @@ Deno.test("a verified name IS an identity across sessions", () => {
 			v: 1,
 			sim_t_ns: t_ns,
 			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
 			session,
 			a: "rooms",
 			b: "ed25519:bobkey",
@@ -205,6 +209,8 @@ Deno.test("replay is state, not events: topology applies, messages stay out", ()
 		sim_t_ns: 0,
 		replay: true,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "s1",
 		a: "rooms",
 		b: "bob",
@@ -253,6 +259,8 @@ Deno.test("replay completion removes observations absent from the snapshot", () 
 		v: 1,
 		sim_t_ns: 0,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p0/s1",
 		a: "rooms",
 		b: "alice",
@@ -275,6 +283,8 @@ Deno.test("replay completion retains observations still in the snapshot", () => 
 		v: 1,
 		sim_t_ns: 0,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p0/s1",
 		a: "rooms",
 		b: "alice",
@@ -311,7 +321,7 @@ Deno.test("session-meta folds into the partner's label, identity untouched", () 
 	const updated = expectKind(out[0], "peer-updated");
 	assertEquals(updated.peerId, "127.0.0.1:0");
 	assertEquals(updated.label, "carol");
-	// A session the converter has not seen open: nothing to name yet.
+	// A session the converter has not seen open: nothing to name yet. status-allow: pending state or quoted runtime label
 	assertEquals(
 		convert({
 			v: 1,

@@ -49,7 +49,7 @@ const LoweredCapability = struct {
     receipt: ?CapabilityLoweringReceipt,
 };
 
-/// One value lowering that has not yet crossed its semantic commit point.
+/// One value lowering that has not yet crossed its semantic commit point. status-allow: pending state or quoted runtime label
 /// Public only for Host-core sibling modules. Adapters call the complete
 /// send/tell/vow operations instead of managing this transaction.
 ///
@@ -140,7 +140,7 @@ pub const PreparedValues = struct {
 };
 
 /// Lowering receipts of sends made in the running turn, and the room
-/// `holdForTurn` reserved for receipts not yet committed.
+/// `holdForTurn` reserved for receipts not yet committed. status-allow: pending state or quoted runtime label
 pub const TurnReceipts = struct {
     held: std.ArrayListUnmanaged(CapabilityLoweringReceipt) = .empty,
     reserved: usize = 0,
@@ -369,7 +369,7 @@ fn rollbackCapabilityLowerings(self: *Host, receipts: []const CapabilityLowering
     }
 }
 
-/// Lower a live Host identity onto the session that can currently name it,
+/// Lower a live Host identity onto the session that can name it,
 /// returning rollback authority when this call minted an otherwise unseen
 /// Port projection or Node enrollment.
 fn lowerCapabilityTracked(self: *Host, session: *HostSession, ref: capability.Ref) !LoweredCapability {

@@ -126,7 +126,7 @@ fn installed_chat_switches_preserves_refused_membership_and_observes_shutdown() 
 		first.send("/list");
 		first.until("occupied (1)");
 		first.send("/enter occupied");
-		// The next ordinary post must still use the old membership.
+		// The next ordinary post must still use the old membership. status-allow: replacement state identity
 		first.send("still-in-general");
 		first.until("alice: still-in-general");
 		first.send("/open second");

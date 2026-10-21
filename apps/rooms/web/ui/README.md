@@ -38,7 +38,7 @@ the threads while every connection is lost and grows them back in when one retur
 - **Development.** During `zig build rooms-dev`, the same configuration serves source modules with React Fast Refresh
   and proxies Rooms process endpoints to a temporary loopback backend.
 - **Browser support.** Production JavaScript targets Mobile Safari on iOS 26 as the oldest engine, plus current Chrome
-  and Firefox. The build adds no legacy bundle and no module-preload polyfill.
+  and Firefox. The build adds no legacy bundle and no module-preload polyfill. <!-- status-allow: browser build target -->
 
 Vite splits the code at the points where a reader is already waiting for something:
 
@@ -222,7 +222,7 @@ lock, one destination. Both read from the card's answers, and a change on either
 
 - Picking a directory in the panel writes the card's locator, and typing in the panel's field writes the card's room
   name. These picks are edits, so they file no act and leave every other answer in place.
-- The last row of the directory menu is for an address this tab does not know yet. On the card, it puts the caret in the
+- The last row of the directory menu is for an address this tab does not know yet. On the card, it puts the caret in the <!-- status-allow: runtime state or operation ordering -->
   field the menu hangs from. The panel has nowhere to type an address, so it hands over that same field.
 - Opening a conversation puts the panel away.
 - With a room open, the panel names the directory of the room you are reading. Switching to another directory is an

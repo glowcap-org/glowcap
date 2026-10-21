@@ -271,7 +271,7 @@ const ListenerShell = netlayer.ListenerShell(struct {
     pub const close = listenerClose;
 });
 
-/// A bound in-process listener: a queue of dialed-but-not-yet-accepted duplexes,
+/// A bound in-process listener: a queue of dialed-but-not-yet-accepted duplexes, status-allow: pending state or quoted runtime label
 /// drained by `accept`.
 pub const InprocListener = struct {
     network: *Network,
@@ -288,7 +288,7 @@ pub const InprocListener = struct {
     /// the mutex released. Close joins it before freeing listener storage.
     operations: usize = 0,
     operations_drained: Io.Condition = .init,
-    /// Dials currently pinning this listener (between `Network.acquire` and
+    /// Dials pinning this listener (between `Network.acquire` and
     /// `releaseDial`), guarded by the *network* lock so the pin is atomic with
     /// the registry lookup. `listenerClose` unregisters first, no new pin can
     /// form, then waits for this to reach zero before freeing anything.
@@ -299,7 +299,7 @@ pub const InprocListener = struct {
     pending: std.ArrayList(*Duplex) = .empty,
     closed: bool = false,
     arrival_notifier: ?ArrivalNotifier = null,
-    /// Notifier callbacks currently outside the listener mutex. Close waits
+    /// Notifier callbacks outside the listener mutex. Close waits
     /// for this pin before the adapter-owned callback context may be freed.
     notifying: usize = 0,
     notify_drained: Io.Condition = .init,
@@ -544,7 +544,7 @@ fn listenerClose(self: *InprocListener) ?netlayer.ListenerCloseFailure {
     // `Network.acquire`. The registry entry is already gone, so no new pin
     // can form and the count only falls; each pinned dial either enqueued
     // before this close swept the pending list, or finds `closed` set and is
-    // refused. Freeing earlier would destroy the listener under a dial that
+    // refused. Freeing earlier would destroy the listener under a dial that status-allow: event or source ordering
     // already holds its pointer.
     while (dialsPinned(self)) self.dial_drained.waitUncancelable(io, &self.mutex);
     // A notifier runs outside this mutex so a wake implementation never joins

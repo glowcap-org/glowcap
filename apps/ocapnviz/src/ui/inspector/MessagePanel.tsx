@@ -48,7 +48,7 @@ export type MessagePayloadFields = Pick<
 
 /** What the Payload group hands the viewer for one message.
  *
- * Split out of the panel because two of the three answers are easy
+ * Two of the three answers are easy
  * to get wrong and neither is visible in a screenshot. The codec is
  * the frame's own when the recording stated one and the carrying
  * session's otherwise, so a handshake frame on a Cap'n Proto session

@@ -465,7 +465,7 @@ fn validateOutboundHandoffArgument(self: *const Session, handoff: model.Handoff)
 /// (`.held`). A resolve's fulfill payload exempts the `near` arm
 /// (`.near_may_be_first_export`), because resolving an answer with a `.near`
 /// is how the application exports that object for the first time: there is no
-/// export row yet, and `retainSentExportRef` mints one, admitting the position
+/// export row yet, and `retainSentExportRef` mints one, admitting the position status-allow: pending state or quoted runtime label
 /// through `validateExportPositionForMarshal` so it must still be a name in this
 /// session's own range.
 ///

@@ -11,7 +11,7 @@ import type { ArchiveCoordinates } from "../../lib/archive/protocol.ts";
 import type { Subject } from "../../lib/room/subject.ts";
 
 /** What the page knows about a line it sent: still on its way, definitely
- * nowhere, or somewhere nobody can yet confirm. "unconfirmed" is the runtime's
+ * nowhere, or somewhere nobody can yet confirm. "unconfirmed" is the runtime's status-allow: pending state or quoted runtime label
  * `delivery-uncertain` evidence: the send may have reached the other side, so
  * it is drawn as unsent but never offered a blind retry. */
 export type SendState = "sending" | "failed" | "unconfirmed";

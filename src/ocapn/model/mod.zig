@@ -200,7 +200,7 @@ pub const RoutedRef = struct {
     kind: RefKind = .object,
 };
 
-/// A promise allocated by an earlier operation on this session.
+/// A promise allocated by an earlier operation on this session. status-allow: event or source ordering
 ///
 /// OCapN's `desc:answer` carries exactly this position. Derived operations are
 /// ordinary `op:deliver`, `op:get`, `op:index`, or `op:untag` messages with

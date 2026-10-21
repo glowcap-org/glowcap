@@ -24,8 +24,8 @@
 //! including both directions against Goblins' own onion netlayer.
 //! `src/c_abi/net_transport/onion/` carries this transport to C, and all four
 //! language bindings wrap that archive. The blocking `driver.listen`/`Server`
-//! path drives a `Resident`. No completion loop adopts it yet, so each blocking
-//! connection still has its own I/O owner.
+//! path drives a `Resident` with a separate I/O owner per connection. No
+//! completion loop adopts that resident.
 
 /// The SOCKS5 client that dials an onion service through a local Tor. See
 /// `socks5.zig`.

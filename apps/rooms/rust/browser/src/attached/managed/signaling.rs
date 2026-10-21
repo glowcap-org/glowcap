@@ -133,7 +133,7 @@ async fn run(
 					continue;
 				};
 				let id = row.id.text().as_str().ok_or("Invalid directory ID")?.to_owned();
-				// A successor cannot file an inbox until the old listener has joined.
+				// A successor cannot file an inbox until the old listener has joined. status-allow: replacement state identity
 				if held.contains_key(&id) {
 					continue;
 				}

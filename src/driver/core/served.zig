@@ -78,7 +78,7 @@ pub const Served = struct {
     /// partner.
     local_turn_budget: ?usize = null,
     /// Turns consumed in the current resumable local-work epoch. `null` means
-    /// no local work is currently being resumed. A finite Host scheduler may
+    /// no local work is being resumed. A finite Host scheduler may
     /// yield between these turns, but it must not confuse that yield with a
     /// fresh batch or reset the per-session amplification cap.
     budgeted_local_turns: ?usize = null,
@@ -305,7 +305,7 @@ pub const Served = struct {
 
     /// Copy an inbound `op:abort`'s kind and bounded message into `last_abort`.
     /// A message longer than the buffer is truncated. A malformed abort view is
-    /// ignored, leaving any earlier retention in place.
+    /// ignored, leaving any earlier retention in place. status-allow: event or source ordering
     fn retainAbort(self: *Served, event: *const engine.Event) void {
         const body = event.view();
         const abort = switch (body.*) {

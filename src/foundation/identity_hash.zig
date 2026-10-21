@@ -155,7 +155,7 @@ pub fn multiplierFromSeed(seed: u64) u64 {
 
 /// The multiplier `multiplier` becomes under a fresh `salt`: the salt hashed
 /// under the multiplier, so a session keyed from a durable root and a reused
-/// handle still hashes under a secret no earlier session held.
+/// handle still hashes under a secret no earlier session held. status-allow: event or source ordering
 pub fn saltedMultiplier(multiplier: u64, salt: u64) u64 {
     return multiplierFromSeed(wireHash(salt, multiplier));
 }
@@ -204,7 +204,7 @@ pub fn WireMap(comptime K: type, comptime V: type) type {
         }
 
         /// Re-key an empty map under the session's secret. A map with rows
-        /// in it could no longer find them, so emptiness is asserted.
+        /// in it could no longer find them, so emptiness is asserted. status-allow: lifecycle transition
         pub fn keyWire(self: *Self, multiplier: u64) void {
             std.debug.assert(self.inner.count() == 0);
             self.multiplier = multiplier;

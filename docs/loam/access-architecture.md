@@ -16,19 +16,11 @@ restored. The decision records below give the reasoning behind each part.
 
 | Decision record | Covers |
 | --- | --- |
-| [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) | Resource and scope core |
-| [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) | Local grant model |
-| [ADR-0047](../decisions/adr/ADR-0047-prepared-grant-mutations.md) | Grant preparation and exact storage completion |
+| [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) | Resource and scope core, local grant model, revision-checked resource views and the structural record codec |
+| [ADR-0047](../decisions/adr/ADR-0047-prepared-grant-mutations.md) | Grant preparation and exact storage completion, revision-checked grant records, bounded encoding, LMDB tests of atomic records |
 | [ADR-0048](../decisions/adr/ADR-0048-loam-persistence-foundation.md) | Storage and what stays in memory |
-| [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) | Revision-checked resource views and the structural record codec |
-| [ADR-0047](../decisions/adr/ADR-0047-prepared-grant-mutations.md) | Revision-checked grant records, bounded encoding, LMDB tests of atomic records |
-| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Durable owner headers and sparse indexes, bounded resumable reads, shared-transaction staging |
-| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Durable use and control descriptors, bounded opaque Zig operations |
-| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Fixed-resource use and control endpoints through the durable Host attachment, ordinary publication restoration |
-| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Fixed-resource derivation, hidden publication reservation, bounded retry receipts |
-| [ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md) | Exact disclosure of stored reference fields |
-| [ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md) | Dependent local facets, transactional strong-field edits |
-| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Persistent resource lifecycle, child indexes, moves and leaf deletion, independent child controls, shared mutation receipts |
+| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | The managed owner: its durable records and bounded reads, use and control endpoints, publication, retry and mutation receipts, and the resource tree's lifecycle |
+| [ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md) | Exact disclosure of stored reference fields, dependent local facets, transactional strong-field edits |
 | [ADR-0054](../decisions/adr/ADR-0054-scoped-change-observation.md) | Bounded retained batches and observation |
 
 The [managed access model](access-api.md) states the rules every call keeps,
@@ -423,8 +415,7 @@ up within what the watcher may see, and opaque cursors.
 Grant changes are prepared as bounded changes, with room reserved in the tree
 and an exact result from storage. The owner's transaction ties
 fixed-resource content changes to the permission check
-([ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)) and adds
-atomic sharing and bounded receipts
+and adds atomic sharing and bounded receipts
 ([ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)). One
 hosted call can also create a child or change other resources of the same
 owner, and the change batch it commits is the record of that operation

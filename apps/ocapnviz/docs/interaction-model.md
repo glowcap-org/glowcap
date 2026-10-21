@@ -238,7 +238,7 @@ carries its pointer-up hit, so no second hit test is needed.
 | `set-selection`         | replace the set and anchor its last member               |
 | `add-to-selection`      | add members and anchor the last new member               |
 | `remove-from-selection` | remove members and re-seat the anchor if necessary       |
-| `reconcile-with-doc`    | drop identities the current document no longer declares  |
+| `reconcile-with-doc`    | drop identities the current document no longer declares  | <!-- status-allow: runtime state or operation ordering -->
 | `rename-entity`         | rewrite one identity without losing membership or anchor |
 | `clear-all`             | return `EMPTY_SELECTION`                                 |
 | `clear-on-empty-click`  | return `EMPTY_SELECTION`                                 |

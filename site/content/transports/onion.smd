@@ -236,10 +236,8 @@ glowcap form of the address, and an acceptor configured for it answers the
 same way. Every other session, including every session with a Goblins vat,
 uses the baseline.
 [ADR-0042](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0042-onion-interoperability.md)
-records the locator rule.
-[ADR-0042](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0042-onion-interoperability.md)
-records how a dialer picks glowcap's own profile only when it
-knows the other side is glowcap.
+records the locator rule and how a dialer picks glowcap's own profile only
+when it knows the other side is glowcap.
 
 [Choosing a transport]($link.page('transports/choosing')) puts onion beside the
 others. [What you can depend on]($link.page('stability')) lists the live Tor

@@ -20,7 +20,7 @@ import { bundleProbe, fail, freePort } from "../../bindings/ts/web/test/support.
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const WASM = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 // A byte-transparent signaling relay for exactly two peers: it forwards every
-// message from one role to the other, buffering for a role that has not yet
+// message from one role to the other, buffering for a role that has not yet status-allow: pending state or quoted runtime label
 // connected so no early identity or offer is lost. It never parses a payload.
 class SignalRelay {
 	#sockets: Record<string, WebSocket | null> = { offerer: null, answerer: null };

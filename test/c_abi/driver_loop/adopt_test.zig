@@ -77,7 +77,7 @@ test "a quiescent byte-fed Host transfers exclusively to the driver" {
     defer _ = harness.releaseLoop(loop);
 
     // One runtime owns transport execution and terminal release. Neither a
-    // second loop nor the old Host release path can acquire that authority.
+    // second loop nor the old Host release path can acquire that authority. status-allow: replacement state identity
     var second: ?*cdrv.GlowcapDriverLoop = null;
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_INVALID_ARGUMENT,

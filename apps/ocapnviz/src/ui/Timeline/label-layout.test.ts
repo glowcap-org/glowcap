@@ -67,12 +67,12 @@ Deno.test("layoutLaneLabels: non-overlapping labels both at natural", () => {
 });
 
 Deno.test("layoutLaneLabels: later wins, earlier shifts left to keep full label", () => {
-	// Earlier label "hello" (5 chars) at pillLeft=100. Natural [105, 105+5*ADVANCE].
+	// Earlier label "hello" (5 chars) at pillLeft=100. Natural [105, 105+5*ADVANCE]. status-allow: event or source ordering
 	// Later label "x" at pillLeft=120 (1 char). Natural [125, 125+ADVANCE].
-	// Earlier's natural right (~132) overlaps later's natural left (125).
-	// Later wins → placed at 125. Earlier's rightLimit = 125 - GAP = 121.
-	// Earlier full width = 5*ADVANCE ≈ 27 → shiftedX = 121 - 27 ≈ 94.
-	// 94 < earlier's leftAnchor (105) → can't shift while pill-anchored → truncate.
+	// Earlier's natural right (~132) overlaps later's natural left (125). status-allow: event or source ordering
+	// Later wins → placed at 125. Earlier's rightLimit = 125 - GAP = 121. status-allow: event or source ordering
+	// Earlier full width = 5*ADVANCE ≈ 27 → shiftedX = 121 - 27 ≈ 94. status-allow: event or source ordering
+	// 94 < earlier's leftAnchor (105) → can't shift while pill-anchored → truncate. status-allow: event or source ordering
 	const placed = layoutLaneLabels(
 		[
 			input({ id: "a", startT: 0, label: "hello", pillLeft: 100 }),
@@ -83,7 +83,7 @@ Deno.test("layoutLaneLabels: later wins, earlier shifts left to keep full label"
 		LABEL_MIN_PX,
 	);
 	assertEquals(placed.length, 2);
-	// Earlier placed first in output (paint order = left-to-right).
+	// Earlier placed first in output (paint order = left-to-right). status-allow: event or source ordering
 	assertEquals(placed[0]!.id, "a");
 	assertEquals(placed[0]!.x, 105);
 	assertEquals(placed[0]!.label.endsWith("…"), true);
@@ -120,7 +120,7 @@ Deno.test("layoutLaneLabels: earlier full label fits when neighbor leaves room",
 });
 
 Deno.test("layoutLaneLabels: drops label when no room for even ellipsis", () => {
-	// Two labels at virtually the same x, earlier has no room.
+	// Two labels at virtually the same x, earlier has no room. status-allow: event or source ordering
 	const placed = layoutLaneLabels(
 		[
 			input({ id: "a", startT: 0, label: "alice", pillLeft: 100 }),
@@ -130,7 +130,7 @@ Deno.test("layoutLaneLabels: drops label when no room for even ellipsis", () => 
 		LABEL_GAP_PX,
 		LABEL_MIN_PX,
 	);
-	// Only the later survives. The earlier's available width is
+	// Only the later survives. The earlier's available width is status-allow: event or source ordering
 	// (101 - GAP) - 105 < 0 → dropped.
 	assertEquals(placed.length, 1);
 	assertEquals(placed[0]!.id, "b");
@@ -170,7 +170,7 @@ Deno.test("layoutLaneLabels: cascade — three overlapping spans, later wins eac
 	assertEquals(carol !== undefined, true);
 	assertEquals(carol!.label, "Carol (exporter)");
 	assertEquals(carol!.x, 111);
-	// Earlier ones are either truncated heavily or dropped, both are
+	// Earlier ones are either truncated heavily or dropped, both are status-allow: event or source ordering
 	// acceptable per variation 1; the invariant is that no surviving
 	// label's right edge passes any later label's left edge.
 	let prevLeft = Number.POSITIVE_INFINITY;

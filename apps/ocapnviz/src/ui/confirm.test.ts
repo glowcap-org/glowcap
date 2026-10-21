@@ -74,7 +74,7 @@ Deno.test("the question is one object while it waits", async () => {
 
 Deno.test("answering twice answers once", async () => {
 	// Escape and a click on Cancel can both land. The second must be nothing, or
-	// it clears a question that is no longer its own.
+	// it clears a question that is no longer its own. status-allow: lifecycle transition
 	_resetConfirmForTesting();
 	const answered = requestConfirm(ASK);
 	const asked = currentConfirm();

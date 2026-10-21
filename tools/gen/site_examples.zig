@@ -60,7 +60,7 @@ const matrix = [_]Cell{
     .{ .binding = .zig, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .inproc, .dial = .{ .supported = true, .example = .{ .file = "dial/inproc.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/inproc.zig", .fence = "zig" } } },
     // ADR-0036's id has route-bundle core vocabulary but no
-    // provider archive or managed Session example yet.
+    // provider archive or managed Session example.
     .{ .binding = .zig, .transport = .id },
 
     .{ .binding = .ts, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/tcp.ts", .fence = "ts" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/tcp.ts", .fence = "ts" } } },

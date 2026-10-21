@@ -387,11 +387,10 @@ layoutTest(
 layoutTest(
 	"pinning a peer in place does not anneal free eras",
 	() => {
-		// The old placement path cold-solved every era, then threw the result away
-		// via reuseIfEquilibrium when the pin sat where the era already had the
-		// peer. With a handful of free eras and a high iteration count that
-		// throwaway was tens of milliseconds per drag; checking equilibrium
-		// before runForce makes the same gesture a map copy.
+		// Placement checks equilibrium first and anneals only when a pin moved the
+		// era's problem. With a handful of free eras and a high iteration count,
+		// cold-solving every era would cost tens of milliseconds per drag;
+		// checking equilibrium before runForce makes the same gesture a map copy.
 		const observations: unknown[] = [];
 		for (let i = 0; i < 8; i += 1) {
 			observations.push({

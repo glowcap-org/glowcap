@@ -89,7 +89,7 @@ pub const AnswerRelease = enum {
     shared_peer_visible,
 };
 
-/// How explicit release cancels a producer that has not settled yet. Fallible
+/// How explicit release cancels a producer that has not settled yet. Fallible status-allow: pending state or quoted runtime label
 /// ownership is restricted to rows without an answer release, so retry cannot
 /// follow an already-committed wire effect.
 pub const PendingCancel = union(enum) {

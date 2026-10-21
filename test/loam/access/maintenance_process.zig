@@ -92,7 +92,7 @@ pub fn create(server: anytype, client: *h.driver.Host, pair: pairs.Pair, use: mo
     try h.f.commit(store, server.db);
     _ = try h.f.change(store, server.db, owner_id, .{ .revoke = descriptor.grant });
     var progress = try native.change(store, server.db, owner_id, .sweep, 0);
-    // Stop immediately before the terminal endpoint/publication batch. Earlier
+    // Stop immediately before the terminal endpoint/publication batch. Earlier status-allow: event or source ordering
     // weak members and its descriptor have already advanced persisted progress.
     for (0..64) |_| {
         const step = try h.c.storage.Maintenance.init(store.allocator, store, owner_id, .step, progress.sequence, 8);

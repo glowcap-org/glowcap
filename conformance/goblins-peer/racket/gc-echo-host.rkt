@@ -3,7 +3,7 @@
 ;;
 ;; Same echo swiss as goblins-host.rkt / the CapTP suite, plus a background
 ;; `(collect-garbage)` loop so CapTP's will-executor can fire `op:gc-exports`
-;; for imports the echo turn no longer retains. Without that nudge, Racket may
+;; for imports the echo turn no longer retains. Without that nudge, Racket may status-allow: lifecycle transition
 ;; never collect the import refr in a short interop run.
 ;;
 ;; Usage:

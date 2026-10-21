@@ -1,5 +1,5 @@
 //! Membership bridge calls use shared form admission and keep each room's
-//! declaration separate, including while an earlier observation is cancelled.
+//! declaration separate, including while an earlier observation is cancelled. status-allow: event or source ordering
 use super::HostPlatform;
 use glowcap::{Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Runtime, RuntimeConfig, tcp};
 use rooms_application::bridge::{self, Answers};

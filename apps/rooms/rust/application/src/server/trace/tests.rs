@@ -2,7 +2,7 @@ use super::{records::*, *};
 
 fn opened(session: &str) -> Map<String, Value> {
 	parse_record(&format!(
-		r#"{{"v":1,"sim_t_ns":5,"kind":"ocapn.session-opened","session":"{session}","a":"me","b":"you","transport":"tcp","seq":99,"replay":true}}"#
+		r#"{{"v":1,"sim_t_ns":5,"kind":"ocapn.session-opened","session":"{session}","a":"me","b":"you","transport":"tcp","captp_version":"1.0","seq":99,"replay":true}}"#
 	))
 	.unwrap()
 }
@@ -58,6 +58,12 @@ fn a_line_that_is_not_a_timeline_record_is_refused() {
 	assert!(
 		parse_record(
 			r#"{"v":1,"sim_t_ns":1,"kind":"ocapn.session-opened","session":"s","a":"","b":"y","transport":"tcp"}"#
+		)
+		.is_none()
+	);
+	assert!(
+		parse_record(
+			r#"{"v":1,"sim_t_ns":1,"kind":"ocapn.session-opened","session":"s","a":"x","b":"y","transport":"tcp"}"#
 		)
 		.is_none()
 	);

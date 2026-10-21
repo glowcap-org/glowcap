@@ -307,7 +307,7 @@ pub fn register(ctx: Context) Registered {
         },
         .{
             .step_name = "webrtc-loop",
-            .description = "Live WebRTC scale: many concurrent DataChannels, each answered by the completion backend and served from one HostRuntime thread with the client's identity proved (ADR-0035, ADR-0018 and ADR-0035, needs cargo)",
+            .description = "Live WebRTC scale: many concurrent DataChannels, each answered by the completion backend and served from one HostRuntime thread with the client's identity proved (ADR-0035, ADR-0018, needs cargo)",
             .exe_name = "glowcap-webrtc-loop",
             .root_source = "interop/webrtc_loop/driver.zig",
             .imports = .{ .webrtc_common = true },

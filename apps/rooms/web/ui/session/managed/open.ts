@@ -7,7 +7,6 @@ import type { WorkspaceSnapshot } from "./model.ts";
 import type { RoomsManagedWorkspace } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 
 export const ACTIVE_VIEW = "active-view";
-export const ACTIVE_CONTROL = "active-control";
 const TAB = "rooms.managed-tab";
 
 export class ManagedSessionStartupFailure extends Error {
@@ -54,7 +53,7 @@ export async function openManagedSession(
 		const heldCustody: RoomsManagedWorkspace = await application.workspace();
 		custody = heldCustody;
 		const home: WorkspaceSnapshot = await heldCustody.snapshot();
-		// Choosing a replacement must not depend on restoring the old peer.
+		// Choosing a replacement must not depend on restoring the old peer. status-allow: replacement state identity
 		// Local custody keeps the saved selection until the new choice commits.
 		const local = selection === "local" ||
 			!home.intent.accesses?.some((row) => row.id === ACTIVE_VIEW && row.access != null);

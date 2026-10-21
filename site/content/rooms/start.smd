@@ -50,7 +50,7 @@ later in Settings.
 # Join a room
 
 The join card already points at the server that gave you the page. Type a
-room name such as `workshop`. If no room has that name yet, joining creates
+room name such as `workshop`. If no room has that name, joining creates
 it. You can leave **Display name** empty: the grey suggestion is a name the
 server can give you right now, and joining with the field empty takes it.
 

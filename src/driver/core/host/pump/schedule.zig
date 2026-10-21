@@ -53,7 +53,7 @@ fn scheduleSessionWork(self: *Host, peer_handle: engine.PeerHandle, wake_embedde
     session.control.flush_pending = true;
     // Dirty work is also a wake for a byte-fed embedder. This matters when a
     // finite host quantum expires immediately after a node action or handoff
-    // marks a session: no outbound frame may exist yet, but another Host verb
+    // marks a session: no outbound frame may exist yet, but another Host verb status-allow: pending state or quoted runtime label
     // must still be prompted to resume the dirty FIFO.
     // A terminal close is already the embedder wake and its executor flushes
     // any queued abort before closing. Do not leave a redundant flush behind

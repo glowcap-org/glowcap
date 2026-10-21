@@ -113,7 +113,7 @@ export const BridgeFactsSchema = z.strictObject({
 	 * room.
 	 *
 	 * The room states it instead of inferring it from whoever has already
-	 * linked, so a channel nobody has linked on yet still knows which identity
+	 * linked, so a channel nobody has linked on yet still knows which identity status-allow: pending state or quoted runtime label
 	 * is already its own. It matches the `scope` on the form the same bridge
 	 * declares. */
 	scope: nonemptyText(MAX_FORM_SCOPE),

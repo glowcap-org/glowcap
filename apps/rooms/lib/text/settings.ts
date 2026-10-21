@@ -62,12 +62,7 @@ export const sessionGoLocalSay =
 export const sessionKeepLocal = "Keep it local";
 export const sessionStayAttached = "Stay attached";
 export const sessionContinueLocally = "Continue locally";
-export const sessionAccessFor = "Who or what is this for?";
 export const sessionAccessTitle = "Session access";
-export const sessionAccessKeep = "Keep access";
-export const sessionAccessRevoke = "Revoke access";
-export const sessionAccessPlaceholder = "Kitchen display";
-export const sessionGrantNotePlaceholder = "Back on Monday";
 export const sessionStateFile = "State file";
 /** What the capability value field takes: the whole URI the server prints,
  * not a swiss number alone. */

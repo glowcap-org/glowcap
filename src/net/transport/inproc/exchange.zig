@@ -125,13 +125,13 @@ pub const Exchange = struct {
 pub const Listener = struct {
     designator: []u8,
     sink: *Sink,
-    /// Dialed links not yet accepted, oldest first. Guarded by `sink.lock`.
+    /// Dialed links not yet accepted, oldest first. Guarded by `sink.lock`. status-allow: pending state or quoted runtime label
     stash_head: ?*Link = null,
     stash_tail: ?*Link = null,
     stash_len: usize = 0,
     accept_queued: bool = false,
 
-    /// The oldest dial's end, not yet bound to a row.
+    /// The oldest dial's end, not yet bound to a row. status-allow: pending state or quoted runtime label
     pub fn take(self: *Listener) ?*End {
         self.sink.lock.lock();
         defer self.sink.lock.unlock();
@@ -294,7 +294,7 @@ pub const Sink = struct {
     listener: ?*Listener = null,
     wake: wake_channel.WakeChannel,
     wake_failure: wake_channel.FailureLatch = .{},
-    /// Nudges counted under a link or exchange lock and not yet sent.
+    /// Nudges counted under a link or exchange lock and not yet sent. status-allow: pending state or quoted runtime label
     nudging: std.atomic.Value(u32) = .init(0),
     /// The owner is waiting on the wake channel, or about to, so the next
     /// writer that queues news owes it a nudge. Guarded by `lock`.

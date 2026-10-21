@@ -166,7 +166,7 @@ pub const Backend = struct {
         );
     }
 
-    /// Reflect a completed operation in the kernel interest set. The old mask
+    /// Reflect a completed operation in the kernel interest set. The old mask status-allow: replacement state identity
     /// is a superset of the remaining directions, so a failed update leaves
     /// pending work observable. Keep the row in that case: removing it would
     /// make the next submission use ADD against a possibly live kernel entry.

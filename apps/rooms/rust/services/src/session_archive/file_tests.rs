@@ -378,7 +378,8 @@ async fn scenario() {
 		.unwrap();
 	assert_eq!(peer_blob.read(32_000, 8000).await.unwrap(), bytes[32_000..]);
 	assert_eq!(local_blob.read(32_000, 8000).await.unwrap(), bytes[32_000..]);
-	reupload(&owner, &client, local_blob.clone(), description.clone(), "101", true).await;
+	reupload(&owner, &client, local_blob.clone(), description.clone(), "fenced", true).await;
+	owner.clear_source_when_ready(&"source".into()).await.unwrap();
 	assert!(local_blob.read(0, 1).await.is_err());
 	assert!(
 		remote
@@ -548,9 +549,17 @@ async fn reupload(
 	let (result, ()) = tokio::join!(recording.wait(), async {
 		if fence {
 			started.notified().await;
-			let erase = owner.clear_local().unwrap();
+			let revoke = owner.revoke_share("absent-share".into()).unwrap();
 			gate.notify_one();
-			erase.wait().await.unwrap();
+			assert!(
+				revoke
+					.wait()
+					.await
+					.unwrap_err()
+					.to_string()
+					.contains("a selected archive peer is required"),
+				"local revocation refuses without an issuer, after fencing admitted callbacks"
+			);
 		}
 	});
 	let tasks = core::mem::take(&mut *tasks.borrow_mut());
@@ -561,7 +570,7 @@ async fn reupload(
 	if fence {
 		assert!(
 			result.unwrap_err().to_string().contains("fenced"),
-			"erasure must refuse callbacks after its admission"
+			"revocation must refuse callbacks after its admission"
 		);
 	} else {
 		result.expect("a local source must serve committed blob callbacks during ingestion");

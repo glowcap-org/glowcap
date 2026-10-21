@@ -420,7 +420,7 @@ export function useStageScene(args: StageSceneRefs): void {
 
 			// Hover set/clear closed over `hoverRef`. `leaveHover` only
 			// clears if WE are the recorded hover, avoids the race where
-			// the new sibling's `pointerover` fires before the old one's
+			// the new sibling's `pointerover` fires before the old one's status-allow: replacement state identity
 			// `pointerout` and the clear wipes the new hover.
 			const enterHover = (h: StageHover) => {
 				hoverRef.current = h;

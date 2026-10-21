@@ -34,6 +34,7 @@
 import { resolveGesture } from "./gesture-resolver.ts";
 import { inFlightGesture } from "./pointer-machine.ts";
 import {
+	assertNever,
 	type BuilderTool,
 	isStageSurface,
 	type PointerMachineState,
@@ -266,7 +267,7 @@ function restingCursor(tool: BuilderTool): CSSCursor | null {
 	}
 }
 
-/** Cursor for a verb resolved at a HOVER hit (no press yet), what the next
+/** Cursor for a verb resolved at a HOVER hit (no press yet), what the next status-allow: pending state or quoted runtime label
  *  click on this surface would do. */
 function cursorForResolvedHover(
 	verb: ResolvedGesture,
@@ -382,8 +383,4 @@ function cursorForGestureInFlight(
 			// (clicks-only verbs); return default to be safe.
 			return "default";
 	}
-}
-
-function assertNever(x: never): never {
-	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
 }

@@ -48,7 +48,7 @@ type TimelineIntent =
 	| { kind: "set-view-fn"; fn: (s: TimelineView) => TimelineView }
 	| { kind: "toggle-lane"; lane: LaneKind }
 	/** Flash-grade timeline: flip whether a category lane renders
-	 * as today's stacked-spans summary or expands into per-entity
+	 * as the stacked-spans summary or expands into per-entity
 	 * rows. */
 	| { kind: "toggle-category"; category: Exclude<LaneKind, "ruler"> };
 
@@ -91,7 +91,7 @@ export type TimelinePanelProps = {
 	 * through to scrub-on-click everywhere. The explicit `|
 	 * undefined` is required under `exactOptionalPropertyTypes`. */
 	onSelectEvent?: ((selection: StageSelection) => void) | undefined;
-	/** Sub-selection state machine (#16). Forwarded straight to the
+	/** Sub-selection state machine. Forwarded straight to the
 	 *  Scrubber, TimelinePanel doesn't otherwise care about glyph
 	 *  focus, but owning the prop here keeps App's wiring symmetric
 	 *  with `selection` / `onSelectEvent`. */
@@ -471,7 +471,7 @@ export function TimelinePanel(
 				/*
         Overview strip + detail scrubber stacked. Both share the
         slot's measured width so canvases stay crisp on resize.
-        Phase 2: overview rectangle reflects + drives `view`.
+        The overview rectangle reflects and drives `view`.
       */
 			}
 			{
@@ -575,13 +575,8 @@ const liveIdleHint = {
 	fontSize: SIZE.sm,
 } satisfies React.CSSProperties;
 
-// Sans by default (chrome). Data sites that want mono (timeReadout,
-// visibleRange, ScrubInput values, scrubber tick / pill labels)
-// declare it inline. The earlier "mono cascades to descendants for
-// uniform panel vocabulary" intent conflated the data axis with
-// the chrome axis: under any pixel-grid mono font (Departure Mono)
-// the leak makes Play / Restart / Fit / segmented-control labels
-// render in mono and read as data, which they aren't.
+// Controls inherit the UI font. Time readouts, ranges, scrub inputs, and
+// tick labels explicitly select monospace as data labels.
 const panel = {
 	display: "flex",
 	flexDirection: "column",

@@ -72,7 +72,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_read(conn: *mut GlowcapIrohCo
 			Err(_) => return -1,
 		};
 		// The stream was moved into the reader task by `conn_set_nonblocking`;
-		// the blocking read is no longer this caller's to make.
+		// the blocking read is no longer this caller's to make. status-allow: lifecycle transition
 		let recv = match guard.as_mut() {
 			Some(recv) => recv,
 			None => return -1,
@@ -222,7 +222,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_close(conn: *mut GlowcapIrohC
 /// blocking call is still borrowing this box, so the free below cannot race one.
 ///
 /// # Safety
-/// `conn` must be null or an owned connection handle not previously freed.
+/// `conn` must be null or an owned connection handle not previously freed. status-allow: ownership and operation ordering
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_free(conn: *mut GlowcapIrohConn) {
 	if conn.is_null() {
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_free(conn: *mut GlowcapIrohCo
 	let writers = unsafe { &*conn }.writers.clone();
 	if catch_unwind(AssertUnwindSafe(|| {
 		// SAFETY: `conn` is non-null (checked above) and, per this function's `# Safety` contract, the owned handle
-		// `make_conn` created with `Box::into_raw`, not previously freed; the lock fence above proves no blocking call
+		// `make_conn` created with `Box::into_raw`, not previously freed; the lock fence above proves no blocking call status-allow: ownership and operation ordering
 		// still borrows it, and no later use follows, so this takes back that one allocation.
 		let inner = *unsafe { Box::from_raw(conn) };
 		// The reader has no useful work after local release; abort it. The writer

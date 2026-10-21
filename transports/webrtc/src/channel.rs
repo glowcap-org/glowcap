@@ -211,7 +211,7 @@ pub(crate) async fn await_inbound_room(
 				return true;
 			}
 		}
-		// `notify_one` leaves a permit behind when nothing is parked yet, so a
+		// `notify_one` leaves a permit behind when nothing is parked yet, so a status-allow: pending state or quoted runtime label
 		// reader that drains between the check above and this await still wakes
 		// us.
 		drained.notified().await;

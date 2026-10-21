@@ -6,14 +6,12 @@ import { useStore } from "zustand";
 import { NO_MEMBERS, type PageProjection, type State } from "./store.ts";
 import type { RoomsPermission } from "../../lib/session_content_data.ts";
 import type { RoomConv, Standing } from "./types.ts";
-import type { RoomsPageContext } from "./page.ts";
 import { archiveShareBearer, roomBearer, type RoomBearerKind } from "./session/bearer.ts";
 import { useManagedSession } from "./session/managed/context.tsx";
 import { noteTrouble } from "./store.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 
 const RoomsProjectionContext = createContext<PageProjection | null>(null);
-const RoomsPageReactContext = createContext<RoomsPageContext | null>(null);
 
 /** The page's presentation, for as long as the page. Every tree the page
  * renders stands in it, including the screen that runs before any session
@@ -21,22 +19,12 @@ const RoomsPageReactContext = createContext<RoomsPageContext | null>(null);
  * established page opens. `PageSurface` in main.tsx is where it goes on. */
 export const RoomsProjectionProvider = RoomsProjectionContext.Provider;
 
-/** The page itself, beside its projection, for the few controls that read
- * something the store does not hold: a bearer string. */
-export const RoomsPageProvider = RoomsPageReactContext.Provider;
-
 export function useRoomsProjection(): PageProjection {
 	const projection = useContext(RoomsProjectionContext);
 	if (projection == null) {
 		throw new Error("rooms: the page projection was requested outside its provider");
 	}
 	return projection;
-}
-
-export function useRoomsPage(): RoomsPageContext {
-	const page = useContext(RoomsPageReactContext);
-	if (page == null) throw new Error("rooms: the page was requested outside its provider");
-	return page;
 }
 
 /** The bearer string behind a room's authority token, read from the session
@@ -110,7 +98,7 @@ export function useRoomsState<T>(selector: (state: Readonly<State>) => T): T {
  *
  * Which access applies is `effectiveRoomsSessionAccess`'s answer and not this
  * one's: a browser holding its own session is not under a link's access at all
- * and can never be paused, and an attached one that has not been answered yet
+ * and can never be paused, and an attached one that has not been answered yet status-allow: pending state or quoted runtime label
  * is not paused either. Deciding that here a second time is how the two drift
  * into disagreeing about the same browser. */
 export function useSessionPaused(): boolean {

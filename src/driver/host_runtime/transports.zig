@@ -46,7 +46,7 @@ pub const Transports = struct {
     };
 };
 
-/// Register everything `transports` names on a runtime that has none yet.
+/// Register everything `transports` names on a runtime that has none yet. status-allow: pending state or quoted runtime label
 pub fn install(self: *HostRuntime, transports: Transports) !void {
     if (transports.symbols.len != 0) try installStack(self, transports);
     if (transports.residents.len == 0) return;
@@ -79,7 +79,7 @@ fn installSupported(self: *HostRuntime, transports: Transports) !void {
         .registrations = registrations,
         .owner = .{ .ctx = owned, .same_configuration = StackOwner.sameConfiguration, .release = StackOwner.releaseOpaque },
     }, indices);
-    // A runtime with no transports yet has no package to overlap.
+    // A runtime with no transports yet has no package to overlap. status-allow: pending state or quoted runtime label
     std.debug.assert(installed);
     owned_live = false;
 }

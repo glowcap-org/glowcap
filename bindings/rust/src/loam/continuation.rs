@@ -157,7 +157,7 @@ impl Drop for PendingContinuation {
 	fn drop(&mut self) {
 		let raw = self.raw.get();
 		if !raw.is_null() {
-			// SAFETY: `raw` is this `PendingContinuation`'s non-null handle (checked above), not yet consumed by
+			// SAFETY: `raw` is this `PendingContinuation`'s non-null handle (checked above), not yet consumed by status-allow: pending state or quoted runtime label
 			// `try_take`, and released exactly once here; its `owner` `Rc<AttachmentInner>` keeps the attachment alive.
 			let code = unsafe { ffi::glowcap_loam_pending_continuation_release(raw) };
 			if let Err(error) = check(code) {

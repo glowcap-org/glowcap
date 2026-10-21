@@ -1,26 +1,23 @@
-//! Committed blob callbacks pass ingestion while queued erasure fences them.
+//! Committed blob callbacks pass ingestion while a queued revocation fences them.
 use super::*;
 impl<P: Platform> ingestion::Request for Pending<P> {
 	fn reads_blob(&self) -> bool {
 		matches!(self.command, Command::ReadBlob(..) | Command::SharedRead(..))
 	}
 	fn fences_blob_reads(&self) -> bool {
-		matches!(self.command, Command::Clear(_) | Command::Revoke(..))
+		matches!(self.command, Command::Revoke(..))
 	}
 }
 pub(super) struct ReadReplies<'a, R> {
 	pub(super) reads: R,
 	pub(super) report: &'a mut Report,
-	pub(super) erase_required: bool,
 }
 impl<R: BlobAccess, P: Platform> Reads<Pending<P>> for ReadReplies<'_, R> {
 	async fn answer(&mut self, pending: Pending<P>, fenced: bool) {
 		let pending = match pending.command {
 			Command::SharedRead(work, reader, offset, maximum, mut reply) => {
-				let result = if fenced || self.erase_required {
-					Err(Error::stale(
-						"archive byte reads are fenced by queued erasure or revocation",
-					))
+				let result = if fenced {
+					Err(Error::stale("archive byte reads are fenced by a queued revocation"))
 				} else {
 					async {
 						work.check()?;
@@ -46,10 +43,8 @@ impl<R: BlobAccess, P: Platform> Reads<Pending<P>> for ReadReplies<'_, R> {
 		let Command::ReadBlob(reader, offset, maximum, answer) = pending.command else {
 			unreachable!("classified blob read")
 		};
-		let result = if fenced || self.erase_required {
-			Err(Error::stale(
-				"archive byte reads are fenced by queued erasure or revocation",
-			))
+		let result = if fenced {
+			Err(Error::stale("archive byte reads are fenced by a queued revocation"))
 		} else {
 			self.reads
 				.read(reader, offset, maximum)

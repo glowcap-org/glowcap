@@ -3,7 +3,6 @@ use super::{State, share::Work};
 use crate::{Error, platform::Platform};
 use glowcap::{CaptpVersion, Host, Locator};
 use rooms_application::archive::{Access, Facet, shares::Share};
-use rooms_glowcap::client::archive::ShareView;
 use std::{cell::Cell, rc::Rc};
 
 struct Published {
@@ -41,16 +40,6 @@ impl Issuer {
 		})?;
 		self.rows.remove(index);
 		Ok(true)
-	}
-	pub(super) fn listing(&self, specs: &[Share]) -> Result<Vec<ShareView>, Error> {
-		let mut rows = Vec::with_capacity(specs.len());
-		for spec in specs {
-			rows.push(ShareView {
-				share: spec.clone(),
-				sturdyref: self.link(spec.id())?,
-			});
-		}
-		Ok(rows)
 	}
 	/// The backend's committed share set is checked here, so a set it could
 	/// not have committed is its storage failure, never a caller's.

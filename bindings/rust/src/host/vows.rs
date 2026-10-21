@@ -138,7 +138,7 @@ enum Waiting {
 // a waiter lives only in `Awaited`, so an unobserved broken answer never strands
 // a channel.
 enum VowState {
-	/// Registered, not yet awaited and not yet settled.
+	/// Registered, not yet awaited and not yet settled. status-allow: pending state or quoted runtime label
 	Minted,
 	/// A caller is awaiting. The outcome fires this sender.
 	Awaited(oneshot::Sender<Result<Argument>>),

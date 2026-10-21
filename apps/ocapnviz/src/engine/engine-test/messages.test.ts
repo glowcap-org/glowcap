@@ -468,7 +468,7 @@ engineTest(
 	"renaming a recorded entity leaves no ghost and keeps its timing",
 	() => {
 		// The rename sibling of the delete-ghost bug: an observation
-		// left on the old id would resurrect a ghost there, and the
+		// left on the old id would resurrect a ghost there, and the status-allow: replacement state identity
 		// renamed entity, matching no observations, would collapse to
 		// eternal derived timing. The rename carries the observations.
 		const rec: TimelineDocument = {

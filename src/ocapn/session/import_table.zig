@@ -17,7 +17,7 @@
 //! V1.0 deliver advertised, the listener an `op:listen` nominated, the promise
 //! a shortening callback advanced to, is released by the session's own
 //! prepared message beside the callback, fire, or closure that spends it, and
-//! `adoptForSession` marks it so at the moment the session takes it. A caller's
+//! `adoptForSession` marks it so at the moment the session takes it. A caller's status-allow: state at observation
 //! release is validated against `releasable`, the remainder, so it can never
 //! address a row the session still has to settle through. The row's presence
 //! at that later release is then an invariant, not a runtime question.
@@ -39,7 +39,7 @@
 //! - `engine.Node.foreign_imports` validates its route id against the id kept
 //!   on the live import row, and the Host release path retires the route. A
 //!   released or reused position therefore fails an old id closed even if a
-//!   low-level embedder has not reclaimed the stale map row yet.
+//!   low-level embedder has not reclaimed the stale map row yet. status-allow: pending state or quoted runtime label
 const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
@@ -67,7 +67,7 @@ pub const ImportTable = struct {
     /// position is a loud error, never a silent clamp.
     rows: foundation.identity_hash.MapOf(.wire, u64, ImportRow),
     /// Optional identities attached to live import rows: the Node routing
-    /// route id (ADR-0026) and the opaque Host capability id (ADR-0026). Both die
+    /// route id and the opaque Host capability id (ADR-0026). Both die
     /// with the import row, so partner reuse of one numeric position cannot
     /// revive either identity. One optional map preserves the one-word empty
     /// session cost while the two layer-specific identities coexist. The map
@@ -155,7 +155,7 @@ pub const ImportTable = struct {
             std.debug.assert(map.remove(position.int()));
     }
 
-    /// Opaque Host capability currently naming this live import incarnation.
+    /// Opaque Host capability naming this live import incarnation.
     pub fn hostRefOf(self: *const ImportTable, position: Id) ?u64 {
         const map = self.identities orelse return null;
         const ref = (map.get(position.int()) orelse return null).host_ref;

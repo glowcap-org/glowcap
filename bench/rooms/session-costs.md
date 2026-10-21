@@ -9,7 +9,7 @@ sources:
 
 # Rooms session cost measurements
 
-Measured against baseline commit `25d35d380` on 2026-10-09, using the pinned
+Measured on 2026-10-09, using the pinned
 development container. Most tables are allocation and traversal counts, not network latency or
 user-visible response time. The work admission section reports timings.
 
@@ -81,7 +81,7 @@ remaining owners.
 
 ## Work admission
 
-Measured on 2026-10-12 against `400517780`, in the same pinned development
+Measured on 2026-10-12, in the same pinned development
 container. Each row reports three sequential samples with no concurrent build
 or proof launched by this task. Rust tests use Cargo's test profile and fresh
 storage. These small samples describe this workload, not a production latency

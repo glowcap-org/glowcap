@@ -62,7 +62,7 @@
 
   <!-- Row 2: the room, answered as a live reference. -->
   <rect x="270" y="120" width="220" height="60" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
-  <text x="380" y="146" text-anchor="middle" class="title ink-warm">#team-guide</text>
+  <text x="380" y="146" text-anchor="middle" class="title ink-warm">#docs-review</text>
   <text x="380" y="166" text-anchor="middle" class="sub">the room and its seats</text>
 
   <!-- The bus: one drop from the room, one rail, one drop to each peer. -->

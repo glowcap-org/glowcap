@@ -92,7 +92,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 	// the cursor↔peer-center offset across the drag; `startScreen*`
 	// anchors the tap-vs-drag threshold check.
 	//
-	// `boundHandler` is captured at the moment the gesture
+	// `boundHandler` is captured at the moment the gesture status-allow: state at observation
 	// commits to a real drag (first move past the threshold) so
 	// the entire start/move/end lifecycle uses ONE handler. Prop
 	// changes mid-drag, spacebar pressed, tool switched, mode
@@ -408,7 +408,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 	const finishDrag = (
 		pointerId: number,
 		fireSelect: boolean,
-		// Canvas-local coords of the up event. Used to detect
+		// Canvas-local coords of the up event. Used to detect status-allow: purpose clause
 		// "released on another peer" for two-click tools. Pass
 		// the lead peer's last known target as a fallback for
 		// off-canvas releases where no hit is meaningful.

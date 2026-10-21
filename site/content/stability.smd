@@ -6,7 +6,7 @@
 .draft = false,
 ---
 
-glowcap has no stable release yet. Pin a commit, and treat the API as able to
+glowcap has no stable release. Pin a commit, and treat the API as able to
 move. None of the checks below is a compatibility or security promise.
 
 Three kinds of checks sit behind a claim:
@@ -17,7 +17,7 @@ Three kinds of checks sit behind a claim:
   [Spritely Goblins](https://spritely.institute/goblins/) peer. A Chromium browser
   running the WebAssembly build also connects over a local secure WebSocket.
   They run on pushes to `main` and `dev` and on pull requests that target `main`.
-- On-demand checks cover Tor, a Goblins peer over iroh, and browser-to-browser
+- On-demand checks cover Tor, the full Goblins session over iroh, and browser-to-browser
   WebRTC. No check covers iroh across two separate NATs or a public
   certificate.
 

@@ -160,7 +160,7 @@
       ;; re-entry into the FFI callback's scheduler turn.
       (loop (call-in-nested-thread (drain-effects-resume current))))))
 
-;; Merge two drain-effects records in FIFO order (earlier first). Used when a
+;; Merge two drain-effects records in FIFO order (earlier first). Used when a status-allow: event or source ordering
 ;; reader-held feed nests further locked drains under the same deferral box.
 (define (merge-drain-effects a b)
   (drain-effects

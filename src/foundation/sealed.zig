@@ -73,7 +73,7 @@ pub const SealedError = error{
     /// A handshake identity payload did not prove the exact Ed25519 key,
     /// authenticated X25519 static, role, and initial transcript together.
     IdentityMismatch,
-    /// The far end answered a handshake message this side has not sent yet
+    /// The far end answered a handshake message this side has not sent yet status-allow: pending state or quoted runtime label
     /// (its reply is still parked in `pending`). An honest peer cannot see an
     /// unsent message, so the bytes cannot verify and the turn order is
     /// already broken.
@@ -127,7 +127,7 @@ pub const SealedChannel = struct {
     /// after consuming the reply to its previous one.
     pending: [msg3_wire_bytes]u8,
     pending_len: usize,
-    /// Inbound wire bytes that do not yet form a whole handshake message or
+    /// Inbound wire bytes that do not yet form a whole handshake message or status-allow: pending state or quoted runtime label
     /// record. Bounded. See the type header.
     staged: spill.Spill,
     /// The scratch one inbound record's plaintext is opened into. The
@@ -322,7 +322,7 @@ pub const SealedChannel = struct {
             // rather than assume the unit still needs caller bytes.
             const take = @min(unit_len -| self.staged.len, bytes.len);
 
-            // A staged unit has already consumed bytes from an earlier call,
+            // A staged unit has already consumed bytes from an earlier call, status-allow: event or source ordering
             // but none from this one. Reserve every allocation the completed
             // unit can need before committing this call's suffix, so OOM keeps
             // the exact caller slice retryable.
@@ -473,7 +473,7 @@ pub const SealedChannel = struct {
 
     /// Zero the plaintext a record wrote into the scratch and nothing past
     /// it. It runs before the next record opens and before the scratch is
-    /// moved, since a move copies the scratch and frees the old block as is.
+    /// moved, since a move copies the scratch and frees the old block as is. status-allow: replacement state identity
     fn wipePlain(self: *SealedChannel) void {
         std.crypto.secureZero(u8, self.plain[0..self.plain_used]);
         self.plain_used = 0;

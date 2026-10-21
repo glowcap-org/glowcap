@@ -295,19 +295,6 @@ function adoptableRoomConv(
 	return named.length === 1 ? named[0] : null;
 }
 
-/** The key the room named by `identity` wears, or would wear if made now.
- * Callers that seat live state under a computed key resolve here first, so a
- * publication-bearing join lands on the row a link-era join already minted. */
-export function resolveRoomKey(
-	projection: PageProjection,
-	dir: DirId,
-	name: string,
-	publicationId?: string,
-): string {
-	return adoptableRoomConv(projection, dir, name, { publicationId })?.key ??
-		(publicationId == null ? roomKey(dir, name) : publishedRoomKey(dir, publicationId));
-}
-
 /** The conversation for a room, made if this tab has none.
  *
  * `key` is given for a room reached by a reference rather than by name: a
@@ -395,7 +382,7 @@ export function joinedRooms(projection: PageProjection, dir?: DirId): RoomConv[]
  * on a directory that is not on screen.
  *
  * Never this page's own. It has no rooms before the first join either, and a row
- * saying so at the moment the join card is asking for one is noise. */
+ * saying so at the moment the join card is asking for one is noise.  status-allow: state at observation */
 export function emptyDirs(
 	s: Readonly<Pick<State, "convs" | "dirs" | "homeDir">>,
 ): DirView[] {
@@ -405,12 +392,6 @@ export function emptyDirs(
 		busy.add(conv.dir);
 	}
 	return [...s.dirs.values()].filter((dir) => dir.id !== s.homeDir && !busy.has(dir.id));
-}
-
-/** Every conversation of either kind that the named directory's teardown has
- * to account for. */
-export function convsOn(projection: PageProjection, dir: DirId): Conv[] {
-	return [...projection.get().convs.values()].filter((conv) => conv.dir === dir);
 }
 
 /** The open conversation with `peer`, if there is one.
@@ -471,38 +452,14 @@ export function restoreDm(
 	return closedConv;
 }
 
-/** Close every open conversation with `peer`: the member has left, so the name
- * is back in the room's hands. Returns the keys closed, for the caller to drop
- * whatever it was holding for them. */
-export function closeDmsWith(
-	projection: PageProjection,
-	dir: DirId,
-	peer: string,
-	peerRegistrationId: string,
-): string[] {
-	const closed: string[] = [];
-	const convs = new Map(projection.get().convs);
-	for (const conv of convs.values()) {
-		if (
-			conv.type === "dm" && conv.dir === dir && conv.line !== "closed" &&
-			conv.id.toLowerCase() === peer.toLowerCase() && conv.peerRegistrationId === peerRegistrationId
-		) {
-			convs.set(conv.key, { ...conv, line: "closed" });
-			closed.push(conv.key);
-		}
-	}
-	if (closed.length > 0) projection.set({ convs });
-	return closed;
-}
-
 /** Drop a conversation. If it was the one on screen, nothing is on screen now:
  * the caller chooses where to go next, but it cannot leave `activeKey` naming a
- * conversation that no longer exists.
+ * conversation that no longer exists. status-allow: lifecycle transition
  *
  * Its lines go the way every other line goes, through the release seam, and
  * they go before the row does: the seam finds the session by asking this store
  * which directory the conversation was on, so a conversation deleted first is
- * one whose lines can no longer be given back. A caller that handed its
+ * one whose lines can no longer be given back. A caller that handed its status-allow: lifecycle transition
  * history over itself before calling this would work until one caller forgot,
  * which is the same shape as any
  * invariant kept by everybody remembering rather than by the seam that owns
@@ -531,20 +488,6 @@ export function forgetConv(projection: PageProjection, key: string): void {
 	if (state.activeKey === key) {
 		projection.set({ ...gone, activeKey: null, aboutConv: false, aboutConvLeave: false });
 	} else projection.set(gone);
-}
-
-/** Mark every direct conversation as no longer live after their shared
- * directory session drops. */
-export function unreadyDms(projection: PageProjection): void {
-	const convs = new Map(projection.get().convs);
-	let changed = false;
-	for (const conv of convs.values()) {
-		if (conv.type === "dm" && conv.line === "live") {
-			convs.set(conv.key, { ...conv, line: "introducing" });
-			changed = true;
-		}
-	}
-	if (changed) projection.set({ convs });
 }
 
 /** Move a direct line between introducing and live. A closed one stays closed:

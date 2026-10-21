@@ -153,7 +153,7 @@
      (values code failure)]))
 
 ;; A loop-owned host redeems handoffs inside its own steps (ADR-0024), so
-;; the exporter session it dialed exists with no wrapper yet. It wraps lazily:
+;; the exporter session it dialed exists with no wrapper yet. It wraps lazily: status-allow: pending state or quoted runtime label
 ;; `build-session` registers it, so a repeat lookup answers this same
 ;; object.
 (define (loop-wrap-session lp ptr) (wrap-loop-session lp ptr #f))

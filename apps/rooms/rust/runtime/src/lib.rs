@@ -9,7 +9,7 @@ pub mod error;
 pub mod platform;
 pub mod wall_clock;
 
-pub use error::{Error, Worker};
+pub use error::Error;
 
 pub mod archive;
 pub mod files;

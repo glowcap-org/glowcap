@@ -58,6 +58,20 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .optimize = in.optimize,
     });
     const api = testApiModule(b, in, vaxis, options, iroh_stub);
+    const doc_module = b.createModule(.{
+        .root_source_file = b.path("tools/check/cli_doc_main.zig"),
+        .target = in.target,
+        .optimize = in.optimize,
+    });
+    doc_module.addImport("cli", api);
+    const doc_exe = b.addExecutable(.{ .name = "cli-doc-check", .root_module = doc_module });
+    const doc_run = execution.addArtifact(b, .{ .deterministic = 30 }, doc_exe);
+    doc_run.addArg(b.root.toString(b.allocator) catch @panic("OOM"));
+    const source_check = &b.top_level_steps.get("source-check").?.step;
+    source_check.dependOn(&doc_run.step);
+    const doc_tests = b.addTest(.{ .name = "cli-doc-tests", .root_module = doc_module });
+    source_check.dependOn(&execution.addZigTest(b, doc_tests, .unit_test).step);
+
     const test_root = b.createModule(.{
         .root_source_file = b.path("test/cli/all.zig"),
         .target = in.target,

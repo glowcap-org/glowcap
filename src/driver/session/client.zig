@@ -301,7 +301,7 @@ pub const Session = struct {
     /// released.
     ///
     /// `HostError.HandshakeIncomplete` means the partner's half has not arrived
-    /// with a key yet. `HostError.PartnerUnverified` means this session does not
+    /// with a key yet. `HostError.PartnerUnverified` means this session does not status-allow: pending state or quoted runtime label
     /// verify its partner, so there is no proved identity to report.
     pub fn partnerIdentity(self: *Session) !driver_core.PartnerIdentity {
         self.enterCall();

@@ -94,14 +94,6 @@ export function roomIsListed(policy: RoomPolicy): boolean {
 	return policy.visibility === "listed";
 }
 
-export function roomPublicMayEnter(policy: RoomPolicy): boolean {
-	return policy.entry === "open";
-}
-
-export function publicMembershipKind(policy: RoomPolicy): import("./membership.ts").RoomMembershipKind {
-	return policy.speaking === "open" ? "participant" : "observer";
-}
-
 export function roomPoliciesEqual(left: RoomPolicy, right: RoomPolicy): boolean {
 	return left.visibility === right.visibility && left.entry === right.entry && left.speaking === right.speaking;
 }

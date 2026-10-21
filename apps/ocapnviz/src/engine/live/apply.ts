@@ -43,7 +43,11 @@ export function applyEvent(
 			const session = nonEmptyStringFromWire(ev.session);
 			const a = nonEmptyStringFromWire(ev.a);
 			const b = nonEmptyStringFromWire(ev.b);
-			if (session == null || a == null || b == null) return;
+			// Both the transport and the CapTP profile are part of every report, so a
+			// record without them is malformed and draws nothing.
+			const transport = nonEmptyStringFromWire(ev.transport);
+			const captpVersion = captpVersionFromWire(ev.captp_version);
+			if (session == null || a == null || b == null || transport == null || captpVersion === undefined) return;
 			// Which host a producer reports as its own, so its departure can retire
 			// exactly that node and no other. The scope prefixes every id this
 			// endpoint assigns, so it is readable without a second field.
@@ -58,15 +62,9 @@ export function applyEvent(
 			// identity and what the attached end says backed it.
 			const provenance = stringFromWire(ev.provenance);
 			const proved = attributionForProvenance(provenance);
-			// The negotiated CapTP profile, read once: omitted means an old producer
-			// from before the field, while a present unknown word remains unknown.
-			// Only the glowcap-private track names both ends as glowcap hosts.
-			const captpVersion = captpVersionFromWire(ev.captp_version) ??
-				"v1_0";
 			const aLabel = stringFromWire(ev.a_label);
 			const aProfile = nonEmptyStringFromWire(ev.a_profile);
 			const sessionId = nonEmptyStringFromWire(ev.session_id);
-			const transport = nonEmptyStringFromWire(ev.transport);
 			const row = ledger.openSession(session, a, b, t_ms, out, {
 				...(provenance != null && { verified: proved !== undefined }),
 				// Display only. `a` is the reporting host's own designator, which is
@@ -130,13 +128,12 @@ export function applyEvent(
 				),
 				// The netlayer this session runs over, carried straight across.
 				// Both ends share it, so it belongs to the session and not to
-				// either end. A producer that reports none predates the field.
-				...(transport != null ? { transport } : {}),
+				// either end.
+				transport,
 				codec: codecFromWire(ev.codec),
 				// This document's own tag for the profile, read off the handshake
-				// word the producer sent (`captpVersionFromWire`). A producer that
-				// reports none predates the field, and the only profile that
-				// existed then was the floor; a present unknown word stays unknown.
+				// word the producer sent (`captpVersionFromWire`). A present unknown
+				// word stays unknown.
 				captpVersion,
 				// The trace reports a session only once its handshake
 				// completed, so it arrives on stage already open, without
@@ -257,7 +254,7 @@ export function applyEvent(
 		case "ocapn.session-closed": {
 			const session = nonEmptyStringFromWire(ev.session);
 			if (session == null) return;
-			// A closed session is no longer one its producer is watching, so
+			// A closed session is no longer one its producer is watching, so status-allow: lifecycle transition
 			// it leaves the producer's set here. Without this the set only
 			// ever grew, and a producer that opens and closes conversations
 			// all day carried every one it had ever reported until it left.

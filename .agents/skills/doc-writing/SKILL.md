@@ -41,7 +41,7 @@ Read the doc as its reader would, one section at a time.
    numbered list. Rules a caller must follow become a bulleted list. Rows of
    similar facts become a table, and a paragraph with two ideas becomes two.
    A list earns its place by showing order or cutting words: one bullet per
-   sentence of the old paragraph is the same paragraph, harder to read.
+   sentence of the old paragraph is the same paragraph, harder to read. <!-- status-allow: workflow sequence -->
 4. **One owner per fact.** A function-by-function walk copies what doc
    comments own. Keep the model and the rules that span calls, and link the
    source. If a fact lives only in the doc, move it into the doc comment

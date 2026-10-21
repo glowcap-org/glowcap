@@ -64,7 +64,7 @@ pub const Proxy = struct {
     current_wire_pos: u64,
     recipients: std.ArrayListUnmanaged(Recipient) = .empty,
     /// A send inside an open provisional window created this proxy, and no
-    /// recipient has been kept yet. Its home listen is still queued, so
+    /// recipient has been kept yet. Its home listen is still queued, so status-allow: pending state or quoted runtime label
     /// retracting the window's last recipient withdraws the whole proxy.
     provisional: bool = false,
 

@@ -2,7 +2,7 @@
 //!
 //! All borrowed C views and declarative trust policy are validated before
 //! trust-store I/O. The TLS owner transfers only when the resident carrier is
-//! admitted. Every earlier refusal closes what construction acquired.
+//! admitted. Every earlier refusal closes what construction acquired. status-allow: event or source ordering
 
 const std = @import("std");
 

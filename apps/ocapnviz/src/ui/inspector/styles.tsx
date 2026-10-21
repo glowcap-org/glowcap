@@ -82,7 +82,7 @@ export const placeholder = {
 // run down the keys across groups, which is how a dense panel stays
 // readable as the type gets smaller.
 //
-// 78px is the widest key the app renders today, `CAPTP VERSION`, measured
+// 78px is the widest key the app renders: `CAPTP VERSION`, measured
 // at the key's own 9px uppercase face with its tracking. A longer key
 // wraps, visibly, rather than silently widening its own group back out of
 // alignment. A wrap is a defect somebody sees, and a group half a
@@ -100,11 +100,9 @@ export const kv = {
 // The value half of a field row.
 //
 // A column, so each thing in it is block-level. That is not decoration:
-// before this wrapper existed every value was a grid item, and a grid
-// item is blockified, which is what makes `overflow: hidden` and an
-// ellipsis work on a sixty-four character name. Left as inline content
-// in a plain block, the same span stops clipping and takes the panel's
-// right edge with it.
+// a block-level box is what makes `overflow: hidden` and an ellipsis work
+// on a sixty-four character name. Left as inline content in a plain block,
+// the same span stops clipping and takes the panel's right edge with it.
 export const fieldValueStyle = {
 	minWidth: 0,
 	display: "flex",
@@ -131,7 +129,7 @@ export const fieldLineStyle = {
 	minWidth: 0,
 } satisfies CSSProperties;
 
-// A note under a value. The clamp hint, today. Its own block so it
+// A note under a value. The clamp hint,. Its own block so it
 // starts a line of its own whatever the value above it was.
 export const fieldNoteStyle = {
 	marginTop: 2,
@@ -326,7 +324,7 @@ export const linkRowName = {
  *  It does not shrink. A row has one thing that gives way when the panel
  *  narrows and it is the name on the left, which ellipsizes. A status
  *  badge is two or three words that mean nothing broken apart, and left
- *  to shrink it wraps and takes the row's height with it. "Not yet
+ *  to shrink it wraps and takes the row's height with it. "Not yet status-allow: pending state or quoted runtime label
  *  joined" set three lines tall beside a one-line name is what this
  *  cell exists to prevent. */
 export const linkRowMetaCell = {

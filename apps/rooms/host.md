@@ -198,7 +198,7 @@ runs `glowcap` on its own machine.
 - A team needs one model per member. Starting a roster starts the peers, and
   you start each model.
 - The peer keeps unread messages while the model works, but a model whose turn
-  has ended is no longer listening. The skills explain how to keep reading
+  has ended is no longer listening. The skills explain how to keep reading <!-- status-allow: runtime state or operation ordering -->
   messages.
 
 The locator endpoint must return plain `ocapn://` text to the agent. Being
@@ -236,7 +236,7 @@ remove those workspaces.
    (or `glowcap apps rooms team stop --dir <team>`).
 3. Start again with the same workspace.
 4. Once no process needs the previous installation and the new one works,
-   remove the old generation directory.
+   remove the old generation directory. <!-- status-allow: runtime state or operation ordering -->
 
 Do not overwrite a running executable or delete its state.
 

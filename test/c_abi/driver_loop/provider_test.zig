@@ -510,7 +510,7 @@ test "the provider ABI preserves typed locators and holds one package lease" {
     );
     try std.testing.expectEqual(@as(usize, 0), restoration_len);
 
-    // The earlier contract failure remains the exact teardown cause, but the
+    // The earlier contract failure remains the exact teardown cause, but the status-allow: event or source ordering
     // consuming release cannot return INVALID_ARGUMENT: that code exclusively
     // means admission refused and the handle is still live.
     var release_failure = cdrv.GlowcapDriverFailure.init();

@@ -305,7 +305,7 @@ pub const Sqlite = struct {
         const State = union(enum) { active, finished: core.backend.Commit, aborted };
 
         /// A read the writer cannot answer ends the transaction too, because
-        /// what it would have applied is no longer known.
+        /// what it would have applied is no longer known. status-allow: lifecycle transition
         pub fn get(self: *WriteTransaction, key: []const u8) !?[]const u8 {
             if (self.state != .active) return error.Closed;
             return self.abortOnError(self.owner.writer.get(key));

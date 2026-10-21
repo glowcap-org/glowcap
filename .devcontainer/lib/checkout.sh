@@ -143,20 +143,11 @@ glowcap_devcontainer_validate_git_common_dir() {
     fi
 }
 
-# Where a checkout keeps one of this directory's entry points.
-#
-# A grid spans checkouts that sit on different branches, so a column's
-# .devcontainer/ is routinely older or newer than the launcher's. The
-# commands moved into bin/, so both spellings are looked for, newest first.
-# This is the one place that knows a checkout may be behind, and it can be
-# deleted once no branch in play predates the move.
+# Where a checkout keeps one of this directory's entry points. A grid spans
+# checkouts on different branches, so each column runs its own checkout's
+# command rather than the launcher's.
 glowcap_devcontainer_checkout_entry() {
-    local checkout="$1" name="$2" candidate
-    for candidate in "bin/${name}" "${name}"; do
-        if [[ -x "${checkout}/.devcontainer/${candidate}" ]]; then
-            printf '%s\n' "${checkout}/.devcontainer/${candidate}"
-            return 0
-        fi
-    done
-    return 1
+    local checkout="$1" name="$2"
+    [[ -x "${checkout}/.devcontainer/bin/${name}" ]] || return 1
+    printf '%s\n' "${checkout}/.devcontainer/bin/${name}"
 }

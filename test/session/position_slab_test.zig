@@ -109,7 +109,7 @@ test "the iterator visits live rows in index order and nothing else" {
     for (0..5) |n| slab.install(try slab.reserve(allocator, n), n * 10);
     slab.remove(1);
     slab.withhold(2);
-    _ = try slab.reserve(allocator, 9); // index 1, reserved and not yet live
+    _ = try slab.reserve(allocator, 9); // index 1, reserved and not yet live status-allow: pending state or quoted runtime label
 
     var it = slab.iterator();
     const first = it.next().?;

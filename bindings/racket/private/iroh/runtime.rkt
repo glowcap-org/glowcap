@@ -381,7 +381,7 @@
 ;; endpoint and bring the connection up under host `m` rather than a fresh
 ;; host, so the redeemed capability and any further handoff it triggers share
 ;; the recipient's one identity, handoff router, and connection table
-;; (ADR-0039/ADR-0039), the iroh sibling of `dial-exporter`'s TCP arm.
+;; (ADR-0039), the iroh sibling of `dial-exporter`'s TCP arm.
 ;; The core's `dial-exporter` loads it lazily for an iroh give. The keyed
 ;; handshake is the host's (`establish-dialed-locator-session` signs it under
 ;; the host identity and drives it byte-fed over this transport), and

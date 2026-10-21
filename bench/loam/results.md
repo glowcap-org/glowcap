@@ -27,7 +27,7 @@ shared, so pinning a CPU did not remove competing load or disk variation.
 
 ## Controlled CPU comparison, October 14, 2026
 
-Both production engines at `e2829d4d4` ran the full Tasks workload in the
+Both production engines ran the full Tasks workload in the
 [recorded environment](#october-14-measurement-environment), three paired
 runs pinned to logical CPU 5 (reported maximum 3.9 GHz). Both engines used
 their existing synchronous durability settings. Each figure is the median of
@@ -178,7 +178,7 @@ application.
 ## LMDB CPU and commit-failure study, October 14, 2026
 
 This study used the [recorded environment](#october-14-measurement-environment).
-The tree was `90c0ec384` with the engine changes that refuse new work after
+The tree held the engine changes that refuse new work after
 a commit with an unknown outcome. No durability flag was weakened and no upstream engine
 source was changed.
 
@@ -259,7 +259,7 @@ neither power-loss recovery nor superiority under arbitrary page corruption.
 ## Tasks on LMDB and SQLite, October 14, 2026
 
 These runs used Linux aarch64, Zig 0.17.0 and ReleaseFast through the
-repository development front, on a shared machine. They ran on `d8d5674ed`
+repository development front, on a shared machine, on October 14, 2026,
 with the change that runs the Tasks workload on either disk engine. The
 command is `zig build bench-loam -Doptimize=ReleaseFast -- --tasks-only
 --engine=<engine>`, run three times per engine with the engines alternating.
@@ -302,15 +302,14 @@ LMDB commits, through the repository development front, on a shared machine.
 Each run passed every check its workload makes.
 
 - The Tasks table is `zig build bench-loam -Doptimize=ReleaseFast -- --tasks-only`
-  on `dd8cf140b` with the changes that profile the workload under callgrind,
+  with the changes that profile the workload under callgrind,
   read a directory page in place, verify only the strong edges a commit
   introduces, and stop the Tasks pump once a pass changes nothing.
   `zig build profile-loam -- --tasks-only` attributes each phase, and the
   instruction count it reports fell between 46% and 64% per phase across those
   changes.
 - The cold reads at scale are the same command with `--scale-only`, and the
-  browser crossings are `zig build loam-browser-test`, both on `cdceb191d`
-  with the change that adds these workloads.
+  browser crossings are `zig build loam-browser-test`, both with the change that adds these workloads.
 
 ### Tasks
 
@@ -362,7 +361,7 @@ measured each operation through the shared reference.
 
 ## Ordinary actor baseline, October 9, 2026
 
-Two runs at `83c3ebe23` used Linux aarch64, Zig
+Two runs used Linux aarch64, Zig
 `0.17.0-dev.2294+71403f299`, ReleaseFast and default synchronous LMDB commits.
 The command was `zig build bench-loam -Doptimize=ReleaseFast -- --ordinary-only`,
 through the repository development front. Both runs passed all six populations,
@@ -396,9 +395,9 @@ shows no population-dependent dispatch cost and does not explain Rooms latency.
 
 Linux aarch64 ReleaseFast counts used `-- --collection-only`, a fixed rooted
 chain of 1,024 records, 256 unreachable records and the Volatile backend.
-Both runs measured Loam as of `bff23df19`. The changed source adds the
+Both runs measured Loam as of October 3, 2026. The changed source adds the
 [cycle-owned custody journal](../../docs/decisions/adr/ADR-0050-transactional-reclamation.md),
-which landed in `5f164b992`. Neither run measures LMDB or elapsed time.
+which landed on October 4. Neither run measures LMDB or elapsed time.
 
 | Held roots | Work limit | Commits, before / after | Submitted IDs, before / after | Root key hash bytes, before / after | Preparation allocations, before / after |
 | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -428,7 +427,7 @@ budgets under `check` with no timing thresholds.
 
 Linux aarch64 smoke runs used ReleaseFast and default synchronous LMDB commits,
 with the same 16-conversation, 256-byte-message graph. The starting source was
-`97abf3406344f92d4bb69cda74e48d348df1abfd`. The changed source introduced exclusive
+the core of October 3, 2026. The changed source introduced exclusive
 loading/resident cache states, checked resident envelopes and changed-page-only
 directory staging. These are contract and footprint checks, not a throughput
 comparison.
@@ -455,7 +454,7 @@ for their contracts.
 ## Recorded workload, September 15, 2026
 
 The initial run used Linux aarch64, ReleaseFast, and synchronous LMDB
-commits. The baseline used the core at `16d6e4bd9` with this workload before its
+commits. The baseline used the core of September 15, 2026, with this workload before its
 reload budget was added. Repeating the same graph and calls with commit-aware
 residency produced these backend read counts for 4,096-byte messages:
 

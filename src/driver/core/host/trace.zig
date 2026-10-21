@@ -2,7 +2,7 @@
 //!
 //! `../trace.zig` owns the callback vocabulary. This leaf owns the facts read
 //! from live Host/session state, their transitions, and explicit replay of
-//! currently open sessions. It performs no formatting or clock reads.
+//! open sessions. It performs no formatting or clock reads.
 
 const std = @import("std");
 

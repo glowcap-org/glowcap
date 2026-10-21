@@ -4,29 +4,7 @@ use crate::grants::Access;
 use alloc::string::String;
 use serde::{Serialize, Serializer, ser::SerializeSeq};
 
-impl super::Checkpoint {
-	pub fn ignored_nickname(&self, conversation: &str) -> Option<&crate::text::DocumentText> {
-		let room = self.0.conversations.0.iter().find_map(|entry| match entry {
-			Conversation::Room(room) if room.id.text().as_str() == Some(conversation) => Some(room),
-			_ => None,
-		})?;
-		let nick = self
-			.0
-			.directories
-			.0
-			.iter()
-			.find(|entry| entry.id == room.directory)?
-			.nick
-			.text();
-		let folded = nick.lowercase();
-		self.0
-			.ignored
-			.0
-			.iter()
-			.any(|name| name.text().lowercase() == folded)
-			.then_some(nick)
-	}
-}
+impl super::Checkpoint {}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

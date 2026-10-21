@@ -238,7 +238,7 @@ export class EditSession {
 	 * of the buffer, the same act as the buffer being built from a
 	 * different source, which throws the same work away and empties
 	 * Undo for the same reason: the steps in it lead back through a
-	 * document that is no longer the one in front of you.
+	 * document that is no longer the one in front of you. status-allow: lifecycle transition
 	 *
 	 * Offered on `hasHistory` rather than on `canUndo`, which is what
 	 * its neighbour `undoAll` reads. A reader sitting at the beginning

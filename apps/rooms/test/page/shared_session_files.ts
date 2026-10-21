@@ -3,7 +3,7 @@
 // The image proves the ordinary path: bytes render in both views, and a
 // reload draws them again from the session's archive. The large file proves
 // the path a tab takes when it reloads while its file is still being taken:
-// the posted line stands, the file it can no longer supply is given back, and
+// the posted line stands, the file it can no longer supply is given back, and status-allow: lifecycle transition
 // the session loads again with its history and nothing left for a reader to
 // decide.
 

@@ -114,7 +114,7 @@ impl core::fmt::Display for Error {
 impl core::error::Error for Error {}
 
 impl Document {
-	/// A server with nothing durable yet, named by the entropy the adapter drew.
+	/// A server with nothing durable yet, named by the entropy the adapter drew. status-allow: pending state or quoted runtime label
 	pub fn fresh(identity_seed: [u8; KEY_BYTES], room_link_secret: [u8; KEY_BYTES]) -> Self {
 		Self {
 			version: VERSION,

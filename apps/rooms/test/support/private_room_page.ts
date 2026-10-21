@@ -94,7 +94,7 @@ export async function waitForTcp(port: number, what: string): Promise<void> {
 			probe.close();
 			return;
 		} catch {
-			// not listening yet
+			// not listening yet status-allow: pending state or quoted runtime label
 		}
 		await delay(50);
 	}

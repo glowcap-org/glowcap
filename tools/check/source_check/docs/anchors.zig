@@ -29,7 +29,7 @@ pub fn has(contents: []const u8, fragment: []const u8) bool {
         const text = headingText(trimmed) orelse continue;
         const s = slug(text, &buf);
         if (std.mem.eql(u8, s, fragment)) return true;
-        // A later twin of an earlier heading: GitHub appends `-<n>`.
+        // A later twin of an earlier heading: GitHub appends `-<n>`. status-allow: event or source ordering
         if (std.mem.startsWith(u8, fragment, s) and fragment.len > s.len + 1 and fragment[s.len] == '-') {
             // tolerant: a non-numeric suffix names no twin of this heading, and the scan moves on to the next heading.
             if (std.fmt.parseInt(usize, fragment[s.len + 1 ..], 10)) |_| return true else |_| {}

@@ -34,8 +34,8 @@ export const NODE_HALF_WIDTH = 30;
  * position: half the width of the widest thing drawn there, and how far the
  * drawing reaches above and below the point itself.
  *
- * Asymmetric because the label hangs below the body, which is the whole
- * reason a circle was the wrong model. Two nodes side by side must clear each
+ * Asymmetric because the label hangs below the body, which is why the
+ * footprint is a box and not a circle. Two nodes side by side must clear each
  * other's labels. Two nodes stacked need only the body-to-label gap, and a
  * circle wide enough for the first spends that width on the second as well.
  *

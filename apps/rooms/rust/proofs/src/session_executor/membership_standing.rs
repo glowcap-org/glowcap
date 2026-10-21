@@ -65,7 +65,7 @@ pub(super) async fn run(
 	}
 	let count = host.send(seat, "standing-count", &[]).await.unwrap();
 	// The owner-level standing test measures snapshot reuse directly. This
-	// journey permits earlier receipt and content wakes to finish in any order.
+	// journey permits earlier receipt and content wakes to finish in any order. status-allow: event or source ordering
 	command(workspace, 7, "setDraft", &["conversation", "unrelated"]).await;
 	assert_eq!(
 		host.send(seat, "standing-count", &[]).await.unwrap(),

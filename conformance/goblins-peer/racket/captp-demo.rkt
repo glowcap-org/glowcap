@@ -12,7 +12,7 @@
 ;; the corresponding real-socket control; `goblins-interop` and the live
 ;; handoff/gift/exporter rows cover the cross-implementation seams.
 ;;
-;; What this does NOT yet do:
+;; Outside this demo:
 ;;   - Speak to a non-Goblins peer (the netlayer is in-process).
 ;;   - Hook into the kernel loop's KERI / Episode / transparency-log
 ;;     machinery: this is a CapTP-shape demo, not a kernel demo.

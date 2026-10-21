@@ -1,7 +1,6 @@
 /**
  * Node marks, two-click overlays, and label pills, pure functions
- * that paint specific geometry into a `Graphics`. Split from
- * `Stage.tsx` so scene orchestration does not carry this drawing.
+ * that paint specific geometry into a `Graphics`.
  *
  * Session-curve strokes (`strokeCurve`, `strokeDashedCurve`,
  * `positionEdgeLabel`) live in `edge-stroke.ts`.

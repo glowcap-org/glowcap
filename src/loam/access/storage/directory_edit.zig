@@ -69,7 +69,7 @@ pub const DirectoryEdit = struct {
         return .ready;
     }
 
-    /// Membership preparations may share a root with earlier minting in this
+    /// Membership preparations may share a root with earlier minting in this status-allow: event or source ordering
     /// transaction. Adopt only proposed paths or the exact prepared pages.
     /// Never introduce storage work after staging begins.
     pub fn rebaseProposed(self: *DirectoryEdit, root: ?loam.ObjectId) !void {
@@ -112,7 +112,7 @@ pub const DirectoryEdit = struct {
             if (frame.page.count() == 0) {
                 // Disconnected index pages become ordinary unrooted records.
                 // Shared tracing reclaims them, including a page created by
-                // an earlier participant in this same composed transaction.
+                // an earlier participant in this same composed transaction. status-allow: event or source ordering
                 child = null;
                 continue;
             }

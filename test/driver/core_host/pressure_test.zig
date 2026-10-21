@@ -388,7 +388,7 @@ const PendingPressure = struct {
         while (attempts < 32) : (attempts += 1) {
             self.host.tell(self.session, self.target, .{ .verb = "queued", .args = &.{} }) catch |err| {
                 // The engine is the final admission authority. The Vat's
-                // actor-facing seam currently projects that refusal as
+                // actor-facing seam projects that refusal as
                 // SendRejected, while Host's preflight reports the typed
                 // HostError when the shared counter is already full.
                 if (err == driver.core.HostError.OutboundBackpressure or err == actors.Error.SendRejected) {

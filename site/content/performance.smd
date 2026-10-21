@@ -35,14 +35,14 @@ calls timed in Cap'n Proto RPC and in Spritely Goblins.
 names the constants and tests that hold them.
 
 The [benchmarks README](https://github.com/jimisaacs/glowcap/blob/main/bench/README.md)
-records runs too large or too machine-specific for a chart:
+describes measurements to run separately from these charts:
 
 - [floors](https://github.com/jimisaacs/glowcap/blob/main/bench/README.md#floors):
   what signing, a Noise handshake, a frame copy, and a bare loopback round trip
   cost alone, and how far each glowcap call sits above the floors it pays
 - calls with both runtimes spinning instead of sleeping, including an
   in-process call that makes no system call at all
-- [500,000 live sessions](https://github.com/jimisaacs/glowcap/blob/main/bench/README.md#500000-live-sessions):
+- [live sessions](https://github.com/jimisaacs/glowcap/blob/main/bench/README.md#live-sessions):
   memory per signed session on one machine
 
 # [Codec throughput]($section.id('codec-throughput'))
@@ -94,7 +94,7 @@ choice.
 # [Per-connection footprint]($section.id('per-connection-footprint'))
 
 `bench-peer-scaling` counts inline and heap memory in each state: idle
-(accepted, no message yet), warmed (one export and one delivered message),
+(accepted, awaiting its first message), warmed (one export and one delivered message),
 sixteen live exports, and served with a vat. The half-million column
 is arithmetic over core memory, not RSS or a live network test.
 

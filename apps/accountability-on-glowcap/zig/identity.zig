@@ -46,7 +46,7 @@ pub const verifyBinding = kel_mod.verifyBinding;
 pub const Identity = struct {
     allocator: std.mem.Allocator,
     aid: [SAID_LEN]u8,
-    /// The currently-authoritative signing key (the most recent rotation).
+    /// The authoritative signing key (the most recent rotation).
     current: Key,
     /// The pre-committed next key, ready to become current on the next rotation.
     next: Key,

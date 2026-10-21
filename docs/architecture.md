@@ -78,8 +78,7 @@ behavior.
 The module graph enforces that split. Protocol modules cannot import adapters,
 and Syrup and Cap'n Proto cannot import one another. The architecture check
 rejects `std.Io`, threads, and platform calls in the portable core
-([ADR-0011](decisions/adr/ADR-0011-compiler-enforced-layers.md),
-[ADR-0011](decisions/adr/ADR-0011-compiler-enforced-layers.md)).
+([ADR-0011](decisions/adr/ADR-0011-compiler-enforced-layers.md)).
 
 ## From a peer to an application
 
@@ -101,8 +100,7 @@ settles their results. It also provides attenuation, revocation, and optional
 snapshots. A snapshot covers local actor state only. It never rewinds a network
 session. Actor state can use `loam.collections.PersistentMap`, so changing one
 entry does not copy the whole map
-([ADR-0015](decisions/adr/ADR-0015-persistent-collections-and-time-travel.md),
-[ADR-0015](decisions/adr/ADR-0015-persistent-collections-and-time-travel.md)).
+([ADR-0015](decisions/adr/ADR-0015-persistent-collections-and-time-travel.md)).
 
 Local eventual sends go into queues keyed by *ingress*, the session the work
 came from. (An eventual send is a call that runs later, not inline.) Before queuing, the Vat measures what the owned copy will cost and
@@ -227,7 +225,7 @@ beside its option in the code.
 | `driver.HostRuntime.Options.max_pending_opens` / `GlowcapDriverOptions.max_pending_opens` | How many transport connects and CapTP handshakes may run at once, counting dials, accepts, adoptions, and redeems. |
 | `driver.HostRuntime.Options.listener_setup` / `GlowcapDriverOptions.listener_setup_ms` | How long setting up one listener may take before it fails. |
 | `driver_core.Host.Options.limits.max_frame_bytes` | The largest frame any peer of a byte-fed Host accepts. |
-| `SessionLimits.max_retained_sent_answer_bytes` / `GlowcapSessionLimitOptions.max_retained_sent_answer_bytes` | Bytes of resolutions a session keeps for answers it already sent, once they no longer count as data in flight. |
+| `SessionLimits.max_retained_sent_answer_bytes` / `GlowcapSessionLimitOptions.max_retained_sent_answer_bytes` | Bytes of resolutions a session keeps for answers it already sent, once they no longer count as data in flight. | <!-- status-allow: runtime state or operation ordering -->
 | `driver_core.Host.Options.local_turn_budget` / `glowcap_host_new(... local_turn_budget ...)` | How many local actor turns one session may set off during one drive before the Host ends that session. `null` in Zig or `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` in C turns the cap off. A bare `Served` is unbounded. |
 | `driver_core.Host.Options.release_on_drop` / `glowcap_host_new(... release_on_drop ...)`, read with `glowcap_host_release_on_drop` and set with `glowcap_host_set_release_on_drop` | Whether a binding releases its hold on a far capability when the language reports that it went out of scope. The Host stores the setting and attaches no behavior to it ([ADR-0025](decisions/adr/ADR-0025-capability-release.md)). Rust turns it on. TypeScript, Python, and Racket turn it off, because their release runs from a finalizer, and keep the per-session opt-in. |
 | Raw transport `max_frame_bytes` / `maxFrameBytes` / `max-frame` default | The largest frame a raw blocking transport handle accepts before a Host owns the session. |

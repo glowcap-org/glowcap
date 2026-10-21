@@ -51,48 +51,6 @@ pub enum Target {
 	PendingEffect,
 	NestedCommand,
 }
-impl Target {
-	/// Alternatives belong to the exact target, never to the workspace grant.
-	/// Empty permission lists still require the declared held role or control.
-	pub const fn alternatives(self) -> &'static [&'static [Permission]] {
-		match self {
-			Self::DirectoryPresence => &[&[Presence]],
-			Self::DirectoryIntroduction => &[&[Introduce]],
-			Self::DirectoryCreation => &[&[CreateRoom]],
-			Self::DirectoryPublication => &[&[PublishListing]],
-			Self::ConversationPost | Self::RoomBridgeSubmission => &[&[Post]],
-			Self::ConversationUpload => &[&[Post, Upload]],
-			Self::RoomSubject => &[&[SetSubject]],
-			Self::MembershipPresence => &[&[Receive]],
-			Self::RoomModeration => &[&[Moderate]],
-			Self::RoomBridgeInspection => &[&[Receive]],
-			Self::ExactLineEdit => &[&[EditOwn], &[EditContent]],
-			Self::ExactLineWithdraw => &[&[WithdrawOwn], &[WithdrawContent]],
-			Self::RoomPublication => &[&[ManagePublication]],
-			Self::RoomPublicOffer => &[&[ManagePublicOffer]],
-			Self::ArchiveRead => &[&[ReadArchive]],
-			Self::ArchiveFile => &[&[ReadArchive, ReadFile]],
-			Self::DirectoryAdmission
-			| Self::RoomAdmission
-			| Self::MembershipInbox
-			| Self::MembershipRetirement
-			| Self::AcceptedOffer
-			| Self::DirectAccess
-			| Self::HeldRoomShare
-			| Self::ExactLeaseRevoke
-			| Self::ExactRoomIssue
-			| Self::SavedRoomRole
-			| Self::CreationReceipt
-			| Self::RoomRevoke
-			| Self::ArchiveIssue
-			| Self::ArchiveInspect
-			| Self::ArchiveRevoke
-			| Self::Operator
-			| Self::PendingEffect
-			| Self::NestedCommand => &[],
-		}
-	}
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,13 +70,6 @@ impl Conditional {
 			Self::ImportsAuthority => &[ManageCustody],
 			Self::ReturnsFiles => &[ReadFile],
 			Self::UploadsFiles => &[],
-		}
-	}
-	pub const fn targets(self) -> &'static [Target] {
-		match self {
-			Self::ImportsAuthority => &[],
-			Self::ReturnsFiles => &[Target::ArchiveFile],
-			Self::UploadsFiles => &[Target::ConversationUpload],
 		}
 	}
 }

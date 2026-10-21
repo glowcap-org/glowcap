@@ -55,7 +55,7 @@ given, a fact said twice, and sentences about the page itself. Status belongs
 on a living page ([doc-drift](doc-drift.md)), and history belongs to git. Keep a
 story only when the reader needs it to understand, such as a worked example.
 If a sentence might be narrative, cut it and reread: keep it only if the page
-no longer makes sense without it.
+no longer makes sense without it. <!-- status-allow: workflow sequence -->
 
 ## Tight
 

@@ -194,7 +194,7 @@ pub const Sim = struct {
                     lost.deinit();
                     continue;
                 }
-                // Due no earlier than the link's previous frame: latency
+                // Due no earlier than the link's previous frame: latency status-allow: event or source ordering
                 // delays a link, it never reorders one against itself.
                 const earliest = self.timeline.clock + link.latency;
                 const due = @max(earliest, link.last_due);

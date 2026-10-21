@@ -233,7 +233,7 @@ pub fn check(
     };
     for (ghost_docs) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| switch (err) {
-            // tolerant: a ghost doc that no longer exists has nothing to recite.
+            // tolerant: a ghost doc that no longer exists has nothing to recite. status-allow: lifecycle transition
             error.FileNotFound => continue,
             else => {
                 try appendViolation(gpa, violations, "{s}: cannot be read for the resident-roster check ({s})", .{ path, @errorName(err) });

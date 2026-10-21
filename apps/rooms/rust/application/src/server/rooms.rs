@@ -57,7 +57,7 @@ pub struct LiveMember<'a, C> {
 	pub away: &'a str,
 }
 
-use super::{history, links::Authority};
+use super::history;
 use crate::{
 	directory::{RoomInfo, registration::Id},
 	files::{FileLimits, FileStore},
@@ -127,14 +127,8 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	pub fn keeps_history(&self) -> bool {
 		self.history.is_some()
 	}
-	pub fn history_mut(&mut self) -> Option<&mut history::Index> {
-		self.history.as_mut()
-	}
 	pub fn files(&self) -> &FileStore {
 		&self.files
-	}
-	pub fn files_mut(&mut self) -> &mut FileStore {
-		&mut self.files
 	}
 	fn next_id(&mut self) -> u64 {
 		self.next += 1;
@@ -264,13 +258,6 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			crate::room::stewardship::Kind::Steward => "steward",
 			crate::room::stewardship::Kind::Manager => "manager",
 		}
-	}
-	/// The policy a room stands under, live or from its managed row.
-	pub fn policy_of(&self, key: &RoomKey, authority: &Authority) -> Option<RoomPolicy> {
-		if let Some(room) = self.rooms.get(key) {
-			return Some(room.policy);
-		}
-		authority.managed_room(key.as_str()).map(|managed| managed.policy)
 	}
 	pub(super) fn public_kind(policy: RoomPolicy) -> MembershipKind {
 		policy.public_membership().unwrap_or(MembershipKind::Observer)

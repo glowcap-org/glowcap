@@ -47,7 +47,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             read_poll: bool = false,
             write_poll: bool = false,
             start_poll: bool = false,
-            /// Cancellations submitted for this row's polls, not yet retired.
+            /// Cancellations submitted for this row's polls, not yet retired. status-allow: pending state or quoted runtime label
             cancels: u2 = 0,
 
             pub fn quiet(entry: *const Entry) bool {

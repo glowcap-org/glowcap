@@ -112,7 +112,7 @@ export class Rendezvous {
 		return closed;
 	}
 
-	/** Whether an identity currently holds at least one socket (an
+	/** Whether an identity holds at least one socket (an
 	 * admission/presence check). */
 	has(designator: string): boolean {
 		const queue = this.#held.get(designator);
@@ -130,7 +130,7 @@ export class Rendezvous {
 		return this.#held.get(designator)?.length ?? 0;
 	}
 
-	/** The identities currently registered (for a presence roster). */
+	/** The identities registered (for a presence roster). */
 	registered(): string[] {
 		return [...this.#held.keys()];
 	}

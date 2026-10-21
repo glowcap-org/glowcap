@@ -65,7 +65,7 @@ export function useComposerMeasure(
 		const observer = new ResizeObserver(() => {
 			const bounds = box.getBoundingClientRect();
 			// A narrower column re-wraps what the field already holds, and the
-			// height measured at the old width no longer covers it: the last line a
+			// height measured at the old width no longer covers it: the last line a status-allow: lifecycle transition; replacement state identity
 			// reader needs is the one cut in half. Width alone is the trigger,
 			// because fitting changes the band's height and answering that would
 			// call this again. The cap is re-read here for the same reason it is

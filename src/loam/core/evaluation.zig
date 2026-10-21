@@ -8,7 +8,7 @@ const collection = @import("collection.zig");
 /// The immutable batch and its bytes stay at stable addresses until evaluation
 /// retires. Only get and next may return RecordUnloaded. Writes must synchronously consume
 /// their borrows. A resume keeps scalars and batch-owned views, never a backend
-/// row borrow. Earlier emissions remain in the same atomic KV transaction.
+/// row borrow. Earlier emissions remain in the same atomic KV transaction. status-allow: event or source ordering
 /// One cursor carries the validation and write passes.
 ///
 /// A commit verifies the strong edges it introduces: each must reach a record

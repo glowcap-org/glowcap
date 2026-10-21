@@ -189,7 +189,7 @@ export function ScrubInput(
 
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState("");
-	// Display width captured at the moment we swap into edit mode.
+	// Display width captured at the moment we swap into edit mode. status-allow: state at observation
 	// Native <input> defaults to size=20 (~20 char widths), which is
 	// much wider than this control's display state, pinning to the
 	// measured width prevents any shift when the mode flips.

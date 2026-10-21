@@ -221,7 +221,7 @@ Deno.test("each end says whether the reader let go", () => {
 		// The system took the gesture back: a palm on a trackpad, a touch that
 		// became a scroll. The reader never finished it.
 		["pointercancel", { pointerId: 4 }, "cancelled"],
-		// Focus went elsewhere mid-drag, so the reader is no longer driving.
+		// Focus went elsewhere mid-drag, so the reader is no longer driving. status-allow: lifecycle transition
 		["blur", {}, "cancelled"],
 	];
 	for (const [type, ev, reason] of cases) {

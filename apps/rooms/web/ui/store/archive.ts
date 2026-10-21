@@ -4,10 +4,6 @@
 import type { ArchiveShareView } from "../archive_model.ts";
 import type { PageProjection } from "./core.ts";
 
-export function addArchiveShare(projection: PageProjection, share: ArchiveShareView): void {
-	projection.set({ archiveShares: [...projection.get().archiveShares, share] });
-}
-
 export function patchArchiveShare(
 	projection: PageProjection,
 	id: string,

@@ -145,15 +145,11 @@ fn a_restore_trims_validates_and_names_what_it_evicted() {
 #[test]
 fn rows_and_file_names_round_trip_the_durable_forms() {
 	let encoded = encode_line(&line("alice", "hi \"there\"", 7));
-	assert_eq!(encoded, r#"{"version":2,"from":"alice","text":"hi \"there\"","at":7}"#);
+	assert_eq!(encoded, r#"{"version":1,"from":"alice","text":"hi \"there\"","at":7}"#);
 	assert_eq!(decode_line(&encoded).unwrap(), line("alice", "hi \"there\"", 7));
-	assert_eq!(
-		decode_line(r#"{"version":1,"from":"alice","text":"written before previews","at":6}"#).unwrap(),
-		line("alice", "written before previews", 6),
-	);
 	assert_eq!(decode_line("{").unwrap_err(), Error::Json);
 	assert_eq!(
-		decode_line(r#"{"version":3,"from":"a","text":"x","at":1}"#).unwrap_err(),
+		decode_line(r#"{"version":2,"from":"a","text":"x","at":1}"#).unwrap_err(),
 		Error::Version
 	);
 	let selected = KeptLine {
@@ -163,7 +159,7 @@ fn rows_and_file_names_round_trip_the_durable_forms() {
 	assert_eq!(decode_line(&encode_line(&selected)).unwrap(), selected);
 	assert_eq!(
 		decode_line(r#"{"version":1,"from":"a","text":"https://example.com","previews":[],"at":1}"#).unwrap_err(),
-		Error::Version,
+		Error::Line,
 	);
 	assert_eq!(
 		decode_line(r#"{"version":1,"from":"","text":"x","at":1}"#).unwrap_err(),

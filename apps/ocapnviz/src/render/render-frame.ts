@@ -64,13 +64,13 @@ export type RenderFrameArgs = {
 	 * gate. Peers, sessions, and messages by entity key. */
 	selection: ReadonlySet<EntityRefKey>;
 	/** Anchor, the Inspector-follow entity (and range-extension
-	 * pivot). Always inside `selection` when set. Used to paint
+	 * pivot). Always inside `selection` when set. Used to paint status-allow: purpose clause
 	 * an additional inner ring on the anchor's halo so the user
 	 * can see WHICH selected entity the Inspector is tracking
 	 * when more than one is selected. Single-select case looks
 	 * the same as before, anchor + selection collapse. */
 	anchor: EntityRefKey | null;
-	/** Entities currently inside the in-flight marquee rect.
+	/** Entities inside the in-flight marquee rect.
 	 * Painted as a "would be selected" affordance, visually
 	 * identical to hover. Empty when no drag is in flight. */
 	previewSelection: ReadonlySet<EntityRefKey>;

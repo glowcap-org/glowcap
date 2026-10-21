@@ -179,7 +179,7 @@ pub const Shared = struct {
     /// Per-session conformance state, keyed by session. Only accepted sessions
     /// (desks) register here, dialed exporter/redeem legs never do.
     confs: std.AutoHashMapUnmanaged(PeerHandle, *ConfCtx) = .{},
-    /// Gifter enlivens whose exporter session was not yet open when the enliven
+    /// Gifter enlivens whose exporter session was not yet open when the enliven status-allow: pending state or quoted runtime label
     /// arrived, drained in `on_open`.
     pending: std.ArrayListUnmanaged(PendingEnliven) = .empty,
     /// Host-driving effects held until the before-serve callback latch opens.

@@ -14,6 +14,7 @@
  */
 
 import {
+	assertNever,
 	type BuilderTool,
 	type DefaultVerb,
 	type EntityKind,
@@ -42,8 +43,8 @@ export function resolveGesture(ctx: GestureContext): ResolvedGesture {
 	}
 	// 3. Tool override (tier 3), Add Peer / Open Session / Send
 	//    Message intercept their target surfaces. Tool overrides
-	//    DO NOT apply when any modifier is held (R4); modifier-
-	//    augmented clicks always carry global meanings (P3).
+	//    DO NOT apply when any modifier is held; modifier-
+	//    augmented clicks always carry global meanings.
 	if (!anyModifier(ctx)) {
 		const toolVerb = toolOverride(ctx);
 		if (toolVerb !== null) return { tier: "tool-create", verb: toolVerb };
@@ -78,7 +79,7 @@ export function navigationOverride(
 	if (ctx.spaceHeld) {
 		return { tier: "space-pan", verb: { kind: "pan-surface" } };
 	}
-	// 2. Hand tool wins next (sticky Space, also P1).
+	// 2. Hand tool wins next (sticky Space).
 	if (ctx.activeTool === "hand") {
 		return { tier: "hand-tool", verb: { kind: "pan-surface" } };
 	}
@@ -272,10 +273,4 @@ export function surfaceDefault(hit: Hit): DefaultVerb {
 		default:
 			return assertNever(hit);
 	}
-}
-
-// ─────────────────────── Exhaustiveness helper ────────────────────────
-
-function assertNever(x: never): never {
-	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
 }

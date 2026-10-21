@@ -29,7 +29,7 @@ refusals and operation rates. Directory diagnostics show the effective policy
 and class counters.
 
 ```sh
-zig build rooms-server -- --state=.local/rooms --history
+zig build rooms-server -- --state="$HOME/rooms-state" --history
 ```
 
 Without `--state`, the server gets a fresh identity on every start and forgets
@@ -146,7 +146,7 @@ the capabilities the session holds. Several browsers attach to it and see the
 same thing. Closing every browser changes nothing.
 
 ```sh
-glowcap apps rooms session serve --dir=.local/.state/rooms
+glowcap apps rooms session serve --dir=./rooms-session
 ```
 
 When its workspace, listener and publications are ready, the process prints
@@ -228,7 +228,7 @@ accepts the gap and does not recover the missed events.
 The archive is a member's own history, behind one sturdyref:
 
 ```sh
-zig build rooms-archive -- --state=.local/member-archive
+zig build rooms-archive -- --state="$HOME/rooms-archive"
 ```
 
 The process prints `ROOMS-ARCHIVE-LISTENING` followed by the sturdyref.

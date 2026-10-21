@@ -213,7 +213,7 @@ try {
 	// field it holds has to answer it. A returning reader arrives with a
 	// directory they used before, and the link says nothing about it out loud;
 	// it only names a room here, which can mean this directory and nothing
-	// else. Silence there would let the earlier address stand, so a link to a
+	// else. Silence there would let the earlier address stand, so a link to a status-allow: event or source ordering
 	// room on this page would offer to join it somewhere the link never mentioned.
 	//
 	// The same tab then asks for the card with nothing named, which is where

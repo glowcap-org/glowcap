@@ -201,7 +201,7 @@ fn releaseHomeListener(home: *engine.Peer, listener: model.ExportPosition, curre
 }
 
 /// The proxy a promise's home keys it under: its current wire position, or
-/// the source row an earlier admission already indexed.
+/// the source row an earlier admission already indexed. status-allow: event or source ordering
 fn homeKeyOf(self: *Node, promise: passable.PromiseProjection) !topology.HomeKey {
     const home = self.peer(promise.home) orelse return error.PeerGone;
     const source_key: topology.HomeKey = .{

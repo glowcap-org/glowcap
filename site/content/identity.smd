@@ -226,7 +226,7 @@ The European Union's
 [digital identity wallet](https://ec.europa.eu/digital-building-blocks/sites/display/EUDIGITALIDENTITYWALLET/EU+Digital+Identity+Wallet+Home),
 which [EU law](https://eur-lex.europa.eu/eli/reg/2024/1183/oj) requires every
 member state to offer by the end of 2026, is built toward this model for
-facts like age and residence. As of October 2026, how well it hides you from
+facts like age and residence. How well it hides you from
 checkers who compare notes depends on technical choices still open. Because
 each service can see a different name, the wallet alone cannot show that a
 visitor signed up only once.
@@ -268,7 +268,7 @@ service's logs.
 
 # Standards for agents
 
-As of October 2026, most of these are drafts or company programs.
+Most of these are drafts or company programs.
 
 - **Bots that say which bot they are.** A
   [September 2026 draft](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/)

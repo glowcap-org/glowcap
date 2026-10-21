@@ -25,7 +25,7 @@ export type BaseTimelineEvent = {
 	 * epoch: its `seq` resets (so the seq dedup window resets with
 	 * it) and its session ids may collide with the dead process's.
 	 * The converter closes every entity of the previous epoch when
-	 * the epoch changes. The old process's topology is gone.
+	 * the epoch changes. The old process's topology is gone. status-allow: replacement state identity
 	 * Absent on producers without replay/restart concerns. */
 	epoch?: unknown;
 	/** `trace.producer-left` only: the departed producer's scope. Endpoint-authored,
@@ -78,11 +78,12 @@ export type BaseTimelineEvent = {
 	 *
 	 * A string rather than that type because this is the wire, where a producer
 	 * may send anything, `attributionForProvenance` is the one place a verdict
-	 * is read. Absent from a producer that predates the field. */
+	 * is read. */
 	provenance?: unknown;
 	/** `ocapn.session-opened`: the OCapN Transport of `b`'s locator, the
 	 * netlayer symbol this session runs over. A designator does not name a
-	 * location on its own. The spec requires the transport beside it. */
+	 * location on its own. The spec requires the transport beside it, so
+	 * every `ocapn.session-opened` carries one. */
 	transport?: unknown;
 	/** `ocapn.session-opened`: the OCapN **Session ID**, 64 lowercase hex
 	 * digits. Both peers of one session derive the same value from their two
@@ -90,7 +91,7 @@ export type BaseTimelineEvent = {
 	 * both ends' reports and neither had to be told it. It is what tells one
 	 * conversation watched twice from two unrelated ones, and so it is the
 	 * name this converter builds its edges on. Absent when the partner sent
-	 * no session key, and from a producer that predates the field. */
+	 * no session key. */
 	session_id?: unknown;
 	/** `ocapn.session-opened`: what the reporting host would like itself
 	 * called on screen. A chat server saying "rooms" rather than showing its
@@ -113,8 +114,8 @@ export type BaseTimelineEvent = {
 	/** `ocapn.session-opened`: the negotiated CapTP profile, spelled the way
 	 * the handshake spells it (`"1.0"` / `"glowcap-next"`), because a trace
 	 * reports on the wire. The feed is JSON, so this reaches the reader as
-	 * unknown until the reader proves it is a string. Absent from a producer
-	 * that predates the field. */
+	 * unknown until the reader proves it is a string. Required on every
+	 * `ocapn.session-opened`. */
 	captp_version?: unknown;
 	/** `ocapn.message-decoded`: a tag over the frame's own bytes, which
 	 * both ends of the wire derive alike. Two producers watching one

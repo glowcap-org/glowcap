@@ -31,7 +31,7 @@ struct Inner<S> {
 
 enum CloseState {
 	Open,
-	/// An explicit protocol close intent that has not reached the socket yet.
+	/// An explicit protocol close intent that has not reached the socket yet. status-allow: pending state or quoted runtime label
 	/// Keeping it in shared state makes cancellation before the next poll safe.
 	Pending(Option<tokio_tungstenite::tungstenite::protocol::CloseFrame>),
 	Sent,

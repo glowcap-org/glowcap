@@ -69,14 +69,14 @@ export function keyframeAt<T>(
  *
  *  The sibling of `keyframeAt`, and the distinction between them is
  *  the whole of what a track is. `keyframeAt` answers what the
- *  property IS at `t`, which a keyframe at some earlier time can
+ *  property IS at `t`, which a keyframe at some earlier time can status-allow: event or source ordering
  *  answer. This answers what the document SAYS at `t`, which only a
  *  keyframe standing there can.
  *
  *  A reader painting the stage wants the first. A writer asking
  *  "would this change the document" wants the second. Declaring a
  *  value at a time nothing declared it pins it there: edits to the
- *  genesis value, and to earlier keyframes, stop reaching past it. So
+ *  genesis value, and to earlier keyframes, stop reaching past it. So status-allow: event or source ordering
  *  such a write is a real change even when the value in effect was
  *  already that, and `no-op-guards.ts` states that rule once for
  *  every trajectory write. */

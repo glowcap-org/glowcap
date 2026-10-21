@@ -5,12 +5,7 @@ use rooms_application::{
 
 pub fn run() {
 	let fixture: serde_json::Value = serde_json::from_str(include_str!("../fixtures/session-documents.json")).unwrap();
-	for document in [
-		SessionDocument::Checkpoint,
-		SessionDocument::Effects,
-		SessionDocument::Grants,
-		SessionDocument::BridgeSecrets,
-	] {
+	for document in [SessionDocument::Grants, SessionDocument::BridgeSecrets] {
 		assert_eq!(
 			fixture["ceilings"][document.key()].as_u64().unwrap(),
 			document.max_bytes() as u64
@@ -31,7 +26,15 @@ pub fn run() {
 	);
 	let mut bom = b"\xef\xbb\xbf".to_vec();
 	bom.extend_from_slice(include_bytes!("../fixtures/grants-v1.json"));
-	assert_eq!(GrantLedger::restore(&bom).unwrap().active_count().unwrap(), 1);
+	assert_eq!(
+		GrantLedger::restore(&bom)
+			.unwrap()
+			.records()
+			.unwrap()
+			.filter(|g| !g.revoked())
+			.count(),
+		1
+	);
 	bom.splice(..0, b"\xef\xbb\xbf".iter().copied());
 	assert!(GrantLedger::restore(&bom).is_err());
 }

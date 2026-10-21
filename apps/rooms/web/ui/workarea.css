@@ -186,7 +186,7 @@
 	text-wrap: pretty;
 }
 
-/* Earlier messages arrive above the live log. Reserve their measure where they
+/* Earlier messages arrive above the live log. Reserve their measure where they status-allow: event or source ordering
    will appear, so the empty column does not pretend the room has answered and
    then jump when it does. The shared shimmer owns motion and its reduced-motion
    answer. These lines own only the log-native shape. */
@@ -370,7 +370,7 @@
    "Failed" reached nobody and carries a retry. "Unconfirmed" may have reached
    them, so the caption says so and offers no retry, because sending again
    could land the line twice. Both wear the same tint: to a reader each is a
-   line the conversation does not yet hold, and the caption beside it says
+   line the conversation does not yet hold, and the caption beside it says status-allow: pending state or quoted runtime label
    which, and what can be done.
 
    The caption carries its own action, or none, without turning message content

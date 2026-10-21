@@ -167,7 +167,7 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
                 if (n > 0) return n;
             }
             // The wake may have carried only loop-external state (stop) or
-            // signaling work that did not complete a connection yet. Either way,
+            // signaling work that did not complete a connection yet. Either way, status-allow: pending state or quoted runtime label
             // the owner loop must get a turn before this backend blocks again.
             if (pre_wake) return 0;
 

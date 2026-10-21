@@ -69,7 +69,7 @@ export function reachPublicRoom(room: string): string {
 	return `${room} is a name on this server, so the address above is the server's. Anyone who can reach the server can join by that name.`;
 }
 
-/** The spinner label over earlier messages, which a screen reader reads out. */
+/** The spinner label over earlier messages, which a screen reader reads out.  status-allow: event or source ordering */
 export const conversationLoadingEarlier = "Loading earlier messages";
 
 /** Time suffixes beside message timestamps. */
@@ -215,7 +215,6 @@ export function rowJoinRoomOn(name: string): string {
 /** Why the field under a conversation cannot send right now. */
 export const cannotSendPaused = "You cannot send while your access is paused.";
 export const cannotSendReadOnly = "Your session link is read only, so you can't send here.";
-export const cannotJoinReadOnly = "Your session link is read only, so you can't join another room.";
 export const cannotSendDmClosed = "This direct conversation is closed.";
 export const cannotSendRegistrationEnded =
 	"This nickname registration ended. Start a new conversation with its current holder.";
@@ -361,8 +360,6 @@ export const memberYouAre = "You are";
 export const memberPresence = "Presence";
 export const memberNetwork = "Network";
 export const memberOffline = "Offline";
-export const memberOnline = "Online";
-export const memberAwayLabel = "Away";
 export function memberAbout(name: string): string {
 	return `About ${name}`;
 }

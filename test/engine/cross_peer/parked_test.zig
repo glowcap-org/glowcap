@@ -115,7 +115,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     try peer_fixture.receiveListenerForAnswer(&exporter, .from(1));
 
     // Not refused, parked: no answer left the peer and the entry is held. The
-    // gift is not in the registry yet; the deposit lands below. The parked row
+    // gift is not in the registry yet; the deposit lands below. The parked row status-allow: pending state or quoted runtime label
     // owns the verified receive and its accepted replay count, not a gift.
     try std.testing.expect(exporter.takeOutbound() == null);
     try std.testing.expectEqual(@as(usize, 1), exporter.pendingWithdrawCount());

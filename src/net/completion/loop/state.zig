@@ -124,7 +124,7 @@ pub fn Types(comptime Backend: type) type {
             /// packed into this number. `waiting_is_drain` records which one
             /// the stamp was taken for, so a connection that was already
             /// waiting when its state changed starts the new clock instead of
-            /// inheriting the old one's elapsed time. `.open` with a parked read
+            /// inheriting the old one's elapsed time. `.open` with a parked read status-allow: replacement state identity
             /// is a slow reader, bounded by `Options.park_kill_ms`. A
             /// `.draining` connection is waiting for its terminal bytes to be
             /// read, bounded by `Options.drain_kill_ms`. Condemnation
@@ -145,7 +145,7 @@ pub fn Types(comptime Backend: type) type {
             /// Bumped every time this slot is reclaimed, so slot reuse is
             /// observable, the state alone cannot show it, because a
             /// replacement occupant is `.open` too. No production path compares
-            /// it today. It is what `test/net/fuzz_test.zig` checks slot
+            /// it. It is what `test/net/fuzz_test.zig` checks slot
             /// identity against, and it costs nothing, because the four bytes
             /// land in alignment padding `Conn` already carries.
             generation: u32 = 0,
@@ -175,7 +175,7 @@ pub fn Types(comptime Backend: type) type {
             /// submit as the next write.
             back: std.ArrayList(u8) = .empty,
             write_in_flight: bool = false,
-            /// Per-connection recv/send/close operations the backend has not yet
+            /// Per-connection recv/send/close operations the backend has not yet status-allow: pending state or quoted runtime label
             /// reported complete. Teardown waits for this to reach zero, so the
             /// slot is never reused and `front` is never freed while a
             /// completion-based backend could still write into it. That prevents
@@ -190,8 +190,8 @@ pub fn Types(comptime Backend: type) type {
             /// indices, or `conns.len` as the end sentinel.
             ///
             /// Four lists share this pair: the ordinary and reserved free lists
-            /// while `state == .free`, buffer-starved while `read == .starved`,
-            /// and backpressure-parked while `read == .parked`. A slot belongs
+            /// while `state ==.free`, buffer-starved while `read ==.starved`,
+            /// and backpressure-parked while `read ==.parked`. A slot belongs
             /// to exactly one. A free slot's seat is `.idle`, because the slot
             /// reset leaves it there, and `.starved` and `.parked` are two
             /// values of one enum. Every departure unlinks before the state

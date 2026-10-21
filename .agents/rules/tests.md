@@ -37,7 +37,7 @@ implementation as the authority in prose.
 
 - A proof that reads rendered prose does so through the catalog or a marker
   the catalog owns. Rewording user-visible text means sweeping the test page
-  helpers for the old wording in the same change, or the mismatch reads as a
+  helpers for the old wording in the same change, or the mismatch reads as a <!-- status-allow: workflow sequence -->
   flake.
 - Every deterministic non-Zig test process has an owner-calibrated
   process-group deadline of at most 30 s, and Zig tests get `--test-timeout 30s`

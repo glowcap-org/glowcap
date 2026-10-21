@@ -120,7 +120,7 @@
 (printf "racket zig-smoke OK: forwarding proxies forward, attenuate, and revoke over the wire\n")
 
 ;; ── A forwarding proxy answers its host's own local call (ADR-0016) ────────────
-;; The wart ADR-0016 closes: a caretaker proxy is an ordinary spawned actor, so
+;; The wart this closes: a caretaker proxy is an ordinary spawned actor, so
 ;; its own host calls it locally exactly as a partner calls it over the wire. A
 ;; caretaker over a *local* tool answers a local send; a caretaker over a *far*
 ;; tool forwards across the wire and the local send still settles; and a revoke

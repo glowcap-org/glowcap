@@ -88,7 +88,7 @@
 
 ;; <op:listen <desc:answer 7> <desc:import-object 9>>.
 ;;
-;; Legacy op:listen wire-shape per ADR-0003 — two
+;; Legacy op:listen wire-shape per ADR-0003 — two status-allow: supported external protocol variant
 ;; desc:* reference operands. `to-desc` may be `desc:answer`
 ;; (pipelining target case) or `desc:export` (local-export target
 ;; case). `listen-desc` is `desc:import-object` or
@@ -97,7 +97,7 @@
 ;; via the standard payload-position perspective flip.
 ;;
 ;; V1.0 accepts this omitted third operand only as settling-only
-;; compatibility with the earlier OCapN text. Glowcap canonically emits the
+;; compatibility with the earlier OCapN text. Glowcap canonically emits the status-allow: event or source ordering
 ;; Goblins three-operand form below. Next always carries its integer mode.
 (define (op-listen-promise-target)
   (record* 'op:listen
@@ -209,8 +209,8 @@
 ;; <op:abort "ResourceExhausted: ImportTable cap hit">.
 ;;
 ;; ADR-0008 typed-reason wire projection, same shape as
-;; op-abort-typed but with the new ResourceExhausted kind that
-;; ADR-0008 added (session table-cap hardening). Sibling
+;; op-abort-typed but with the ResourceExhausted kind (ADR-0008,
+;; session table-cap hardening). Sibling
 ;; to the Python fixture; cross-impl byte parity on the typed
 ;; ResourceExhausted abort is the load-bearing check.
 (define (op-abort-resource-exhausted)
@@ -245,7 +245,7 @@
 ;; ── ADR-0005 widened-Argument fixtures ──────────────────
 ;;
 ;; `op:deliver to=<desc:export 7> args=[<arg>] answer-pos=42 #f`
-;; shape for each new `Argument` variant ADR-0005 added. Mirrors the
+;; shape for each `Argument` variant (ADR-0005). Mirrors the
 ;; sibling Python builders; pin direction is "both reference encoders
 ;; agree, glowcap must match." A regression on a specific variant's
 ;; wire shape surfaces against its dedicated fixture.

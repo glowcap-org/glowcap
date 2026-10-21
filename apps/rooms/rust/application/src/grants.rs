@@ -16,9 +16,7 @@ pub use storage::{ApplyError, GrantStorage, PersistedGrant, PreparedGrant};
 
 use alloc::{collections::BTreeMap, rc::Rc, string::String, vec::Vec};
 use core::cell::Cell;
-use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -78,15 +76,6 @@ impl GrantLedger {
 	fn lookup(&self, id: &str) -> Option<&Grant> {
 		self.by_id.get(id).map(|&at| &self.grants[at])
 	}
-	pub fn active_count(&self) -> Result<usize, Error> {
-		self.require_ready()?;
-		Ok(self.active)
-	}
-	pub fn lifetime_count(&self) -> Result<usize, Error> {
-		self.require_ready()?;
-		Ok(self.grants.len())
-	}
-
 	pub fn document(&self) -> Result<Vec<u8>, Error> {
 		self.require_ready()?;
 		self.encode(None)
@@ -243,21 +232,4 @@ impl GrantLedger {
 		}
 		Ok(bytes)
 	}
-}
-
-/// Preserve the current HMAC derivation and 16-byte truncation. Only immutable
-/// grant identity enters the derivation, so changing policy preserves its link.
-/// The caller owns root-entropy custody and publication through glowcap.
-pub fn derive_entropy(root: &[u8; 16], id: &str) -> Result<[u8; 16], Error> {
-	model::validate_id(id)?;
-	#[expect(
-		clippy::expect_used,
-		reason = "HMAC accepts a key of any length; new_from_slice refuses only fixed-key MACs"
-	)]
-	let mut mac = Hmac::<Sha256>::new_from_slice(root).expect("HMAC accepts a 16-byte key");
-	mac.update(b"glowcap Rooms session grant\0");
-	mac.update(id.as_bytes());
-	let mut entropy = [0; 16];
-	entropy.copy_from_slice(&mac.finalize().into_bytes()[..16]);
-	Ok(entropy)
 }

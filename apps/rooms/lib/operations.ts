@@ -8,7 +8,6 @@
 
 import type { Ref, Session } from "@glowcap/runtime";
 import { retainCleanupFailures } from "@glowcap/runtime";
-import { parseRoomsSturdyref } from "./locator.ts";
 
 /** The Host publication name printed by this directory.
  *
@@ -22,15 +21,6 @@ export function operationsSwiss(pasted: string): string {
 		throw new Error("paste the bare swiss number this directory printed, not a sturdyref for another host");
 	}
 	return trimmed;
-}
-
-/** A swiss presented to the endpoint named alongside it. Unlike a capability
- * fetched on the current directory, the visualizer has a separately selected
- * endpoint, so accepting its complete sturdyref cannot retarget another Host. */
-export function presentedSwiss(pasted: string): string {
-	const trimmed = pasted.trim();
-	if (!trimmed.includes("://")) return trimmed;
-	return new TextDecoder().decode(parseRoomsSturdyref(trimmed).swissnum);
 }
 
 /** Fetch an operations capability and take its first answer through `first`.

@@ -271,7 +271,7 @@ pub const Port = port_mod.Port;
 
 /// One layer's stake in an outermost turn (ADR-0058). `commit` runs in
 /// enrollment order and `abort` in reverse, so a later layer undoes its effect
-/// before an earlier one releases what that effect used.
+/// before an earlier one releases what that effect used. status-allow: event or source ordering
 /// Abort restores state without notifying observers. Optional `abort_notify`
 /// runs after every participant has aborted, when listeners may reenter.
 pub const TurnParticipant = struct {
@@ -382,7 +382,7 @@ pub const Vat = struct {
     /// and for the same reason: a handler may return a reply that borrows the
     /// state it ran as, and that reply stays valid until the vat's next
     /// outermost turn. The frame that installs a become can sever its own
-    /// reply, but not one an *earlier* frame of the same actor already handed
+    /// reply, but not one an *earlier* frame of the same actor already handed status-allow: event or source ordering
     /// back to a caller still running. That frame has closed. Freeing the box
     /// here instead of at the install makes both replies outlive it.
     /// Capacity also escrows one unused slot per live actor. That makes

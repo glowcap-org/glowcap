@@ -118,11 +118,17 @@ module, and persistence research. Nothing above blocks this work.
    [implementation plan](planning/typed-hosted-access.md) waits for maintainer
    review before execution. Existing Zig admission, receipts, and recovery
    remain authoritative.
-5. **Residency slot lookup.** The resident record cache finds a slot by
-   scanning them in order, 7 percent of a hot read at both profile shapes
-   and stable as the population grows. An indexed lookup waits for a bench
-   shape in which that share matters
-   ([plan to plan](planning/plan-to-plan.md)).
+5. **Shared Rooms hosting and sign-in.** Host independent Rooms sessions
+   over shared transport, storage and execution, with bounded per-session
+   costs. Add optional identity-provider login that restores explicitly held
+   access. The [hosting plan](planning/rooms-hosting.md) defines ownership,
+   multiplexed membership and scale acceptance. Its optional
+   [account contract](planning/rooms-hosting-accounts.md) defines sign-in
+   custody and recovery.
+
+   Complete the account-free hosting foundation before
+   opening public contribution. Account integration follows separately. Both
+   contracts wait for maintainer review before implementation.
 
 The C/Rust and browser fixed-resource lifecycles are described in the
 [C/Rust scope](loam/c-and-rust.md) and the

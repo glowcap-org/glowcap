@@ -37,7 +37,7 @@ impl Backend for Memory {
 	async fn active_shares(&mut self) -> Result<Vec<rooms_application::archive::shares::Share>, Error> {
 		Ok(Vec::new())
 	}
-	async fn clear(&mut self) -> Result<(), Error> {
+	async fn clear_source(&mut self, _: &rooms_application::text::DocumentText) -> Result<(), Error> {
 		if self.erase_fails.get() {
 			return Err(Error::storage_message("forced erase refusal"));
 		}
@@ -213,7 +213,7 @@ async fn scenario() {
 	assert_eq!(local_index.borrow().revision(), revision);
 	owner.select(None).unwrap().wait().await.unwrap();
 	erase_fails.set(true);
-	assert!(owner.clear_local().unwrap().wait().await.is_err());
+	assert!(owner.clear_source_when_ready(&"source".into()).await.is_err());
 	assert!(owner.read(Filter::default()).unwrap().wait().await.is_err());
 	assert!(
 		owner

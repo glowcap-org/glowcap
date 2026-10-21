@@ -2,7 +2,7 @@
 //! shuttle: turn_forward, turn_send, and turn_tell behind a caretaker,
 //! turn_spawn minting a capability mid-turn, turn_break carrying the
 //! refusal's own words, and vow_send/index/untag/get against answers that
-//! do not exist yet, with the baseline peer's outbound-untag refusal.
+//! do not exist yet, with the baseline peer's outbound-untag refusal. status-allow: pending state or quoted runtime label
 
 const std = @import("std");
 const c = @import("c_abi");

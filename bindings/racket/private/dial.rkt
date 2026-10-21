@@ -256,7 +256,7 @@
        (with-host-drain m
          (lambda ()
            ;; The report and local commit bit are one unbreakable transition:
-           ;; after host-dialed succeeds this ticket no longer admits a failure
+           ;; after host-dialed succeeds this ticket no longer admits a failure status-allow: lifecycle transition
            ;; report, even if a later drain effect is interrupted.
            (parameterize-break
             #f

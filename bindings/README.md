@@ -142,7 +142,7 @@ Runtime becomes the shutdown barrier for the Host it adopts.
   Python `serve()` task ends that session: the loop closes the transport on
   the way out, as it does for every other exit.
 - TypeScript, Python, and Rust keep at most <!-- value ../tools/gen/binding/policy.zig unobserved_outcome_cap -->1,024<!-- /value --> settled outcomes that no
-  caller has awaited yet, a cap the binding-policy generator writes into all
+  caller has awaited yet, a cap the binding-policy generator writes into all <!-- status-allow: runtime state or operation ordering -->
   three. Past it, the oldest result is dropped and a late await fails. Racket
   waits at the call site and needs no queue.
 - Racket keeps its own actor vocabulary: `spawn`, `$`, `<-`, `on`, `bcom`,

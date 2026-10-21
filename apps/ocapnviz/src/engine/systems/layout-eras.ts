@@ -433,8 +433,7 @@ function computePerTopologyEras(
 		// A moved pin changes this era's problem key, so the held map misses even
 		// when the prior arrangement is still an equilibrium (pin within epsilon
 		// of where the era already had it, or the pin names a node this era does
-		// not hold). Check that before annealing. The old placement path annealed
-		// first and threw the result away.
+		// not hold). Check that before annealing.
 		if (placementPrevByT) {
 			const prev = placementPrevByT.get(t);
 			if (prev) {
@@ -476,17 +475,16 @@ function computePerTopologyEras(
  * occupies. All of it, because the key is compared across computations as well
  * as within one. An era whose arrangement is reused has to be answering the
  * same question in every respect, and a pin cleared or a claim landing changes
- * the answer without changing the node set. Leaving those out reused a layout
- * that still held a peer at a pin nobody had asked for any more.
+ * the answer without changing the node set. Leaving those out would reuse a
+ * layout that still held a peer at a pin nobody asks for any more.
  *
- * The session ids are in it, and a first version left them out on the reasoning
- * that the solver reads one only through `bundleIndices`, to count how many
- * lanes a pair carries. That is half of what `bundleIndices` does: it sorts the
- * ids sharing a pair and indexes by position (`session-geometry.ts:119-125`), so
- * WHICH lane a claim rides depends on the ids of every session on that pair. Two
- * eras carrying the same pairs under different ids are therefore different
- * problems, and treating them as one left a claim leaning on the lane it had
- * while its arc was drawn along another.
+ * The session ids are in it. The solver reads them through `bundleIndices`,
+ * which sorts the ids sharing a pair and indexes by position
+ * (`session-geometry.ts:119-125`), so WHICH lane a claim rides depends on the
+ * ids of every session on that pair. Two eras carrying the same pairs under
+ * different ids are therefore different problems, and treating them as one
+ * would leave a claim leaning on the lane it had while its arc was drawn along
+ * another.
  *
  * The pairs are listed rather than deduplicated for the same reason: a second
  * session between the same two nodes is a second lane.

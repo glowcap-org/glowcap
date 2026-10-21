@@ -410,9 +410,9 @@ export abstract class SessionLifecycle {
 				this.#serving.catch(() => {}),
 			]);
 			// A simultaneous peer EOF can let the serve pump physically retire
-			// the wrapper before a previously popped CLOSE action publishes its
+			// the wrapper before a previously popped CLOSE action publishes its status-allow: ownership and operation ordering
 			// result. Release is authoritative terminal success for cleanup; do
-			// not wait forever on an action that can no longer name this session.
+			// not wait forever on an action that can no longer name this session. status-allow: lifecycle transition
 			if (this.#released) {
 				this.finishClose(OK);
 				await this.#joinCloseBarrier(closePromise);

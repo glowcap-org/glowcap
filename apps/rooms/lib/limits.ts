@@ -277,17 +277,6 @@ export const MAX_ROOM_FEATURE = APPLICATION_DATA.MAX_ROOM_FEATURE;
  * forever. */
 export const MAX_NAME_VOUCHERS = APPLICATION_DATA.MAX_NAME_VOUCHERS;
 export const NAME_VOUCHER_BYTES = APPLICATION_DATA.NAME_VOUCHER_BYTES;
-/** How many room offers a tab keeps waiting for an answer.
- *
- * An offer arrives from a peer and sits until the reader answers it, and a
- * handed one holds a live reference while it sits. Without a ceiling, one
- * chatty peer grows this tab's memory for as long as the reader is away. Past
- * the ceiling, a new offer is declined on arrival and the reader is told,
- * which loses nothing that answering the queue would not recover. */
-export const MAX_PENDING_INVITES = 16;
-/** Read-only archive occurrences one browser will retain from peers before the
- * reader must use or decline one. Each row holds a live imported capability. */
-export const MAX_PENDING_ARCHIVE_SHARES = 16;
 /** Maximum online and disconnected names in one room's display roster.
  *
  * Explicit leaves remove names. Connection loss retains bounded offline rows
@@ -387,7 +376,7 @@ export const MAX_ROOM_ATTACHMENTS = APPLICATION_DATA.MAX_ROOM_ATTACHMENTS;
 export const MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES = APPLICATION_DATA.MAX_ARCHIVE_PENDING_ATTACHMENT_BYTES;
 
 /** What one TypeScript process will retain for direct-message recipients that
- * have not fetched their files yet. Direct files have no room server to own
+ * have not fetched their files yet. Direct files have no room server to own status-allow: pending state or quoted runtime label
  * this budget, so the sender-side attachment module applies one process-wide
  * oldest-first ceiling. */
 export const MAX_DIRECT_ATTACHMENT_BYTES = 64 * 1024 * 1024;
@@ -427,7 +416,7 @@ export const UPLOAD_IDLE_MS = APPLICATION_DATA.UPLOAD_IDLE_MS;
 /** How long one chunk of a transfer may take before the side waiting on it
  * gives up.
  *
- * A read for bytes the room does not have yet waits instead of answering
+ * A read for bytes the room does not have yet waits instead of answering status-allow: pending state or quoted runtime label
  * short, so a parked read is ordinary and this deadline has to sit above the
  * longest legitimate one. `UPLOAD_IDLE_MS` makes that finite: a conforming room
  * settles every parked read within it, by finishing the upload or by dropping
@@ -457,7 +446,7 @@ export const REQUEST_TIMEOUT_MS = APPLICATION_DATA.REQUEST_TIMEOUT_MS;
 
 /** How many reads one file will hold parked at once.
  *
- * A read that asks for bytes the room does not have yet waits instead of
+ * A read that asks for bytes the room does not have yet waits instead of status-allow: pending state or quoted runtime label
  * answering short, because a reader could not tell a short answer from the end
  * of a file. That wait is a live object per read, and a member chooses how many
  * reads to make. Without a ceiling, the one structure in this server that
@@ -495,11 +484,6 @@ export const MAX_SIGNAL_EXCHANGES = APPLICATION_DATA.MAX_SIGNAL_EXCHANGES;
  * sturdyref can return through identifier reuse. */
 export const MAX_ACTIVE_SESSION_GRANTS = APPLICATION_DATA.MAX_ACTIVE_SESSION_GRANTS;
 export const MAX_LIFETIME_SESSION_GRANTS = APPLICATION_DATA.MAX_LIFETIME_SESSION_GRANTS;
-/** Bridge credential rows one durable Rooms session keeps, one per directory
- * and bridge scope a reader answered a secret field for. A directory rarely
- * bridges more than a couple of networks, so this is two per directory the
- * workspace may hold. */
-export const MAX_BRIDGE_SECRET_SCOPES = 64;
 export const MAX_SESSION_GRANT_LABEL = APPLICATION_DATA.MAX_SESSION_GRANT_LABEL;
 /** Room for a sentence saying why a link has gone quiet, and no more. It is
  * read by whoever holds that link, in place of the session. */

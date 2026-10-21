@@ -35,32 +35,25 @@ export function traceCapOf(sturdyref: string): string {
 	return new TextDecoder().decode(parseSturdyRef(sturdyref, "v1_0").swissnum);
 }
 
-/** Preserve the advertised channel, including proxy prefixes. Legacy links
- * without channel advice use the locator's TCP address and HTTP token. */
+/** The advertised viewer channel, proxy prefix included. The endpoint always
+ * advertises it, so a link without it is refused rather than guessed. */
 export function traceUrlOf(sturdyref: string): string {
-	const locator = parseSturdyRef(sturdyref, "v1_0").locator;
-	const endpoint = locator.hints.get("captp-websocket");
-	if (endpoint !== undefined) {
-		if (typeof endpoint !== "string") throw new Error("trace channel hint must be a string");
-		const url = new URL(endpoint);
-		if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-			throw new Error("trace channel must be a WebSocket URL without credentials, query or fragment");
-		}
-		return endpoint;
+	const endpoint = parseSturdyRef(sturdyref, "v1_0").locator.hints.get("captp-websocket");
+	if (typeof endpoint !== "string") throw new Error("the trace link must advertise its captp-websocket channel");
+	const url = new URL(endpoint);
+	if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+		throw new Error("trace channel must be a WebSocket URL without credentials, query or fragment");
 	}
-	const { hostname, port } = designatorHostPort(locator.designator);
-	const host = hostname.includes(":") ? `[${hostname}]` : hostname;
-	return traceCapUrl(`ws://${host}:${port}/`, traceCapOf(sturdyref));
+	return endpoint;
 }
 
-/** Producers use their independently advertised route and HTTP capability. */
+/** Producers use their independently advertised route and HTTP capability.
+ * The endpoint always advertises the route, as the server's own reader
+ * requires, so a link without it is refused. */
 export function tracePublishUrlOf(sturdyref: string): string {
-	const locator = parseSturdyRef(sturdyref, "v1_0").locator;
-	const endpoint = locator.hints.get("trace-publish");
-	if (endpoint !== undefined && typeof endpoint !== "string") throw new Error("trace producer hint must be a string");
-	const url = new URL(endpoint ?? traceUrlOf(sturdyref));
-	if (endpoint === undefined) url.pathname = "/publish";
-	return traceCapUrl(url.href, traceCapOf(sturdyref));
+	const endpoint = parseSturdyRef(sturdyref, "v1_0").locator.hints.get("trace-publish");
+	if (typeof endpoint !== "string") throw new Error("the trace link must advertise its trace-publish endpoint");
+	return traceCapUrl(endpoint, traceCapOf(sturdyref));
 }
 
 /** Connect one viewer and feed every record to `apply`, replay included, as
@@ -120,13 +113,9 @@ export async function connectTraceViewer(
 		// Startup can fail before the caller owns `closed`. Keep its rejection
 		// observed while cleanup retains the same result for that caller.
 		void serving.catch(() => {}); // tolerant: observes rejection until cleanup or the caller awaits the same result.
-		const raw_log = Deno.env.get("TRACE_VIEWER_LOG");
 		const inbox = session.spawn((verb, args) => {
 			if (verb !== "record" || args.length !== 1 || typeof args[0] !== "string") {
 				throw new Error("the viewer inbox received an invalid record");
-			}
-			if (raw_log != null) {
-				Deno.writeTextFileSync(raw_log, args[0] + "\n", { append: true });
 			}
 			const record: unknown = JSON.parse(args[0]);
 			if (!isTraceRecord(record)) {
@@ -137,7 +126,7 @@ export async function connectTraceViewer(
 		});
 		const trace = await answerWithin(session.enliven(sturdyref), "the live trace capability", SUBSCRIBE_MS);
 		// Bounded, because an endpoint that holds the socket open and never answers
-		// the subscribe looks the same as one with nothing to report yet, and a
+		// the subscribe looks the same as one with nothing to report yet, and a status-allow: pending state or quoted runtime label
 		// consumer waiting on it would sit there looking correct forever.
 		await answerWithin(session.send(trace, "subscribe", [inbox]), "the live trace subscription", SUBSCRIBE_MS);
 		return {

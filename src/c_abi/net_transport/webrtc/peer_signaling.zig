@@ -180,7 +180,7 @@ pub fn candidateInputError(err: InputError, operation: []const u8, label: []cons
 
 /// Drain the next locally gathered ICE candidate into `(out, cap)` as JSON,
 /// writing its length to `*out_len`. `GLOWCAP_ERR_WOULD_BLOCK` when none is
-/// pending yet. `GLOWCAP_ERR_BUFFER_TOO_SMALL` still writes the required length.
+/// pending yet. `GLOWCAP_ERR_BUFFER_TOO_SMALL` still writes the required length. status-allow: pending state or quoted runtime label
 /// `GLOWCAP_ERR_INVALID_ARGUMENT` means the candidate exceeds
 /// `GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES`.
 pub export fn glowcap_webrtc_peer_next_local_candidate(peer: ?*GlowcapWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {

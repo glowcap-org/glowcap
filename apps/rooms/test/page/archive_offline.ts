@@ -3,7 +3,7 @@
 // The bytes of a file kept here are in this browser's own storage. Whether the
 // directory the conversation lives on happens to be reachable has nothing to do
 // with reading them back, and a reader who is offline, or who has not
-// finished connecting yet, is owed their own history and the files in it.
+// finished connecting yet, is owed their own history and the files in it. status-allow: pending state or quoted runtime label
 //
 // So this stands the page up with no way to reach any directory at all and asks
 // for a file back. The page's own assets still load. The one socket a session is
@@ -49,7 +49,7 @@ export async function run(tab: Page, dmName: string): Promise<void> {
 		await file.waitFor({ state: "visible", timeout: 20_000 })
 			.catch(() => fail("the archived file line did not survive a reload with no directory to reach"));
 		// Offered at all. A file whose bytes this device holds must not be put
-		// beyond reach because nothing has connected yet: that is a fact about the
+		// beyond reach because nothing has connected yet: that is a fact about the status-allow: pending state or quoted runtime label
 		// network, and this one is about the disk.
 		if (await file.locator("button").count() === 0) {
 			fail(`a file this device holds the bytes of was not offered: ${JSON.stringify(await fileState(tab))}`);

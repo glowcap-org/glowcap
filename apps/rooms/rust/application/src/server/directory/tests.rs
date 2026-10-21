@@ -148,7 +148,7 @@ fn a_name_another_connection_holds_needs_a_current_voucher() {
 	assert_eq!(member_event(&effects.events[1]), Some((true, "alice", 1)));
 	assert_eq!(dir.registered_nick(1), None);
 	assert_eq!(dir.registered_nick(2), Some("alice"));
-	// The voucher was spent, and the old name capability is no longer current.
+	// The voucher was spent, and the old name capability is no longer current. status-allow: lifecycle transition; replacement state identity
 	let refusal = dir.register(3, carried, id(3), 0).unwrap_err();
 	assert_eq!(refusal.code, Some(FailureCode::NickTaken));
 	assert_eq!(dir.voucher(&id(1), voucher).unwrap_err().code, None);

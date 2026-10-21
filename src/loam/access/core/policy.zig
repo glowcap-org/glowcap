@@ -259,7 +259,7 @@ pub const Policy = struct {
     }
 
     /// Checks one application's declared effect. Unknown keys and duplicate
-    /// facts refuse even if an earlier permission or fact already denies it.
+    /// facts refuse even if an earlier permission or fact already denies it. status-allow: event or source ordering
     pub fn allows(self: *const Policy, terms: Value, requirement: Requirement) Error!bool {
         return self.allowsSupported(terms, self.declaredMask(), requirement);
     }

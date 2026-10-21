@@ -29,7 +29,7 @@ Deno.test("a directory conversation does not fill a directory's empty rail row",
 	const other = dirId("other-dir");
 	store.openDir(projection, home, "home-dir");
 	store.openDir(projection, other, "other-dir");
-	store.setHomeDir(projection, home);
+	projection.set({ homeDir: home });
 	store.ensureDirectory(projection, other);
 	const empty = store.emptyDirs(projection.get());
 	assert(empty.some((dir) => dir.id === other), "a directory with only its view hid its empty row");
@@ -104,7 +104,7 @@ Deno.test("leaving a room does not return to a directory view that was only look
 	const projection = new store.PageProjection();
 	const directory = dirId("home-dir");
 	store.openDir(projection, directory, "home-dir");
-	store.setHomeDir(projection, directory);
+	projection.set({ homeDir: directory });
 	const view = store.ensureDirectory(projection, directory);
 	const lobby = store.ensureRoom(projection, directory, "lobby");
 	const aside = store.ensureRoom(projection, directory, "aside");

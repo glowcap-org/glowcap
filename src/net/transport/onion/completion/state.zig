@@ -21,7 +21,7 @@ const socks5 = @import("../socks5.zig");
 /// leg accumulates until it can answer. Keeping the accumulation pure here
 /// leaves the backend only the effects: recycle, refuse, read again, or open.
 pub const ReplyVerdict = union(enum) {
-    /// Not the whole reply yet. Read more.
+    /// Not the whole reply yet. Read more. status-allow: pending state or quoted runtime label
     need_more,
     /// A well-formed success, having taken `consumed` bytes of this chunk.
     /// Anything past that is application data the leg retains.

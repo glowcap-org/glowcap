@@ -110,7 +110,7 @@ export function commitMoves(
 	patches: MovePatch[],
 ): void {
 	// Check against the finished gesture rather than its half-written state;
-	// otherwise an entity dragged earlier can be refused by its own trailing
+	// otherwise an entity dragged earlier can be refused by its own trailing status-allow: event or source ordering
 	// events before those events have moved.
 	const planned = new Map(moves.map((m) => [m.ev.id, m.newT]));
 	for (const m of moves) {

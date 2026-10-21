@@ -122,7 +122,7 @@ export function SessionRecoveryModal(
 	const act = (id: string, kind: "complete" | "acquire" | "release") => void recovery.run(id, kind);
 	type State = keyof typeof recoveryStatus;
 	// The inventory owns which receipts are still open, whoever holds them; the
-	// session adds the results it still has to save and the work it has not yet
+	// session adds the results it still has to save and the work it has not yet status-allow: pending state or quoted runtime label
 	// receipted. A committed receipt nothing here still has to save is done.
 	const holding = new Set(session.pending);
 	const acquiring = new Set(

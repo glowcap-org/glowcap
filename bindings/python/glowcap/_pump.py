@@ -252,7 +252,7 @@ async def flush_outbound(session) -> None:
         except BaseException as error:
             # `take_outbound` transferred the frame and a failed/cancelled
             # write may have put only a prefix on the stream. The session is
-            # no longer retryable; release it so every far vow settles closed.
+            # no longer retryable; release it so every far vow settles closed. status-allow: lifecycle transition
             session.record_outbound_failure(error)
             session.close_transport()
             raise

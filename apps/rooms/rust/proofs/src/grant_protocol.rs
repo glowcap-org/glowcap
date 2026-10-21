@@ -34,8 +34,7 @@ pub fn run() {
 			if revoke {
 				return Ok(serde_json::Value::Null);
 			}
-			let view = GrantView::from_grant(ledger.get(&id).unwrap().unwrap(), format!("ocapn://fixture.tcp/s/{id}"))
-				.unwrap();
+			let view = view_of(ledger.get(&id).unwrap().unwrap(), format!("ocapn://fixture.tcp/s/{id}"));
 			let encoded = view.encode().unwrap();
 			let decoded = GrantView::decode(&encoded).unwrap();
 			Ok(serde_json::to_value(decoded).unwrap())
@@ -56,10 +55,7 @@ pub fn run() {
 	assert_eq!(drops.get(), 1);
 	let ledger = GrantLedger::restore(include_bytes!("../fixtures/grants-surrogate-v1.json")).unwrap();
 	let grant = ledger.get("00000000-0000-4000-8000-000000000003").unwrap().unwrap();
-	let encoded = GrantView::from_grant(grant, "ocapn://fixture.tcp/s/fixture".into())
-		.unwrap()
-		.encode()
-		.unwrap();
+	let encoded = view_of(grant, "ocapn://fixture.tcp/s/fixture".into()).encode().unwrap();
 	assert_eq!(
 		GrantView::decode(&encoded).unwrap().label.utf16().collect::<Vec<_>>(),
 		vec![0xd800]
@@ -68,4 +64,16 @@ pub fn run() {
 		assert!(GrantView::decode(malformed).is_err());
 	}
 	assert!(GrantView::decode(&" ".repeat(102_000)).is_err());
+}
+
+fn view_of(grant: &rooms_application::grants::Grant, sturdyref: String) -> GrantView {
+	GrantView {
+		id: grant.id().into(),
+		label: grant.label().clone(),
+		rights: grant.rights(),
+		history: grant.history(),
+		suspended: grant.suspended(),
+		note: grant.note().clone(),
+		sturdyref,
+	}
 }

@@ -76,7 +76,7 @@ and the result stays a pure function of `t`.
 - A second wire on a pair that already has one is its own era, and so is a moment where the same pairs are carried by
   different session ids.
 - A placement edit leaves a reused era easing from where the picture was. Dragging a loose end reaches the case: the pin
-  names a node the earlier era does not hold, so that era reuses unconditionally while the later one reuses on the pin,
+  names a node the earlier era does not hold, so that era reuses unconditionally while the later one reuses on the pin, <!-- status-allow: runtime state or operation ordering -->
   and the two arrangements differ because one draws a session the other does not.
 - A reconnect does not throw the room and pull it back. This case samples every frame across the flicker, because the
   excursion is visible only during it. The cases above wait for the layout to settle, so they cannot see it.

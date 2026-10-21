@@ -68,7 +68,7 @@ export function UnifiedCanvas(
 		null,
 	);
 
-	// The cursor currently stamped on the canvas element, and the one function
+	// The cursor stamped on the canvas element, and the one function
 	// that stamps it. Both the scene's per-frame write and the Pixi intercept below
 	// go through this pair, so the element never has two writers.
 	const desiredCursorRef = useRef<string>("default");

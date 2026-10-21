@@ -92,8 +92,8 @@ export async function run(tab: Page, descendersIntact: (where: string) => Promis
 	await tab.waitForSelector(opened, { state: "detached", timeout: 5_000 })
 		.catch(() => fail("Escape did not close the roster sheet"));
 
-	// Picking a room used to be the only way out of the list, so a glance at what
-	// else was live cost you the conversation you were reading.
+	// Back returns to the list, so a glance at what else is live does not cost
+	// the conversation being read.
 	await tab.click("#backBtn");
 	await tab.waitForSelector(listed, { timeout: 5_000 })
 		.catch(() => fail("the menu button did not open the rooms list"));

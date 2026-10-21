@@ -198,7 +198,7 @@ export interface Participant {
  * are the same orchestration spine with different nouns; it lives here so the
  * run loop — and the pass/fail accounting — has exactly one owner. */
 export interface CrossLangDemo {
-	/** The demo's name, used to prefix its log lines (e.g. "tasks"). */
+	/** The demo's name, used to prefix its log lines (e.g. "tasks").  status-allow: purpose clause */
 	label: string;
 	/** What the server is called in prose (e.g. "server", "coordinator"). */
 	serverNoun: string;

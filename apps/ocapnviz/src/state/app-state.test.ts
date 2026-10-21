@@ -3,9 +3,13 @@ import {
 	APP_STATE_STORAGE_KEY,
 	type AppMode,
 	type AppState,
+	loadPersistedLayoutSizes,
+	loadPersistedStageVisibility,
 	makeInitialAppState,
 	reducer,
+	SIZES_STORAGE_KEY,
 	toolsForMode,
+	VISIBILITY_STORAGE_KEY,
 } from "./app-state.ts";
 import { installMemoryStorage } from "./memory-storage.ts";
 
@@ -105,6 +109,7 @@ Deno.test("the current persisted mode and live sturdyref survive reload", () => 
 		scenarioId: "fixture-a",
 		tool: "select" as const,
 		firstPickNodeId: null,
+		autoSizeTimeline: false,
 	};
 	localStorage.setItem(
 		APP_STATE_STORAGE_KEY,
@@ -114,7 +119,40 @@ Deno.test("the current persisted mode and live sturdyref survive reload", () => 
 		const init = makeInitialAppState();
 		assertEquals(init.mode, "build");
 		assertEquals(init.liveSturdyref, "ocapn://x.tcp/s/trace");
+		assertEquals(init.autoSizeTimeline, false);
 	} finally {
 		localStorage.removeItem(APP_STATE_STORAGE_KEY);
+	}
+});
+
+Deno.test("a stored app state that is not the full shape is discarded whole", () => {
+	localStorage.setItem(
+		APP_STATE_STORAGE_KEY,
+		JSON.stringify({ mode: "build", liveSturdyref: "ocapn://x.tcp/s/trace" }),
+	);
+	try {
+		const init = makeInitialAppState();
+		assertEquals(init.mode, "play");
+		assertEquals(init.liveSturdyref, "");
+	} finally {
+		localStorage.removeItem(APP_STATE_STORAGE_KEY);
+	}
+});
+
+Deno.test("stored pane sizes and layer visibility load only as the full shape", () => {
+	try {
+		localStorage.setItem(SIZES_STORAGE_KEY, JSON.stringify({ leftPaneWidth: 300 }));
+		localStorage.setItem(VISIBILITY_STORAGE_KEY, JSON.stringify({ peers: false }));
+		assertEquals(loadPersistedLayoutSizes(), null);
+		assertEquals(loadPersistedStageVisibility(), null);
+		const sizes = { leftPaneWidth: 300, rightPaneWidth: 320, bottomPaneHeight: 200 };
+		const visibility = { peers: false, connections: true, messages: true, labels: true };
+		localStorage.setItem(SIZES_STORAGE_KEY, JSON.stringify(sizes));
+		localStorage.setItem(VISIBILITY_STORAGE_KEY, JSON.stringify(visibility));
+		assertEquals(loadPersistedLayoutSizes(), sizes);
+		assertEquals(loadPersistedStageVisibility(), visibility);
+	} finally {
+		localStorage.removeItem(SIZES_STORAGE_KEY);
+		localStorage.removeItem(VISIBILITY_STORAGE_KEY);
 	}
 });

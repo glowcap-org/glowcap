@@ -34,11 +34,6 @@ pub enum Error {
 	/// An effect was sent but its answer was lost, so whether it applied is
 	/// unknown. Only a withdrawal or a fresh observation is safe.
 	Uncertain(Cow<'static, str>),
-	/// The session state machine's own verdict. This is the application's
-	/// state error rather than the runtime's wrapper around it, because the
-	/// wrapper can carry a runtime failure that never crosses a thread and a
-	/// peer process moves its failures between them.
-	State(Box<rooms_application::session::state::Error>),
 	Storage(Box<dyn std::error::Error + Send + Sync>),
 	Captp(Box<glowcap::Error>),
 	/// A remote application failure. The single-threaded runtime cannot move
@@ -51,10 +46,6 @@ pub enum Error {
 	Io {
 		what: &'static str,
 		source: std::io::Error,
-	},
-	WorkerEnded {
-		worker: Worker,
-		cause: Option<Box<Error>>,
 	},
 	/// A cleanup that failed while the peer was already failing. The primary
 	/// cause stays first. The cleanup keeps its own name instead of being
@@ -73,8 +64,6 @@ impl fmt::Display for TextError {
 	}
 }
 impl std::error::Error for TextError {}
-
-pub use rooms_runtime::Worker;
 
 impl Error {
 	pub fn refused(text: impl Into<Cow<'static, str>>) -> Self {
@@ -138,16 +127,11 @@ impl fmt::Display for Error {
 			| Self::Stale(text)
 			| Self::Closed(text)
 			| Self::Uncertain(text) => f.write_str(text),
-			Self::State(e) => e.fmt(f),
 			Self::Storage(e) => e.fmt(f),
 			Self::Captp(e) => e.fmt(f),
 			Self::Peer { reason, .. } => f.write_str(reason),
 			Self::Listener(e) => e.fmt(f),
 			Self::Io { what, source } => write!(f, "{what}: {source}"),
-			Self::WorkerEnded { worker, cause } => match cause {
-				Some(cause) => write!(f, "session {} ended unexpectedly: {cause}", worker.name()),
-				None => write!(f, "session {} ended unexpectedly", worker.name()),
-			},
 			Self::Cleanup { primary, cleanup } => write!(f, "{primary}; cleanup also failed: {cleanup}"),
 		}
 	}
@@ -156,12 +140,10 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		match self {
-			Self::State(e) => Some(e.as_ref()),
 			Self::Storage(e) => Some(e.as_ref()),
 			Self::Captp(e) => Some(e.as_ref()),
 			Self::Listener(e) => Some(e.as_ref()),
 			Self::Io { source, .. } => Some(source),
-			Self::WorkerEnded { cause, .. } => cause.as_deref().map(|e| e as _),
 			Self::Cleanup { primary, .. } => Some(primary.as_ref()),
 			Self::Refused(_)
 			| Self::Invalid(_)
@@ -175,11 +157,6 @@ impl std::error::Error for Error {
 	}
 }
 
-impl From<rooms_application::session::state::Error> for Error {
-	fn from(e: rooms_application::session::state::Error) -> Self {
-		Self::State(Box::new(e))
-	}
-}
 impl From<StorageError> for Error {
 	fn from(e: StorageError) -> Self {
 		Self::Storage(Box::new(e))
@@ -214,7 +191,6 @@ impl From<rooms_runtime::Error> for Error {
 			Shared::Stale(e) => Self::Stale(e),
 			Shared::Closed(e) => Self::Closed(e),
 			Shared::Uncertain(e) => Self::Uncertain(e),
-			Shared::State(e) => Self::State(Box::new(e)),
 			// The binding's diagnosis is refcounted for the runtime's observers
 			// and not shareable across threads, so this tier takes its own copy.
 			Shared::Captp(e) => Self::Captp(Box::new(e.as_ref().clone())),
@@ -226,10 +202,6 @@ impl From<rooms_runtime::Error> for Error {
 				reason: e.to_string(),
 			},
 			Shared::Storage(e) => Self::Storage(Box::new(TextError(e.to_string()))),
-			Shared::WorkerEnded { worker, cause } => Self::WorkerEnded {
-				worker,
-				cause: cause.map(|e| Box::new(Self::from(*e))),
-			},
 			Shared::Cleanup { primary, cleanup } => Self::from(*primary).retain(Self::from(*cleanup)),
 		}
 	}

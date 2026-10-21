@@ -10,7 +10,7 @@ export type CommandKind = "tab" | "line" | "granted";
 /** One directory this tab holds, as a command sees it.
  *
  * A room's worth of facts about a place, gathered where the state lives so a
- * command can answer questions about a directory the reader is not currently
+ * command can answer questions about a directory the reader is not
  * in. `locator` is what they would hand to somebody else; `name` is what the
  * rail calls it, which is all the page's own directory ever needs. */
 export interface HeldDirectory {
@@ -71,7 +71,7 @@ export interface CommandPowers {
 	ignore(name: string): CommandResult<void>;
 	/** Show them again. False when they were not being ignored. */
 	unignore(name: string): CommandResult<boolean>;
-	/** Everybody this window is currently ignoring. */
+	/** Everybody this window is ignoring. */
 	ignored(): readonly string[];
 	/** Change the most recent line of ours here. False when there is none this
 	 * window still holds the authority for. */

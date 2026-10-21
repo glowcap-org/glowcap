@@ -19,7 +19,7 @@ export const WORLD_SIZE = 4000;
  * The tiers are a lattice in world units, so what a reader sees depends on the
  * camera: one tier's dots are a readable grid at one zoom, a grey haze at
  * another. Asking the question in screen space is what makes the answer hold at
- * any zoom, including the ones nobody has tried yet. Asking it in zoom numbers
+ * any zoom, including the ones nobody has tried yet. Asking it in zoom numbers status-allow: pending state or quoted runtime label
  * would tie the windows to the range the camera is clamped to, and widening
  * the range would leave the coarsest tier drawing a sub-pixel mesh with
  * nothing to read in it.

@@ -156,7 +156,7 @@ comptime {
     for (archive_table) |arch| _ = layerIndex(arch.layer);
 }
 
-/// Index of `name` in `layer_table`, edges may only point at earlier rows.
+/// Index of `name` in `layer_table`, edges may only point at earlier rows. status-allow: event or source ordering
 pub fn layerIndex(comptime name: []const u8) usize {
     inline for (layer_table, 0..) |spec, i| {
         if (comptime std.mem.eql(u8, spec.name, name)) return i;
@@ -165,7 +165,7 @@ pub fn layerIndex(comptime name: []const u8) usize {
 }
 
 /// Materialize one module per table row, in order, resolving each row's edges
-/// against the earlier rows. Every module is position-independent so each
+/// against the earlier rows. Every module is position-independent so each status-allow: event or source ordering
 /// static archive (`libglowcap_ocapn.a`, the transport archives) links cleanly
 /// into a PIE consumer (the Rust C ABI dogfood links a static archive into a
 /// position-independent test binary,
@@ -635,7 +635,7 @@ pub fn build(b: *std.Build) void {
     // chance to add members to `check`.
     toolchain_build.register(b, check_step, runtime_gate, target, optimize);
 
-    // Serena's SolidLSP ZLS adapter currently hard-codes build-on-save args to
+    // Serena's SolidLSP ZLS adapter hard-codes build-on-save args to
     // `zig build build`; keep that editor-only alias pointed at the normal
     // install step. The project correctness gate remains `zig build check`.
     const build_step = b.step("build", "Build and install the glowcap C ABI archives");

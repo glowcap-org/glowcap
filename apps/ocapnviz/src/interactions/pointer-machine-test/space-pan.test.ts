@@ -149,9 +149,9 @@ Deno.test("paused-pan + pointer-up → idle; drag-end (even if space still held)
 	assertEquals(r.state.fsm.kind, "idle");
 	assertEquals(r.effects[0]!.kind, "drag-end");
 });
-// ─────────────────────── F2 (drag-pause → resume/end/cancel) ──────────
+// ─────────────────────── drag-pause → resume/end/cancel ──────────
 
-Deno.test("F2: drag-pause is followed by drag-resume (space-up + button held)", () => {
+Deno.test("drag-pause is followed by drag-resume (space-up + button held)", () => {
 	const { effects } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",
@@ -176,7 +176,7 @@ Deno.test("F2: drag-pause is followed by drag-resume (space-up + button held)", 
 	assertEquals(pauses, resumes);
 });
 
-Deno.test("F2: drag-pause is followed by drag-end (space-up + button released)", () => {
+Deno.test("drag-pause is followed by drag-end (space-up + button released)", () => {
 	const { effects } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",
@@ -197,9 +197,9 @@ Deno.test("F2: drag-pause is followed by drag-end (space-up + button released)",
 	assert(kinds.includes("drag-end"));
 });
 
-// ─────────────────────── F1 (paused-pan only emits pan-step on move) ──
+// ─────────────────────── paused-pan only emits pan-step on move ──
 
-Deno.test("F1: pointer-move while paused-pan emits only pan-step (no drag-move)", () => {
+Deno.test("pointer-move while paused-pan emits only pan-step (no drag-move)", () => {
 	const { state } = dispatch(IDLE_MACHINE, [
 		{
 			kind: "pointer-down",

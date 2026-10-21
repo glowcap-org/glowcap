@@ -450,7 +450,7 @@ pub fn failureFromErrno(errno: std.posix.E) anyerror {
 ///
 /// No record is copied on the way through an adapter that owns none of
 /// them, and an adapter's own record never reaches its caller. What was
-/// owed earlier leaves first, so a flood on wrapped connections cannot
+/// owed earlier leaves first, so a flood on wrapped connections cannot status-allow: event or source ordering
 /// starve the adapter's own, and each connection's records keep their
 /// order: a wrapped connection's never enter the ready queue, and an
 /// adapter connection's projections leave it as they were owed. A dispatch

@@ -231,11 +231,11 @@ export function drawScrubberScene(
 		if (scrollY > 0.5) {
 			// Top chevron, tip pushed ABOVE the Scrubber's top edge
 			// into the Overview region of the shared Pixi canvas. The
-			// Overview repaints every frame and sits earlier in scene
+			// Overview repaints every frame and sits earlier in scene status-allow: event or source ordering
 			// order so its bg covers the bleed visually; the visible
 			// pixels of the chevron are the lower portion sitting in
 			// the empty top strip of the lane viewport (gutter has no
-			// lane content at y=0 yet because the first row's TOP edge
+			// lane content at y=0 yet because the first row's TOP edge status-allow: pending state or quoted runtime label
 			// is at y=0 in layout space, but with scroll>0 the visible
 			// top is empty gutter, the chevron has room).
 			const tipY = -7;

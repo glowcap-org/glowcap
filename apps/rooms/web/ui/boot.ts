@@ -5,7 +5,7 @@
 // is all this module does, and the only interesting part is when.
 //
 // The bundle starting to run is the wrong moment. It is a moment the reader
-// cannot tell apart from arrival, and yet nothing they came for is there yet:
+// cannot tell apart from arrival, and yet nothing they came for is there yet: status-allow: pending state or quoted runtime label
 // the peer opens in the browser, dials the room server, and only then is there a
 // list of live rooms to browse or a room to enter. Handing over there would
 // swap one wait for another and present it as the page.

@@ -344,7 +344,7 @@ body {
    document scrolls, and a ground painted on `body` would carry the floor away
    with it: the composer, its tucked banner, and the log fade are anchored to
    the viewport and resolve to the solid floor, so mid-scroll they would sit on
-   a ground that had not settled yet. A fixed layer keeps the crown at the top
+   a ground that had not settled yet. A fixed layer keeps the crown at the top status-allow: pending state or quoted runtime label
    of the window and the floor under the composer wherever the conversation has
    scrolled to. (`background-attachment: fixed` says the same thing, but iOS
    Safari has never honored it. A fixed element is honored everywhere.) The

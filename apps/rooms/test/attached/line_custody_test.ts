@@ -55,35 +55,6 @@ Deno.test("attached lines release file capability custody whenever they leave th
 	files.close();
 });
 
-Deno.test("bounded history insertion retires rows that never enter the visible log", () => {
-	const page = new RoomsPage();
-	const room = resetRoom(page, "bounded-history");
-	let dropped = 0;
-	const stop = page.projection.onLinesDropped((_key, lines) => dropped += lines.length);
-	store.restoreHistory(
-		page.projection,
-		room.key,
-		Array.from({ length: MAX_SCROLLBACK + 1 }, (_, at) => ({ from: "bo", text: String(at), mine: false, at })),
-		"Earlier messages",
-	);
-	assertEquals(store.historyOf(page.projection, room.key).length, MAX_SCROLLBACK);
-	assertEquals(dropped, 2);
-	store.forgetConv(page.projection, room.key);
-	stop();
-});
-
-Deno.test("independent prefix histories keep separate attribution dividers", () => {
-	const page = new RoomsPage();
-	const room = resetRoom(page, "attributed-history");
-	store.restoreHistory(page.projection, room.key, [{ from: "bo", text: "first", mine: false, at: 1 }], "Earlier");
-	store.restoreHistory(page.projection, room.key, [{ from: "cy", text: "second", mine: false, at: 2 }], "Earlier");
-	assertEquals(
-		store.historyOf(page.projection, room.key).filter((item) => item.kind === "sys" && item.text === "Earlier")
-			.length,
-		2,
-	);
-});
-
 Deno.test("chronological reconciliation orders its own rows before their boundary", () => {
 	const page = new RoomsPage();
 	const room = resetRoom(page, "ordered-history");

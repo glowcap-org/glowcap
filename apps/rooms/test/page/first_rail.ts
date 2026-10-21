@@ -1,7 +1,6 @@
 // The rail as one directory draws it, before a second ever exists.
 //
-// Split from `opening.ts` by subject when that file outgrew the project's
-// file budget: the opening owns the wait and the join, and this owns the
+// The opening owns the wait and the join, and this owns the
 // inventory of a one-directory rail. Run right after the opening, on the
 // same conversation.
 
@@ -65,7 +64,7 @@ export async function run(tab: Page): Promise<void> {
 
 	// The filter asks the same questions whatever this tab holds. A tab on one
 	// directory is still asked which directory, for the same reason a tab in one
-	// room is still asked for a name: a question with one answer today is a
+	// room is still asked for a name: a question with one answer is a
 	// question all the same, and a control that dropped it would change shape
 	// under a reader as they joined things. What a reader gets from the answer
 	// is a different matter and not this control's to decide for them.

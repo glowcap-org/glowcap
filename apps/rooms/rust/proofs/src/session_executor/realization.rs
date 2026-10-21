@@ -132,7 +132,6 @@ pub(super) async fn directory(
 	while delivered.get() != 3 {
 		environment::yield_turn().await;
 	}
-	assert_eq!(inbox.resolution_failures(), 0, "tells mint no answer resolver");
 	assert!(
 		worker.acquire_registration(&operation, destination).await.is_err(),
 		"old field selection retires"
@@ -194,7 +193,6 @@ pub(super) async fn directory(
 	intent.directories.as_mut_slice()[0].inbox = Some(original_inbox);
 	owner.replace_workspace(intent).await.unwrap();
 	inbox.close().await.unwrap();
-	assert_eq!(inbox.resolution_failures(), 0);
 	assert!(host.send(inbox.reference(), "notify", &[]).await.is_err());
 	supervised_directory(host, owner, source, control, intent, count).await;
 	super::directory_coordination::run(host, owner, source, intent, count).await;

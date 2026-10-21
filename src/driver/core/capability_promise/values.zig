@@ -1,6 +1,6 @@
 //! Owned Passable snapshots queued behind unresolved capability promises.
 //!
-//! Caller values are borrowed and the eventual destination session is not yet
+//! Caller values are borrowed and the eventual destination session is not yet status-allow: pending state or quoted runtime label
 //! known. This clone retains every nested Host capability while one arena owns
 //! the remaining tree, giving the promise queue one rollback authority.
 

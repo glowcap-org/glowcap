@@ -44,9 +44,3 @@ export function asMessageId(s: string): MessageId {
 
 /** The three entity kinds the cascade subsystem operates over. */
 export type EntityKind = "peer" | "session" | "message";
-
-/** Branded id for an entity of the given kind. */
-export type EntityId<K extends EntityKind> = K extends "peer" ? PeerId
-	: K extends "session" ? SessionId
-	: K extends "message" ? MessageId
-	: never;

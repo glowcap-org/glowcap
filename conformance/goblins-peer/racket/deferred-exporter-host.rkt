@@ -1,6 +1,6 @@
 #lang racket
 ;; deferred-exporter-host.rkt: Goblins Bob, the exporter whose capability does
-;; not exist yet. He is the far end of the relayed-give proof
+;; not exist yet. He is the far end of the relayed-give proof status-allow: pending state or quoted runtime label
 ;; (`zig build goblins-relayed-give`), where glowcap introduces a third party to
 ;; a promise Bob has not settled.
 ;;

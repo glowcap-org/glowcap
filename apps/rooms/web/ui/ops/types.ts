@@ -3,8 +3,6 @@
 // keyed. Its own file beside the panes that draw it; `types.ts` re-exports it,
 // so a consumer of the page vocabulary still has one import surface.
 
-import type { DirId } from "../types.ts";
-
 import type {
 	OperatorCategory,
 	OperatorLinkRow,
@@ -121,10 +119,6 @@ export interface RoomsOperatorState {
 	/** An exact retained-reference subtype filter, independent of free text. */
 	readonly referenceKind: OperatorReferenceKind | null;
 }
-
-/** Where a remembered operations swiss was redeemed: a directory for the
- * session-fetched capabilities, the endpoint URL for the visualizer. */
-export type OpsScope = DirId | string;
 
 /** Scalar possession projected from the managed workspace's custody intent. */
 export interface OpsHeld {

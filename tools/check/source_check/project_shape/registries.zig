@@ -317,7 +317,7 @@ fn isUrlTerminator(c: u8) bool {
 ///
 /// Two failures this catches, both of which have a public cost. A half-landed
 /// forge move: the tree says the project lives in one place and a straggler
-/// points somewhere it no longer is. And a hand-typed variant — a different
+/// points somewhere it no longer is. And a hand-typed variant — a different status-allow: lifecycle transition
 /// owner spelling, an old host, a deep link in another forge's path syntax —
 /// which no compiler sees because it is prose.
 pub fn checkRepositoryUrl(

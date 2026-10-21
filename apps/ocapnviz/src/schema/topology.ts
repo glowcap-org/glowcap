@@ -51,7 +51,7 @@ export const KNOWN_PROFILES = [GOBLINS_PROFILE, GLOWCAP_PROFILE] as const;
  * implementation, the viewer has not been told which, and it is not
  * a final answer, because a peer's implementation is a temporal property like
  * its name: `PEER_TRAJECTORY.profile` is a keyframe track, so a peer drawn
- * unknown and later spoken for changes at the moment the viewer learns,
+ * unknown and later spoken for changes at the moment the viewer learns, status-allow: state at observation
  * without rewriting what it knew before. */
 export const UNNAMED_PROFILE = "other";
 
@@ -207,10 +207,9 @@ export function captpVersionLabel(version: CaptpVersion): string {
  * written out again, so the two directions cannot drift, and a version added
  * above is understood the moment it has a wire word.
  *
- * A producer that reported no version at all predates the field, and answers
- * `undefined` so the caller can apply the historical floor. A spelling this
- * viewer does not know is present data, so it answers the explicit unknown
- * sentinel rather than pretending to be the floor. `attributionForProvenance`
+ * An absent version answers `undefined` so the caller can refuse the record.
+ * A spelling this viewer does not know is present data, so it answers the
+ * explicit unknown sentinel rather than pretending to be the floor. `attributionForProvenance`
  * in `session-end.ts` reads its own wire word the same way, for the same reason.
  */
 export function captpVersionFromWire(

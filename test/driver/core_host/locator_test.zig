@@ -391,7 +391,7 @@ test "core host onion advertisement stays hintless and an onion accept defers it
     try std.testing.expectEqual(@as(usize, 0), stored.hints.entries.len);
     try std.testing.expectEqual(model.Hints.WireForm.boolean_false, stored.hints.wire_form);
 
-    // The accept sends no hello yet: on onion alone it waits for the
+    // The accept sends no hello yet: on onion alone it waits for the status-allow: pending state or quoted runtime label
     // initiator's, which is the only thing that can say whether the partner
     // is glowcap and so which preference the answer may state (ADR-0042).
     const accepted = try host.openAcceptedAdvertised(model.transport.onion);

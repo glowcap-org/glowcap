@@ -3,6 +3,10 @@ use rooms_application::{
 	archive::{Kind, recording::Message},
 	room::message::{ChangeKind, LineId},
 };
+use std::{
+	future::Future,
+	task::{Context, Waker},
+};
 
 pub(super) fn admit(owner: &SessionArchive, conversation: &str, kind: ConversationKind, id: u64) -> Recording {
 	let source = "source".into();
@@ -111,13 +115,20 @@ async fn erasure_waits_for_the_whole_recording_and_resets_successful_standing() 
 			let worker = tokio::task::spawn_local(worker.run());
 			let first = admit(&owner, "garden", ConversationKind::Room, 1);
 			started.notified().await;
-			let erase = owner.clear_local().unwrap();
+			let source = "source".into();
+			let mut erase = Box::pin(owner.clear_source_when_ready(&source));
+			assert!(
+				erase
+					.as_mut()
+					.poll(&mut Context::from_waker(Waker::noop()))
+					.is_pending()
+			);
 			let after = admit(&owner, "garden", ConversationKind::Room, 2);
 			assert_eq!(*attempts.borrow(), [Kind::Line]);
 			blocked.set(false);
 			gate.notify_one();
 			assert_eq!(first.completion.wait().await.unwrap().standing.unwrap(), Some(2));
-			erase.wait().await.unwrap();
+			erase.await.unwrap();
 			let after = after.completion.wait().await.unwrap();
 			assert_eq!(after.revision, 3);
 			assert_eq!(after.standing.unwrap(), Some(4));

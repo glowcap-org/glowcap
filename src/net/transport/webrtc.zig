@@ -60,7 +60,7 @@ pub const max_ice_url_bytes = sidecar.max_ice_url_bytes;
 pub const max_ice_credential_bytes = sidecar.max_ice_credential_bytes;
 pub const max_pending_ice_candidates: usize = 256;
 /// How many accepts one listener holds at once, still signaling or opened and
-/// not yet claimed. Each holds a peer connection, so an offer past it is
+/// not yet claimed. Each holds a peer connection, so an offer past it is status-allow: pending state or quoted runtime label
 /// refused instead of queued.
 pub const max_accepts_in_flight: usize = 64;
 pub const pending_ice_candidate_queue_bytes: usize = 64 * 1024;

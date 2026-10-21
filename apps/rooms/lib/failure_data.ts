@@ -48,6 +48,7 @@ export const DELIVERY_UNCERTAIN = "delivery-uncertain";
 export const NOT_REGISTERED = "not-registered";
 export const NOT_ROOM_MEMBER = "not-room-member";
 export const READ_ONLY_MEMBERSHIP = "read-only-membership";
+export const WORKSPACE_REVISION_CHANGED = "workspace-revision-changed";
 export const ROOM_RETIRED = "room-retired";
 export const NICK_TOO_LONG = "nick-too-long";
 export const NOT_YOUR_LOCATOR = "not-your-locator";
@@ -200,6 +201,12 @@ export const ROOMS_FAILURES = {
 		retry: "after-state-change",
 		summary: "You can read this room but not post in it.",
 		action: null,
+	},
+	"workspace-revision-changed": {
+		subject: "workspace",
+		retry: "after-state-change",
+		summary: "The workspace changed before this was admitted.",
+		action: "Nothing was applied. Refresh the workspace before trying again.",
 	},
 	"room-retired": {
 		subject: "room",

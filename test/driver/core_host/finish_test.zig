@@ -169,7 +169,7 @@ test "core host finish waits for an admitted vow before closing its session" {
     try std.testing.expectError(error.HostClosing, client.fetch(pair.a, "too-late"));
 
     // Consume the fetch's FLUSH notice without consuming its frame. The vow is
-    // still live, so an empty action queue cannot advance finish yet.
+    // still live, so an empty action queue cannot advance finish yet. status-allow: pending state or quoted runtime label
     while (try client.nextAction()) |_| {}
     try std.testing.expectEqual(Host.LifecyclePhase.finishing, client.lifecyclePhase());
 

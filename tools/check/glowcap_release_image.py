@@ -59,7 +59,7 @@ def cleanup_run(*args):
 
 def container_name(role):
     # The proof only ever removes names it minted. Randomness also prevents a
-    # stale container from an interrupted earlier run becoming our cleanup
+    # stale container from an interrupted earlier run becoming our cleanup status-allow: event or source ordering
     # target when process IDs are reused.
     return f"glowcap-image-{role}-{secrets.token_hex(12)}"
 

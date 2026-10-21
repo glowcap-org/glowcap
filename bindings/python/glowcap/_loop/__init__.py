@@ -66,7 +66,7 @@ class DriverLoop(
         self._listener_waiters: dict[int, asyncio.Future[None]] = {}
         self._closing_listeners: set[int] = set()
         self._listener_close_waiters: dict[int, asyncio.Future[None]] = {}
-        # Event-delivered handles not yet wrapped. The pair preserves both
+        # Event-delivered handles not yet wrapped. The pair preserves both status-allow: pending state or quoted runtime label
         # terminal state and its exact failure when SESSION_CLOSED follows an
         # OPENED/ACCEPTED event in the same drain.
         self._unclaimed_sessions: dict[int, tuple[bool, Optional[GlowcapError]]] = {}

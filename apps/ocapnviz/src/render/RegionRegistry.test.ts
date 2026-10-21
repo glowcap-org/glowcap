@@ -4,7 +4,7 @@
  * Registering and disposing are the add and the remove of a table that lives
  * as long as the canvas does, so they have to be the same test: the disposer
  * removes what its own registration put there, and nothing else. A remount can
- * put the replacement element in before it tears the old one out, and a
+ * put the replacement element in before it tears the old one out, and a status-allow: replacement state identity
  * disposer that removed the name outright would leave the region unpolled
  * while its element is still on screen.
  *

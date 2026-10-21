@@ -15,6 +15,7 @@
 
 import { resolveGesture } from "./gesture-resolver.ts";
 import {
+	assertNever,
 	DRAG_THRESHOLD_PX,
 	type Effect,
 	type FsmForeground,
@@ -202,7 +203,7 @@ function onPointerUp(
 			};
 		case "paused-pan":
 			// Pointer-up always commits the drag, regardless of Space
-			// still held. Doc § 5.3 fix.
+			// still held.
 			return {
 				state: {
 					fsm: { kind: "idle" },
@@ -231,7 +232,7 @@ function onSpaceDown(
 			return { state, effects: [] };
 		case "pressed": {
 			// Pause an in-flight press; pan begins on next pointer-move.
-			// No drag-pause yet. There was no drag in flight.
+			// No drag-pause yet. There was no drag in flight. status-allow: pending state or quoted runtime label
 			return {
 				state: {
 					fsm: {
@@ -416,10 +417,4 @@ export function inFlightGesture(
  */
 export function hasSomethingToCommit(state: PointerMachineState): boolean {
 	return state.fsm.kind === "dragging";
-}
-
-// ─────────────────────── helpers ─────────────────────────────────────
-
-function assertNever(x: never): never {
-	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
 }

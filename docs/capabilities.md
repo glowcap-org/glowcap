@@ -101,7 +101,7 @@ wire.
 | export / import | The session-table positions for an object on its owning and receiving sides. |
 | promise | An OCapN passable reference representing an eventual fulfillment or break. |
 | vow | In Goblins, a promise you can pass to another object. In glowcap, `Vow` is a local handle for watching the result of a send. It never crosses the wire. |
-| answer position | The sender-chosen CapTP session slot (`desc:answer`) used to pipeline sends against a promise. |
+| answer position | The sender-chosen CapTP session slot (`desc:answer`) used to pipeline sends against a promise. | <!-- status-allow: runtime state or operation ordering -->
 | promise pipelining | Calling through a promise before it settles so dependent calls share a flight. |
 | bootstrap object | The one well-known capability available when a session opens. |
 | swiss number | A long random secret name registered under the bootstrap object, so the object can be fetched later. |

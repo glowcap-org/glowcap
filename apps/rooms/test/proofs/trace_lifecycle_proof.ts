@@ -119,7 +119,7 @@ function str(ev: StageEvent, field: string): string | undefined {
 }
 
 /** The peer one end of a `session-opened` attached to, or null when that end is
- * loose: a claim nothing has backed yet, drawn as a session end with no peer.
+ * loose: a claim nothing has backed yet, drawn as a session end with no peer. status-allow: pending state or quoted runtime label
  * An accepting side reports a session before anything proves who dialed, so
  * this is the ordinary state of a fresh end rather than an error. */
 function endpointPeer(ev: StageEvent, side: "a" | "b"): string | null {
@@ -140,7 +140,7 @@ const NICK2 = "nick2";
 // ── The picture ──────────────────────────────────────────────────────────────
 
 /** One session on stage, by the two peers on its ends. An end is null while it
- * is loose: drawn, but attached to no peer yet. */
+ * is loose: drawn, but attached to no peer yet.  status-allow: pending state or quoted runtime label */
 type Edge = { a: string | null; b: string | null };
 
 /** What a viewer has on screen: the live peers with the names they answer to,
@@ -410,7 +410,7 @@ try {
 	const roomEdge2 = picture.edgeBetweenIds(roomsPeer, peer2);
 	if (roomEdge1 === null || roomEdge2 === null) fail("a room session vanished");
 
-	// The visualizer's historical input opened a session every six seconds.
+	// The capture opens a session every six seconds.
 	// Observe two full periods, including opens that close between samples.
 	const beforeIdle = picture.journal.length;
 	await pause(13_000);

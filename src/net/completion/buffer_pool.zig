@@ -11,7 +11,7 @@ pub const BufferPool = struct {
     allocator: std.mem.Allocator,
     /// Every allocated buffer, indexed by the token returned from `acquire`.
     items: std.ArrayList([]u8),
-    /// Indices not currently leased. Reserved to `cap` during initialization,
+    /// Indices not leased. Reserved to `cap` during initialization,
     /// so releasing a lease cannot fail.
     free: std.ArrayList(u16),
     cap: u16,

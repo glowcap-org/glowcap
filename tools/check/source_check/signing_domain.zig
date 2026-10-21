@@ -213,7 +213,7 @@ pub fn checkSigningDomains(
         }
     }
 
-    // The other direction: a registered signing file that no longer signs is
+    // The other direction: a registered signing file that no longer signs is status-allow: lifecycle transition
     // a stale entry vouching for nothing.
     for (signing_files) |row| {
         if (!seen_counts.contains(row.file)) {

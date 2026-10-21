@@ -77,7 +77,7 @@ is released.
 
 An occupied slot accepts only the same capability, with its checked role and
 generation. Releasing local fields needs no working upstream grant and brings
-back no earlier authority. Adopting a created room appends it through the
+back no earlier authority. Adopting a created room appends it through the <!-- status-allow: runtime state or operation ordering -->
 receipt's exact directory target and leaves unrelated fields alone. If that
 directory was removed or replaced, adoption is refused.
 

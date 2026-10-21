@@ -186,7 +186,7 @@ pub fn Storage(comptime Engine: type) type {
             return .{ .use = staged.use, .publication = publication };
         }
 
-        /// Add whichever first lists the board does not have yet, through the
+        /// Add whichever first lists the board does not have yet, through the status-allow: pending state or quoted runtime label
         /// same hosted calls a client makes. A start that stopped partway
         /// finishes the job.
         fn addFirstLists(self: *Self, allocator: std.mem.Allocator) !void {

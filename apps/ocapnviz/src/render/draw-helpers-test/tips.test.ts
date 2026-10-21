@@ -6,11 +6,10 @@
  * through it, so a flat one reads as a line that was cut rather than one that
  * arrives.
  *
- * Two things make that work on a dashed line, and both were wrong first time.
- * Each dash is one sub-path however many curve samples it spans, or every
- * internal joint takes a cap and the line renders as beads. And a dash the curve
- * cut short is dropped, because a round cap on a sliver is a dot sitting off the
- * end of the line, which is exactly what it looked like on screen.
+ * Two things make that work on a dashed line. Each dash is one sub-path however
+ * many curve samples it spans, or every internal joint takes a cap and the line
+ * renders as beads. And a dash the curve cut short is dropped, because a round
+ * cap on a sliver is a dot sitting off the end of the line.
  */
 
 import { assert, assertAlmostEquals, assertEquals } from "@std/assert";

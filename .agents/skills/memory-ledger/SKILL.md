@@ -59,9 +59,8 @@ declaration under `src/`.
   and freeing the row's queue at each drain cost a second allocation per
   turn (`test/engine/footprint_budget_test.zig` and the allocation budget
   hold both ends).
-  - The head also lends argument views behind the parse (ADR-0063,
-    ADR-0063): `head_argument_views` for a frame up to `small_frame_bytes`,
-    then one per `head_view_bytes` of wire up to `head_views_cap`, so a
+  - The head also lends argument views behind the parse (ADR-0063):
+    `head_argument_views` for a frame up to `small_frame_bytes`, then one per `head_view_bytes` of wire up to `head_views_cap`, so a
     deliver's argument tree is parsed once and validation, the Vat, and the
     Host's lift walk views: a handler's `actors.Delivery` reads the frame's
     bytes where they lie (ADR-0063), and a Host handler's `driver.Args` does
@@ -472,7 +471,7 @@ declaration under `src/`.
   copied and a non-snapshotting actor pays one pointer indirection. Deleting the
   layer forces an eager O(total-mutable-bytes) snapshot copy.
 - **Retired boxes**: `Vat.retired_boxes`. A `become` install swaps the cell's
-  box but its reference falls at the next outermost turn, because an _earlier_
+  box but its reference falls at the next outermost turn, because an _earlier_ <!-- status-allow: workflow sequence -->
   frame of the same actor may already have returned a reply borrowing it, leaving
   no live frame to copy it.
   - Registration escrows one pointer slot per live actor so last-root release

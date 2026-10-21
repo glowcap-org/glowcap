@@ -152,7 +152,7 @@ pub const Resident = struct {
 
     /// Parse a resident that can both dial through `relay_url` and register a
     /// listener at `register_url`. The caller derives `public_key` from the Host
-    /// identity used to sign accepted sessions. Production builds registered
+    /// identity used to sign accepted sessions. Production builds registered status-allow: purpose clause
     /// residents through `Provider`. This direct form is reached only by tests.
     pub fn initRegistered(
         allocator: std.mem.Allocator,

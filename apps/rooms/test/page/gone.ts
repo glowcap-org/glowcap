@@ -13,7 +13,7 @@
 // true.
 //
 // A line in flight preserves its uncertain delivery receipt after connection
-// loss. Reconnection cannot authorize a new post from the old message text.
+// loss. Reconnection cannot authorize a new post from the old message text. status-allow: replacement state identity
 // Files already recorded in the archive retain their bytes. Live line-edit
 // authority retires with its connection. Both are checked after restart.
 //
@@ -179,7 +179,7 @@ export async function run(
 		// already gone
 	}
 	// Resume only the retained observation when its bounded worker has stopped.
-	// Its earlier execution must settle terminally without dispatching a new post.
+	// Its earlier execution must settle terminally without dispatching a new post. status-allow: event or source ordering
 	if (observationStopped) await originalReceipt.getByRole("button", { name: "Pick back up", exact: true }).click();
 	await tab.waitForSelector(
 		`dialog[open] [data-operation="${originalPending}"][data-status="unknown"][data-resumable="false"]`,
@@ -211,7 +211,7 @@ export async function run(
 	//
 	// Read while the reader stands in a room on the healthy directory, because
 	// that is the state a page-level value cannot tell apart: one value is
-	// filed by whichever directory acted last, and at the moment a session dies
+	// filed by whichever directory acted last, and at the moment a session dies status-allow: state at observation
 	// the reader is usually still in the room it died under.
 	await tab.waitForFunction(
 		() =>
@@ -551,7 +551,7 @@ export async function run(
 		// holds. Waited for by the room's own roster line rather than by the composer
 		// coming back: the composer answers for the directory, which reconnects
 		// first. Reopening must use the original persisted server authority and
-		// preserve uncertainty about the old send after membership returns.
+		// preserve uncertainty about the old send after membership returns. status-allow: replacement state identity
 		await tab.waitForFunction(
 			() => ((document.getElementById("log")?.textContent ?? "").match(/in the room\./g) ?? []).length >= 2,
 			undefined,

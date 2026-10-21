@@ -36,17 +36,3 @@ export function applyTyping(page: RoomsPageContext, key: string, from: string, o
 	} else page.typing.timers.delete(timerKey);
 	store.setTyper(page.projection, key, from, on);
 }
-
-// A room's typing signal, routed to the room that raised it. The key comes from
-// the subscribe that installed this callback, because the signal arrives as a
-// bare (nick, flag) pair with nothing on it to say which room it came from.
-export function setRoomTyping(page: RoomsPageContext, key: string, from: string, on: boolean): void {
-	const conv = store.getConv(page.projection, key);
-	if (conv === null || from === store.dirNick(page.projection, conv.dir)) return;
-	// Only about somebody the room has said is here, which is the rule the away
-	// line already holds: a name arriving any other way would be inventing one.
-	// It is also what bounds the cost of a flag, one tracked name and one timer
-	// apiece, since how many arrive is not this window's choice.
-	if (on && !store.hasMember(page.projection, key, from)) return;
-	applyTyping(page, key, from, on);
-}

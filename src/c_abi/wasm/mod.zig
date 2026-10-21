@@ -192,7 +192,7 @@ extern "env" fn glowcap_hosted_free_trampoline(ctx: ?*anyopaque) callconv(.c) vo
 /// index of `glowcap_behavior_trampoline`, passed as the `behavior` argument to
 /// `glowcap_host_session_publish` / `glowcap_host_session_spawn` /
 /// `glowcap_host_turn_spawn`. Taking the trampoline's address also references
-/// the import so `wasm-ld` cannot dead-strip an as-yet-uncalled seam.
+/// the import so `wasm-ld` cannot dead-strip an as-yet-uncalled seam. status-allow: pending state or quoted runtime label
 export fn glowcap_wasm_behavior_trampoline_addr() usize {
     return @intFromPtr(&glowcap_behavior_trampoline);
 }

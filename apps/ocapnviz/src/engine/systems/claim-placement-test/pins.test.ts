@@ -190,7 +190,7 @@ layoutTest(
 
 layoutTest("a pinned claim keeps its edge, and the lane lets go", () => {
 	// Dragging a claim pins it, and the layout hands a pinned claim its pin
-	// rather than the lean. So the lane it was riding no longer passes
+	// rather than the lean. So the lane it was riding no longer passes status-allow: lifecycle transition
 	// through it. The edge stops being that lane's prefix and becomes an
 	// ordinary edge to where the author put it, because the one thing that
 	// must stay true is that the line reaches the node.

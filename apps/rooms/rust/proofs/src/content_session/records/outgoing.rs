@@ -127,7 +127,7 @@ pub(super) fn run() {
 		records::encode(&record).is_ok(),
 		"known absence releases its reservation"
 	);
-	// Payload pressure can fit today's graph but must leave tomorrow's result.
+	// Payload pressure can fit the input graph but must leave room for the result.
 	let page = vec![0; records::PAGE_BYTES];
 	assert!(records::check_budget(core::iter::repeat_n(page.as_slice(), 21)).is_ok());
 	assert!(matches!(

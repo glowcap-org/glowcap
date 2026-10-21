@@ -57,7 +57,7 @@ export class ErrorBoundary extends Component<Props, Boundary> {
 			info.componentStack,
 		);
 		// The card below is for a reader, so it has to be one a reader can see.
-		// On a load where the peer has not answered yet, the opening screen is
+		// On a load where the peer has not answered yet, the opening screen is status-allow: pending state or quoted runtime label
 		// still over the page, and it would sit on top of that card waiting for a
 		// session that may never open.
 		handOffNow();

@@ -19,7 +19,7 @@
   [log-append! (-> path-string? bytes? exact-nonnegative-integer?)]
   ;; Read all leaves in order.
   [log-leaves (-> path-string? (listof bytes?))]
-  ;; Compute the Merkle root over all leaves currently in the log.
+  ;; Compute the Merkle root over all leaves in the log.
   [log-root (-> path-string? bytes?)]
   ;; Inclusion proof for a given leaf index, list of (sibling-bytes, side).
   [log-inclusion-proof (-> path-string? exact-nonnegative-integer?

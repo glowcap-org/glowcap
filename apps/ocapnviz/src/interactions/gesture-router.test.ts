@@ -115,7 +115,7 @@ Deno.test("two leases on one tag are two surfaces", () => {
 
 Deno.test("a stale claim cannot revoke the live one", () => {
 	// What identity buys over the tag. A lease is stranded only by
-	// `reset` today, because the router drops a claim through no
+	// `reset` because the router drops a claim through no
 	// other door than the lease holding it. So this is the check
 	// that keeps a same-tag release honest if a second door is ever
 	// cut, and it is the whole difference from the tag-keyed release

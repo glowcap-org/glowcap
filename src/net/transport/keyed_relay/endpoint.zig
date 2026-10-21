@@ -45,7 +45,7 @@ fn failure(phase: carrier_failure.Phase, err: anyerror) DialFailure {
 /// to `HostName.connect`: every losing socket is joined locally, so cancellation
 /// cannot escape through Zig's process-level unexpected-errno tracer.
 /// Disable Nagle on the carrier socket. CapTP frames over the relay are
-/// small and sequential, and with Nagle on, a frame written while an earlier
+/// small and sequential, and with Nagle on, a frame written while an earlier status-allow: event or source ordering
 /// one is unacked waits out the peer's delayed-ACK timer. Throughput-only, so
 /// a refused option keeps the working connection.
 fn tuneCarrier(stream: std.Io.net.Stream) std.Io.net.Stream {

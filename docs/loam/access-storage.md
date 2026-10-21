@@ -83,7 +83,7 @@ These rules hold:
    changes made after they were published. A target existing cannot restore
    more control than the stored control had.
 4. Queries and returned references stay within the capability the caller
-   used to reach them. Counts, ordering, cursors, and errors never open an
+   used to reach them. Counts, ordering, cursors, and errors never open an <!-- status-allow: runtime state or operation ordering -->
    unrestricted path to everything the owner holds.
 5. Evicting a record changes only what is in memory. Deleting, revoking, and
    retiring a durable name change stored state through their own operations
@@ -108,7 +108,7 @@ handle bytes. Loading the field rebuilds the reference under the field's
 declared rules for returning it, and copying it creates no grant.
 
 The reference index updates with the payload in one transaction. Removing or
-replacing a field releases the edge that kept the old reference alive only
+replacing a field releases the edge that kept the old reference alive only <!-- status-allow: runtime state or operation ordering -->
 when the change commits. A live-only capability can sit in volatile content,
 and a durable field refuses it unless its source can save that access. A
 durable remote reference may need a remote call before the local
@@ -273,9 +273,9 @@ stores only what changed, and the storage worker never turns a storage error
 into an access decision.
 
 An unknown outcome blocks protected access to that owner. Recovery waits for
-the old write to finish, then looks up its receipt from a view the engine
+the old write to finish, then looks up its receipt from a view the engine <!-- status-allow: runtime state or operation ordering -->
 guarantees is current. A receipt with a different request is a conflict, not
-a retry. Absence means nothing changed only once the old writer provably
+a retry. Absence means nothing changed only once the old writer provably <!-- status-allow: runtime state or operation ordering -->
 cannot commit later, and a worker timeout or abandoned future proves nothing.
 After a restart, reload committed metadata and affected records before
 allowing calls again.
@@ -283,7 +283,7 @@ allowing calls again.
 Managed access uses Loam's [receipt rules](api.md#retries-and-receipts). A
 request's sequence belongs to the capability it came through. Looking up and
 replaying a receipt checks current permissions again, so it cannot bring back
-a revoked durable name or reveal a result the caller can no longer see.
+a revoked durable name or reveal a result the caller can no longer see. <!-- status-allow: runtime state or operation ordering -->
 
 ### Disk engines
 

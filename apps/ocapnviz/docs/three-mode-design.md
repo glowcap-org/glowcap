@@ -16,7 +16,7 @@ and `useBufferEngine` and `useLiveConnection` live in `src/state/hooks.ts`.
 `mode = {play, build}` crossed with `liveMode = {on, off}` is four cells and
 only three ideas. Build with the live flag on is meaningless, because Build is a
 working copy with its own engine and nothing the live socket writes is ever read
-there. Yet the state is reachable, and it leaks: a source picker offering "go
+there. That combination admits inconsistent controls: a source picker offering "go
 live" in Build, a timeline offering "follow live" in Build, and a websocket
 running in the background while Build ignores it.
 

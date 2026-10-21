@@ -86,8 +86,7 @@ listening, and events, over a Host it has adopted.
 - **Three-party handoff.** A capability from one peer can be passed on to another, recursively. Outbound gives wait
   as one bounded transaction and keep their place in the recipient's queue. The Deno, Python, Rust, and Racket
   matrix proves nested gives against live Goblins, with Goblins in the gifter and exporter roles too
-  ([ADR-0039](decisions/adr/ADR-0039-session-owned-handoff.md),
-  [ADR-0039](decisions/adr/ADR-0039-session-owned-handoff.md)).
+  ([ADR-0039](decisions/adr/ADR-0039-session-owned-handoff.md)).
 - **Promise settlement across peers.** A shared promise's settled value reaches every recipient once, with nested
   objects becoming gives. Zig and the bindings can listen on a promise received from a peer
   ([ADR-0003](decisions/adr/ADR-0003-promise-pipelining-and-listeners.md)).
@@ -98,8 +97,7 @@ listening, and events, over a Host it has adopted.
 - **Publication.** Publishing a name changes discovery only. Issued capabilities keep their actor until released
   ([ADR-0014](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)). Durable publication mints an unpredictable
   swiss number and returns the full sturdyref
-  ([ADR-0007](decisions/adr/ADR-0007-sturdyrefs-and-publication.md),
-  [ADR-0007](decisions/adr/ADR-0007-sturdyrefs-and-publication.md)).
+  ([ADR-0007](decisions/adr/ADR-0007-sturdyrefs-and-publication.md)).
 - **Locators.** Zig, C, and the bindings parse and format `ocapn://` peer and sturdyref URIs. Host `fetchAt` takes a
   locator and a name, so the application never picks a CapTP version or codec.
 - **Resource limits.** Frames, session tables, retained answer bytes, nesting depth, and Cap'n Proto traversal are
@@ -131,8 +129,7 @@ is not implemented ([protocol limitations](boundaries.md#protocol-and-interop)).
 Zig, C, and every binding accept a typed array of 64-bit integers as a list,
 with the same wire meaning as individual integer values. A received array
 arrives as a list. Capability-free far sends borrow their values through
-encoding ([ADR-0064](decisions/adr/ADR-0064-borrowed-outbound-encoding.md),
-[ADR-0064](decisions/adr/ADR-0064-borrowed-outbound-encoding.md)).
+encoding ([ADR-0064](decisions/adr/ADR-0064-borrowed-outbound-encoding.md)).
 Served replies carrying no capability stay borrowed until the engine copies
 them for retention ([ADR-0063](decisions/adr/ADR-0063-frame-owned-argument-views.md)).
 

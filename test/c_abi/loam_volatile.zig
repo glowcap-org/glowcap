@@ -100,7 +100,7 @@ const Race = struct {
                     if (found.length == 0) self.broken.store(true, .release);
                     _ = self.found.fetchAdd(1, .monotonic);
                 },
-                // A record the commits have not reached yet.
+                // A record the commits have not reached yet. status-allow: pending state or quoted runtime label
                 .missing => {},
                 // A commit landed between reading the revision and the read.
                 .failed => |err| if (err != error.StaleCompletion) self.broken.store(true, .release),

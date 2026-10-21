@@ -215,7 +215,7 @@ export async function runChange(
 	}
 
 	// The full-screen viewer follows conversation order rather than gallery DOM
-	// boundaries: Left crosses from the first gallery image to the earlier
+	// boundaries: Left crosses from the first gallery image to the earlier status-allow: event or source ordering
 	// standalone picture, and Right walks back into and through the gallery.
 	await second.click('[aria-label="View one.png"]');
 	await second.waitForSelector('.viewer[aria-label="one.png"] img');

@@ -196,7 +196,7 @@ pub const Peer = struct {
     /// dequeueing is O(1) and cannot accidentally re-walk a message tree.
     pending_send_bytes: usize = 0,
     /// Queue seats reserved by transactions that have not published their
-    /// carrier yet. Every later reservation includes these seats when growing
+    /// carrier yet. Every later reservation includes these seats when growing status-allow: pending state or quoted runtime label
     /// the backing store, so an infallible commit remains valid across a
     /// callback or other intervening producer.
     pending_send_reservations: usize = 0,

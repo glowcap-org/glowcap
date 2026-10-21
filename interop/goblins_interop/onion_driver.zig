@@ -51,7 +51,7 @@ const Tor = harness.Tor;
 
 const frame_cap = 16 * 1024;
 /// Tor's default `SocksTimeout`: how long it holds a dial unattached when the
-/// service's descriptor has not reached the directories yet, before it answers
+/// service's descriptor has not reached the directories yet, before it answers status-allow: pending state or quoted runtime label
 /// the SOCKS request with a refusal.
 const tor_socks_timeout_ms = 120_000;
 /// One dial attempt's budget. The handshake budget covers the SOCKS connect as

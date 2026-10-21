@@ -87,7 +87,7 @@ pub const Action = union(enum) {
     need_gift_id: struct { ticket: u64 },
     /// Release one Host capability retain transferred into a delayed
     /// inline-Passable transaction. This is terminal cleanup: Host consumes
-    /// the retain even when its home session can no longer carry wire GC.
+    /// the retain even when its home session can no longer carry wire GC. status-allow: lifecycle transition
     release_capability: u64,
 };
 
@@ -134,7 +134,7 @@ pub fn reserve(self: *Node, immediate: usize) !void {
 
 /// Take the action returned by `peekAction` off the queue, payload intact, on
 /// a seat promised for its return. The Host parks an action whose recipient
-/// cannot take another frame yet (ADR-0017). The seat is reserved before the
+/// cannot take another frame yet (ADR-0017). The seat is reserved before the status-allow: pending state or quoted runtime label
 /// pop, so a refusal leaves the action on the queue, and `pushParked` can
 /// never allocate.
 pub fn parkPeekedAction(self: *Node) !Action {

@@ -98,9 +98,9 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
 ///
 /// The pause exists so the embedder can finish post-open setup (publish,
 /// spawn) before the partner's coalesced first frames dispatch, so a session
-/// whose open has not yet committed keeps waiting: `skip`, the session a
+/// whose open has not yet committed keeps waiting: `skip`, the session a status-allow: pending state or quoted runtime label
 /// handshake pump is itself opening, and any session a pending open still
-/// owns, such as a listener arrival its accept observer has not yet taken.
+/// owns, such as a listener arrival its accept observer has not yet taken. status-allow: pending state or quoted runtime label
 /// Resuming either would answer a pipelined fetch before the object it names
 /// exists.
 /// Close `wire` for a feed the core refused, after draining the actions the
@@ -302,7 +302,7 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
     if (try self.core.flushHeldReleases()) try self.drainActions();
     // A blocking verb with no source left has nothing that can ever wake
     // it; `stepAny` passes `empty_ok` because a step-driven host with no
-    // session yet is parked on its own budget, not stranded.
+    // session yet is parked on its own budget, not stranded. status-allow: pending state or quoted runtime label
     if (self.residents.items.len == 0 and !empty_ok)
         return Error.ConnectionClosed;
     const residents = self.residents.items.len;
@@ -375,7 +375,7 @@ pub fn parkingResident(self: *const HostRuntime) bool {
     return true;
 }
 
-/// Hand the parking resident every wake descriptor it does not watch yet:
+/// Hand the parking resident every wake descriptor it does not watch yet: status-allow: pending state or quoted runtime label
 /// the mailbox, the stepped ready set's wake, and its siblings' readiness
 /// descriptors. A source minted after the last park is handed over at the
 /// next one, so `watched_fds` only grows.

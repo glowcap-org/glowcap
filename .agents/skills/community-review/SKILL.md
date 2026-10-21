@@ -104,7 +104,7 @@ settled, and glowcap argues with none of them:
   July 2026). glowcap falls within that wording. The
   [announcement](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html)
   also lists projects written and maintained with heavy LLM use among those that
-  may no longer be welcome. Review as if the rule applies, and do not argue it
+  may no longer be welcome. Review as if the rule applies, and do not argue it <!-- status-allow: workflow sequence -->
   down to a narrower reading than its text.
 - **Zig** forbids LLM-assisted contributions outright, including issues and
   comments, because review is how it grows contributors.

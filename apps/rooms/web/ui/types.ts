@@ -96,23 +96,6 @@ export interface MemberRef {
 
 export type SessionPhase = "connecting" | "connected" | "disconnected" | "reconnecting";
 
-/** How a directory's connection reads from live evidence.
- *
- * Opening an attempt, restore, and attached projection derive the four words
- * from the same three facts: connected when the runtime says so, disconnected
- * when an issue names this directory or the whole session, and otherwise
- * connecting until this tab has had an answer, reconnecting once it has.
- * Local still writes connected and disconnected as the dial settles. */
-export function directoryLivePhase(
-	reached: boolean,
-	connected: boolean,
-	issue: string | undefined,
-): { readonly session: SessionPhase; readonly statusText: string } {
-	if (issue != null) return { session: "disconnected", statusText: issue };
-	if (connected) return { session: "connected", statusText: "" };
-	return { session: reached ? "reconnecting" : "connecting", statusText: "" };
-}
-
 /** Actions the message log may offer for sends this controller owns. */
 export interface SendControlPolicy {
 	retry: boolean;
@@ -132,4 +115,4 @@ export interface TroubleRow {
 }
 
 export * from "./ops/types.ts";
-export type { RoomsSettingsTab as SettingsTab } from "../../lib/rooms_state.ts";
+export type { RoomsSettingsTab as SettingsTab } from "../../lib/view_state.ts";

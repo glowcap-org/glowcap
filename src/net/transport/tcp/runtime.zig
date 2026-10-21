@@ -120,7 +120,7 @@ pub const Listener = struct {
     /// restart contract that helper documents without the port sharing.
     /// IPv6 and non-POSIX targets keep the plain std listen, with the
     /// TIME_WAIT restart behavior. Nothing in this tree binds a blocking IPv6
-    /// listener today, and that boundary stays visible instead of being papered
+    /// listener, and that boundary stays visible instead of being papered
     /// over with untested sockaddr packing.
     fn listenExclusiveReuseAddr(io: std.Io, address: IpAddress) IpAddress.ListenError!Server {
         const os: socket.Os = switch (builtin.os.tag) {

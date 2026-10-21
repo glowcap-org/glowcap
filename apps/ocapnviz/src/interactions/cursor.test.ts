@@ -139,7 +139,7 @@ Deno.test("Add Peer with hover → crosshair", () => {
 Deno.test("Open Session keeps its own cursor over a peer it will take", () => {
 	// cursor.md step 5 before step 6: the tool's cursor outranks the verb's. The node
 	// the tool is about to act on is the last place to stop saying which tool is
-	// active, otherwise every authoring tool reads the same at the moment of
+	// active, otherwise every authoring tool reads the same at the moment of status-allow: state at observation
 	// aiming, and the palette's distinction ends where it matters.
 	assertEquals(
 		cursorFor(

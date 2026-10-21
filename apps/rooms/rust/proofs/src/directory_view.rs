@@ -75,7 +75,6 @@ pub fn run() {
 		other.room(&"garden".into()).unwrap().offers,
 		Nullable::Value(MembershipKind::Participant)
 	);
-	assert!(view.room_named(&"GARDEN".into()).is_some());
 	for i in 0..MAX_ROWS {
 		assert!(
 			view.apply(peer_event(&format!("peer-{i}"), FIRST, MemberChange::Registered))

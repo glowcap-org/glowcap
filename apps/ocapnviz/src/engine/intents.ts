@@ -152,7 +152,7 @@ export type BuilderIntent =
 		 * timeline drag's write path for spans: it works identically
 		 * for a loaded entity (whose observation events move to agree)
 		 * and a freshly authored one (which has `entity.timing` and no
-		 * events yet). Messages keep the event-shaped `move-event`
+		 * events yet). Messages keep the event-shaped `move-event` status-allow: pending state or quoted runtime label
 		 * below, since a message always has its sent observation. */
 		kind: "move-entity-span";
 		move: MoveSpanIntent;
@@ -224,7 +224,7 @@ export type BuilderIntent =
 		 * the session's painted end lands at `t` (duration measured
 		 * off the effective start). Use `clear-session-end` to remove.
 		 * Validated against ordering: `t` must be at or after the
-		 * session's painted start. Endpoint peers leaving earlier
+		 * session's painted start. Endpoint peers leaving earlier status-allow: event or source ordering
 		 * clamp the painted end without rewriting the stored intent. */
 		kind: "set-session-end";
 		sessionId: string;

@@ -379,7 +379,7 @@ test "a second settlement before the first fire encodes is refused and every lis
     try p1.session_state.registerExport(.from(9));
 
     // The first settlement queues listener 9's fire carrier. Nothing steps
-    // yet, so the fire has not encoded.
+    // yet, so the fire has not encoded. status-allow: pending state or quoted runtime label
     try settle(&p2, projection.answer_target, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "first") } });
 
     // A second settlement in the encode window is refused before anything

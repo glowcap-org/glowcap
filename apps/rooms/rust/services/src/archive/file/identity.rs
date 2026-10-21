@@ -91,7 +91,7 @@ impl FileArchive {
 	}
 }
 
-/// The platform could not supply entropy. No identity exists yet and none was
+/// The platform could not supply entropy. No identity exists yet and none was status-allow: pending state or quoted runtime label
 /// written, so this is the host failing rather than the archive.
 fn entropy_failure(error: impl std::fmt::Display) -> DiskFailure {
 	DiskFailure::Corrupt(format!("archive identity needs platform entropy: {error}").into())

@@ -1,10 +1,8 @@
-//! The four independently owned durable documents of a Rooms session.
+//! The independently owned durable documents of a Rooms session.
 use core::{fmt, str};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionDocument {
-	Checkpoint,
-	Effects,
 	Grants,
 	BridgeSecrets,
 }
@@ -12,16 +10,13 @@ pub enum SessionDocument {
 impl SessionDocument {
 	pub const fn key(self) -> &'static str {
 		match self {
-			Self::Checkpoint => "checkpoint",
-			Self::Effects => "effects",
 			Self::Grants => "grants",
 			Self::BridgeSecrets => "bridge-secrets",
 		}
 	}
 	pub const fn max_bytes(self) -> usize {
 		match self {
-			Self::Checkpoint | Self::BridgeSecrets => 768 * 1024,
-			Self::Effects => 4 * 1024 * 1024,
+			Self::BridgeSecrets => 768 * 1024,
 			Self::Grants => 128 * 1024,
 		}
 	}

@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-// A reset retires the earlier publication. The existing tab must be able to
+// A reset retires the earlier publication. The existing tab must be able to status-allow: event or source ordering
 // choose another workspace through local custody without deleting its Store.
 import type { Page } from "playwright";
 import { fail } from "./harness.ts";

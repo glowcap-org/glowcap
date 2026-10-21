@@ -348,7 +348,7 @@ pub fn glowcap_host_vow_get(host: ?*GlowcapHost, vow: u64, field: ?[*]const u8, 
 
 // ── GC, teardown, diagnostics ────────────────────────────────────────────────
 
-/// Return the opaque Host capability currently published under `name`, lazily
+/// Return the opaque Host capability published under `name`, lazily
 /// projecting its actor from the Host-owned Vat onto `session` when needed. The returned
 /// identity itself is Host-scoped and carries no export position.
 pub fn glowcap_host_session_published_ref(

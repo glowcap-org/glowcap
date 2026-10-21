@@ -21,20 +21,3 @@ export function roomsErrorOf(err: unknown): RoomsError | null {
 	const reason = err instanceof VowBroken ? err.reason : err instanceof Error ? err.message : String(err);
 	return RoomsError.from(reason);
 }
-
-/** Whether `code` is a status no version of this defines.
- *
- * Calling a shared library built from a different revision than the source that
- * declares its signatures looks like this from up here: the call returns
- * whatever happened to be in the register, and the binding reads it as a status.
- * Every glowcap status is a small negative integer, so a positive one, or one
- * far below the range, is not a status at all. It is also a different number
- * on each attempt, which is the other half of the tell.
- *
- * Worth deciding and not printing, because the number alone sends whoever
- * reads it looking at the transport, the network, and their own configuration,
- * none of which is the problem. The floor is well below the codes in use, so
- * this stays true as more are defined. */
-export function impossibleStatus(code: unknown): boolean {
-	return typeof code === "number" && Number.isFinite(code) && (code > 0 || code < -64);
-}

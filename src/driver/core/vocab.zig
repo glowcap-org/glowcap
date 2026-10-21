@@ -430,7 +430,7 @@ pub const SettleCapture = struct {
 
     /// `resolution` materialized into `allocator`, which may be plain (the
     /// verb contract allows a non-arena), so a failed later copy frees the
-    /// earlier ones and a partial `.give` never leaks.
+    /// earlier ones and a partial `.give` never leaks. status-allow: event or source ordering
     fn own(allocator: std.mem.Allocator, resolution: actors.Resolution) !Settled {
         switch (resolution) {
             .fulfilled => |arg| return .{ .fulfilled = try model.cloneArgument(allocator, arg) },

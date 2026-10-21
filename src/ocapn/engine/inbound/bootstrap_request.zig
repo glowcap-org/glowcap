@@ -31,7 +31,7 @@ pub fn apply(self: *Peer, action: bootstrap.Request) !void {
             }
             switch (try bootstrap.resolveForWithdraw(self.allocator, &self.session_state, self.giftRegistry(), self.gifterSessionResolver(), self.localObjectProjection(), scope, req)) {
                 .settled => |msg| try self.sendWithdrawSettled(msg),
-                // The gift's deposit has not arrived yet (it travels on
+                // The gift's deposit has not arrived yet (it travels on status-allow: pending state or quoted runtime label
                 // a different session); park the withdraw, `step`
                 // settles it once the deposit lands.
                 .awaiting_deposit => |admission| {

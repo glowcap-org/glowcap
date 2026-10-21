@@ -2,7 +2,7 @@ import type { Page } from "playwright";
 import { fail } from "./harness.ts";
 
 /** Prove the attached path after its session peer restarted: the room was
- * realized through its durable entry link, yet revoking that entry authority
+ * realized through its durable entry link, yet revoking that entry authority status-allow: pending state or quoted runtime label
  * leaves the subscribed membership able to use its manager to replace it. */
 export async function proveSharedRoomAuthorityRotation(page: Page): Promise<void> {
 	await page.click("#roomAbout");

@@ -46,7 +46,7 @@ pub fn transitionToOpen(self: *Session) !void {
 }
 
 /// The partner's session public key, learned from its `op:start-session`, or
-/// null if the partner's handshake half has not yet arrived with a key. An
+/// null if the partner's handshake half has not yet arrived with a key. An status-allow: pending state or quoted runtime label
 /// embedder verifies the partner's signatures against it, for a
 /// gifter-to-exporter session, this is the key the gifter's `desc:handoff-give`
 /// is signed with, so the exporter can record it with a deposited gift.

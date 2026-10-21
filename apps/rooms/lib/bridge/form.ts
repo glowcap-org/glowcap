@@ -22,7 +22,6 @@ import {
 	MAX_FORM_ACTIONS,
 	MAX_FORM_FIELDS,
 	MAX_FORM_HINT,
-	MAX_FORM_JSON,
 	MAX_FORM_LABEL,
 	MAX_FORM_SAID,
 	MAX_FORM_SCOPE,
@@ -258,25 +257,4 @@ export function bridgeFormSubmission(
 		if (refused != null) return { why: refused };
 	}
 	return splitBridgeSubmission(bridgeFormSecretIds(form), asked);
-}
-
-/** Read what a reader typed, as it arrives on the wire.
- *
- * A submission is a peer's too, since a client is as capable of sending
- * nonsense as a bridge is, so it is bounded and checked before a bridge is
- * asked to make anything of it. This does not decide whether the answers make
- * sense. A form says what a field is called and whether it is required, and
- * what makes a password valid on somebody else's service is that service's
- * decision. */
-export function readBridgeAnswers(raw: string): BridgeAnswers {
-	if (raw.length > MAX_FORM_JSON) throw new Error("bridge form answers are too long");
-	let decoded: unknown;
-	try {
-		decoded = JSON.parse(raw);
-	} catch {
-		throw new Error("bridge form answers are not JSON");
-	}
-	const parsed = z.safeParse(BridgeAnswersSchema, decoded);
-	if (!parsed.success) throw new Error("bridge form answers are not valid");
-	return parsed.data;
 }

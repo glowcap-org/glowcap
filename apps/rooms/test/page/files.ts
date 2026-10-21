@@ -121,7 +121,7 @@ export async function run(
 	// A picture larger than the stage: fitted shows all of it inside the
 	// stage (and the window), smaller than life, and the zoom button (or
 	// clicking the picture) switches to actual size, where the stage scrolls
-	// natively. Posted here and withdrawn below, so the gallery walks earlier
+	// natively. Posted here and withdrawn below, so the gallery walks earlier status-allow: event or source ordering
 	// and later see the conversation unchanged.
 	await tab.setInputFiles("#filePick", {
 		name: "big.png",

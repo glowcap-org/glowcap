@@ -45,7 +45,7 @@ struct Member<R> {
 	kind: MembershipKind,
 }
 
-/// A post admitted but not yet delivered to IRC: the gateway delivers it
+/// A post admitted but not yet delivered to IRC: the gateway delivers it status-allow: pending state or quoted runtime label
 /// as the member, then commits the same authorship to Rooms.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Post {
@@ -593,16 +593,6 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 			);
 			effects.count_changed = true;
 		}
-	}
-	/// Every member's inbox, for a room going away: each hears why and gets
-	/// its inbox back.
-	pub fn retire_all(&mut self, ended: &str) -> Effects<C, R> {
-		let connections: Vec<C> = self.members.keys().copied().collect();
-		let mut effects = Effects::default();
-		for connection in connections {
-			effects.extend(self.retire(connection, Some(ended)));
-		}
-		effects
 	}
 	/// The longest line a member may post here, in bytes: IRC's line less
 	/// the channel and the widest attribution.

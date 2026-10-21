@@ -242,7 +242,7 @@ Browser DMs:
   `start --dial-transports webrtc`. The dial signals through the room that
   introduced the browser, and `--ice-servers` names its STUN or TURN servers.
   Without that family such a browser is not reachable.
-- Relay settings persist. To replace a previously saved inaccessible relay,
+- Relay settings persist. To replace a previously saved inaccessible relay, <!-- status-allow: workflow sequence -->
   stop the session and start the same workspace with the operator's
   `--relay-url`.
 - File events expose descriptions, and this command front does not transfer

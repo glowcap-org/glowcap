@@ -1,5 +1,5 @@
 //! Synchronous transaction evaluation for embedding-owned atomic KV stores.
-//! A missing row or key walk suspends the batch, and earlier writes stay in the same transaction.
+//! A missing row or key walk suspends the batch, and earlier writes stay in the same transaction. status-allow: event or source ordering
 //! Put and remove consume their bytes synchronously, and a returned row lasts until the next callback.
 //! Only a terminal database event retires a plan and permits installation.
 const std = @import("std");

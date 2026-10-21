@@ -173,7 +173,7 @@ pub const iroh = Known.iroh.metadata().symbol;
 /// Relay rendezvous: designator is the peer's Ed25519 key, and there is no
 /// dialable address, the peer holds an inbound socket at a relay under this
 /// key, and a dialer is bridged onto it (ADR-0034 cold-dial rendezvous). The
-/// byte channel is the relay leg. The keyed handshake runs end to end. Used to
+/// byte channel is the relay leg. The keyed handshake runs end to end. Used to status-allow: purpose clause
 /// reach a peer that opens no listening socket, such as a browser.
 pub const keyed_relay = Known.keyed_relay.metadata().symbol;
 

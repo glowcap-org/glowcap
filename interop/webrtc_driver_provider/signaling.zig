@@ -23,7 +23,7 @@ pub fn expectOk(rc: i32) !void {
     return error.CAbiCallFailed;
 }
 
-/// Candidates one side produced and the other has not taken yet.
+/// Candidates one side produced and the other has not taken yet. status-allow: pending state or quoted runtime label
 const Candidates = struct {
     texts: [max_candidates][candidate_cap]u8 = undefined,
     lens: [max_candidates]usize = undefined,

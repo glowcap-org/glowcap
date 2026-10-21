@@ -32,8 +32,8 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:get` | On 1.0, reads a named field of an answer without waiting for the whole result. |
 | `op:index` | On 1.0, reads one item of an answer by position. |
 | `op:untag` | Unwraps a tagged value read from an answer. glowcap accepts it on every 1.0 session and sends it only when the partner advertises the `untag` feature, so a silent Goblins peer never sees one. |
-| `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
-| `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
+| `op:gc-exports` | Tells the peer that some exported references have been released, so it can drop them. |
+| `op:gc-answers` | Tells the peer that some answers can be discarded, so it can release them. |
 
 # [How a promise settles]($section.id('how-a-promise-settles'))
 
@@ -75,8 +75,8 @@ what a slot points at.
 
 | Descriptor | What it names |
 | --- | --- |
-| `desc:export` | A reference back to an object the receiver exports: how the sender names something it was given earlier (position 0 is the bootstrap object). |
-| `desc:answer` | A reference to a pending answer from an earlier `op:deliver`, the target of promise pipelining. |
+| `desc:export` | A reference back to an object the receiver exports: how the sender names something it received in a preceding message (position 0 is the bootstrap object). |
+| `desc:answer` | A reference to a pending answer from a preceding `op:deliver`, the target of promise pipelining. |
 | `desc:import-object` | An object the sender hosts and is introducing. The receiver records it as an import. |
 | `desc:import-promise` | A promised reference the sender is introducing, settled later when the sender resolves it. |
 | `desc:handoff-give` | The gifter's half of a three-party introduction: "go meet this peer, on my word." |

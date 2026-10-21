@@ -6,16 +6,7 @@
 
 import { MAX_SCROLLBACK } from "../limits.ts";
 import { CAUGHT_UP, NO_HISTORY, silencedByIgnore } from "../types.ts";
-import type {
-	AttachmentView,
-	ChatItem,
-	DirId,
-	HistoryCoordinate,
-	Item,
-	SendState,
-	SysAudience,
-	Unread,
-} from "../types.ts";
+import type { AttachmentView, ChatItem, HistoryCoordinate, Item, SendState, SysAudience, Unread } from "../types.ts";
 import type { PageProjection, State } from "./core.ts";
 import { getConv } from "./convs.ts";
 import { lineCarried } from "../commands.ts";
@@ -209,6 +200,7 @@ export function updateAttachments(
 export function updateAttachment(projection: PageProjection, key: string, id: number, fields: AttachmentFields): void {
 	updateAttachments(projection, key, new Map([[id, fields]]));
 }
+
 export function sysItem(projection: PageProjection, text: string, audience: SysAudience = "here"): Item {
 	return { kind: "sys", id: projection.allocItemId(), text, at: Date.now(), audience };
 }
@@ -302,25 +294,6 @@ function chronologicalOrder(left: Item, right: Item): number {
 	}
 	if (!!leftHistory !== !!rightHistory) return leftHistory ? -1 : 1;
 	return 0;
-}
-
-/** Restore remembered lines and their attribution without counting them as
- * unread. Independent history accounts are prefixes. */
-export function restoreHistory(
-	projection: PageProjection,
-	key: string,
-	lines: readonly HistoryLine[],
-	divider: string,
-): void {
-	if (getConv(projection, key) == null || lines.length === 0) return;
-	const stood = historyItems(projection, lines);
-	stood.push({ kind: "sys", id: projection.allocItemId(), text: divider, at: Date.now(), audience: "shared" });
-	const combined = [...stood, ...historyOf(projection, key)];
-	const over = combined.length - MAX_SCROLLBACK;
-	const gone = over > 0 ? combined.splice(0, over) : [];
-	const unread = repairUnreadAfterDrop(unreadOf(projection, key), combined, gone);
-	writeHistory(projection, key, combined, unread);
-	projection.letLinesGo(key, gone);
 }
 
 /** Change any number of drawn lines from an archive account's current truth,
@@ -575,19 +548,6 @@ export function foldLine(projection: PageProjection, key: string, into: Item, me
 	);
 	writeHistory(projection, key, combined, repairUnreadAfterDrop(unreadOf(projection, key), combined, [gone]));
 	projection.letLinesGo(key, [into]);
-}
-
-/** Let go of every line held on `dir`, because the connection those references
- * came over has ended and a reference cannot outlive it. The lines stay: what
- * was said is still what was said, and only what can still be done to it
- * changes. */
-export function dropHeldLines(projection: PageProjection, dir: DirId): string[] {
-	const stoppedChanging: string[] = [];
-	for (const conv of [...projection.get().convs.values()]) {
-		if (conv.dir !== dir) continue;
-		if (retireLineIds(projection, conv.key)) stoppedChanging.push(conv.key);
-	}
-	return stoppedChanging;
 }
 
 /** Retire live names and edit authority together, preserving text and drafts. */

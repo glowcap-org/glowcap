@@ -1,7 +1,7 @@
 use rooms_application::documents::WriteFailure;
 use rooms_application::grants::{
 	Access, ApplyError, Change, Command, Error, GrantLedger, GrantStorage, MAX_ACTIVE_GRANTS, MAX_DOCUMENT_BYTES,
-	MAX_LIFETIME_GRANTS, PolicyPatch, Rights, derive_entropy,
+	MAX_LIFETIME_GRANTS, PolicyPatch, Rights,
 };
 use serde_json::json;
 
@@ -54,7 +54,6 @@ pub fn run() {
 	policy_and_restart();
 	limits();
 	documents();
-	derivation();
 	lossless_text();
 	issuance_order();
 }
@@ -85,7 +84,7 @@ fn live_policy_transactions() {
 	let written = ready(prepared.persist(&mut MemoryStore(&mut disk))).unwrap();
 	let mut other = GrantLedger::default();
 	assert_eq!(written.commit(&mut other), Err(Error::WrongOwner));
-	assert_eq!(other.active_count().unwrap(), 0);
+	assert_eq!(other.records().unwrap().filter(|g| !g.revoked()).count(), 0);
 	assert_eq!(held.read(|g| g.access()), Err(Error::RecoveryRequired));
 	state.install(GrantLedger::restore(&disk).unwrap()).unwrap();
 	assert_eq!(held.read(|g| g.access()), Err(Error::Revoked));
@@ -188,7 +187,7 @@ fn transactions() {
 		Err(ApplyError::Storage(WriteFailure::Unchanged("injected failure")))
 	);
 	assert!(!ledger.needs_recovery());
-	assert_eq!(ledger.lifetime_count().unwrap(), 0);
+	assert_eq!(ledger.records().unwrap().len(), 0);
 	assert_eq!(disk, original);
 	assert_eq!(apply(&mut ledger, &mut disk, issue(1)), Change::Issued);
 	// Idempotent retry must not write even when storage would fail.
@@ -268,8 +267,8 @@ fn policy_and_restart() {
 		apply(&mut ledger, &mut disk, Command::Revoke { id: id(1) }),
 		Change::Unchanged
 	);
-	assert_eq!(ledger.active_count().unwrap(), 0);
-	assert_eq!(ledger.lifetime_count().unwrap(), 1);
+	assert_eq!(ledger.records().unwrap().filter(|g| !g.revoked()).count(), 0);
+	assert_eq!(ledger.records().unwrap().len(), 1);
 	refusal(
 		&mut ledger,
 		Command::SetPolicy {
@@ -304,8 +303,8 @@ fn limits() {
 	}
 	let mut ledger = GrantLedger::restore(&disk).unwrap();
 	refusal(&mut ledger, issue(MAX_LIFETIME_GRANTS), Error::LifetimeLimit);
-	assert_eq!(ledger.active_count().unwrap(), 0);
-	assert_eq!(ledger.lifetime_count().unwrap(), MAX_LIFETIME_GRANTS);
+	assert_eq!(ledger.records().unwrap().filter(|g| !g.revoked()).count(), 0);
+	assert_eq!(ledger.records().unwrap().len(), MAX_LIFETIME_GRANTS);
 }
 
 fn documents() {
@@ -328,8 +327,8 @@ fn documents() {
 	assert_eq!(restored.get(&id(1)).unwrap().unwrap().access(), Access::None);
 	assert_eq!(restored.get(&id(1)).unwrap().unwrap().note().as_str().unwrap(), "Away");
 	assert!(restored.get(&id(2)).unwrap().unwrap().revoked());
-	assert_eq!(restored.active_count(), Ok(1));
-	assert_eq!(restored.lifetime_count(), Ok(2));
+	assert_eq!(restored.records().unwrap().filter(|g| !g.revoked()).count(), 1);
+	assert_eq!(restored.records().unwrap().len(), 2);
 	for invalid in [
 		b"".as_slice(),
 		b"null",
@@ -380,16 +379,4 @@ fn documents() {
 			Err(Error::InvalidGrant)
 		));
 	}
-}
-
-fn derivation() {
-	// HMAC-SHA256 vector independently computed over the shared
-	// derivation's exact bytes and 16-byte truncation.
-	let expected = [
-		0x98, 0x09, 0x15, 0x85, 0x94, 0xad, 0xa3, 0x8d, 0xa4, 0x1f, 0x23, 0xb2, 0x0c, 0x34, 0xdb, 0xb7,
-	];
-	assert_eq!(derive_entropy(&[0x5a; 16], &id(1)).unwrap(), expected);
-	assert_ne!(derive_entropy(&[0x5a; 16], &id(2)).unwrap(), expected);
-	assert_ne!(derive_entropy(&[0x5b; 16], &id(1)).unwrap(), expected);
-	assert_eq!(derive_entropy(&[0x5a; 16], "invalid"), Err(Error::InvalidGrant));
 }

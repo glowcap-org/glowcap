@@ -56,7 +56,7 @@ export function paneOf(segment: string): OpsPaneFace | null {
  * them there have to name the same path, and a segment renamed in the table
  * above should not leave a sentence pointing at nothing. Nobody holding a pane's
  * capability is required. An address arrived at cold draws the card that asks
- * for it, so the link remains useful to a reader who does not hold it yet. */
+ * for it, so the link remains useful to a reader who does not hold it yet.  status-allow: pending state or quoted runtime label */
 export function opsAddress(pane: OpsPaneFace): string {
 	return `/ops/${pane.path}`;
 }

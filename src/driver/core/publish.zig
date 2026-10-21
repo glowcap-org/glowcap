@@ -271,7 +271,7 @@ pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref:
 }
 
 /// Remove a minted durable publication (ADR-0007): its live row is
-/// reclaimed, future enlivenment of the old sturdyref misses, and a
+/// reclaimed, future enlivenment of the old sturdyref misses, and a status-allow: replacement state identity
 /// later mint never reuses the bytes. Alias-only like
 /// `unpublish`: issued capabilities and deposited gifts keep the exact
 /// actor. It releases the row's adopted root (ADR-0014). A name

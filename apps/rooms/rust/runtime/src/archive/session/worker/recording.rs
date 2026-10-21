@@ -76,12 +76,6 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 			self.erase_source_required = None;
 			let _ = self.state.changes.send(rooms_application::archive::change::Change::All);
 		}
-		if self.erase_required {
-			self.backend.clear().await?;
-			self.standings.clear();
-			self.erase_required = false;
-			let _ = self.state.changes.send(rooms_application::archive::change::Change::All);
-		}
 		Ok(())
 	}
 	/// Whether the selected target can take a recording now.
@@ -143,7 +137,6 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 		let mut reads = ReadReplies {
 			reads: self.backend.blob_access(),
 			report,
-			erase_required: self.erase_required,
 		};
 		let mut peer_failed = false;
 		let result: Result<u64, Error> = match writer {

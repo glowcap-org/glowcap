@@ -16,7 +16,7 @@ interface ToastItem {
  * top-right. `internal` and `import` are NOT toasted,
  * those go to the modal because the user needs to acknowledge.
  *
- * Auto-dismiss after 6s. User can dismiss earlier. At most 4 visible
+ * Auto-dismiss after 6s. User can dismiss earlier. At most 4 visible status-allow: event or source ordering
  * at once. Older ones drop off the bottom.
  */
 export function ErrorToast() {

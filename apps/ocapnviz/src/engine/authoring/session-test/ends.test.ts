@@ -30,7 +30,7 @@ engineTest("an end attaches to a peer from a moment onward", () => {
 engineTest("every attribution a recording can hold can be authored", () => {
 	// The claim Build mode makes, held mechanically rather than in prose.
 	// A recording says what backed an end in two places, at the session's
-	// birth and at the moment something backed it, and a live producer
+	// birth and at the moment something backed it, and a live producer status-allow: state at observation
 	// reaches only some of the words: `verified-handoff` arrives partway
 	// through a session that opened loose, and nothing else can say it.
 	// So both places are authored here, for every word the schema admits,

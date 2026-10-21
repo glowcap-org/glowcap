@@ -79,7 +79,7 @@ pub(super) fn forget<P: Tasks + Deadline + Clone + 'static>(
 		return Err(glowcap::loam::refusal("forget-bridge takes revision and room"));
 	};
 	if base.as_i64().and_then(|base| u64::try_from(base).ok()) != Some(input.content_revision) {
-		return Err(glowcap::loam::refusal("workspace revision changed"));
+		return Err(glowcap::loam::refusal(rooms_application::failure::stale_workspace()));
 	}
 	let room = content::text(room)?;
 	let mut record = records::decode(input)?;

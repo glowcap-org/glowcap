@@ -118,7 +118,7 @@ pub fn noteKnownGlowcapPartner(self: *Peer) void {
 /// initiator is glowcap, because the pinned Goblins onion netlayer signs
 /// only `#f`-hinted locations, record the knowledge before stamping our
 /// own hello, so `advertisedLocator`'s onion arm states the configured
-/// preference. A bare inbound hello gets today's bare answer. Unreadable
+/// preference. A bare inbound hello receives a bare answer. Unreadable
 /// hints send nothing: validation refuses the same message immediately
 /// after this runs, and the session aborts before a partner could wait on
 /// the answer.
@@ -148,7 +148,7 @@ fn validateExactAdvertisedProfile(
 
 /// This peer's hello locator: the caller's plus the preference hints this
 /// peer stamps when the transport admits them. Onion stays hintless and
-/// advertises the baseline profile (ADR-0042) unless this partner is
+/// advertises the baseline profile unless this partner is
 /// already known to be glowcap, the one licence to state a real
 /// preference there (ADR-0042).
 ///
@@ -238,7 +238,7 @@ pub const HelloHints = struct {
         }
         // Onion's standardized locator is hintless: the
         // Goblins dialer accepts only the `#f`-hints shape, so an onion
-        // hello states the baseline (ADR-0042) unless the partner is
+        // hello states the baseline unless the partner is
         // already known to be glowcap, when it states the configured
         // preference like any other transport's (ADR-0042). Every other
         // transport always advertises the configured preference.
@@ -305,7 +305,7 @@ fn advertisedPreference(
 fn canonicalAdvertisedLocator(locator: model.PeerLocator, keep_profile_hints: bool) model.PeerLocator {
     if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return locator;
     // A partner known to be glowcap reads profile hints like any other
-    // transport's (ADR-0042); everyone else gets onion's one interoperable
+    // transport's; everyone else gets onion's one interoperable
     // spelling, `#f` hints, so nothing this peer signs is undialable by
     // the pinned Goblins (ADR-0042). Routing hints stay stripped in both
     // cases: only the profile entries this peer stamps may ride.

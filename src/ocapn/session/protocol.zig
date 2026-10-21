@@ -99,7 +99,7 @@ pub fn admits(self: *const Session, body: model.view.Body) Error!void {
     try admitInState(self, body);
 }
 
-/// Record a send whose tree nobody has inventoried yet: prepared engine
+/// Record a send whose tree nobody has inventoried yet: prepared engine status-allow: pending state or quoted runtime label
 /// messages, bindings, and tests. The engine's outbound path takes the
 /// inventory once at admission and records through `recordSendInventoried`.
 pub fn recordSend(self: *Session, message: model.Message) !void {

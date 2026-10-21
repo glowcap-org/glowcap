@@ -145,7 +145,7 @@ comptime {
 
 /// Host-owned canonical capability rows. Storage grows to the high-water mark
 /// of simultaneously live rows plus invalidated rows whose application retains
-/// have not settled yet. Released slots are reused, but public ids are never
+/// have not settled yet. Released slots are reused, but public ids are never status-allow: pending state or quoted runtime label
 /// reused by this registry, so stale handles fail the Host-owned `by_id`
 /// lookup. Pointer-free projections use opaque ids whose issuer also separates
 /// Hosts. Zig refs carry the Registry pointer as their scope proof.

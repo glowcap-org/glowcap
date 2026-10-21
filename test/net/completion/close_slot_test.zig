@@ -71,7 +71,7 @@ test "close-slot: terminal drain ignores a late completion from the already-arme
     try std.testing.expect(conn.read == .armed);
 
     // A bridge-style close projects its final abort while that recv remains
-    // armed. Hold the abort send, then let a valid deliver complete the old
+    // armed. Hold the abort send, then let a valid deliver complete the old status-allow: replacement state identity
     // recv. The terminal lifecycle must recycle/drop it, not apply it and
     // queue a reply behind the abort.
     try conn.peer.sendBorrowed(.{ .abort = .{

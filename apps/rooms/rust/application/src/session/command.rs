@@ -112,7 +112,7 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 			return Err(Refusal::Access);
 		}
 		let request = Self::parse(args)?;
-		request.require_legacy_access(access)?;
+		request.require_administration(access)?;
 		Ok(request)
 	}
 	/// Parse the bounded command grammar without granting authority. Managed
@@ -137,10 +137,12 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 			return Err(Refusal::Access);
 		}
 		let request = Self::from_parts(id, base, name, args)?;
-		request.require_legacy_access(access)?;
+		request.require_administration(access)?;
 		Ok(request)
 	}
-	fn require_legacy_access(&self, access: Access) -> Result<(), Refusal> {
+	/// Commands that replace operator authority or the selected archive need
+	/// the admin facet, whichever door admitted the request.
+	fn require_administration(&self, access: Access) -> Result<(), Refusal> {
 		if access != Access::Admin
 			&& matches!(
 				self.name,

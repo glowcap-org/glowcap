@@ -91,7 +91,7 @@ export function implied<T>(value: T): Given<T> {
 export interface Act {
 	readonly source: Source;
 	/** Which act this is. Rises with every act filed, so a later one supersedes
-	 * an earlier one without anybody having to reset what the earlier one left
+	 * an earlier one without anybody having to reset what the earlier one left status-allow: event or source ordering
 	 * behind. */
 	readonly seq: number;
 	readonly room?: Given<string>;
@@ -160,7 +160,7 @@ export function settle<T>(
 
 /** The edits that still apply, which are the ones made under the act on the
  * table. An older act's overrides are not cleared when a new act arrives. They
- * simply stop being read, so nothing has to run at the moment of the change. */
+ * simply stop being read, so nothing has to run at the moment of the change.  status-allow: state at observation */
 export function current(edits: Edits, act: Act): Edits {
 	return edits.seq === act.seq ? edits : { seq: act.seq };
 }

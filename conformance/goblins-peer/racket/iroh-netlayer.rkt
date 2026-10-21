@@ -160,7 +160,7 @@
 ;; for one run.
 ;;
 ;; Optional `#:advertise-direct-addresses procedure` maps the bound address
-;; list to the currently advertised routing advice. Called for each location
+;; list to the advertised routing advice. Called for each location
 ;; query, so fixtures can change advice while existing sessions retain their
 ;; signed snapshot. The default advertises the endpoint's bound addresses.
 ;;

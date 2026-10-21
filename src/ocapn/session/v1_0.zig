@@ -99,7 +99,7 @@ pub fn installInboundResolver(self: *Session, answer: model.AnswerName, resolver
 /// Prepare a fresh answer-to-resolver link. `virtual_answer` is present only
 /// for the V1.0 resolver-only call shape. Its answer row and cursor advance are
 /// part of the same eventual commit. Existing pairs are refused rather than
-/// evicted: either collision names authority already accepted from an earlier
+/// evicted: either collision names authority already accepted from an earlier status-allow: event or source ordering
 /// frame.
 pub fn prepareInboundResolver(
     self: *Session,

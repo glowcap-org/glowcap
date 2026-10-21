@@ -230,7 +230,7 @@
 
 ;; Move every async-channel token into the Host-owned FIFO. Clearing
 ;; `scheduled` between drains and then rechecking the channel closes the one
-;; race where a finalizer enqueues while the old generation is still marked.
+;; race where a finalizer enqueues while the old generation is still marked. status-allow: replacement state identity
 (define (collect-queued! gs)
   (call-with-semaphore
    (gc-state-gate gs)

@@ -390,7 +390,7 @@ test "listen --rendezvous reaches the background front, not just argv" {
     defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
-    // A relay URL that parses but has nobody behind it yet: the listener
+    // A relay URL that parses but has nobody behind it yet: the listener status-allow: pending state or quoted runtime label
     // registers once the relay answers, retrying on its own timer, and its
     // locator names the relay route rather than falling back to TCP.
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };

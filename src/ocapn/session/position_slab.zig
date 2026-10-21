@@ -30,7 +30,7 @@ pub fn PositionSlab(comptime Row: type) type {
         pub const Slot = union(enum) {
             /// Retired, or grown past and never minted: on the free list.
             free: Link,
-            /// Minted and not yet installed, holding the stamp its row carries.
+            /// Minted and not yet installed, holding the stamp its row carries. status-allow: pending state or quoted runtime label
             reserved: u64,
             /// Retired while the partner may still name it. Never minted again.
             withheld,

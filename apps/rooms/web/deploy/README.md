@@ -201,11 +201,11 @@ volume and restarting. Use `restart` to keep the existing identity and access li
 
 - `--yes` confirms for automation. At the terminal, type the full word `yes` to proceed. `no`, an empty answer, or
   end-of-input cancels, and other answers explain the choices and prompt again.
-- Reset prepares configuration and a missing image before confirmation and needs no earlier `up`. It chooses its image
+- Reset prepares configuration and a missing image before confirmation and needs no earlier `up`. It chooses its image <!-- status-allow: runtime state or operation ordering -->
   as `up` does: an explicit `--image` or `--build`, else the prepared product on a Linux checkout, else, from an
   installed executable, the saved selection or the versioned release image. It names the image and its revision.
 - Image preparation and Compose validation must succeed before services stop or volumes are removed.
-- If a removal fails, the stack remains stopped and the error names the failed volume. Earlier removals in an `all`
+- If a removal fails, the stack remains stopped and the error names the failed volume. Earlier removals in an `all` <!-- status-allow: runtime state or operation ordering -->
   reset may already have completed. Inspect the data before restarting with `deployment up`.
 
 | Unit      | Permanently removes                                                  |

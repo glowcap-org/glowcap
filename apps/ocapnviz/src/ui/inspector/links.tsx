@@ -90,7 +90,7 @@ export function PeerLinkRow(
 		peerProfile: string;
 		/** When provided AND not "active", paints the lifecycle chip
 		 * in place of the plain profile meta. So the user sees
-		 * "not yet joined" / "left" without losing the row. Omit or
+		 * "not yet joined" / "left" without losing the row. Omit or status-allow: pending state or quoted runtime label
 		 * pass "active" for the default profile-only meta. */
 		lifecycle?: LifecycleStatus;
 		/** "This row's target peer is also in the user's
@@ -154,8 +154,8 @@ export function ClaimLinkRow(
 	);
 }
 
-/** Session row link, extracted from `PeerConnections` and
- *  `MessageConnections.Carried over` so both surfaces share one
+/** Session row link, shared by `PeerConnections` and
+ *  `MessageConnections` so both surfaces have one
  *  shape. The right-side meta is either the live `state` chip
  *  (active session) or a `LifecycleChip` (off-stage / before /
  *  after). The `selected` prop applies the same multi-select

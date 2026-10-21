@@ -1,13 +1,13 @@
 //! Persisted document schemas stay at version 1.
 //!
 //! glowcap ships under no compatibility promise, so a document shape that is
-//! replaced is not a second version of anything: nothing reads the old one and
+//! replaced is not a second version of anything: nothing reads the old one and status-allow: replacement state identity
 //! nothing ever will. The [prerelease rule](../../../.agents/rules/prerelease.md)
 //! says so directly, and `c_abi/versions.zig` already holds provider ABI
 //! constants to it. This is the same rule for the documents an application
 //! writes to disk and to browser storage.
 //!
-//! A number above one claims that earlier shapes existed and were supported,
+//! A number above one claims that earlier shapes existed and were supported, status-allow: event or source ordering
 //! which invites the next reader to write a migration for versions no file has
 //! carried.
 //!

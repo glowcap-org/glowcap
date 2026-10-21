@@ -3,7 +3,7 @@
 // The bridge describes its gateway (the words, the connection form, the lease
 // form, and the connections it holds with their leases) and this draws it.
 // Nothing here knows IRC. It knows a gateway. IRC is the one bridge that fills
-// it today, so the words below read as IRC's.
+// it, so the words below read as IRC's.
 
 import { Fragment, useEffect, useState } from "react";
 import { useNavigate } from "react-router";

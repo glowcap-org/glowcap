@@ -23,13 +23,8 @@ Rust design implements it in three places:
 - inside the session service, for the history a durable session records
 
 [Operating Rooms](../operating.md) explains how to run the archive service.
-The decisions are in
-[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
-[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
-[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
-[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
-[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
-and [ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md).
+The decision is in
+[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md).
 
 ## The object
 

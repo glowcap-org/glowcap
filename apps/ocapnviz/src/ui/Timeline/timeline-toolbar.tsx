@@ -140,7 +140,7 @@ export function TimelineToolbar(
 				/* Lane toggles sit with the verbs on the left so the user
           reads the row as "primary action · what's visible · (spacer)
           · view controls". The master "all rows" visibility verb
-          now lives as the eyeball next to the Overview's "overview"
+          is the eyeball next to the Overview's "overview"
           label (see `Overview.tsx`), aligning with the per-category
           and per-entity eyeballs in the gutter column. */
 			}

@@ -149,25 +149,12 @@ pub fn generate() -> Result<String, String> {
 	}
 	output.push_str("\t},\n} as const;\n");
 	output.push_str("export const SESSION_METHOD_REQUIREMENTS = {\n");
-	let mut targets = Vec::new();
-	let mut record_targets = |requirement: requirements::Requirements| {
-		for target in requirement
-			.targets
-			.iter()
-			.copied()
-			.chain(requirement.conditional.iter().flat_map(|c| c.targets().iter().copied()))
-		{
-			if !targets.contains(&target) {
-				targets.push(target);
-			}
-		}
-	};
 	for &method in Method::ALL {
-		let requirement = requirements::method(method);
-		if let Some(requirement) = requirement {
-			record_targets(requirement);
-		}
-		write_property(&mut output, &json!(method.name()).to_string(), json!(requirement));
+		write_property(
+			&mut output,
+			&json!(method.name()).to_string(),
+			json!(requirements::method(method)),
+		);
 	}
 	output.push_str("} as const;\nexport const SESSION_COMMAND_REQUIREMENTS = {\n");
 	for route in commands::Command::ALL
@@ -183,26 +170,7 @@ pub fn generate() -> Result<String, String> {
 			Route::Effect(c) => json!(c),
 		};
 		let requirement = requirements::command(route);
-		if let Some(requirement) = requirement {
-			record_targets(requirement);
-		}
 		write_property(&mut output, &name.to_string(), json!(requirement));
-	}
-	output.push_str("} as const;\nexport const SESSION_TARGET_PERMISSIONS = {\n");
-	for target in targets {
-		write_property(&mut output, &json!(target).to_string(), json!(target.alternatives()));
-	}
-	output.push_str("} as const;\nexport const SESSION_CONDITIONAL_REQUIREMENTS = {\n");
-	for conditional in [
-		requirements::Conditional::ImportsAuthority,
-		requirements::Conditional::ReturnsFiles,
-		requirements::Conditional::UploadsFiles,
-	] {
-		write_property(
-			&mut output,
-			&json!(conditional).to_string(),
-			json!({ "workspace": conditional.workspace(), "targets": conditional.targets() }),
-		);
 	}
 	output.push_str("} as const;\n");
 	canonical_typescript(output)

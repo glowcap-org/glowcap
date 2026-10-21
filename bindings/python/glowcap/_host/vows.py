@@ -14,7 +14,7 @@ _ERR_CLOSED = _abi.ERR_CLOSED
 # without bound; the oldest un-awaited outcome is evicted at the cap.
 _MAX_UNOBSERVED_OUTCOMES = _abi.BINDING_UNOBSERVED_OUTCOME_CAP
 
-# A vow row's initial state: registered, not yet awaited and not yet settled.
+# A vow row's initial state: registered, not yet awaited and not yet settled. status-allow: pending state or quoted runtime label
 _MINTED = object()
 
 

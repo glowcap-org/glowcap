@@ -14,16 +14,6 @@ export const sessionAccessLabel: Readonly<Record<SessionAccessLevel, string>> = 
 	interact: "Can interact",
 	admin: "Can administer",
 };
-export const sessionAccessSaid: Readonly<Record<SessionAccessLevel, string>> = {
-	observe: "Can follow rooms and messages, but cannot type or change the workspace.",
-	interact: "Can join, post, and update their own activity, but cannot manage the session.",
-	admin: "Full workspace control, including session data, access links, and saved capabilities.",
-};
-/** Reading earlier messages is a separate grant, not a step on the access
- * scale, because it is a different authority from administering the session. */
-export const sessionHistoryLabel = "Can read earlier messages";
-export const sessionHistorySaid =
-	"Everything this session has recorded, not only what is said from the moment the link is used.";
 
 /** Rooms and settings: what this browser works from. */
 export const currentSessionTitle = "Rooms and settings";
@@ -79,70 +69,6 @@ export const sessionAttachSharedHint =
 export const sessionAttachLocalHint =
 	"An empty session takes this browser's rooms and settings with it. One that already keeps rooms and settings shows those instead.";
 export const sessionAttachCommit = "Attach this browser";
-
-/** Session access: the links a shared session hands out. */
-export function sessionAccessCreated(level: string, label: string): string {
-	return `Created ${level} access for ${label}.`;
-}
-export function sessionAccessRevoked(name: string): string {
-	return `Revoked session access for ${name}.`;
-}
-export const sessionAccessLead =
-	"Create a separately revocable link for each person, device, or integration that shares this session.";
-export const sessionAccessNewTitle = "New access link";
-export const sessionAccessCreate = "Create access link";
-export const sessionAccessActiveTitle = "Active access links";
-export const sessionAccessEmpty = "Nobody holds a separate access link to this session yet.";
-export const sessionAccessThisBrowser = "This browser";
-export const sessionAccessPaused = "Paused";
-export const sessionAccessEarlierMessages = "Earlier messages";
-export function sessionAccessRevokeLabel(label: string): string {
-	return `Revoke access for ${label}`;
-}
-export const sessionAccessRevokeInUseSay =
-	"This is the link this browser is using. Revoking it cuts this browser off as well, and coming back needs another link. Everyone holding it loses access immediately, and it stays revoked after restart.";
-export const sessionAccessRevokeSay =
-	"Existing holders lose access immediately, and this access link stays revoked after restart.";
-export function sessionAccessCopyLabel(label: string): string {
-	return `Copy session access for ${label}`;
-}
-
-/** Editing one access link. */
-export const sessionGrantLead = "Changes reach whoever is holding this link. The link itself never changes.";
-export const sessionGrantAccessTitle = "Access";
-export const sessionGrantPausing = "Pausing";
-export const sessionAccessPausedPrefix = "Paused:";
-export function sessionGrantNowSaid(label: string, level: string): string {
-	return `${label} is now ${level}.`;
-}
-export function sessionGrantHistoryOff(label: string): string {
-	return `${label} can no longer read earlier messages.`;
-}
-export function sessionGrantHistoryOn(label: string): string {
-	return `${label} can read earlier messages.`;
-}
-export const sessionGrantPausedSaid =
-	"This link is paused. Whoever holds it can reach nothing until it is let back in.";
-export function sessionGrantPausedNote(note: string): string {
-	return `This link is paused: ${note}`;
-}
-export function sessionGrantResumedSaid(label: string): string {
-	return `${label} works again.`;
-}
-export const sessionGrantResume = "Let it back in";
-export const sessionGrantWhyLabel = "Why";
-export const sessionGrantWhyOptional = "Optional";
-export const sessionGrantWhyHint = "Said to whoever holds this link, in place of the session.";
-export const sessionGrantPauseInUse =
-	"This is the link this browser is using. Pausing it stops this browser too, and letting it back in has to be done from somewhere else.";
-export function sessionGrantPausedNow(label: string): string {
-	return `${label} is paused.`;
-}
-export const sessionGrantPause = "Pause it";
-export const sessionGrantKeepWorking = "Keep it working";
-export const sessionGrantPauseLead =
-	"A paused link reaches nothing and keeps the access it was issued with, so letting it back in restores that.";
-export const sessionGrantPauseAsk = "Pause access…";
 
 /** Session data: the state file. */
 export const sessionDataSharedTitle = "Shared session data";

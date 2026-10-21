@@ -7,11 +7,10 @@ const Where = bans.Where;
 
 /// High-precision transition phrases forbidden by the prerelease rule
 /// from first-read surfaces (README.md, AGENTS.md, CONTRIBUTING.md, and every
-/// top-level docs/*.md), case-insensitively. Softer tells ("previously",
-/// "originally") have honest uses, so they stay governed by the prose rule
-/// alone.
+/// top-level docs/*.md), case-insensitively. Temporal narration is checked
+/// separately by static_docs, including its reasoned inline exceptions.
 pub const prerelease_prose: []const Ban = prerelease_rows: {
-    const phrases = [_][]const u8{ "formerly", "renamed from", "pre-1.0", "pre-publication" };
+    const phrases = [_][]const u8{ "renamed from", "pre-1.0", "pre-publication" };
     const scopes = [_]Where{
         .{ .files = &.{ "README.md", "AGENTS.md", "CONTRIBUTING.md" } },
         .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
@@ -32,32 +31,9 @@ pub const prerelease_prose: []const Ban = prerelease_rows: {
     break :prerelease_rows rows;
 };
 
-/// Forward-looking status claims inside Zig comments rot silently: the
-/// compiler never reads a comment, and the surface ships without anyone
-/// revisiting the sentence. Scope is every first-party `src/**.zig`. Each
-/// needle is an exact phrase that shipped as a stale claim and was corrected,
-/// add the next stale phrase's exact wording when a new instance appears.
-pub const zig_status_claims: []const Ban = status_rows: {
-    const phrases = [_][]const u8{ "remains planned", "when hosting is implemented" };
-    var rows: []const Ban = &.{};
-    for (phrases) |phrase| {
-        rows = rows ++ &[_]Ban{.{
-            .where = .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
-            .kind = .forbid,
-            .needles = &.{phrase},
-            .insensitive = true,
-            .check = "zig-status-claims",
-            .why = "comments state the present shape; planned work belongs in planning docs, where it can be closed (prerelease rule)",
-        }};
-    }
-    break :status_rows rows;
-};
-
 /// Human first-read docs stay speech for people (doc-voice). ADRs and `.agents/**` are out of scope.
 pub const human_doc_voice: []const Ban = voice_rows: {
     const phrases = [_]struct { needle: []const u8, why: []const u8 }{
-        .{ .needle = "CapTP sticky note", .why = "CapTP vocabulary cheat-sheets live in the architecture agent rule, not human docs (doc-voice)" },
-        .{ .needle = "Meta scaffolding", .why = "agent scaffolding vocabulary belongs under `.agents/`, not human inventory (doc-voice)" },
         .{ .needle = "deliberately boring", .why = "self-awarded praise; state the surface plainly (doc-voice)" },
         .{ .needle = "boring on purpose", .why = "self-awarded praise; state the surface plainly (doc-voice)" },
         .{ .needle = "next audit", .why = "executor framing; write for a human re-read (doc-voice)" },
@@ -65,21 +41,12 @@ pub const human_doc_voice: []const Ban = voice_rows: {
         .{ .needle = "honest scope", .why = "self-awarded praise; state the scope plainly (doc-voice)" },
         .{ .needle = "worth stating", .why = "throat-clearing; just state it (doc-voice)" },
         .{ .needle = "deliberately not", .why = "intent-adverb hedge; state the reason or drop the adverb (doc-voice)" },
-        .{ .needle = "tcp tab is the copy-paste first call", .why = "testing-only tcp does not occupy a first-call lead (doc-voice first-impression)" },
-        .{ .needle = "only the `glowcap-next` profile speaks it", .why = "op:untag is accepted on 1.0; glowcap sends it only when the partner advertises the feature (shipped.md)" },
-        .{ .needle = "takes no part", .why = "theatrical restatement; say who does what (doc-voice)" },
-        .{ .needle = "visible boundary", .why = "scaffold leftover; name the fact in speech (doc-voice)" },
-        .{ .needle = "listen-oriented", .why = "scaffold leftover; write the ordinary path (doc-voice)" },
-        .{ .needle = "before the mechanism existed", .why = "prerelease transition narration; describe present behavior (doc-voice)" },
         .{ .needle = "intentionally owns", .why = "intent-adverb hedge; state who owns it (doc-voice)" },
         // Insider words with no legitimate identifier spelling on these paths.
-        .{ .needle = "living-state", .why = "insider word; write \"docs kept in step with the code\" (doc-voice)" },
         .{ .needle = "hermetic", .why = "insider word; write \"in-tree\" or \"no network or external services\" (doc-voice)" },
         .{ .needle = "pre-1.0", .why = "prerelease: state the present boundary, not the transition producing it" },
         .{ .needle = "pre-publication", .why = "prerelease: state the present boundary, not the transition producing it" },
         .{ .needle = "This page is not", .why = "contrast-first opener; lead with what the page is (doc-voice)" },
-        .{ .needle = "stands behind what lands", .why = "overclaim of personal audit; landings say the maintainer is answerable (doc-voice, PROVENANCE.md)" },
-        .{ .needle = "best networking library", .why = "destination ambition is the work's shape, not a first-read slogan (project-values)" },
         .{ .needle = "colour", .why = "American English on human first-read pages (doc-voice); write color" },
         .{ .needle = "recognise", .why = "American English on human first-read pages (doc-voice); write recognize" },
         .{ .needle = "behaviour", .why = "American English on human first-read pages (doc-voice); write behavior" },
@@ -163,29 +130,4 @@ pub const diagram_wire_vocabulary: []const Ban = &.{
         .check = "diagram-wire-vocabulary",
         .why = "a deliver target is desc:export or desc:answer; desc:import-promise only introduces (CapTP Specification, op:deliver to-desc)",
     },
-};
-
-/// The Rooms Settings radio for native-initiated DMs is **Through the room
-/// relay**. A stale label survived a rename in CLI and skill prose, so a closed
-/// file list would let the next page revive it.
-pub const rooms_settings_label: []const Ban = label_rows: {
-    const scopes = [_]Where{
-        .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"} } },
-        .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },
-        .{ .tree = .{ .dir = ".agents/skills", .suffixes = &.{".md"} } },
-        .{ .tree = .{ .dir = "apps/rooms", .suffixes = &.{".md"} } },
-        .{ .file = "README.md" },
-        .{ .file = "examples/README.md" },
-    };
-    var rows: []const Ban = &.{};
-    for (scopes) |scope| {
-        rows = rows ++ &[_]Ban{.{
-            .where = scope,
-            .kind = .forbid,
-            .needles = &.{"Via this server"},
-            .check = "rooms-settings-label",
-            .why = "Rooms Settings label is Through the room relay",
-        }};
-    }
-    break :label_rows rows;
 };

@@ -14,8 +14,8 @@ and holds one build lease per worktree. When a contender exits 75, inspect the
 owner it names before changing code. Set `GLOWCAP_BUILD_LEASE_TIMEOUT` only
 when waiting is the work.
 
-The aggregate gates and what each covers are listed under "Everyday steps and
-checks" in [`docs/build-steps.md`](../../docs/build-steps.md), the one place
+The aggregate gates and what each covers are listed under [Everyday steps and
+checks](../../docs/build-steps.md#everyday-steps-and-checks), the one place
 every step is documented. Choose evidence by the boundary that changed:
 
 - Read a gate's result from its own exit code. Redirect output to a file

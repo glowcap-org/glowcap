@@ -1,11 +1,9 @@
 import { assertEquals } from "@std/assert";
 import {
 	clearDuration,
-	clearEnd,
 	clearStart,
 	markDerived,
 	moveBy,
-	resize,
 	setDuration,
 	setEnd,
 	setSpanEndAt,
@@ -56,21 +54,11 @@ Deno.test("setEnd clamps to 0 when end is before intrinsic start", () => {
 	assertEquals(v.duration, { value: 0, explicit: true });
 });
 
-Deno.test("clearEnd is an alias for clearDuration", () => {
-	const base = setDuration(implicitTimeSpan(), 4);
-	assertEquals(clearEnd(base).duration.explicit, false);
-});
-
 Deno.test("moveBy shifts start, leaves duration untouched", () => {
 	const base = setDuration(setStart(implicitTimeSpan(), 5), 10);
 	const moved = moveBy(base, /* delta */ 2, /* intrinsicStart */ 5);
 	assertEquals(moved.start, { value: 7, explicit: true });
 	assertEquals(moved.duration, { value: 10, explicit: true });
-});
-
-Deno.test("resize is an alias for setDuration", () => {
-	const v = resize(implicitTimeSpan(), 6);
-	assertEquals(v.duration, { value: 6, explicit: true });
 });
 
 Deno.test("ops do not mutate input (returned object is fresh)", () => {
@@ -96,9 +84,7 @@ Deno.test("every authoring op strips the derived marker", () => {
 		["setDuration", setDuration(derived, 3)],
 		["clearDuration", clearDuration(derived)],
 		["setEnd", setEnd(derived, 20, 5)],
-		["clearEnd", clearEnd(derived)],
 		["moveBy", moveBy(derived, 2, 5)],
-		["resize", resize(derived, 6)],
 		["translateSpan", translateSpan(derived, 2, 5, 15)],
 		["translateSpan (open)", translateSpan(derived, 2, 5, Infinity)],
 		["setSpanEndAt", setSpanEndAt(5, 20)],

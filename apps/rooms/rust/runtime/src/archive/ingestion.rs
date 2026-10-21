@@ -36,7 +36,7 @@ impl<P> Queue<P> {
 }
 impl<P: Request> Queue<P> {
 	/// Ingestion owns its source waits. Only committed-byte reads may pass it.
-	/// A queued erasure or revocation fences all later callbacks until applied.
+	/// A queued revocation fences all later callbacks until applied.
 	/// Admission must charge P until it is dropped, including while deferred.
 	pub async fn during<T>(&mut self, writing: impl Future<Output = T>, reads: &mut impl Reads<P>) -> T {
 		tokio::pin!(writing);

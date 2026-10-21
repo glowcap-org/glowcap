@@ -34,7 +34,7 @@ pub const GrantView = struct {
 
     /// A source returns data at one revision, never policy verdicts or hidden
     /// I/O. `lend` returns a record the source keeps intact until `release`
-    /// runs, and refuses with `RecordHeld` while an earlier loan is open.
+    /// runs, and refuses with `RecordHeld` while an earlier loan is open. status-allow: event or source ordering
     /// Resource lookups never disturb a lent grant record.
     pub const Source = struct {
         context: *const anyopaque,

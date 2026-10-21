@@ -163,8 +163,8 @@ export function onScrubberPointerDown(
 	// Entity hit-test wins over EVERY non-gutter branch, pan, scrub,
 	// rubber-band all only fire if the pointer didn't land on a pill.
 	// Routing this first means shift/alt/cmd-click on a pill always
-	// reach the selection-mode resolution below; they no longer get
-	// routed into pan (which broke shift-to-add) or scrub.
+	// reach the selection-mode resolution below; they are never
+	// routed into pan or scrub.
 	const hit = pointed.eventHit;
 	if (hit && (onSelectEvent || onMoveEvent)) {
 		// Gate drag-to-move on prior selection for body translates.
@@ -261,7 +261,7 @@ export function onScrubberPointerDown(
 	}
 	if (resolved.verb.kind !== "rubber-band") return;
 	// Rubber-band. Sub-threshold release is treated as
-	// "clear selection" (matching today's empty-area click
+	// "clear selection" (matching the empty-area click
 	// behavior at the App level).
 	const mode = selectModeFromModifiers(e);
 	dragRef.current = {
@@ -322,7 +322,7 @@ export function endScrubberDrag(h: ScrubberPointerHost): void {
 			// The mode's set arithmetic lives in `selectionActionFor`;
 			// this surface only forwards the hit. The replace arm keeps
 			// its surface extras: Inspector follow, and sub-selection
-			// focus (#16). A glyph (moment) hit parks focus on the
+			// focus. A glyph (moment) hit parks focus on the
 			// keyframe, body / edge hits reset it.
 			onEditSelection(new Set([key]), drag.selectMode);
 			if (drag.selectMode === "replace") {

@@ -129,7 +129,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// from the stash, hint-satisfied recv/send, drained dials), drained before blocking.
         ready: completion.ReadyQueue = .{},
         /// Queue seats owned by admitted iroh operations that have not completed
-        /// yet. Capacity is not a reservation: two pending operations both
+        /// yet. Capacity is not a reservation: two pending operations both status-allow: pending state or quoted runtime label
         /// calling ensureUnusedCapacity(1) can claim the same last slot. This
         /// count makes admission cumulative and lets completion stay infallible
         /// after sidecar bytes or an event have been consumed.

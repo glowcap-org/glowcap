@@ -159,7 +159,7 @@ pub fn apply<R: References>(
 			departure::apply(command, &args, intent, custody)?;
 		}
 		(Route::Checkpoint(Command::ClearWorkspace), []) => {
-			// Move the old topology out once. The canonical coordinate walk
+			// Move the old topology out once. The canonical coordinate walk status-allow: replacement state identity
 			// derives retirement at its owner without a page-sized client list.
 			// Saved independent management and admitted erasure survive reset.
 			let mut old = core::mem::replace(intent, Intent::empty());

@@ -30,7 +30,7 @@ pub fn resource(self: anytype, parent: ?core.ResourceId) !core.ResourceId {
 
 /// Stage one resource append inside the caller's open transaction. Several
 /// calls over one `read` compose: each sees the directory pages and header the
-/// earlier ones proposed.
+/// earlier ones proposed. status-allow: event or source ordering
 pub fn stageResource(self: anytype, read: *storage.Read, parent: ?core.ResourceId) !core.ResourceId {
     var append = try storage.Append.init(read, .resource);
     defer append.deinit() catch unreachable;

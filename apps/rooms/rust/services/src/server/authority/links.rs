@@ -50,7 +50,7 @@ struct SwissDigest([u8; 32]);
 /// and the peer read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AuthorityRefusal {
-	/// The token names a generation of `Kind` that is no longer current.
+	/// The token names a generation of `Kind` that is no longer current. status-allow: lifecycle transition
 	StaleGeneration(Kind),
 	/// The token is current, but for another room than the manager holds.
 	DifferentRoom,

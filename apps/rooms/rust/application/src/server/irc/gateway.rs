@@ -411,18 +411,6 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 			}
 		}
 	}
-	/// Every channel one connection is seated on, for its retirement.
-	pub fn seated_channels(&self, connection: C) -> Vec<String> {
-		self.identities
-			.get(&connection)
-			.map(|by_network| {
-				by_network
-					.values()
-					.flat_map(|identity| identity.seats.iter().cloned())
-					.collect()
-			})
-			.unwrap_or_default()
-	}
 	/// Whether one more speaker fits on the channel beside those linked or
 	/// linking already.
 	pub fn speaker_fits(&self, key: &str, connection: C) -> Result<(), Refusal> {
@@ -440,13 +428,6 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 	pub fn network_of_bridge(&self, key: &str) -> Option<&Network> {
 		let bridge = self.bridges.get(key)?;
 		self.networks.get(&bridge.network)
-	}
-	/// Every network key one connection holds an identity on.
-	pub fn identity_networks(&self, connection: C) -> Vec<String> {
-		self.identities
-			.get(&connection)
-			.map(|by_network| by_network.keys().cloned().collect())
-			.unwrap_or_default()
 	}
 }
 

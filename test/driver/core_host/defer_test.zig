@@ -236,7 +236,7 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
     );
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
 
-    // The behavior returned and every wire quiesced, yet the answer is still
+    // The behavior returned and every wire quiesced, yet the answer is still status-allow: pending state or quoted runtime label
     // open: the deferral holds it for the resolver.
     try std.testing.expect(minted_resolver != 0);
     try std.testing.expect(reply.len == 0 and !reply.broken);

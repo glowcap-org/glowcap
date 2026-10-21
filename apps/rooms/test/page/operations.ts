@@ -48,7 +48,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	traceLocator.hints.set("captp-websocket", `ws://127.0.0.1:${tracePort}/captp`);
 	const traceSwiss = formatRoomsSturdyref(traceLocator, (await Deno.readTextFile(`${statePath}/trace`)).trim());
 
-	// Nothing held yet: Settings opens without an Operations control.
+	// Nothing held yet: Settings opens without an Operations control. status-allow: pending state or quoted runtime label
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
 	if (await tab.$("#opsBtn") !== null) {
@@ -407,8 +407,8 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 		fail(`the trace pane does not name its endpoint: ${JSON.stringify(publishing)}`);
 	}
 
-	// The exporter chooses where this held credential may publish. The old
-	// endpoint editor could redirect that credential outside its authority.
+	// The exporter exclusively determines where this held credential may
+	// publish; the UI cannot redirect it outside that authority.
 	if (publishing.endpoint !== `ws://127.0.0.1:${tracePort}/publish`) {
 		fail(`the trace publisher changed its held endpoint: ${JSON.stringify(publishing)}`);
 	}

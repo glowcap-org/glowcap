@@ -317,7 +317,7 @@ size_t glowcap_iroh_sidecar_conn_id(const glowcap_iroh_sidecar_conn *conn);
 
 /* Non-blocking read: copy up to `len` buffered inbound bytes into `buf`. Returns
  * the byte count (> 0), 0 at clean end of stream, -1 on error, or
- * GLOWCAP_IROH_WOULD_BLOCK when no bytes are buffered yet. The connection must
+ * GLOWCAP_IROH_WOULD_BLOCK when no bytes are buffered yet. The connection must status-allow: pending state or quoted runtime label
  * have been moved to the readiness surface. Borrows the handle. */
 intptr_t glowcap_iroh_sidecar_conn_try_read(glowcap_iroh_sidecar_conn *conn, uint8_t *buf, size_t len);
 

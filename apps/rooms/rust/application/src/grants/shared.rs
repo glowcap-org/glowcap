@@ -49,7 +49,7 @@ impl GrantState {
 				.ok_or(Error::RecoveryRequired)?,
 		)
 	}
-	/// Mint only from a currently held, non-revoked record. The handle carries
+	/// Mint only from a held, non-revoked record. The handle carries
 	/// this owner's identity and cannot be reconstructed from a wire id.
 	pub fn policy(&self, id: &str) -> Result<GrantPolicy, Error> {
 		let held = self.ledger()?;

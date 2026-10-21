@@ -300,7 +300,7 @@ export function exitDeliver(prev: TurnHostOwner | null): void {
 	activeDeliver = prev;
 }
 
-/** The connection the currently running hosted turn arrived on, or null outside
+/** The connection the running hosted turn arrived on, or null outside
  * any turn. `Session.currentSession()` casts it to the public `Session` type.
  * Binding-internal. */
 export function currentTurnSession(): object | null {
@@ -494,7 +494,7 @@ export interface HostingHandle {
 	readonly hosted: Map<bigint, bigint>;
 	registerBehavior(entry: BehaviorEntry): bigint;
 	unregisterBehavior(id: bigint): void;
-	/** Host identity used to select turn-time spawn on whichever Port arrived. */
+	/** Host identity used to select turn-time spawn on whichever Port arrived.  status-allow: purpose clause */
 	readonly hostOwner: object;
 }
 

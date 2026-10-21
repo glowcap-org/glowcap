@@ -126,7 +126,7 @@ export function Composer(
 	// is a plain derivation; Escape remembers which trigger it dismissed (by
 	// its start index), so the list stays down until a new token begins.
 
-	// Last submitted line currently sitting in the field because Up recalled it.
+	// Last submitted line sitting in the field because Up recalled it.
 	// Down restores empty while this still matches; any other edit drops it.
 	const [state, dispatch] = useReducer(composerReducer, initialComposerState);
 	const { emojiOpen, focused, recovering: recoveringRoom, caret, picked, dismissedAt, recalled } = state;
@@ -156,7 +156,7 @@ export function Composer(
 	// leaves the box, and Enter takes a row they cannot see. `nearest` rather
 	// than centring, so a pick already in view does not shunt the list under the
 	// pointer for no reason. Layout, not paint: the row is picked and scrolled to
-	// in one frame rather than flashing at the old offset first.
+	// in one frame rather than flashing at the old offset first. status-allow: replacement state identity
 	useLayoutEffect(() => {
 		if (!listOpen) return;
 		document.getElementById(`complete-${pick}`)?.scrollIntoView({ block: "nearest" });

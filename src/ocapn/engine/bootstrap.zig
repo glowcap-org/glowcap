@@ -206,11 +206,11 @@ pub fn resolveForDeposit(
     // not something this exporter can serve to anyone; handed back verbatim on
     // the recipient's session it would say `<desc:export N>` for an export that
     // session never made. Refusing it here blames the gifter, on the gifter's
-    // own session, at the moment it deposits. Left to be discovered at withdraw
+    // own session, at the moment it deposits. Left to be discovered at withdraw status-allow: state at observation
     // it would instead abort the recipient's session, which is a seam a gifter
     // could aim: `Session.validateSend` refuses the fulfill (the backstop that
     // also covers the in-process `gifts.GiftRegistry.depositOwned`), and by then the
-    // party that earned the refusal is no longer the party that pays it.
+    // party that earned the refusal is no longer the party that pays it. status-allow: lifecycle transition
     if (gifted == .far) return error.InvalidGift;
     // This registry belongs to the depositing session. The give's signed
     // session name selects it at withdrawal, so no peer-supplied namespace key

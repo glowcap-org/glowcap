@@ -46,7 +46,7 @@ pub const HostSession = struct {
     /// and every handoff record naming this session (ADR-0028). Held per
     /// session because session identity and durable node identity are different
     /// facts. The Host derives it from a process-fresh, domain-separated root
-    /// and monotonic counter, so reconnecting cannot recreate an earlier session's
+    /// and monotonic counter, so reconnecting cannot recreate an earlier session's status-allow: event or source ordering
     /// key or side name.
     session_seed: [crypto.seed_bytes]u8 = undefined,
     /// The sealed byte channel this session's wire runs through (ADR-0041),

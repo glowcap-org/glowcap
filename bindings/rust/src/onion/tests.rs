@@ -327,7 +327,7 @@ fn each_auth_form_reaches_the_daemon_as_itself() {
 }
 
 // The readiness descriptor is the point of the whole surface: it must be a real,
-// pollable socket that reports "nothing yet" before a partner arrives and
+// pollable socket that reports "nothing yet" before a partner arrives and status-allow: pending state or quoted runtime label
 // "readable" after one does. A test that only asserted the number was non-negative
 // would pass on a descriptor pointing at anything at all.
 #[test]

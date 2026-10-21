@@ -89,7 +89,7 @@ pub fn stamps(store: *h.loam.core.Store, backend: anytype) !void {
     try std.testing.expectEqual(leaf_content.content.revision, leaf_moved.content.revision);
     try std.testing.expectEqual(root_before.placement.revision, root_moved.placement.revision);
     try std.testing.expectEqual(other_before.placement.revision, other_moved.placement.revision);
-    // Returning to the old parent cannot recreate an earlier scoped state stamp.
+    // Returning to the old parent cannot recreate an earlier scoped state stamp. status-allow: event or source ordering; replacement state identity
     try std.testing.expect(try r.change(store, backend, owner, seed.leaf, .{ .move = seed.root }));
     try std.testing.expect((try resource(store, backend, owner, seed.leaf)).placement.revision > leaf_moved.placement.revision);
 

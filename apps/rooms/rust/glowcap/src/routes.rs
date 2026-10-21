@@ -85,14 +85,6 @@ fn input<T>(result: glowcap::Result<T>) -> Result<Option<T>> {
 	}
 }
 
-fn address(locator: &Locator) -> Option<String> {
-	if locator.transport == TRANSPORT_TCP {
-		Some(locator.designator.clone())
-	} else {
-		glowcap::format_locator_uri(locator).ok()
-	}
-}
-
 /// The transports that prove a Host's key, in the order a route names them.
 const ROUTE_ORDER: [&str; 3] = [TRANSPORT_IROH, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP];
 /// The weak fallbacks for peers that do not speak the route vocabulary.
@@ -147,38 +139,6 @@ pub fn identity_route(host_key: &str, locators: &[String]) -> Option<Locator> {
 		hints,
 		hint_wire_form: HintWireForm::Map,
 	})
-}
-/// Derive the offered room's directory and dialable locator from its bearer.
-/// The carrying direct conversation supplies only the receiver nick and sender.
-pub fn received_room_link(
-	id: &str,
-	nick: &str,
-	label: &str,
-	from: &str,
-	link: &str,
-) -> std::result::Result<
-	rooms_application::session::checkpoint::invitations::RoomLink,
-	rooms_application::session::checkpoint::commands::Error,
-> {
-	use rooms_application::session::checkpoint::{
-		commands::Error,
-		invitations::{RoomLink, RoomLinkInput},
-	};
-	let parsed = glowcap::parse_sturdyref(link, CaptpVersion::V1_0).map_err(|_| Error::Arguments)?;
-	let directory = authority(&parsed.locator).ok_or(Error::Arguments)?;
-	let locator = address(&parsed.locator).ok_or(Error::Arguments)?;
-	RoomLink::new(
-		RoomLinkInput {
-			id,
-			directory: &directory,
-			locator: &locator,
-			nick,
-			label,
-			from,
-			link,
-		},
-		&CheckpointRoutes,
-	)
 }
 /// Publication identity carried by a Rooms authority. Fatal UTF-8 decoding
 /// matches the document contract, including stripping a leading BOM.

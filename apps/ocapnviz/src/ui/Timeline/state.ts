@@ -14,20 +14,20 @@ export type TimelineView = {
 	windowStart: number;
 	/** Right edge of the visible window, in simulated ms. */
 	windowEnd: number;
-	/** Lanes currently visible at all. `"ruler"` is implicit and
+	/** Lanes visible at all. `"ruler"` is implicit and
 	 * always shown. The others are opt-in. */
 	expandedLanes: ReadonlySet<LaneKind>;
 	/** Categories (subset of expandedLanes) drawn as a per-entity
-	 * row stack instead of today's flat stacked-spans summary. UI-
+	 * row stack instead of the flat stacked-spans summary. UI-
 	 * state only, not persisted onto `TimelineDocument`. A category
 	 * can be visible (in `expandedLanes`) AND collapsed (NOT in
-	 * `expandedCategories`), that's today's default look. */
+	 * `expandedCategories`), that's the default look. */
 	expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>;
 	/** Optional per-view gutter width override. When set, replaces
 	 * the default `LANE_LABEL_WIDTH` for px↔t math AND row-label
 	 * layout. Drag-resize updates this. Reload restores it via the
 	 * usual view persistence. Falls back to `LANE_LABEL_WIDTH` when
-	 * absent so older persisted views keep working. */
+	 * absent. */
 	gutterWidth?: number;
 };
 
@@ -187,7 +187,7 @@ export function defaultView(duration: number): TimelineView {
 		windowStart: 0,
 		windowEnd: Math.max(MIN_WINDOW_MS, duration),
 		expandedLanes: DEFAULT_EXPANDED,
-		// All categories ship collapsed, today's stacked-spans look
+		// All categories ship collapsed, the stacked-spans look
 		// is still the default. User opts in to per-entity view by
 		// clicking the category chevron.
 		expandedCategories: new Set(),
@@ -209,8 +209,8 @@ export function defaultView(duration: number): TimelineView {
  * Width is computed first, then we anchor windowStart ≥ 0 and
  * push windowEnd in from the right if it overshoots panMaxT.
  *
- * `maxWidth` and `panMaxT` both default to `duration`, Play /
- * Build's historical single-bound behavior collapses to one
+ * `maxWidth` and `panMaxT` both default to `duration`, Play and
+ * Build use a single bound, which collapses to one
  * value: width never exceeds the doc, pan never exceeds the
  * doc, and pan-right at 1× snaps back to `[0, duration]` (the
  * "no point in panning a fully-fit view" semantic). The
@@ -264,7 +264,7 @@ export function zoomAround(
 }
 
 /** Pan the window by `deltaMs`. Positive = right (later). Negative
- * = left (earlier). Bounded by `panMaxT` on the right (`Infinity`
+ * = left (earlier). Bounded by `panMaxT` on the right (`Infinity` status-allow: event or source ordering
  * lets Live mode pan into "future" empty space. Finite values
  * cap pan at the doc end). Width preserved. */
 export function pan(

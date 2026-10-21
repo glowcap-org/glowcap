@@ -15,36 +15,7 @@ export function recoveryLead(count: number): string {
 		: "Some things you started didn't finish, and Rooms can't tell whether they went through.";
 }
 
-/** Per row, what this one needs from the reader. `external` is the case Rooms
- * cannot check for itself, which is why this screen exists instead of a
- * retry. */
-export const recoveryExternalHint =
-	"Rooms can't check this one. If you know it went through, say so. Otherwise drop it.";
-export const recoveryPreparedHint = "Pick this back up, or drop it before it does anything.";
-export const recoveryResumeHint = "Pick this back up to finish it.";
-
-export const recoveryConfirmLabel = "Resolve unfinished change";
-export const recoveryConfirmAllLabel = "Resolve unfinished changes";
 export const recoveryKeep = "Go back";
-
-export const recoveryCommittedSay = "Only do this if you know it already went through. Rooms won't do it again.";
-export const recoveryAbandonedSay = "Rooms will drop this. Anything that already happened stays as it is.";
-export const recoveryCommittedAllSay = "Only do this if you know they already went through. Rooms won't do them again.";
-export const recoveryAbandonedAllSay = "Rooms will drop these. Anything that already happened stays as it is.";
-
-export const recoveryAbandonAllAsk = "Abandon all…";
-export const recoveryMarkAllCompletedAsk = "Mark all completed…";
-export const recoveryMarkCompletedAsk = "Mark completed…";
-export const recoveryMarkDone = "It went through";
-export const recoveryMarkAllDone = "They went through";
-export const recoveryDrop = "Drop it";
-export const recoveryDropAll = "Drop them";
-
-/** What state a row is in. */
-export const recoveryPhaseUnresolved = "Needs an answer";
-export const recoveryPhasePrepared = "Ready to resume";
-export const recoveryPhaseCompleted = "Result recorded";
-export const recoveryPhaseDefault = "Ready to finish";
 
 /** Where an unfinished operation stands, as a chip. */
 export const recoveryStatus: Record<"pending" | "committed" | "unknown" | "unsent" | "saving" | "working", string> = {

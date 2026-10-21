@@ -309,7 +309,7 @@ pub fn driveStream(_: void, smith: *std.testing.Smith) anyerror!void {
 /// prose.
 ///
 /// Each of these was wrong at some point in some target's life, and every one of
-/// them fails silently: a corpus frame that no longer decodes, a synthesized
+/// them fails silently: a corpus frame that no longer decodes, a synthesized status-allow: lifecycle transition
 /// frame that stops crossing the threshold it exists to cross, or a tail the
 /// stream ends before the cap can refuse it, all leave a target that passes
 /// while searching a smaller space than its header claims.

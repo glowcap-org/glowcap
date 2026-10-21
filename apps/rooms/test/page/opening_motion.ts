@@ -1,7 +1,5 @@
 // The opening screen for a reader who has asked for less motion.
 //
-// Split from `opening.ts` by subject when that file outgrew the project's
-// limit, the way `first_rail.ts` was.
 import type { Browser } from "playwright";
 import { fail } from "./harness.ts";
 
@@ -21,9 +19,7 @@ import { fail } from "./harness.ts";
  * the right answer, because the reader still gets none.
  *
  * The mark answers the preference inside the shader's own loop, by holding one
- * settled frame, which no stylesheet can be asked about. An earlier version of
- * this named a piece of the drawing the shader replaced, found nothing, and
- * passed on the empty string. */
+ * settled frame, which no stylesheet can be asked about. */
 export async function proveOpeningWithoutMotion(browser: Browser, httpPort: number): Promise<void> {
 	const still = await browser.newContext({ reducedMotion: "reduce" });
 	const calm = await still.newPage();

@@ -8,7 +8,7 @@ const std = @import("std");
 
 /// Add an unsigned policy duration to the signed monotonic-clock domain.
 /// Durations beyond the representable clock horizon wait until that horizon.
-/// They never fire earlier and never trap while narrowing a valid option.
+/// They never fire earlier and never trap while narrowing a valid option. status-allow: event or source ordering
 pub fn dueAt(stamp: i64, delay_ms: u64) i64 {
     std.debug.assert(stamp >= 0);
     const remaining: u64 = @intCast(std.math.maxInt(i64) - stamp);

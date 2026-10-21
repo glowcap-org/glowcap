@@ -251,7 +251,7 @@ fn updateHoverAndCursor(
         if (flatLineAt(store, view_h, local_row)) |line| {
             // The pointer names a cell and a scanned link is a byte range, so
             // the column converts through the same walk the underline is
-            // painted from. Compared raw, a wide glyph earlier in the line
+            // painted from. Compared raw, a wide glyph earlier in the line status-allow: event or source ordering
             // pointed hover at a different link than the reader sees.
             if (select_mod.byteAtCell(line, local_col, width_mod.ofScreen(&vx.screen))) |offset| {
                 var spans: [4]links.Span = undefined;

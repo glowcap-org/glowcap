@@ -44,7 +44,7 @@ glowcap_tools_cursor_agent_download() {
 
 glowcap_tools_cursor_agent_verify() {
     glowcap_tools_expect_version cursor-agent "$2*" "$1/cursor-agent" || return 1
-    # The exec prepends --disable-auto-update; a build that no longer accepts
+    # The exec prepends --disable-auto-update; a build that no longer accepts status-allow: lifecycle transition
     # the flag must not be published, or every invocation would break.
     if ! glowcap_tools_isolated "$1/cursor-agent" --disable-auto-update --help >/dev/null 2>&1; then
         echo "cursor-agent driver: build rejects --disable-auto-update; refusing the install" >&2

@@ -139,7 +139,7 @@ export function StageControls() {
  * row's own type rather than the numeric pill's mono, `style` overrides after the
  * component's own, which is what that prop is for.
  *
- * The camera is the value. `readView` is read at the moment a gesture starts, so a
+ * The camera is the value. `readView` is read at the moment a gesture starts, so a status-allow: state at observation
  * drag multiplies from the true scale. The camera's store only decides when to
  * re-render, and `formatStageZoom` is what both it and this show.
  *

@@ -99,7 +99,7 @@ Save resource metadata only after a successful commit or recovery.
 
 ## Limits and tests
 
-When Loam checks a write batch and needs a row it has not read yet, it
+When Loam checks a write batch and needs a row it has not read yet, it <!-- status-allow: runtime state or operation ordering -->
 remembers where it stopped and resumes once the row arrives. It checks the batch once, then writes straight into the open
 IndexedDB transaction.
 
@@ -170,7 +170,7 @@ Two Rooms tests use the same callbacks and transactions:
 - `zig build rooms-session-graph-browser-test` runs the graph trace alone. It
   hides one acknowledgement after a real commit and one after a late quota
   rollback, and no unconfirmed result escapes before recovery decides. When
-  nothing was written the old graph stays, and a recovered commit does not
+  nothing was written the old graph stays, and a recovered commit does not <!-- status-allow: runtime state or operation ordering -->
   run the content again.
 
 `zig build rooms-session-foreign-browser-reload-test` uses two pages. One page

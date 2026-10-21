@@ -24,7 +24,7 @@ function engineFor(doc: TimelineDocument): Engine {
 }
 
 /** One session, one end attached and one loose, plus a second peer
- *  nobody has attached yet. */
+ *  nobody has attached yet.  status-allow: pending state or quoted runtime label */
 function looseDoc(): TimelineDocument {
 	return TimelineDocument.parse({
 		id: "offers",

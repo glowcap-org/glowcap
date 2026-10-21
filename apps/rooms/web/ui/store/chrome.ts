@@ -23,17 +23,8 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { kindOf } from "../media.ts";
 import { type DraftPreview, reconcileDraftPreviews } from "../link_preview.ts";
 import { type Draft, type HelpTab, NO_DRAFT, type PageProjection, type State } from "./core.ts";
-import { actingDir, forgetConv, getConv, nextStandingKey } from "./convs.ts";
+import { forgetConv, getConv, nextStandingKey } from "./convs.ts";
 import { markRead } from "./items.ts";
-import { patchDir, setDirStatus } from "./dirs.ts";
-
-// ── Session, join card, chrome ────────────────────────────────────────────
-/** What the application is doing on the directory the reader is on. Says nothing
- * about any session's health, which is why it cannot paint a dot. */
-export function setStatus(projection: PageProjection, statusText: string): void {
-	const here = actingDir(projection);
-	if (here !== null) setDirStatus(projection, here.id, statusText);
-}
 
 /** How many notices the stack will hold. Past this the oldest is dropped so a
  * looping failure cannot bury the page. */
@@ -56,7 +47,7 @@ export function dismissToast(projection: PageProjection, id: number): void {
 }
 /** What is ready to send in a conversation, or an empty draft.
  *
- * Every reader of a draft goes through here, so "no row yet" and "a row that has
+ * Every reader of a draft goes through here, so "no row yet" and "a row that has status-allow: pending state or quoted runtime label
  * been emptied" are one answer rather than two the callers each have to handle. */
 export function draftFor(projection: PageProjection, key: string | null): Draft {
 	return (key === null ? undefined : projection.get().drafts.get(key)) ?? NO_DRAFT;
@@ -244,34 +235,15 @@ export function cancelChange(
 		files: [],
 	});
 }
+
 export function addDraftFiles(projection: PageProjection, files: readonly File[]): void {
 	const draft = activeDraft(projection);
 	setActiveDraft(projection, { ...draft, files: [...draft.files, ...files] });
 }
+
 export function removeDraftFile(projection: PageProjection, index: number): void {
 	const draft = activeDraft(projection);
 	setActiveDraft(projection, { ...draft, files: draft.files.filter((_, at) => at !== index) });
-}
-export function clearDraftFiles(
-	projection: PageProjection,
-	key: string | null = projection.get().activeKey,
-): void {
-	if (key == null) return;
-	setDraftOn(projection, key, { ...draftFor(projection, key), files: [] });
-}
-/** Record the name `dir` granted.
- *
- * One directory's answer and no other's. Admission accepts the requested
- * value exactly or refuses it, and an accepted name is true only in this
- * directory. */
-export function setDirNick(projection: PageProjection, dir: DirId, nick: string): void {
-	patchDir(projection, dir, { nick });
-}
-
-/** Record the exact nickname this workspace will request on reconstruction.
- * This is intent, not evidence that the directory granted it. */
-export function setRequestedDirNick(projection: PageProjection, dir: DirId, nick: string): void {
-	patchDir(projection, dir, { requestedNick: nick });
 }
 
 /** The name `dir` granted, or empty when it has granted none. */
@@ -370,6 +342,7 @@ export function dismissDirectoryView(projection: PageProjection, key: string): v
 export function setTheme(projection: PageProjection, theme: "light" | "dark"): void {
 	projection.set({ theme });
 }
+
 export function setNotify(projection: PageProjection, notifyOn: boolean): void {
 	projection.set({ notifyOn });
 }
@@ -516,7 +489,7 @@ export function stepViewer(projection: PageProjection, direction: ViewerDirectio
 	let previous: AttachmentView | null = null;
 	let found = false;
 	for (const item of history) {
-		// A withdrawn line's bubble no longer shows its pictures, so the arrows
+		// A withdrawn line's bubble no longer shows its pictures, so the arrows status-allow: lifecycle transition
 		// must not step onto them either: the walk and the log describe one
 		// conversation.
 		if (item.kind !== "chat" || item.attachments === undefined || item.withdrawn === true) continue;

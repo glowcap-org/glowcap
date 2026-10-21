@@ -3,10 +3,10 @@
  *
  * An end attaches to a peer BECAUSE something backed it, so who is there and
  * what put them there are one fact arriving at one instant. These hold that
- * the reader gives both from the same moment: the bug they were written
- * against read the peer at the playhead and the attribution off the endpoint
- * the session was born with, so a session whose end a signed handoff attached
- * at t=3500 reported "attached to Bob" beside "nothing proved this".
+ * the reader gives both from the same moment. Reading the peer at the playhead
+ * and the attribution off the endpoint the session was born with would report
+ * "attached to Bob" beside "nothing proved this" for a session whose end a
+ * signed handoff attached at t=3500.
  *
  * They run the whole path a live capture takes, observations in,
  * `projectFromObservations`, then the resolver, because that is where the
@@ -16,7 +16,7 @@
  *
  * Validated by breaking the code they cover, one defect at a time, and
  * confirming each was caught: the attribution read off the genesis endpoint
- * while the peer is read at the playhead (the original bug), the projection
+ * while the peer is read at the playhead, the projection
  * dropping `attributedBy` as it builds the keyframe, the resolver dropping the
  * genesis claim from the resolved end, and the projection inventing a backing
  * where the observation stated none.

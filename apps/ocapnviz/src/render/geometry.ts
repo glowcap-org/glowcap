@@ -1,8 +1,6 @@
 /**
  * Geometry helpers for hit-test and marquee selection. Pure math,
- * no Pixi, no engine. Extracted from `Stage.tsx` so the scene file
- * holds wiring + handlers, not standalone overlap/intersection
- * functions.
+ * no Pixi, no engine.
  *
  * `paintMarchingAntsBand` does need a Pixi `Graphics`, it stamps
  * a 1-pixel marching-ants outline. Kept here because it belongs
@@ -146,7 +144,7 @@ const ANT_DASH_PX = 2;
 /** Wall-clock ms between phase steps. Phase advances ONE PIXEL per
  *  ANT_MS along the perimeter, with 2-px dashes that's half a dash
  *  per step, keeping the march fluid rather than stepped while
- *  preserving the old-school cadence. Centralized here so every
+ *  preserving the old-school cadence. Centralized here so every status-allow: replacement state identity
  *  marquee in the app marches at the same speed. */
 const ANT_MS = 30;
 

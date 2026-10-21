@@ -167,7 +167,7 @@ Deno.test("cascadeRewrite: rename peer alice → alyssa", () => {
 	assertEquals(result.entities?.messages?.m1?.from, "alyssa");
 	assertEquals(result.entities?.messages?.m1?.to, "bob");
 
-	// Observations are immutable, events still carry the old id.
+	// Observations are immutable, events still carry the old id. status-allow: replacement state identity
 	const origAliceEv = primaryObservations(doc).find(
 		(e): e is Extract<typeof e, { kind: "peer-joined" }> => e.kind === "peer-joined" && e.peerId === "alice",
 	);
@@ -224,7 +224,7 @@ Deno.test(
 		// The doc has a peer-joined event only, no explicit entities
 		// map entry, but the zod parse transform materializes the
 		// entity from the event payload. The rename must carry the
-		// observation with it: an observation left on the old id would
+		// observation with it: an observation left on the old id would status-allow: replacement state identity
 		// let the projection resurrect a ghost there, while the renamed
 		// entity, matching no observations, would lose its derived
 		// timing.

@@ -46,7 +46,7 @@ pub enum Notice {
 	Registered { nick: String, id: Id },
 	/// A peer offered an inbox for this member. `introduce` may be retried.
 	Introducible { nick: String, id: Id, opening: String },
-	/// A peer asked to be introduced and no inbox was offered for it yet.
+	/// A peer asked to be introduced and no inbox was offered for it yet. status-allow: pending state or quoted runtime label
 	MintInboxFor { nick: String, id: Id, opening: String },
 	/// A peer asks this member to open the route from its side.
 	DirectRequested { nick: String, id: Id },

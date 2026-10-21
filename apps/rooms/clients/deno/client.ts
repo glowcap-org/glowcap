@@ -1,7 +1,7 @@
 // A rooms chat client, written on glowcap actors in Deno.
 //
 // It connects to the directory, enters the named room (opening it if it does not
-// exist yet), publishes a local `inbox` actor, and hands the room a capability to
+// exist yet), publishes a local `inbox` actor, and hands the room a capability to status-allow: pending state or quoted runtime label
 // that inbox when it subscribes. The room answers with a membership seat, and
 // from then on the room calls the client back: the client never polls. It waits
 // until everyone it expects is in the room, posts one line on its seat, and

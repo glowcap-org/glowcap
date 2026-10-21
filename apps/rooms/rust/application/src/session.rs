@@ -1,7 +1,6 @@
 //! Shared-session application owners. Adapters drive their delivery effects.
 pub mod checkpoint;
 pub mod command;
-pub mod controller;
 pub mod diagnosis;
 pub mod directory;
 pub mod effect;

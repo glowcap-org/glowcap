@@ -45,7 +45,7 @@ pub const Custody = struct {
     }
 
     /// A historical portrait's strong edges must be shaded even if its current
-    /// stored replacement no longer names them. Call after reservation succeeds.
+    /// stored replacement no longer names them. Call after reservation succeeds. status-allow: lifecycle transition
     pub fn appendRecord(self: *Custody, view: records.View) void {
         self.append(view.id);
         var edges = view.edges();

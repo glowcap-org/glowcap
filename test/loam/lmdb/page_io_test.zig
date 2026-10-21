@@ -75,7 +75,7 @@ test "LMDB page cache keeps concurrent snapshots and updates reused large-value 
     }
     if (reader.failure) |err| return err;
     if (fresh.failure) |err| return err;
-    // Ending the old reader lets LMDB reuse those cached physical pages.
+    // Ending the old reader lets LMDB reuse those cached physical pages. status-allow: replacement state identity
     try cycle(&db);
 }
 

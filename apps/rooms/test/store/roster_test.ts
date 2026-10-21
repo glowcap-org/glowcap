@@ -125,7 +125,7 @@ Deno.test("forgetting a conversation forgets who was in it", () => {
 	assertEquals([...store.membersOf(projection, room.key)], []);
 });
 
-// A subject that drops its link must not keep the old one, and a subject
+// A subject that drops its link must not keep the old one, and a subject status-allow: replacement state identity
 // taken down leaves nothing behind.
 Deno.test("a subject replaces its link exactly, and taking it down clears both", () => {
 	projection.reset();

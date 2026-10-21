@@ -1,13 +1,12 @@
 /**
  * Visibility helpers, pure functions over `TimelineDocument`'s
  * `rowHidden` / `rowLabelHidden` / `rowBodyHidden` / `categoryVisMode`
- * / `allVisMode` fields. Extracted from `engine.ts` so the cascade
- * logic lives in one cohesive module instead of being threaded
- * through 130 lines of Engine class.
+ * / `allVisMode` fields. The cascade logic lives in one
+ * cohesive module.
  *
  * The Engine class re-exposes these via thin wrappers
  * (`setRowVisMode` etc.) that add the post-mutation `#notify()`
- * call, same public surface as before. UI code that needs to read
+ * call. UI code that needs to read
  * (Stage, Timeline, Sidebar) should call `engine.effectiveRowVisMode`
  * or `engine.rowVisMode` and never reach for the doc fields
  * directly. The next phase's cascade-bug fix replaces only the

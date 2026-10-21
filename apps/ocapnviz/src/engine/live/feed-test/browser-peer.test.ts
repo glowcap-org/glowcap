@@ -26,7 +26,7 @@ Deno.test("an inbox retirement during subscription owns its rejection immediatel
 				inbox("record", ["x".repeat(MAX_TRACE_RECORD_BYTES + 1)]);
 			} catch {
 				// The producer sees the inbox refusal independently of its
-				// subscribe answer, which has not arrived at this peer yet.
+				// subscribe answer, which has not arrived at this peer yet. status-allow: pending state or quoted runtime label
 			}
 			received();
 			return subscription;

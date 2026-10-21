@@ -60,7 +60,7 @@ const PollEvents = @FieldType(std.posix.pollfd, "events");
 
 /// One unit of forward progress reported by `pumpOver` / `Connection.pump`.
 pub const Progress = union(enum) {
-    /// A read happened but no whole frame is available yet (need more bytes).
+    /// A read happened but no whole frame is available yet (need more bytes). status-allow: pending state or quoted runtime label
     idle,
     /// One inbound frame of `received` bytes was framed, validated, applied,
     /// and dropped from the buffer.

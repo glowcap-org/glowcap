@@ -81,7 +81,7 @@ export class DirectorySignaling {
 				() => {
 					const error = new Error("rooms: signaling exchange timed out");
 					// Acceptance and answer are two milestones of one exchange. Refusing
-					// both makes whichever one the caller currently awaits terminal.
+					// both makes whichever one the caller awaits terminal.
 					row.rejectOfferReady(error);
 					row.answer?.reject(error);
 				},

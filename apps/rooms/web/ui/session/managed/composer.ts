@@ -34,7 +34,7 @@ interface Send {
  * exact receipt; `degraded` means delivery is known but its result
  * acquisition failed, so the receipt is partial and the original operation
  * retains recovery; `expired` means the line's returned authority expired
- * with an earlier session and it stands as sent, unchangeable. */
+ * with an earlier session and it stands as sent, unchangeable.  status-allow: event or source ordering */
 type LineSettlement =
 	| { kind: "acquired"; completed: CompletedLine }
 	| { kind: "degraded"; completed: CompletedLine; failure: ResultAcquisitionError }
@@ -124,7 +124,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			if (cleared == null && store.draftFor(projection, row.key) !== draft) return;
 			return start(row, draft, plan, cleared);
 		};
-		// An uncertain earlier receipt retains its own recovery. It cannot
+		// An uncertain earlier receipt retains its own recovery. It cannot status-allow: event or source ordering
 		// cancel the distinct gesture already submitted behind it.
 		const task = previous.task.then(runQueued, runQueued);
 		previous.queued = { draft, task };

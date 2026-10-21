@@ -171,7 +171,7 @@ export async function run(
 	// orchard at the top, which is a different list from the one the reader
 	// made.
 	//
-	// Earlier scenes leave rooms of their own in this rail, so what is expected
+	// Earlier scenes leave rooms of their own in this rail, so what is expected status-allow: event or source ordering
 	// below is read off the list rather than written out: the four this scene
 	// reasons about have to be there, in that order, and whatever else the run
 	// has collected rides along.

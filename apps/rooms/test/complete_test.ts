@@ -278,7 +278,7 @@ Deno.test("every spelling of a room-wide call is understood, two are proposed", 
 	if (ROOM_MENTIONS_OFFERED.length >= ROOM_MENTIONS.length) {
 		fail("every spelling is proposed, so the list is a menu of synonyms rather than a recommendation");
 	}
-	// And a room-wide call reaches you whether or not you have a name yet.
+	// And a room-wide call reaches you whether or not you have a name yet. status-allow: pending state or quoted runtime label
 	if (!messageMentions("@here anyone about?", "")) fail("a room-wide call missed a reader with no name granted");
 });
 

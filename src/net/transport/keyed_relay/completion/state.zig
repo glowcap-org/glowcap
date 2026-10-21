@@ -105,7 +105,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             external_recv_ud: ?u64 = null,
             external_send_ud: ?u64 = null,
             external_send_len: i32 = 0,
-            /// Caller-owned tail not yet copied and masked into `ws_out`.
+            /// Caller-owned tail not yet copied and masked into `ws_out`. status-allow: pending state or quoted runtime label
             external_send_remainder: []const u8 = &.{},
             external_close_ud: ?u64 = null,
             pending: PendingOps = .{},

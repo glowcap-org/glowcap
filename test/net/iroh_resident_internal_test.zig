@@ -295,7 +295,7 @@ test "accept readiness uses the endpoint reservation before later settlement" {
     _ = try backend.openListener({});
 
     // First poll reserves the transient completion batch and arms both signal
-    // descriptors. No sidecar work is available yet.
+    // descriptors. No sidecar work is available yet. status-allow: pending state or quoted runtime label
     var completions: [1]net.completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
 

@@ -168,7 +168,7 @@ fn fillStep(r: *std.Io.Reader) FillError!Fill {
     return .filled;
 }
 
-/// The waiting room for stream bytes that have arrived but do not yet make a
+/// The waiting room for stream bytes that have arrived but do not yet make a status-allow: pending state or quoted runtime label
 /// whole frame, shared with every other tier that reads a stream
 /// (`foundation.Spill`).
 ///

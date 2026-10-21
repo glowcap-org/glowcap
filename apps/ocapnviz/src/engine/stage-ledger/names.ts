@@ -22,7 +22,7 @@ import { type LivePeer, type LiveWire, sideOf } from "./types.ts";
 const MAX_PENDING_NAMES = 64;
 
 export class LedgerNames {
-	/** Names claimed for sessions the ledger has not seen open yet,
+	/** Names claimed for sessions the ledger has not seen open yet, status-allow: pending state or quoted runtime label
 	 * by scoped session id. A producer that replays its state to a
 	 * connecting viewer can state the name before the open, and the
 	 * peer that name belongs to does not exist until the open, so
@@ -72,7 +72,7 @@ export class LedgerNames {
 			this.#holdName(sessionId, label);
 			return;
 		}
-		// An end nobody can name yet has no peer to wear the nick, and the claim
+		// An end nobody can name yet has no peer to wear the nick, and the claim status-allow: pending state or quoted runtime label
 		// is about whoever turns out to be there rather than about nobody. It
 		// waits on the end itself and transfers when the end attaches; a
 		// withdrawal while it is still waiting simply takes it back.

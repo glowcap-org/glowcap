@@ -100,7 +100,7 @@ export function materializeWorldAt(
 			//
 			// The designator is among them, and it has to be: an author editing the
 			// durable name a peer answers to (`authoring/peer.ts`) writes the
-			// definition, and a peer whose world entity kept the old name is a peer
+			// definition, and a peer whose world entity kept the old name is a peer status-allow: replacement state identity
 			// no session end's claim can match. It is read off the definition
 			// rather than at `t` because it does not change while the peer lives,
 			// a peer that turns out to be someone else is that other peer, not a
@@ -153,7 +153,7 @@ export function materializeWorldAt(
 		// session is drawn and that end is loose. So it reconciles the way
 		// everything else here does, add and remove from the same test:
 		// attribution takes it off the stage, and so does the session ending.
-		// An end belongs to its session, and a session that is no longer drawn
+		// An end belongs to its session, and a session that is no longer drawn status-allow: lifecycle transition
 		// has no ends to draw.
 		for (const side of SESSION_SIDES) {
 			const nodeId = endpointStageId(sessionId, side);

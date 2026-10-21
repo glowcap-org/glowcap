@@ -174,42 +174,6 @@ Deno.test("message retry belongs only to the controller that can repeat safely",
 	assert(!hosted.retry, "hosted sends exposed a retry they cannot own");
 });
 
-Deno.test("a connection ending takes what its lines could be told, not what they said", () => {
-	const dir = dirId("test-dir-held");
-	const room = store.ensureRoom(projection, dir, "authority");
-	store.switchTo(projection, room.key);
-	const mine = store.chatItem(projection, "alice", "said on a connection", true, undefined);
-	store.deliver(projection, room.key, mine);
-	store.updateItem(projection, room.key, mine.id, { lineId: 7 });
-	store.updateItem(projection, room.key, mine.id, { held: true });
-	const held = () => {
-		const line = store.historyOf(projection, room.key).find((item) => item.id === mine.id);
-		return line?.kind === "chat" ? line.held : undefined;
-	};
-	assert(held() === true, "a line the room answered with a reference was not marked held");
-
-	// Part way through rewriting it when the connection goes.
-	store.startChange(projection, mine.id, "said on a connection, better");
-	assert(store.activeDraft(projection).changing === mine.id, "the composer did not take the line being changed");
-
-	const stopped = store.dropHeldLines(projection, dir);
-	assert(held() === false, "a line whose reference died with its connection is still drawn as ours to change");
-	assert(stopped.includes(room.key), "the conversation whose pending change was let go was not named");
-	assert(
-		store.activeDraft(projection).changing === undefined,
-		"the composer is still aiming a change at a line that can no longer take one",
-	);
-	assert(
-		store.activeDraft(projection).text === "said on a connection, better",
-		"the words being written were thrown away with the change they were aimed at",
-	);
-
-	// What was said is untouched: only what can still be done to it changed.
-	const line = store.historyOf(projection, room.key).find((item) => item.id === mine.id);
-	assert(line?.kind === "chat" && line.text === "said on a connection", "the line's own words were rewritten");
-	assert(line?.kind === "chat" && line.lineId === undefined, "a dead connection left its room-local line name live");
-});
-
 Deno.test("room management is retained authority, never creator-connection state", () => {
 	const dir = dirId("test-dir-room-manager");
 	const manager = "ocapn://127.0.0.1%3A1.tcp/s/bWFuYWdlcg";
@@ -225,28 +189,6 @@ Deno.test("room management is retained authority, never creator-connection state
 	);
 	const dropped = store.getConv(projection, room.key);
 	assert(dropped?.type === "room" && dropped.managerToken == null, "manager drop lingered");
-});
-
-Deno.test("a delayed authority retirement cannot clear a newer room grant", () => {
-	const room = store.ensureRoom(projection, dirId("test-dir-authority-generation"), "harbor");
-	const oldRoom = "ocapn://127.0.0.1%3A1.tcp/s/b2xkLXJvb20";
-	const newRoom = "ocapn://127.0.0.1%3A1.tcp/s/bmV3LXJvb20";
-	const moderator = "ocapn://127.0.0.1%3A1.tcp/s/bW9kZXJhdG9y";
-	store.noteRoomSteward(projection, room.key, oldRoom, moderator);
-	store.noteRoomSteward(projection, room.key, newRoom, moderator);
-	assert(
-		!store.clearRoomAuthority(projection, room.key, {
-			kind: "room",
-			token: "old-room",
-			claimable: false,
-		}),
-		"a stale retirement claimed the current authority",
-	);
-	const retained = store.getConv(projection, room.key);
-	assert(
-		retained?.type === "room" && retained.linkToken === authorityToken(newRoom),
-		"a delayed retirement erased the reissued link",
-	);
 });
 
 Deno.test("room history progress says what the membership actually learned", () => {
@@ -424,7 +366,7 @@ Deno.test("the last submitted line is recalled per conversation, including a com
 Deno.test("a direct line is not opened with yourself", () => {
 	const dir = dirId("self-dm");
 	store.openDir(projection, dir, "self-dm-route");
-	store.setDirNick(projection, dir, "alice");
+	store.patchDir(projection, dir, { nick: "alice" });
 	assert(store.isSelf(projection, dir, "Alice"), "own nick is compared the way the directory grants it");
 	assert(!store.isSelf(projection, dir, "bo"), "somebody else counted as you");
 	assert(
@@ -470,8 +412,6 @@ Deno.test("a reused nickname cannot retarget its previous direct conversation", 
 		replacement != null && replacement.key !== reopened.key && replacement.persistId !== reopened.persistId,
 		"the replacement registration reused the old conversation",
 	);
-	store.closeDmsWith(projection, dir, "bo", registrationId(1));
-	assert(replacement.line !== "closed", "retiring the old registration closed its replacement");
 });
 
 Deno.test("a direct row relays the rooms' word on who is away", () => {

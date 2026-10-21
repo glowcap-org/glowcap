@@ -62,7 +62,7 @@ async function roomLocator(port: number, who: string): Promise<string> {
 			const said = (await res.text()).trim();
 			if (res.status === 200 && said.length > 0) return said;
 		} catch {
-			// not up / room not ready yet
+			// not up / room not ready yet status-allow: pending state or quoted runtime label
 		}
 		await new Promise((r) => setTimeout(r, 50));
 	}

@@ -36,7 +36,7 @@
 import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineEvent } from "../timeline.ts";
 import type { EntityKind } from "./refs.ts";
 
-/** Keys of `T` whose value type cannot be `undefined`. Used to forbid
+/** Keys of `T` whose value type cannot be `undefined`. Used to forbid status-allow: purpose clause
  * optional refs from appearing in the edge maps. Every declared ref
  * must always be present on its variant. */
 type RequiredKeys<T> = {

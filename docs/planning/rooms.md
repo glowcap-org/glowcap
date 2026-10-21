@@ -91,6 +91,27 @@ the cost evidence in the proofs sweep moves them. A limit is a refusal
 boundary with no migration cost, so measuring first would delay the seam for
 numbers the proofs replace anyway.
 
+## Hosting prerequisites
+
+The [shared hosting plan](rooms-hosting.md) executes the authority subset
+needed before public contribution. This plan remains the owner of resource
+semantics. Both plans use one implementation of grants, membership and
+registration. Do not run overlapping consumer sweeps independently.
+
+The subset comprises the policy catalog and declarations needed for rooms
+and directories, room-owned offers and memberships, and their affected
+methods and clients. Directory Presence, Introduce and Signal must select
+an exact registration capability, including reconnect and revocation.
+The remaining directory verbs retain their declared authority requirements.
+Moving registration work earlier does not authorize a public bootstrap bypass.
+
+Content reorganization, nested navigation and the editor over every kind
+remain separate work here. The hosting changes must retain usable sharing,
+revocation and recording through shipped clients. They separate recorder
+state from shared execution without implementing the planned content format.
+A landed subset updates the corresponding steps here to state what remains.
+It never removes an entire step on the strength of hosting tests alone.
+
 ## Steps
 
 Steps come in two kinds. A **seam** opens a mechanism nobody
@@ -248,8 +269,8 @@ seam names the exact files its sweep touches before the sweep starts.
   `gen-rooms-protocol-check`, `rooms-browser-metadata-check`,
   `rooms-web-proofs`, `goblins-rooms`, `goblins-rooms-irc`. A seam ends with
   `zig build check`, `runtime-check`, and `check-external`.
-- Decisions: ADR-0045, ADR-0053 (saved references), ADR-0045 (nickname
-  vouchers), ADR-0059 (retention store).
+- Decisions: ADR-0045 (including nickname vouchers), ADR-0053 (saved
+  references), ADR-0059 (retention store).
 
 Consumers the consumer sweep replaces, under `apps/rooms/rust/`. Recovery
 requires held source or result authority. An ID, nickname, or failed check
@@ -257,7 +278,7 @@ cannot select a stronger method.
 
 | Current owner | Replacement |
 | --- | --- |
-| Private room recovery keys in `application/src/directory/creation.rs`, `application/src/session/checkpoint/commands/results.rs`, `services/src/server/rooms.rs`, `services/src/server/authority/queue/` | Bounded creation receipts with exact ownership results. Delete recovery-by-name and broad link minting. |
+| Private room recovery keys in `application/src/directory/creation.rs`, `services/src/server/rooms.rs`, `services/src/server/authority/queue/` | Bounded creation receipts with exact ownership results. Delete recovery-by-name and broad link minting. |
 | Role generations in `services/src/server/authority.rs`, `services/src/server/document.rs`, `application/src/server/document.rs` | Shared endpoints and controls. Remove publication reconstruction and duplicate revocation ledgers. |
 | Live invitation in `application/src/server/invitation.rs`, `services/src/server/invitations.rs`, `glowcap/src/client/invitation.rs` | Four-mode offers and atomic claims. Delete fixed observer or participant and connection-only admission state. |
 | Rejoin in `runtime/src/session/managed/results/invitation.rs`, `application/src/session/checkpoint/` | Retain the exact accepted endpoint. No implicit room-link mint. |

@@ -3,9 +3,8 @@
  * interaction model.
  *
  * Wheel is a SIBLING pipeline to the pointer FSM, same Effect
- * families (pan-step, zoom-step), no pointer state. Replaces the
- * pixi-viewport wheel-plugin on Stage and the inline `applyWheel`
- * handlers on Scrubber / Overview.
+ * families (pan-step, zoom-step), no pointer state. Stage, Scrubber
+ * and Overview share this one wheel pipeline.
  */
 
 import { useEffect, useRef } from "react";

@@ -65,7 +65,7 @@ code spans, so it carries no second list.
 Rules for every doc:
 
 - Write present-tense contracts. No "future X" once X lands, no stale status
-  markers, no "formerly" or transition narration. History lives in git or an
+  markers, no "formerly" or transition narration. History lives in git or an <!-- status-allow: quoted narration vocabulary -->
   ADR that still owns a decision.
 - Do not hardcode a count the code can outgrow. Describe the set or cite the
   check that holds the number.
@@ -74,7 +74,7 @@ Rules for every doc:
   gets ported to sites where it does not hold. When two similar functions
   differ, the more careful one says why the cheaper path is closed to it.
 - A rename or file move sweeps docs, tests, examples, and agent rules in the
-  same change. Grep the old name and path across the tree, because a path
+  same change. Grep the old name and path across the tree, because a path <!-- status-allow: workflow sequence -->
   written as a string is invisible to every typechecker.
 - A change rereads the docs that explain the code it touched:
   `zig build doc-impact` lists them from those sources. A source path that

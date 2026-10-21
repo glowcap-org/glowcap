@@ -317,7 +317,7 @@ fn appendHint(payload: *LocatorPayload, name: []const u8, value: model.HintValue
     payload.hints.appendAssumeCapacity(.{ .name = owned_name, .value = owned_value });
     payload.refreshView() catch |err| {
         // Projection is the commit point for a C-visible mutation. Keep the
-        // previously borrowed view authoritative if validation ever grows a
+        // previously borrowed view authoritative if validation ever grows a status-allow: ownership and operation ordering
         // new refusal. The just-appended ownership is still ours to undo, and
         // no library-side invariant may terminate the process.
         const appended = payload.hints.pop().?;

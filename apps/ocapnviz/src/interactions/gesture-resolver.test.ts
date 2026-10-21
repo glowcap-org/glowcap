@@ -12,9 +12,9 @@ function ctx(opts: Partial<GestureContext> & { hit: Hit }): GestureContext {
 	};
 }
 
-// ─────────────────────── R1, totality (§ 4.3) ────────────────────────
+// ─────────────────────── totality ────────────────────────
 
-Deno.test("R1: resolveGesture is total over (every surface × every tool)", () => {
+Deno.test("resolveGesture is total over (every surface × every tool)", () => {
 	for (const surface of ALL_SURFACES) {
 		for (const tool of ALL_TOOLS) {
 			const result = resolveGesture(
@@ -28,9 +28,9 @@ Deno.test("R1: resolveGesture is total over (every surface × every tool)", () =
 	}
 });
 
-// ─────────────────────── R2, Spacebar wins (P1) ──────────────────────
+// ─────────────────────── Spacebar wins ──────────────────────
 
-Deno.test("R2: spaceHeld → tier=space-pan regardless of surface/tool/modifier", () => {
+Deno.test("spaceHeld → tier=space-pan regardless of surface/tool/modifier", () => {
 	for (const surface of ALL_SURFACES) {
 		for (const tool of ALL_TOOLS) {
 			const r = resolveGesture(
@@ -64,9 +64,9 @@ Deno.test("Hand tool → tier=hand-tool regardless of surface/modifier", () => {
 	}
 });
 
-// ─────────────────────── R3, Select tool = surface defaults ──────────
+// ─────────────────────── Select tool = surface defaults ──────────
 
-Deno.test("R3: Select tool with no modifier returns the § 4.5 default verb", () => {
+Deno.test("Select tool with no modifier returns the default verb", () => {
 	for (const surface of ALL_SURFACES) {
 		const hit = dummyHit(surface);
 		const expected = surfaceDefault(hit);
@@ -76,9 +76,9 @@ Deno.test("R3: Select tool with no modifier returns the § 4.5 default verb", ()
 	}
 });
 
-// ─────────────────────── R4, Modifiers veto tool-create ──────────────
+// ─────────────────────── Modifiers veto tool-create ──────────────
 
-Deno.test("R4: Add Peer + Shift → falls through to default (no tool-create)", () => {
+Deno.test("Add Peer + Shift → falls through to default (no tool-create)", () => {
 	const r = resolveGesture(
 		ctx({
 			hit: dummyHit("stage-empty"),
@@ -89,7 +89,7 @@ Deno.test("R4: Add Peer + Shift → falls through to default (no tool-create)", 
 	assert(r.tier !== "tool-create", `expected non-tool-create, got ${r.tier}`);
 });
 
-Deno.test("R4: Open Session + Cmd on peer → surface default", () => {
+Deno.test("Open Session + Cmd on peer → surface default", () => {
 	const hit = dummyHit("stage-peer", { peerId: "alice" });
 	const r = resolveGesture(
 		ctx({
@@ -197,7 +197,7 @@ Deno.test("the resolver picks exactly the nodes the tool table takes", () => {
 	}
 });
 
-// ─────────────────────── Modifier overrides (§ 4.6a) ──────────────────
+// ─────────────────────── Modifier overrides ──────────────────
 
 Deno.test("Shift leaves a peer's semantic verb unchanged", () => {
 	const r = resolveGesture(

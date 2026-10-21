@@ -49,7 +49,7 @@
  * here because the telemetry showing it went away, and say nothing
  * about the conversation. A producer's socket dropping and a whole
  * endpoint restarting both land there, because in both the viewer
- * knows only that it can no longer see. A peer that turned tracing
+ * knows only that it can no longer see. A peer that turned tracing status-allow: lifecycle transition
  * off looks exactly like one that departed, and picking the second
  * would be inventing a wire fact out of a feed fact.
  *
@@ -69,7 +69,7 @@
  *   alike, and the second sighting folds into the first;
  * - what a peer RUNS is stated, never deduced from the fact that it
  *   reported: every peer starts unknown, and a producer that says what
- *   it runs names its own end at the moment it says so rather than at
+ *   it runs names its own end at the moment it says so rather than at status-allow: state at observation
  *   its join. `LedgerNames.learnProfile` holds the one thing the viewer reads
  *   without being told, and says why there is only one.
  */
@@ -141,7 +141,7 @@ export class StageLedger {
 	 *  name the network chose refuses a correct producer. Extending it
 	 *  is what the ledger already does when two peers present the same
 	 *  name, and an incarnation suffix breaks the endpoint form for
-	 *  the same reason it disambiguates: `alice::a#1` no longer ends in
+	 *  the same reason it disambiguates: `alice::a#1` no longer ends in status-allow: lifecycle transition
 	 *  a side. */
 	#mintPeerStageId(name: string): string {
 		const id = this.#mintStageId(name, this.#peerIncarnations);
@@ -203,7 +203,7 @@ export class StageLedger {
 			// named on `LedgerNames.learnProfile`, and a peer neither of them reaches joins
 			// unknown and waits. Unknown is not a final answer. The property is
 			// a keyframe track, so a peer nobody could speak for at the join
-			// changes at the moment somebody can.
+			// changes at the moment somebody can. status-allow: state at observation
 			profile: row.profile,
 			label: row.shown,
 			// The name is this peer's public identifier, so it is recorded as one
@@ -329,7 +329,7 @@ export class StageLedger {
 		// attributes it, which moves the end onto a peer rather than
 		// retiring one the viewer made up.
 		const attributed = verified || farOwnName !== undefined;
-		// Two things can say what the far end runs at the moment it is drawn, and
+		// Two things can say what the far end runs at the moment it is drawn, and status-allow: state at observation
 		// both are somebody's words. The far end's OWN statement, when the caller
 		// is holding that end's report of this wire and it is the peer being
 		// drawn here. That producer speaking about itself, exactly as

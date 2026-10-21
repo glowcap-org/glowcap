@@ -21,7 +21,7 @@
  *
  *   - A keyframe is a declaration AT a time. Stating `open` at t=5
  *     on a session that is already open at t=5 pins it there, so
- *     later edits to the genesis state, or to an earlier keyframe,
+ *     later edits to the genesis state, or to an earlier keyframe, status-allow: event or source ordering
  *     stop reaching past t=5. That is a real change, and only an
  *     identical declaration at the same instant is not
  *     (`keyframeExactlyAt`). `set-session-keyframe`, `set-peer-update`,
@@ -209,8 +209,8 @@ export function isNoOpIntent(
 			// Eternal-start entities live only in `doc.entities` (no
 			// creation event). The guard must check BOTH or the delete
 			// silently no-ops for them. The cascade in `deletePeer`
-			// itself handles eternal peers correctly. The bug was the
-			// short-circuit here.
+			// itself handles eternal peers correctly, so this guard must not
+			// short-circuit on events alone.
 			const obs = observationsOf(doc) as readonly TimelineEvent[];
 			const hasEvent = obs.some(
 				(ev) => ev.kind === "peer-joined" && ev.peerId === intent.peerId,

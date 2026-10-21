@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
         parts.deinit(gpa);
     }
     // callgrind writes the base file at exit, so its pid names this run and
-    // keeps an earlier run's parts of the same name out.
+    // keeps an earlier run's parts of the same name out. status-allow: event or source ordering
     const final = try dir.readFileAlloc(io, base, gpa, .limited(1 << 30));
     defer gpa.free(final);
     const pid = callgrind.headerValue(final, "pid:") orelse return error.NotCallgrind;

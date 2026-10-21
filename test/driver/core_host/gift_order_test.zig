@@ -1,5 +1,5 @@
 //! Sends from one turn to one recipient arrive in the order the turn made
-//! them, even when an earlier send carries a capability from another session
+//! them, even when an earlier send carries a capability from another session status-allow: event or source ordering
 //! and the Node must stage it until the gift is ready.
 
 const std = @import("std");

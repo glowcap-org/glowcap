@@ -25,7 +25,7 @@ export async function awaitLocator(http: number, what: string): Promise<void> {
 			const res = await fetch(`http://127.0.0.1:${http}/locator`);
 			if (res.status === 200 && (await res.text()).trim().length > 0) return;
 		} catch {
-			// not up yet
+			// not up yet status-allow: pending state or quoted runtime label
 		}
 		await new Promise((settle) => setTimeout(settle, 50));
 	}

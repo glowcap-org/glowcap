@@ -86,7 +86,7 @@ export type SelectionAction =
 	| { kind: "set-selection"; entities: ReadonlySet<EntityRefKey> }
 	| { kind: "add-to-selection"; entities: ReadonlySet<EntityRefKey> }
 	| { kind: "remove-from-selection"; entities: ReadonlySet<EntityRefKey> }
-	// Drop whatever the document no longer holds. Undo and redo move
+	// Drop whatever the document no longer holds. Undo and redo move status-allow: lifecycle transition
 	// ids under the selection, a rename taken back leaves it pointing
 	// at a name nothing answers to, and this is how it catches up.
 	// `undoWithSelection` / `redoWithSelection` in `builder/selection-history.ts`
@@ -467,7 +467,7 @@ export type PointerEvent_ =
 	| {
 		kind: "pointer-up";
 		snapshot: PointerSnapshot;
-		/** Up-time context. Used to re-resolve the click verb if no
+		/** Up-time context. Used to re-resolve the click verb if no status-allow: purpose clause
 		 *  drag occurred (D, modifier-at-up wins for click). */
 		ctxAtUp: GestureContext;
 	}
@@ -505,3 +505,11 @@ export type Effect =
 /** Manhattan-distance threshold for click-vs-drag. 4 px is the
  *  Figma / Adobe default. */
 export const DRAG_THRESHOLD_PX = 4;
+
+// ─────────────────────── Exhaustiveness helper ────────────────────────
+
+/** The `default` arm of a switch over a closed union. The type checker proves
+ * the switch is total, and the throw covers a value that escaped it. */
+export function assertNever(x: never): never {
+	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
+}

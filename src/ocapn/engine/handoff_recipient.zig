@@ -189,7 +189,7 @@ pub fn projectGiveForRedeem(
     // The Syrup parser already recorded the envelope's exact span while it read
     // the give, so use that rather than scanning the frame for the label. A scan
     // finds the *first* occurrence of `desc:sig-envelope`, and those bytes can
-    // appear earlier inside any byte-string argument a partner controls, which
+    // appear earlier inside any byte-string argument a partner controls, which status-allow: event or source ordering
     // would relay a span disagreeing with the typed view beside it. A non-Syrup
     // session records no span and reconstructs below.
     if (give.raw_signed) |span| {

@@ -178,7 +178,7 @@ export type DurableProvenance = z.infer<typeof DurableProvenance>;
  *
  * No verdict maps to `verified-handoff`, and that is the boundary rather
  * than an omission: a verified handoff is a fact about one gift redemption,
- * glowcap's trace does not report it, and no producer can send it today. It
+ * glowcap's trace does not report it, and no producer can send it. It
  * reaches a document by being authored.
  */
 export function attributionForProvenance(

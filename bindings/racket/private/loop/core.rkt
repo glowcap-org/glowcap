@@ -71,7 +71,7 @@
 ;; target (views die at the next pop, so decode copies out immediately);
 ;; `dials` maps an admitted operation's id to its waiter; `listeners` owns the
 ;; setup event and accepted-session queue for each listener; `closed-ptrs` records a
-;; SESSION_CLOSED handle no wrapper had claimed yet, retaining its exact failure
+;; SESSION_CLOSED handle no wrapper had claimed yet, retaining its exact failure status-allow: pending state or quoted runtime label
 ;; so a later wrap starts closed instead of parking on a dead wire; `state` is binding lifetime only:
 ;; open, retiring while the FFI driver owns the session barrier, stopping
 ;; while teardown joins the park thread, or released after the handle is freed.
@@ -417,7 +417,7 @@
                       (abandon-session! c)))
                   fires)]
            [else
-            ;; No wrapper claimed this handle yet (queued on the accept
+            ;; No wrapper claimed this handle yet (queued on the accept status-allow: pending state or quoted runtime label
             ;; channel, or a loop-internal redeem leg). It stays valid until
             ;; released, so record the closure and let a later wrap start
             ;; closed; the loop's release frees stragglers.

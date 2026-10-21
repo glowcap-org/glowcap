@@ -1,6 +1,6 @@
 ---
 .title = "Project & status",
-.description = "Support, known limitations, verification, and the route to glowcap 1.0.",
+.description = "Where to find support, limitations, verification, and project plans.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -18,7 +18,7 @@ defines the security posture and the private reporting process.
 - **[Choose a transport]($link.page('transports/choosing'))** compares
   identity, encryption, reachability, browser support, and interoperability.
 - **[What you can depend on]($link.page('stability'))** separates recurring
-  checks, on-demand checks, and behavior nothing checks yet.
+  checks, on-demand checks, and behavior without check coverage.
 - **[Performance]($link.page('performance'))** publishes throughput,
   allocation, footprint, transport, and binding measurements with their
   methods.

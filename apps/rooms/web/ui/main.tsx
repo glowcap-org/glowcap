@@ -24,7 +24,7 @@ import { noteBootDelay, noteBootPhase, startBootAsides } from "./boot_note.ts";
 import { refusePageScaling } from "./gestures.ts";
 import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
-import { bindTabVisibility, RoomsPageProvider, RoomsProjectionProvider } from "./hooks.ts";
+import { bindTabVisibility, RoomsProjectionProvider } from "./hooks.ts";
 import * as prefs from "./prefs.ts";
 import { ManagedSessionStartupFailure, openManagedSession } from "./session/managed/open.ts";
 import { attachedSessionFailureText } from "./session/attached_failure.ts";
@@ -110,11 +110,9 @@ const root = createRoot(mount, {
 function PageSurface({ children }: { children: ReactNode }) {
 	return (
 		<RoomsProjectionProvider value={page.projection}>
-			<RoomsPageProvider value={page}>
-				<RoomsBrowserProvider value={browser}>
-					{children}
-				</RoomsBrowserProvider>
-			</RoomsPageProvider>
+			<RoomsBrowserProvider value={browser}>
+				{children}
+			</RoomsBrowserProvider>
 		</RoomsProjectionProvider>
 	);
 }

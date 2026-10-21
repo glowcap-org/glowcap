@@ -332,7 +332,7 @@ test "pumpOver flushes the peer's queued outbound frames" {
 // share through `encodeAndFlush`. When `stepToIdle` fails it has already
 // projected the fail-loud `op:abort` onto outbound; the catch drains that abort
 // to the wire and surfaces either the classified cause or an explicit terminal
-// delivery failure. Previously only the read-half apply abort was pinned.
+// delivery failure.
 test "encodeAndFlush drains the projected abort to the wire when stepToIdle fails, then surfaces the cause" {
     const allocator = std.testing.allocator;
 

@@ -61,7 +61,7 @@ pub(crate) struct Outbound {
 	/// Cleared allocation returned by the writer for the next batch. Keeping one
 	/// steady-sized spare removes allocation churn without retaining a burst.
 	pub(crate) spare: Vec<u8>,
-	/// Bytes currently borrowed by the QUIC write future. Queue admission counts
+	/// Bytes borrowed by the QUIC write future. Queue admission counts
 	/// these too, so staging plus in-flight work share one `NB_BUFFER_BOUND`.
 	pub(crate) in_flight: usize,
 	/// Set by `conn_close` / `conn_free`: the writer finishes the send stream

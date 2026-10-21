@@ -1,7 +1,7 @@
 // Completing what a reader is part way through typing.
 //
 // Four things complete, members, rooms, emoji, commands, and each draws from a
-// different source that has to be live at the moment the reader asks. What is
+// different source that has to be live at the moment the reader asks. What is status-allow: state at observation
 // checked is that the list is the room's answer rather than a cached guess.
 //
 // The rail block at the end was written against three broken builds and refuses
@@ -218,11 +218,11 @@ export async function run(tab: Page, second: Page): Promise<void> {
 				console.error("EDIT-RECIPIENT", await second.locator("body").innerText());
 				fail("an edit never reached the other peer");
 			});
-		// The old words are gone rather than sitting beside the new ones.
+		// The old words are gone rather than sitting beside the new ones. status-allow: replacement state identity
 		if (await second.locator(`.bubble:has-text("${said}")`).count() > 0) {
 			fail("the line still reads as what it used to say");
 		}
-		// And it says it moved, so a reader who answered the old words can tell.
+		// And it says it moved, so a reader who answered the old words can tell. status-allow: replacement state identity
 		await second.waitForSelector(".edited-said", { timeout: 10_000 })
 			.catch(() => fail("a changed line does not say it was changed"));
 

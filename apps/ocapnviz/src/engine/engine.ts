@@ -98,7 +98,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 	constructor(doc: TimelineDocument, opts: EngineOptions = {}) {
 		super();
 		// Project observations → entity.timing for any entity that
-		// doesn't yet carry one. Newly-authored entities already
+		// doesn't yet carry one. Newly-authored entities already status-allow: pending state or quoted runtime label
 		// populate timing at creation; this catches loaded / imported
 		// docs so every reader can rely on entity.timing being
 		// present. Idempotent, no-op on fully-projected docs.
@@ -499,7 +499,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 	}
 
 	/** Unpin an end, handing its placement back to the force layout. Cold
-	 * recompute for the same reason `clearPeerPosition` takes one: the old
+	 * recompute for the same reason `clearPeerPosition` takes one: the old status-allow: replacement state identity
 	 * layout was an equilibrium of the pinned system, not of the free one. */
 	clearEndpointPosition(endpointId: string): void {
 		if (!clearEndpointPositionOnDoc(this.doc, endpointId)) return;

@@ -83,7 +83,7 @@ A fresh Host start retires old registrations, direct routes, callbacks,
 publication leases and line edit selections before anything can reach it or
 supervision starts. Nickname choices, drafts, history identity, introduction
 witnesses and original receipts stay. The live marker keeps observations from
-an earlier run out of the new one.
+an earlier run out of the new one. <!-- status-allow: runtime state or operation ordering -->
 
 ## Completion and recovery
 
@@ -134,7 +134,7 @@ Removing a row asks for it to be retired. The session keeps its task until
 replies drain and it has left upstream, and a failed cleanup keeps its exact
 state for a retry. An interrupted wait keeps its original receiver, and a
 subscription with an unknown outcome stays unresolved. Cleanup never removes
-a newer registration or membership that replaced the old one.
+a newer registration or membership that replaced the old one. <!-- status-allow: runtime state or operation ordering -->
 
 A direct worker publishes the inbox it actually created for the other member.
 An introduction checks registrations on both sides and keeps the original

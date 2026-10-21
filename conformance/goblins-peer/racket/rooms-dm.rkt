@@ -351,7 +351,7 @@
          (define key (cons registration-id opening))
          (define held (reverse (hash-ref waiting key '())))
          (hash-remove! waiting key)
-         ;; Nothing parked yet means the refusal this notice belongs to is still on
+         ;; Nothing parked yet means the refusal this notice belongs to is still on status-allow: pending state or quoted runtime label
          ;; its way, so the notice is remembered for it rather than dropped.
          (if (null? held)
              (hash-set! introducible-seen key #t)

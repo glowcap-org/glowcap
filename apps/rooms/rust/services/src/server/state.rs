@@ -58,7 +58,7 @@ pub(super) enum Work {
 	Task(Pin<Box<dyn Future<Output = ()>>>),
 }
 
-/// Work queued but not yet started.
+/// Work queued but not yet started. status-allow: pending state or quoted runtime label
 pub(super) const WORK_LIMIT: usize = 256;
 
 /// One accepted connection: its session view, the durable identity it

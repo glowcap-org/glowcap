@@ -61,8 +61,8 @@ pub const QueueChunk = struct {
     head: usize = 0,
     len: usize = 0,
     owned_bytes: u32 = 0,
-    /// Turns currently borrowing messages from this chunk. A nested drive may
-    /// exhaust the remaining rows while an outer handler still reads an earlier
+    /// Turns borrowing messages from this chunk. A nested drive may
+    /// exhaust the remaining rows while an outer handler still reads an earlier status-allow: event or source ordering
     /// row, so exhaustion detaches the chunk but reclamation waits for this to
     /// reach zero.
     active_turns: u32 = 0,
@@ -274,7 +274,7 @@ pub fn discardFreshIngress(self: *Vat, ingress: IngressId) void {
     self.allocator.destroy(state);
 }
 
-/// Tear down a session ingress that can no longer run. It is removed from
+/// Tear down a session ingress that can no longer run. It is removed from status-allow: lifecycle transition
 /// admission and fair scheduling before listeners fire, so a break handler
 /// cannot enqueue fresh work onto the closing Port. Every queued local vow
 /// settles broken. Unobserved turns are discarded with their chunk.

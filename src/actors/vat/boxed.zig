@@ -118,7 +118,7 @@ const HostedBlock = struct {
 /// plus the bookkeeping that keeps a `become` safe under reentrant near-calls.
 pub const Cell = struct {
     box: *StateBox,
-    /// Frames currently executing this actor. Near-calls can re-enter the same
+    /// Frames executing this actor. Near-calls can re-enter the same
     /// actor (a handler near-calls itself, directly or through a cycle), so this
     /// nests. A staged `become` installs only when it returns to zero, so the
     /// box an outer frame still holds as `self` is never freed under it.
@@ -321,20 +321,20 @@ pub fn stageBecome(self: *Vat, turn: *Turn, comptime Behavior: type, next: Behav
     // be taken here where a failure is still the caller's to see.
     //
     // One slot is not enough. Every frame open right now can hold a staged
-    // become, and none of them has installed yet, so they all see the same list
+    // become, and none of them has installed yet, so they all see the same list status-allow: pending state or quoted runtime label
     // length: reserving one slot per stage reserves one slot in total, and the
     // unwind then appends once per frame. An actor installs at most once per
     // run and every install is preceded by a stage in some open frame, so the
     // number of appends still to come is bounded by the open frame count.
     try frame.reserveRetirementCapacity(self, 0, self.turn_depth);
-    // Last become in a turn wins: release any value staged earlier this turn.
+    // Last become in a turn wins: release any value staged earlier this turn. status-allow: event or source ordering
     if (turn.pending_become) |prev| releaseBox(self.allocator, prev);
     turn.pending_become = box;
 }
 
 /// Promote a successful frame's staged become onto the actor's `Cell`, to be
 /// installed when the actor's outermost running frame unwinds. Last write
-/// wins across the frames of one reentrant run: an earlier promoted box that
+/// wins across the frames of one reentrant run: an earlier promoted box that status-allow: event or source ordering
 /// never installed is released here.
 pub fn promoteBecome(self: *Vat, id: u64, box: *StateBox) void {
     // The running frame keeps the actor row alive.

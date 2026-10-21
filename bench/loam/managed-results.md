@@ -11,8 +11,8 @@ within each stated study, without assuming they describe another host.
 
 ## Recorded managed workload, October 1, 2026
 
-The initial managed workload ran over core revision
-`1f3560d12c121ccd7415ee9f04fd17761257f854` on Linux aarch64, using
+The initial managed workload ran over the core of September 27, 2026, on
+Linux aarch64, using
 `.agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=ReleaseFast`
 and synchronous LMDB commits. The workload additions are the source beside
 this report. The production core was unchanged. All six managed populations
@@ -37,8 +37,7 @@ and local service throughput separately from the read budgets.
 
 ## Recorded executor and process memory, October 1, 2026
 
-The executor additions ran over core revision `c4d3e0597f14aecd577fd8705bfc552c447685de`
-on Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and default
+The executor additions ran on Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and default
 synchronous LMDB commits. The command was
 `.agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=ReleaseFast`.
 The production core was unchanged.
@@ -72,8 +71,7 @@ cannot attribute all growth to Loam or isolate a fresh-process population.
 
 ## Recorded managed lifecycle, October 2, 2026
 
-The complete workload passed at `743df69dd0779524c1cf7a355cc9b886af3c4ab6` on Linux aarch64
-with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous LMDB commits:
+The complete workload passed on Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous LMDB commits:
 
 ```sh
 .agents/skills/work/bin/glowcap-dev zig build bench-loam -Doptimize=ReleaseFast --summary failures
@@ -117,7 +115,7 @@ at this revision.
 
 ### Preparation and custody correction
 
-The same full command passed at `743df69dd` on Linux aarch64 with the toolchain,
+The same full command passed on Linux aarch64 with the toolchain,
 ReleaseFast mode and synchronous durability above. All six managed populations
 and the ordinary conversation and sustained executor phases passed. Every
 population released its tracked allocations. Cold retained heap, move read
@@ -137,8 +135,7 @@ reply and release budgets stay enforced.
 
 ### Bounded change retention
 
-The full workload passed at `743df69dd0779524c1cf7a355cc9b886af3c4ab6` on Linux
-aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous LMDB
+The full workload passed on Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous LMDB
 commits, using the same full command above. All six managed populations,
 ordinary conversations and sustained executor phases passed. Every population
 released its tracked allocations. Managed record buffers stayed within 4 MiB.
@@ -185,8 +182,7 @@ parked-call memory, terminal reclamation and declared retention working sets.
 
 ### Scoped Zig-level observation
 
-The full workload passed at `92633345dae8d917bc07cfb0d31505ea2f41ebfd` on
-Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous
+The full workload passed on October 2, 2026, on Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous
 LMDB commits, using the full command above. All six managed populations,
 ordinary conversations and sustained executor phases passed. Tracked allocations
 were released completely, and managed record buffers stayed within 4 MiB.
@@ -237,8 +233,7 @@ memory and returned facets under their declared working sets.
 
 ### Bounded managed retirement
 
-The full workload passed at `92633345dae8d917bc07cfb0d31505ea2f41ebfd` on
-Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous
+The full workload passed on October 2, 2026, on Linux aarch64 with Zig `0.17.0-dev.2127+e90365cd5`, ReleaseFast and synchronous
 LMDB commits, using the full command above. All ordinary, managed and sustained
 executor phases passed. Teardown released every tracked allocation. Managed
 record buffers remained within 4 MiB. Ordinary cold access still used 16 / 24
@@ -318,7 +313,7 @@ execution or hardware power-loss evidence.
 
 ## Recorded returned authority and parked calls, October 2, 2026
 
-Implementation `272d70e7c400b795b4b0e8b1db3b9b4797a2927d` passed
+The implementation passed
 `zig build bench-loam -Doptimize=ReleaseFast -- --references-only` through the
 checkout's `glowcap-dev` front on Linux aarch64 with Zig
 `0.17.0-dev.2127+e90365cd5` and default synchronous LMDB commits.
@@ -369,8 +364,8 @@ and offline compaction. Timings describe this run and set no throughput target.
 
 ## Recorded managed execution and restoration, October 2, 2026
 
-Measured source: `272d70e7c400b795b4b0e8b1db3b9b4797a2927d`, including the
-actor retirement correction. Linux aarch64, Zig
+Measured source: the October 2, 2026 implementation, including the actor
+retirement correction. Linux aarch64, Zig
 `0.17.0-dev.2127+e90365cd5`, ReleaseFast, LMDB default synchronous durability,
 record envelope 2 and metadata 3. The checkout's `glowcap-dev` front ran:
 

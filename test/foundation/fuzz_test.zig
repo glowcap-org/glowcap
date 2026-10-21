@@ -205,7 +205,7 @@ fn damaged(gpa: std.mem.Allocator, smith: *std.testing.Smith, actor: *End, partn
     } else return;
     if (unit.items.len == 0) return;
 
-    // Each flip lands on a position no earlier flip used, so two flips
+    // Each flip lands on a position no earlier flip used, so two flips status-allow: event or source ordering
     // cannot cancel and hand the partner the honest unit after all.
     const flips = smith.valueRangeAtMost(u8, 1, 4);
     var used: [4]usize = undefined;

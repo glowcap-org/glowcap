@@ -118,9 +118,8 @@ test "a fetched foreign import is enrolled under a node-unique route; two at one
 
     // Two capabilities fetched over different connections land at the SAME wire
     // position (imports are numbered per session). Enrolling each yields a
-    // distinct node-unique route, so the node-global collision the old
-    // position-keyed home map had, where the second fetch clobbered the first,
-    // cannot happen.
+    // distinct node-unique route, so the second fetch cannot clobber the
+    // first.
     const wire = model.FarRef.object(1);
     try node.peer(conn_a).?.session_state.registerImport(.from(1));
     try node.peer(conn_b).?.session_state.registerImport(.from(1));
@@ -429,7 +428,7 @@ test "enrollForeign gives one import one route identity, and forgets it when the
     try std.testing.expect(other.routed.id != first.routed.id);
 
     // Releasing the import forgets its route id. The partner may put a different
-    // capability at that position next, and handing out the old id for it
+    // capability at that position next, and handing out the old id for it status-allow: replacement state identity
     // would route to the capability that is gone.
     node.peer(home).?.session_state.releaseImportRetain(.from(wire_pos));
     try std.testing.expect(node.peer(home).?.session_state.foreignRouteIdFor(.from(wire_pos)) == null);
@@ -546,13 +545,13 @@ test "a released import retires its node route before the partner reuses the pos
     node.retireReleasedRoute(route_id);
     try std.testing.expect(node.routeCapability(route_id) != null);
 
-    // The final release removes the import row. The old route must
+    // The final release removes the import row. The old route must status-allow: replacement state identity
     // stop routing before the partner can put a different object at position 7.
     home_peer.session_state.releaseImportRetain(.from(position));
     try std.testing.expect(node.routeCapability(route_id) == null);
 
     // Reuse can race a low-level embedder's route cleanup. The new row records
-    // a different id, so the old route remains closed before it is retired.
+    // a different id, so the old route remains closed before it is retired. status-allow: replacement state identity
     try home_peer.session_state.registerImport(.from(position));
     const replacement = try node.enrollForeign(home, model.FarRef.object(position));
     try std.testing.expect(replacement.routed.id != route_id);

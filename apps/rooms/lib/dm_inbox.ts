@@ -6,7 +6,7 @@
 // `Session.publishedRef` then names the position the directory's connection
 // granted it.
 //
-// Removing a Host alias never retargets an issued capability: the old actor
+// Removing a Host alias never retargets an issued capability: the old actor status-allow: replacement state identity
 // remains exact while anything still roots it, then its hosted behavior is
 // reclaimed. The publisher retires aliases when their peer authority ends, so
 // churn does not spend its bounded live-publication ledger.
@@ -25,7 +25,7 @@ export interface InboxOfferer {
 	offer(peer: string, registrationId: string, opening: string): void;
 	/** Forget the inbox created for `registrationId`, so a later `offer` creates a
 	 * fresh one. Call it when the registration leaves: the next holder of that name
-	 * is someone else and must not inherit their inbox. The old issued capability
+	 * is someone else and must not inherit their inbox. The old issued capability status-allow: replacement state identity
 	 * keeps its revoked or disconnected behavior and is never retargeted. */
 	forget(registrationId: string): void;
 	/** Retire every alias owned by this offerer. Resolves after unpublication has

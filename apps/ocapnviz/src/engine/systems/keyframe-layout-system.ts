@@ -52,9 +52,8 @@ import {
  * two milliseconds' worth. `Keyframe.start` owns that, and
  * `era-reuse.test.ts` holds the excursion across a reconnect under a tenth of a
  * node's width. What remains is the cost of the extra keyframe, not a visible
- * jump. Two bounds for "too short to keep" were tried and both were wrong:
- * one frame is not a fixed number of simulated milliseconds because the clock
- * scales by playback speed, and the transition window deletes eras a document
+ * jump. No bound for "too short to keep" holds: one frame is not a fixed
+ * number of simulated milliseconds because the clock scales by playback speed, and the transition window deletes eras a document
  * legitimately states 100 ms apart. It stays unbounded until there is a bound
  * that is derived rather than chosen (`docs/era-collapse.md`).
  */
@@ -168,7 +167,7 @@ export class KeyframeLayoutSystem {
 	 * its neighbors re-balance, which is the response a drag wants.
 	 * This rule is only sound for a pin being ADDED or MOVED, it
 	 * compares current pins against the current arrangement. A pin
-	 * REMOVAL must recompute cold (`recompute()`): the old layout was
+	 * REMOVAL must recompute cold (`recompute()`): the old layout was status-allow: replacement state identity
 	 * an equilibrium of the pinned system, not necessarily of the
 	 * free one, and cold is still exactly right for the pin-here /
 	 * unpin round trip because the deterministic derivation

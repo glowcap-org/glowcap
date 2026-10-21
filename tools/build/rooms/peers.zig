@@ -133,14 +133,8 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     const unit_filters = [_][]const []const u8{
         &.{"archive::"},
         &.{"server::"},
-        &.{"session_command_tests::"},
-        &.{"session_runtime::"},
         &.{"session::"},
-        &.{
-            "--",                "--skip", "archive::",               "--skip",
-            "server::",          "--skip", "session_command_tests::", "--skip",
-            "session_runtime::", "--skip", "session::",
-        },
+        &.{ "--", "--skip", "archive::", "--skip", "server::", "--skip", "session::" },
     };
     var previous_unit: *std.Build.Step = &platform_unit.step;
     for (unit_filters) |filter| {

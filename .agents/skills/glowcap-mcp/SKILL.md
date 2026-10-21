@@ -71,7 +71,7 @@ again.
 | Teardown | `close` is in the default catalog; process exit / idle caps also end the peer |
 | `listen` | Binds and returns the locator at once; accepts on a background thread. One listener per session; `close` stops it (and the held session); `info` reports `listening`/`accepted` |
 | `dial --repl` | Hidden from MCP schemas (argv/REPL attach) |
-| Locator | Pass `ocapn://…` when no session is open yet (retains). A locator while a session is already held is a one-shot sidecar |
+| Locator | Pass `ocapn://…` when no session is open yet (retains). A locator while a session is already held is a one-shot sidecar | <!-- status-allow: workflow sequence -->
 | Stdio | Newline-delimited JSON-RPC (MCP transport); not LSP length headers |
 
 An open session hosts the CLI's demo actors, and `cli/ocapn/builtins.zig`

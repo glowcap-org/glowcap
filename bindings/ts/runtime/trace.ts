@@ -131,7 +131,7 @@ export type TraceEvent = {
 	 * session. It is a CLAIM by the producing application, never protocol
 	 * identity. `label` names the session's partner in the
 	 * application's own vocabulary (a chat nick); `null` WITHDRAWS the
-	 * claim, the way an application says it no longer knows the
+	 * claim, the way an application says it no longer knows the status-allow: lifecycle transition
 	 * connection by that name. */
 	meta?: { label?: string | null };
 };

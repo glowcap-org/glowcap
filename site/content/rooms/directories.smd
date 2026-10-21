@@ -78,7 +78,7 @@ places while your laptop is closed.
 Sharing does not have to mean handing over everything. A session link
 carries only the permissions you give it. You can make a link that lets
 someone watch every room and conversation, on every directory, without
-being able to post, and decide separately whether it can read the earlier
+being able to post, and decide separately whether it can read the preceding
 history. You can pause that link or take it back while they still hold it,
 and nothing changes on the directories. Each one keeps seeing the same
 session it always saw.

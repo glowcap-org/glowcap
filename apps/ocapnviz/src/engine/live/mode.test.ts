@@ -58,6 +58,8 @@ liveTest(
 			v: 1,
 			sim_t_ns: 5_000_000,
 			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
 			session: "alice--bob",
 			a: "alice",
 			b: "bob",
@@ -102,6 +104,8 @@ liveTest(
 			v: 1,
 			sim_t_ns: 5_000_000,
 			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
 			session: "alice--bob",
 			a: "alice",
 			b: "bob",
@@ -170,6 +174,8 @@ liveTest(
 				v: 1,
 				sim_t_ns: 5_000_000,
 				kind: "ocapn.session-opened",
+				transport: "tcp",
+				captp_version: "1.0",
 				session: "s1",
 				a: "rooms-host",
 				b: "127.0.0.1:0",
@@ -202,7 +208,7 @@ liveTest(
 			"carol",
 		);
 
-		// And the capture keeps the earlier name: a replay of this
+		// And the capture keeps the earlier name: a replay of this status-allow: event or source ordering
 		// recording shows the locator until the nick arrives.
 		engine.seekTo(joinedT);
 		assertEquals(
@@ -225,6 +231,8 @@ liveTest("live mode: peer dedup across many session-opened events", () => {
 		v: 1,
 		sim_t_ns: 5_000_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "alice--bob",
 		a: "alice",
 		b: "bob",
@@ -234,6 +242,8 @@ liveTest("live mode: peer dedup across many session-opened events", () => {
 		v: 1,
 		sim_t_ns: 6_000_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "alice--carol",
 		a: "alice",
 		b: "carol",
@@ -269,6 +279,8 @@ liveTest(
 			v: 1,
 			sim_t_ns: 1_000_000,
 			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
 			session: "alice--bob",
 			a: "alice",
 			b: "bob",
@@ -301,8 +313,7 @@ liveTest(
 Deno.test("makeLiveAppender shifts a message's whole time base", () => {
 	// Re-stamping moves the event onto the live clock; arrivalT must
 	// shift by the same delta or the flight duration goes nonsense
-	// (the defect this was validated against: arrivalT left on the
-	// producer's base gave negative flights).
+	// (arrivalT left on the producer's base gives negative flights).
 	const liveDoc = newLiveDoc();
 	const append = makeLiveAppender({ liveDoc, clock: { t: 42 } });
 	append({
@@ -446,7 +457,7 @@ Deno.test("claimRecording: the claim owns its observations", () => {
 	// A shallow spread hands the claimed document the very array the live
 	// appender is still pushing into, so a feed that keeps arriving after Stop
 	// goes on writing into what the reader is scrubbing. The one caller
-	// unmounts the capture in the same commit, which makes it safe today and
+	// unmounts the capture in the same commit, which makes it safe and
 	// is a coupling nothing states. This holds the sever instead.
 	//
 	// Validated against the defect: restoring the shallow

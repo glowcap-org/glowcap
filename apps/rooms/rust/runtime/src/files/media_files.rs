@@ -197,7 +197,7 @@ impl rooms_glowcap::client::sources::Reader for ViewSource {
 	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, String>>>> {
 		let materialized = self.0.materialize();
 		// A source read answers a CapTP caller, so both classed failures become
-		// refusal text here and nowhere earlier.
+		// refusal text here and nowhere earlier. status-allow: event or source ordering
 		Box::pin(async move {
 			materialized
 				.await

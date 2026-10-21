@@ -69,11 +69,9 @@ impl From<Error> for Failure {
 			Error::Stale(_) => "stale",
 			Error::Closed(_) => "closed",
 			Error::Uncertain(_) => "uncertain",
-			Error::State(_) => "state",
 			Error::Captp(_) => "captp",
 			Error::Peer(_) => "peer",
 			Error::Storage(_) => "storage",
-			Error::WorkerEnded { .. } => "worker",
 			Error::Cleanup { .. } => "cleanup",
 		};
 		Self::new(class, error.retry().wire(), error)

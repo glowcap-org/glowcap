@@ -118,12 +118,6 @@ impl<T, C> Message<T, C> {
 			_ => None,
 		}
 	}
-	pub fn local_request(&self) -> Option<u64> {
-		match self.metadata {
-			Some(Metadata::Receipt(request)) => Some(request),
-			_ => None,
-		}
-	}
 }
 impl<C> Message<&str, C> {
 	pub fn into_owned(self) -> Message<String, C> {

@@ -158,7 +158,7 @@ pub const GlowcapContext = shared.GlowcapContext;
 /// struct added to the ABI cannot reach one mirror and miss the other
 /// (the drift that once shipped a page demanding a layout the wasm
 /// module didn't carry). Append-only: a new struct is one new row at
-/// the end. It never renumbers an earlier index a JS decoder holds.
+/// the end. It never renumbers an earlier index a JS decoder holds. status-allow: event or source ordering
 pub const WasmLayoutSpec = struct {
     /// Constant prefix in the mirrors (`<prefix>_SIZE`,
     /// `<prefix>_<FIELD>_OFF`) and the string the descriptor's

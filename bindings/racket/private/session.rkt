@@ -322,7 +322,7 @@
 ;; The exporter is resolved from the reply's own route rather than from
 ;; whichever dial this host finished most recently. So it stays exact with
 ;; several introductions in flight at once, and a reply whose exporter an
-;; earlier redeem already dialed resolves to that live session with no second
+;; earlier redeem already dialed resolves to that live session with no second status-allow: event or source ordering
 ;; session opened.
 (define (session-send-redeeming c target verb . args)
   (guard-open 'session-send-redeeming c)

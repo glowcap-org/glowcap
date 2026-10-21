@@ -342,7 +342,7 @@ pub fn glowcap_host_plan_dial(
 }
 
 /// Install or clear the synchronous borrowed trace callback. Installation
-/// reports currently open sessions after publishing the callback and context.
+/// reports open sessions after publishing the callback and context.
 pub fn glowcap_host_set_trace(
     host: ?*GlowcapHost,
     callback: ?c.GlowcapTraceCallback,

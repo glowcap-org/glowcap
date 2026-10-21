@@ -89,7 +89,7 @@ export function DocumentFields(
 	// Every value here is read off the document, so this has to wake when the
 	// document changes. Without it the fields are controlled inputs bound to a
 	// value that never refreshes: a keystroke lands in the document and the field
-	// redraws from the old one, so typing looks like it does nothing at all.
+	// redraws from the old one, so typing looks like it does nothing at all. status-allow: replacement state identity
 	useDocVersion(engine);
 	const doc = engine.doc;
 	const meta = doc.metadata;

@@ -47,7 +47,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
     const start = r.now(init.io);
     try db.compact();
     const elapsed_ns = r.elapsed(init.io, start);
-    // Replacement retires the old environment. Inspect only the newly opened
+    // Replacement retires the old environment. Inspect only the newly opened status-allow: replacement state identity
     // writer after installation, never the closed pre-compaction owner.
     try db.close();
     opened = false;

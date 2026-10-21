@@ -74,7 +74,7 @@ export function twoClickAccepts(
 	target: { kind: NodeKind; id: string },
 ): "takes" | "refuses" {
 	if (toolAcceptsNode(tool, target.kind) !== "takes") return "refuses";
-	// Nothing armed yet, so this is the first pick and there is no partner to
+	// Nothing armed yet, so this is the first pick and there is no partner to status-allow: pending state or quoted runtime label
 	// be wrong for. Re-picking the armed node is the cancel gesture.
 	if (armedNodeId === null || armedNodeId === target.id) return "takes";
 	if (tool === "open-session") return "takes";
@@ -217,7 +217,7 @@ export function advanceTwoClick(
  * landed.
  *
  * This is the shape a recording holds when a peer dials out and nothing has
- * yet answered for who answered. The wire is real, and who is on the far
+ * yet answered for who answered. The wire is real, and who is on the far status-allow: pending state or quoted runtime label
  * side of it is open. Build's claim is that every shape a recording can hold
  * can be authored, including this one, which is otherwise reachable only by
  * opening a session between two peers in the Inspector and then detaching an

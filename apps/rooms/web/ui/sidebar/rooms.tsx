@@ -2,7 +2,7 @@
 //
 // Three kinds of row share this list because they are three kinds of somewhere
 // you are: a room this tab is in, a room somebody handed it and it has not
-// answered yet, and a directory it is on with nothing open. Its sibling
+// answered yet, and a directory it is on with nothing open. Its sibling status-allow: pending state or quoted runtime label
 // dms.tsx holds the same for the direct lines, and the rail itself only decides
 // which sections there are.
 
@@ -63,7 +63,7 @@ export function YourRooms(
 		dirs: ReadonlyMap<DirId, DirView>;
 		home: DirId | null;
 		activeKey: string | null;
-		/** Rooms handed to this tab and not answered yet. */
+		/** Rooms handed to this tab and not answered yet.  status-allow: pending state or quoted runtime label */
 		invites: readonly Invitation[];
 		onTake: (id: string) => Promise<void>;
 		onDrop: (id: string) => void | Promise<void>;

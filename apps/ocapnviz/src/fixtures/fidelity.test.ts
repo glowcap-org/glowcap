@@ -193,7 +193,7 @@ Deno.test("between them the recordings show every attribution the schema declare
 	// declare never reached a document.
 	//
 	// Both places a word can be said count. An end is attributed either at the
-	// session's birth or at the moment something backed its claim, and one of
+	// session's birth or at the moment something backed its claim, and one of status-allow: state at observation
 	// the words is only ever said the second way: a handoff is verified partway
 	// through a session that opened with a loose end, which is the whole shape
 	// it describes.

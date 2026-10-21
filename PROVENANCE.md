@@ -1,24 +1,15 @@
 # How glowcap is built
 
-glowcap began as the capability-secure substrate for an agent orchestrator.
-The maintainer builds it with AI coding assistants, signs every commit that
-lands, directs the work, and is answerable for the result. There is no earlier,
-human-only codebase. The first commit is from June 2026.
+The maintainer builds glowcap with AI coding assistants, signs every commit
+that lands, directs the work, and is answerable for the result.
 
-The prerelease Git history and decision records were consolidated before
-publication. Commits preserve development checkpoints rather than every
-intermediate edit. Historical measurements retain the revision identifiers
-recorded when they ran.
-
-`Co-Authored-By: Claude` and `Co-authored-by: Cursor` trailers support this
-account but do not complete it, because different tools emit different
-trailers and some emit none.
+Each commit is a development checkpoint rather than every intermediate edit.
+Commits carry no per-tool trailers, because tools differ in what they emit
+and some emit none. This account covers every commit instead.
 
 The illustration in `site/assets/glowcap-goblin-512.png` was generated with an
 AI image tool for this project and refined by the maintainer in Pixelmator
-Pro, which its embedded metadata records as the editing tool. It was later
-revised in the same tool to replace the former project mark with the current
-glowcap mark.
+Pro, which its embedded metadata records as the editing tool.
 
 ## Upstream policies
 

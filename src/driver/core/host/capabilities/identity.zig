@@ -378,7 +378,7 @@ pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
             if (session.lifecyclePhase().condemned()) break :remote_release;
             const position = remote.far.import_position;
             // A partner may already have reused the numeric position after
-            // another retain released the old import row. The stale Host row
+            // another retain released the old import row. The stale Host row status-allow: replacement state identity
             // must remain releasable, but it must not GC the replacement.
             if (session.served.port.peer.session_state.hostCapabilityFor(position) == ref.raw()) {
                 const identity = session.served.port.peer.session_state.hostImportIdentity(position) orelse
@@ -420,7 +420,7 @@ pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
     }
 }
 
-/// Consume a cleanup retain after its initiating operation can no longer return
+/// Consume a cleanup retain after its initiating operation can no longer return status-allow: lifecycle transition
 /// an error. A live remote home is condemned if ordinary GC publication fails.
 /// A dead home is skipped. Registry/Vat ownership is then retired exactly once
 /// so terminal cleanup never parks forever.

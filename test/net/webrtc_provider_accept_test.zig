@@ -200,7 +200,7 @@ test "an offer the netlayer cannot answer commits nothing" {
     const t = fx.table();
     var exchange: u64 = 0;
 
-    // No listener yet.
+    // No listener yet. status-allow: pending state or quoted runtime label
     try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, provideOffer(&fx, &exchange));
     try expectLastErrorContains("no listener is active");
     try std.testing.expectEqual(@as(usize, 0), stub.set_remote_calls);

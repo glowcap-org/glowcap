@@ -38,7 +38,7 @@
 
 /* Focusing a control must never scale the application viewport. Under 16px,
    iOS zooms a focused text control and can leave the reader stranded in a
-   scaled app whose rails and composer no longer fit. This is a page invariant,
+   scaled app whose rails and composer no longer fit. This is a page invariant, status-allow: lifecycle transition
    not a field style: it comes after every component sheet and is important so
    a dense surface cannot silently opt back into viewport zoom.
 
@@ -109,7 +109,7 @@
 	--lift: 0 6px 20px var(--shadow-color);
 	/* An interactive wash inside our own message bubble. The bubble reverses
 	   both fill and ink between themes, so a page-surface hover cannot serve it:
-	   dark paper under dark on-accent ink was the broken Download state. Darken
+	   dark paper under dark on-accent ink would be unreadable. Darken
 	   the light theme's deep bubble for cream ink. Lighten the dark theme's
 	   bright bubble for cocoa ink. */
 	--mine-action-hover: rgba(0, 0, 0, 0.14);
@@ -133,17 +133,12 @@
 	/* The band a control wears while it is the one in play: a field holding
 	   focus, a choice that has been made, the panel a name is being typed
 	   into. One shape and one strength for all of them, spelled once because a
-	   shape written at each site drifts, and this one already had: seven
-	   places said twenty-eight per cent and the rail said thirty-two, which
-	   nobody chose and nobody could see.
+	   shape written at each site drifts.
 
 	   Named once per hue, rather than as one band plus a hue each site sets.
-	   That is what this was, and it cannot work: a custom property composed
-	   here is substituted here, so a hue set further down arrives after the
-	   colour has already been chosen. Three bands asked for the refusal's
-	   colour, or a directory's own mark, and drew the accent: the property
-	   was set, and read back correctly, and the shadow was the wrong colour
-	   regardless. A hue known only on the element, like a directory's, cannot
+	   A custom property composed here is substituted here, so a hue set
+	   further down arrives after the colour has already been chosen and the
+	   band draws the accent. A hue known only on the element, like a directory's, cannot
 	   be named up here at all and writes its band out where it stands.
 
 	   Two hues, because two are wanted. A band falls outside the box it

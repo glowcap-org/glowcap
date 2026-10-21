@@ -61,7 +61,6 @@ fn message(input: &Value) -> Result<Option<Record>, rooms_application::archive::
 	)
 }
 pub fn run() {
-	retention();
 	let fixture: Value = serde_json::from_str(include_str!("../fixtures/archive-recording.json")).unwrap();
 	for case in fixture["cases"].as_array().unwrap() {
 		let mut standings = Standings::default();
@@ -155,8 +154,6 @@ pub fn run() {
 		Standings::default().prepare(&line, "alice").unwrap().is_some(),
 		"another account needs its own standing"
 	);
-	memo.clear();
-	assert!(memo.prepare(&line, "alice").unwrap().is_some());
 	for directory_size in [0, 8192] {
 		let mut memo = Standings::default();
 		let mut first = None;
@@ -179,32 +176,4 @@ pub fn run() {
 			"memo capacity did not evict"
 		);
 	}
-}
-
-fn retention() {
-	use rooms_application::archive::retention::Retention;
-	let mut policy = Retention::restore(true);
-	assert!(!policy.requires_erasure());
-	policy.observe(false);
-	assert!(policy.requires_erasure());
-	policy.observe(false);
-	assert!(
-		policy.requires_erasure(),
-		"a repeated observation cannot acknowledge an erase"
-	);
-	policy.erased();
-	policy.observe(false);
-	assert!(!policy.requires_erasure());
-	policy.observe(true);
-	assert!(!policy.requires_erasure(), "reenabling preserves later records");
-	policy.observe(false);
-	assert!(policy.requires_erasure());
-	assert!(
-		Retention::restore(false).requires_erasure(),
-		"restart recovers disabled intent"
-	);
-	assert!(
-		!Retention::restore(true).requires_erasure(),
-		"completed erasure cannot delete later history on restart"
-	);
 }

@@ -385,7 +385,7 @@ const handoff_seeds = [_][]const u8{
     // of the certificate intact, then the verbatim receive.
     handoffSeed(&.{ &.{ handoff.act_forge, 1, 7, 1, 0, 1, 0, 1 }, &.{ handoff.act_forge, 2, 3, 0x80, 40, 1, 0, 1 }, &.{ handoff.act_honest, 1, 0, 1, 0, 1, 0, 1 } }),
     // A byte of the envelope's syntax, which tears the session down, then
-    // the verbatim receive the exporter can no longer take.
+    // the verbatim receive the exporter can no longer take. status-allow: lifecycle transition
     handoffSeed(&.{ &.{ handoff.act_damaged, 1, 120, 1, 0, 1, 0, 1 }, &.{ handoff.act_honest, 1, 0, 1, 0, 1, 0, 1 } }),
 };
 
@@ -427,7 +427,7 @@ fn handoffOneWithAllocator(smith: *std.testing.Smith, budget: *Budget, gpa: std.
     // hold, unless the allocation failure this run asked for has happened:
     // a host under pressure keeps its work queued rather than failing the
     // verb, so from then on the frames and effects a property reads may
-    // simply not have happened yet.
+    // simply not have happened yet. status-allow: pending state or quoted runtime label
     const trio = handoff.Trio.init(gpa) catch |err| return afterInducedFailure(budget, err);
     defer trio.deinit();
     handoff.run(smith, trio) catch |err| return afterInducedFailure(budget, err);

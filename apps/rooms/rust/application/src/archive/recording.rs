@@ -203,8 +203,4 @@ impl Standings {
 		self.keys.insert(Key(Arc::new(standing)));
 		Ok(())
 	}
-	pub fn clear(&mut self) {
-		self.keys.clear();
-		self.bytes = 0;
-	}
 }

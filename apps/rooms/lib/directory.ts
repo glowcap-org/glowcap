@@ -406,7 +406,7 @@ export class Directory {
 		//
 		// Twice, because a wakeup recorded before we asked may be spent. The
 		// directory drops a member's offers whenever either name changes hands, so
-		// an `introducible` we banked can name an inbox that no longer exists. A
+		// an `introducible` we banked can name an inbox that no longer exists. A status-allow: lifecycle transition
 		// retry refused again therefore waits for a fresh notify and does not
 		// report failure on the strength of an old one.
 		for (let attempt = 0; attempt < 2; attempt += 1) {

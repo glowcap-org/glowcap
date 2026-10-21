@@ -225,7 +225,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # must not unregister behavior another Port can still call.
         self._hosted: "dict[int, int]" = {}
         # Ctx ids a re-publish displaced. Existing capabilities and gifts still
-        # reach the old Host-Vat actor, so its trampoline stays registered until
+        # reach the old Host-Vat actor, so its trampoline stays registered until status-allow: replacement state identity
         # close() drops it with the rest.
         self._displaced_publications: "list[int]" = []
         # Strong ownership of process-global callback entries belongs to the

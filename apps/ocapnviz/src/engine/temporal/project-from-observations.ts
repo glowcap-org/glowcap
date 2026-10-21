@@ -14,7 +14,7 @@
  *   - Replay-from-    operator gesture: blow away all behavior,
  *     recording      re-project everything from the observation
  *                     stream.
- *   - Doc load:       backfill span on any entity that doesn't yet
+ *   - Doc load:       backfill span on any entity that doesn't yet status-allow: pending state or quoted runtime label
  *                     carry one (e.g. fixtures whose entities are
  *                     declared without a timing block).
  *
@@ -27,7 +27,7 @@
  *   - same shape for sessions (session-opened / session-closed)
  *   - message.span.start    = message-sent observation ? explicit(t) : implicit(0)
  *   - message.span.duration = explicit(flightMs ?? 500)
- *:                              messages always have explicit duration
+ * :                              messages always have explicit duration
  *
  * # Timing provenance
  *
@@ -41,7 +41,7 @@
  * outranks the observation stream. Re-running over an unchanged
  * observation set produces an identical doc.
  *
- * Keyframe tracks do not carry the marker yet, so they differ in
+ * Keyframe tracks do not carry the marker, so they differ in
  * when they re-derive, and which side of that line a track falls on
  * follows one question: does a live producer emit the observation
  * behind it? A session's state track is derived only while
@@ -499,8 +499,7 @@ export function projectFromObservations(
 			sessionTiming(idx.sessions.get(id)),
 		);
 		// Build the kfs track from observations only when the def
-		// doesn't already carry one, tracks have no provenance marker
-		// yet (see module header).
+		// doesn't already carry one. Tracks have no provenance marker.
 		const stateTrack = def.keyframes?.state === undefined ? trackFor(idx.stateChanges, id) : undefined;
 		// The endpoint tracks re-derive on every run, the way a peer's
 		// name track does and unlike the state track beside them: an

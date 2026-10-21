@@ -75,7 +75,7 @@ pub(crate) struct LoopShared {
 	driver: DriverLoop,
 	// A transferred Host may borrow a caller-supplied allocator. FFI driver
 	// teardown uses that allocator, so its lease must outlive the driver rather
-	// than only the wrapper Host that no longer owns FFI release.
+	// than only the wrapper Host that no longer owns FFI release. status-allow: lifecycle transition
 	_context: Option<Rc<ContextInner>>,
 	/// The identity half of the loop host's 64-byte seed, retained so the
 	/// adopted wrapper Host answers `designator()` like a byte-fed one.
@@ -99,7 +99,7 @@ pub(crate) struct LoopShared {
 	pending_dials: RefCell<HashMap<u64, oneshot::Sender<Result<*mut ffi_host::GlowcapHostSession>>>>,
 	pending_listeners: RefCell<HashMap<u64, oneshot::Sender<Result<()>>>>,
 	accepts: RefCell<VecDeque<(u64, *mut ffi_host::GlowcapHostSession)>>,
-	/// Event-delivered handles not yet wrapped by the binding. A terminal event
+	/// Event-delivered handles not yet wrapped by the binding. A terminal event status-allow: pending state or quoted runtime label
 	/// that follows OPENED/ACCEPTED in the same drain retains its exact failure.
 	/// The handle stays valid until adoption or explicit release.
 	unclaimed_sessions: RefCell<HashMap<usize, UnclaimedSession>>,

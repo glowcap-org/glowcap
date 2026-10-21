@@ -9,7 +9,7 @@
 //!
 //! `unused_imports` is allowed on the re-export below: the `glowcap_webrtc_*`
 //! externs are this transport's public surface, unused inside the binding until
-//! a consumer drives them, the same as any not-yet-called FFI family.
+//! a consumer drives them, the same as any not-yet-called FFI family. status-allow: pending state or quoted runtime label
 #![allow(dead_code, unused_imports)]
 
 use super::layouts_gen::*;

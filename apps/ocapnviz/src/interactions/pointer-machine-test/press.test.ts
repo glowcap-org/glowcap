@@ -161,9 +161,9 @@ Deno.test("dragging + pointer-up → idle; emits drag-end", () => {
 	assertEquals(r.effects[0]!.kind, "drag-end");
 });
 
-// ─────────────────────── Click re-resolve (D / F4) ───────────────────
+// ─────────────────────── Click re-resolve ───────────────────
 
-Deno.test("F4: pointer-up modifier vetoes a creation verb resolved at pointer-down", () => {
+Deno.test("pointer-up modifier vetoes a creation verb resolved at pointer-down", () => {
 	const hit = dummyHit("stage-peer", { peerId: "alice" });
 	const { state } = dispatch(IDLE_MACHINE, [{
 		kind: "pointer-down",

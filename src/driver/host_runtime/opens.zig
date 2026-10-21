@@ -304,7 +304,7 @@ pub fn advancePendingOpens(self: *HostRuntime) !void {
         if (row.stage == .retry_wait) {
             // The handshake budget still owns the row's whole life: a wait
             // that outlives it fails the dial even though the interval has
-            // not yet elapsed.
+            // not yet elapsed. status-allow: pending state or quoted runtime label
             const now_ms = self.nowMs();
             if (row.deadline_ms) |deadline| {
                 if (now_ms >= deadline) {
@@ -572,7 +572,7 @@ pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: 
         return failPendingOpen(self, row, err);
     };
     // The hello's flush action drained to a no-op while the wire did not
-    // exist yet; push the queued frame now that it does.
+    // exist yet; push the queued frame now that it does. status-allow: pending state or quoted runtime label
     const wire = self.wires.get(row.session.peer_handle).?;
     Internal.writeOutbound(self, wire) catch |err| Internal.closeWire(self, wire, err);
 }

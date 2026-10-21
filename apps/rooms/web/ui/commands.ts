@@ -32,7 +32,7 @@
 //              costs the room no new concept of a role.
 //
 // Being a granted command says where the authority comes from, not that it has
-// arrived, and three of them hold a real reference today.
+// arrived, and three of them hold a real reference.
 //
 // `/edit` and `/delete` are usually built by asking a server "is this line
 // yours?" and trusting the answer, an identity check standing in for an

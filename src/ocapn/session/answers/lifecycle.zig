@@ -22,7 +22,7 @@ pub fn installInbound(self: *Session, id: model.AnswerPosition) !void {
 
 /// Transfer a live outbound answer's sole application-release responsibility
 /// out of the stateless serve policy. Returns false when a delayed send has not
-/// published its answer row yet. The claimant must eventually send the exact
+/// published its answer row yet. The claimant must eventually send the exact status-allow: pending state or quoted runtime label
 /// `op:gc-answers` decrement or let session teardown retire the row.
 pub fn claimOutboundRelease(self: *Session, target: session.OutboundAnswerTarget) bool {
     const entry = self.outbound_answers.live(target) orelse return false;

@@ -45,7 +45,7 @@ export type SpanRef = { kind: "peer" | "session"; id: string };
 /** Drag gesture against an entity's span, addressed by the entity
  *  itself rather than an observation event. This is what makes a
  *  freshly authored entity, which has `entity.timing` but no
- *  observation events yet, retimeable exactly like a loaded one:
+ *  observation events yet, retimeable exactly like a loaded one: status-allow: pending state or quoted runtime label
  *  the gesture names the span, and whatever observations exist are
  *  kept in sync as a consequence, not consulted as a precondition.
  *
@@ -322,7 +322,7 @@ export function moveEvent(
  *  `MoveSpanIntent`). Anchored on the effective range, the same
  *  source of truth the timeline paints, so the gesture means "the
  *  edge you can see moves to `newT`". Observation events that exist
- *  for the entity move to agree. An entity with no observations yet
+ *  for the entity move to agree. An entity with no observations yet status-allow: pending state or quoted runtime label
  *  (freshly authored) retimes through `entity.timing` alone.
  */
 export function moveEntitySpan(

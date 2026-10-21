@@ -1,8 +1,8 @@
 //! Typed ingress transfers checked custody to the shared save owner.
 use super::*;
 use rooms_application::content::session::workspace;
+use rooms_glowcap::client::workspace::AcquisitionRequest;
 pub use rooms_glowcap::client::workspace::Import;
-use rooms_glowcap::client::workspace::{AcquisitionRequest, import_arguments};
 
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// A trusted embedding supplies exact held authority. Single and bulk
@@ -15,13 +15,6 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		}
 		.into_arguments()?;
 		self.state.writer.idempotent("import", &args).await.map(|_| ())
-	}
-	pub async fn import_bundle(&self, imports: Vec<Import>) -> Result<()> {
-		self.state
-			.writer
-			.idempotent("import-bundle", &[import_arguments(imports)?])
-			.await
-			.map(|_| ())
 	}
 	/// Local and remote consumers retain the same complete acquisition envelope.
 	/// The private writer only serializes invocation. Loam owns admission,

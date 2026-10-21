@@ -38,7 +38,6 @@ pub mod protocol;
 pub mod recording;
 pub mod records;
 pub mod request;
-pub mod retention;
 pub mod scope;
 mod serde_record;
 pub mod shares;

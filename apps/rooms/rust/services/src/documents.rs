@@ -95,8 +95,6 @@ impl DocumentFile {
 
 fn filename(document: SessionDocument) -> &'static str {
 	match document {
-		SessionDocument::Checkpoint => "session.json",
-		SessionDocument::Effects => "effects.json",
 		SessionDocument::Grants => "grants.json",
 		SessionDocument::BridgeSecrets => "bridge-secrets.json",
 	}

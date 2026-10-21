@@ -529,7 +529,7 @@ test "a released projection settles detached without touching a reused position"
     try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]12+f>");
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
 
-    // The old projection still owes its already-accepted listener, but its row
+    // The old projection still owes its already-accepted listener, but its row status-allow: replacement state identity
     // stamp routes that settlement through the detached incarnation. It cannot
     // answer the new question that happens to use position 12.
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .@"struct" = &.{

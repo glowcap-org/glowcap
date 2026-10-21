@@ -44,7 +44,7 @@ use wire::RoomInfo;
 /// The whole-roster deadline every sibling client holds, in seconds.
 const SESSION_DEADLINE_S: u64 = SESSION_DEADLINE_MS / 1000;
 
-/// Enter `name`, opening the room if it does not exist yet.
+/// Enter `name`, opening the room if it does not exist yet. status-allow: pending state or quoted runtime label
 async fn enter_or_open(dir: &Directory, name: &str) -> Result<glowcap::Ref, String> {
 	match dir.enter(name).await {
 		Ok(room) => return Ok(room),

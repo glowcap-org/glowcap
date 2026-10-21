@@ -1,5 +1,5 @@
 //! Owned enliven outcomes and exact observation cancellation. Network dialing
-//! remains Host work even when an individual observer no longer needs it.
+//! remains Host work even when an individual observer no longer needs it. status-allow: lifecycle transition
 const std = @import("std");
 const model = @import("model");
 const engine = @import("engine");

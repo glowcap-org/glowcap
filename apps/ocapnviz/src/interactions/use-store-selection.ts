@@ -80,9 +80,9 @@ export function useStoreSelection(): StoreSelectionHost {
 		(entities: ReadonlySet<EntityRefKey>) => dispatchSelection({ kind: "set-selection", entities }),
 		[],
 	);
-	// Single `rename-entity` dispatch, see `selection-store.ts`
-	// for the anchor-stomp regression that motivates a dedicated
-	// action over delete-then-add via `set-selection`.
+	// Single `rename-entity` dispatch, see `selection-store.ts`.
+	// A dedicated action keeps the anchor, which delete-then-add via
+	// `set-selection` would replace.
 	const handleEntityRenamed = useCallback(
 		(
 			kind: "peer" | "session" | "message",

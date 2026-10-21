@@ -2,7 +2,7 @@
  * Taking history back or forward, and the selection that has to
  * walk with it. A step that moves ids out from under the Inspector
  * without catching the selection up leaves it pointing at a name
- * the document no longer answers to.
+ * the document no longer answers to. status-allow: lifecycle transition
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -34,7 +34,7 @@ function selectionHost(initial: Partial<SelectionState>) {
 engineTest("undo takes a rename back, and the selection lets go", () => {
 	// The rename re-anchors the selection forward, so undo has to walk it
 	// back. Left alone, the Inspector goes on pointing at a name the document
-	// no longer answers to and reads out an unknown peer.
+	// no longer answers to and reads out an unknown peer. status-allow: lifecycle transition
 	const e = new Engine(looseDoc());
 	const host = selectionHost({
 		anchor: { kind: "peer", id: "carol" },

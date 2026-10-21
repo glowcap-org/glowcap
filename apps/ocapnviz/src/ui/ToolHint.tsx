@@ -38,7 +38,7 @@ export function ToolHint(
 		 *  the two-click ARMED state for open-session / send-message.
 		 *  null when unarmed or when the tool has no two-click flow. */
 		armedNodeLabel: string | null;
-		/** Whether the spacebar is currently held, overrides the
+		/** Whether the spacebar is held, overrides the
 		 *  tool's normal gesture cue with the pan announcement. */
 		spaceHeld: boolean;
 	},

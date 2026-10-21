@@ -111,7 +111,7 @@ on `at`/`toOwned` without a forbid, name, or measure line is incomplete.
    the workaround, delete the dead code the fix exposes, and land the docs and
    budget pins in the same change when a cost contract changes.
 5. **GATE.** Read the exit code and never skim output through `tail`/`grep`,
-   which reports the pipe's status. See "On this codebase" for the steps.
+   which reports the pipe's status. See [On this codebase](#on-this-codebase) for the steps.
 6. **DEFER.** Name non-moves with real reasons (including "measure first") and
    scope each as its own pass. Never half-land a big move.
 

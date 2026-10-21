@@ -77,7 +77,7 @@ export function DirectoryFacts({ dir, rooms }: { dir: DirView; rooms: number }) 
 			<dd>{grantedNameSaid(dir)}</dd>
 			{
 				/* Whether anyone can message you here, which is the next question a
-				    granted name raises and the one nothing used to answer. Being
+				    granted name raises and the one this row answers. Being
 				    reachable is a registration this directory can refuse, and a
 				    refused one leaves this window in every roster looking ordinary
 				    while no direct message can arrive. */

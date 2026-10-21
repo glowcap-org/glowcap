@@ -172,7 +172,7 @@ pub fn begin(self: *Session, target: answers.AnswerTarget) !Settlement {
     if (owned.resolver_import == null) {
         // A detached target's former wire name may already identify a new
         // answer. Only the live row with this exact stamp may contribute its
-        // resolver; final GC captured the old resolver before removing its
+        // resolver; final GC captured the old resolver before removing its status-allow: replacement state identity
         // link.
         if (self.inbound_answers.getPtr(target.name)) |row| {
             if (row.row_id == target.row_id)
@@ -250,7 +250,7 @@ pub fn retireDetached(self: *Session, target: answers.AnswerTarget, answer_paylo
     if (!noticeComplete(answer_payload)) return;
     // The caller is releasing one carrier retain. Keep the registry owner
     // while another carrier still borrows its tree, so local-capability
-    // tracing can discover every not-yet-encoded payload.
+    // tracing can discover every not-yet-encoded payload. status-allow: pending state or quoted runtime label
     if (self.local_promises != null and answer_payload.refs > 2) return;
     const store = self.detached_inbound_answers orelse return;
     const row = store.rows.get(target.row_id) orelse return;

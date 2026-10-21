@@ -355,7 +355,7 @@ export function TimeScrubInput(
 		value: number;
 		/** Lower bound for the scrub. Defaults to 0. Entity-specific
 		 *  containment constraints (e.g. "session.closed can't be
-		 *  earlier than session.opened") raise this so the scrub
+		 *  earlier than session.opened") raise this so the scrub status-allow: event or source ordering
 		 *  can't produce an invalid state. */
 		min?: number;
 		max: number;

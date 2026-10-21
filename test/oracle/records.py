@@ -215,7 +215,7 @@ def op_abort_resource_exhausted() -> Record:
     """``<op:abort "ResourceExhausted: ImportTable cap hit">``.
 
     Stage 4 / ADR-0008 typed-reason wire projection: glowcap's
-    new ``AbortReasonKind::ResourceExhausted`` kind emits the
+    ``AbortReasonKind::ResourceExhausted`` kind emits the
     spec-strict single-string ``op:abort`` with the
     ``"ResourceExhausted: <message>"`` prefix on V1_0 syrup, the
     same shape as the other typed kinds per ADR-0004. Companion
@@ -265,7 +265,7 @@ def op_abort_graceful_shutdown() -> Record:
 # ── ADR-0005 widened-Argument fixtures ──────────────────
 #
 # `op:deliver to=<desc:export 7> args=[<arg>] answer-pos=42 #f`
-# shape for each new `Argument` variant ADR-0005 added. The outer
+# shape for each `Argument` variant (ADR-0005). The outer
 # `op:deliver` shape matches `op_deliver_minimal` exactly except
 # for the args list, so a regression on the outer envelope
 # surfaces against both fixtures, and a regression on a specific
@@ -287,10 +287,9 @@ def _op_deliver_one_arg(arg) -> Record:
 def op_deliver_arg_void() -> Record:
     """``op:deliver`` carrying ``<'void>`` (zero-arg record).
 
-    ADR-0005 wire shape for the Goblins ``(void)`` value glowcap
-    rejected pre-ADR-0005. The fixture pins the cross-impl byte
-    shape so a regression to the pre-ADR rejection (or to a
-    different ``Void`` wire encoding) surfaces in CI.
+    ADR-0005 wire shape for the Goblins ``(void)`` value. The
+    fixture pins the cross-impl byte shape so a regression to a
+    different ``Void`` wire encoding surfaces in CI.
 
     **Pin direction:** the bytes here are produced by the upstream
     Python Syrup encoder against the same record shape glowcap's

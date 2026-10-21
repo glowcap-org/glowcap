@@ -11,7 +11,6 @@ use rooms_application::{
 use std::{cell::RefCell, rc::Rc};
 
 mod archive_shares;
-pub mod controller;
 mod error;
 mod files;
 mod grants;

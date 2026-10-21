@@ -59,7 +59,7 @@ pub fn nominateResolverExport(self: *Session) !ResolverNomination {
 /// one fallible step. A caller whose own later step fails rolls back with
 /// `abandonResolverExport` while the export is still unmentioned.
 ///
-/// Every caller binds an installed answer no export serves yet: a fresh
+/// Every caller binds an installed answer no export serves yet: a fresh status-allow: pending state or quoted runtime label
 /// answer, or the unlinked one `mintMentionedResolverExport` names. So the
 /// pair installs with no eviction and no lookup past the answer row.
 pub fn bindFreshResolverExport(
@@ -153,11 +153,11 @@ pub fn removeOutboundResolver(self: *Session, resolver_export: model.ExportPosit
 }
 
 /// Move `resolver_export`'s purpose to `purpose`, keeping the answer rows
-/// in step: the answer the old purpose served drops the export, and the answer
+/// in step: the answer the old purpose served drops the export, and the answer status-allow: replacement state identity
 /// the new one serves takes it. A settling convergence re-points a listener
 /// between answers and the Node consumer this way
 /// (`promises/imported/settling.zig`). The export holds a purpose, and an
-/// answer the new purpose names holds no resolver yet.
+/// answer the new purpose names holds no resolver yet. status-allow: pending state or quoted runtime label
 pub fn replaceResolverPurpose(self: *Session, resolver_export: model.ExportPosition, purpose: session.ResolverPurpose) void {
     const old = self.exports.replacePurpose(resolver_export, purpose);
     if (old == .application_answer) {

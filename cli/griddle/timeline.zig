@@ -13,7 +13,7 @@
 
 const std = @import("std");
 
-/// Schema version. Bump when a consumer would misread the old shape.
+/// Schema version. Bump when a consumer would misread the old shape. status-allow: replacement state identity
 pub const schema_version: u32 = 1;
 
 /// What one scheduler tick is worth in simulated nanoseconds. A tick is one

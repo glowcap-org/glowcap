@@ -172,15 +172,9 @@ export function MessageSwatch({ size = 10 }: { size?: number }) {
 // Every status badge in the app: session state, lifecycle, activity,
 // what attributed an end.
 //
-// `SIZE.xs` is the tracked-uppercase eyebrow step in `tokens.ts`, and a
-// badge is exactly that. It was a step larger than the `chip` above it,
-// which cost the badges room they need, "not yet joined" is three words
-// and it was wrapping to three lines inside a one-line row.
-//
-// Which is the other half: a badge never wraps and never shrinks. It is
-// two or three words that mean nothing broken apart, so the row's name
-// gives way first (see `linkRowMetaCell`), and a badge with nowhere left
-// to go clips rather than growing the row it sits in.
+// `SIZE.xs` keeps status badges compact. A badge never wraps or shrinks,
+// so the row name gives way first (`linkRowMetaCell`). A badge with no
+// remaining room clips instead of growing its row.
 /** The badge box itself, without the tones a caller paints into it. Exported
  *  because the Reference's transport verdicts are the same badge said about a
  *  netlayer instead of about an entity, and two spellings of one box drift. */
@@ -205,9 +199,9 @@ export const stateChipBase = {
 
 /** Lifecycle status of an entity at the current playhead.
  *  "active":     entity is on-stage right now (in the ECS)
- *  "before":     entity exists in the doc but hasn't started yet
- *                 (peer not yet joined / session not yet opened /
- *                 message not yet sent)
+ *  "before":     entity exists in the doc but hasn't started yet status-allow: pending state or quoted runtime label
+ *                 (peer not yet joined / session not yet opened / status-allow: pending state or quoted runtime label
+ *                 message not yet sent) status-allow: pending state or quoted runtime label
  *  "after":      entity has ended (peer left / session closed /
  *                 message delivered)
  *  "off-stage":  defensive: in the doc with no clear start/end
@@ -219,8 +213,8 @@ export type LifecycleStatus = "active" | "before" | "after" | "off-stage";
  *  lifecycle relative to the playhead. Selection itself is valid
  *  whenever the entity exists in the doc. This chip is what
  *  surfaces "exists but not on stage right now". `entity` colors
- *  the label with kind-specific vocabulary ("not yet joined"
- *  for peers, "not yet open" for sessions, etc.) so the chip
+ *  the label with kind-specific vocabulary ("not yet joined" status-allow: pending state or quoted runtime label
+ *  for peers, "not yet open" for sessions, etc.) so the chip status-allow: pending state or quoted runtime label
  *  reads naturally for each kind without callers post-processing
  *  a generic string. */
 export function LifecycleChip(

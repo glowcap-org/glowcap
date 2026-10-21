@@ -62,7 +62,7 @@ export function OperatorSweep(
 	}, [search, referenceKind]);
 
 	// What a sweep said outlives the rows it took: finishing one empties the
-	// inventory it swept, and a control that disappears at the moment it
+	// inventory it swept, and a control that disappears at the moment it status-allow: state at observation
 	// succeeds is an act with no answer.
 	if ((search === "" && referenceKind === null) || (total === 0 && said === "" && why === "" && !running)) {
 		return null;

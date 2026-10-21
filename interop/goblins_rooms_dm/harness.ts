@@ -29,7 +29,7 @@
 //   5. Closing the conversation in the browser takes that session off the
 //      timeline, reported by the vat's own end.
 //   6. Reopening the conversation starts one new session only after both views
-//      of the old one closed, rather than stacking it beside a stale session.
+//      of the old one closed, rather than stacking it beside a stale session. status-allow: replacement state identity
 //
 // `--iroh` runs the same scenario over encrypted QUIC instead of cleartext TCP.
 // Which transport the vat is reached over is the locator the room announced,
@@ -109,7 +109,7 @@ async function waitForLocator(port: number): Promise<string> {
 			const text = (await res.text()).trim();
 			if (res.status === 200 && text.length > 0) return text;
 		} catch {
-			// the front is not up, or the room has not announced yet
+			// the front is not up, or the room has not announced yet status-allow: pending state or quoted runtime label
 		}
 		await new Promise((r) => setTimeout(r, 50));
 	}
@@ -512,7 +512,7 @@ try {
 	);
 
 	// (6) Opening the same person's conversation again must mint a new session,
-	// not leave the old one standing and add another edge beside it. The first
+	// not leave the old one standing and add another edge beside it. The first status-allow: replacement state identity
 	// message forces lazy redemption of the fresh introduction; delivery and the
 	// reply prove the replacement is usable, not merely connected.
 	const opensBeforeReopen = opensNow().length;

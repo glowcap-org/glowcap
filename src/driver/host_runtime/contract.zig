@@ -61,7 +61,7 @@ pub fn Vocabulary(
             /// whose resident copies rather than lends its received bytes.
             wire_buffer_bytes: usize = default_wire_buffer_bytes,
             /// Shared bound for transport connects and CapTP handshakes that
-            /// have been admitted but have not yet opened.
+            /// have been admitted but have not yet opened. status-allow: pending state or quoted runtime label
             max_pending_opens: usize = default_max_pending_opens,
             codec: model.CodecId = model.Preference.default_offer.codec,
             /// Offered CapTP profile. Version and codec negotiate as separate

@@ -71,7 +71,7 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 		ReadOutcome::Waiting(_) => panic!("written bytes must be ready"),
 	}
 	// Timer delivery may be delayed. A write at expiry must still be refused,
-	// and must never revive the old upload with a newly renewed deadline.
+	// and must never revive the old upload with a newly renewed deadline. status-allow: replacement state identity
 	assert!(
 		world
 			.rooms

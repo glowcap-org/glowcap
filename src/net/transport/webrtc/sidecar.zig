@@ -269,7 +269,7 @@ pub const Peer = struct {
     }
 
     /// Drain the next locally gathered ICE candidate into `out` as JSON, writing
-    /// its length to `out_len`, or null when none is pending yet. The caller
+    /// its length to `out_len`, or null when none is pending yet. The caller status-allow: pending state or quoted runtime label
     /// ferries each to the far peer. `error.BufferTooSmall` still writes the
     /// required length to `out_len`.
     pub fn nextLocalCandidate(self: *Peer, out: []u8, out_len: *usize) SignalError!?[]const u8 {

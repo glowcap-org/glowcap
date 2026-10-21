@@ -6,7 +6,7 @@ const hosting = @import("loam_hosting");
 pub const Schema = struct { id: u64, version: u32 = 1 };
 
 /// Snapshot copies and staged edges for one complete graph replacement. Each
-/// bound covers both the old and new population. Pages excludes the root,
+/// bound covers both the old and new population. Pages excludes the root, status-allow: replacement state identity
 /// payload_bytes includes it, and fields excludes resource bindings/page links.
 /// The pinned root is borrowed. Caller candidates and references are separate.
 pub fn allocationBound(pages: usize, payload_bytes: usize, fields: usize) !hosting.references.AllocationBound {

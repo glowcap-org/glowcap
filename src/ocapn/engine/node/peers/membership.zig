@@ -29,7 +29,7 @@ pub const Slot = struct {
     /// whether a failed redeem was the last use of a redeem-only connection.
     pending_withdraw_count: u32 = 0,
     ownership: Ownership,
-    /// Opened only to redeem a handoff and not yet selected by an application.
+    /// Opened only to redeem a handoff and not yet selected by an application. status-allow: pending state or quoted runtime label
     provisional_exporter: bool = false,
 };
 

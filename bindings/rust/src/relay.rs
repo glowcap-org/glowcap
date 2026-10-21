@@ -184,7 +184,7 @@ pub enum Trust<'a> {
 	CopiedPem(&'a [u8]),
 }
 
-/// URLs and trust used to construct the shared relay archive provider.
+/// URLs and trust used to construct the shared relay archive provider. status-allow: purpose clause
 #[derive(Clone, Copy, Debug)]
 pub struct Config<'a> {
 	/// The relay WebSocket URL used for outbound keyed/noise legs.

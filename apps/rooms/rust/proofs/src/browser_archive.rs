@@ -138,7 +138,7 @@ pub async fn exercise(client: &Client<Platform>, accepted: &Session, locator: &L
 			.await
 			.is_err()
 	);
-	// Failed selection cannot reinterpret a previously granted local archive.
+	// Failed selection cannot reinterpret a previously granted local archive. status-allow: ownership and operation ordering
 	assert!(
 		owner
 			.select(Some("ocapn://missing.invalid?transport=tcp".into()))

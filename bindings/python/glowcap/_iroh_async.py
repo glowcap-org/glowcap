@@ -362,7 +362,7 @@ class _IrohTransport:
 
     async def read(self) -> "Optional[bytes]":
         while True:
-            # Drain every byte currently available (the readiness signal is
+            # Drain every byte available (the readiness signal is
             # edge-ish, so leaving bytes buffered in the sidecar could stall
             # until fresh data); the chunks are copied out so the read buffer
             # can be reused by the next read.
@@ -378,7 +378,7 @@ class _IrohTransport:
                 chunks.append(ctypes.string_at(self._read_buf, n))
             if chunks:
                 return b"".join(chunks)
-            # Nothing buffered yet: park on this connection's readiness, not a
+            # Nothing buffered yet: park on this connection's readiness, not a status-allow: pending state or quoted runtime label
             # wire read. False means it was released/closed under us.
             if not await self._loop.wait_readable(self._conn):
                 return None

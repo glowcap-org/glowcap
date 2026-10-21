@@ -29,7 +29,7 @@ import { spanScreenRect } from "./span-geometry.ts";
 
 /** Identity side of a hit. `entity` is what gets selected, always
  * meaningful when `hitTestEvents` returns a non-null `ScrubberHit`,
- * even if the entity has no observation event yet (e.g. a freshly
+ * even if the entity has no observation event yet (e.g. a freshly status-allow: pending state or quoted runtime label
  * authored peer rendered from `entity.timing` alone).
  *
  * Same shape as `StageSelection`'s non-null variant, pointerdown
@@ -109,7 +109,7 @@ export type DragPlan =
  *
  * Split into the identity answer (`entity`, what to select) and
  * the temporal answer (`drag`, what gesture, if any, the hit
- * enables). A freshly authored entity with no observation event yet
+ * enables). A freshly authored entity with no observation event yet status-allow: pending state or quoted runtime label
  * gets an entity-addressed plan (`entity-span-edge` /
  * `entity-span-body`), so it retimes exactly like a loaded one,
  * `drag: null` remains only for a message with no sent observation,
@@ -181,14 +181,9 @@ const SELECTION_KIND: Record<MomentLane, "peer" | "session"> = {
  * rectangle in HOST-pixel coordinates. Used by the rubber-band
  * gesture's pointerup commit.
  *
- * Resolver-as-renderer: spans come from `peerEffective` /
- * `sessionEffective` / `messageEffective`. The same helpers the
- * lane painter reads. Walking observations directly (the previous
- * shape) diverged from paint whenever `entity.timing` had been
- * edited but the matching observation hadn't been mirrored yet,
- * causing a marquee to miss entities the user could see and
- * click-select. Y-test follows the canonical `iterateRows` paint
- * order so geometry stays in lockstep across collapse/expand. */
+ * Hit testing uses the same effective-span helpers as lane painting, so
+ * edited timing and marquee selection stay aligned. The Y-test follows
+ * `iterateRows` paint order across collapse and expansion. */
 export function entitiesInRect(
 	rect: { x: number; y: number; width: number; height: number },
 	doc: TimelineDocument,

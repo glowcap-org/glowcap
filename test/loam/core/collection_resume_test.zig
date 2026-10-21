@@ -262,7 +262,7 @@ test "loam collection clears an interrupted cycle after reopening" {
 
     try reopen(&fixture);
     try std.testing.expectEqual(.clearing, fixture.store.metadata.collection.phase);
-    // The old marks are still stored, so the first batch clears and stays clearing.
+    // The old marks are still stored, so the first batch clears and stays clearing. status-allow: replacement state identity
     try runBatch(&fixture.store, &fixture.backend, 1, true, &counts);
     try std.testing.expectEqual(.clearing, fixture.store.metadata.collection.phase);
 

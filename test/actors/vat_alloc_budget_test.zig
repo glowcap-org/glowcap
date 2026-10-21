@@ -200,7 +200,7 @@ test "a persistent become turn costs exactly one gpa allocation, the merged bloc
 
     // The exact contract: one near-call turn that becomes allocates once,
     // `makeBox`'s single `Boxed` block carrying the `StateBox` header and the
-    // next state side by side. Installing the become frees the old block;
+    // next state side by side. Installing the become frees the old block; status-allow: replacement state identity
     // frees are not allocations, so the box/state merge shows up here as
     // exactly 1 where the split box + state pair cost 2.
     counter.allocs = 0;

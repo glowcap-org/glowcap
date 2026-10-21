@@ -1,4 +1,4 @@
-//! One bounded output owner, including the line currently being written.
+//! One bounded output owner, including the line being written.
 //! Control lines bypass pacing. They cannot interrupt a partially written line.
 use rooms_application::server::irc::protocol::{LINE_BYTES, parse_line};
 use std::{cell::Cell, fmt, rc::Rc, time::Duration};

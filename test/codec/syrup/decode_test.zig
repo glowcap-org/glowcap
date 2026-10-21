@@ -89,9 +89,8 @@ test "Syrup decodes an unrecognised captp-version rather than calling the frame 
     // session decides. `session.validate` refuses this as `CaptpVersionMismatch`
     // (the upstream suite's `invalid-version` probe reads that abort).
     //
-    // The length prefix here is 9, matching `ocapn-1.0`. An earlier spelling of
-    // this test declared 8, so the frame was malformed for a length reason and
-    // the assertion passed without ever reaching the version.
+    // The length prefix is 9, matching `ocapn-1.0`, so the assertion reaches
+    // version validation rather than failing on malformed framing.
     const frame_bytes: []const u8 =
         "<16'op:start-session9\"ocapn-1.0" ++
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++

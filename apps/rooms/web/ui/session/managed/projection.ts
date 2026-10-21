@@ -1,7 +1,7 @@
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 import { ROOM_SENDER } from "../../../../lib/protocol_data.ts";
 // Intent names durable field coordinates. Activity describes live facts.
-// Neither projection constructs capabilities or a legacy bearer checkpoint.
+// Neither projection constructs capabilities or a bearer checkpoint.
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import {

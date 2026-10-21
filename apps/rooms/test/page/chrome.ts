@@ -174,9 +174,7 @@ export async function runChrome(
 			// would hold them level whatever they contained: the roster starts
 			// under the conversation's topbar and the rooms rail starts under a
 			// header of its own, so this reading is what keeps those two headers
-			// coming to the same height. Both halves were moved to check that it
-			// can say so. A top margin on this region, and then the rail's own
-			// header grown six pixels, each read back the six they were given.
+			// coming to the same height.
 			bodyTop: Math.abs(railBody.getBoundingClientRect().top - roster.getBoundingClientRect().top),
 			headDrawn: [drawn(railHead), drawn(rosterHead)] as const,
 		};

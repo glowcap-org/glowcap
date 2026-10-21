@@ -221,7 +221,7 @@ conflict.
 
 A resent `issue-access` uses the same receipts as `derive`. Loam checks that
 the caller still holds management and an unrevoked source, then returns the
-original pair instead of comparing the old revision as if the request were
+original pair instead of comparing the old revision as if the request were <!-- status-allow: runtime state or operation ordering -->
 new. A resent edit likewise finds its receipt first, while a new edit that
 changes nothing still checks the expected revision. Application-specific
 management data and behavior are not part of this shared model. Rooms, a chat
@@ -375,7 +375,7 @@ Rules for adding the results together:
   the reference, graph, and call parts to your own callback's needs. Store
   staging, capability operations, registration, promise resolution, Rust
   buffers, and Host network state have their own limits.
-- A graph bound covers the old and new graph together. Page counts leave out
+- A graph bound covers the old and new graph together. Page counts leave out <!-- status-allow: runtime state or operation ordering -->
   the root, payload totals include it, and capability field counts leave out
   the resource link and page links.
   [ADR-0057](../decisions/adr/ADR-0057-retained-content-pages.md)

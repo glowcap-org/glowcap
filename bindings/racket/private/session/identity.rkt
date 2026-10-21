@@ -39,7 +39,7 @@
 ;;
 ;; The library lends these bytes for as long as the session lives, so each view
 ;; is copied into a fresh Racket value before this returns. It raises while the
-;; partner's `op:start-session` has not arrived with a key yet, and it raises on
+;; partner's `op:start-session` has not arrived with a key yet, and it raises on status-allow: pending state or quoted runtime label
 ;; a session opened without partner verification, because there is no proved
 ;; identity to read on one.
 (define (session-partner-identity c)

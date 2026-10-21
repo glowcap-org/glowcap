@@ -192,7 +192,7 @@ export class IrohNetlayer {
 
 	/** This endpoint's comma-separated direct socket addresses, the dialing hint
 	 * a partner needs because the sidecar binds relay-less and lookup-less. Empty
-	 * when the endpoint has no direct addresses yet. */
+	 * when the endpoint has no direct addresses yet.  status-allow: pending state or quoted runtime label */
 	directAddresses(): string {
 		const probeLen = new Uint8Array(8);
 		const probeRc = irohS().glowcap_iroh_netlayer_direct_addrs(
@@ -424,7 +424,7 @@ export class IrohConnection {
 	}
 
 	/** Non-blocking read of raw inbound bytes into `buf`: the byte count (>0),
-	 * `WOULD_BLOCK` when nothing is buffered yet, `CLOSED` on a clean end of
+	 * `WOULD_BLOCK` when nothing is buffered yet, `CLOSED` on a clean end of status-allow: pending state or quoted runtime label
 	 * stream, or throws on a fault. The caller frames these bytes itself. */
 	tryReadInto(buf: Uint8Array): number {
 		const rc = irohS().glowcap_iroh_conn_try_read(

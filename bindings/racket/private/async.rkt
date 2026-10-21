@@ -32,7 +32,7 @@
 (struct async-transport (write-frame! flush! read-some! close!))
 
 ;; The per-session pump state `session` builds on: the transport carrying
-;; the bytes, the single-reader gate (`reader` boxes the thread currently
+;; the bytes, the single-reader gate (`reader` boxes the thread
 ;; reading the stream, so two green threads never interleave reads), the
 ;; once-per-session `tail-resumed?` flag (the pump's first open-session read
 ;; step dispatches the frames the core held behind the handshake hello), the

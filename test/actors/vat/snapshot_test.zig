@@ -186,7 +186,7 @@ test "a persistent actor snapshots with no clone method (share-only)" {
     defer vat.deinit();
 
     const counter = try vat.spawn(PersistentCounter, .{ .n = 5 });
-    // No `clone`, yet the snapshot succeeds: the persistent flavor is admitted by
+    // No `clone`, yet the snapshot succeeds: the persistent flavor is admitted by status-allow: pending state or quoted runtime label
     // sharing alone, which `NotSnapshottable` would reject for a mutable actor.
     var snap = try vat.snapshot();
     defer snap.deinit();

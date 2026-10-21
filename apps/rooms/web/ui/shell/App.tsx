@@ -65,7 +65,7 @@ function shellLayerReducer(state: ShellLayerState, action: ShellLayerAction): Sh
 	return { ...state, [action.layer]: action.held };
 }
 
-// Shared empties, so a directory this tab does not hold yet draws as one with
+// Shared empties, so a directory this tab does not hold yet draws as one with status-allow: pending state or quoted runtime label
 // nothing in it rather than making every reader below handle null.
 const EMPTY_PEERS: ReadonlySet<string> = new Set();
 const EMPTY_ROOMS: LiveRooms = new Map();
@@ -78,7 +78,7 @@ function administeredBridgeFor(
 	gateway: IrcGatewayState | null,
 	publicationId: string | undefined,
 ): AdministeredBridge | null {
-	// An empty publication id is "no room yet" on a lease, not an identity, so it
+	// An empty publication id is "no room yet" on a lease, not an identity, so it status-allow: pending state or quoted runtime label
 	// must never match a room that also has none.
 	if (gateway == null || publicationId == null || publicationId === "") return null;
 	for (const connection of gateway.connections) {
@@ -323,7 +323,7 @@ export function App() {
 	// uses the sheet instead, which `members-open` above drives.
 	const noMembers = ops.on || conv?.type === "dm" || conv?.type === "directory" ||
 		(conv?.type === "room" && !mobile && !state.rosterOpen);
-	// A direct line still being opened has no route yet, so only its own
+	// A direct line still being opened has no route yet, so only its own status-allow: pending state or quoted runtime label
 	// composer waits; every other conversation stays open to write in.
 	const composerAvailability = permissions?.includes("observeWorkspace") !== true
 		// Paused is not read-only, so this does not say read-only. Nor does it
@@ -384,7 +384,7 @@ export function App() {
 				/* The colour the chat side is drawn in, which is the colour the rail
 				   row that opened it wears. Read through the same `dirWhere` that row
 				   reads, so the two cannot come to disagree rather than merely
-				   agreeing today: a reader picks a row and the conversation arrives
+				   agreeing: a reader picks a row and the conversation arrives
 				   in the colour they just pressed.
 
 				   A direct line is included, because the rail marks one exactly as it

@@ -1,5 +1,5 @@
 //! Existing Rooms grant commands and JSON views, independent of CapTP values.
-use super::{Access, Command, Error, Grant, PolicyPatch, Rights, model};
+use super::{Access, Command, Error, PolicyPatch, Rights, model};
 use crate::{room::ArgumentView, text::DocumentText};
 use alloc::string::String;
 use core::fmt;
@@ -135,22 +135,6 @@ pub struct GrantView {
 	pub sturdyref: String,
 }
 impl GrantView {
-	pub fn from_grant(grant: &Grant, sturdyref: String) -> Result<Self, Refusal> {
-		if grant.revoked() {
-			return Err(Refusal::Policy(Error::Revoked));
-		}
-		let value = Self {
-			id: grant.id().into(),
-			label: grant.label().clone(),
-			rights: grant.rights(),
-			history: grant.history(),
-			suspended: grant.suspended(),
-			note: grant.note().clone(),
-			sturdyref,
-		};
-		value.validate()?;
-		Ok(value)
-	}
 	pub(crate) fn validate(&self) -> Result<(), Refusal> {
 		model::validate_id(&self.id).map_err(Refusal::Policy)?;
 		model::validate_label(self.label.utf16()).map_err(Refusal::Policy)?;

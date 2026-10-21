@@ -27,8 +27,8 @@ pub fn Machine(
         const ParkReason = configuration.ParkReason;
 
         /// Encode and submit work queued on any connection, including one the
-        /// loop is not currently serving. Safe mid-dispatch and idempotent for
-        /// the currently served slot. A drive failure closes only that slot.
+        /// loop is not serving. Safe mid-dispatch and idempotent for
+        /// the served slot. A drive failure closes only that slot.
         pub fn armOutbound(self: *Self, slot: usize) void {
             affinity.assertOwnerOrUnclaimed(self);
             if (self.tearing_down) return;
@@ -257,7 +257,7 @@ pub fn Machine(
                 // action for the session it is serving). That is terminal:
                 // the abort is already queued, so serving further events
                 // would mint replies behind it, and the drive and read-arm
-                // below no longer apply. Unpolled events die with the peer.
+                // below no longer apply. Unpolled events die with the peer. status-allow: lifecycle transition
                 if (c.state != .open) return;
             }
 
@@ -580,7 +580,7 @@ pub fn Machine(
 
         /// Re-arm connections parked solely by `fan_in_throttle` once no true
         /// ADR-0017 sink remains over the high-water mark. A seat that is still
-        /// sink-parked (`pendingOut` over the mark) or no longer open is left
+        /// sink-parked (`pendingOut` over the mark) or no longer open is left status-allow: lifecycle transition
         /// alone, on the list, untouched.
         ///
         /// The walk follows the live list and splices in place. Detaching the
@@ -599,7 +599,7 @@ pub fn Machine(
                 const c = &self.conns[slot];
                 // It left the list under us, a hook re-entered through the
                 // previous iteration's close and reached this slot. Its link
-                // word is no longer a parked-list link: `teardown` hands it to
+                // word is no longer a parked-list link: `teardown` hands it to status-allow: lifecycle transition
                 // the free list, and a re-adopting `dial` zeroes it, which
                 // walks into slot 0 and, if slot 0 is an ordinary open
                 // connection whose own link is still zero, never leaves. So do

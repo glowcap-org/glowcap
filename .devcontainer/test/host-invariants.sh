@@ -538,17 +538,12 @@ if glowcap_devcontainer_checkout_for_worktree "${primary}" missing >/dev/null 2>
     exit 1
 fi
 
-# Worktrees sit on different branches, so a column may still keep up.sh
-# beside compose. The launcher finds either spelling, and prefers bin/.
-printf '#!/usr/bin/env bash\n' > "${linked}/.devcontainer/up.sh"
-chmod +x "${linked}/.devcontainer/up.sh"
-[[ "$(glowcap_devcontainer_checkout_entry "${linked}" up.sh)" == "${linked}/.devcontainer/up.sh" ]]
+# Each column runs its own checkout's lifecycle entry point.
+mkdir -p "${linked}/.devcontainer/bin"
+printf '#!/usr/bin/env bash\n' > "${linked}/.devcontainer/bin/up.sh"
+chmod +x "${linked}/.devcontainer/bin/up.sh"
+[[ "$(glowcap_devcontainer_checkout_entry "${linked}" up.sh)" == "${linked}/.devcontainer/bin/up.sh" ]]
 [[ "$(glowcap_devcontainer_resolve_checkout enter-grid.sh "${primary}" tree1)" == "${linked}" ]]
-mkdir -p "${primary}/.devcontainer/bin"
-printf '#!/usr/bin/env bash\n' > "${primary}/.devcontainer/bin/up.sh"
-printf '#!/usr/bin/env bash\n' > "${primary}/.devcontainer/up.sh"
-chmod +x "${primary}/.devcontainer/bin/up.sh" "${primary}/.devcontainer/up.sh"
-[[ "$(glowcap_devcontainer_checkout_entry "${primary}" up.sh)" == "${primary}/.devcontainer/bin/up.sh" ]]
 noup="${scratch}/noup"
 mkdir -p "${noup}/.devcontainer"
 if glowcap_devcontainer_checkout_entry "${noup}" up.sh >/dev/null 2>&1; then

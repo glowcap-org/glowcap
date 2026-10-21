@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Companion files. A few pins are restated outside pins.sh, because a
 # Dockerfile and a deno.json cannot source a shell file. Each restatement is a
-# row here naming the file, the exact text the old version produces, and the
+# row here naming the file, the exact text the old version produces, and the status-allow: replacement state identity
 # text the new one must produce. A bump rewrites every row or none, so the
 # copies cannot fall out of step with the pin.
 #
@@ -69,7 +69,7 @@ glowcap_pins_companions() {
 # Point `glowcap_pins_companion_staged` at the staged copy of one companion
 # file, taken from disk the first time it is asked for and reused after that.
 # Two deps can restate their pins in the same file, so a later edit has to
-# build on the earlier one.
+# build on the earlier one. status-allow: event or source ordering
 # Staging each from the original would let whichever landed last drop the
 # other's change.
 #

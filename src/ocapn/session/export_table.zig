@@ -12,7 +12,7 @@
 //! is the next one minted. The partner agreed to that reuse when it released
 //! the position: `op:gc-exports` is its statement that no mention is in
 //! flight, and the stream is ordered, so nothing it sends afterward can mean
-//! the old object. The bootstrap position sits below the base and keeps its
+//! the old object. The bootstrap position sits below the base and keeps its status-allow: replacement state identity
 //! own row.
 //!
 //! An export row holds the binding of the authoritative `slot.Slot` for its

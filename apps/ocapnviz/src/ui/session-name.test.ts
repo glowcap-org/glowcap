@@ -65,7 +65,7 @@ engineTest(
 	"a session is named by the pair it joins, at the moment read",
 	() => {
 		const engine = new Engine(pairDoc());
-		// The name follows the name in force at the moment being read, because
+		// The name follows the name in force at the moment being read, because status-allow: state at observation
 		// a name a reader recognizes is the one they are looking at.
 		assertEquals(
 			sessionPairName(engine.doc, "s1", 150),

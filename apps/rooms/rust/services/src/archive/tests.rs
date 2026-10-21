@@ -195,7 +195,7 @@ async fn scenario() {
 	assert!(archive.read(&Filter::default(), 0, 1).await.is_err());
 	malformed.set(false);
 	// Hold the first backend operation, then fill every admitted slot. Reads
-	// cannot overtake an earlier put, and pressure refuses before deferring.
+	// cannot overtake an earlier put, and pressure refuses before deferring. status-allow: event or source ordering
 	blocked.set(true);
 	let first = client.session().send(&reference, "put", &[wire::record_row(&record())]);
 	starts.recv().await.unwrap();
@@ -207,7 +207,7 @@ async fn scenario() {
 			&[wire::filter_row(&Filter::default()).unwrap(), 0.into(), 1.into()],
 		));
 	}
-	// A later synchronous call is an ordering barrier for earlier deliveries.
+	// A later synchronous call is an ordering barrier for earlier deliveries. status-allow: event or source ordering
 	assert!(client.session().send(&reference, "unknown", &[]).await.is_err());
 	assert_eq!(owner.usage().requests, REQUEST_LIMIT);
 	assert!(archive.read(&Filter::default(), 0, 1).await.is_err());

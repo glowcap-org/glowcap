@@ -260,7 +260,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_id(conn: *const GlowcapIrohCo
 
 /// Non-blocking read: copy up to `len` buffered inbound bytes into `buf`. Returns
 /// the byte count (> 0), 0 at clean end of stream, -1 on error, or
-/// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no bytes are buffered yet. Draining the
+/// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no bytes are buffered yet. Draining the status-allow: pending state or quoted runtime label
 /// buffer frees room for the reader task to resume. The connection must have been
 /// moved to the readiness surface with `conn_set_nonblocking`. Borrows the handle.
 ///

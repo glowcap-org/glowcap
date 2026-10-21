@@ -133,7 +133,7 @@ impl AsyncRead for Stream {
 				)
 			};
 			if rc == sys::WOULD_BLOCK {
-				// Nothing buffered yet: park on this connection's readiness. A
+				// Nothing buffered yet: park on this connection's readiness. A status-allow: pending state or quoted runtime label
 				// missing/closed slot means the connection was torn down, a clean
 				// EOF (zero bytes filled).
 				let mut st = lock_iroh(&me.iloop.state, "iroh-loop-state-lock-poison");

@@ -57,19 +57,12 @@ export const ListenerUpOptionSchema = z.strictObject({
 	hint: listenerText,
 });
 
-export type ListenerUpOption = z.infer<typeof ListenerUpOptionSchema>;
-
 export const ListenerOptionsSchema = z.record(
 	nonemptyText(64),
 	z.union([boundedText(64 * 1024), z.int()]),
 ).check(z.refine((options) => Object.keys(options).length <= 16));
 
 export type ListenerOptions = z.infer<typeof ListenerOptionsSchema>;
-
-export function listenerOptionsFitTransport(transport: ListenerTransport, options: ListenerOptions): boolean {
-	const allowed = new Set<string>(LISTENER_OPTION_NAMES[transport]);
-	return Object.keys(options).every((name) => allowed.has(name));
-}
 
 /** One transport seat, as the admin capability reports it: the server's
  * catalog entry (name, description, an optional reference page, what an `up`
@@ -91,7 +84,7 @@ export const ListenerRowSchema = z.strictObject({
 	/** The knobs this seat's `up` accepts: name, value shape, and what a
 	 * blank field means in the server's words. */
 	takes: z.array(ListenerUpOptionSchema).check(z.maxLength(32)),
-	/** Why an `up` would refuse today, or empty. */
+	/** Why an `up` would refuse, or empty. */
 	unavailable: listenerText,
 	/** The live listener's number, or null while down. */
 	id: z.nullable(positiveSafeInteger),

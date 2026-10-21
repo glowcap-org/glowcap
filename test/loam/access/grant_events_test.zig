@@ -50,7 +50,7 @@ test "access grant events follow committed revisions and identify branch changes
     try std.testing.expectEqual(.revoked, revoked.kind.status_changed.after);
     try std.testing.expectEqualDeep(ledger.version(), revoked.version);
     try std.testing.expectError(error.Revoked, ledger.require(child, resource, .{ .permissions = &.{f.read} }));
-    // Earlier events retain their meaning after later commits; none borrows terms.
+    // Earlier events retain their meaning after later commits; none borrows terms. status-allow: event or source ordering
     try std.testing.expectEqual(.paused, paused.kind.status_changed.after);
     try std.testing.expectEqual(@as(u64, 1), @backingInt(issued.version.grants));
 }

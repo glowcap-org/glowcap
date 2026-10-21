@@ -192,7 +192,7 @@ Deno.test("a bridged line still reads as this app's own text", () => {
 
 Deno.test("a line with no control characters takes the ordinary path untouched", () => {
 	// The reading above must cost nothing for the messages this app writes, which
-	// is all of them today.
+	// is all of them.
 	assertEquals(hasIrcFormatting("**bold** @zoe"), false);
 	assertEquals(hasIrcFormatting("\x02bold"), true);
 });

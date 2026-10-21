@@ -339,9 +339,9 @@ engineTest(
 	"effectiveRowVisMode: parametric matrix — every (all, cat, entity) triple unions to OR of axis bits",
 	() => {
 		// The 4×4×4 = 64 triples are too many to enumerate; this test
-		// covers the asymmetric cases the bug fix is specifically about
-		// (orthogonal-axis combinations that a winner-take-all model gets
-		// wrong) plus a few sanity rows.
+		// covers the asymmetric cases that matter (orthogonal-axis
+		// combinations that a winner-take-all model gets wrong) plus a few
+		// sanity rows.
 		const cases: Array<
 			{
 				all: "visible" | "label" | "body" | "both";
@@ -540,10 +540,9 @@ engineTest(
 engineTest(
 	"updatePeer mirrors edits into entities.peers (source of truth)",
 	() => {
-		// Regression: updatePeer must patch entities.peers as well as the
-		// event payload. Sidebar reads from entities.peers,
-		// so the mirror is required or the user's edit appears to
-		// vanish on next render.
+		// updatePeer must patch entities.peers as well as the event payload.
+		// Sidebar reads from entities.peers, so the mirror is required or the
+		// user's edit appears to vanish on next render.
 		const e = new Engine(structuredClone(doc));
 		e.dispatch({
 			kind: "update-peer",

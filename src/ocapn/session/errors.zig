@@ -32,7 +32,7 @@ pub const Error = error{
     GcUnderflow,
     /// A wire retain or a summed delta would carry a count past what its
     /// `u64` holds. The same loud refusal as underflow, since the accounting
-    /// can no longer be exact.
+    /// can no longer be exact. status-allow: lifecycle transition
     GcOverflow,
     /// A message arrived (or was sent) in a state that does not admit it:
     /// `op:start-session` outside `negotiating`, or non-handshake traffic

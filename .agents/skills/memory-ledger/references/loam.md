@@ -84,7 +84,7 @@ and residency.
   - `Binding.resource` keeps the resource reply decoded from a binding's
     committed row for the Read's lifetime, because a policy walk asks for the
     same ancestors many times per operation. A binding the owner index seeds
-    starts with the reply an earlier Read decoded at the same revision
+    starts with the reply an earlier Read decoded at the same revision <!-- status-allow: workflow sequence -->
     (`OwnerIndex.Resolved.resource`). A staged row decodes afresh.
   - `Capabilities.index` is one heap-held `OwnerIndex`: `resident_owners`
     decoded owner headers and `resident_targets` resolved directory slots
@@ -360,7 +360,7 @@ and residency.
     selection. `departure::retire_membership` moves each removed topic/line list
     out of the admitted candidate and borrows its coordinates through release.
     It allocates no inverse index or duplicate inventory.
-  - The existing continuation and receipt retain the old exact seat. Its
+  - The existing continuation and receipt retain the old exact seat. Its <!-- status-allow: workflow sequence -->
     combined workspace/receipt update uses the same full graph encoding and
     staging costs as local departure.
 - **Rooms local command staging**: `local::apply` borrows admitted request
@@ -379,7 +379,7 @@ and residency.
     bounded remaining intent once per removed selection. It keeps no inverse
     authority index. Fallback selection copies only the chosen bounded ID.
   - `selection::apply` decodes scalar room/archive keys and one bounded operator
-    list into the candidate. Operator replacement moves the old list and borrows
+    list into the candidate. Operator replacement moves the old list and borrows <!-- status-allow: workflow sequence -->
     its coordinates for the same alias-aware retirement. These selections copy
     no actual capability and perform no restoration or worker allocation.
 - **Rooms receipt result import**: `content::imports::references` restores only

@@ -104,7 +104,7 @@ class Timeline {
 		}
 	}
 
-	/** The wire names of the direct lines currently open on `transport`. */
+	/** The wire names of the direct lines open on `transport`. */
 	on(transport: string): Set<string> {
 		return this.live.get(transport) ?? new Set<string>();
 	}
@@ -337,7 +337,7 @@ try {
 		});
 		await opener.click("#sendBtn");
 		// The reloaded sender has a fresh directory registration. Its peer must
-		// select that new identity, keeping the old sender's history separate.
+		// select that new identity, keeping the old sender's history separate. status-allow: replacement state identity
 		await other.locator(`#dmList li:not(.closed) .dm-open:has(.rname:text-is("${mode.first}"))`).click({
 			timeout: 20_000,
 		});

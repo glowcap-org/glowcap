@@ -318,7 +318,7 @@ pub const Resident = struct {
     }
 
     /// Non-blocking read of raw bytes from a loop connection into `buf`:
-    /// the byte count, `loop_would_block` when nothing is buffered yet, 0 on a
+    /// the byte count, `loop_would_block` when nothing is buffered yet, 0 on a status-allow: pending state or quoted runtime label
     /// clean end of stream, or negative on a read fault. The host frames these
     /// bytes itself (the peer's stream-input path), the same shape `tcp` uses.
     pub fn loopTryRead(self: *Resident, conn: *anyopaque, buf: []u8) isize {

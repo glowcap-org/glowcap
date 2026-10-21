@@ -123,7 +123,7 @@ export function SessionMoments(
 					// name that survives the edits a reader makes to it. Keyed on the
 					// time, the row unmounts mid-drag and the gesture dies with the
 					// element; keyed on the keyframe's place in its track, an insert
-					// earlier in the track hands this row's fiber to a different
+					// earlier in the track hands this row's fiber to a different status-allow: event or source ordering
 					// keyframe and steals the focus out of whatever was being typed.
 					<Fragment key={moment.eventId}>
 						<OptionalTimeRow
@@ -138,7 +138,7 @@ export function SessionMoments(
 									// is known by its name. Read at the playhead, like
 									// every other name this panel shows, so a peer renamed
 									// partway through the recording is offered under the
-									// name it answers to at the moment being edited.
+									// name it answers to at the moment being edited. status-allow: state at observation
 									nameOfPeer={(peerId) =>
 										peerLabelAt(
 											engine.doc,

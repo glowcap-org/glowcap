@@ -28,7 +28,7 @@ pub(crate) fn open_result(gate: &OpenGate) -> i32 {
 }
 
 /// Non-blocking receive for readiness owners. Returns one packet, zero at clean
-/// EOF, `WOULD_BLOCK` when no packet is buffered yet, `BUFFER_TOO_SMALL` when
+/// EOF, `WOULD_BLOCK` when no packet is buffered yet, `BUFFER_TOO_SMALL` when status-allow: pending state or quoted runtime label
 /// the packet remains queued for a larger buffer, or `ERR` on invalid input.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_receive_packet(

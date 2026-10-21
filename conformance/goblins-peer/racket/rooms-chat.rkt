@@ -88,7 +88,7 @@
           #:on-error (lambda (err) (eprintf "! trace: ~a~n" (exn-message err)))))))
 
 ;; What the typing thread needs to reach from outside the vat: the directory and
-;; the room this member is currently in. Both are written on the vat's turn
+;; the room this member is in. Both are written on the vat's turn
 ;; thread and read on the terminal's, and that crossing is what a box is for. The values
 ;; are capability references, handed straight back into `chat-vat 'run`.
 (define directory-box (box #f))
@@ -99,7 +99,7 @@
 (define inbox-box (box #f))
 
 ;; This member's direct-message half, once the directory has answered, and the
-;; members it can currently reach. Both are written on the vat's turn thread and
+;; members it can reach. Both are written on the vat's turn thread and
 ;; read on the terminal's, the same crossing the boxes above carry.
 (define dm-box (box #f))
 (define reachable-box (box (set)))
@@ -108,7 +108,7 @@
 ;; terminal loop waits on it before reading a line, so a typed command always has
 ;; a directory to reach. It is also what lets a piped script behave the way a
 ;; person does, typing after the banner rather than into a vat that has not
-;; dialed yet.
+;; dialed yet. status-allow: pending state or quoted runtime label
 (define opened (make-semaphore 0))
 (define connected (box #f))
 
@@ -216,7 +216,7 @@
   ;; already current when the watch began, then a count. A member who
   ;; registered before this vat watched is only reachable through that answer,
   ;; because the directory tells watchers about registrations as they happen
-  ;; and does not repeat the earlier ones.
+  ;; and does not repeat the earlier ones. status-allow: event or source ordering
   (on (<- directory 'watch watcher)
       (lambda (snapshot)
         (when (and (list? snapshot) (>= (length snapshot) 2) (list? (cadr snapshot)))

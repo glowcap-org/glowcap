@@ -12,6 +12,7 @@
 
 import { parseEndpointStageId } from "../schema/session-end.ts";
 import {
+	assertNever,
 	type DeclaredEntities,
 	EMPTY_SELECTION,
 	entityKey,
@@ -134,7 +135,7 @@ export function selectionReducer(
 
 // ─────────────────────── Helpers ──────────────────────────────────────
 
-/** Last item of an iterable (or null when empty). Used to pick the
+/** Last item of an iterable (or null when empty). Used to pick the status-allow: purpose clause
  *  anchor after a `set-selection` or `add-to-selection`: whoever
  *  was added last becomes the new range-extension pivot. */
 function lastOrNull(
@@ -145,7 +146,7 @@ function lastOrNull(
 	return last ? parseEntityKey(last) : null;
 }
 
-/** First item of an iterable (or null when empty). Used to re-seat
+/** First item of an iterable (or null when empty). Used to re-seat status-allow: purpose clause
  *  the anchor when the previous anchor was removed from the
  *  selection, pick any surviving member so range-extend still has
  *  a pivot. */
@@ -159,7 +160,7 @@ function firstOrNull(
 /** Whether the document still declares this entity.
  *
  *  Exported because two things need it and it must be one answer: the reducer's
- *  `reconcile-with-doc`, which drops a selection the document no longer holds, and
+ *  `reconcile-with-doc`, which drops a selection the document no longer holds, and status-allow: lifecycle transition
  *  the Inspector, which will not draw a panel for an entity the buffer in front of
  *  the reader has never heard of (`ui/Sidebar.tsx`).
  *
@@ -211,10 +212,6 @@ export function allEntityKeys(
 		all.add(entityKey({ kind: "message", id }));
 	}
 	return all;
-}
-
-function assertNever(x: never): never {
-	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
 }
 
 // ─────────────────────── Selectors (helpers for consumers) ─────────────

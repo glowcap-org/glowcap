@@ -139,7 +139,7 @@ engineTest("move-event slides a peer's renames with the peer", () => {
 engineTest("move-event slides a whole peer earlier", () => {
 	// Ordering is judged against the finished gesture. Checking a slid
 	// departure against where the join still sits would refuse every
-	// backward drag, because the join has not been written yet.
+	// backward drag, because the join has not been written yet. status-allow: pending state or quoted runtime label
 	const peerDoc = TimelineDocument.parse({
 		id: "peer-slide-back",
 		duration: 5000,

@@ -588,7 +588,7 @@ impl Registry {
 		entries.retain(|entry| entry.strong_count() != 0);
 		entries.push(Rc::downgrade(owner));
 	}
-	/// Run storage to a fixpoint for a close driver that no longer drains:
+	/// Run storage to a fixpoint for a close driver that no longer drains: status-allow: lifecycle transition
 	/// join every work in flight and advance what its completion enabled,
 	/// until a pass starts nothing.
 	pub(crate) async fn settle(&self) -> Result<()> {

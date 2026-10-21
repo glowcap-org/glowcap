@@ -74,7 +74,7 @@ fn peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release(
 	});
 	let conn = make_conn(client_ref, raw).unwrap();
 	assert_eq!(set_nonblocking(client, conn), 0);
-	// The application has not closed its handle yet. This write observes the
+	// The application has not closed its handle yet. This write observes the status-allow: handle lifecycle ordering
 	// remote close first, exactly the ordering a runtime/session race permits.
 	assert_eq!(try_write(conn, b"late"), 4);
 	let writer_result = client_ref.writers.wait();
@@ -127,7 +127,7 @@ fn peer_stop_before_writer_observes_local_close_does_not_fail_endpoint_release()
 	});
 	let conn = make_conn(client_ref, raw).unwrap();
 	assert_eq!(set_nonblocking(client, conn), 0);
-	// The application has not closed its handle yet. This write observes the
+	// The application has not closed its handle yet. This write observes the status-allow: handle lifecycle ordering
 	// partner's stop first, exactly the ordering a loaded server permits.
 	assert_eq!(try_write(conn, b"late"), 4);
 	let writer_result = client_ref.writers.wait();

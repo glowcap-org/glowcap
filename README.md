@@ -113,7 +113,7 @@ server, and a cleartext round-trip for local experiments.
 Rooms is a chat application built on glowcap, and
 [installing glowcap](apps/rooms/host.md) installs it too.
 `glowcap apps rooms serve` starts the browser app, and
-`glowcap apps rooms session` joins a room over encrypted iroh.
+`glowcap apps rooms session join` joins a room over encrypted iroh.
 
 To install from a checkout, run `./glowcap install`. It builds the product,
 checks its file list, and installs it outside the checkout. `zig build rooms-build` stages the same files under `zig-out/product`

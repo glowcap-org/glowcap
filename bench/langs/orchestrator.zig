@@ -139,9 +139,6 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.startsWith(u8, arg, "--pin=")) {
             pin = affinity.parsePair(arg["--pin=".len..]) catch
                 return fail("--pin takes two core numbers, as --pin=A,B");
-        } else if (std.mem.startsWith(u8, arg, "--root=")) {
-            // Accepted for forward compatibility; paths resolve against the
-            // run step's cwd (the repository root), so it is unused.
         } else {
             std.debug.print("bench-langs: unknown argument '{s}'\n", .{arg});
             return error.BadArgument;

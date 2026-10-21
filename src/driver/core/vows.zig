@@ -288,7 +288,7 @@ pub fn reserveVowAt(
 }
 
 /// Mint a Host vow whose producing operation is admitted now but cannot be
-/// attached to its eventual session yet. Inline handoff sends use this while
+/// attached to its eventual session yet. Inline handoff sends use this while status-allow: pending state or quoted runtime label
 /// redemption is pending. The row is fully observable to `vowOn` immediately.
 /// Its producer later settles it through `fireVow` and may transfer its
 /// session ownership with `moveDeferredVow` before that settlement.

@@ -131,7 +131,7 @@ function modifierClaimed(held: HeldGestures, name: string): boolean {
  * The pointer layer's modifier set, answered from the held gestures.
  *
  * Which modifiers this app watches is `HELD_GESTURES` and nothing else, so
- * every field is asked of that table rather than stated here. Cmd currently
+ * every field is asked of that table rather than stated here. Cmd
  * has no row. Nothing about the canvas changes while it is down on its own,
  * and its click verb draws the same cursor as the plain one, and it reads
  * false because the table says nothing about it. Giving it a row is therefore
@@ -210,7 +210,7 @@ export type KeyDownResult = {
  * second.
  *
  * `bindings` is the shortcut table's host callbacks, or `null` when
- * no view has attached them yet. A press then resolves gestures and
+ * no view has attached them yet. A press then resolves gestures and status-allow: pending state or quoted runtime label
  * runs no command.
  */
 export function resolveKeyDown(

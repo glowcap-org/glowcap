@@ -256,11 +256,9 @@ pub const all: []const Ban =
     captp_io.captp_io_spine_table ++
     transport.transport_vocabulary ++
     prose.prerelease_prose ++
-    prose.zig_status_claims ++
     prose.human_doc_voice ++
     prose.inbound_vocabulary ++
     prose.diagram_wire_vocabulary ++
-    prose.rooms_settings_label ++
     layers.clock_seam ++
     layers.actors_layer_purity ++
     core_fifo.rows ++

@@ -5,7 +5,7 @@
  * a reader arrived at that moment is not part of it. The two arrivals are
  * built differently: Live never rebuilds the world, it reconciles
  * the world it already has as observations arrive. Replay throws the world
- * away and materializes a fresh one at the moment it is asked for. So a
+ * away and materializes a fresh one at the moment it is asked for. So a status-allow: state at observation
  * reconciler that adds an entity on one test and removes it on another shows
  * up here and nowhere else, as one picture with something in it the other
  * picture does not have.
@@ -21,7 +21,7 @@
  * engine the whole document. That gap is the point rather than a flaw in the
  * harness: it is what the app does, Live accumulates, and Stop hands the
  * finished recording to Play, so a moment whose picture depends on something
- * that has not happened yet is a moment the two modes disagree
+ * that has not happened yet is a moment the two modes disagree status-allow: pending state or quoted runtime label
  * about, and this is where that shows.
  */
 
@@ -194,6 +194,8 @@ const open = (
 	v: 1,
 	sim_t_ns: t_ns,
 	kind: "ocapn.session-opened",
+	transport: "tcp",
+	captp_version: "1.0",
 	session,
 	a,
 	b,

@@ -144,6 +144,7 @@ fn valid_opened(rec: &Map<String, Value>) -> bool {
 		Some(_) => false,
 	};
 	one_of("codec", &["syrup", "capnp"])
+		&& rec.get("captp_version").is_some()
 		&& one_of("captp_version", &["1.0", "glowcap-next"])
 		&& one_of("provenance", &["authenticated-transport", "unauthenticated"])
 }

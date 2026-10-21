@@ -47,8 +47,7 @@
  * and write both axes explicit. Reason: a positive user gesture pins
  * both ends ("this span lives here, with this duration"). Leaving an
  * axis implicit lets `intrinsicOf` fall back to parent-inheritance,
- * which during a drag manifests as the pill silently resizing,
- * the original bug these helpers were carved out to fix.
+ * which during a drag manifests as the pill silently resizing.
  *
  * # Design rationale
  *
@@ -127,7 +126,7 @@ export function clearDuration(v: TimeSpan): TimeSpan {
 }
 
 /** Sugar, set end by computing duration from the entity's
- *  currently-resolved intrinsic start. Caller MUST pass that
+ *  resolved intrinsic start. Caller MUST pass that
  *  resolved start (this module can't ask context). */
 export function setEnd(
 	v: TimeSpan,
@@ -135,10 +134,6 @@ export function setEnd(
 	intrinsicStart: number,
 ): TimeSpan {
 	return setDuration(v, endValue - intrinsicStart);
-}
-
-export function clearEnd(v: TimeSpan): TimeSpan {
-	return clearDuration(v);
 }
 
 /** Rigid move, change start, leave duration untouched. Caller
@@ -150,9 +145,6 @@ export function moveBy(
 ): TimeSpan {
 	return setStart(v, intrinsicStart + delta);
 }
-
-/** Alias for setDuration with intent-naming. */
-export const resize = setDuration;
 
 /* ------------------------------------------------------------------ *
  * Gesture-shaped span rewrites, used by move-event to translate the
@@ -167,8 +159,7 @@ export const resize = setDuration;
  *  because the gesture pins start AND end ("this span lives here,
  *  with this duration"). Leaving either implicit lets `intrinsicOf`
  *  fall back to parent-inheritance, which manifests as the pill
- *  appearing to resize during a drag. The original bug this helper
- *  was carved out to fix.
+ *  appearing to resize during a drag.
  *
  *  Open span (no finite resolved end): duration stays as-is. There
  *  is no user-stated end to pin against. The pill keeps trailing to

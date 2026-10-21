@@ -25,7 +25,6 @@ export function loadingWhat(what: string): string {
 }
 export const anotherAddress = "Another address…";
 export const secretPromise = "Sent once, cleared here immediately, and never remembered.";
-export const hostedSelectionRefused = "Your browser wouldn't save which shared session you picked. Try again.";
 
 /** Leaving a form with unsaved changes. */
 export const unsavedLead = "Your unsaved changes will be lost. Keep editing, or discard them to continue.";
@@ -38,9 +37,6 @@ export function sessionEffectMany(count: number): string {
 	return `${count} session operations need your decision.`;
 }
 export const sessionPausedSaid = "Your access to this shared session is paused.";
-export function sessionPausedNote(note: string): string {
-	return `Your access to this shared session is paused: ${note}`;
-}
 
 /** The file viewer and an attachment on a line. */
 export function viewerFit(name: string): string {

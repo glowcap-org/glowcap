@@ -2,11 +2,7 @@
 // exhaustiveness checks, and a minimal valid Hit for a surface. Production
 // code uses surface-specific hit-testers and never needs either.
 
-import { type BuilderTool, type EntityRef, type Hit, stageHitFor, type SurfaceId } from "../types.ts";
-
-function assertNever(x: never): never {
-	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
-}
+import { assertNever, type BuilderTool, type EntityRef, type Hit, stageHitFor, type SurfaceId } from "../types.ts";
 
 /** All surface ids, used by exhaustive-switch totality tests. */
 export const ALL_SURFACES: ReadonlySet<SurfaceId> = new Set<SurfaceId>([

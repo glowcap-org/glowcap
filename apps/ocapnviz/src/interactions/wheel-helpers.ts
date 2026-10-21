@@ -1,7 +1,6 @@
 /**
- * Pure helpers for the wheel hook (§ 8.2). Split from
- * `use-surface-wheel.ts` so unit tests can import without
- * transitively pulling in React.
+ * Pure helpers for the wheel hook (§ 8.2). Unit tests import it
+ * without transitively pulling in React.
  */
 
 import type { SurfaceId } from "./types.ts";
@@ -24,7 +23,7 @@ export type WheelEffect =
 	};
 
 /** Wheel sensitivity for zoom. Empirical: matches the pixi-viewport
- *  feel users have today. */
+ *  feel users have. */
 export const WHEEL_ZOOM_RATE = 0.0015;
 /** Multiplier applied to wheel-zoom rate when Shift is held. */
 export const WHEEL_FAST_FACTOR = 4;

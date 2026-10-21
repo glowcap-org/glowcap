@@ -71,6 +71,7 @@ codes! {
 	NotRegistered => ("not-registered", "directory-registration", AfterRequestChange, "You haven't picked a name here yet.", None),
 	NotRoomMember => ("not-room-member", "membership", AfterRequestChange, "You're no longer in that room.", Some("Join it again to keep talking.")),
 	ReadOnlyMembership => ("read-only-membership", "membership", AfterStateChange, "You can read this room but not post in it.", None),
+	WorkspaceRevisionChanged => ("workspace-revision-changed", "workspace", AfterStateChange, "The workspace changed before this was admitted.", Some("Nothing was applied. Refresh the workspace before trying again.")),
 	RoomRetired => ("room-retired", "room", Never, "That room is gone.", Some("A room with the same name now is a different room.")),
 	NickTooLong => ("nick-too-long", "nickname", AfterRequestChange, "That name is too long.", None),
 	NotYourLocator => ("not-your-locator", "directory-registration", AfterRequestChange, "That address isn't yours.", Some("Rooms only accepts an address that belongs to this connection.")),
@@ -111,6 +112,12 @@ impl FailureCode {
 	pub fn line(self, detail: impl fmt::Display) -> String {
 		format!("{}: {detail}", self.wire())
 	}
+}
+
+/// The runtime refuses a stale base before admission. The failure code lets
+/// the caller distinguish this unchanged workspace from an uncertain outcome.
+pub fn stale_workspace() -> String {
+	FailureCode::WorkspaceRevisionChanged.line("the command's base revision is not current")
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

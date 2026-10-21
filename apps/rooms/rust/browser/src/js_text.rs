@@ -7,8 +7,8 @@
 use rooms_application::text::DocumentText;
 use wasm_bindgen::{JsCast, prelude::*};
 
-// `js-sys` has no binding for `isWellFormed` yet, so it is bound here on a
-// view over `JsString`; a method binding needs a type this block declares.
+// Bind `isWellFormed` on a `JsString` view. A method binding needs
+// a type declared in this block.
 #[wasm_bindgen]
 extern "C" {
 	#[wasm_bindgen(extends = js_sys::JsString)]

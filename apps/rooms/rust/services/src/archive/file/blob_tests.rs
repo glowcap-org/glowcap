@@ -119,7 +119,7 @@ async fn blobs_stream_restart_and_check_content_without_materializing_files() {
 	drop(archive);
 	fs::write(temp.0.join("blobs").join(&digest), vec![0; CHUNK_BYTES + 7]).unwrap();
 	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
-	// Bytes that no longer match their digest are the archive failing, not the
+	// Bytes that no longer match their digest are the archive failing, not the status-allow: lifecycle transition
 	// read being wrong, so no amount of re-asking changes the answer.
 	let corrupted = archive.read_blob(reader, 0, 1).await.unwrap_err();
 	assert!(matches!(corrupted, rooms_runtime::Error::Storage(_)));

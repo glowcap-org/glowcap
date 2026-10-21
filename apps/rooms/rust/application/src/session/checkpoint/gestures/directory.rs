@@ -55,14 +55,6 @@ impl Checkpoint {
 		};
 		Ok((directory, preparation))
 	}
-	pub fn reach_directory(&self, id: &str, locator: &str, nick: &str) -> Result<Reach, &'static str> {
-		self.reach_directory_with_allocation(
-			id,
-			locator,
-			nick,
-			crate::directory::registration::NicknameAllocation::Exact,
-		)
-	}
 	pub fn reach_directory_with_allocation(
 		&self,
 		id: &str,
@@ -82,15 +74,6 @@ impl Checkpoint {
 	}
 }
 impl Reach {
-	/// Readiness observation grants no authority to retire a directory.
-	pub(super) fn observe(directory: Directory) -> Self {
-		Self {
-			directory,
-			preparation: None,
-			standing: true,
-		}
-	}
-
 	pub fn retained_bytes(&self) -> usize {
 		use crate::fields::footprint::HeapBytes;
 		core::mem::size_of::<Self>()
@@ -143,41 +126,5 @@ impl Reach {
 	}
 	pub fn temporary(&self) -> bool {
 		!self.standing
-	}
-	/// Cleanup is permitted only for the exact transient entry, before another
-	/// action has acquired membership or authority through it.
-	pub fn can_retire(&self, snapshot: &Snapshot) -> bool {
-		if self.standing || snapshot.checkpoint.gesture_directory(self.id()).ok() != Some(&self.directory) {
-			return false;
-		}
-		let state = &snapshot.checkpoint.0;
-		!snapshot
-			.connected_directories
-			.as_slice()
-			.iter()
-			.any(|id| id.text() == self.directory.id.text())
-			&& !state
-				.conversations
-				.0
-				.iter()
-				.any(|c| c.directory() == &self.directory.id)
-			&& !state.invitations.0.iter().any(|i| i.directory == self.directory.id)
-			&& !state
-				.capabilities
-				.operations
-				.0
-				.iter()
-				.any(|c| c.scope.text() == self.directory.id.text())
-			&& !state
-				.peering
-				.0
-				.iter()
-				.any(|p| p.destination.text() == self.directory.id.text())
-			&& snapshot.pending_effects.as_slice().is_empty()
-			&& !snapshot
-				.archive_shares
-				.as_slice()
-				.iter()
-				.any(|share| share.directory == self.directory.id)
 	}
 }

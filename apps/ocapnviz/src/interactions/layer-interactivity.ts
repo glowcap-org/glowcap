@@ -10,7 +10,7 @@
  * unaffected by Pixi sprite event modes).
  */
 
-import type { BuilderTool } from "./types.ts";
+import { assertNever, type BuilderTool } from "./types.ts";
 
 /** One of Pixi's `EventMode` values that we actually use. */
 export type EventMode = "static" | "none";
@@ -48,8 +48,4 @@ export function layerInteractivity(ctx: {
 		default:
 			return assertNever(ctx.activeTool);
 	}
-}
-
-function assertNever(x: never): never {
-	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
 }

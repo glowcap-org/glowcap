@@ -94,10 +94,10 @@ engineTest("Engine.seekTo rebuilds world at the requested time", () => {
 	const e = new Engine(doc);
 	e.seekTo(1100);
 	assertEquals(e.clock.t, 1100);
-	// The message-sent event at t=1000 has fired and not yet been
+	// The message-sent event at t=1000 has fired and not yet been status-allow: pending state or quoted runtime label
 	// delivered (delivery at t=1500), so a message-in-flight exists.
 	assertEquals([...e.queries.messagesInFlight].length, 1);
-	// The state-change at t=2000 hasn't fired yet; session is still open.
+	// The state-change at t=2000 hasn't fired yet; session is still open. status-allow: pending state or quoted runtime label
 	const sessions = [...e.queries.sessions];
 	assertEquals(sessions[0]?.session.state, "open");
 });
@@ -309,9 +309,9 @@ engineTest(
 		// The end-state has all events drained; final session state is
 		// "draining" and no message is in flight.
 		assertEquals([...e.queries.messagesInFlight].length, 0);
-		// User clicks play again. With the bug, clock.t resets to 0 but
-		// the world stays in the end-state. No events ever re-fire.
-		// With the fix, the engine restarts the world first.
+		// User clicks play again. The clock resets to 0, so the engine must
+		// restart the world first. Otherwise the world stays in the end-state and
+		// no events ever re-fire.
 		e.enqueue({ kind: "play" });
 		e.tick(0);
 		assertEquals(e.clock.t, 0, "clock should rewind to 0");

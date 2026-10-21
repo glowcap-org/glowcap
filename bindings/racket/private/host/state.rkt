@@ -166,7 +166,7 @@
                     (GlowcapFailureEvent-secondary-message-len event)))]
     [else (check first)]))
 
-;; Atomically claim every callerless FFI failure currently retained by m.
+;; Atomically claim every callerless FFI failure retained by m.
 (define (host-take-failures! m)
   (call-with-host
    m
@@ -366,7 +366,7 @@
 ;; The answer comes from the reference's own routing token, not from whichever
 ;; exporter this host dialed most recently, so it is exact with several redeems
 ;; in flight at once. It is also a lookup rather than a dial: a reference whose
-;; exporter an earlier redeem already reached resolves to that same live
+;; exporter an earlier redeem already reached resolves to that same live status-allow: event or source ordering
 ;; session and opens no second session.
 (define (host-exporter-for m ref)
   (define ptr
@@ -383,7 +383,7 @@
        (or (host-session-for-ptr m ptr)
            ;; A loop-owned host redeems handoffs inside its own steps
            ;; (ADR-0024), so the exporter session it dialed exists with no
-           ;; wrapper yet. Wrap it lazily (the wrap registers it, so a
+           ;; wrapper yet. Wrap it lazily (the wrap registers it, so a status-allow: pending state or quoted runtime label
            ;; repeat lookup answers this same object), and the loop stays
            ;; its release authority.
            (let ([lp (host-loop-of m)])

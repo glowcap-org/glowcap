@@ -73,7 +73,7 @@ pub const RelayStream = struct {
     mask_rng: std.Random.DefaultCsprng,
 
     /// Pin a stream over a connected socket. The WebSocket upgrade has not run
-    /// yet. `upgrade` drives it. On error the caller still owns the carrier
+    /// yet. `upgrade` drives it. On error the caller still owns the carrier status-allow: pending state or quoted runtime label
     /// lease and `stream`. On success this value adopts both.
     pub fn create(
         allocator: std.mem.Allocator,
@@ -286,7 +286,7 @@ pub const RelayStream = struct {
     /// Read application bytes without parking the caller. Socket readiness is
     /// only a hint for WebSocket: it may announce a ping, a partial header, or
     /// EOF rather than application data. This loop consumes exactly the bytes
-    /// currently available, stages one bounded control reply, and reports
+    /// available, stages one bounded control reply, and reports
     /// `WouldBlock` once another kernel edge is required.
     pub fn tryReadSome(rs: *RelayStream, dest: []u8) (Io.Reader.Error || error{WouldBlock})!usize {
         if (rs.source.hasPendingWrite()) return error.WouldBlock;

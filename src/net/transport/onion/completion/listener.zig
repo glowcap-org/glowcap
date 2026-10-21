@@ -424,7 +424,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
 
         /// The service exists. The transient setup state dies here and the
         /// runtime's seat completes with the service, now or on the next
-        /// turn when the queue has no room yet.
+        /// turn when the queue has no room yet. status-allow: pending state or quoted runtime label
         fn complete(backend: *Backend) void {
             const row = &backend.listener;
             if (row.setup) |*setup| {

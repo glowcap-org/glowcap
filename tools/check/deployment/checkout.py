@@ -9,13 +9,14 @@ import sys
 
 
 def checkout_deployment(binary, product, scratch, original_env, run):
-    # Existing deployment configuration is moved once by its operator. Both
-    # checkout and installed invocations then use it without extra flags.
+    # The operator's configuration lives in the host state directory, and both
+    # checkout and installed invocations use it without extra flags. A
+    # configuration left inside the checkout is never discovered.
     checkout = scratch / "checkout with spaces"
-    legacy = checkout / "apps/rooms/web/deploy"
-    legacy.mkdir(parents=True)
+    checkout_config = checkout / "apps/rooms/web/deploy"
+    checkout_config.mkdir(parents=True)
     override = b"services:\n  directory:\n    volumes:\n      - ./operator-files:/operator:ro\n"
-    (legacy / "docker-compose.override.yml").write_bytes(override)
+    (checkout_config / "docker-compose.override.yml").write_bytes(override)
     (checkout / "zig-out").mkdir()
     (checkout / "zig-out/product").symlink_to(product, target_is_directory=True)
     preparation_log = scratch / "checkout preparation.jsonl"
@@ -49,7 +50,7 @@ os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
         assert not any(a[0] in ("build", "pull") or "up" in a or a[:2] == ["volume", "rm"]
                        for a in calls_since(before))
     # Read-only verbs do not create state. The CLI does not search a checkout
-    # for configuration, even when an old deployment directory exists there.
+    # for configuration, even when one sits in the checkout's deploy directory.
     before = len(log.read_text())
     call("doctor")
     call("status", ok=False)
@@ -63,21 +64,21 @@ os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
     call("up", "--help")
     call("reset", "--help")
     assert not preparation_log.exists(), "help or invalid argv requested a source build"
-    # Model the manual configuration move without changing real host files.
+    # Seed the state directory with an operator override.
     state.mkdir(parents=True, mode=0o700)
     (state / "docker-compose.override.yml").write_bytes(override)
     before = len(log.read_text())
     # macOS contributors select a separately prepared Linux product explicitly.
     args = () if sys.platform.startswith("linux") else ("--build", product)
-    # Reset must work directly after the configuration move: no successful up,
-    # managed Compose file, or saved image exists yet. Preparation must not
+    # Reset must work with only an operator override present: no successful up,
+    # managed Compose file, or saved image exists yet. Preparation must not status-allow: pending state or quoted runtime label
     # start old data, and an unconfirmed reset must not stop or erase anything.
     result = call("reset", "all", *args, detached=True, ok=False)
     assert "ConfirmationRequired" in result.stderr, result.stderr
     assert any(a[0] == "build" for a in calls_since(before))
     assert not any(a[0] == "pull" or "up" in a or "down" in a or a[:2] == ["volume", "rm"] for a in calls_since(before))
     assert (state / "docker-compose.override.yml").read_bytes() == override
-    assert (legacy / "docker-compose.override.yml").read_bytes() == override
+    assert (checkout_config / "docker-compose.override.yml").read_bytes() == override
     before = len(log.read_text())
     call("reset", "all", "--yes", *args)
     calls = calls_since(before)
@@ -110,7 +111,7 @@ os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
     assert next(i for i, a in enumerate(calls) if "down" in a) < next(i for i, a in enumerate(calls) if a[:2] == ["volume", "rm"])
     assert next(i for i, a in enumerate(calls) if "up" in a) > max(i for i, a in enumerate(calls) if a[:2] == ["volume", "rm"])
     # Host state remains authoritative across subsequent checkout invocations.
-    (legacy / "docker-compose.override.yml").write_bytes(b"# stale legacy copy\n")
+    (checkout_config / "docker-compose.override.yml").write_bytes(b"# checkout copy\n")
     (state / "docker-compose.override.yml").write_bytes(override + b"# host edit\n")
     before = len(log.read_text())
     call("up", "--image", "fixture:explicit")
@@ -124,7 +125,7 @@ os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
     call("status")
     call("down")
     assert not any(a[0] in ("build", "pull") or a[:2] == ["volume", "rm"] for a in calls_since(before))
-    # A fresh HOME gets its own state path and no legacy configuration.
+    # A fresh HOME gets its own state path.
     fresh_checkout = scratch / "fresh checkout"
     (fresh_checkout / "zig-out").mkdir(parents=True)
     (fresh_checkout / "zig-out/product").symlink_to(product, target_is_directory=True)

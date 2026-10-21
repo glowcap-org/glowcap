@@ -87,9 +87,9 @@ grant. A reference to another peer must have an established way to restore
 it. Saving a reference that cannot outlive the process returns `NotDurable`,
 though an in-memory record can hold it while the process runs.
 
-Replacing a field drops the old reference only when the new payload and edge
+Replacing a field drops the old reference only when the new payload and edge <!-- status-allow: runtime state or operation ordering -->
 commit. An abort releases what the transaction held. If the completion is
-lost, Loam keeps enough to tell whether the old or the new references
+lost, Loam keeps enough to tell whether the old or the new references <!-- status-allow: runtime state or operation ordering -->
 survived. Cleanup outside the store after a commit has an owner and a bounded
 number of retries.
 

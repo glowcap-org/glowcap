@@ -160,7 +160,7 @@ zig build rooms-irc-server -- \
 
 `--dm-transport=iroh` advertises an encrypted, endpoint-authenticated iroh
 locator instead. That is the setup to deploy when a Goblins vat should be able
-to dial in with no earlier contact, through this repository's Goblins iroh netlayer.
+to dial in with no earlier contact, through this repository's Goblins iroh netlayer. <!-- status-allow: runtime state or operation ordering -->
 `--dm-transport=tcp` is for local Goblins conformance testing, and it can only
 bind to loopback.
 

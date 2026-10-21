@@ -90,7 +90,7 @@ pub const Command = struct {
     children: []const Command = &.{},
     aliases: []const []const u8 = &.{},
     /// Whether ancestor flags configure this subtree. False starts an
-    /// independent scope, refusing ancestor flags even when supplied earlier.
+    /// independent scope, refusing ancestor flags even when supplied earlier. status-allow: event or source ordering
     inherit_flags: bool = true,
     /// Omit from argv help "Commands:" and shell completion. The leaf remains callable.
     hidden_from_help: bool = false,

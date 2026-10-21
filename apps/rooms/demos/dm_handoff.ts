@@ -20,7 +20,7 @@
 //
 // Four proofs, all asserted:
 //   1. Carol's first `introduce` is refused `introduction-pending`, because Bob
-//      has not offered an inbox for her yet, and the retry after his offer works.
+//      has not offered an inbox for her yet, and the retry after his offer works. status-allow: pending state or quoted runtime label
 //   2. Carol's DM arrives on the inbox Bob minted for Carol, so Bob knows who
 //      sent it without the message naming anyone.
 //   3. Bob accepts a brand-new inbound connection for the DM, Carol reached Bob

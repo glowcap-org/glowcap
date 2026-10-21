@@ -166,11 +166,10 @@ engineTest(
 engineTest(
 	"delete-peer also strips entities.peers and cascades to entities.sessions/messages",
 	() => {
-		// Regression: pre-fix, delete-peer dropped events but left
-		// `entities.peers[id]` behind. Then `#applyEternalEntities`
-		// re-added the "deleted" peer from its stranded definition
-		// on the next world rebuild. The peer wouldn't
-		// disappear from the stage.
+		// delete-peer must remove `entities.peers[id]` along with the events.
+		// Otherwise `#applyEternalEntities` re-adds the "deleted" peer from its
+		// stranded definition on the next world rebuild, and the peer never
+		// disappears from the stage.
 		const e = new Engine(structuredClone(doc));
 		// Confirm entities exists for 'a' before deletion (parse
 		// transform populated it from the peer-joined event).

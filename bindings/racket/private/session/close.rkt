@@ -157,7 +157,7 @@
   ;; A close request issued outside a turn is close-relevant activity: a
   ;; driver already parked on host progress with no finite deadline must
   ;; re-check. A mid-turn request needs no bump here, because the enclosing
-  ;; drain bumps when the turn unwinds; bumping earlier lets the turn's own
+  ;; drain bumps when the turn unwinds; bumping earlier lets the turn's own status-allow: event or source ordering
   ;; pump observe closure before the parked release executes.
   (when (eq? (car disposition) 'wait) (host-bump-progress! m))
   (case (car disposition)

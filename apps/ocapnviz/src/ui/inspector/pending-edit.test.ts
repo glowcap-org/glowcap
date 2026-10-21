@@ -10,7 +10,7 @@
  * The other side of the same pair is a commit that lands twice. A
  * rename moves the anchor, which unmounts the field that made it, so
  * an unmount that handed the same draft up again would ask to rename
- * an id the document no longer has.
+ * an id the document no longer has. status-allow: lifecycle transition
  */
 
 import { assert, assertEquals } from "@std/assert";

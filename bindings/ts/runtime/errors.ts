@@ -60,7 +60,7 @@ export class GlowcapError extends Error {
 	constructor(public readonly code: number, detail?: string) {
 		// For a code an FFI call returned, capture the thread-local message now.
 		// A client-side validation throw passes an explicit `detail` instead, so it
-		// never scrapes an unrelated thread-local left by some earlier call.
+		// never scrapes an unrelated thread-local left by some earlier call. status-allow: event or source ordering
 		const d = detail ?? lastError();
 		super(d ? `glowcap error ${code}: ${d}` : `glowcap error ${code}`);
 		this.detail = d;
@@ -79,7 +79,7 @@ export class VowBroken extends GlowcapError {
 	}
 }
 
-/** A durable publication the remote Host no longer knows. This is the
+/** A durable publication the remote Host no longer knows. This is the status-allow: lifecycle transition
  * application-facing lifecycle fact behind CapTP's canonical
  * `unknown swissnum` break: consumers can reconcile retained sturdyrefs
  * without branching on protocol text. */

@@ -132,7 +132,7 @@ pub fn Machine(
 
         pub fn closeConn(self: *Self, slot: usize, c: *Conn) void {
             // A free slot has an undefined `fd`, so closing one would hand the
-            // backend garbage. Reaching here with one is currently impossible
+            // backend garbage. Reaching here with one is impossible
             // (a recv's op stays counted across `onRecvFinish`, so no nested
             // teardown can reclaim the slot under it), but that argument spans
             // three functions and should not be the only thing standing

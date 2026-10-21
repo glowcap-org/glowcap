@@ -7,7 +7,6 @@ pub mod commands;
 mod footprint;
 pub mod gestures;
 mod intent;
-pub mod invitations;
 mod model;
 mod projection;
 pub use intent::{
@@ -52,19 +51,11 @@ impl core::error::Error for Refusal {}
 #[derive(PartialEq, Eq)]
 pub struct Checkpoint(model::State);
 impl Checkpoint {
-	pub fn uses_relay(&self) -> bool {
-		self.0.dm_mode == model::DmMode::Relay
-	}
 	/// Retained graph size, including spare text/list capacity. Allocator metadata
 	/// is excluded. Callers separately bound the number of allocations/requests.
 	pub fn retained_bytes(&self) -> usize {
 		use footprint::HeapBytes;
 		core::mem::size_of::<Self>().saturating_add(self.0.heap_bytes())
-	}
-	pub fn adoption_material(&self) -> Result<crate::text::DocumentText, Refusal> {
-		serde_json::to_string(&("adoptWorkspace", self))
-			.map(Into::into)
-			.map_err(|_| Refusal::Schema)
 	}
 	pub fn empty() -> Self {
 		Self(model::State::empty())

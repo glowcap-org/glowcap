@@ -332,7 +332,7 @@ layoutTest(
 		// let them.
 		//
 		// A peer's display name rather than a designator, because a designator is
-		// shortened before it is drawn and can no longer be the widest thing on
+		// shortened before it is drawn and can no longer be the widest thing on status-allow: lifecycle transition
 		// the stage. A name a person chose is not shortened, so it still can.
 		const name = "a".repeat(48);
 		const width = nodeFootprint(name, false).halfWidth * 2;
@@ -414,10 +414,8 @@ layoutTest(
 	"two nodes on one point are pushed apart, wherever they sit in the array",
 	() => {
 		// A pile has no line to separate along, so the force invents a ray for it.
-		// The ray used to be handed to arithmetic that grows an EXISTING gap, and a
-		// pile has none: at the first index the ray runs along x, the growth factor
-		// came out exactly one, and the pair was left stacked for every remaining
-		// tick. At every other index it moved a fraction of the distance it needed.
+		// The ray must not feed growth arithmetic: a pile has no existing gap, so the
+		// factor would be exactly one and the pair stays stacked.
 		//
 		// One pass with nothing else acting, because a whole solve's charge would
 		// separate a pile anyway and hide the whole thing.

@@ -45,7 +45,7 @@ const Binding = struct {
 
 /// Trees a `zig build` step executes. The hermetic per-binding proof families
 /// (`bindings/proofs/`) and the cross-implementation interop clients are the
-/// ones `ci/gates.sh` runs on every push and they carry every proven verb today,
+/// ones `ci/gates.sh` runs on every push and they carry every proven verb,
 /// the demo apps and benchmark clients are run on demand and count the same,
 /// because what makes a call site proof is that a build step runs it.
 const proof_roots = [_][]const u8{ "bindings/proofs", "interop", "apps", "bench" };
@@ -81,7 +81,7 @@ const Allowed = struct {
     why: []const u8,
 };
 
-/// Rows with no runtime proof today, each carrying why. A row whose verb becomes
+/// Rows with no runtime proof, each carrying why. A row whose verb becomes
 /// provable fails the gate, so the list only shrinks. It is empty: every verb
 /// either has a proof or an `<name>_omit` reason on its inventory row.
 const allowlist = [_]Allowed{};

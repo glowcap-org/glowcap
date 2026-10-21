@@ -56,7 +56,7 @@ export interface AddField {
 	 * twice, so a press or a caret landing over there is not "somewhere else",
 	 * and neither the blur nor the outside-click dismissal takes this panel away
 	 * for it. What does take it away is the pair ending: the panel closes when a
-	 * conversation opens, which is exactly when there is no longer a form for it
+	 * conversation opens, which is exactly when there is no longer a form for it status-allow: lifecycle transition
 	 * to be a view of. */
 	link?: {
 		/** The other form, as a selector. One place names it, so the panel that
@@ -74,7 +74,7 @@ export interface AddField {
 		onRoomPreset: (preset: RoomPreset) => void;
 	};
 	/** Offered when this panel can also reach somewhere this tab does not hold
-	 * yet. Absent means the panel has no elsewhere: a direct line is opened from
+	 * yet. Absent means the panel has no elsewhere: a direct line is opened from status-allow: pending state or quoted runtime label
 	 * a roster, so there is no address to go and find. Absent too while `picks`
 	 * is present, because then the destination is changed here rather than by
 	 * stepping out to change it. */
@@ -90,7 +90,7 @@ export interface AddField {
 	 * advertising, or the people it says are reachable.
 	 *
 	 * Offered rather than enforced. Both fields name something that may not exist
-	 * yet, a room is made by opening it, so what is typed always wins and the
+	 * yet, a room is made by opening it, so what is typed always wins and the status-allow: pending state or quoted runtime label
 	 * list is a shortcut past typing a name in full, never a set to choose from.
 	 * Absent leaves the field exactly as it was. */
 	offers?: readonly string[];
@@ -135,7 +135,7 @@ export function AddButton({ id, label, open, canAdd, onOpen }: {
  * not a store fact, because nothing outside reads a half-typed name, and it is
  * not left in the DOM, because a value the element holds outlives the field
  * being closed, the conversation being switched, and the room being lost: the
- * page would then reopen a field still carrying a name from some earlier
+ * page would then reopen a field still carrying a name from some earlier status-allow: event or source ordering
  * intention. */
 export function NamePanel(
 	{
@@ -411,7 +411,7 @@ export function NamePanel(
 						// and unlinked forms before the card makes picks eligible again.
 						// The panel stays: the press is about to put a form on
 						// screen that this field becomes a second view of, and
-						// taking the field away at the moment it gains its
+						// taking the field away at the moment it gains its status-allow: state at observation
 						// other half is the opposite of what the press meant.
 						onElsewhere?.(value);
 					}}

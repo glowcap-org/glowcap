@@ -209,7 +209,7 @@ export function releaseContext(context: Context): void {
 export interface ContextAllocator {
 	/** Return a block of at least `size` bytes aligned to `alignment`. */
 	alloc(size: number, alignment: number): Uint8Array;
-	/** Release a block previously returned by `alloc`. */
+	/** Release a block previously returned by `alloc`.  status-allow: ownership and operation ordering */
 	free(block: Uint8Array, size: number, alignment: number): void;
 }
 
@@ -391,7 +391,7 @@ export class Context {
 		};
 	}
 
-	/** Claim every unreturnable failure currently retained, in order. */
+	/** Claim every unreturnable failure retained, in order. */
 	takeFailures(): FailureEvent[] {
 		const failures: FailureEvent[] = [];
 		for (;;) {

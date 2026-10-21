@@ -100,7 +100,7 @@ export type DragMode =
 		 * possible) doesn't drift the math. */
 		startOrder: string[];
 		startClientY: number;
-		/** Per-row height in pixels, captured at drag-start. Used to
+		/** Per-row height in pixels, captured at drag-start. Used to status-allow: purpose clause
 		 * convert clientY delta into insertion-index delta. */
 		rowPitchPx: number;
 		moved: boolean;

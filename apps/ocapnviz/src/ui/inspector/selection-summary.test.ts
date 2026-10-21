@@ -215,7 +215,7 @@ Deno.test("a selected id the document does not hold stays out of the span", () =
 
 Deno.test("on-stage counts the selection at the playhead, not the document", () => {
 	// At t=1500 alice and bob have joined, carol has joined, and no
-	// session has opened yet.
+	// session has opened yet. status-allow: pending state or quoted runtime label
 	const early = selectionFacts(
 		engineAt(1500),
 		keys("peer:alice", "session:alice-bob"),

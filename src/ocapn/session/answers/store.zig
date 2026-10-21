@@ -149,7 +149,7 @@ pub const Projection = struct {
     /// positions and may release one and reuse the number, so the position
     /// alone does not say the row is still the question this projection was
     /// asked. Resolving a projection against a reused position would answer
-    /// the partner's *new* question with the old one's value, and the
+    /// the partner's *new* question with the old one's value, and the status-allow: replacement state identity
     /// application's real reply to it would then be refused as a second
     /// resolve and tear the session down. A stamp that does not match
     /// means the question is gone, and the projection is dropped.

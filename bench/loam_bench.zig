@@ -207,7 +207,7 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
 
 /// Reopen the closed database in a new Store, Host and Attachment, and time
 /// everything up to the answer of one call. Conversation `first` must answer
-/// with every edit the earlier run committed.
+/// with every edit the earlier run committed. status-allow: event or source ordering
 fn restart(init: std.process.Init, report: *std.ArrayList(u8), path: [:0]const u8, store_id: w.core.StoreId, allocator: std.mem.Allocator, count: usize, size: usize, first: w.core.ObjectId, edits: usize) !void {
     const io = init.io;
     const start = now(io);

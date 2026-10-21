@@ -30,7 +30,7 @@ pub const Runtime = struct {
 
     /// Compare immutable engine policy without exposing engine-specific trust
     /// material. Different implementations are conservatively distinct even
-    /// when they happen to accept the same certificates today.
+    /// when they happen to accept the same certificates.
     pub fn sameConfiguration(self: Runtime, other: Runtime) bool {
         if (self.vtable != other.vtable) return false;
         return self.vtable.same_configuration(self.ctx, other.ctx);

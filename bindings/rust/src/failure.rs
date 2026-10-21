@@ -205,7 +205,7 @@ impl Error {
 
 	/// The diagnostic message for this failure. For a broken `send` it is the
 	/// partner's break reason. Otherwise it is the calling thread's C ABI message
-	/// captured at the moment the failure was raised, so a later fallible call on
+	/// captured at the moment the failure was raised, so a later fallible call on status-allow: state at observation
 	/// the same thread cannot overwrite it. `None` when neither was set. Borrowed
 	/// from the error. Clone it if you need it to outlive the `Error`.
 	pub fn message(&self) -> Option<&str> {

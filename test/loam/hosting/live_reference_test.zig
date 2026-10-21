@@ -206,7 +206,7 @@ test "loam live reference indexed lookup refreshes after cold preparation and pr
     stale.revision += 1;
     try std.testing.expectError(error.ReferenceUnprepared, set.restored(stale, 0));
     try std.testing.expectError(error.ReferenceUnprepared, set.restored(view, 1));
-    // The explicit live save wins over the earlier restored recipe, and its
+    // The explicit live save wins over the earlier restored recipe, and its status-allow: event or source ordering
     // borrowed proof remains the same across subsequent lookup and advance.
     const saved = (try set.captured(fixture.target)).saved;
     try std.testing.expectEqual(saved, (try set.captured(fixture.target)).saved);

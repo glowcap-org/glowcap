@@ -61,8 +61,8 @@ pub const outbound_answer_cursor_rows: []const Ban = &.{
     },
 };
 
-/// Codec decode nesting has one numeric owner. Syrup and Cap'n Proto keep their
-/// historical public names as aliases, not as separate policy facts.
+/// Codec decode nesting has one numeric owner. Syrup and Cap'n Proto name it
+/// through aliases, not as separate policy facts.
 pub const codec_decode_nesting_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/ocapn/codec/limits.zig" },
@@ -203,7 +203,7 @@ pub const local_turn_budget_rows: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{"max_batch_local_turns"},
         .check = "local-turn-budget-owner",
-        .why = "tests must not restore the old actors.Vat policy name; use the driver-core owner or an explicit test budget",
+        .why = "the local-turn budget has one owner; use the driver-core owner or an explicit test budget",
     },
     .{
         .where = .{ .files = &.{
@@ -264,7 +264,7 @@ pub const iroh_node_id_bytes_rows: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{ "cap = 64", "const cap = 64", "[0u8; 64]", "(make-bytes 64)", " buf 64", "buffer 64" },
         .check = "iroh-node-id-bytes",
-        .why = "iroh node id buffers use IROH_NODE_ID_BYTES, not the old literal width",
+        .why = "iroh node id buffers use IROH_NODE_ID_BYTES, not a literal width",
     },
 };
 

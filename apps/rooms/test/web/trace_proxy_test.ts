@@ -18,7 +18,7 @@ async function readSwiss(stateDir: string): Promise<string> {
 			const swiss = (await Deno.readTextFile(`${stateDir}/trace`)).trim();
 			if (swiss !== "") return swiss;
 		} catch {
-			// Not written yet.
+			// Not written yet. status-allow: pending state or quoted runtime label
 		}
 		await new Promise((resolve) => setTimeout(resolve, 100));
 	}

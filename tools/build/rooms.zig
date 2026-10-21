@@ -80,7 +80,7 @@ const WebProof = struct {
     measures_time: bool = false,
 };
 
-/// Whether `site/assets` holds Rooms pictures from an earlier capture. The
+/// Whether `site/assets` holds Rooms pictures from an earlier capture. The status-allow: event or source ordering
 /// site render always captures afresh; the local preview captures only when
 /// nothing is there, so starting it costs a capture once, not every time.
 /// The directory's entries are a configure input, so a capture or a removal

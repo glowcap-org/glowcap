@@ -154,27 +154,6 @@ pub enum Claim {
 /// Signaling-only tab registrations do not consume a workspace nickname.
 /// The bounded alternatives preserve the original tab naming contract.
 pub const SIGNALING_NAME_ATTEMPTS: usize = 4;
-pub fn signaling_name(designator: &str, attempt: usize) -> Option<String> {
-	if attempt >= SIGNALING_NAME_ATTEMPTS {
-		return None;
-	}
-	let token: String = designator
-		.chars()
-		.filter(char::is_ascii_alphanumeric)
-		.take(12)
-		.collect();
-	let base = if token.is_empty() {
-		String::from("sattach")
-	} else {
-		alloc::format!("s{token}")
-	};
-	Some(if attempt == 0 {
-		base
-	} else {
-		alloc::format!("{base}-{}", attempt + 1)
-	})
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
 	Id,

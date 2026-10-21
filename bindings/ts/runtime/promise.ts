@@ -253,7 +253,7 @@ export function sendFar(
  * A pipeline target belongs to the Host that minted it; another Host refuses
  * it before interpreting the Host-local vow number.
  *
- * The projection verbs `index`/`untag`/`get` (ADR-0004/ADR-0004) pipeline an
+ * The projection verbs `index`/`untag`/`get` (ADR-0004) pipeline an
  * element, untag, or Struct-field access *at the answer*, before it resolves:
  * each returns a new `RemotePromise` for the projected value, addressed at this
  * answer, so `task.untag("cell").index(0)` or `task.get("name")` costs no

@@ -215,11 +215,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// Starved receives retry only on this progress edge. Polling alone
         /// cannot spin submissions while the platform pool remains empty.
         recv_recycle_progress: bool = false,
-        /// Wrapped close submissions currently refused by the platform. RelayConn
+        /// Wrapped close submissions refused by the platform. RelayConn
         /// supplies the links, so retries visit only owed closes and cannot fail
         /// while trying to allocate their own recovery bookkeeping.
         close_retries: CloseRetryQueue = .{},
-        /// Sparse secure-only state. Clear connections retain the historical
+        /// Sparse secure-only state. Clear connections keep the plain
         /// `RelayConn` footprint. This table allocates only after a WSS dial.
         secure: TlsMap = .{},
         /// Secure writes whose platform submission was refused before

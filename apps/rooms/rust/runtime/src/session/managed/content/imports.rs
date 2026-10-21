@@ -18,7 +18,7 @@ struct Replacement<'a> {
 	source: Option<Coordinate>,
 }
 /// Callback-local scalar selections and releases each occupy at most one
-/// custody page. Legacy import holds one selection. Canonical command and
+/// custody page. A single `import-result` holds one selection. Canonical command and
 /// candidate bytes borrow the retained invocation. Parsing copies no authority.
 pub(super) struct Request<'a> {
 	operation: rooms_application::session::state::OperationId,

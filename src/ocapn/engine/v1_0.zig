@@ -23,7 +23,7 @@ const resolution_math = @import("pipeline_resolution.zig");
 const Peer = engine.Peer;
 
 /// A V1.0 wire message whose synthesized resolver mention has been installed
-/// in authoritative session state but has not reached the outbound queue yet.
+/// in authoritative session state but has not reached the outbound queue yet. status-allow: pending state or quoted runtime label
 /// The encode owner must call `abandon` on every failure before publication.
 /// Once the frame is queued, the partner owns the mention and the preparation
 /// is committed by doing nothing.
@@ -89,8 +89,8 @@ pub fn encodeResolutionAsCallback(
     var args = resolution_math.callbackArgs(resolution);
     const wire: model.Message = .{
         .deliver = .{
-            // A far import carries no wire kind, `desc:export` names it regardless
-            // (ADR-0006), and the `Slot` sum makes remote-mint value object-only
+            // A far import carries no wire kind, `desc:export` names it regardless,
+            // and the `Slot` sum makes remote-mint value object-only
             // (ADR-0006).
             .target = .{ .far = .{ .import_position = resolver_import } },
             .args = &args,

@@ -42,7 +42,7 @@ Deno.test("a short era eases from where the picture actually was", () => {
 	);
 	// The second era lasted 150 of a 600 ms window, so it starts 25% of the
 	// way from the first era's start (its own layout) toward that layout,
-	// which is the same point, so the picture has not moved yet. A third era
+	// which is the same point, so the picture has not moved yet. A third era status-allow: pending state or quoted runtime label
 	// is what reads that progress.
 	assertEquals(sealed[1]?.start.get("alice"), { x: 0, y: 0 });
 	const thirdLayout = new Map([["alice", { x: 0, y: 0 }]]);

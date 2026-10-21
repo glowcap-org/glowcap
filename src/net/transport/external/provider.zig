@@ -2,7 +2,7 @@
 //!
 //! A provider owns its connections, their bytes, and one readiness
 //! descriptor per pending dial, listener, or connection. Every verb returns
-//! at once: a dial or listen that cannot finish yet hands back an attempt and
+//! at once: a dial or listen that cannot finish yet hands back an attempt and status-allow: pending state or quoted runtime label
 //! the descriptor that turns readable when it can, and reads and writes
 //! report would-block until the connection's descriptor is ready. The
 //! adapter in `completion.zig` waits on those descriptors through its

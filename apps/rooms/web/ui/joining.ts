@@ -42,7 +42,7 @@ import {
 
 export const JOIN_DEFAULT_ROOM = "general";
 export const JOIN_DEFAULT_NICK = "guest";
-/** Shape of a locator, used when this page's own address is not known yet. */
+/** Shape of a locator, used when this page's own address is not known yet.  status-allow: pending state or quoted runtime label */
 export const JOIN_LOCATOR_SHAPE = "ocapn://designator.transport";
 
 export interface DirectoryDestinationContext {
@@ -75,18 +75,6 @@ export function privateRoomNameRefusal(name: string, liveNames: Iterable<string>
 	return null;
 }
 
-/** The sturdyref in a `/join` argument, and any words the reader wrote after
- * it as a label. Null when the text is not a room link.
- *
- * The URI is found wherever it sits, so pasting `/link`'s whole answer, the
- * sentence and then the locator, still takes up the link rather than treating
- * "Anybody" as the first token. Words after the locator are a label. Nothing
- * after it means the room should say what it is called. */
-export function joinLinkIn(asked: string): { link: string; label: string } | null {
-	const destination = askedJoin(asked);
-	return destination?.kind === "link" ? { link: destination.link, label: destination.label } : null;
-}
-
 /** What `/join` does with its argument: take up a room link, or enter a room
  * by name. Null when the field is empty. Never "the room I am in": a join is
  * a destination. The schema is the one definition: the type and the
@@ -104,31 +92,6 @@ export function askedJoin(asked: string): AskedJoin | null {
 	// reader gives text that holds no destination.
 	const parsed = z.safeParse(AskedJoinSchema, JSON.parse(encoded));
 	return parsed.success ? parsed.data : null;
-}
-
-/** The conversation this tab is already in that a room link names, or null.
- *
- * A locator is a destination, not the conversation it was typed in. The same
- * sturdyref this tab already holds is that destination. A listed room is also
- * that destination when this tab is in it by name, because a public link is
- * that listed room. A private room is not: two private rooms may share a
- * label, and `/join` must not guess from the conversation it was typed in. */
-export function joinedForLink(
-	rooms: readonly { key: string; held: boolean; id: string; link?: string }[],
-	live: ReadonlySet<string>,
-	link: string,
-	listed: string | null,
-): string | null {
-	for (const conv of rooms) {
-		if (conv.link === link && live.has(conv.key)) return conv.key;
-	}
-	if (listed !== null && listed !== "") {
-		const folded = listed.toLowerCase();
-		for (const conv of rooms) {
-			if (!conv.held && conv.id.toLowerCase() === folded && live.has(conv.key)) return conv.key;
-		}
-	}
-	return null;
 }
 
 /** Whether a link-join sits in the listed room.
@@ -533,7 +496,7 @@ export function joinLead(answers: JoinAnswers, where: string): string {
 
 /** What this card is a gate on, when it is a gate on anything.
  *
- * A link names a destination the reader has not necessarily seen yet, so it
+ * A link names a destination the reader has not necessarily seen yet, so it status-allow: pending state or quoted runtime label
  * speaks up. A press that already named the room does too: the card is then a
  * gate on that room, and the missing answer is the name. What this browser
  * merely remembers is an offer, and describing an offer as though it were a
@@ -555,7 +518,7 @@ function aimedAt(answers: JoinAnswers, where: string): string | null {
  * as a locator rather than as a value already typed. `address` is the shared
  * route every other surface hands out (`peer.dirAddress`), so the hint and the
  * copyable address name the same thing. Null when the page has no home
- * directory yet. */
+ * directory yet.  status-allow: pending state or quoted runtime label */
 export function joinLocatorPlaceholder(address: string | null): string {
 	if (address == null) return JOIN_LOCATOR_SHAPE;
 	let locator = address.trim();

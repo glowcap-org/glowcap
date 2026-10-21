@@ -109,7 +109,7 @@ pub fn main(init: std.process.Init) !void {
     for (targets, 1..) |target, n| {
         std.debug.print("[{d}/{d}] {s}\n", .{ n, targets.len, target.name });
 
-        // tolerant: a crash file left behind by an earlier target would be
+        // tolerant: a crash file left behind by an earlier target would be status-allow: event or source ordering
         // read as this one's finding, so clear it before every run; usually
         // there is nothing to delete.
         cache_dir.deleteFile(io, crash_artifact) catch {};

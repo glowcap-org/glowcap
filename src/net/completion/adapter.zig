@@ -2,7 +2,7 @@
 //!
 //! A wrapped adapter keeps a table of legs, one per synthetic handle, and
 //! runs each leg over one inner connection. Two facts about a leg are the
-//! same whatever the transport: which inner operations it currently has
+//! same whatever the transport: which inner operations it has
 //! submitted, and where its inner descriptor stands in its own close. This
 //! leaf owns those two facts. The relay and onion adapters compose
 //! it. None restates it.
@@ -18,7 +18,7 @@ const std = @import("std");
 /// descriptor is gone.
 pub const InnerClose = enum { open, in_flight, failed, closed };
 
-/// Which inner operations one leg currently has submitted.
+/// Which inner operations one leg has submitted.
 ///
 /// `Op` is the adapter's internal operation enum and `tracked` names the
 /// members a leg arms at most once at a time. A close is not tracked here

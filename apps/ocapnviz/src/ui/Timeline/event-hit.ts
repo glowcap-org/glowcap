@@ -284,7 +284,7 @@ export function hitTestEvents(
 			// observation event) breaks when Inspector edits to
 			// entity.timing have moved the painted edge but left the
 			// observation event's t stale: the first dt is applied to the
-			// stale t, snapping the edge backward to its earlier position.
+			// stale t, snapping the edge backward to its earlier position. status-allow: event or source ordering
 			const eff = peerEffective(doc, bestEdge.peerId);
 			return {
 				entity,

@@ -17,7 +17,7 @@ import { containsTime } from "../temporal/range.ts";
 import { peerEffective, sessionEffective } from "../temporal/doc-resolver.ts";
 import { sessionEnds } from "../claims.ts";
 
-/** One thing arriving on stage or leaving it, at the moment it happens. */
+/** One thing arriving on stage or leaving it, at the moment it happens.  status-allow: state at observation */
 export type TopologyChange =
 	| { t: number; kind: "peer-in"; peerId: string }
 	| { t: number; kind: "peer-out"; peerId: string }

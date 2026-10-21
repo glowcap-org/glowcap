@@ -43,7 +43,7 @@ async fn host_trace_discovers_private_authority_and_follows_the_carried_feed() {
         assert_eq!(serde_json::from_str::<serde_json::Value>(&replay).unwrap()["kind"], "trace.replay-end");
         let (mut producer, _) = tokio_tungstenite::connect_async(web.url(&format!("/publish?cap={swiss}"))).await.unwrap();
         assert!(producer.next().await.unwrap().unwrap().to_text().unwrap().contains("trace.publish-ready"));
-        producer.send(Message::Text(r#"{"v":1,"sim_t_ns":3,"kind":"ocapn.session-opened","session":"host-proof","a":"alpha","b":"beta","transport":"tcp"}"#.into())).await.unwrap();
+        producer.send(Message::Text(r#"{"v":1,"sim_t_ns":3,"kind":"ocapn.session-opened","session":"host-proof","a":"alpha","b":"beta","transport":"tcp","captp_version":"1.0"}"#.into())).await.unwrap();
         let line = tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap();
         let record: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(record["kind"], "ocapn.session-opened");

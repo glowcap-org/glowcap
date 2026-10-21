@@ -129,7 +129,7 @@ impl<R> Stewardship<R> {
 		Ok(attempt)
 	}
 	/// The caller has validated the reply and imported any new reference.
-	/// Failure drops that candidate and preserves the previously held authority.
+	/// Failure drops that candidate and preserves the previously held authority. status-allow: ownership and operation ordering
 	pub fn accept(&mut self, attempt: Attempt, acquisition: Acquisition<R>) -> Result<(), Error> {
 		attempt.check()?;
 		if !self.pending.ptr_eq(&Rc::downgrade(&attempt.0)) {
@@ -158,7 +158,7 @@ impl<R> Stewardship<R> {
 		}
 	}
 	/// Exact generations control retained state. Any notice invalidates pending
-	/// acquisition: its returned publication may not yet be known to this owner.
+	/// acquisition: its returned publication may not yet be known to this owner. status-allow: pending state or quoted runtime label
 	/// No list of retired tokens or unbounded pending work is retained.
 	pub fn forget(&mut self, kind: Kind, token: &str) {
 		self.invalidate();

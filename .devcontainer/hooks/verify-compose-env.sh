@@ -4,9 +4,9 @@
 # Compose applies these when a container is created, so a container that
 # predates a newly declared variable keeps running without it and the service
 # that wanted it falls back to its own default. That is silent and it points
-# somewhere else: adding GLOWCAP_ROOMS_DEV_HOST left older containers running
-# the Rooms dev server on container loopback, which a published port cannot
-# reach, and the failure arrived as a 502 from the proxy in front of it.
+# somewhere else: without GLOWCAP_ROOMS_DEV_HOST the Rooms dev server binds
+# container loopback, which a published port cannot reach, and the failure
+# arrives as a 502 from the proxy in front of it.
 #
 # Called by hooks/post-create.sh, so a container that has fallen behind says so
 # when it opens rather than when something built on it fails. Only literal

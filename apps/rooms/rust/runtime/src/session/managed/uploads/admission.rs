@@ -127,7 +127,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		));
 	}
 	if input.content_revision != request.intent.base {
-		return Err(refuse("workspace revision changed"));
+		return Err(refuse(&rooms_application::failure::stale_workspace()));
 	}
 	let coordinates = request
 		.intent

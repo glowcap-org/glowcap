@@ -201,7 +201,7 @@ run_bump() {
     # when the version itself arrives. An interrupted bump leaves inert future
     # hashes and companion files one step ahead of the pin, which env-sync.sh
     # reports; the reverse would be a version whose hash and Dockerfiles still
-    # name the old release.
+    # name the old release. status-allow: replacement state identity
     glowcap_pins_install "${staged_sums}" "${dir}/checksums.sh"
     local companion relative staged
     for companion in "${glowcap_pins_staged_companions[@]}"; do

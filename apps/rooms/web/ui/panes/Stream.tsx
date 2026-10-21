@@ -176,7 +176,7 @@ export function Stream(
 			const saved = positions.current.recall(key);
 			if (saved === undefined) e.scrollTop = e.scrollHeight;
 			else e.scrollTop = saved;
-			// A long conversation may not have finished laying out yet, especially
+			// A long conversation may not have finished laying out yet, especially status-allow: pending state or quoted runtime label
 			// on the phone's page scroll, so a second pass on the next frame actually
 			// reaches the end instead of falling a screen short.
 			if (saved === undefined) requestAnimationFrame(() => keepLatestInView(true));

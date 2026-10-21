@@ -171,7 +171,7 @@ fn disclose(owner: *h.Attachment, op: *calls.Operation, index: usize) Flow {
 }
 
 /// Prepare a waiting operation and send its invocation through the owning
-/// ingress once no earlier operation on the same entry still holds it.
+/// ingress once no earlier operation on the same entry still holds it. status-allow: event or source ordering
 fn schedule(owner: *h.Attachment, op: *calls.Operation, index: usize) !void {
     for (owner.operations) |other| {
         // Forwarded calls hold immutable intent/result custody, not the

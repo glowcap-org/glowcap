@@ -1,6 +1,6 @@
 //! The foundation layer, gathered in one place. These are the primitives every
 //! other layer moves around: `frame` for wire bytes and who owns them, `spill`
-//! for the stream bytes that have arrived but not yet been consumed as a frame,
+//! for the stream bytes that have arrived but not yet been consumed as a frame, status-allow: pending state or quoted runtime label
 //! `id` for the `PeerId` and `SessionId`, `crypto` for the Ed25519 and
 //! SHA-256 work the handshake and handoff signatures need, `noise` for the
 //! Noise_XK state machine ADR-0041 names, and `sealed` for the sealed byte

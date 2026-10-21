@@ -81,7 +81,7 @@ impl Retirement {
 			if matches!(outcome, WorkerOutcome::Unstarted)
 				|| matches!(outcome, WorkerOutcome::Finished(code) if code != crate::sys::OK)
 			{
-				// SAFETY: `self.raw` is this `Retirement`'s work handle from `glowcap_loam_next_work`, not yet
+				// SAFETY: `self.raw` is this `Retirement`'s work handle from `glowcap_loam_next_work`, not yet status-allow: pending state or quoted runtime label
 				// completed or released, and `join` above has observed the worker's retirement, so no storage access to
 				// it remains.
 				let code = unsafe { ffi::glowcap_loam_work_report_unstarted(self.raw) };
@@ -92,7 +92,7 @@ impl Retirement {
 			self.reported = true;
 		}
 		let mut completed = 0;
-		// SAFETY: `self.raw` is this `Retirement`'s work handle from `glowcap_loam_next_work`, not yet released, and
+		// SAFETY: `self.raw` is this `Retirement`'s work handle from `glowcap_loam_next_work`, not yet released, and status-allow: pending state or quoted runtime label
 		// `join` above has observed the worker's retirement; `completed` is a local out-parameter the callee writes.
 		let code = unsafe { ffi::glowcap_loam_work_complete(self.raw, &mut completed) };
 		self.completed = completed != 0;

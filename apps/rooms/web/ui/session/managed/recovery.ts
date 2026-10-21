@@ -29,7 +29,7 @@ export async function resumeEffect(
 	const status = await request.status();
 	observe?.(status);
 	try {
-		// Unknown can mean a paused executor with no result yet. Resume checks
+		// Unknown can mean a paused executor with no result yet. Resume checks status-allow: pending state or quoted runtime label
 		// that exact owner; a speculative result read would prevent its recovery.
 		const resumed = await request.resume();
 		observe?.(resumed);

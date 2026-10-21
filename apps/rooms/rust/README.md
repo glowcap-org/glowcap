@@ -27,8 +27,7 @@ direction: a service dependency never
 enters a shared or platform crate, and no host platform dependency enters
 the browser crate.
 [ADR-0045](../../../docs/decisions/adr/ADR-0045-managed-rooms-sessions.md)
-and [ADR-0045](../../../docs/decisions/adr/ADR-0045-managed-rooms-sessions.md)
-record the boundary.
+records the boundary.
 
 ### rooms-application
 

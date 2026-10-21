@@ -132,7 +132,7 @@ pub(in crate::session::managed) fn reapplication(call: &mut Call<'_>, input: Inv
 		.and_then(SafeInteger::new)
 		.ok_or_else(|| loam::refusal("invalid bridge revision"))?;
 	if base.get() != input.content_revision {
-		return Err(loam::refusal("workspace revision changed"));
+		return Err(loam::refusal(rooms_application::failure::stale_workspace()));
 	}
 	let record = records::decode(input)?;
 	let witness = record

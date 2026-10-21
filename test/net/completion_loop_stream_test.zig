@@ -558,7 +558,7 @@ const small_read_buffer_bytes: u32 = 4 * 1024;
 /// Build a large but structurally valid `op:deliver` frame in the negotiated
 /// codec: the client handshakes against a server twin, then sends a fetch whose
 /// swissnum is padded to many kilobytes, so the frame is larger than one pool
-/// buffer yet well under the peers' `max_frame_bytes`. Returns the client's
+/// buffer yet well under the peers' `max_frame_bytes`. Returns the client's status-allow: pending state or quoted runtime label
 /// start-session bytes and the big deliver bytes, both owned by the caller.
 fn buildBigDeliverScript(
     allocator: std.mem.Allocator,

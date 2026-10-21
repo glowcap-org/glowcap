@@ -45,7 +45,7 @@
 ;; The manual projection frames below name the ordinary Goblins questions by
 ;; answer position. Keep those questions strongly reachable until both
 ;; projections settle: once a vow becomes unreachable Goblins may legally send
-;; op:gc-answers, after which its answer position no longer names anything.
+;; op:gc-answers, after which its answer position no longer names anything. status-allow: lifecycle transition
 (define held-answer-vows (box '()))
 ;; Export 0 is Goblins' bootstrap object and therefore a valid local export for
 ;; a V1.0 listen callback descriptor. The probe observes glowcap's callback on

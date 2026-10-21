@@ -11,7 +11,7 @@ pub(crate) struct AcceptState {
 	pub(crate) queue: Mutex<super::admission::Queue<AcceptedRaw>>,
 }
 
-/// One accepted connection the acceptor task produced but the loop has not yet
+/// One accepted connection the acceptor task produced but the loop has not yet status-allow: pending state or quoted runtime label
 /// claimed: the QUIC connection and its first bidirectional stream, carried by
 /// value (every part is `Send`) so the task never holds a raw handle pointer.
 pub(crate) struct AcceptedRaw {

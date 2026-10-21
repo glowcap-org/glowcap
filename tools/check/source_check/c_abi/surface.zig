@@ -78,7 +78,7 @@ pub fn checkAbiFreeingVerb(
 }
 
 /// The minimality bar from ADR-0022: a clean C ABI is not only correctly
-/// represented (ADR-0022) but minimally shaped — one spelling per concept, no
+/// represented but minimally shaped — one spelling per concept, no
 /// accidental variation. This holds the two structural invariants a careless
 /// addition would break (the close/release verb is held separately by
 /// `checkAbiFreeingVerb`):

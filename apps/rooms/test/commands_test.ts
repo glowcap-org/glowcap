@@ -48,7 +48,7 @@ Deno.test("session content metadata keeps workspace, custody and target powers s
 		fail("command target missing");
 	}
 	if (SESSION_METHOD_REQUIREMENTS.facet !== null || SESSION_METHOD_REQUIREMENTS.revoke !== null) {
-		fail("legacy lifecycle admitted");
+		fail("facet lifecycle gained a workspace requirement");
 	}
 	if (SESSION_COMMAND_REQUIREMENTS.linkRoom !== null) fail("plan builder became a callable command");
 	for (const name of ["selectArchive", "dropRoomManager", "dropRoomModerator"] as const) {

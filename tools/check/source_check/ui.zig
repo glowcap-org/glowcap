@@ -141,7 +141,7 @@ pub fn checkUiCore(
         }
 
         // And nothing extra in the consumer's directory, so a retired face
-        // cannot linger as a stale copy the core no longer owns.
+        // cannot linger as a stale copy the core no longer owns. status-allow: lifecycle transition
         try checkOnlyDeclared(io, gpa, root, violations, consumer.fonts_dir, declared.items, &.{});
     }
 

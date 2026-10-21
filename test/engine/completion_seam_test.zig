@@ -41,7 +41,7 @@ fn envelopedLen(comptime frame: []const u8) usize {
     return std.fmt.comptimePrint("{d}:", .{frame.len}).len + frame.len;
 }
 
-/// Apply every whole envelope currently buffered, compacting the unconsumed
+/// Apply every whole envelope buffered, compacting the unconsumed
 /// tail to the front of `buf`, exactly the loop's inner drain. Returns the
 /// number of frames applied and the new valid length.
 fn drainBuffered(peer: *engine.Peer, buf: []u8, valid_in: usize) !struct { applied: usize, valid: usize } {

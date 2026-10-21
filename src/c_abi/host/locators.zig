@@ -2,7 +2,7 @@
 //!
 //! The core Host owns its acceptable locations. This leaf admits borrowed C
 //! locator views, transfers their owned form into that Host, and exposes the
-//! pure durable-seed helper used to construct keyed locator designators.
+//! pure durable-seed helper used to construct keyed locator designators. status-allow: purpose clause
 
 const foundation = @import("foundation");
 const model = @import("model");

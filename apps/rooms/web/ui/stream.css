@@ -220,9 +220,9 @@
 	   history, and a backdrop blur over a box that tall is expensive to redraw
 	   while the slide runs. Making it `fixed` does not shrink it: a transformed
 	   ancestor is the containing block for a fixed descendant, so `fixed` here
-	   resolves against the conversation exactly as `absolute` does. Shrinking it
-	   means moving the paint onto a box outside the transform and carrying it
-	   with the same translate, which is real work and is not done yet. */
+	   resolves against the conversation exactly as `absolute` does. The
+	   transformed ancestor therefore keeps the backdrop at full conversation
+	   height throughout the slide. */
 	.workarea::after {
 		content: "";
 		position: absolute;

@@ -6,4 +6,3 @@ import { ALL_BOOT_CAPS, BOOT_CAPS, OPERATIONS_CAPABILITIES } from "./application
 
 export { ALL_BOOT_CAPS, BOOT_CAPS, OPERATIONS_CAPABILITIES };
 export type { OperationsCapability } from "./application_data.ts";
-export type BootCapDef = (typeof ALL_BOOT_CAPS)[number];

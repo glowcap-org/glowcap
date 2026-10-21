@@ -30,8 +30,6 @@ An operation lives where the thing it acts on lives:
   `.agents/`, and a maintainer's machine and account facts in gitignored
   tooling under `.local/`.
 
-See [ADR-0032](../docs/decisions/adr/ADR-0032-cli-and-product-boundaries.md)
-for the layout decision and
 [ADR-0032](../docs/decisions/adr/ADR-0032-cli-and-product-boundaries.md)
-for script placement and lifecycle. [ADR-0032](../docs/decisions/adr/ADR-0032-cli-and-product-boundaries.md)
-owns the CLI installation and Rooms deployment boundary.
+records the layout, script placement and lifecycle, the CLI installation, and
+the Rooms deployment boundary.

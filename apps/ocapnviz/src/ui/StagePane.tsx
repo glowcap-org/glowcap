@@ -99,7 +99,7 @@ export function StagePane({
 					// An empty-canvas click means something to two tools. Add Peer
 					// places one. Open Session, once a peer is armed, runs the
 					// session out to an end nothing has attributed. The shape a
-					// recording holds when a peer has dialed and nothing has yet
+					// recording holds when a peer has dialed and nothing has yet status-allow: pending state or quoted runtime label
 					// answered for who answered.
 					onCanvasClick={mode !== "build" || spaceHeld
 						? undefined

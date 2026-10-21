@@ -88,7 +88,7 @@ test "a mirror places its own row under another table's handle" {
     mirror.placeReserved(b, "b");
     try std.testing.expectEqualStrings("b", mirror.get(b).?);
     try std.testing.expectEqual(@as(usize, 1), mirror.count());
-    // The owner frees and reuses the row: the mirror's row for the old
+    // The owner frees and reuses the row: the mirror's row for the old status-allow: replacement state identity
     // handle is gone and the new handle finds nothing until placed.
     try std.testing.expect(owner.remove(b));
     try std.testing.expectEqualStrings("b", mirror.fetchRemove(b).?);

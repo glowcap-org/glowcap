@@ -29,7 +29,7 @@ pub(super) struct Job<P: Tasks> {
 	pub task: Option<P::Task>,
 	work: Rc<Mutex<Option<Work<P>>>>,
 	/// The installed observation while it waits on commit, so a retry under
-	/// the same id can see a confirmed absence the worker has not yet woken to.
+	/// the same id can see a confirmed absence the worker has not yet woken to. status-allow: pending state or quoted runtime label
 	confirming: Weak<PendingContinuation>,
 	pub failure: Option<glowcap::Error>,
 	pub batch_released: Option<Rc<Cell<bool>>>,

@@ -9,8 +9,6 @@ import type {
 } from "./protocol.ts";
 import type { ArchiveFilter } from "./scope.ts";
 
-export const MAX_ARCHIVE_BLOB_BYTES = 512 * 1024 * 1024;
-
 export interface ArchiveAttachmentAddress extends ArchiveCoordinates {
 	readonly conversationKind: ArchiveLine["conversationKind"];
 	readonly directory: string;
@@ -40,18 +38,6 @@ export function isBlobArchiveBackend(backend: ArchiveBackend): backend is BlobAr
 	return "putWithAttachments" in backend && typeof backend.putWithAttachments === "function" &&
 		"readAttachment" in backend && typeof backend.readAttachment === "function" &&
 		"peekLine" in backend && typeof backend.peekLine === "function";
-}
-
-export function archiveAttachmentKey(address: ArchiveAttachmentAddress): string {
-	return JSON.stringify([
-		address.source,
-		address.generation,
-		address.id,
-		address.conversationKind,
-		address.directory,
-		address.conversation,
-		address.index,
-	]);
 }
 
 type AttachmentMetadata = Pick<ArchivedAttachment, "name" | "mime" | "size" | "width" | "height">;

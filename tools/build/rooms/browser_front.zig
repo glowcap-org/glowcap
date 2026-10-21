@@ -56,7 +56,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     product.step.dependOn(&prepare.step);
     // The stage copies every Rooms helper and the iroh companion out of the
     // install prefix. Each must be installed by this build: without these
-    // edges a leftover helper from an earlier build shipped beside a fresh
+    // edges a leftover helper from an earlier build shipped beside a fresh status-allow: event or source ordering
     // companion, and the session refused the mismatched callable surface.
     product.step.dependOn(ctx.archive_install);
     product.step.dependOn(ctx.iroh_abi_step);

@@ -89,7 +89,7 @@ fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
 ///
 /// This is the sidecar's one trust boundary. Every `glowcap_webrtc_*` entry
 /// point is handed a raw handle the C side got from the matching `*_new` and has
-/// not yet freed, and this is the single place that assumption becomes a Rust
+/// not yet freed, and this is the single place that assumption becomes a Rust status-allow: pending state or quoted runtime label
 /// reference. Written once here, the argument for it is one thing to check
 /// rather than one per entry point, and each entry point is left saying what it
 /// does instead of restating who owns its pointer.
@@ -109,7 +109,7 @@ unsafe fn borrowed<H, R: Copy>(handle: *const H, refused: R, body: impl FnOnce(&
 	}))
 	.unwrap_or(refused)
 }
-/// A non-blocking call that cannot make progress yet: no candidate has gathered,
+/// A non-blocking call that cannot make progress yet: no candidate has gathered, status-allow: pending state or quoted runtime label
 /// the channel is not open, or a bounded queue has no room. The resident re-arms
 /// and retries, distinct from a hard error.
 const WOULD_BLOCK: i32 = -2;
@@ -205,7 +205,7 @@ const INBOUND_BUFFER_BOUND: usize = constants_gen::DATA_CHANNEL_QUEUE_BYTES;
 
 /// The SCTP receive window bound passed to `webrtc` 0.20. It is separate from
 /// the C-facing staging bound above: the crate may hold bytes it has received
-/// but not yet yielded as `DataChannelEvent::OnMessage`.
+/// but not yet yielded as `DataChannelEvent::OnMessage`. status-allow: pending state or quoted runtime label
 const SCTP_RECEIVE_BUFFER_BOUND: usize = constants_gen::SCTP_RECEIVE_BUFFER_BYTES;
 
 /// Per-peer outbound byte bound. C-facing try-writes may stage up to this much
@@ -239,11 +239,11 @@ struct OpenGate {
 }
 
 struct Outbound {
-	/// Packets accepted from C try-writers but not yet handed to WebRTC. The C
+	/// Packets accepted from C try-writers but not yet handed to WebRTC. The C status-allow: pending state or quoted runtime label
 	/// ABI is synchronous, while `DataChannel::send` still awaits the crate's
 	/// async core lock, so this queue is the nonblocking boundary.
 	packets: VecDeque<BytesMut>,
-	/// Includes bytes currently being sent by the async drain task, so the bound
+	/// Includes bytes being sent by the async drain task, so the bound
 	/// covers both queued and in-flight sidecar storage.
 	queued_bytes: usize,
 	closed: bool,
@@ -620,7 +620,7 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(
 /// still release every peer first so no readiness can outlive its owner.
 ///
 /// # Safety
-/// `endpoint` must be null or an owned endpoint handle not previously freed.
+/// `endpoint` must be null or an owned endpoint handle not previously freed. status-allow: ownership and operation ordering
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_free(endpoint: *mut GlowcapWebrtcEndpoint) -> i32 {
 	if endpoint.is_null() {

@@ -48,12 +48,6 @@ impl Attachment {
 	pub fn link(&self) -> &str {
 		&self.link
 	}
-	pub fn adopts_local(&self) -> bool {
-		matches!(self.prior, Controller::Local {})
-	}
-	pub fn keeps_hosting(&self) -> bool {
-		self.same_peer && matches!(self.prior, Controller::Hosted { .. })
-	}
 	pub fn check(&self, current: &Controller) -> Result<(), &'static str> {
 		if current == &self.prior {
 			Ok(())

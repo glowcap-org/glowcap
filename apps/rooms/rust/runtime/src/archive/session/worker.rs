@@ -51,7 +51,6 @@ pub struct Worker<B, P: Platform> {
 	backend: B,
 	sources: rooms_glowcap::client::sources::Sources<P>,
 	targets: Targets<P>,
-	erase_required: bool,
 	erase_source_required: Option<rooms_application::text::DocumentText>,
 	standings: rooms_application::archive::recording::Standings,
 	issuer: Option<Issuer>,
@@ -89,7 +88,6 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 			backend,
 			sources: rooms_glowcap::client::sources::Sources::new(state.platform.clone()),
 			targets: Targets::new(state.platform.clone(), runtime),
-			erase_required: false,
 			erase_source_required: None,
 			standings: Default::default(),
 			issuer: None,
@@ -211,7 +209,6 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 					};
 					complete(answer, result, &mut report);
 				}
-				Command::Issued(answer) => complete(answer, self.issued_shares().await, &mut report),
 				Command::Select(link, answer) => {
 					let result = self.targets.select(link).await;
 					let issue = result
@@ -228,17 +225,6 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 					complete(answer, result.map(|_| ()), &mut report);
 				}
 				Command::Prepare(link, answer) => complete(answer, self.targets.prepare(link).await, &mut report),
-				Command::Clear(answer) => {
-					// An erasure covers every line admitted before it, including
-					// those whose bytes are still arriving; they land refused.
-					self.captures.abort_all();
-					for capture in self.capturing.values_mut() {
-						capture.erased = true;
-					}
-					self.erase_required = true;
-					let result = self.local_ready().await;
-					complete(answer, result, &mut report);
-				}
 				Command::ClearSource(source, answer) => {
 					let result = async {
 						self.local_ready().await?;
@@ -297,10 +283,6 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 				}
 				Command::Read(filter, answer) => {
 					let result = self.read(filter).await.map(|view| view.records);
-					complete(answer, result, &mut report);
-				}
-				Command::ReadView(filter, answer) => {
-					let result = self.read(filter).await;
 					complete(answer, result, &mut report);
 				}
 				Command::Page(filter, after, limit, answer) => {

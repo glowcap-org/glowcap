@@ -180,7 +180,7 @@ export async function waitForHttp(port: number): Promise<void> {
 			await res.body?.cancel();
 			if (res.status === 200) return;
 		} catch {
-			// not up / room not ready yet
+			// not up / room not ready yet status-allow: pending state or quoted runtime label
 		}
 		await delay(50);
 	}

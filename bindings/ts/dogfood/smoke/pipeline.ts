@@ -305,7 +305,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("turn-time spawn uses the Host after the originating Port closes");
 	}
 
-	// Pipelined projections (ADR-0004/ADR-0004): `RemotePromise.index(i)` and
+	// Pipelined projections (ADR-0004): `RemotePromise.index(i)` and
 	// `.untag(tag)` access an element / unwrap a tag *at the answer*, before it
 	// resolves, each returning a new pipelinable `RemotePromise`. The board's
 	// `make` returns `["assigned", label, 7]` tagged "task"; untag unwraps the
@@ -436,7 +436,7 @@ export async function run(managed: Runtime): Promise<void> {
 			const root = await session.fetch("root");
 			const anchor = session.send(root, "explode", []);
 			assert(anchor instanceof Promise, "a send handle must be a real Promise");
-			// No later operation exists yet: creation itself must schedule progress.
+			// No later operation exists yet: creation itself must schedule progress. status-allow: pending state or quoted runtime label
 			await boomSeen;
 			// `anchor` is never observed; its break remains only a recorded outcome.
 			// The break's FAIL completion is recorded with no waiter, no rejection.

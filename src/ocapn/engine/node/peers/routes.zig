@@ -210,7 +210,7 @@ pub fn routeCapability(self: *Node, route_id: model.CapabilityRouteId) ?Routed {
     return .{ .peer_handle = found.peer_handle, .target = .{ .far = found.far } };
 }
 
-/// Retire a route once its real wire import generation is no longer live.
+/// Retire a route once its real wire import generation is no longer live. status-allow: lifecycle transition
 /// Partial releases leave the route intact while the session row exists. Once
 /// it is gone, retaining the route would let an old capability address a newly
 /// reused import position.

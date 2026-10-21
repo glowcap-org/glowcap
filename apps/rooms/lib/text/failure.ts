@@ -15,8 +15,8 @@
 // needs `@glowcap/runtime`, a host module the browser bundle must not contain.
 import { ROOMS_FAILURES, roomsErrorInMessage, type RoomsFailureRetry } from "../error_codes.ts";
 
-export type FailureRetry = RoomsFailureRetry | "unknown";
-export interface FailureView {
+type FailureRetry = RoomsFailureRetry | "unknown";
+interface FailureView {
 	readonly code: string;
 	readonly subject: string;
 	readonly retry: FailureRetry;

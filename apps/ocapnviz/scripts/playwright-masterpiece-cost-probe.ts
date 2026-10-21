@@ -126,11 +126,10 @@ async function measure(label: string, hideAll: boolean): Promise<Pass> {
 	// had run off the end, and report the cost of a stopped picture as the cost
 	// of playback.
 	//
-	// Nothing here is called through `?.`. An optional call on a method name
-	// that turned out to be wrong is how the first version of this probe
-	// measured a stopped clock for ten seconds and reported it as playback: the
-	// call silently did nothing and the numbers looked plausible. A name this
-	// probe guesses wrong now throws, in view, on the first frame.
+	// Nothing here is called through `?.`. An optional call on a wrong method
+	// name does nothing silently, and the probe would measure a stopped clock
+	// and report it as playback. A name this probe gets wrong throws, in view,
+	// on the first frame.
 	await page.evaluate(() => {
 		// deno-lint-ignore no-explicit-any
 		const g = globalThis as any;

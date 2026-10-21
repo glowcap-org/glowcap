@@ -168,7 +168,7 @@ pub const Turn = struct {
     }
 
     /// Move an owned byte field out of the actor's state into the reply: hand
-    /// the bytes to the vat, clear the field so the actor's `deinit` no longer
+    /// the bytes to the vat, clear the field so the actor's `deinit` no longer status-allow: lifecycle transition
     /// frees them, and return them as a `bytes` argument. A transfer, not a
     /// borrow, the vat frees the bytes when its next outermost turn begins,
     /// the same lifetime a borrowed reply has, so handing off a large buffer
@@ -242,7 +242,7 @@ pub const Turn = struct {
     /// partner pipelining on the proxy's answer queues on this side until the
     /// forwarded send settles (ADR-0016). Keeps `anyerror`: the
     /// local arm re-enters the near-call handler boundary.
-    /// Reserve the listener table a not-yet-committed send from this turn
+    /// Reserve the listener table a not-yet-committed send from this turn status-allow: pending state or quoted runtime label
     /// will use: the Port's for a Port-caused turn, else the vat's local
     /// table, where only a local vow can be observed.
     pub fn reserveListener(self: *Turn, location: VowLocation) Error!ListenerReservation {

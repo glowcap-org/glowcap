@@ -13,9 +13,7 @@ export type ScrubberProps = {
 	clock: ClockSnapshot;
 	/** The full doc, needed by the lane-bundle builder to resolve
 	 *  `entity.timing` through the effective-range resolvers
-	 *  (`peerEffective` / `sessionEffective` / `messageEffective`).
-	 *  Replaces the pre-Behavior-layer flow where spans were derived
-	 *  from observation `t` directly. */
+	 *  (`peerEffective` / `sessionEffective` / `messageEffective`). */
 	doc: TimelineDocument;
 	events: readonly TimelineEvent[];
 	/** Identity-side of the entity model, see
@@ -57,7 +55,7 @@ export type ScrubberProps = {
 	 * `| undefined` is explicit so callers can wire it conditionally
 	 * under `exactOptionalPropertyTypes`. */
 	onSelectEvent?: ((selection: StageSelection) => void) | undefined;
-	/** Sub-selection state machine (v1.5 #16). When the user clicks
+	/** Sub-selection state machine. When the user clicks
 	 *  a session-state-changed diamond, the Scrubber emits the
 	 *  glyph's event id so the host can park "focus" on the
 	 *  keyframe, distinct from entity selection, which sits on
@@ -104,8 +102,8 @@ export type ScrubberProps = {
 	 * intrinsic to App so the bottom pane can Fit / auto-size. */
 	onIntrinsicHeightChange?: ((px: number) => void) | undefined;
 	/** Reports the collapsed-fit scrubber height (every category
-	 *  collapsed, lanes as currently toggled). The parent uses this
-	 *:  not the live intrinsic, as the drag floor. */
+	 *  collapsed, lanes as toggled). The parent uses this
+	 * :  not the live intrinsic, as the drag floor. */
 	onCollapsedHeightChange?: ((px: number) => void) | undefined;
 	/** Flash-grade timeline, per-category row management. */
 	expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>;

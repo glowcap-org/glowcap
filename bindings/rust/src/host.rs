@@ -273,7 +273,7 @@ impl HostShared {
 			)
 		})?;
 		let mut diagnostic_id = 0;
-		// SAFETY: `raw` is the handle `glowcap_host_new_in` just filled, not yet owned by a `HostShared`;
+		// SAFETY: `raw` is the handle `glowcap_host_new_in` just filled, not yet owned by a `HostShared`; status-allow: pending state or quoted runtime label
 		// `diagnostic_id` is an out-parameter the callee writes.
 		if let Err(error) = check_host(unsafe { ffi::glowcap_host_diagnostic_id(raw, &mut diagnostic_id) }) {
 			// SAFETY: `raw` is the handle from `glowcap_host_new_in`; setup failed before any `HostShared` took it, so
@@ -589,7 +589,7 @@ impl HostShared {
 	/// itself: the token carries which exporter session hosts it, so this
 	/// never watches for a dial to complete. It is therefore right with several
 	/// redeems in flight at once, and it still names the exporter when the
-	/// redeem reused a session an earlier one already dialed, where no fresh
+	/// redeem reused a session an earlier one already dialed, where no fresh status-allow: event or source ordering
 	/// dial happened at all. `Session::send_redeeming` calls it on the reply it
 	/// just awaited.
 	pub(crate) fn exporter_for(self: &Rc<Self>, capability: &Ref) -> Result<Option<Rc<SessionShared>>> {
@@ -610,7 +610,7 @@ impl HostShared {
 			return Ok(Some(existing));
 		}
 		// A loop-adopted Host redeems handoffs inside its own steps, so the
-		// exporter session may be loop-internal with no shell yet: wrap it
+		// exporter session may be loop-internal with no shell yet: wrap it status-allow: pending state or quoted runtime label
 		// lazily as a loop-backed shell (registered, so a repeat resolves to
 		// the same one), the way the byte-fed drain's redeem registers its own.
 		#[cfg(not(target_arch = "wasm32"))]

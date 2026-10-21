@@ -104,7 +104,7 @@ pub fn ActionFifo(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        /// Rows pushed and not yet popped live at `list.items[head..]`.
+        /// Rows pushed and not yet popped live at `list.items[head..]`. status-allow: pending state or quoted runtime label
         list: std.ArrayListUnmanaged(T) = .empty,
         head: usize = 0,
 
@@ -142,7 +142,7 @@ pub fn ActionFifo(comptime T: type) type {
 
         /// Pop the front row, owning nothing: the caller (or its deferred
         /// free) owns the row's payload. Null when empty, which also rewinds
-        /// the drained list while retaining previously reserved backing.
+        /// the drained list while retaining previously reserved backing. status-allow: ownership and operation ordering
         pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
             // `retain_all`, not a byte bound: `reserve` runs at vow-mint time
             // and `pushReserved` spends it at settle time, with this drain in

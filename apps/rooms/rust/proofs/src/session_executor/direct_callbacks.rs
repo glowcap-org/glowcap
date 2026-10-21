@@ -228,7 +228,7 @@ pub(super) async fn run(
 		.unwrap();
 	assert_eq!(received.get(), 2);
 	// Equal authority imported at a different coordinate is still a new route.
-	// Current callback admission must fence the old selection immediately.
+	// Current callback admission must fence the old selection immediately. status-allow: replacement state identity
 	let mut replacement = workspace.snapshot().await.unwrap().intent;
 	let original = replacement.clone();
 	let workspace::Conversation::Direct(row) = &mut replacement.conversations.as_mut_slice()[0] else {

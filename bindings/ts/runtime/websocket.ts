@@ -235,7 +235,7 @@ export function webSocketChannel(
 			};
 			// Adoption normally follows OPEN. Refuse a socket that closed between
 			// the caller's check and handler installation instead of returning a
-			// barrier whose close event can no longer arrive.
+			// barrier whose close event can no longer arrive. status-allow: lifecycle transition
 			if (ws.readyState === WebSocket.CLOSED) {
 				const failure = new Error("WebSocket closed before channel adoption");
 				retainCloseFailure(failure);

@@ -13,7 +13,7 @@
 // one question among them rather than the shape of the whole control.
 //
 // Adding another question means adding a line to `railCriteria`, and a field to
-// `RailRow` when the question asks about something the row does not carry yet.
+// `RailRow` when the question asks about something the row does not carry yet. status-allow: pending state or quoted runtime label
 // The control draws whatever this list holds, the answers are held one field
 // per kind of answer rather than one per question, and `criterionShows` is the
 // only place a single question is decided.
@@ -186,7 +186,7 @@ export function setTyped(answers: FilterAnswers, id: string, value: string): Fil
  *
  * Every question is offered whatever this tab happens to hold. A tab on one
  * directory is still asked which directory, for the same reason a tab in one
- * room is still asked for a name: a question with one answer today is a
+ * room is still asked for a name: a question with one answer is a
  * question all the same, and taking it away means the control changes shape
  * under a reader as they join things. */
 export function railCriteria(
@@ -257,7 +257,7 @@ export function dmRow(conv: DmConv, unread: Unread): RailRow {
 	return { dir: conv.dir, name: conv.id, access: null, unread: unreadAnswer(unread) };
 }
 
-/** A room somebody handed this tab and it has not answered yet. Private, since
+/** A room somebody handed this tab and it has not answered yet. Private, since status-allow: pending state or quoted runtime label
  * a reference is the only way into it. */
 export function inviteRow(invite: Invitation): RailRow {
 	return { dir: invite.dir, name: invite.label, access: "private", unread: null };

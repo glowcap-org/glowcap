@@ -334,7 +334,7 @@ test "loam managed hosting keeps reference custody separate from reply authority
     try std.testing.expectEqual(@as(u16, 2), view.edge_count);
     var current_edges = view.edges();
     try std.testing.expect(current_edges.next().?.target.eql(target));
-    // Later custody must preserve earlier declarations; declaring custody
+    // Later custody must preserve earlier declarations; declaring custody status-allow: event or source ordering
     // later must promote only that capability into the allowed reply suffix.
     call.requireDisclosedReply();
     const exact = host.application.smuggle.?;

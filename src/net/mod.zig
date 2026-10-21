@@ -47,7 +47,7 @@ pub const waitAny = connection.waitAny;
 pub const classifyApplyError = connection.classifyApplyError;
 
 pub const FrameStream = frame_stream.FrameStream;
-/// Where stream bytes wait when they have arrived but do not yet make a whole
+/// Where stream bytes wait when they have arrived but do not yet make a whole status-allow: pending state or quoted runtime label
 /// frame. Shared with the byte-fed host tier as `foundation.Spill`. At this tier
 /// it is the bounded overflow behind a read buffer (ADR-0012).
 pub const Spill = frame_stream.Spill;

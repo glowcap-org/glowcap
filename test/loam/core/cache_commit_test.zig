@@ -30,7 +30,7 @@ test "loam unchanged resident bytes survive edits but historical leases stay his
     try store.putCopying(f.record(ids[1], "edited-b"), 1);
     try store.retainOnCommit();
     try f.commit(store, &fixture.backend);
-    // The same bytes support a new lease; the old lease never changes epoch.
+    // The same bytes support a new lease; the old lease never changes epoch. status-allow: replacement state identity
     {
         const fresh = try store.resident(ids[0]);
         defer store.release(fresh) catch unreachable;

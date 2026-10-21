@@ -247,7 +247,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 			throw err;
 		}
 		// Replacement moves discovery only. Existing capabilities and deposited
-		// gifts can still call the old actor.
+		// gifts can still call the old actor. status-allow: replacement state identity
 		this._publications.set(name, ctx);
 		this.scheduleKick();
 	}
@@ -340,7 +340,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		return utf8Decoder.decode(out);
 	}
 
-	/** Remove a minted durable publication (ADR-0007): the old sturdyref
+	/** Remove a minted durable publication (ADR-0007): the old sturdyref status-allow: replacement state identity
 	 * misses from now on, while issued `Ref`s and deposited gifts keep the
 	 * exact actor. Returns false when no such durable name exists. */
 	unpublishDurable(swiss: string): boolean {
@@ -447,7 +447,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		const found = this._sessions.get(ptr) ?? null;
 		if (found == null && this._driverLoop != null) {
 			// A loop-owned Host redeems inside its own steps (ADR-0024), so the
-			// exporter session it dialed exists with no wrapper yet. Wrap it
+			// exporter session it dialed exists with no wrapper yet. Wrap it status-allow: pending state or quoted runtime label
 			// lazily. Adoption registers it, so a repeat lookup returns this
 			// same object and the loop stays its release authority.
 			return this._driverLoop.adoptSession(ptr);

@@ -15,7 +15,7 @@ export class ScrollMemory {
 
 	remember(key: string, position: number): void {
 		const limit = this.#limit ??= applicationModule().workspaceConversationLimit();
-		// Refresh recency on every real scroll; Map.set alone preserves the old
+		// Refresh recency on every real scroll; Map.set alone preserves the old status-allow: replacement state identity
 		// insertion position and would evict an actively read conversation.
 		this.#positions.delete(key);
 		this.#positions.set(key, position);

@@ -187,7 +187,7 @@ pub fn Machine(comptime Backend: type) type {
             beginClose(backend);
         }
 
-        /// Release a listener the caller no longer waits on.
+        /// Release a listener the caller no longer waits on. status-allow: lifecycle transition
         pub fn release(backend: *Backend) void {
             const row = &(backend.listener orelse return);
             std.debug.assert(row.accept_ud == null);

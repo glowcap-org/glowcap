@@ -103,7 +103,7 @@ def check_web(root, scratch, transport="iroh", executable=None):
             subprocess.run([*front, "status", "--url", url], check=True, capture_output=True, timeout=6)
             locator = subprocess.check_output([*front, "locator", "--url", url], text=True, timeout=6).strip()
             assert locator.startswith("ocapn://"), locator
-            # Generic CapTP currently registers stream transports, while Rooms
+            # Generic CapTP registers stream transports, while Rooms
             # also composes the multiplexed iroh provider. Exercise both the
             # supported call and the explicit refusal, without implying parity.
             called = subprocess.run([str(binary), "ocapn", "call", locator,

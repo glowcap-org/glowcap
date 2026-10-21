@@ -79,7 +79,7 @@ cursor.
   ask for a fresh snapshot without a cursor.
 - If the history you could see has expired, the reply says to start over and
   includes the current snapshot.
-- A paused or revoked use, or a control you can no longer use, sees only its
+- A paused or revoked use, or a control you can no longer use, sees only its <!-- status-allow: runtime state or operation ordering -->
   status. Policy or content edits while paused do not move the cursor.
 - Every reply checks current permissions, as ordinary calls do.
 
@@ -130,7 +130,7 @@ keeps 32 receivers waiting with a cold cache, using:
 Zig code uses the opaque `storage.ObservationRegistration`,
 `storage.Observation`, and `storage.ObservationCancellation` operations.
 
-- Registration borrows a source `Operation` that has not been prepared yet,
+- Registration borrows a source `Operation` that has not been prepared yet, <!-- status-allow: runtime state or operation ordering -->
   takes a target for use (or null for control) and a key your program
   supplies, and writes into the caller's Store transaction. Run the source's
   missing reads before you retry creating it, then run the registration's

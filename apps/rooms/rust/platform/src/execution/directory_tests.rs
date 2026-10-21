@@ -250,7 +250,7 @@ async fn scenario() {
 		.await
 		.unwrap();
 	assert!(matches!(first.next().await, Ok(Some(directory::Event::Truncated(9)))));
-	// Another handle on this same connection replaces the old watcher too.
+	// Another handle on this same connection replaces the old watcher too. status-allow: replacement state identity
 	let sibling = Directory::new(client.clone(), directory.reference().clone());
 	let mut second = sibling.watch().await.unwrap();
 	assert!(first.next().await.unwrap().is_none());

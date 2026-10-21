@@ -78,7 +78,7 @@ Without it, a session lives on one device. To open the same session, with
 the same identity, from anywhere, run the session service:
 
 ```sh
-glowcap apps rooms session serve --dir=.local/.state/rooms
+glowcap apps rooms session serve --dir=./rooms-session
 ```
 
 The command prints a link to the session. Open it from the **Session** tab in Settings.
@@ -95,7 +95,7 @@ only the use you select, and you can share a separately limited management
 link. Reading history and reading files are separate permissions.
 
 The session checks what a link may do each time it is used, so you can narrow
-a link, add or remove earlier messages, or pause it while someone holds it,
+a link, add or remove past messages, or pause it while someone holds it,
 without changing the link. A paused link says it is paused and why. Revoking
 a link cuts off every open connection using it, and it stays revoked after a
 restart.

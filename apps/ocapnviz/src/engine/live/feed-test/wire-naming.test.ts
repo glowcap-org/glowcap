@@ -8,7 +8,7 @@ import { wireName } from "./fixtures.ts";
 
 Deno.test("withdrawing a claim reveals the name underneath", () => {
 	// A member leaving a room keeps its connection to the room server, so the
-	// session stays; what changed is that the room no longer knows the
+	// session stays; what changed is that the room no longer knows the status-allow: lifecycle transition
 	// connection by a nickname. Withdrawing the claim has to show that, and
 	// freezing the last nick anyone said would not.
 	//
@@ -22,6 +22,8 @@ Deno.test("withdrawing a claim reveals the name underneath", () => {
 		v: 1,
 		sim_t_ns: 0,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p1/live-h1-s1",
 		a: "rooms",
 		b: "127.0.0.1:0",
@@ -33,6 +35,8 @@ Deno.test("withdrawing a claim reveals the name underneath", () => {
 		v: 1,
 		sim_t_ns: 500_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p2/live-h1-s1",
 		a: "tab-key",
 		b: "rooms",
@@ -90,6 +94,8 @@ Deno.test("a wire drawn before its far end could be named learns who is on it", 
 			v: 1,
 			sim_t_ns: 0,
 			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
 			session: `${scope}/live-h1-s1`,
 			a: self,
 			b: "rooms",
@@ -102,6 +108,8 @@ Deno.test("a wire drawn before its far end could be named learns who is on it", 
 		v: 1,
 		sim_t_ns: 1_000_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p2/live-h1-s2",
 		a: "bob-key",
 		b: "127.0.0.1:0",
@@ -127,6 +135,8 @@ Deno.test("a wire drawn before its far end could be named learns who is on it", 
 		v: 1,
 		sim_t_ns: 1_100_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p1/live-h1-s2",
 		a: "alice-key",
 		b: "bob-key",
@@ -167,6 +177,8 @@ Deno.test("the same direct session in the other order needs no redraw", () => {
 			v: 1,
 			sim_t_ns: 0,
 			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
 			session: `${scope}/live-h1-s1`,
 			a: self,
 			b: "rooms",
@@ -178,6 +190,8 @@ Deno.test("the same direct session in the other order needs no redraw", () => {
 		v: 1,
 		sim_t_ns: 1_000_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p1/live-h1-s2",
 		a: "alice-key",
 		b: "bob-key",
@@ -198,6 +212,8 @@ Deno.test("the same direct session in the other order needs no redraw", () => {
 		v: 1,
 		sim_t_ns: 1_100_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p2/live-h1-s2",
 		a: "bob-key",
 		b: "127.0.0.1:0",
@@ -211,7 +227,7 @@ Deno.test("the same direct session in the other order needs no redraw", () => {
 Deno.test("a name claimed before an end attaches comes with it", () => {
 	// The accepting end annotates the connection with the nick it knows the
 	// dialer by, and it does so while that end is still loose. There is no peer
-	// yet for the nick to sit on. The claim is about whoever turns out to be
+	// yet for the nick to sit on. The claim is about whoever turns out to be status-allow: pending state or quoted runtime label
 	// there, so it waits on the end and transfers when the end attaches.
 	// Dropping it would leave the conversation nameless for no reason.
 	const convert = makeBaseEventConverter();
@@ -220,6 +236,8 @@ Deno.test("a name claimed before an end attaches comes with it", () => {
 		v: 1,
 		sim_t_ns: 0,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p1/live-h1-s1",
 		a: "alice-key",
 		b: "rooms",
@@ -230,6 +248,8 @@ Deno.test("a name claimed before an end attaches comes with it", () => {
 		v: 1,
 		sim_t_ns: 1_000_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p2/live-h1-s2",
 		a: "bob-key",
 		b: "127.0.0.1:0",
@@ -253,6 +273,8 @@ Deno.test("a name claimed before an end attaches comes with it", () => {
 		v: 1,
 		sim_t_ns: 2_000_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p1/live-h1-s2",
 		a: "alice-key",
 		b: "bob-key",
@@ -287,6 +309,8 @@ Deno.test("an end nobody could name attaches when its own producer speaks", () =
 		v: 1,
 		sim_t_ns: 0,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p2/live-h1-s1",
 		a: "bob-key",
 		b: "127.0.0.1:0",
@@ -321,6 +345,8 @@ Deno.test("an end nobody could name attaches when its own producer speaks", () =
 		v: 1,
 		sim_t_ns: 1_000_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p1/live-h1-s1",
 		a: "alice-key",
 		b: "bob-key",
@@ -345,6 +371,8 @@ Deno.test("an end nobody could name attaches when its own producer speaks", () =
 		v: 1,
 		sim_t_ns: 2_000_000,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p1/live-h1-s2",
 		a: "alice-key",
 		b: "bob-key",

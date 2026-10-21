@@ -52,9 +52,7 @@ export function ErrorModalView(
 						/* Both are `ocv-btn` and nothing else: the box, the corner,
               the bevel, the hover and the focus ring are the app's, and
               `is-primary` is the one thing that distinguishes the answer
-              from the aside. They used to carry a style object of their
-              own, which is how they came to be the only buttons in the
-              app with a three-pixel corner and no hover. */
+              from the aside. */
 					}
 					<button
 						type="button"

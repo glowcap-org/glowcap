@@ -227,7 +227,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 		Ok(())
 	}
 	/// The confirmed Loam lifetime fences presentation identities across reopen.
-	/// Binding is one-time even when no events have yet been accepted.
+	/// Binding is one-time even when no events have yet been accepted. status-allow: pending state or quoted runtime label
 	pub fn bind_incarnation(&self, marker: loam::LiveIncarnation) -> Result<()> {
 		if self.incarnation.get().is_some() {
 			return Err(loam::refusal("activity incarnation already bound"));

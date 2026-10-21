@@ -126,7 +126,7 @@ though the actor API uses the same words (`spawn`, `$`, `<-`).
 
 - An inner actor state change is not rolled back when an outer actor later
   fails.
-- Local time travel rewinds actor state to an earlier snapshot. It is
+- Local time travel rewinds actor state to an earlier snapshot. It is <!-- status-allow: runtime state or operation ordering -->
   available only on the TCP and onion listeners, through the listener's
   `#:time-travel?` policy. Dialing sessions, iroh, and the relay listeners do
   not expose it.

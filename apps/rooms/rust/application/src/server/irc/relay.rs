@@ -108,10 +108,6 @@ impl Relay {
 			self.channel
 		))]
 	}
-	/// A write for `generation` failed. The feed connection is over.
-	pub fn send_failed(&mut self, generation: u64) {
-		self.retire(generation);
-	}
 	/// The server refused the channel: this membership attempt ends without
 	/// condemning the shared writer sibling channels use.
 	pub fn refused(&mut self, reason: String) -> Vec<Action> {

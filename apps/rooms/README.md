@@ -64,7 +64,7 @@ zig build rooms-dev
 Vite serves the page source with live reload and passes Rooms traffic through
 to the web server. The browser still uses the web relay, link previews, ICE
 (WebRTC's route finding), and directory services. Identity, room links, and the
-secrets inside them are kept under `.local/.state/rooms`, so a restart brings
+secrets inside them persist in the development state directory, so a restart brings
 back the same server. Ctrl-C stops both development processes.
 
 Use `zig build rooms-dev -Dhot-reload=false` to serve a built copy of

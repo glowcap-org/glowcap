@@ -71,7 +71,7 @@ pub const HostAction = union(enum) {
     /// Host/Node owns ranking and fallback while the embedder executes only
     /// exact attempts.
     dial: struct { ticket: engine.Node.PendingId, route_index: usize },
-    /// Stop one previously delivered `dial` effect. The executor interrupts
+    /// Stop one previously delivered `dial` effect. The executor interrupts status-allow: ownership and operation ordering
     /// and joins its physical operation, then calls `Host.dialCancelled`.
     cancel_dial: struct { ticket: engine.Node.PendingId, route_index: usize },
     /// Outbound transport packets may be ready on this session: drain
@@ -319,7 +319,7 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
 /// both irreversible once a frame or a close verdict exists. A caller
 /// naming `extra` is saying what it is adding on top: the action it is
 /// about to push, the vow or parked enliven it is about to mint, or the
-/// session whose two notifications do not exist yet.
+/// session whose two notifications do not exist yet. status-allow: pending state or quoted runtime label
 ///
 /// Reserving ahead is what lets those pushes be infallible later. A
 /// settled vow with no completion is unrepresentable, so the capacity has

@@ -110,7 +110,7 @@ const SessionDefinition = z.object({
 	/** The netlayer this session's bytes ride. Optional, and absent means
 	 *  nothing stated it rather than a netlayer everyone agreed on: a live
 	 *  producer that reported no transport is a real recording, and so is a
-	 *  session an author has not said this about yet. One session runs over
+	 *  session an author has not said this about yet. One session runs over status-allow: pending state or quoted runtime label
 	 *  one netlayer, so it sits on the session and not on either end. */
 	transport: Transport.optional(),
 	codec: Codec,

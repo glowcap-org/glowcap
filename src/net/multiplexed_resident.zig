@@ -53,7 +53,7 @@ pub const RawListenResult = union(enum) {
     pending,
 };
 
-/// A connection claimed from a resident but not yet adopted by a HostRuntime wire.
+/// A connection claimed from a resident but not yet adopted by a HostRuntime wire. status-allow: pending state or quoted runtime label
 /// It owns close immediately after `finish_connect` / `finish_accept` and is
 /// consumed only after every fallible adoption step has committed.
 pub const ClaimedConnection = struct {
@@ -122,7 +122,7 @@ pub const MultiplexedResident = struct {
         /// syscall per verb. Before a park every re-armed receive leaves
         /// too. Before the caller runs, a re-armed receive may wait for the
         /// park: nothing outside the thread can tell an unarmed receive from
-        /// one the kernel has not yet completed, and the park arms it before
+        /// one the kernel has not yet completed, and the park arms it before status-allow: pending state or quoted runtime label
         /// it waits. Absent means every verb completes its own effects.
         before_wait: ?*const fn (ctx: *anyopaque, after: AfterTurn) void = null,
         /// Take what the kernel has completed since the last reap and turn

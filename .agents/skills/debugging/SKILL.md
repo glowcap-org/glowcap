@@ -28,7 +28,7 @@ cluster. Probe in a copy of the failing proof kept outside the repository,
 with console capture, DOM dumps and screenshots, so product sources never
 carry diagnostic logging into the next build. When a proof's wait passes but
 the next step fails, suspect the wait: a transitional state can satisfy it,
-such as a destination title over the old composer.
+such as a destination title over the old composer. <!-- status-allow: workflow sequence -->
 
 ## Suspects, in order
 

@@ -168,7 +168,7 @@ every client being rebuilt first.
 | `subject` | description, then an optional link | What the room is about. An empty description means taken down |
 | `line-bytes` | a number | The longest line this room will carry |
 | `listed`, `unlisted` | | Whether this room is on the public list, sent when you arrive |
-| `membershipEnded` | | This room no longer holds the seat behind your inbox |
+| `membershipEnded` | | This room has released the seat behind your inbox |
 
 # How long each thing lives
 
@@ -198,7 +198,7 @@ bot:
 
 | Step | Who calls | Call | What happens |
 | --- | --- | --- | --- |
-| 1 | Both, earlier | `register` on the directory, then `offerInbox` | Each has a name and has offered the server an inbox for introductions |
+| 1 | Both, before introduction | `register` on the directory, then `offerInbox` | Each has a name and has offered the server an inbox for introductions |
 | 2 | Mira | `introduce` on the directory, naming the bot | The server hands Mira a reference to the inbox the bot offered |
 | 3 | Mira's peer | Redeems that reference with the bot's peer | A connection opens between the two peers. The server is not on it |
 | 4 | Mira | `dm` on the bot's inbox, with her own reply inbox alongside | The first line arrives, and the bot's replies come back to that inbox. When the bot cannot dial Mira's side, it dials the other way and sends `directReady` to set up the reply route with no chat message |

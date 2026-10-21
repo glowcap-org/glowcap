@@ -67,7 +67,7 @@ export function useRoomCapabilityActs(
 	// same answer decides two things that must agree: whether the field renders,
 	// and whether what it holds counts as an unsaved change. Read apart, a route
 	// that takes the capability some other way (minting one, recovering one)
-	// leaves text behind a field that no longer exists, and the card then refuses
+	// leaves text behind a field that no longer exists, and the card then refuses status-allow: lifecycle transition
 	// to close over changes a reader cannot see, find, or edit.
 	const managerTakeShown = conv.managerToken == null && authoritySource !== "bridge";
 	const stewardTakeShown = !held;

@@ -152,7 +152,7 @@ export async function _connectIroh(
 	// the dup'd fd), and releases the netlayer. The connection is minted
 	// against `host`, so the session's identity (a give's `recipient_key`) and
 	// the host's live-session directory agrees. A three-party handoff requires this
-	// (ADR-0039/ADR-0039).
+	// (ADR-0039).
 	const transport = new IrohChannel(conn, loop, netlayer, true);
 	const cancelTransport = (): void => {
 		void transport.close().catch((error) => host.recordCallerlessBindingFailure("iroh.abort.cleanup", error));

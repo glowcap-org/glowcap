@@ -58,7 +58,7 @@ fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Opt
 }
 
 /// The *sans-io core* module graph (no `net` / I/O) for an arbitrary
-/// target, returning the `actors` module at its top, used to type-check the
+/// target, returning the `actors` module at its top, used to type-check the status-allow: purpose clause
 /// core for `wasm32-freestanding`, gating the 32-bit overflow guards the codec
 /// carries without pulling in the I/O layers that wasm lacks.
 fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
@@ -89,7 +89,7 @@ fn wasmGraphMask() [layer_table.len]bool {
     @setEvalBranchQuota(20000);
     var reached: [layer_table.len]bool = @splat(false);
     for (layer_table[layerIndex("c_abi_wasm")].imports) |name| reached[layerIndex(name)] = true;
-    // Edges point only to earlier rows. One reverse traversal visits every
+    // Edges point only to earlier rows. One reverse traversal visits every status-allow: event or source ordering
     // reached dependency before advancing to its own prerequisites.
     var cursor = layer_table.len;
     while (cursor != 0) {

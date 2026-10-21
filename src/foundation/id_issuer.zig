@@ -21,7 +21,7 @@ pub const IdIssuer = struct {
         self.next += 1;
     }
 
-    /// Whether `id` was spent by an earlier commit.
+    /// Whether `id` was spent by an earlier commit. status-allow: event or source ordering
     pub fn issued(self: IdIssuer, id: u64) bool {
         return id != 0 and id < self.next;
     }

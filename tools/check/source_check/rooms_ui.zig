@@ -252,7 +252,7 @@ fn checkRoomsStartupComposition(
         // Read the definition itself rather than the text between it and the
         // render that uses it. A function declaration hoists, so moving this
         // one below `showSessionSetup` is legal TypeScript, and a span taken
-        // from the later position to the earlier one ends the check in a
+        // from the later position to the earlier one ends the check in a status-allow: event or source ordering
         // panic instead of a verdict.
         const surface_end = std.mem.indexOfPos(u8, main, surface_at, "\n}") orelse main.len;
         if (std.mem.indexOf(u8, main[surface_at..surface_end], "RoomsProjectionProvider") == null) {
@@ -471,12 +471,8 @@ const rail_row = [_][]const u8{ ".room-open", ".dm-open" };
 /// A second copy is not merely repetition here, it is silently wrong. A row
 /// button resets itself with `all: unset`, and that clears grid placement along
 /// with everything else, so a copy anywhere later in the sheet un-places the
-/// button the earlier rule placed. That is what happened: the direct list kept
-/// its own copy some nineteen hundred lines further down, its `all: unset` wiped
-/// the placement written up beside the rooms list, and the mark that closes a
-/// direct line came to rest a whole line above the row it ends. Both rules
-/// parse, both apply, and only their order decides, so nothing but a browser
-/// could see it.
+/// button placed by the first rule. Both rules parse and apply, but their
+/// cascade order decides the geometry.
 ///
 /// `apps/rooms/test/proofs/dm_tabs_proof.ts` measures that geometry and would catch
 /// it again. This catches it at the edit.

@@ -34,7 +34,7 @@ pub const DISK_BYTES: usize = 512 * 1024 * 1024;
 /// Append and whole-room deletion are two filesystem operations, so a crash
 /// may leave one surplus room standing. Startup admits exactly that one.
 pub const ROOM_FILES: usize = ROOMS_KEPT + 1;
-const LINE_VERSION: u64 = 2;
+const LINE_VERSION: u64 = 1;
 
 /// One retained row.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,7 +256,7 @@ impl Index {
 	}
 	/// Replace only the exact row the calling line capability retained with
 	/// the line as it now reads, shared with the caller the way `record`
-	/// shares it. A queued tail keeps the row it was given, so the earlier
+	/// shares it. A queued tail keeps the row it was given, so the earlier status-allow: event or source ordering
 	/// value persists as it stood.
 	pub fn replace(&mut self, room: &str, token: Token, line: Arc<KeptLine>) -> Result<Option<Persist>, Error> {
 		validate_line(&line)?;
@@ -304,10 +304,8 @@ impl Index {
 	}
 }
 
-/// One persisted row in the room-history store's JSON form. A version-one
-/// row is the same shape with no `previews` key. Version two writes the
-/// key only when a preview was chosen, so the two versions read through
-/// one struct and the version rule is decided on it.
+/// One persisted row in the room-history store's JSON form. The `previews`
+/// key is written only when a preview was chosen.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Persisted<'a> {
@@ -348,9 +346,11 @@ pub fn decode_line(row: &str) -> Result<KeptLine, Error> {
 			Error::Line
 		}
 	})?;
-	let admitted = persisted.version == LINE_VERSION || (persisted.version == 1 && persisted.previews.is_none());
-	if !admitted {
+	if persisted.version != LINE_VERSION {
 		return Err(Error::Version);
+	}
+	if persisted.previews.as_ref().is_some_and(Vec::is_empty) {
+		return Err(Error::Line);
 	}
 	let (from, text) = (persisted.from.into_owned(), persisted.text.into_owned());
 	validate_fields(&from, &text, persisted.at)?;

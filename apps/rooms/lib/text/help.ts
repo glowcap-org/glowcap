@@ -25,7 +25,7 @@ export const helpTabGlossary = "Glossary";
 
 /** A pointer to something a reader may already know. Rooms bridges real IRC,
  * so the comparison is to software a reader might have used. */
-export type HelpLink = { text: string; href: string };
+type HelpLink = { text: string; href: string };
 
 /** A sentence with links in it, in the pieces the component sets. A string is
  * text and a link is drawn as one. */

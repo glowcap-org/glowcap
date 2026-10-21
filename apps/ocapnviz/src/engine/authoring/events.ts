@@ -88,7 +88,7 @@ export function commitEntityAuthoring(
  * any new topology entity has a position), and seek the clock so
  * the world reflects the new doc on the next paint.
  *
- * Used today only by live-feed (incoming observations over the live websocket).
+ * Used only by live-feed (incoming observations over the live websocket).
  * Authoring intents mutate entity.timing / keyframes directly via
  * `commitEntityAuthoring`. */
 export function applyAuthored(

@@ -1,8 +1,6 @@
 //! Bounded save admission and retry policy. The adapter owns two cancellable
 //! timers and performs synchronous storage calls. No document queue is kept.
 use alloc::string::String;
-
-pub const COALESCE_MS: u32 = 200;
 const FIRST_RETRY_MS: u32 = 1_000;
 const MAX_RETRY_MS: u32 = 30_000;
 
@@ -73,9 +71,6 @@ impl Persistence {
 	}
 	pub fn retry_fired(&mut self) {
 		self.retry_pending = false;
-	}
-	pub fn save_fired(&mut self) {
-		self.save_pending = false;
 	}
 	/// Cancels the coalescing deadline. A prepared transition cannot replace a
 	/// save recursively while its read or storage adapter is running.

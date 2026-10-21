@@ -174,7 +174,7 @@ test "access a resident owner index keeps a lent grant for a repeat Read and dro
         try std.testing.expectEqual(@as(usize, 0), try f.pump(&read, backend));
     }
     // A change re-proposes the owner, so the next committed revision admits
-    // the owner afresh and the memo goes with the old resolutions.
+    // the owner afresh and the memo goes with the old resolutions. status-allow: replacement state identity
     _ = try f.change(store, backend, owner, .{ .pause = issued.grant });
     {
         var read: storage.Read = undefined;

@@ -4,10 +4,9 @@
 //! Node counts and projects its foreign routes, lowering and shortening
 //! rewrite references in place, admission measures the bytes it retains,
 //! validation certifies its shape and its references, and apply retains the
-//! exports it mentions. Each used to walk the tree again. `ofArguments` and
-//! `ofResolution` walk it once: they certify what no later pass changes
-//! (nesting depth, struct keys, retained bytes) and list the arguments the
-//! later passes return to. Each pass is then a loop over that list, and a
+//! exports it mentions. `ofArguments` and `ofResolution` walk it once: they
+//! certify what no later pass changes (nesting depth, struct keys, retained
+//! bytes) and list the arguments the later passes return to. Each pass is then a loop over that list, and a
 //! tree with nothing to return to lists nothing and allocates nothing
 //! (ADR-0064). The walk also takes the codec's meter, so the frame's size
 //! is known before the encoder reads the tree and the encoder reads it once

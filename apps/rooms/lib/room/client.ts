@@ -493,14 +493,14 @@ export class Room {
 		return fetchBlobChunk(this.#session, attachment, offset, maxLen);
 	}
 
-	/** Give back a file capability this member no longer needs. */
+	/** Give back a file capability this member no longer needs.  status-allow: lifecycle transition */
 	release(attachment: Attachment): void {
 		this.#session.release(attachment.blob);
 	}
 
 	/** Flag whether we are typing in this room. Fire-and-forget (`tell`, no reply):
 	 * a typing signal is ephemeral, so a lost one costs nothing and never blocks a
-	 * keystroke. The room drops it silently if we are no longer subscribed. */
+	 * keystroke. The room drops it silently if we are no longer subscribed.  status-allow: lifecycle transition */
 	setTyping(on: boolean): Promise<void> {
 		// best-effort: a lost flag is the whole loss; the next keystroke sends another.
 		return this.#session.tell(this.#membershipRef(), TYPING, [on]).catch(() => {});
@@ -548,7 +548,7 @@ export class Room {
 	 * `leave` is the wrong verb there, and more than wasteful. The room keys a
 	 * departure by connection, so a leave sent after re-entering would take back
 	 * the place the re-entry just made and leave a member who believes they are
-	 * in a room that no longer has them. Re-entry already replaced the record on
+	 * in a room that no longer has them. Re-entry already replaced the record on status-allow: lifecycle transition
 	 * the room's side, and what is left is this side's stream. */
 	replaced(): void {
 		if (this.#retired) return;

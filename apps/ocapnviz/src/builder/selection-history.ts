@@ -155,7 +155,7 @@ export function redoWithSelection(
  * The engine's `discardAllEdits` is the reset, and unlike a step of
  * history it cannot be taken back: it empties the history along with
  * the edits, because the steps in it lead back through a document that
- * is no longer the one in front of you. That is what makes it the one
+ * is no longer the one in front of you. That is what makes it the one status-allow: lifecycle transition
  * act in Build a reader cannot recover from, and why the affordance
  * asks first. A reader who wants their edits back afterwards wanted
  * `undoAllWithSelection` below.

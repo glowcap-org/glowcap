@@ -87,7 +87,7 @@ pub const ParkReason = enum { sink, fan_in };
 pub const OnPark = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, reason: ParkReason) void;
 
 /// The listen backlog both platform backends pass to `listen(2)`: pending,
-/// not-yet-accepted connections the kernel queues before refusing new ones.
+/// not-yet-accepted connections the kernel queues before refusing new ones. status-allow: pending state or quoted runtime label
 /// The loop re-arms its accept immediately after every completion, so the
 /// backlog only has to absorb a connect burst between two loop wakes.
 pub const listen_backlog: u31 = 128;

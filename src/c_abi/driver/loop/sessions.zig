@@ -115,7 +115,7 @@ pub export fn glowcap_driver_session_release(
 
 /// Begin delivering `session`'s inbound application frames: the embedder has
 /// finished its post-open setup (its publishes and spawns), so a partner's
-/// pipelined first frames can no longer outrun the objects they name. A
+/// pipelined first frames can no longer outrun the objects they name. A status-allow: lifecycle transition
 /// session surfaced by an OPENED or ACCEPTED event holds its inbound until
 /// this call (handshake frames are never held), and bytes that arrived early
 /// wait unread (a stream socket's kernel buffer; a resident link's bounded

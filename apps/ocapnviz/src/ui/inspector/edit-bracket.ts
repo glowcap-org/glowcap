@@ -1,5 +1,5 @@
 /**
- * One edit transaction's brackets, and one typed-but-not-yet-handed-up
+ * One edit transaction's brackets, and one typed-but-not-yet-handed-up status-allow: pending state or quoted runtime label
  * draft. Fields open on focus and close on blur. Unmount without blur
  * still has to close, or the engine swallows every later undo step.
  */
@@ -71,7 +71,7 @@ export function editBracket(sessionNow: () => EditBracket | undefined): {
 }
 
 /**
- * One typed-but-not-yet-handed-up edit, tracking whether it is still
+ * One typed-but-not-yet-handed-up edit, tracking whether it is still status-allow: pending state or quoted runtime label
  * waiting.
  *
  * `editBracket` above is the same story about an undo step. This is
@@ -88,7 +88,7 @@ export function editBracket(sessionNow: () => EditBracket | undefined): {
  * sure of. That second half is load-bearing on its own: a rename that
  * lands moves the anchor, which unmounts the field that made it, and
  * an unmount that handed the same draft up again would ask to rename
- * an id the document no longer has.
+ * an id the document no longer has. status-allow: lifecycle transition
  *
  * `touch` says the draft has moved since it was last handed up, and
  * whether the draft differs from the committed value at all stays the
@@ -167,8 +167,8 @@ export function useEditBracket(session: EditBracket | undefined) {
 	// handlers, so no blur is coming. The editor changing under a field
 	// that stays is the second, and it is why `session` is a dependency:
 	// leaving Build takes the editor away, and a new buffer replaces it,
-	// and either way the transaction the old one opened has to be closed
-	// on the old one while something still holds it.
+	// and either way the transaction the old one opened has to be closed status-allow: replacement state identity
+	// on the old one while something still holds it. status-allow: replacement state identity
 	useEffect(() => () => held.end(), [held, session]);
 	return held;
 }

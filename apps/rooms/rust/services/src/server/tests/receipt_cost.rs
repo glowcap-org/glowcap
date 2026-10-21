@@ -1,7 +1,7 @@
 //! Native frame lengths account for both requests and callbacks, including
 //! method-name and correlation overhead, rather than estimating Syrup sizes.
 use super::*;
-use rooms_application::room::receipt;
+use rooms_application::room::{inbox::metadata::Metadata, receipt};
 
 #[tokio::test]
 async fn locally_refused_posts_release_retained_capacity() {
@@ -52,7 +52,7 @@ async fn locally_refused_posts_release_retained_capacity() {
 			member.say("still usable").await.unwrap();
 			loop {
 				let message = messages.next().await.unwrap().unwrap();
-				if message.local_request().is_some() {
+				if matches!(message.metadata, Some(Metadata::Receipt(_))) {
 					assert_eq!(message.text, "still usable");
 					break;
 				}
@@ -221,7 +221,7 @@ async fn retained_post_measures_request_and_callback_wire_bytes() {
 			member.say("still usable").await.unwrap();
 			loop {
 				let message = messages.next().await.unwrap().unwrap();
-				if message.local_request().is_some() {
+				if matches!(message.metadata, Some(Metadata::Receipt(_))) {
 					assert_eq!(message.text, "still usable");
 					break;
 				}

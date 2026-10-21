@@ -144,7 +144,7 @@ pub fn finishPendingEnliven(self: *Session, swissnum: []const u8) void {
 ///
 /// Once the import's wire count reaches zero the partner may reuse its
 /// position for another object. A cached swissnum must miss after that point
-/// and enliven again, rather than returning the old position under its new
+/// and enliven again, rather than returning the old position under its new status-allow: replacement state identity
 /// meaning. A bounded sweep finds matching positions. Unlinking each match
 /// preserves FIFO order without moving or rehashing the surviving population.
 pub fn forgetSturdyrefEnlivenmentsAt(self: *Session, position: model.ImportPosition) void {

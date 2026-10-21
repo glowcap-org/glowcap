@@ -50,7 +50,7 @@ than reuse that type's name in the same namespace.
 The [managed access model](../loam/access-api.md) remains the authority.
 [ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
 records foreign ownership and recovery.
-[ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
+[ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)
 records held-scope management, and
 [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md)
 records bounded tree calls. Extend these contracts where needed instead of

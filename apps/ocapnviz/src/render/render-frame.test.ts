@@ -5,7 +5,7 @@
  * The world is reconciled or rebuilt every tick, but a Pixi display object
  * is created once and destroyed once, so a sprite whose creation and whose
  * destruction answer to two different questions is a picture that keeps
- * something the world no longer holds. The same shape as a reconciler
+ * something the world no longer holds. The same shape as a reconciler status-allow: lifecycle transition
  * adding on one test and removing on another, wearing a GPU resource.
  *
  * Validated by breaking the code it covers: marking a session live before
@@ -243,7 +243,7 @@ Deno.test("a zoom repaints every selection mark", () => {
 	// change when the camera zooms (a peer sits where it sits, a curve keeps its
 	// control points), so every other input to a sprite's repaint gate is
 	// unchanged, and a mark whose geometry depends on the zoom would keep the
-	// world units it was given at the old one. The mark would go on scaling with
+	// world units it was given at the old one. The mark would go on scaling with status-allow: replacement state identity
 	// the camera, which is the whole defect, with the arithmetic to fix it already
 	// in place and never re-run.
 	//

@@ -64,7 +64,7 @@
 .session-setup-choice + .session-setup-choice {
 	border-block-start: 1px solid var(--rule);
 }
-/* A door that is not open yet fades as one piece, its state chip keeping
+/* A door that is not open yet fades as one piece, its state chip keeping status-allow: pending state or quoted runtime label
    full ink so the word that says why stays readable. */
 .session-setup-choice[data-unavailable="true"] .launch-mark,
 .session-setup-choice[data-unavailable="true"] .launch-copy {

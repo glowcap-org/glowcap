@@ -159,7 +159,7 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
 test "fuzz: the persistent map answers like a plain one, and old versions keep their contents" {
     // Write, keep the version, write again: the shape where a later write has to
-    // share structure with an earlier version rather than own what it touches.
+    // share structure with an earlier version rather than own what it touches. status-allow: event or source ordering
     // Built rather than hand-counted, because the first version of this seed
     // stopped after the keep and never reached the sharing at all.
     // Each row is that step's draws in the order the loop makes them, and this

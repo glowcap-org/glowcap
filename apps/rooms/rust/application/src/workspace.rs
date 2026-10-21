@@ -11,8 +11,6 @@ use serde_json::value::RawValue;
 pub mod persistence;
 pub mod transition;
 
-pub const STORAGE_KEY: &str = "rooms.workspace-state";
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
@@ -95,9 +93,6 @@ impl Workspace {
 	}
 	pub fn session(&self) -> &Checkpoint {
 		&self.session
-	}
-	pub fn into_session(self) -> Rc<Checkpoint> {
-		self.session
 	}
 	pub fn view(&self) -> &View {
 		&self.view

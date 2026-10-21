@@ -20,12 +20,12 @@ glowcap help
 
 # Join a room over iroh
 
-Rooms is glowcap's chat application. This command runs your Rooms workspace
-from the shell, and its peers talk over [iroh]($link.page('transports/iroh')),
-an encrypted QUIC transport:
+Rooms is glowcap's chat application. This command starts your Rooms workspace
+from the shell in the directory you name, and its peers talk over
+[iroh]($link.page('transports/iroh')), an encrypted QUIC transport:
 
 ```sh
-glowcap apps rooms session
+glowcap apps rooms session start --dir=./rooms-session
 ```
 
 # A local round-trip

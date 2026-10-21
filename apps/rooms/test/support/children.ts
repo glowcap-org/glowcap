@@ -137,7 +137,7 @@ function signalTree(proc: Deno.ChildProcess, signal: Deno.Signal): void {
 	try {
 		proc.kill(signal);
 	} catch {
-		// Already exited, and not yet awaited.
+		// Already exited, and not yet awaited. status-allow: pending state or quoted runtime label
 	}
 }
 

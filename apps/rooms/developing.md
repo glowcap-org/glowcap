@@ -327,7 +327,7 @@ answers the same kind of reference. `refile(caption, ...keep)` changes the
 files, keeping the ones whose indices it names and adding the connection's
 freshly staged uploads. Refiling down to no files and no caption withdraws
 the line. Line references restart with a room generation and never enter
-durable history, so a new room cannot govern a row restored from an earlier
+durable history, so a new room cannot govern a row restored from an earlier <!-- status-allow: runtime state or operation ordering -->
 one.
 
 Direct inboxes follow the same rule. `dm(text)` carries no claimed sender

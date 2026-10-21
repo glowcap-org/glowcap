@@ -119,7 +119,7 @@ export class ManagedRoomsSession {
 	get updatesFailure(): unknown {
 		return this.#observationFailure ?? this.#activityFailure;
 	}
-	/** A retry was asked and no stream has answered it yet. */
+	/** A retry was asked and no stream has answered it yet.  status-allow: pending state or quoted runtime label */
 	get updatesRetrying(): boolean {
 		return this.#retryingUpdates;
 	}

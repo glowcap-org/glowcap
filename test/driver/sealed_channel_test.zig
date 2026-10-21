@@ -131,7 +131,7 @@ test "sealed host consumes a coalesced read larger than one Noise record" {
 
 test "sealed channel: the same pair over keyed-tcp reports unauthenticated" {
     // Evidence item two's second row: the identical topology minus the
-    // channel. The keyed dial demands the same durable key, yet nothing on a
+    // channel. The keyed dial demands the same durable key, yet nothing on a status-allow: pending state or quoted runtime label
     // cleartext socket proves it, so the honest report stays unauthenticated.
     const allocator = std.testing.allocator;
     const seed_c = @as([32]u8, @splat(0x63));
@@ -457,7 +457,7 @@ test "sealed channel: a split handshake retains only the consumed prefix" {
     const step = try channel.ingest(allocator, &partial);
     try std.testing.expectEqual(@as(usize, 1), step.consumed);
     try std.testing.expectEqual(glowcap.foundation.sealed.SealedChannel.Event.need_input, step.event);
-    // Handshake staging is bounded by the fixed message currently expected;
+    // Handshake staging is bounded by the fixed message expected;
     // arbitrary caller chunk sizes are consumed by prefix, not rejected or
     // copied wholesale.
     try std.testing.expectEqual(@as(usize, 1), channel.staged.len);

@@ -219,7 +219,7 @@ class RemotePromise(asyncio.Future):
     interpreting the Host-local vow number.
 
     The projection verbs :meth:`index` / :meth:`untag` / :meth:`get`
-    (ADR-0004/ADR-0004) pipeline an element, untag, or Struct-field access *at
+    (ADR-0004) pipeline an element, untag, or Struct-field access *at
     the answer*, before it resolves: each returns a new :class:`RemotePromise`
     for the projected value.
     """

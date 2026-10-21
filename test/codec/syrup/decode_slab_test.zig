@@ -59,7 +59,7 @@ test "a second list on the same slab takes the room the first left" {
     var taken: view.Body = undefined;
     try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab, &taken);
     try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), slab.used);
-    // Three views are taken, one is left, so a three-element list no longer fits.
+    // Three views are taken, one is left, so a three-element list no longer fits. status-allow: lifecycle transition
     var again: view.Body = undefined;
     try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab, &again);
     try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), slab.used);

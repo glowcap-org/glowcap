@@ -49,10 +49,6 @@ impl DirectoryView {
 	pub fn room(&self, id: &DocumentText) -> Option<&RoomInfo> {
 		self.rooms.iter().find(|r| r.id.text() == id)
 	}
-	pub fn room_named(&self, name: &DocumentText) -> Option<&RoomInfo> {
-		let key = name.lowercase();
-		self.rooms.iter().find(|r| r.name.text().lowercase() == key)
-	}
 	pub fn peer(&self, name: &DocumentText) -> Option<&Member> {
 		let key = name.lowercase();
 		self.peers.iter().find(|p| p.key == key).map(|p| &p.member)

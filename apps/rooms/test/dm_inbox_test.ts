@@ -88,7 +88,7 @@ Deno.test("forgetting a peer retires its alias and mints non-retargetable author
 	offerer.offer("bob", registrationId(1), "opening");
 	await settle();
 	// The peer left; the next holder of the name is somebody else and must not
-	// inherit their inbox. The old alias is unpublished, while any already-issued
+	// inherit their inbox. The old alias is unpublished, while any already-issued status-allow: replacement state identity
 	// capability remains attached to its exact old host actor.
 	offerer.forget(registrationId(1));
 	offerer.offer("bob", registrationId(2), "opening");

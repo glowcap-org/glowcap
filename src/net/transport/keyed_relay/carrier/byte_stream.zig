@@ -155,7 +155,7 @@ const Clear = struct {
         const allocator = self.allocator;
         // Interface errors are harvested by `takeFailure` at the operation
         // that observed them. Destruction itself is abortive; a cancellation
-        // used to stop a parked registration is not a cleanup failure.
+        // used to stop a parked registration is not a cleanup failure. status-allow: purpose clause
         const failure = self.failure;
         self.reader.stream.close(self.io);
         allocator.destroy(self);

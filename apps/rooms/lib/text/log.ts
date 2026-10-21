@@ -44,6 +44,3 @@ export function roomListLine(name: string, count: number | null): string {
 export function whoisLine(name: string, here: string, reachable: boolean): string {
 	return `${name}: ${here}, ${reachable ? "reachable for a direct message" : "not reachable directly"}`;
 }
-
-/** What a desktop notice says for a direct message that carried only a file. */
-export const notifySentAFile = "sent a file";

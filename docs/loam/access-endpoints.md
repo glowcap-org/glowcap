@@ -82,9 +82,7 @@ requirement. Its `ContentCall` offers these effects:
 
 A capability the method did not declare is refused before the reply goes out.
 [ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
-defines exact disclosure, and
-[ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
-defines dependent disclosure and field edits. The
+defines exact and dependent disclosure and field edits. The
 [stored capability field guide](references.md) covers local and remote
 references, `ContentBehavior.references`, saves your program starts, rules for
 forwarded calls, and which receipt capabilities are unsupported.

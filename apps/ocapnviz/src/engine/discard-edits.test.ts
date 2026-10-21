@@ -28,9 +28,8 @@
  * partial reset: a `resetDocumentTo` that writes the source over the
  * document without first taking the document's own keys off it, and
  * one that restores through `takeSnapshot` / `restoreSnapshotInto`.
- * The first escaped an earlier draft of this file, which only ever
- * edited a field the source already carried, a changed field and an
- * added one fail differently, so the case drives both.
+ * The test edits both a field the source carries and one it lacks,
+ * because a changed field and an added one fail differently.
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -195,7 +194,7 @@ engineTest("a discard empties the history it swept past", () => {
 	e.discardAllEdits();
 	assertEquals(docText(e), sourceText());
 	// Not a step in the history: the steps it swept past lead back
-	// through a document that is no longer there, so they go with it and
+	// through a document that is no longer there, so they go with it and status-allow: lifecycle transition
 	// the buffer is left exactly as a freshly built one.
 	assert(!e.canUndo, "the discard left steps behind it");
 	assert(!e.canRedo, "the discard left a way forward");

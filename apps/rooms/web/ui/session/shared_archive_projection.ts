@@ -55,7 +55,7 @@ export function reconcileSharedArchive(
 		for (const record of group.lines) {
 			const current = shown.get(store.historyCoordinateKey(record));
 			if (record.state === "withdrawn") {
-				// The account's takedown reaches a line it showed earlier; a line it
+				// The account's takedown reaches a line it showed earlier; a line it status-allow: event or source ordering
 				// never showed stays unshown.
 				if (current != null && current.withdrawn !== true) {
 					files?.release(current.attachments ?? []);

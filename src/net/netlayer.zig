@@ -94,7 +94,7 @@ pub const DesignatorScheme = support.DesignatorScheme;
 
 /// The locator hint carrying a partner's comma-separated direct socket
 /// addresses, the transport-neutral dial-address channel a `key`-scheme
-/// designator needs, since the designator itself no longer says where to dial.
+/// designator needs, since the designator does not say where to dial.
 /// The iroh resident re-exports this name. Keyed TCP requires the hint on every
 /// dial (TCP has no discovery).
 pub const hint_direct_addresses = support.hint_direct_addresses;

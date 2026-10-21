@@ -66,7 +66,7 @@ export function clearPeerPositionOnDoc(
 }
 
 /** Unpin an unattributed end on the document. No-op when the id
- *  does not name an end that currently holds a pin. */
+ *  does not name an end that holds a pin. */
 export function clearEndpointPositionOnDoc(
 	doc: TimelineDocument,
 	endpointId: string,

@@ -1,8 +1,7 @@
 /**
- * Undo/redo stack for the engine's mutable doc state. Split from
- * `engine.ts` because it's a tight, self-contained collection that
- * has nothing to do with the engine's tick / world / clock
- * concerns, just snapshot push/pop bookkeeping.
+ * Undo/redo stack for the engine's mutable doc state. A tight,
+ * self-contained collection that has nothing to do with the engine's
+ * tick / world / clock concerns, just snapshot push/pop bookkeeping.
  */
 
 import type { TimelineDocument } from "./timeline.ts";
@@ -151,15 +150,13 @@ export class History {
 	}
 }
 
-/** Whether two snapshots say the same thing, used to drop a no-op
+/** Whether two snapshots say the same thing, used to drop a no-op status-allow: purpose clause
  * transaction (focused and did not type, dragged and returned to the
  * start) from the history stack.
  *
  * It compares the snapshot whole rather than field by field, so a
  * field added to `DocSnapshot` is compared without anyone remembering
- * to extend a list here, which is the defect this shape replaced: the
- * per-category row overrides had to be added by hand before a reorder
- * that changed nothing was recognized as changing nothing. `deepEqual`
+ * to extend a list here. `deepEqual`
  * owns what "the same" means for the shapes a document is made of. */
 export function snapshotsEqual(a: DocSnapshot, b: DocSnapshot): boolean {
 	return deepEqual(a, b);

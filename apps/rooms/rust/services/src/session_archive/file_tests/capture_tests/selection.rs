@@ -38,8 +38,8 @@ pub(super) async fn run(runtime: Rc<Runtime>, client: &Client<HostPlatform>, lin
 		while answer.borrow().is_none() {
 			tokio::task::yield_now().await;
 		}
-		// FIFO selection is answered while capture remains blocked. The old
-		// worker looked up its writer only after this read completed.
+		// Capture retains its admitted writer while a subsequent selection
+		// is answered before the blocked read completes.
 		owner
 			.select((!peer).then(|| link.to_owned()))
 			.unwrap()

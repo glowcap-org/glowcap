@@ -322,7 +322,7 @@ test "a late listener cannot follow a stored promise into a reused answer positi
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // Bare rows leave no earlier subscription pinning the released target.
+    // Bare rows leave no earlier subscription pinning the released target. status-allow: event or source ordering
     try peer.session_state.installInboundAnswer(.from(42));
     try peer.session_state.installInboundAnswer(.from(43));
     while (peer.pollEvent()) |event_in| {
@@ -478,7 +478,7 @@ test "answer-position reuse neither cancels nor redirects an accepted listener f
     try std.testing.expect(peer.takeOutbound() == null);
 
     // The partner releases answer 42 and legally reuses the position for a new
-    // question while the old listener fire is still queued.
+    // question while the old listener fire is still queued. status-allow: replacement state identity
     try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[42+]>", .shape = .byte });
     try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
     while (peer.pollEvent()) |event_in| {
@@ -493,7 +493,7 @@ test "answer-position reuse neither cancels nor redirects an accepted listener f
         .fulfill = .{ .bytes = try allocator.dupe(u8, "new") },
     } } });
 
-    // Only the old listener callback and its listener release cross the wire;
+    // Only the old listener callback and its listener release cross the wire; status-allow: replacement state identity
     // the next-profile settlement for the replacement row is local. The
     // callback payload must remain "old", never the replacement row's "new"
     // value.

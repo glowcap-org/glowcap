@@ -364,16 +364,6 @@ Deno.test("a room link pasted into the join card is a link, not a directory", ()
 		"a directory join was classified as a room link",
 	);
 
-	const pasted = joining.joinLinkIn(
-		"Anybody who holds this link can be in plans:\n  " + link,
-	);
-	assert(
-		pasted !== null && pasted.link === link && pasted.label === "",
-		"the whole /link answer was not taken as that link",
-	);
-	const namedJoin = joining.joinLinkIn(link + " plans");
-	assert(namedJoin !== null && namedJoin.label === "plans", "/join a link with a name did not keep the name");
-
 	const byName = joining.askedJoin("lobby");
 	assert(byName !== null && byName.kind === "name" && byName.name === "lobby", "/join a name was not a name");
 	const hashed = joining.askedJoin("#lobby");
@@ -381,33 +371,6 @@ Deno.test("a room link pasted into the join card is a link, not a directory", ()
 	const byLink = joining.askedJoin(link);
 	assert(byLink !== null && byLink.kind === "link" && byLink.link === link, "/join a sturdyref was not a link");
 	assert(joining.askedJoin("") === null, "an empty /join was treated as a destination");
-	assert(
-		joining.joinedForLink(
-			[{ key: "a", held: true, id: "plans", link }],
-			new Set(["a"]),
-			link,
-			null,
-		) === "a",
-		"a locator this tab already holds was not that conversation",
-	);
-	assert(
-		joining.joinedForLink(
-			[{ key: "g", held: false, id: "general" }],
-			new Set(["g"]),
-			"ocapn://peer.tcp/s/other",
-			"general",
-		) === "g",
-		"a public link to a listed room this tab is in was not that room",
-	);
-	assert(
-		joining.joinedForLink(
-			[{ key: "p", held: true, id: "general" }],
-			new Set(["p"]),
-			"ocapn://peer.tcp/s/other",
-			null,
-		) === null,
-		"/join of a private link treated a same-label conversation as the destination",
-	);
 	assert(joining.listedOccupancy(true, "general"), "a listed arrival with a name sits in that room");
 	assert(!joining.listedOccupancy(false, "general"), "an unlisted arrival is not a directory name");
 	assert(!joining.listedOccupancy(undefined, "general"), "an older room's silence is not a listed room");

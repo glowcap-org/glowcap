@@ -201,7 +201,7 @@ glowcap_devcontainer_panes_name() {
 # The one shell command a pane runs: this launcher's pane runtime, as the
 # pane's shell on the host, in the checkout tmux already made the pane's
 # directory. The column checkout is handed in so a grid can wrap a worktree
-# whose own `.devcontainer/` has not yet grown the pane runtime. Entering
+# whose own `.devcontainer/` has no pane runtime. Entering
 # the container is the runtime's job from there, which is what leaves the
 # pane a host shell to come back to. A row makes the pane run that row's
 # startup command; a pane without one is a plain container shell.

@@ -23,7 +23,7 @@ import { endpointStageId, SESSION_SIDES } from "../schema/session-end.ts";
 /** Generic order-by-rowOrder. Listed ids come first in the given
  * order. Unlisted items keep their original (insertion) order
  * behind. Unknown ids in the override (e.g. a saved entry whose
- * entity no longer exists) are silently dropped. Used by the
+ * entity no longer exists) are silently dropped. Used by the status-allow: lifecycle transition
  * Engine's `orderedPeers/Sessions/Messages` so ECS consumers
  * don't have to remember to sort. Also reused by `applyRowOrder`
  * for the id-only call sites in the Timeline. */
@@ -298,8 +298,8 @@ function plannedTimeOf(
  *
  * `planned` carries the rest of the same gesture. Judging a slid
  * event against where its partner sits *now* would refuse a whole
- * peer or session dragged earlier, because the partner has not been
- * written yet when the check runs. */
+ * peer or session dragged earlier, because the partner has not been status-allow: event or source ordering
+ * written yet when the check runs.  status-allow: pending state or quoted runtime label */
 export function checkMoveOrdering(
 	ev: TimelineEvent,
 	newT: number,

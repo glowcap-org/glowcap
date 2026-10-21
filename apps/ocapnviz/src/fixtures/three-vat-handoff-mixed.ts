@@ -128,7 +128,7 @@ const AGENT = "ocapnviz:fixtures/three-vat-handoff-mixed";
  *
  *  Named rather than written at each use because the Bob-to-Carol id is said
  *  four times, once as the session's own, and three times through
- *  `endpointStageId` for the end nothing has attributed yet. A second
+ *  `endpointStageId` for the end nothing has attributed yet. A second status-allow: pending state or quoted runtime label
  *  spelling of it silently detaches those messages from their session. */
 const SESSION = {
 	aliceCarol: "ca93a0430b191ecd589f6238b626ede6cbe5d5723a7c4dc2cddf2c6a81cd7710",
@@ -414,7 +414,7 @@ export const threeVatHandoffMixed = TimelineDocument.parse({
 			kind: "message-sent",
 			messageId: "ss-bob-carol-out",
 			sessionId: SESSION.bobCarol,
-			// From the end itself, not from Bob. Nothing has yet backed the claim
+			// From the end itself, not from Bob. Nothing has yet backed the claim status-allow: pending state or quoted runtime label
 			// this end arrived with, so the recording cannot say whose message
 			// this is. Only which end of which wire it left. That is the same
 			// restraint the session's own `b` shows, said about the traffic.

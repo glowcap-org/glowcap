@@ -36,6 +36,8 @@ export function openSession(
 		v: 1,
 		sim_t_ns: t_ns,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session,
 		a: "rooms",
 		b,

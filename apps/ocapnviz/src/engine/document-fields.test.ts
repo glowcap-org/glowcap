@@ -4,11 +4,11 @@
  * The writes live in `document-fields.ts`. These tests walk through the engine
  * because undo, notify, and the clock bound are what editing costs.
  *
- * Every claim below was wrong once in a way nothing else here would have caught:
+ * Each claim below is one nothing else here would catch:
  *
  *   - Text is stored exactly as typed. These setters run per keystroke against a
  *     controlled field that reads the stored value straight back, so trimming
- *     here ate the space a reader was in the middle of typing.
+ *     here would eat the space a reader is in the middle of typing.
  *   - Empty normalizes to absent, all the way up. A cleared field must not leave
  *     `""` behind, and a metadata block emptied of every field must not leave an
  *     empty object, or two documents that say the same thing compare unequal and
@@ -223,9 +223,8 @@ engineTest("stamping is not itself an edit", () => {
 });
 
 engineTest("a stamp does not make an empty edit look like a change", () => {
-	// The case the stamp-in-snapshot version broke: focus a field, type nothing,
-	// leave. Nothing a reader typed changed, so no history entry, even though a
-	// stamp had landed since the snapshot was taken.
+	// Focus a field, type nothing, leave. Nothing a reader typed changed, so no
+	// history entry, even though a stamp landed since the snapshot was taken.
 	const e = docEngine();
 	e.setDocumentTitle("Held");
 	e.noteDocumentModified("2026-08-06T12:00:00Z");

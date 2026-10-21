@@ -1,6 +1,6 @@
 // What a producer says it runs, and what the far end of a session is.
 
-import { assert, assertEquals } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { makeBaseEventConverter } from "../feed.ts";
 import { GLOWCAP_PROFILE, GOBLINS_PROFILE, UNNAMED_PROFILE } from "../../../schema/topology.ts";
 import { Observation } from "../../temporal/recording.ts";
@@ -103,6 +103,8 @@ Deno.test("a non-string implementation claim is ignored", () => {
 		v: 1,
 		sim_t_ns: 0,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "p0/s1",
 		a: "vat-key",
 		b: "rooms-key",
@@ -178,7 +180,7 @@ Deno.test("a partner nobody speaks for is never credited with an implementation"
 Deno.test("a peer learns what it runs when it first speaks for itself", () => {
 	// The rooms case: one host reports a member before that member has
 	// published anything, so the member is drawn as somebody else's partner and
-	// nothing yet says what it runs. When the member's own trace arrives it has
+	// nothing yet says what it runs. When the member's own trace arrives it has status-allow: pending state or quoted runtime label
 	// stated its implementation, and that lands as a moment on its trajectory,
 	// the join keeps saying what was known then.
 	const convert = makeBaseEventConverter();
@@ -216,7 +218,7 @@ Deno.test("a peer learns what it runs when it first speaks for itself", () => {
 
 Deno.test("a named partner that then reports the same wire is known from there", () => {
 	// A room server whose transport authenticated the member's durable name
-	// draws that member straight away, named, but with nothing yet saying what
+	// draws that member straight away, named, but with nothing yet saying what status-allow: pending state or quoted runtime label
 	// it runs. When the member publishes its own side of that same session it
 	// states its implementation, and the second report of one wire is the only
 	// thing that carries the statement. There is no new peer and no new edge
@@ -331,6 +333,8 @@ Deno.test("an end says what actually backed it, and nothing when nothing did", (
 			v: 1,
 			sim_t_ns: 0,
 			kind: "ocapn.session-opened",
+			transport: "tcp",
+			captp_version: "1.0",
 			session,
 			a: "rooms-key",
 			b: partner,
@@ -403,6 +407,7 @@ Deno.test("the netlayer a session runs over reaches the stage", () => {
 		v: 1,
 		sim_t_ns: 0,
 		kind: "ocapn.session-opened",
+		captp_version: "1.0",
 		session: "p0/s1",
 		a: "alice-key",
 		b: "bob-key",
@@ -416,63 +421,26 @@ Deno.test("the netlayer a session runs over reaches the stage", () => {
 	assertEquals(Observation.parse(session).kind, "session-opened");
 });
 
-Deno.test("a producer that names no netlayer leaves the field off", () => {
-	// The field is optional because a producer predating it reports
-	// sessions and nothing else changed about them. Absent has to stay
-	// absent rather than becoming an empty netlayer name: `""` is not a
-	// transport, and a document carrying one would show a blank row
-	// where the honest answer is no row.
+Deno.test("a session-opened without a valid netlayer is refused", () => {
+	// Every producer reports the netlayer, and `""` or a non-string is not a
+	// transport. The record draws no session rather than a blank row.
 	const convert = makeBaseEventConverter();
-	const older = expectKind(
+	const open = (session: string, transport: unknown) =>
 		convert({
 			v: 1,
 			sim_t_ns: 0,
 			kind: "ocapn.session-opened",
-			session: "p0/s1",
+			captp_version: "1.0",
+			session,
 			a: "alice-key",
 			b: "bob-key",
+			...(transport !== undefined && { transport }),
 			codec: "syrup",
-		})[2],
-		"session-opened",
-	);
-	assert(
-		!("transport" in older),
-		"a producer that reported no transport minted no transport field",
-	);
-	assertEquals(Observation.parse(older).kind, "session-opened");
-	// A producer that sends the field empty said the same thing.
-	const empty = expectKind(
-		convert({
-			v: 1,
-			sim_t_ns: 0,
-			kind: "ocapn.session-opened",
-			session: "p0/s2",
-			a: "alice-key",
-			b: "carol-key",
-			transport: "",
-			codec: "syrup",
-		})[1],
-		"session-opened",
-	);
-	assert(
-		!("transport" in empty),
-		"an empty transport is no transport, not a netlayer called ''",
-	);
-	const nonString = expectKind(
-		convert({
-			v: 1,
-			sim_t_ns: 0,
-			kind: "ocapn.session-opened",
-			session: "p0/s3",
-			a: "alice-key",
-			b: "dave-key",
-			transport: 1,
-			codec: "syrup",
-		})[1],
-		"session-opened",
-	);
-	assert(
-		!("transport" in nonString),
-		"a non-string transport is invalid data, not a future netlayer",
-	);
+		});
+	for (const transport of [undefined, "", 1]) {
+		assertEquals(
+			open("p0/s1", transport).filter((e) => e.kind === "session-opened"),
+			[],
+		);
+	}
 });

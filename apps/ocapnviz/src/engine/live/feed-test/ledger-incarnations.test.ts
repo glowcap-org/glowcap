@@ -17,7 +17,7 @@ Deno.test("session-closed retires the partner but keeps the reporting host", () 
 
 Deno.test("a peer with two live sessions survives one closing", () => {
 	// Reconnect overlap: the same identity opens a second session
-	// before the first one's close lands. The old close must not
+	// before the first one's close lands. The old close must not status-allow: replacement state identity
 	// retire the peer while the new session still references it.
 	const convert = makeBaseEventConverter();
 	openSession(convert, "s1", "bob", 0);
@@ -91,6 +91,8 @@ Deno.test("an epoch change retires the dead process's topology", () => {
 		sim_t_ns: 0,
 		epoch: 111,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "s1",
 		a: "rooms",
 		b: "bob",
@@ -101,6 +103,8 @@ Deno.test("an epoch change retires the dead process's topology", () => {
 		sim_t_ns: 1_000_000,
 		epoch: 222,
 		kind: "ocapn.session-opened",
+		transport: "tcp",
+		captp_version: "1.0",
 		session: "s1",
 		a: "rooms",
 		b: "bob",

@@ -76,7 +76,7 @@ export function restoreSnapshotInto(
 	doc.categoryVisMode = structuredClone(snap.categoryVisMode);
 	doc.recording = snap.recording ? structuredClone(snap.recording) : undefined;
 	doc.entities = structuredClone(snap.entities);
-	// The stamp the document currently carries survives the restore. Undo reverts
+	// The stamp the document carries survives the restore. Undo reverts
 	// the edit, not the record that an edit happened: a title put back should not
 	// also claim the document was last modified before it was changed.
 	doc.metadata = restoreMetadata(snap.metadata, doc.metadata);

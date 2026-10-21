@@ -20,7 +20,7 @@
 //! if that ever hides something real.
 //!
 //! It says only that: nothing is dead. A scene that *is* called can still prove
-//! nothing: waiting on a condition an earlier step already met is the shape
+//! nothing: waiting on a condition an earlier step already met is the shape status-allow: event or source ordering
 //! that bit us the other way, and no static rule sees that. Read the failure
 //! as "this is unreachable", never as "the scenes are covered".
 

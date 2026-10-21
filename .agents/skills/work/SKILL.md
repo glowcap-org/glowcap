@@ -63,14 +63,15 @@ code, tests, generated state, and living documentation aligned in the same
 change. Apply the [prerelease posture](../../rules/prerelease.md) to unreleased
 contracts. A load-bearing decision belongs in an ADR.
 
-Proceed within the requested scope and leave unrelated work intact. Leaving a
-suspected problem alone needs evidence or an existing documented boundary. A
-passing unrelated gate is not enough.
+Proceed within scope, preserving unrelated work. Scope blockers to their
+effects: another busy worktree blocks shared-history changes, while isolated
+edits and checks continue. A non-move needs evidence or a documented boundary.
+An unrelated passing gate proves nothing.
 
 ### Review the diff cold
 
 After a coherent stretch of work, inspect the result, including code added
-earlier in this session, as if someone else wrote it. Answer:
+earlier in this session, as if someone else wrote it. Answer: <!-- status-allow: workflow sequence -->
 
 - **Cause:** Does the change remove the defect's class at its owner, or only
   suppress the observed instance?
@@ -78,7 +79,7 @@ earlier in this session, as if someone else wrote it. Answer:
   callers share the contract? Exercise the affected sibling paths, and an
   assertion added on an input path at that input's empty, zero, and largest
   values through every door that reaches it.
-- **Consumers:** What assumed the old ownership, lifetime, format, or refusal
+- **Consumers:** What assumed the old ownership, lifetime, format, or refusal <!-- status-allow: workflow sequence -->
   behavior? Compilation alone cannot prove those assumptions still hold.
 - **Truth:** Which docs, examples, generated files, and rules became untrue?
   `zig build doc-impact` lists the docs that name the changed code in their

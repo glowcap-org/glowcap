@@ -305,7 +305,7 @@ async fn scenario() {
 	assert_eq!(heard.recv().await.unwrap().1[1], "sibling survives");
 	// The sole remaining channel keeps the chosen identity and channel lease
 	// across capability replacement. No PART, JOIN or new registration belongs
-	// to replacing the Rooms inbox; the old capability must still retire.
+	// to replacing the Rooms inbox; the old capability must still retire. status-allow: replacement state identity
 	for _ in 0..3 {
 		let before = wire.borrow().len();
 		let room = cap(session.send(&directory, "enter", &["net/#b".into()]).await.unwrap());

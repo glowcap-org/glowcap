@@ -23,7 +23,7 @@ const READY: &str = rooms_application::protocol_data::PUBLICATION_READY;
 const DESCRIBE: &str = rooms_application::protocol_data::PUBLICATION_DESCRIBE;
 const REVOKE: &str = rooms_application::protocol_data::REVOKE;
 
-/// What a lease's `ready` waits on: nothing yet, live, or why not.
+/// What a lease's `ready` waits on: nothing yet, live, or why not. status-allow: pending state or quoted runtime label
 pub(crate) type Outcome = Option<Result<(), String>>;
 
 pub(super) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
@@ -121,7 +121,7 @@ fn publish(shared: &Shared, session: &Session, name: &str, room: Ref) -> Result<
 		};
 		drop(room);
 		if let Some(ready) = state.peering_ready.get(&waiting) {
-			// Stored whether or not a lease is waiting yet: a `ready` asked
+			// Stored whether or not a lease is waiting yet: a `ready` asked status-allow: pending state or quoted runtime label
 			// after the room resolved reads it back.
 			ready.send_replace(Some(outcome));
 		}
@@ -192,7 +192,7 @@ fn lease(shared: Shared, id: String) -> impl FnMut(&str, &[Argument]) -> Result<
 /// let go. A pending one tells its lease why it never became ready.
 pub(crate) fn forget(state: &mut State, id: &str) {
 	if let Some(ready) = state.peering_ready.remove(id) {
-		// tolerant: a lease no longer waiting hears nothing.
+		// tolerant: a lease no longer waiting hears nothing. status-allow: lifecycle transition
 		ready.send_replace(Some(Err("room publication was revoked before it became ready".into())));
 	}
 	let Some((entry, event)) = state.foreign.forget(id) else {

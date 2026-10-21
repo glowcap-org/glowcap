@@ -21,7 +21,7 @@ the budgets the build pins.
 
 [Cap'n Proto](https://capnproto.org/) RPC grew from the same ideas as CapTP, the protocol glowcap implements:
 calls pass object references, and a call can go to an answer that has not
-arrived yet. `bench-capnp` times two calls in the C++ reference library and
+arrived. `bench-capnp` times two calls in the C++ reference library and
 in the `capnp-rpc` Rust crate. `greet` is the smallest message that is still
 a call. `report` is one application batch of a name, eight tags, and
 sixty-four readings, which the server sums. glowcap's bars are the same two

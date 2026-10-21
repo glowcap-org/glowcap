@@ -3,7 +3,7 @@
  *
  * Use this when a component reads what the document says, its source, its
  * title, whether a peer id is taken, whether there is an edit to undo, rather
- * than where the playhead is or where a peer currently sits. Those facts change
+ * than where the playhead is or where a peer sits. Those facts change
  * when someone edits, opens, or records, which is a human act rather than a
  * frame.
  *

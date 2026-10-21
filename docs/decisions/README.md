@@ -18,14 +18,13 @@ not a claim that every consumer or deployment has been verified.
 
 The frontmatter owns standing: `proposed`, `accepted` or `superseded`. Accept a
 new architectural contract before building against it. Its date records
-the proposal, acceptance or latest consolidation. Proposed work remains linked from the
+the proposal or acceptance. Proposed work remains linked from the
 [roadmap](../roadmap.md).
 
 After publication, keep identifiers stable. A superseded record retains its
 number and a reciprocal `superseded_by`/`supersedes` relation. A refinement uses
 `amends`/`amended_by` instead. `source-check` validates those relations and the
-record's id, filename and status. The prerelease consolidation is disclosed in
-[provenance](../../PROVENANCE.md).
+record's id, filename and status.
 
 ## Records by subject
 

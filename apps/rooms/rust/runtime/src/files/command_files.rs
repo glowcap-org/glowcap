@@ -21,9 +21,6 @@ impl Frozen {
 			})
 			.collect()
 	}
-	pub fn into_sources(self) -> Vec<Source> {
-		self.files
-	}
 }
 /// A source that stops answering before its declared bytes arrive is a
 /// closed source. A span the captured bytes cannot cover is a bad request.

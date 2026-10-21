@@ -183,17 +183,14 @@ export const PEER_TRAJECTORY: Readonly<
 		lane: "peers",
 		noun: "profile",
 		// The flavor a peer is known by is as temporal as its name: a peer
-		// drawn before anyone could say what it runs changes at the moment
+		// drawn before anyone could say what it runs changes at the moment status-allow: state at observation
 		// somebody can, rather than rewriting its whole life. A live feed
 		// reaches that verdict too, `LedgerNames.learnProfile` states one
 		// when a producer speaks for an end it had been holding a place on.
 		// The offer is `PROFILE_OPTIONS`, the same list the Details picker
 		// reads, because "what a profile picker offers" is one fact and a
 		// peer's profile is one property whether it is stated at birth or at a
-		// moment. One property, one control: this row used to render a text
-		// field with a suggestion list beside every other picker's select,
-		// which read as a foreign control, filtered its own suggestions down to
-		// whatever was already typed, and only committed on blur.
+		// moment. One property, one control.
 		editor: { kind: "enum", options: PROFILE_OPTIONS, closed: false },
 		read: (ev) => ev.profile ?? null,
 		write: (ev, value) => ({ ...ev, profile: value }),
@@ -454,11 +451,8 @@ export function sessionRowDisplay(
  *  observation itself). It has to be something that survives the edit
  *  being made: keyed on `t`, the row unmounts under the drag that is
  *  changing it, which takes the pointer capture with it and ends the
- *  gesture after one step,
- *  `scripts/playwright-trajectory-scrub-probe.ts` measures that (30px of
- *  drag moved the time 37.5ms instead of 300). Keyed on the keyframe's
- *  index within its track, which is what this carried before, the row
- *  survives a drag but is stolen by any insert or removal earlier in the
+ *  gesture after one step. Keyed on its index within the track, the row
+ *  survives a drag but is stolen by any insert or removal earlier in the status-allow: event or source ordering
  *  same track, because every later index shifts by one and React hands a
  *  mounted row's fiber to a different keyframe.
  *

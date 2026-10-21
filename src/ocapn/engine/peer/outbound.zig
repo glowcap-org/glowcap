@@ -251,7 +251,7 @@ pub fn withdrawQueuedListen(self: *Peer, listener: model.ExportPosition) void {
     unreachable;
 }
 
-/// Whether the next carrier is still being staged, so nothing can be sent yet.
+/// Whether the next carrier is still being staged, so nothing can be sent yet. status-allow: pending state or quoted runtime label
 pub fn blockedOnStaging(self: *const Peer) bool {
     const head = self.pending_send.peek() orelse return false;
     return head.item == .staged;

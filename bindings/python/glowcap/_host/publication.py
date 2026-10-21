@@ -238,7 +238,7 @@ class _PublicationMixin(HostMixinBase):
         prior = self._publications.get(name)
         if prior is not None:
             # Replacement moves discovery only. Existing capabilities and
-            # deposited gifts can still call the old actor.
+            # deposited gifts can still call the old actor. status-allow: replacement state identity
             self._displaced_publications.append(prior)
         self._publications[name] = ctx
 
@@ -404,7 +404,7 @@ class _PublicationMixin(HostMixinBase):
         found = self._sessions.get(out_value) if out_value else None
         if found is None and out_value and self._driver_loop is not None:
             # A loop-owned Host redeems inside its own steps (ADR-0024), so
-            # the exporter session it dialed exists with no wrapper yet. Wrap
+            # the exporter session it dialed exists with no wrapper yet. Wrap status-allow: pending state or quoted runtime label
             # it lazily, the constructor registers it, so a repeat lookup
             # returns this same object, and the loop stays its release
             # authority through the transport's back-reference.

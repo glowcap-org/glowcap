@@ -84,7 +84,7 @@ export function opened(
 	 * handshake's syntax, so the tag is put on the wire through
 	 * `CAPTP_VERSION_WIRE` rather than written out. One table, and no test
 	 * has to know it. Left off, the session runs the OCapN v1.0 interop
-	 * floor, which is what a producer reporting nothing means.
+	 * floor.
 	 *
 	 * `profile` is what the producer STATES it runs, and it is left off by
 	 * default because that is what the wire looks like when a producer says
@@ -101,10 +101,10 @@ export function opened(
 		b: partner,
 		provenance: verified ? "authenticated-transport" : "unauthenticated",
 		session_id: sessionId,
+		transport: "tcp",
 		codec: "syrup",
 		...(opts.profile !== undefined && { a_profile: opts.profile }),
-		...(opts.captp !== undefined &&
-			{ captp_version: CAPTP_VERSION_WIRE[opts.captp] }),
+		captp_version: CAPTP_VERSION_WIRE[opts.captp ?? "v1_0"],
 	};
 }
 

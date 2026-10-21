@@ -279,7 +279,7 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
 
     // The live loop, wherever the schedule left it. This is the strongest
     // place to look: connections are still open, still parked, still holding
-    // whatever the schedule built, and a count that has drifted has not yet
+    // whatever the schedule built, and a count that has drifted has not yet status-allow: pending state or quoted runtime label
     // been washed out by a teardown that resets everything anyway.
     try expectAccountingExact(&loop);
     // `deinit` on a live loop is a call the API allows, and it is the only

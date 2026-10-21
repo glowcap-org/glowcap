@@ -5,7 +5,7 @@
 //! owning thread is woken through the mailbox's socketpair. Under ADR-0035,
 //! `WouldBlock` is coalesced success because unread bytes already make the read
 //! half readable. Every other wake fault is retained and terminalizes the
-//! owner without abandoning rows admitted earlier. The owning thread drains
+//! owner without abandoning rows admitted earlier. The owning thread drains status-allow: event or source ordering
 //! the wake and applies every recorded settle through the ordinary top-level
 //! resolver verbs, so the Host's one-thread contract holds: the mailbox
 //! carries the call, never the authority.

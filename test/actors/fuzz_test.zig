@@ -8,9 +8,9 @@
 //! a snapshot's boxes.
 //!
 //! That is a lot of sharing to get right, and getting it wrong is quiet. A write
-//! that forgets to clone corrupts a snapshot nobody has restored yet. A restore
+//! that forgets to clone corrupts a snapshot nobody has restored yet. A restore status-allow: pending state or quoted runtime label
 //! that takes a box without retaining it frees state something else still names.
-//! A count that never falls leaks. None of those crashes at the moment it
+//! A count that never falls leaks. None of those crashes at the moment it status-allow: state at observation
 //! happens.
 //!
 //! So this keeps its own record: a plain integer per actor, and per snapshot the

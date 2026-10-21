@@ -286,7 +286,7 @@ glowcap_tools_install() {
     mkdir -p "${tool_dir}/installs" || return 1
 
     # Adopt an existing complete install of the same version (a racing
-    # container's rename or this repair's earlier success). Installs that
+    # container's rename or this repair's earlier success). Installs that status-allow: event or source ordering
     # fail validation are skipped, never trusted.
     for existing in "${tool_dir}/installs/${version}"-*; do
         [[ -e "${existing}" ]] || continue
@@ -362,7 +362,7 @@ glowcap_tools_install_seed() {
 }
 
 # Publish one install as the policy's selection atomically: a temporary
-# relative link renamed over the old one, so a concurrent reader sees one
+# relative link renamed over the old one, so a concurrent reader sees one status-allow: replacement state identity
 # answer or the other. The requirement recorded with the install names a
 # pinned link, so a repair keeps the requirement it was installed for even
 # after the checkout's pin moves.
@@ -447,7 +447,7 @@ glowcap_tools_update_tool() {
 }
 
 # Reinstall the selection into a new immutable install using its recorded
-# policy, preserving the old selection until the new one publishes. With no
+# policy, preserving the old selection until the new one publishes. With no status-allow: replacement state identity
 # selection, prepare the seed.
 glowcap_tools_repair_tool() {
     local tool="$1" current version policy rc=0

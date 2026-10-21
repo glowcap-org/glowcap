@@ -33,7 +33,7 @@ Deno.test("a scale that reads the same wakes nobody", () => {
 	const camera = new StageCamera();
 	const woken = counted(camera);
 	// A drift of a thousandth of a percent, sixty times over: every frame of a
-	// gesture that has not yet moved the number a reader can see.
+	// gesture that has not yet moved the number a reader can see. status-allow: pending state or quoted runtime label
 	for (let i = 0; i < 60; i++) camera.publishZoom(1 + i * 1e-6);
 	assertEquals(woken(), 0, "the readout woke on a change nobody could see");
 });
@@ -131,7 +131,7 @@ Deno.test("commands reach the attached camera, and stop at detach", () => {
 });
 
 Deno.test("a stale detach cannot unhook the camera that replaced it", () => {
-	// A stage that rebuilds attaches the new viewport before React runs the old
+	// A stage that rebuilds attaches the new viewport before React runs the old status-allow: replacement state identity
 	// effect's cleanup, so the cleanups arrive out of order. The late one must be
 	// a no-op rather than leaving the live stage with no camera.
 	const camera = new StageCamera();

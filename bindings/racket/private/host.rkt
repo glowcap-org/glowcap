@@ -75,7 +75,7 @@
   (define-values (selected-codec selected-captp-version)
     (host-profile-values 'make-host profile codec captp-version))
   ;; Keep an owned copy so caller mutation cannot split the FFI identity from
-  ;; the seed used to derive the host's designator.
+  ;; the seed used to derive the host's designator. status-allow: purpose clause
   (define durable-seed (bytes->immutable-bytes (bytes-copy seed)))
   ;; The durable identity followed by a session-key root drawn here, at this
   ;; binding's entropy boundary, because the library draws none (ADR-0028).
@@ -327,7 +327,7 @@
   ;; A close request issued outside a turn is close-relevant activity: a
   ;; driver already parked on host progress with no finite deadline must
   ;; re-check. A mid-turn request needs no bump here, because the enclosing
-  ;; drain bumps when the turn unwinds; bumping earlier lets the turn's own
+  ;; drain bumps when the turn unwinds; bumping earlier lets the turn's own status-allow: event or source ordering
   ;; pump observe closure before the parked release executes.
   (when (eq? (car disposition) 'wait) (host-bump-progress! m))
   (case (car disposition)
@@ -564,7 +564,7 @@
         (raise-glowcap 'host-publish-reference ERR-INTERNAL "publication returned an invalid name length"))
       (bytes->string/utf-8 out))))
 
-;; Remove a minted durable publication (ADR-0007): the old sturdyref misses
+;; Remove a minted durable publication (ADR-0007): the old sturdyref misses status-allow: replacement state identity
 ;; from now on, while issued refs and deposited gifts keep the exact actor.
 ;; Returns #f when no such durable name exists.
 (define (host-remove-durable m swiss)

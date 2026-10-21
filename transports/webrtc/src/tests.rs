@@ -98,7 +98,7 @@ async fn a_full_buffer_makes_the_next_message_wait_for_the_reader() {
 		async move { await_inbound_room(&inbound, &drained, 1).await }
 	});
 
-	// Still parked: nothing has read yet.
+	// Still parked: nothing has read yet. status-allow: pending state or quoted runtime label
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	assert!(!waiting.is_finished());
 

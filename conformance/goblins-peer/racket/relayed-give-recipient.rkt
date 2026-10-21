@@ -87,7 +87,7 @@
        (lambda (introducer)
          (define greeter-answer (<- introducer 'get-greeter))
 
-         ;; Hears the promise glowcap answers with, at the moment Goblins
+         ;; Hears the promise glowcap answers with, at the moment Goblins status-allow: state at observation
          ;; starts waiting on it.
          (listen greeter-answer (spawn ^waiting) #:wants-partial? #t)
 

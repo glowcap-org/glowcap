@@ -1,6 +1,9 @@
 //! Custody and ordering are independent of the future awaiting a post reply.
 use super::*;
-use rooms_application::room::inbox::queue::{self, MAX_MESSAGES};
+use rooms_application::room::inbox::{
+	metadata::Metadata,
+	queue::{self, MAX_MESSAGES},
+};
 
 fn receipt(request: u64, line: u64) -> Receipt<'static, Ref> {
 	Receipt {
@@ -72,7 +75,13 @@ fn correlation_moves_the_right_owned_payload_in_receipt_order() {
 	let second_message = queue.pop().unwrap().unwrap();
 	assert_eq!(second_message.text.as_ptr(), pointer);
 	assert_eq!(
-		(second_message.text.as_str(), second_message.local_request()),
+		(
+			second_message.text.as_str(),
+			match second_message.metadata {
+				Some(Metadata::Receipt(request)) => Some(request),
+				_ => None,
+			}
+		),
 		("second", Some(second))
 	);
 	assert_eq!(queue.pop().unwrap().unwrap().text, "first");

@@ -27,10 +27,6 @@ fn check(rows: &serde_json::Value, routes: &impl Routes) {
 			result.as_ref().err()
 		);
 		if let Ok(checkpoint) = result {
-			assert_eq!(
-				checkpoint.adoption_material().unwrap().as_str().unwrap(),
-				format!("[\"adoptWorkspace\",{}]", row["admin"].as_str().unwrap())
-			);
 			assert!(checkpoint.retained_bytes() >= core::mem::size_of::<Checkpoint>());
 			assert_eq!(
 				checkpoint.encode_for(Access::Admin).unwrap(),

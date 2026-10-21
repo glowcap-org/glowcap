@@ -68,7 +68,7 @@ impl Roster {
 	}
 	/// One name becoming another: both halves, so the room can say a rename
 	/// as the departure and arrival every client draws. `None` when this
-	/// roster does not hold the old name.
+	/// roster does not hold the old name. status-allow: replacement state identity
 	pub fn rename(&mut self, from: &str, to: &str) -> Result<Option<(String, String)>, Invalid> {
 		let Some(was) = display_nick(from)
 			.ok()

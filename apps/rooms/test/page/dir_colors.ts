@@ -6,7 +6,7 @@
 // rail has to clear what small text asks for against whatever is really behind
 // it, in both appearances.
 //
-// Split out of `directories.ts` because it is its own subject: that scene is
+// This is its own subject: that scene is
 // about two directories being held at once, and this is about what wearing a
 // directory's colour commits the interface to. It is called from the point in
 // that run where the rail carries the most, which is the only place these
@@ -130,7 +130,7 @@ export async function run(tab: Page): Promise<void> {
 	const wasTheme = await tab.getAttribute("html", "data-theme");
 	const tooFaint: string[] = [];
 	// At rest, which takes saying twice: the pointer sent away and the keyboard
-	// let go. Earlier checks left the pointer parked on a row and focus on the
+	// let go. Earlier checks left the pointer parked on a row and focus on the status-allow: event or source ordering
 	// caption it pressed, and either one swaps that caption's ink for the teal a
 	// link wears, hover changes its ground too. What came back was an interactive
 	// state wearing a resting state's name, and its numbers said nothing about the

@@ -14,7 +14,7 @@
 // places is cheaper than two that look nearly alike.
 //
 // What it is not is a set to choose from. Every field using it names something
-// that may not exist yet, a room is made by opening it, so what is typed
+// that may not exist yet, a room is made by opening it, so what is typed status-allow: pending state or quoted runtime label
 // always wins, nothing is picked until the reader walks to it, and Enter with
 // nothing picked still submits the words in the field.
 

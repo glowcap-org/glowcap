@@ -5,13 +5,11 @@ use rooms_application::documents::{DocumentError, SessionDocument};
 #[derive(Debug)]
 pub enum Error {
 	Document(DocumentError),
-	Role,
 }
 impl std::fmt::Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Document(error) => error.fmt(f),
-			Self::Role => f.write_str("unexpected session-state document"),
 		}
 	}
 }
@@ -49,42 +47,5 @@ impl Document for VolatileDocument {
 	}
 	async fn finish_pending(&mut self) -> Option<Completion<Error>> {
 		None
-	}
-}
-pub struct VolatileDocuments {
-	checkpoint: VolatileDocument,
-	effects: VolatileDocument,
-}
-impl Default for VolatileDocuments {
-	fn default() -> Self {
-		Self {
-			checkpoint: VolatileDocument::new(SessionDocument::Checkpoint),
-			effects: VolatileDocument::new(SessionDocument::Effects),
-		}
-	}
-}
-impl SessionStorage for VolatileDocuments {
-	type Error = Error;
-	async fn replace(&mut self, kind: SessionDocument, bytes: Vec<u8>) -> Result<(), WriteFailure<Error>> {
-		let slot = match kind {
-			SessionDocument::Checkpoint => &mut self.checkpoint,
-			SessionDocument::Effects => &mut self.effects,
-			_ => return Err(WriteFailure::Unchanged(Error::Role)),
-		};
-		slot.replace(bytes).await
-	}
-}
-impl Documents for VolatileDocuments {
-	fn has_pending(&self) -> bool {
-		false
-	}
-	async fn read(&mut self) -> Result<Stored, Error> {
-		Ok(Stored {
-			checkpoint: self.checkpoint.read().await?,
-			effects: self.effects.read().await?,
-		})
-	}
-	async fn finish_pending(&mut self) -> [Option<Completion<Error>>; 2] {
-		[None, None]
 	}
 }

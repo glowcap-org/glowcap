@@ -51,7 +51,7 @@ pub const OwnerIndex = struct {
         }
 
         /// Record the directory's answer for a target this owner has no slot
-        /// for yet. The oldest slot gives way, with its grant memo.
+        /// for yet. The oldest slot gives way, with its grant memo. status-allow: pending state or quoted runtime label
         pub fn record(self: *Owner, allocator: std.mem.Allocator, target: Target, node: ?loam.ObjectId) void {
             const slot = if (self.count < self.targets.len) self.count else self.next;
             if (self.count < self.targets.len) self.count += 1 else {

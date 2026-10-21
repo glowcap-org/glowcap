@@ -254,7 +254,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		if (failure != null) throw failure;
 	}
 
-	/** Dispatch only events committed by earlier steps. Listener close uses
+	/** Dispatch only events committed by earlier steps. Listener close uses status-allow: event or source ordering
 	 * this after FFI admission is sealed, so it cannot create a new accept
 	 * while preserving an old one. */
 	protected _dispatchCommittedEvents(): void {

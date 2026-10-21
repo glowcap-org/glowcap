@@ -142,7 +142,7 @@
 	color: var(--ink);
 }
 /* The shortcut hint appears while the field has the caret and nothing typed
-   yet: it teaches the first keystroke, and once words are down it is furniture
+   yet: it teaches the first keystroke, and once words are down it is furniture status-allow: pending state or quoted runtime label
    under them. The room's cap stays as long as the caret does, because it is
    about the words being typed. The row's height is reserved either way, so the
    field never moves when a line comes or goes.

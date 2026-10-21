@@ -2,8 +2,7 @@
 //!
 //! The source gate is one build step (`tools/check/source_check.zig` orchestrates)
 //! whose check families live in sibling modules under this directory, each
-//! owning one named surface. What they all share, today the one violation
-//! sink, lives here, so a module never reaches back into the driver.
+//! owning one named surface. The shared violation sink lives here, so a module never reaches back into the driver.
 
 const std = @import("std");
 const model = @import("model");
@@ -483,7 +482,7 @@ pub fn extractBraceBlock(text: []const u8, marker: []const u8) ?[]const u8 {
 /// character is part of an identifier, so a needle spelled with trailing
 /// punctuation (`"return sendLocal("`) still matches.
 ///
-/// A needle that begins with an identifier character no longer matches mid-
+/// A needle that begins with an identifier character no longer matches mid- status-allow: lifecycle transition
 /// identifier, so `"tell_local("` is not found inside `"run_tell_local("`. Spell
 /// such a needle with whatever precedes it when that is what you meant.
 pub fn containsAsSymbol(haystack: []const u8, needle: []const u8) bool {

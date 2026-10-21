@@ -416,8 +416,8 @@ at each declaration. This inventory names managed session execution costs.
   - Dropping a viewer cannot retire the source's direct line actors or
     membership supervisor.
 - **Browser file displays**: `attached::file_display::materialize` is the
-  single Blob/URL owner for managed incoming files, exact archive attachments,
-  and the remaining legacy file fronts. The Environment's receiver budget
+  single Blob/URL owner for managed incoming files and exact archive
+  attachments. The Environment's receiver budget
   reserves logical size before the first read.
   - Bounded chunks cross Wasm once and feed a browser Blob without a second
     complete Wasm buffer. The returned URL retains its charge until

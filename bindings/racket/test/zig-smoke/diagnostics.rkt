@@ -172,7 +172,7 @@
 (expect (eq? repeated-background-failure background-failure)
         "repeated Host close returns the same background worker failure")
 
-;; Failed-dial cleanup has its own failure channel. An earlier cleanup failure
+;; Failed-dial cleanup has its own failure channel. An earlier cleanup failure status-allow: event or source ordering
 ;; cannot stop the remaining rollback/report work or be replaced by a later
 ;; failure, and explicit Host close remains its deterministic observer.
 (define dial-cleanup-failure-host (make-fresh-host))

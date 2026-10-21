@@ -152,7 +152,7 @@ export interface EffectView {
 	resumable: boolean;
 }
 /** An archive coordinate as the wire carries it. Mirrors ArchiveCoordinates
- * in lib/archive/protocol.ts, which owns no JSON schema today. */
+ * in lib/archive/protocol.ts, which owns no JSON schema. */
 export const HistoryCoordinateSchema = z.object({
 	source: z.string(),
 	generation: z.string(),

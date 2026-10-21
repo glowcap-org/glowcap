@@ -108,7 +108,7 @@ again.
 
 Keep the Store and engine open until recovery succeeds. Closing and reopening
 the engine starts a new Store, as a process restart does, and the new Store
-cannot recover the old one's write.
+cannot recover the old one's write. <!-- status-allow: runtime state or operation ordering -->
 
 A timeout or an abandoned caller does not prove the write aborted, so neither
 one lets the Store take new work. The [storage tests](../../test/loam/engines/storage_test.zig)

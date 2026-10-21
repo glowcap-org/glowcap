@@ -1,6 +1,6 @@
 //! Borrowed scope descriptions evaluated against one current resource graph.
 //! Subtree scopes include future owned descendants. They cannot be narrowed
-//! from a finite selection merely because today's subtree fits that selection.
+//! from a finite selection merely because the current subtree fits that selection.
 
 const ResourceView = @import("resource_view.zig").ResourceView;
 const ResourceId = @import("identity.zig").ResourceId;

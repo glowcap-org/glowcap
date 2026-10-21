@@ -29,7 +29,7 @@ export { DIRECTORY } from "./protocol_data.ts";
  * fetches. Inspect is a second Host publication under an unguessable swiss,
  * created only when the process is started with `--diagnostics`. Holding that swiss is the
  * capability: a client fetches it the same way it fetches `directory`, then
- * sends `snapshot` and gets the names this directory currently holds, as
+ * sends `snapshot` and gets the names this directory holds, as
  * `[kind, name, note]` rows. It does not return live room references.
  *
  * Because its holder is the Rooms operator, the rows include every room the
@@ -105,7 +105,6 @@ export {
 	WATCH,
 	WATCH_PUBLICATIONS,
 } from "./protocol_data.ts";
-export type RoomRecordShape = "baseline" | "publication";
 /** The directory's preferred durable location, derived from live listeners. */
 export { ADVERTISED_LOCATION } from "./protocol_data.ts";
 
@@ -261,7 +260,7 @@ export { CALLED } from "./protocol_data.ts";
  * not ask this. Listed-ness arrives on subscribe as `LISTED` / `UNLISTED`. */
 export { PRIVATE } from "./protocol_data.ts";
 /** Exact room admission policy: `access()` answers `public`, `invite-only`, or
- * `private`. `private()` remains the coarse compatibility question. */
+ * `private`. `private()` answers only whether the room is listed. */
 export { ROOM_POLICY, ROOM_POLICY_CHANGED } from "./protocol_data.ts";
 /** A live seat answers whether it is an observer or participant. */
 export { MEMBERSHIP_KIND } from "./protocol_data.ts";
@@ -351,7 +350,7 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
  * from the member's signed hello, not from stamping this argument. A second
  * `register` for the same nick replaces the prior intro when it comes from the
  * connection holding it. A new connection may replace that live claim with a
- * single-use voucher created by the old name capability. Another caller is
+ * single-use voucher created by the old name capability. Another caller is status-allow: replacement state identity
  * refused `nick-taken` while the holder remains open.
  * `introduce(nick, registrationId, opening)` returns the inbox that registration offered for
  * this caller and opening (see
@@ -391,7 +390,7 @@ export { INTRODUCE, VOUCHER } from "./protocol_data.ts";
  * for one peer, and the directory hands it to that peer alone, so the inbox a
  * message arrives on identifies the sender and no message has to name anybody.
  *
- * The inbox must answer on a connection this member has not seen yet: a peer
+ * The inbox must answer on a connection this member has not seen yet: a peer status-allow: pending state or quoted runtime label
  * reaches it by redeeming the introduction, which dials this endpoint and opens a
  * fresh session. Publish it host-wide, then offer the position that name holds on
  * the directory's own connection. An object published on one session has no name
@@ -593,7 +592,7 @@ export { MEMBER_REGISTRATION } from "./protocol_data.ts";
  * A member's register inbox also hears `notify("registered", nick, registrationId)`, the
  * discovery notification for the name granted in the committed reply. It hears
  * `notify("mintInboxFor", peer, registrationId)` when someone has asked to be introduced and
- * the member has offered no inbox for them yet: create one and `offerInbox` it.
+ * the member has offered no inbox for them yet: create one and `offerInbox` it. status-allow: pending state or quoted runtime label
  * It hears `notify("directRequested", peer, registrationId)` whenever that peer requests an
  * introduction, so a target with the compatible carrier can establish the
  * reciprocal route before any user message is sent.
@@ -609,7 +608,7 @@ export { MEMBER_REGISTRATION } from "./protocol_data.ts";
  * expect it. One `introduce` makes the room do two things: ask the member for
  * an inbox, and refuse the asker as pending. A member that offers quickly
  * triggers `introducible` to the asker first, where it finds nothing waiting
- * yet, and no second notice follows. So a parking client remembers a notice
+ * yet, and no second notice follows. So a parking client remembers a notice status-allow: pending state or quoted runtime label
  * that arrived early and lets the refusal ask again at once. `lib/room/client.ts`
  * keeps that memo, and so does the Goblins vat's
  * `conformance/goblins-peer/racket/rooms-dm.rkt`. A client that surfaces the
@@ -631,7 +630,7 @@ export { MEMBER_REGISTRATION } from "./protocol_data.ts";
  * invalidates the room or steward generation. Its line text is blank, like the
  * existing listed-status notification. */
 export { NOTIFY } from "./protocol_data.ts";
-/** `notify` tag: this room no longer holds the membership behind the inbox. */
+/** `notify` tag: this room no longer holds the membership behind the inbox.  status-allow: lifecycle transition */
 export { MEMBERSHIP_ENDED } from "./protocol_data.ts";
 /** `notify` tag: invalidate the room link alone or it and its moderator. */
 export { ROOM_AUTHORITY_CHANGED } from "./protocol_data.ts";

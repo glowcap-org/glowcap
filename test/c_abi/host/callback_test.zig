@@ -337,7 +337,7 @@ test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-
     try pump(&hosts, &.{pair}, &dials, &watches);
     const worker_ref = try fetched.requireRef();
 
-    // The behavior returns and every wire quiesces, yet the answer is still
+    // The behavior returns and every wire quiesces, yet the answer is still status-allow: pending state or quoted runtime label
     // open: the deferral holds it for the resolver.
     var vow: u64 = 0;
     try expectOk(cd.glowcap_host_session_send(pair.a, &worker_ref, "work", 4, null, 0, &vow));

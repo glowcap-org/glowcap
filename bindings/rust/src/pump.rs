@@ -423,7 +423,7 @@ impl FrameGuard {
 impl Drop for FrameGuard {
 	fn drop(&mut self) {
 		// SAFETY: `self.0` is the managed frame `take_packet` filled, released exactly once here and only after the
-		// borrowed bytes are no longer used; the release is a no-op on a repeat.
+		// borrowed bytes are no longer used; the release is a no-op on a repeat. status-allow: lifecycle transition
 		unsafe { sys::glowcap_managed_frame_release(&mut self.0) };
 	}
 }

@@ -9,6 +9,7 @@
  * `state.selection`.
  */
 
+import { z } from "zod";
 import type { StageVisibility } from "../render/types.ts";
 import { scenarios } from "../fixtures/index.ts";
 import type { LaneKind } from "../ui/Timeline/state.ts";
@@ -178,6 +179,42 @@ export const DEFAULT_VISIBILITY: StageVisibility = {
 	labels: true,
 };
 
+const LayoutSizesSchema = z.object({
+	leftPaneWidth: z.number().finite(),
+	rightPaneWidth: z.number().finite(),
+	bottomPaneHeight: z.number().finite(),
+});
+
+const StageVisibilitySchema = z.object({
+	peers: z.boolean(),
+	connections: z.boolean(),
+	messages: z.boolean(),
+	labels: z.boolean(),
+});
+
+/** Parse a stored JSON value against a schema. Anything that is not the full
+ * shape, including unparseable text, is discarded whole: the caller falls back
+ * to its defaults and never merges a stored fragment into them. */
+function parseStored<T>(schema: z.ZodType<T>, raw: string | null): T | null {
+	if (!raw) return null;
+	try {
+		const parsed = schema.safeParse(JSON.parse(raw));
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Stored pane sizes, or null when nothing valid is stored. */
+export function loadPersistedLayoutSizes(): LayoutSizes | null {
+	return parseStored(LayoutSizesSchema, loadStoredValue(SIZES_STORAGE_KEY));
+}
+
+/** Stored Stage layer visibility, or null when nothing valid is stored. */
+export function loadPersistedStageVisibility(): StageVisibility | null {
+	return parseStored(StageVisibilitySchema, loadStoredValue(VISIBILITY_STORAGE_KEY));
+}
+
 export function clamp(n: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, n));
 }
@@ -251,18 +288,22 @@ export function readLiveOverride(): { liveSturdyref: string } | null {
 	};
 }
 
+const PersistedAppStateSchema = z.object({
+	scenarioId: z.string(),
+	liveSturdyref: z.string(),
+	mode: z.enum(["live", "play", "build"]),
+	tool: z.enum(["select", "hand", "add-peer", "open-session", "send-message"]),
+	firstPickNodeId: z.string().nullable(),
+	autoSizeTimeline: z.boolean(),
+}) satisfies z.ZodType<AppState>;
+
 /** Read persisted `AppState`. Returns `null` on missing or
- * malformed input. The caller falls back to defaults. Checks for
+ * malformed input, including a stored value that is not the full
+ * shape. The caller falls back to defaults whole. Checks for
  * `localStorage` directly (not `window`) so this works in both
  * browser and Deno test environments. */
-export function loadPersistedAppState(): Partial<AppState> | null {
-	const raw = loadStoredValue(APP_STATE_STORAGE_KEY);
-	if (!raw) return null;
-	try {
-		return JSON.parse(raw) as Partial<AppState>;
-	} catch {
-		return null;
-	}
+export function loadPersistedAppState(): AppState | null {
+	return parseStored(PersistedAppStateSchema, loadStoredValue(APP_STATE_STORAGE_KEY));
 }
 
 /**
@@ -275,8 +316,7 @@ export function loadPersistedAppState(): Partial<AppState> | null {
 export function makeInitialAppState(): AppState {
 	const persisted = loadPersistedAppState();
 	const live = readLiveOverride();
-	const persistedMode = persisted?.mode;
-	const initialMode: AppMode = live !== null ? "live" : (persistedMode ?? "play");
+	const initialMode: AppMode = live !== null ? "live" : (persisted?.mode ?? "play");
 	return {
 		scenarioId: persisted?.scenarioId ?? scenarios[0]?.id ?? "",
 		mode: initialMode,

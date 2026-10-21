@@ -77,42 +77,6 @@ export function setDirSession(projection: PageProjection, dir: DirId, session: S
 	patchDir(projection, dir, { session });
 }
 
-/** Name the directory this page came with. Written once, by the one open that
- * had no locator to start with.
- *
- * One field and nothing else. Which locator a reader means by "here" is a
- * question the join card resolves as it draws, so this can be learned late
- * without anything reaching into what the reader is looking at. */
-export function setHomeDir(projection: PageProjection, dir: DirId): void {
-	if (projection.get().homeDir === dir) return;
-	projection.set({ homeDir: dir });
-}
-
-/** Record that this directory has answered. One way only: one that has been
- * reached once stays reached for the life of the tab, because what the flag
- * exists to tell apart is "this address may be wrong" from "this directory has
- * gone away", and only the first of those is ever true before the first
- * answer. */
-export function markDirReached(projection: PageProjection, dir: DirId): void {
-	patchDir(projection, dir, { reached: true });
-}
-
-/** Whether this directory has ever answered in this tab. An unknown one reads
- * as not reached, which is the safe answer: it is the arm that gives up. */
-export function dirReached(projection: PageProjection, dir: DirId): boolean {
-	return projection.get().dirs.get(dir)?.reached ?? false;
-}
-export function setDirStatus(projection: PageProjection, dir: DirId, statusText: string): void {
-	patchDir(projection, dir, { statusText });
-}
-
-/** Say whether others can reach this tab for direct messages on `dir`: a reason
- * when they cannot, empty when they can. */
-export function setDmUnreachable(projection: PageProjection, dir: DirId, why: string): void {
-	if ((projection.get().dirs.get(dir)?.dmUnreachable ?? "") === why) return;
-	patchDir(projection, dir, { dmUnreachable: why });
-}
-
 /** Whether `name` is the name this directory granted this tab.
  *
  * A direct line, an invitation, and an inbox offer are acts toward somebody
@@ -123,6 +87,7 @@ export function isSelf(projection: PageProjection, dir: DirId, name: string): bo
 	const nick = projection.get().dirs.get(dir)?.nick ?? "";
 	return nick !== "" && name.toLowerCase() === nick.toLowerCase();
 }
+
 function liveRoomKey(name: string): string {
 	return name.toLowerCase();
 }
@@ -158,6 +123,7 @@ export function setLiveRoom(projection: PageProjection, dir: DirId, room: RoomIn
 	liveRooms.set(liveRoomKey(room.name), room);
 	patchDir(projection, dir, { liveRooms });
 }
+
 export function dropLiveRoom(projection: PageProjection, dir: DirId, room: RoomInfo): void {
 	const held = projection.get().dirs.get(dir);
 	if (held === undefined) return;
@@ -181,12 +147,7 @@ function sameRows<V extends object>(held: ReadonlyMap<string, V>, next: Readonly
 	}
 	return true;
 }
-export function resetLiveRooms(projection: PageProjection, dir: DirId, rooms: Iterable<RoomInfo>): void {
-	const held = projection.get().dirs.get(dir);
-	if (held == null) return;
-	const liveRooms = new Map([...rooms].map((room) => [liveRoomKey(room.name), room]));
-	patchDir(projection, dir, { liveRooms: sameRows(held.liveRooms, liveRooms) ? held.liveRooms : liveRooms });
-}
+
 export function setDmable(
 	projection: PageProjection,
 	dir: DirId,
@@ -207,6 +168,7 @@ export function setDmable(
 	patchDir(projection, dir, { dmablePeers });
 	return true;
 }
+
 export function resetDirectoryDiscovery(
 	projection: PageProjection,
 	dir: DirId,
@@ -221,13 +183,4 @@ export function resetDirectoryDiscovery(
 		liveRooms: sameRows(held.liveRooms, liveRooms) ? held.liveRooms : liveRooms,
 		dmablePeers: sameRows(held.dmablePeers, dmablePeers) ? held.dmablePeers : dmablePeers,
 	});
-}
-export function clearDmable(projection: PageProjection, dir: DirId): void {
-	const held = projection.get().dirs.get(dir);
-	if (held == null || held.dmablePeers.size === 0) return;
-	patchDir(projection, dir, { dmablePeers: new Map() });
-}
-
-export function peerRegistration(projection: PageProjection, dir: DirId, name: string): DirectoryMember | null {
-	return projection.get().dirs.get(dir)?.dmablePeers.get(name.toLowerCase()) ?? null;
 }

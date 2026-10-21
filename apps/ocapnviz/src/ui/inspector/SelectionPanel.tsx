@@ -215,7 +215,7 @@ function NarrowRow(
  *  both, so the value shown is the value of everything the button
  *  would touch.
  *
- *  Messages and session ends have no such field today. A message's
+ *  Messages and session ends have no such field. A message's
  *  direction swap is a one-shot act rather than a value, and the
  *  session it is carried over has a different candidate list per
  *  message. An end's every field belongs to the session that owns
@@ -427,7 +427,7 @@ function BulkShiftInput(
 	},
 ) {
 	// Reset to 0 on a new selection so the reader always starts at "no
-	// shift" relative to the times the entities currently hold.
+	// shift" relative to the times the entities hold.
 	const [delta, setDelta] = useState(0);
 	useEffect(() => {
 		setDelta(0);

@@ -103,7 +103,7 @@ pub fn settlingConsumerClaimed(self: *Session, source: session.PromiseIncarnatio
         (entry.settling_answer != null or entry.settling_node_claimed);
 }
 
-/// Promise shortening discards the old peer's settling-only listener. When its
+/// Promise shortening discards the old peer's settling-only listener. When its status-allow: replacement state identity
 /// local consumers are already gone, conclude the pending race tombstone
 /// instead of rearming it on the shortened target.
 pub fn discardUnconsumedSettlingListener(self: *Session, source: session.PromiseIncarnation) void {

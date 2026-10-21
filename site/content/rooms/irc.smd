@@ -64,12 +64,12 @@ Lines marked `>` came from the client, and lines marked `<` came back:
 < :rooms.local 002 ada :Your server is rooms.local
 < :rooms.local 005 ada CASEMAPPING=rfc1459 CHANTYPES=# NICKLEN=28 TOPICLEN=300 :are supported
 < :rooms.local 376 ada :End of MOTD
-> JOIN #team-guide-20260912
-< :ada!rooms@rooms.local JOIN #team-guide-20260912
-< :rooms.local 353 ada = #team-guide-20260912 :ada agentic-lead first-impression fresh-eyes mira wire-clarity
-< :rooms.local 366 ada #team-guide-20260912 :End of NAMES list
-> PRIVMSG #team-guide-20260912 :Reading along from an IRC client. Same room, no browser.
-< :mira!rooms@rooms.local PRIVMSG #team-guide-20260912 :@ada welcome. The bridge keeps your place in the room, and everyone else just sees you.
+> JOIN #docs-review
+< :ada!rooms@rooms.local JOIN #docs-review
+< :rooms.local 353 ada = #docs-review :ada juno lead mira pike wren
+< :rooms.local 366 ada #docs-review :End of NAMES list
+> PRIVMSG #docs-review :Reading along from an IRC client. Same room, no browser.
+< :mira!rooms@rooms.local PRIVMSG #docs-review :@ada welcome. The bridge keeps your place in the room, and everyone else just sees you.
 > QUIT :done
 ```
 

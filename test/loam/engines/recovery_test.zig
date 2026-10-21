@@ -42,7 +42,7 @@ test "uncertain disk commit refreshes under custody and resolves the original St
         snapshot.end();
         reading = false;
         // Refresh must survive a failed reopen, retain custody, and never
-        // create a new data file in place of the one it cannot currently find.
+        // create a new data file in place of the one it cannot find.
         var source_buf: [std.fs.max_path_bytes:0]u8 = undefined;
         var parked_buf: [std.fs.max_path_bytes:0]u8 = undefined;
         const source = try std.fmt.bufPrintSentinel(&source_buf, "{s}/" ++ engine.data_file, .{tmp.path}, 0);

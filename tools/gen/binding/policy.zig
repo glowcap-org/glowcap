@@ -3,7 +3,7 @@
 //! These values are not C ABI declarations. They belong here when the bindings
 //! share a host-language resource policy that the core and C surface do not own.
 
-/// Settled Host vow outcomes retained for a caller that has not awaited yet.
+/// Settled Host vow outcomes retained for a caller that has not awaited yet. status-allow: pending state or quoted runtime label
 pub const unobserved_outcome_cap: usize = 1024;
 
 /// Readiness records a binding pulls from a transport endpoint per drain call.

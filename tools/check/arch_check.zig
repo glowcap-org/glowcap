@@ -2,8 +2,8 @@
 //!
 //! The layer dependency DAG itself is enforced by the compiler: each `src/`
 //! layer is an internal build.zig module with an explicit one-way import table
-//! (`layer_table` in build.zig, ADR-0011, and ADR-0011 for the sibling-codec
-//! modules below the codec layer), so a cross-layer reach is a compile error,
+//! (`layer_table` in build.zig, and the sibling-codec modules below the codec
+//! layer, ADR-0011), so a cross-layer reach is a compile error,
 //! a layer cannot even name a file outside its module root. This gate receives
 //! that same table and walks `src/**/*.zig` to hold what the compiler alone
 //! does not:

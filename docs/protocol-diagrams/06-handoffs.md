@@ -79,7 +79,7 @@ flowchart TD
 
 ## HO-5: Step 3: Receiver-side validation
 
-The Receiver cannot verify the Gifter's signature yet, because it has never seen
+The Receiver cannot verify the Gifter's signature yet, because it has never seen <!-- status-allow: runtime state or operation ordering -->
 the Gifter's G-X pubkey. That check belongs to the Exporter. The spec also
 suggests the Receiver check that the give's receiver-key names it. glowcap
 leaves that to the Exporter too, where the receive must be signed by that
@@ -143,7 +143,7 @@ Replay authority lives with the live sessions:
   replay map survives.
 - Every Host session derives a distinct signing seed from a process-fresh,
   domain-separated session root and a monotonic counter (ADR-0028). A
-  reconnect cannot recreate the old side or session names, so an old signed
+  reconnect cannot recreate the old side or session names, so an old signed <!-- status-allow: runtime state or operation ordering -->
   receive cannot name a replacement session.
 - The V1 Node uses a separate lifetime cursor for receive-certificate issuance
   to accommodate the pinned Goblins counter behavior across reconnects.

@@ -292,7 +292,7 @@ function mergeIntoDoc(
 
 	// Merge events sorted by t into the canonical observation store
 	// (recording.sources[0]). Lazy-creates the primary source if the
-	// target doc has no recording yet.
+	// target doc has no recording yet. status-allow: pending state or quoted runtime label
 	const existing = observationsOf(doc) as TimelineEvent[];
 	const allEvents = [...existing, ...events];
 	allEvents.sort((a, b) => a.t - b.t);

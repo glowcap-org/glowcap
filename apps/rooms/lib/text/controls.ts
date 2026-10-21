@@ -19,7 +19,6 @@ export const dmMarkTitle = "Direct message";
 export const dmRemove = "Remove this direct message";
 export const dmSectionTitle = "Direct messages";
 export const railFilterLabel = "What the sidebar shows";
-export const messageStopFiles = "Stop sending these files";
 export const messageRetry = "Retry failed message";
 export const discardChangesTitle = "Discard unsaved changes?";
 export const archiveShareCopy = "Copy the durable archive share";
@@ -69,11 +68,6 @@ export const composerTakeBack = "Take this message back";
 export const composerSend = "Send";
 export const commandKeyApple = "⌘";
 export const commandKeyControl = "Ctrl";
-/** The bar over a field on a directory that is not connected: the phase,
- * then what became of the message. */
-export function composerNotConnected(phase: string): string {
-	return `${phase}. Your message was not sent.`;
-}
 
 export const composerUnsynced = "Draft is kept in this tab. Sync has stopped.";
 export const composerRetrySync = "Retry sync";

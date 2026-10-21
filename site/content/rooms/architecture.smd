@@ -48,13 +48,13 @@ You meet this in everyday actions:
 | --- | --- | --- |
 | Join a room | The server, the room, and the name you chose or left blank. | Your seat in the room under the name you got, or a refusal that keeps your choice and the suggestion. |
 | Send a line | Your exact text and files, for one conversation. | The confirmed line, or your text back in the box, or a line marked unconfirmed that you will not be asked to resend blindly. |
-| Change where history goes | The archive you picked and whether to keep recording. | The new setting in force, or an erased history, or a visible problem while the old setting stays in force. |
+| Change where history goes | The archive you picked and whether to keep recording. | The new setting in force, or an erased history, or a visible problem while the existing setting stays in force. |
 | Open a shared session | The link and the access you asked for. | The session on screen, or a plain message saying whether the trouble was reaching it or being let in. |
 
 Two files make this hold across restarts. One records what you want and
 what has been confirmed. The other records work that was started and still
 has to be checked against the outside world. A process reads both before it
-says it is ready, so it never claims a clean start while an earlier write,
+says it is ready, so it never claims a clean start while a preceding write,
 registration, or announcement is still unknown.
 
 # Why Rust

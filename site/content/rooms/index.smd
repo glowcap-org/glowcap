@@ -110,7 +110,7 @@ session service.
 
 Rooms writes down what you asked for, does it, and then shows you what
 happened. If it was refused before
-anything changed, you can try again. If nobody can say yet whether it worked,
+anything changed, you can try again. If nobody can say whether it worked,
 Rooms tells you so.
 
 That rule covers joining, sending, editing, reconnecting, changing your name,

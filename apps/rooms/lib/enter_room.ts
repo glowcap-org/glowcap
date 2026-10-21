@@ -17,7 +17,7 @@ import { roomsErrorOf } from "./errors.ts";
 import { dialDirectory, type RoomsRuntime } from "./locator.ts";
 
 /** Get a reference to `name` on `dir`, opening the room if it does not exist
- * yet. Composes the directory's strict `enter`/`open`. The leniency is here. */
+ * yet. Composes the directory's strict `enter`/`open`. The leniency is here.  status-allow: pending state or quoted runtime label */
 export async function enterOrOpen(dir: Directory, name: string): Promise<Ref> {
 	return (await enterOrOpenResult(dir, name)).ref;
 }

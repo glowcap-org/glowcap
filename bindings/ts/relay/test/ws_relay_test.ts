@@ -330,7 +330,7 @@ Deno.test("rendezvous accounts insert, error, take, and close exactly once", asy
 	if (taken == null) throw new Error("the oldest held socket should be taken");
 	assertEquals(rendezvous.heldCount(), 1);
 	assertEquals(rendezvous.heldFor(alice), 0);
-	second.close(); // taken entries are no longer registry-owned
+	second.close(); // taken entries are no longer registry-owned status-allow: lifecycle transition
 	assertEquals(rendezvous.heldCount(), 1);
 
 	await rendezvous.close();

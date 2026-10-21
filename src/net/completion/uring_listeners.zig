@@ -108,7 +108,7 @@ pub const Listeners = struct {
         const row = self.rows.getPtr(fd).?;
         if (resolved) return true;
         row.cancel.?.phase = .waiting_target;
-        // The accept CQE may have won the race and appeared earlier in this
+        // The accept CQE may have won the race and appeared earlier in this status-allow: event or source ordering
         // same batch.
         return row.accept_ud == null;
     }

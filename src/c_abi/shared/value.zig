@@ -57,7 +57,7 @@ pub const GLOWCAP_ARG_INTEGERS: u32 = 15;
 
 pub const GLOWCAP_RESOLUTION_FULFILL: u32 = 0;
 pub const GLOWCAP_RESOLUTION_BREAK: u32 = 1;
-/// The answer fulfilled to a three-party handoff (ADR-0039/ADR-0039): the
+/// The answer fulfilled to a three-party handoff (ADR-0039): the
 /// resolution carries a `desc:handoff-give` the recipient must redeem against
 /// the named exporter rather than an immediate value. `GlowcapResolve.handoff`
 /// carries the verbatim give and the exporter's dialable locator.

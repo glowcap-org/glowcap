@@ -82,7 +82,7 @@ pub const Server = struct {
         owns_prepared = false;
     }
 
-    /// Borrow the currently advertised locator. The view remains valid until
+    /// Borrow the advertised locator. The view remains valid until
     /// `setAdvertisedLocator`, removal through the lower host tier, or close.
     pub fn advertisedLocator(self: *const Server) driver.Error!model.PeerLocator {
         try self.ensureOpen();
@@ -151,7 +151,7 @@ pub const Server = struct {
     }
 
     /// Remove a minted durable publication (see `driver_core.Host.removeDurable`):
-    /// the old sturdyref misses afterward, while issued capabilities and
+    /// the old sturdyref misses afterward, while issued capabilities and status-allow: replacement state identity
     /// deposited gifts keep the exact actor.
     pub fn removeDurable(
         self: *Server,

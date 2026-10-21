@@ -124,7 +124,6 @@ enum Command<P: Platform> {
 	Share(rooms_application::archive::shares::Share, Answer<String>),
 	Revoke(String, Answer<bool>),
 	Shares(Answer<Vec<rooms_glowcap::client::archive::ShareView>>),
-	Issued(Answer<Vec<rooms_glowcap::client::archive::ShareView>>),
 	Select(Option<String>, Answer<()>),
 	Prepare(String, Answer<()>),
 	Put(Record, Vec<File<P>>, Answer<u64>),
@@ -136,10 +135,8 @@ enum Command<P: Platform> {
 		FileRecording,
 		Answer<Recorded>,
 	),
-	Clear(Answer<()>),
 	ClearSource(DocumentText, Answer<()>),
 	Read(Filter, Answer<Vec<KeptRecord<P>>>),
-	ReadView(Filter, Answer<HistoryView<P>>),
 	Page(Filter, u64, usize, Answer<Page>),
 }
 impl<P: Platform> SessionArchive<P> {
@@ -199,15 +196,8 @@ impl<P: Platform> SessionArchive<P> {
 	pub fn selection_issue(&self) -> Option<String> {
 		self.0.selection_issue.borrow().clone()
 	}
-	pub fn status_changes(&self) -> watch::Receiver<()> {
-		self.0.status.subscribe()
-	}
 	pub fn prepare(&self, link: String) -> Result<Reply<()>, Error> {
 		self.0.admit(link.len(), 0, |reply| Command::Prepare(link, reply))
-	}
-	pub fn pause_recording(&self) -> RecordingPause {
-		self.0.recording_pauses.set(self.0.recording_pauses.get() + 1);
-		RecordingPause(self.0.recording_pauses.clone())
 	}
 	pub fn put(&self, record: Record, sources: Vec<File<P>>) -> Result<Reply<u64>, Error> {
 		if self.0.recording_pauses.get() != 0 {
@@ -325,29 +315,6 @@ impl<P: Platform> SessionArchive<P> {
 			completion,
 		}))
 	}
-	/// A durable session barrier waits for bounded admission instead of losing
-	/// an erase request at queue pressure. Once admitted, the worker owns it even
-	/// if observation is cancelled. FIFO ordering and ingestion fences are shared
-	/// with clear_local. This method introduces no second erasure path.
-	pub async fn clear_local_when_ready(&self) -> Result<(), Error> {
-		let mut stop = self.0.stop.subscribe();
-		if *stop.borrow() {
-			return Err(Error::closed("session archive is closed"));
-		}
-		let count = tokio::select! {
-			permit = self.0.capacity.clone().acquire_owned() => permit.map_err(|_| Error::closed("session archive capacity is closed"))?,
-			_ = stop.changed() => return Err(Error::closed("session archive is closed")),
-			_ = self.0.requests.closed() => return Err(Error::closed("session archive worker retired")),
-		};
-		self.0
-			.admit_with_custody(0, 0, false, Some(count), |answer, _| Command::Clear(answer))?
-			.wait()
-			.await
-	}
-
-	pub fn clear_local(&self) -> Result<Reply<()>, Error> {
-		self.0.admit(0, 0, Command::Clear)
-	}
 	/// The managed owner fences its producers before this FIFO barrier. Queue
 	/// pressure waits for bounded admission. Cancellation leaves erasure owned by
 	/// the worker, including retirement of this source's in-flight captures.
@@ -372,11 +339,6 @@ impl<P: Platform> SessionArchive<P> {
 		filter.validate().map_err(Error::invalid_by)?;
 		self.0
 			.admit(filter.retained_bytes(), 0, |reply| Command::Read(filter, reply))
-	}
-	pub fn read_view(&self, filter: Filter) -> Result<Reply<HistoryView<P>>, Error> {
-		filter.validate().map_err(Error::invalid_by)?;
-		self.0
-			.admit(filter.retained_bytes(), 0, |reply| Command::ReadView(filter, reply))
 	}
 	pub fn read_page(&self, filter: Filter, after: u64, limit: usize) -> Result<Reply<Page>, Error> {
 		filter.validate().map_err(Error::invalid_by)?;
@@ -403,12 +365,6 @@ impl<P: Platform> SessionArchive<P> {
 	pub fn shares(&self) -> Result<Reply<Vec<rooms_glowcap::client::archive::ShareView>>, Error> {
 		self.0.admit(0, 0, Command::Shares)
 	}
-	/// Issued durable shares this session can name. A selected archive peer is
-	/// the issuer when one is connected. Otherwise the local store is.
-	pub fn list_issued(&self) -> Result<Reply<Vec<rooms_glowcap::client::archive::ShareView>>, Error> {
-		self.0.admit(0, 0, Command::Issued)
-	}
-
 	pub async fn close(&self) -> Result<Report, Error> {
 		self.0.stop.send_replace(true);
 		let mut done = self.0.done.clone();

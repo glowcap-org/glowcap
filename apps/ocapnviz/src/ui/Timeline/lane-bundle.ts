@@ -108,7 +108,7 @@ export type LaneGlyph = {
 };
 
 /** Per-category lane contents. `spans` is the flat list used by
- * the collapsed (stacked-summary) render, today's look. `glyphs`
+ * the collapsed (stacked-summary) render. `glyphs`
  * are the single-moment diamonds: a session's state changes, a
  * peer's renames. `byEntity` is the Flash-grade per-entity
  * breakdown, same data, indexed by
@@ -167,7 +167,7 @@ const laneBundleCache = new WeakMap<
 
 /** Sentinel for docs with no `entities` field, keeps the WeakMap
  *  key non-null when an early-load doc has neither identity nor
- *  observations yet. */
+ *  observations yet.  status-allow: pending state or quoted runtime label */
 const EMPTY_ENTITIES: NonNullable<TimelineDocument["entities"]> = {};
 
 /** How many bundles one entities identity keeps.
@@ -332,7 +332,7 @@ export function buildLaneBundle(
 		const eff = peerEffective(doc, peerId);
 		const open = !Number.isFinite(eff.end);
 		const endT = open ? duration : eff.end;
-		// A peer that changes flavor bands its pill at the moment it
+		// A peer that changes flavor bands its pill at the moment it status-allow: state at observation
 		// changed, the way a session bands by state. The row shows what
 		// it was known as when, not only what it ended up as.
 		const segments = buildTrackSegments(

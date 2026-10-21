@@ -125,7 +125,7 @@ impl NetlayerRelease {
 				}
 				// SAFETY: `close` is `close_ffi` in production, and `raw` is the address of the
 				// `GlowcapIrohNetlayer` this `NetlayerRaw` is dropping; this frame holds the `RELEASE_RUNNING` claim,
-				// so no release has run yet, and `close` is a shutdown lever that does not free the handle.
+				// so no release has run yet, and `close` is a shutdown lever that does not free the handle. status-allow: pending state or quoted runtime label
 				unsafe { close(raw) };
 				if let Err(error) = call_release(release, raw) {
 					*lock_iroh(&self.failure, "iroh-release-failure-lock-poison") = Some(error.clone());

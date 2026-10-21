@@ -1,11 +1,7 @@
 use crate::arguments::Arg;
 use rooms_application::{
 	grants::Access,
-	session::{
-		checkpoint::{Checkpoint, Routes, commands},
-		command::{Refusal, Request, Route},
-	},
-	text::DocumentText,
+	session::command::{Refusal, Request, Route},
 };
 use serde_json::Value;
 fn fixture() -> Value {
@@ -28,46 +24,6 @@ fn arguments(row: &Value) -> Vec<Arg> {
 			}
 		})
 		.collect()
-}
-struct CapturedRoutes<'a>(&'a Value);
-impl Routes for CapturedRoutes<'_> {
-	fn locator_authority(&self, raw: &str) -> Option<String> {
-		self.0["locatorAuthorities"][raw].as_str().map(str::to_owned)
-	}
-	fn sturdyref_authority(&self, raw: &str) -> Option<String> {
-		self.0["sturdyrefAuthorities"][raw].as_str().map(str::to_owned)
-	}
-}
-fn handed(fixture: &Value, routes: &impl Routes) {
-	for row in fixture["handed"].as_array().unwrap() {
-		let before = Checkpoint::decode(row["before"].as_str().unwrap(), routes).unwrap();
-		let original = before.encode_for(Access::Admin).unwrap();
-		let invitation = row["invitation"].as_str().unwrap().into();
-		let args: [DocumentText; 2] = serde_json::from_value(row["args"].clone()).unwrap();
-		let result = commands::accept_handed(&before, &invitation, &args, routes);
-		assert_eq!(
-			result.is_ok(),
-			row["after"].is_string(),
-			"{}: {:?}",
-			row["name"],
-			result.as_ref().err()
-		);
-		if let Ok(after) = result {
-			assert_eq!(
-				after.encode_for(Access::Admin).unwrap(),
-				row["after"].as_str().unwrap(),
-				"{}",
-				row["name"]
-			);
-		}
-		assert_eq!(
-			before.encode_for(Access::Admin).unwrap(),
-			original,
-			"failed or successful candidate changed source"
-		);
-		let different = ["different-handed-id".into(), args[1].clone()];
-		assert!(commands::accept_handed(&before, &invitation, &different, routes).is_err());
-	}
 }
 pub fn run() {
 	let fixture = fixture();
@@ -102,16 +58,16 @@ pub fn run() {
 			);
 		}
 	}
-	// Route every concrete pure command captured by the existing policy proof.
-	let commands: Value = serde_json::from_str(include_str!("../fixtures/session-commands.json")).unwrap();
-	for row in commands["rows"].as_array().unwrap() {
-		let name = row["command"].as_str().unwrap();
+	// Every checkpoint command in the dispatch catalog must be admitted.
+	for expected in rooms_application::session::checkpoint::commands::Command::ALL {
+		let value = serde_json::to_value(expected).unwrap();
+		let name = value.as_str().unwrap();
 		let args = [Arg::Text("op".into()), Arg::Integer(0), Arg::Text(name.into())];
 		let request = Request::read(Access::Admin, &args).unwrap();
 		let Route::Checkpoint(command) = request.route() else {
 			panic!("checkpoint route")
 		};
-		assert_eq!(serde_json::to_value(command).unwrap(), row["command"]);
+		assert_eq!(command, *expected);
 	}
 	for name in [
 		"openManagedRoom",
@@ -160,14 +116,7 @@ pub fn run() {
 	assert_eq!(drops.get(), 0);
 	drop(args);
 	assert_eq!(drops.get(), 1);
-	handed(&fixture, &CapturedRoutes(&fixture));
 }
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[test]
-fn handed_invitations_use_host_routes() {
-	handed(&fixture(), &rooms_glowcap::routes::CheckpointRoutes);
-}
-
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
 fn binding_admission_preserves_integer_kind_and_borrowed_arguments() {

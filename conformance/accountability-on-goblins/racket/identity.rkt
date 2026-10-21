@@ -424,9 +424,9 @@
   (define prior-seq-hex (hash-ref prior-evt 's))
   (define new-seq-hex (~r (+ 1 (string->number prior-seq-hex 16)) #:base 16))
   ;; KERI rotation invariant: the rot event is signed by the PRIOR event's
-  ;; signing key (the OLD key that's rotating out). The previously-committed
+  ;; signing key (the OLD key that's rotating out). The previously-committed status-allow: ownership and operation ordering; replacement state identity
   ;; next-key becomes the new active key in rot.k[0]; the rotation itself
-  ;; is authorized by the old key per pre-rotation discipline.
+  ;; is authorized by the old key per pre-rotation discipline. status-allow: replacement state identity
   (define old-signing-sk (read-bytes-from-file (signing-key-path data-dir aid prior-seq-hex)))
   (define new-active-sk (read-bytes-from-file (next-key-path data-dir aid prior-seq-hex)))
   (define new-active-pk (subbytes new-active-sk 32 64)) ;; libsodium stores pk in last 32 bytes of sk

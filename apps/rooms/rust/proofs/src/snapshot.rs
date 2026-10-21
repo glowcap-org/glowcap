@@ -185,7 +185,7 @@ pub fn run() {
 			assert!(read(&fit["result"]).is_ok());
 		}
 	}
-	// The old reader only bounds individual fields. Rust also enforces the
+	// The field reader bounds only individual fields. Rust also enforces the
 	// producer's aggregate budget before retaining any application data.
 	let mut huge = baseline.clone();
 	huge[2] = serde_json::json!(vec!["x".repeat(65536); 15]);

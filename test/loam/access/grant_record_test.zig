@@ -23,7 +23,7 @@ const sample: Record = .{ .grant = .{
     .child_count = 0,
 } };
 const term_bytes = "[[6'object16:0123456789abcdef3+1+]16:0123456789abcdef1+[ffffffffffffffff]]";
-const golden = "<12'access:grant2+16:0123456789abcdef0+1+2+f" ++ term_bytes ++ term_bytes ++ "6'active2+0+0:0+0+0+0+0+0+f>";
+const golden = "<12'access:grant1+16:0123456789abcdef0+1+2+f" ++ term_bytes ++ term_bytes ++ "6'active2+0+0:0+0+0+0+0+0+f>";
 
 test "access grant record canonical scalar grammar has no decode allocations" {
     var scratch: Record = undefined;
@@ -40,7 +40,7 @@ test "access grant record canonical scalar grammar has no decode allocations" {
         try std.testing.expectError(error.MalformedRecord, scratch.decodeOwned(a, golden[0..length]));
     }
     try std.testing.expectError(error.MalformedRecord, scratch.decodeOwned(a, golden ++ "f"));
-    try std.testing.expectError(error.UnsupportedVersion, scratch.decodeOwned(a, "<12'access:grant1+>"));
+    try std.testing.expectError(error.UnsupportedVersion, scratch.decodeOwned(a, "<12'access:grant2+>"));
     try std.testing.expectError(error.MalformedRecord, scratch.decodeOwned(a, "<12'access:grant01+>"));
     var oversized: [Record.max_encoded_bytes + 1]u8 = undefined;
     @memset(&oversized, 0);
@@ -93,10 +93,10 @@ test "access grant record rejects oversized duplicate foreign and invalid struct
     invalid = sample;
     invalid.grant.ceiling.policy.schema = @fromBackingInt(99);
     try std.testing.expectError(error.InvalidRecord, invalid.encodeAlloc(a));
-    try std.testing.expectError(error.InvalidRecord, scratch.decodeOwned(a, "<12'access:grant2+16:0123456789abcdef0+1+2+f[[7'objects257+"));
-    try std.testing.expectError(error.InvalidRecord, scratch.decodeOwned(a, "<12'access:grant2+16:0123456789abcdef0+0+"));
+    try std.testing.expectError(error.InvalidRecord, scratch.decodeOwned(a, "<12'access:grant1+16:0123456789abcdef0+1+2+f[[7'objects257+"));
+    try std.testing.expectError(error.InvalidRecord, scratch.decodeOwned(a, "<12'access:grant1+16:0123456789abcdef0+0+"));
     const bad_selection = "[[7'objects2+16:0123456789abcdef3+1+16:0123456789abcdef3+1+]16:0123456789abcdef1+[ffffffffffffffff]]";
-    try std.testing.expectError(error.InvalidRecord, scratch.decodeOwned(a, "<12'access:grant2+16:0123456789abcdef0+1+2+f" ++ bad_selection));
+    try std.testing.expectError(error.InvalidRecord, scratch.decodeOwned(a, "<12'access:grant1+16:0123456789abcdef0+1+2+f" ++ bad_selection));
 }
 
 test "access grant maximum selections and integers fit the encoded bound" {

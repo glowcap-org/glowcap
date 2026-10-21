@@ -184,7 +184,7 @@ export class Identity {
 			BLANK_SIG,
 		));
 		// The rotation is signed by the key it retires, proving that the holder
-		// of the old key authorized the handover. The SAID is a digest over every
+		// of the old key authorized the handover. The SAID is a digest over every status-allow: replacement state identity
 		// other field, so signing these three commits to the whole event.
 		const sig = b64url(
 			await retiring.sign(`${said}|${signer.verkey}|${nextDigest}`),

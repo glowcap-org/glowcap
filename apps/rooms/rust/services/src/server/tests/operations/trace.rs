@@ -192,7 +192,7 @@ impl Viewer {
 /// One opened-session record as a producer says it.
 fn opened_line(id: usize) -> String {
 	format!(
-		r#"{{"v":1,"sim_t_ns":{id},"kind":"ocapn.session-opened","session":"live-h1-s{id}","a":"alpha","b":"beta","transport":"tcp"}}"#
+		r#"{{"v":1,"sim_t_ns":{id},"kind":"ocapn.session-opened","session":"live-h1-s{id}","a":"alpha","b":"beta","transport":"tcp","captp_version":"1.0"}}"#
 	)
 }
 
@@ -258,7 +258,7 @@ async fn trace() {
 	assert!(mark.to_text().unwrap().contains("trace.publish-ready"), "{mark:?}");
 	producer
 		.send(Message::Text(
-			r#"{"v":1,"sim_t_ns":3,"kind":"ocapn.session-opened","session":"live-h1-s1","a":"alpha","b":"beta","transport":"tcp","seq":77}"#.into(),
+			r#"{"v":1,"sim_t_ns":3,"kind":"ocapn.session-opened","session":"live-h1-s1","a":"alpha","b":"beta","transport":"tcp","captp_version":"1.0","seq":77}"#.into(),
 		))
 		.await
 		.unwrap();

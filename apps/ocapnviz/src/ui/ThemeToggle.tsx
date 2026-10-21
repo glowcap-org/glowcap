@@ -2,9 +2,7 @@ import type { Theme } from "./tokens.ts";
 import { MoonGlyph, SunGlyph } from "./glyphs.tsx";
 
 /** Square icon button that flips between light and dark themes. Wears
- *  the same `.ocv-btn` chrome as its neighbors in the top bar. It used
- *  to be a round 32px control of its own and was the only thing in the
- *  app that looked like it. */
+ *  the same `.ocv-btn` chrome as its neighbors in the top bar. */
 export function ThemeToggle(
 	{ theme, onToggle }: { theme: Theme; onToggle: () => void },
 ) {

@@ -92,7 +92,7 @@ function observationBelongsTo(
  *  carry (a session's endpoints, a message's endpoints and
  *  session). The observation log is the authored document, and the
  *  projection synthesizes a definition for any id a creation
- *  observation mentions: an observation left on the old id would
+ *  observation mentions: an observation left on the old id would status-allow: replacement state identity
  *  resurrect a ghost there, while the renamed entity, matching no
  *  observations, would lose its derived timing.
  *
@@ -318,7 +318,7 @@ export function cascadeRewrite(
 	}
 
 	// 4. Rewrite the observations, so the projection derives for the
-	//    new id instead of resurrecting the old one.
+	//    new id instead of resurrecting the old one. status-allow: replacement state identity
 	result = rewriteObservationIds(result, kind, oldId, newId);
 
 	assertNoRefsTo("cascadeRewrite", result, kind, oldId);

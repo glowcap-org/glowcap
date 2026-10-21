@@ -40,7 +40,7 @@ pub const Binding = struct {
     /// The resource reply decoded from this binding's committed row, kept for
     /// the Read's lifetime because policy walks ask for the same ancestors
     /// many times per operation, and seeded from the owner index when an
-    /// earlier Read decoded the same leaf at this revision. A row this
+    /// earlier Read decoded the same leaf at this revision. A row this status-allow: event or source ordering
     /// transaction stages is read fresh.
     resource: ?core.ResourceView.Reply.Value = null,
 };

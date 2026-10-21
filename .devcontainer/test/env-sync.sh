@@ -56,7 +56,7 @@ require_absent() {
 # there is checked from the next run, with no second place to remember.
 #
 # Asking for exactly the text the bump searches for also checks the bump itself.
-# Passing one version as both the old and the new form asks each row what it
+# Passing one version as both the old and the new form asks each row what it status-allow: replacement state identity
 # looks like at the version pinned right now, and that is the anchor the next
 # bump has to find.
 # shellcheck source=../lib/update-pins-deps.sh
@@ -205,7 +205,7 @@ require_literal "${dir}/image/playwright.sh" "runtime host bind" "playwright.sh 
 require_literal "${dir}/lib/launcher.sh" "panes_name=panes.sh" "the launchers name the panes.sh contract the runtime defaults to"
 require_literal "${dir}/bin/container-id.sh" "glowcap_devcontainer_checkout_entry" "the container lookup finds that checkout's own up.sh"
 require_literal "${dir}/bin/container-id.sh" "bash \"\${lifecycle}\"" "the container lookup runs the lifecycle it found"
-require_literal "${dir}/lib/launcher.sh" "glowcap_devcontainer_checkout_entry" "launchers accept a checkout whose up.sh has not moved into bin/"
+require_literal "${dir}/lib/launcher.sh" "glowcap_devcontainer_checkout_entry" "launchers run the checkout's own up.sh"
 require_literal "${dir}/pane/host/.bashrc" ".devcontainer/pane/container" "the host half of the runtime opens the container half"
 require_literal "${dir}/pane/host/.bashrc" '[[ -f ~/.bashrc ]] && source ~/.bashrc' "the host pane shell is initialized before it enters the container"
 require_literal "${dir}/pane/host/.bashrc" "GLOWCAP_TMUX_DETACH_STATUS=" "the host half declares the status that leaves the container and keeps the pane"
@@ -335,7 +335,7 @@ done
 # Every script here reaches its siblings through "${dir}", which by
 # convention is this directory, so each of those paths has to resolve. A file
 # that moves without one of its callers is the failure this catches, and it
-# is the one a literal check cannot: a literal pins the old form and passes.
+# is the one a literal check cannot: a literal pins the old form and passes. status-allow: replacement state identity
 require_sibling_paths() {
     local file="$1" path missing=0
     while IFS= read -r path; do

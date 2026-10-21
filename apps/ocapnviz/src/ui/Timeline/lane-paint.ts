@@ -113,7 +113,7 @@ export function drawLaneSpans(
 	 * true the halo paints with a thicker stroke so the user can
 	 * tell WHICH selected span the Inspector is following under
 	 * multi-select. Defaults to "never" so callers that don't
-	 * track anchor get the historical single-tier halo. */
+	 * track anchor get the single-tier halo. */
 	isAnchor: (spanId: string) => boolean = () => false,
 ): void {
 	const BUCKET_PX = SPAN_MIN_PILL_PX;
@@ -300,7 +300,7 @@ export function drawLaneSpans(
 		//     is past windowEnd also trigger, not only `span.open`).
 		//   left edge:  x0 < plotX              (any span that
 		//     began before windowStart, covers normal scroll-out
-		//     today, and a future "entity already present at
+		//     and a future "entity already present at
 		//     recording start" data shape gets the visual for free).
 		// Both conditions key on the true window edge: `x1 > plotX +
 		// plotWidth` for "extends past the right" and `x0 < plotX` for
@@ -344,7 +344,7 @@ export function drawLaneSpans(
 		}
 	}
 
-	// Sticky cross-pill label layout (later wins; earlier truncates).
+	// Sticky cross-pill label layout (later wins; earlier truncates). status-allow: event or source ordering
 	// See `layoutLaneLabels` for the algorithm.
 	const placedLabels = layoutLaneLabels(
 		longPills.map(({ span, rect }) => ({
@@ -390,7 +390,7 @@ export function drawLaneSpans(
 			// Clamp the stamp's LEFT edge to `plotX` so the stamp can't
 			// bleed into the left pad / gutter. A zero-span item at
 			// `windowStart` paints exactly at `plotX`; the clamp is a
-			// no-op for those but kicks in when an earlier-than-window
+			// no-op for those but kicks in when an earlier-than-window status-allow: event or source ordering
 			// stamp scrolls into view. Drop the stamp entirely only if
 			// even the clamped position would land off the right edge.
 			// The roundRect call below takes the CENTER via `x - w/2`,

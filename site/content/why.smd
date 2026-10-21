@@ -205,7 +205,7 @@ with capabilities.
 		<li>You pass the thumbnailer a reference to that one album. It never learns who you are, and it cannot reach anything else of yours. Passing a reference like this is delegation.</li>
 		<li>You would rather it could not delete anything, so you hand it a wrapper instead: an object of yours, running in your process, that forwards reads to the album and refuses the rest. The Photos service never knows the wrapper exists. Narrowing a grant this way is attenuation.</li>
 		<li>When the job is done, you switch the wrapper off, and every copy of it stops working. Your own reference still works, and the Photos service is not involved. This is revocation.</li>
-		<li>Later the thumbnailer needs your print service, so you send it a signed introduction. It presents the introduction to the print service, and the two talk over their own session from then on. This is a three-party handoff, and you are no longer in the path.</li>
+		<li>Later the thumbnailer needs your print service, so you send it a signed introduction. It presents the introduction to the print service, and the two talk over their own session from then on. This is a three-party handoff, and the path bypasses you.</li>
 	</ol>
 </figure>
 ```
@@ -350,7 +350,7 @@ glowcap checks that it works with Spritely Goblins over CapTP 1.0, encoded in
 
 You can watch a three-party introduction in [Rooms]($link.page('rooms')):
 choosing **Message *name* directly** gives you a direct reference to that
-member, and the room is no longer involved.
+member, and the exchange bypasses the room.
 
 # Keep going
 

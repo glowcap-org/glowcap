@@ -112,7 +112,7 @@ export function AppView({
 			dispatch({ type: "select-scenario", id: nextId });
 			// The new doc has a new entity universe. Any prior anchor /
 			// selection is stale, clear the store so halos don't paint
-			// for ids that no longer exist.
+			// for ids that no longer exist. status-allow: lifecycle transition
 			onClearStoreSelection();
 		},
 		[
@@ -177,7 +177,7 @@ export function AppView({
 		toolDrafts,
 	});
 
-	// Sub-selection focus (#16): id of the keyframe glyph the user
+	// Sub-selection focus: id of the keyframe glyph the user
 	// has parked attention on, or null when focus is clear. Sits
 	// orthogonal to entity selection. A focused glyph lives inside
 	// a session span, but the entity selection still rides on the
@@ -192,7 +192,7 @@ export function AppView({
 	const [reference, setReference] = useState<ReferenceSectionId | null>(null);
 
 	const handleDeselect = useCallback(() => {
-		// Sub-selection state machine (#16): unwind inner→outer. If a
+		// Sub-selection state machine: unwind inner→outer. If a
 		// keyframe glyph is focused, Esc clears focus first and stops
 		// there. The user is still parked on the entity. Second Esc
 		// (focus now null) falls through to the entity / first-pick

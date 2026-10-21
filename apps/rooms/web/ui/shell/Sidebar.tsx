@@ -114,7 +114,7 @@ function SidebarPane(
 		/** Where this reader stands everywhere, which the foot both shows and
 		 * sets. */
 		standing: string;
-		/** Rooms somebody handed this tab and it has not answered yet. */
+		/** Rooms somebody handed this tab and it has not answered yet.  status-allow: pending state or quoted runtime label */
 		invites: readonly Invitation[];
 		settingsOpen: boolean;
 	},
@@ -188,7 +188,7 @@ function SidebarPane(
 	// Landing in a conversation puts an open panel away: what was typed into it
 	// was aimed somewhere else. Coming back the other way leaves it standing,
 	// because the thing that brought the join card up is usually this panel's
-	// own destination line, and taking the field away at the moment it gains
+	// own destination line, and taking the field away at the moment it gains status-allow: state at observation
 	// its other half is the opposite of what that press meant.
 	useEffect(() => {
 		if (activeKey !== null) setOpen(null);

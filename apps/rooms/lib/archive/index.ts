@@ -104,7 +104,7 @@ export class ArchiveIndex {
 	/** Apply the next committed revision. The storage adapter transfers one
 	 * already-validated immutable record after committing it. A first record is
 	 * retained directly, and replacing a line canonicalizes its chronology to
-	 * the immutable first occurrence. The returned record is no longer reachable
+	 * the immutable first occurrence. The returned record is no longer reachable status-allow: lifecycle transition
 	 * after the transition, so byte-owning adapters can retire their dependent
 	 * content under the same policy. */
 	apply(revision: number, record: ArchiveRecord): ArchiveRecord | null {

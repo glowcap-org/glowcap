@@ -102,7 +102,7 @@ impl Error {
 		}
 	}
 	/// A protocol refusal leaves the selected capability usable. Transport loss
-	/// and a missed deadline mean this client no longer has a proved live peer.
+	/// and a missed deadline mean this client no longer has a proved live peer. status-allow: lifecycle transition
 	pub fn connection_failed(&self) -> bool {
 		match self {
 			Self::Binding(error) | Self::Unsent(error) => binding_kind_connection_failed(error.kind()),

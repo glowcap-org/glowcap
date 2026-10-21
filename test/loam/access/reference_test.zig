@@ -209,7 +209,7 @@ fn foreignPreparation(comptime mode: PreparationCase) !void {
     } else return error.DidNotPrepare;
     try std.testing.expect(woke);
     try std.testing.expect(source.host.hasRunnableWork());
-    // Export the queued fetch, but do not feed it to the target yet.
+    // Export the queued fetch, but do not feed it to the target yet. status-allow: pending state or quoted runtime label
     while (try source.host.nextAction()) |_| {}
     try std.testing.expect(!source.host.hasRunnableWork());
     for (0..3) |_| try std.testing.expect(!try source.attached.advanceProgress());

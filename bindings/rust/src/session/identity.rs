@@ -99,7 +99,7 @@ impl Session {
 	///
 	/// Two refusals are ordinary rather than faults. Before the partner's
 	/// `op:start-session` has arrived with a key there is nothing to report
-	/// yet, and a session opened without partner verification has no proved
+	/// yet, and a session opened without partner verification has no proved status-allow: pending state or quoted runtime label
 	/// identity at all.
 	pub fn partner_identity(&self) -> Result<PartnerIdentity> {
 		self.shared.guard_open()?;

@@ -89,8 +89,8 @@ export const EMPTY_TOOL_DRAFTS: ToolDrafts = {
  * edited after that click's callback was built committed its
  * previous value with no error and no visible tell. `read()` is
  * always the current value, and only the subscriber below
- * re-renders when a field changes, so a keystroke here no longer
- * reconciles the Stage, Inspector and Timeline.
+ * re-renders when a field changes, so a keystroke here does not
+ * reconcile the Stage, Inspector and Timeline.
  */
 export class ToolDraftStore {
 	#drafts: ToolDrafts = EMPTY_TOOL_DRAFTS;
@@ -120,7 +120,7 @@ export class ToolDraftStore {
 }
 
 /** Compute the next auto-mint default id (`peer-N`) without
- *  advancing the engine's counter. Used to prefill the ID field
+ *  advancing the engine's counter. Used to prefill the ID field status-allow: purpose clause
  *  with a meaningful placeholder. The engine's actual mint may
  *  pick a different id if the user has manually used the suggested
  *  one between renders, but the next dispatch will reconcile. */
@@ -493,10 +493,8 @@ const fieldLabel = {
 
 // What a draft field in this bar is beyond an `.ocv-input`: a fixed
 // width, mono, and an ellipsis when the draft outruns it. Corner,
-// surface, inset and hover are the class's, and this object used to
-// restate three of them, which left these the only fields in the app
-// with a three-pixel corner and no hover, because an inline value beats
-// the class silently.
+// surface, inset and hover are the class's. An inline value
+// beats the class silently, so this object restates none of them.
 const inlineInput = {
 	width: 80,
 	fontFamily: FONT.mono,

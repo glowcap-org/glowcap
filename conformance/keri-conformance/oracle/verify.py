@@ -80,7 +80,7 @@ def cesr_decode_64(prim: str) -> bytes:
     return raw[2:]
 
 
-# Base64url alphabet, used to decode the 1-char index in CESR `A`-prefixed
+# Base64url alphabet, used to decode the 1-char index in CESR `A`-prefixed status-allow: purpose clause
 # indexed Ed25519 signatures. CESR primitive codes per WebOfTrust spec.
 _B64URL_ALPHABET = (
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
@@ -259,7 +259,7 @@ def verify_kel(aid: str, kel_records: list) -> bool:
 
         # Parse this event's keys + thresholds. KERI shape: k is list of CESR
         # verkeys; n is list of next-key Blake3 digests; kt/nt are hex-string
-        # thresholds. The kernel today emits single-element arrays with kt=nt="1";
+        # thresholds. The kernel emits single-element arrays with kt=nt="1";
         # the oracle accepts up to len(k) keys with integer thresholds.
         keys_cesr = list(evt.get("k") or [])
         next_digests = list(evt.get("n") or [])

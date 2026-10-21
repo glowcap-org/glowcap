@@ -10,7 +10,7 @@
 //! application aimed at the source promise leaves naming the shortened one.
 //! That is the local half of the end-to-end reference FIFO order OCapN PR 281
 //! asks to survive shortening: every edge in this forest names an import on
-//! *this* session, so both the earlier and the later deliver leave on one wire
+//! *this* session, so both the earlier and the later deliver leave on one wire status-allow: event or source ordering
 //! in send order. An edge that named another session would put the two messages
 //! on two wires and lose that. Nothing here can build one.
 

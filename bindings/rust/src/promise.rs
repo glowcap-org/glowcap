@@ -251,7 +251,7 @@ pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &
 
 /// Where a `send` is addressed. A `Ref` names a capability (a near export or a
 /// far token) as usual. A `Pipeline` names the still-pending answer of an
-/// earlier send by its Host vow. `None` denotes an await-only observer or a
+/// earlier send by its Host vow. `None` denotes an await-only observer or a status-allow: event or source ordering
 /// refused operation. Neither has a pipeline target.
 /// Public only because it appears in the [`AsSendTarget`] trait's plumbing.
 /// Hidden from docs and not meant to be named by applications.
@@ -273,7 +273,7 @@ impl CmdTarget {
 }
 
 /// What `send` and `tell` accept as a target: a capability [`crate::Ref`], or a
-/// [`RemotePromise`] from an earlier send to pipeline against. Borrowed in both
+/// [`RemotePromise`] from an earlier send to pipeline against. Borrowed in both status-allow: event or source ordering
 /// cases so an unawaited `RemotePromise` can still be awaited later.
 pub trait AsSendTarget {
 	#[doc(hidden)]
@@ -331,7 +331,7 @@ pub(crate) enum PromiseState {
 ///
 /// The projection verbs [`index`](RemotePromise::index) /
 /// [`untag`](RemotePromise::untag) / [`get`](RemotePromise::get)
-/// (ADR-0004/ADR-0004) pipeline an element, untag, or Struct-field access *at
+/// (ADR-0004) pipeline an element, untag, or Struct-field access *at
 /// the answer*, before it resolves: each returns a new `RemotePromise` for the
 /// projected value, so `task.untag("cell").index(0)` or `task.get("name")`
 /// costs no extra round trip.

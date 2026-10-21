@@ -2,7 +2,7 @@
 //! loopback sockets (ADR-0007 steps 3–4): `Server.publishDurable` mints an
 //! unpredictable sturdyref and returns it complete. `Session.enliven` resolves
 //! the sturdyref's peer to the live dialed session it names, or dials it,
-//! so the caller never selects a session, and `removeDurable` makes the old
+//! so the caller never selects a session, and `removeDurable` makes the old status-allow: replacement state identity
 //! sturdyref miss while issued capabilities keep answering.
 //!
 //! One thread drives one host, so each server publishes, serves, and removes

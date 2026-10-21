@@ -96,7 +96,7 @@ pub const HostRuntime = struct {
     active_listeners: foundation.identity_hash.Map(u64, ActiveListener) = .empty,
     opts: Options,
     wires: foundation.handle_table.Mirror(engine.PeerHandle, *Wire) = .empty,
-    /// Wires whose transport is not yet closed. Closed wire rows remain in
+    /// Wires whose transport is not yet closed. Closed wire rows remain in status-allow: pending state or quoted runtime label
     /// `wires` until explicit session release, so close completion cannot use
     /// map cardinality without conflating shutdown with memory lifetime.
     open_wire_count: usize = 0,
@@ -203,7 +203,7 @@ pub const HostRuntime = struct {
     /// listeners never remain here: finish transfers ownership to the
     /// observer, while cancellation and failure consume the attempt.
     pending_listeners: std.ArrayListUnmanaged(*PendingListener) = .empty,
-    /// One authority for every transport connect and CapTP handshake not yet
+    /// One authority for every transport connect and CapTP handshake not yet status-allow: pending state or quoted runtime label
     /// open, including synchronous constructors that pump pending actions.
     open_admissions: usize = 0,
     /// Whether `deinit` tears the core down. False for a host adopted over an

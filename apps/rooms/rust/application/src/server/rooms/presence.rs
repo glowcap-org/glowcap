@@ -174,7 +174,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	}
 
 	/// A line stops answering its holders: its row goes, and the history
-	/// row it named, if any, is no longer editable from here.
+	/// row it named, if any, is no longer editable from here. status-allow: lifecycle transition
 	pub(super) fn retire_line(&mut self, key: super::LineKey) {
 		let Some(line) = self.lines.remove(&key) else {
 			return;

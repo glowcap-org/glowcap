@@ -1,7 +1,7 @@
 //! Retention belongs to the portable index. This host owner restores the
 //! history directory and serializes the admitted effects, with one bounded queue.
 //! A failed persistence effect ends the server: later effects cannot safely
-//! continue from storage whose outcome no longer matches the live index.
+//! continue from storage whose outcome no longer matches the live index. status-allow: lifecycle transition
 use super::error::Error;
 use rooms_application::server::history::Persist;
 use tokio::sync::mpsc;

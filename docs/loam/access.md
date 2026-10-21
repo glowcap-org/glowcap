@@ -128,11 +128,11 @@ writing starts aborts the whole batch, content included.
 ### Several changes in one transaction
 
 Several managed changes can go in one transaction. Each new preparation reads
-the Read's state including earlier changes, and the batch writes one header
+the Read's state including earlier changes, and the batch writes one header <!-- status-allow: runtime state or operation ordering -->
 update per owner.
 
 - A preparation made from older resource, grant, or control state is refused,
-  and the caller that began the batch must abort it, discarding the earlier
+  and the caller that began the batch must abort it, discarding the earlier <!-- status-allow: runtime state or operation ordering -->
   changes too.
 - A failure after a participant starts writing aborts the batch. Hosted calls
   leave the abort to their transaction runner.
@@ -212,7 +212,7 @@ and writes it with application content in the same batch.
 Before writing a move, the resource view refuses cycles and checks that the
 deepest child stays within the owner's depth limit. The check walks the
 subtree with at most `max_resource_depth + 1` frames and one lease at a time,
-so its cost grows with the number of children. The old parent, the new
+so its cost grows with the number of children. The old parent, the new <!-- status-allow: runtime state or operation ordering -->
 parent, the resource's own record, and the owner's revision commit together.
 
 A held use operation calls
@@ -498,7 +498,7 @@ receipt can also restore its exact child and durable name after a reopen.
 
 Costs and limits:
 
-- Endpoint format version <!-- value ../../src/loam/access/records/endpoint_record.zig format_version -->2<!-- /value --> reserves edges for the grant, optional content,
+- Endpoint format version <!-- value ../../src/loam/access/records/endpoint_record.zig format_version -->1<!-- /value --> reserves edges for the grant, optional content,
   optional owner administration, an optional durable name, and <!-- value ../../src/loam/access/records/retry_window.zig capacity -->8<!-- /value --> receipts
   for each kind of sequence.
 - A sharing receipt holds at most <!-- value ../../src/loam/access/records/derivation_record.zig max_encoded_bytes bytes -->64 KiB<!-- /value --> of encoded request and two edges, or

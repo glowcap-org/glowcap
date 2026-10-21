@@ -145,7 +145,7 @@ impl HostShared {
 
 	/// Spawn one detached DIAL executor under this Host's terminal lifetime.
 	/// Tokio cancellation is the right primitive here: every binding task runs
-	/// on one current-thread LocalSet, so close cannot race a task currently on
+	/// on one current-thread LocalSet, so close cannot race a task on
 	/// another thread, and `abort` prevents its next poll before FFI teardown.
 	pub(crate) fn spawn_dial_task<F, Fut>(self: &Rc<Self>, ticket: u64, route_index: usize, run: F) -> Result<bool>
 	where
