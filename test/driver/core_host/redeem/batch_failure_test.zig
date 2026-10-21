@@ -26,25 +26,51 @@ const Capture = struct {
 // The search stops once it has seen a preflight refusal and a partially
 // committed batch, so it does not try every allocation failure in the Host
 // pump after commit.
-test "core host: signed handoff batch replay settles once across allocation failure and introducer close" {
-    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
-        for ([_]model.CodecId{ .syrup, .capnp }) |codec| {
-            for ([_]bool{ false, true }) |close_introducer| {
-                const clean = try replayBatch(profile, codec, close_introducer, std.math.maxInt(usize));
-                try std.testing.expect(!clean.induced);
-                var saw_preflight = false;
-                var saw_partial = false;
-                for (0..128) |offset| {
-                    const outcome = try replayBatch(profile, codec, close_introducer, offset);
-                    saw_preflight = saw_preflight or outcome.preflight;
-                    saw_partial = saw_partial or outcome.partial;
-                    if (saw_preflight and saw_partial) break;
-                } else return error.RequiredFailureStatesNotReached;
-                try std.testing.expect(saw_preflight);
-                try std.testing.expect(saw_partial);
-            }
-        }
-    }
+fn checkBatchReplay(profile: model.CaptpVersion, codec: model.CodecId, close_introducer: bool) !void {
+    const clean = try replayBatch(profile, codec, close_introducer, std.math.maxInt(usize));
+    try std.testing.expect(!clean.induced);
+    var saw_preflight = false;
+    var saw_partial = false;
+    for (0..128) |offset| {
+        const outcome = try replayBatch(profile, codec, close_introducer, offset);
+        saw_preflight = saw_preflight or outcome.preflight;
+        saw_partial = saw_partial or outcome.partial;
+        if (saw_preflight and saw_partial) break;
+    } else return error.RequiredFailureStatesNotReached;
+    try std.testing.expect(saw_preflight);
+    try std.testing.expect(saw_partial);
+}
+
+test "core host: signed handoff batch replay v1_0 syrup keeps introducer" {
+    try checkBatchReplay(.v1_0, .syrup, false);
+}
+
+test "core host: signed handoff batch replay v1_0 syrup closes introducer" {
+    try checkBatchReplay(.v1_0, .syrup, true);
+}
+
+test "core host: signed handoff batch replay v1_0 capnp keeps introducer" {
+    try checkBatchReplay(.v1_0, .capnp, false);
+}
+
+test "core host: signed handoff batch replay v1_0 capnp closes introducer" {
+    try checkBatchReplay(.v1_0, .capnp, true);
+}
+
+test "core host: signed handoff batch replay next syrup keeps introducer" {
+    try checkBatchReplay(.next, .syrup, false);
+}
+
+test "core host: signed handoff batch replay next syrup closes introducer" {
+    try checkBatchReplay(.next, .syrup, true);
+}
+
+test "core host: signed handoff batch replay next capnp keeps introducer" {
+    try checkBatchReplay(.next, .capnp, false);
+}
+
+test "core host: signed handoff batch replay next capnp closes introducer" {
+    try checkBatchReplay(.next, .capnp, true);
 }
 
 const Outcome = struct { induced: bool, preflight: bool, partial: bool };

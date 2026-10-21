@@ -321,6 +321,17 @@ test "noise-tcp is available at loop construction with a dialable locator and au
     try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
 }
 
+// Report only a slow phase. Keep this alive through deferred runtime cleanup,
+// where a blocked join would otherwise erase the last useful observation.
+const RelayPhase = enum(u8) { registration, dial_and_fetch, client_release, remote_close, server_release, runtime_cleanup, bridge_join };
+
+fn reportRelayStall(io: std.Io, phase: *const std.atomic.Value(RelayPhase)) std.Io.Cancelable!void {
+    while (true) {
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5_000), .real);
+        std.debug.print("noise-relay C driver: still in {s}\n", .{@tagName(phase.load(.acquire))});
+    }
+}
+
 test "the relay provider registers and dials an authenticated noise-relay session through the C driver" {
     if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin()))
         return error.SkipZigTest;
@@ -329,6 +340,9 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+    var phase = std.atomic.Value(RelayPhase).init(.registration);
+    var progress = try io.concurrent(reportRelayStall, .{ io, &phase });
+    defer progress.cancel(io) catch {};
     const relay_addr: std.Io.net.IpAddress = .{ .ip4 = std.Io.net.Ip4Address.loopback(0) };
     var relay_server = try std.Io.net.IpAddress.listen(&relay_addr, io, .{ .reuse_address = true });
     defer relay_server.deinit(io);
@@ -389,6 +403,7 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
         const unavailable_default = "ws://127.0.0.1:1/relay";
         try installRelay(owned_client.raw, unavailable_default, "");
         var ticket: u64 = 0;
+        phase.store(.dial_and_fetch, .release);
         try expectOk(try dialLocator(owned_client.raw, locator, &ticket));
 
         var client_seen = Drained{};
@@ -426,7 +441,9 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
         try std.testing.expect(server_seen.accepted_session != null);
         try std.testing.expect(fetch_vow != 0);
         try std.testing.expectEqual(fetch_vow, client_seen.settle_ticket);
+        phase.store(.client_release, .release);
         try expectOk(cdrv.glowcap_driver_session_release(owned_client.raw, client_seen.dialed_session));
+        phase.store(.remote_close, .release);
         rounds = 0;
         while (!server_seen.closed and rounds < 2_000) : (rounds += 1) {
             try expectStep(cdrv.glowcap_driver_step(owned_server.raw, 5));
@@ -447,7 +464,10 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
         try expectStep(cdrv.glowcap_driver_step(owned_server.raw, 0));
         try drainEvents(owned_server.raw, &server_seen);
         try std.testing.expectEqual(@as(usize, 1), server_seen.closed_count);
+        phase.store(.server_release, .release);
         try expectOk(cdrv.glowcap_driver_session_release(owned_server.raw, server_seen.accepted_session));
+        phase.store(.runtime_cleanup, .release);
     }
+    phase.store(.bridge_join, .release);
     try relay.await(io);
 }
