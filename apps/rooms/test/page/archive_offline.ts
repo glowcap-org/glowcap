@@ -75,6 +75,13 @@ export async function run(tab: Page, dmName: string): Promise<void> {
 		// conversation through its exact peer registration before using it.
 		await tab.waitForSelector("#dmReconnect", { timeout: 20_000 });
 		await tab.click("#dmReconnect");
-		await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 });
+		await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
+			const said = await tab.evaluate(() => ({
+				actions: document.querySelector(".actions")?.textContent ?? "",
+				composer: document.getElementById("composerAvailability")?.textContent ?? "",
+				toasts: document.getElementById("toasts")?.textContent ?? "",
+			}));
+			fail(`the reintroduced direct line never opened for sending: ${JSON.stringify(said)}`);
+		});
 	}
 }
