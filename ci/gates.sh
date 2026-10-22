@@ -22,8 +22,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # CI. A `build` line names a gate whose time is mostly that cold compile and
 # gives it BUILD_TIMEOUT. A phase opens with one when its proofs share a heavy
 # build, so each proof's deadline times the proof. Per-test limits stay
-# unchanged inside both.
-BUILD_TIMEOUT="${BUILD_TIMEOUT:-${GATE_TIMEOUT:-40m}}"
+# unchanged inside both. The cold `check-build` takes about 30 minutes on a
+# two-CPU runner, and BUILD_TIMEOUT gives it twice that.
+BUILD_TIMEOUT="${BUILD_TIMEOUT:-${GATE_TIMEOUT:-60m}}"
 GATE_TIMEOUT="${GATE_TIMEOUT:-20m}"
 
 # Whether an exit code means "the deadline killed it" rather than "it failed".
@@ -145,8 +146,11 @@ gate bash tools/run-with-timeout-test.sh
 
 gate zig build infrastructure-check
 phase core
-build zig build check
+build zig build check-build
+gate zig build check
+build zig build test-memcheck-build
 gate zig build test-memcheck
+build zig build runtime-check-build
 gate zig build runtime-check
 # The optional Mbed TLS relay composition is deliberately absent from the
 # base library graph, so `check` cannot prove it. Fetch the pinned Mbed TLS
@@ -180,8 +184,16 @@ gate zig build goblins-interop
 # What CI owes is that every target still builds and searches clean; depth is what a
 # local or nightly run with a larger -Dfuzz-runs is for, and the escapes each
 # target was validated against are recorded in its own header either way.
+#
+# Each target compiles its own ReleaseSafe binary, which a cold hosted runner
+# pays in full, so the sweep's time grows with every target added. It runs as
+# interleaved shards, each a gate under its own deadline. When a shard's
+# headroom warning fires, add a shard here.
 phase fuzz
-gate zig build fuzz -Dfuzz-runs=25K
+gate zig build fuzz -Dfuzz-runs=25K -Dfuzz-shard=1/4
+gate zig build fuzz -Dfuzz-runs=25K -Dfuzz-shard=2/4
+gate zig build fuzz -Dfuzz-runs=25K -Dfuzz-shard=3/4
+gate zig build fuzz -Dfuzz-runs=25K -Dfuzz-shard=4/4
 # The Rust sidecars' own unit tests. The shared crate proves a private-runtime
 # call survives an ambient Tokio runtime and that the release barrier keeps a
 # dropped task's failure; the two sidecars each cover something no Zig test can
@@ -198,6 +210,9 @@ gate zig build webrtc-sidecar-test
 phase bindings
 gate zig build webrtc-loop
 gate zig build webrtc-redeem
+# Clippy compiles every first-party crate and its dependencies, so on a cold
+# runner its time is the compile. The format check below reuses that cache.
+build zig build rust-lint
 gate zig build bindings-fmt-check
 gate zig build bindings
 gate zig build bindings-noise-relay-listen
@@ -220,13 +235,19 @@ phase browser
 # The Rooms browser application and the Loam browser consumer are cargo and
 # Wasm builds every proof below shares.
 build zig build loam-browser-build rooms-web-build
+build zig build rooms-archive-build rooms-session-build iroh-abi
 # Shared storage changes must preserve the Rust/Wasm consumer's IndexedDB
 # transactions, cold restoration and capability custody in a real browser.
 gate zig build loam-browser-test
 gate zig build rooms-rust-browser-test
 # The production Rooms page is a peer, and every supported browser journey is
-# release evidence rather than an opt-in demo.
-gate zig build rooms-web-proofs
+# release evidence rather than an opt-in demo. The family runs concurrently
+# within a shard and grows with every journey, so like the fuzz sweep it runs
+# as interleaved shards. When a shard's headroom warning fires, add a shard.
+gate zig build rooms-web-proofs -Drooms-web-proof-shard=1/4
+gate zig build rooms-web-proofs -Drooms-web-proof-shard=2/4
+gate zig build rooms-web-proofs -Drooms-web-proof-shard=3/4
+gate zig build rooms-web-proofs -Drooms-web-proof-shard=4/4
 phase interop
 # The C ABI archives and the Rooms services every live proof below dials.
 build zig build build rooms-archive-build

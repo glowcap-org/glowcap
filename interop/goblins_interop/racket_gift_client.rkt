@@ -117,7 +117,8 @@
   (define-values (carol carol-out carol-in carol-err)
     (subprocess #f #f #f RACKET "-y" RECIPIENT-SCRIPT
                 (tcp-address-designator HOST gifter-port) INTRODUCER-SWISS
-                (number->string (+ PORT 1)) "nested"))
+                (number->string (+ PORT 1))
+                (string-append "nested=" (tcp-address-designator HOST PORT))))
   (track-child! carol)
   (close-output-port carol-in)
   (define carol-err-sink (open-output-string))

@@ -318,8 +318,10 @@ declaration under `src/`.
     builder reserves the segment-table word ahead of the segment and
     `Builder.initial_words` ahead of the growth cliff, so `finishOwned` hands its
     one allocation to the frame.
-  - The trim `finishOwned` ends on is in-place on the allocators glowcap ships
-    against. One that cannot shrink there falls back to `std`'s copy.
+  - A builder still at its reservation hands it over whole through
+    `Frame.initOwnedPrefix`, so the frame keeps at most `initial_words` of
+    unused words and the encode never depends on an in-place shrink. A builder
+    that grew is trimmed, and an allocator that cannot shrink in place copies.
 - **Boxed handoff argument**: the handoff arm of `view.zig`'s
   `Argument.toOwned`. Boxed so the largest arm does not set the size of _every_
   `Argument`. `src/ocapn/model/mod.zig` asserts a comptime size ceiling for

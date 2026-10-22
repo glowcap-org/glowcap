@@ -161,3 +161,15 @@ own, available only with the negotiated `multi_location` feature, and the
 [multi-home routes diagrams](protocol-diagrams/08-multihome-routes.md) describe
 it. Carrier wrapping, route-key binding, and the hint schema are what must be
 reconciled with future spec text.
+
+## Concurrent redemptions to one exporter
+
+Racket Goblins at the pinned revision does not share a session setup that is
+still in flight. When a vat redeems two gives from an exporter it has no
+session with, each redemption dials, so two sessions open. Each receive
+certificate names the session the location table holds when it is signed, and
+that need not be the session it travels on, so the exporter refuses it as
+invalid for the session. Under CPU load this happened in three to five of ten
+runs. The nested gift checks open the recipient's session to the exporter
+before redeeming, so both certificates use one session. The single-gift checks
+still cover a redemption that dials.

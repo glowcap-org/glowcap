@@ -22,8 +22,12 @@ const syrup = glowcap.ocapn.codec.syrup;
 /// grows an existing block), matching the inbound budget test's accounting.
 /// Growth events are also tallied separately (`grows`), so a test can pin
 /// "zero reallocs" directly rather than inferring it from the total.
+/// `refuse_in_place` refuses every resize and remap, the worst allocator an
+/// encoder can meet, so a budget never rests on whether the backing allocator
+/// happened to shrink a block where it stood.
 const TotalCountingAllocator = struct {
     backing: std.mem.Allocator,
+    refuse_in_place: bool = false,
     allocs: usize = 0,
     grows: usize = 0,
     shrinks: usize = 0,
@@ -44,6 +48,7 @@ const TotalCountingAllocator = struct {
 
     fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
+        if (self.refuse_in_place) return false;
         const ok = self.backing.rawResize(memory, alignment, new_len, ret_addr);
         if (ok and new_len > memory.len) self.grows += 1;
         if (ok and new_len < memory.len) self.shrinks += 1;
@@ -52,6 +57,7 @@ const TotalCountingAllocator = struct {
 
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
+        if (self.refuse_in_place) return null;
         const result = self.backing.rawRemap(memory, alignment, new_len, ret_addr);
         if (result != null and new_len > memory.len) {
             self.allocs += 1;
@@ -72,7 +78,7 @@ fn expectEncodeBudget(
     expected_budget: usize,
     encode: *const fn (std.mem.Allocator, model.Message) anyerror!foundation.Frame,
 ) !void {
-    var counter = TotalCountingAllocator{ .backing = std.testing.allocator };
+    var counter = TotalCountingAllocator{ .backing = std.testing.allocator, .refuse_in_place = true };
     const gpa = counter.allocator();
 
     // A `op:deliver` to the partner bootstrap carrying one inline bytes
@@ -110,10 +116,10 @@ fn expectEncodeBudget(
 
 test "encoding a small deliver holds its outbound allocation budget" {
     // Syrup renders measure-then-fill into one exact allocation. Cap'n Proto
-    // reserves one owned word buffer and transfers it into the Frame. Its
-    // segment-table word is reserved ahead of the segment, so finishing copies
-    // none of the encoded bytes, and `Builder.initial_words` covers an ordinary
-    // control message so none of it is re-copied by a growth realloc either.
+    // reserves one owned word buffer and transfers it into the Frame whole, so
+    // finishing neither shrinks nor copies it. Its segment-table word is
+    // reserved ahead of the segment, and `Builder.initial_words` covers an
+    // ordinary control message so no growth realloc re-copies it either.
     try expectEncodeBudget("syrup", 1, syrup.encodeMessage);
     try expectEncodeBudget("capnp", 1, capnp.encodeMessage);
 }

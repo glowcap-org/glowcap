@@ -57,6 +57,8 @@ pub const Frame = struct {
         /// Bytes of private head in front of `storage` in the same block. See
         /// `initHeaded`. Zero for a frame adopted through `initOwned`.
         head_len: u16 = 0,
+        /// Bytes of the same block behind `storage`. See `initOwnedPrefix`.
+        spare_len: u32 = 0,
     };
 
     const ExternalOwner = struct {
@@ -76,17 +78,35 @@ pub const Frame = struct {
         shape: FrameShape,
         storage_alignment: std.mem.Alignment,
     ) Error!Frame {
-        validateShape(storage, shape) catch |err| {
-            freeStorage(allocator, storage, storage_alignment);
+        return initOwnedPrefix(allocator, storage, storage.len, shape, storage_alignment);
+    }
+
+    /// Take ownership of a whole block whose first `len` bytes are the frame,
+    /// with no copy, and `deinit` frees the whole block. A producer that
+    /// reserved before it knew its length hands the reservation over this way
+    /// rather than shrinking it: shrinking in place is the allocator's choice,
+    /// and its fallback is a second allocation and a copy. The spare bytes are
+    /// bounded by `u32`. Ownership transfers as `initOwned` describes.
+    pub fn initOwnedPrefix(
+        allocator: std.mem.Allocator,
+        block: []u8,
+        len: usize,
+        shape: FrameShape,
+        storage_alignment: std.mem.Alignment,
+    ) Error!Frame {
+        std.debug.assert(len <= block.len and block.len - len <= std.math.maxInt(u32));
+        validateShape(block[0..len], shape) catch |err| {
+            freeStorage(allocator, block, storage_alignment);
             return err;
         };
         return .{
-            .storage = storage,
+            .storage = block[0..len],
             .shape = shape,
             .owner = .{
                 .allocator = .{
                     .allocator = allocator,
                     .storage_alignment = storage_alignment,
+                    .spare_len = @intCast(block.len - len),
                 },
             },
         };
@@ -225,7 +245,7 @@ pub const Frame = struct {
         switch (self.owner) {
             .allocator => |owner| freeStorage(
                 owner.allocator,
-                (self.storage.ptr - owner.head_len)[0 .. owner.head_len + self.storage.len],
+                (self.storage.ptr - owner.head_len)[0 .. owner.head_len + self.storage.len + owner.spare_len],
                 owner.storage_alignment,
             ),
             .external => |owner| owner.release(owner.context),

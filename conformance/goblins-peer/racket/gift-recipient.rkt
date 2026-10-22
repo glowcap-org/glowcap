@@ -1,9 +1,17 @@
 #lang racket/base
 ;; gift-recipient.rkt: Goblins Carol, the recipient in the glowcap-as-gifter
 ;; three-party handoff proof. Dials the glowcap gifter's introducer, asks it for
-;; the greeter, and calls it. With the optional `nested` mode the answer is a
-;; list containing two recursively placed gives; Carol must redeem and call
-;; both, proving that the gifter did not special-case a top-level answer.
+;; the greeter, and calls it. With the optional `nested=<exporter-host:port>`
+;; mode the answer is a list containing two recursively placed gives; Carol must
+;; redeem and call both, proving that the gifter did not special-case a
+;; top-level answer.
+;;
+;; In nested mode Carol opens her session to the exporter before asking for the
+;; greeters. Goblins redeems both gives at once, and its session setup does not
+;; share a dial still in flight: two concurrent redemptions to an unconnected
+;; exporter open two sessions, and a receive certificate can name the one it is
+;; not sent on, which the exporter rightly refuses. One open session leaves
+;; both redemptions on it. The single-gift mode still proves dial-on-redeem.
 ;;
 ;; The introduction returns a `desc:handoff-give` glowcap minted that names the
 ;; Goblins exporter (Bob). Goblins redeems it transparently: it dials Bob
@@ -13,7 +21,7 @@
 ;; integrity across the cross-implementation handoff.
 ;;
 ;; Usage:
-;;   racket gift-recipient.rkt <gifter-host:port> <introducer-swiss> <local-port> [expect-hint] [nested]
+;;   racket gift-recipient.rkt <gifter-host:port> <introducer-swiss> <local-port> [expect-hint] [nested=<exporter-host:port>]
 ;;
 ;; Prints `GIFT OK: <reply>` and exits 0 on success; `GIFT ERR`/`GIFT TIMEOUT`
 ;; and exits 1 otherwise. With the optional `expect-hint` name, the netlayer's
@@ -35,9 +43,12 @@
 (define local-port (string->number (vector-ref argv 2)))
 (define optional-args
   (for/list ([index (in-range 3 (vector-length argv))]) (vector-ref argv index)))
-(define nested? (and (member "nested" optional-args) #t))
+(define (nested-arg? arg) (and (>= (string-length arg) 7) (string=? (substring arg 0 7) "nested=")))
+(define nested-exporter
+  (for/first ([arg (in-list optional-args)] #:when (nested-arg? arg)) (substring arg 7)))
+(define nested? (and nested-exporter #t))
 (define expect-hint
-  (for/first ([arg (in-list optional-args)] #:unless (string=? arg "nested")) arg))
+  (for/first ([arg (in-list optional-args)] #:unless (nested-arg? arg)) arg))
 
 ;; The wire unmarshaller builds `ocapn-node` through the raw constructor, so a
 ;; decoded node can carry mapping-shaped hints even though the contracted
@@ -74,7 +85,14 @@
       (ocapn-node 'tcp gifter-designator #f)
       (string->bytes/latin-1 swiss-ascii)))
 
-   (define introducer-vow (<- mycapn 'enliven introducer-sturdyref))
+   (define exporter-session-vow
+     (if nested?
+         (<- mycapn 'connect-to-node (ocapn-node 'tcp nested-exporter #f))
+         #t))
+   (define introducer-vow
+     (on exporter-session-vow
+         (lambda (_) (<- mycapn 'enliven introducer-sturdyref))
+         #:promise? #t))
 
    ;; Ask the gifter to introduce the greeter, and wait for that to *resolve*
    ;; before calling. In nested mode Goblins recursively unmarshals the two

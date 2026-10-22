@@ -29,11 +29,14 @@
 //!
 //! Usage, which the build step fills in:
 //!
-//!     glowcap-fuzz <path-to-zig> --fuzz=<budget>
+//!     glowcap-fuzz <path-to-zig> --fuzz=<budget> [--shard=<k>/<n>]
 //!
-//! The budget applies to each target, not to the sweep.
+//! The budget applies to each target, not to the sweep. A shard runs every
+//! `n`th target in name order, starting at the `k`th, so `n` gates with their
+//! own deadlines cover the whole sweep however many targets it grows to.
 
 const std = @import("std");
+const Shard = @import("shard").Shard;
 
 /// Where the fuzzer leaves the input that crashed a test, relative to the
 /// effective local cache (see `localCacheDir`).
@@ -84,6 +87,7 @@ pub fn main(init: std.process.Init) !void {
     _ = it.skip(); // our own program name
     const zig_exe = it.next() orelse return usage();
     const fuzz_flag = it.next() orelse return usage();
+    const shard: Shard = if (it.next()) |arg| parseShardArg(arg) orelse return usage() else .{};
 
     if (!fuzzingAvailable()) {
         // Not a failure. The contributor's platform simply cannot run this, and
@@ -109,10 +113,19 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
 
-    std.debug.print("fuzzing {d} targets, {s} each\n\n", .{ targets.len, fuzz_flag });
+    var selected_list: std.ArrayList(Target) = .empty;
+    for (targets, 0..) |target, position| {
+        if (shard.selects(position)) try selected_list.append(arena, target);
+    }
+    const selected = selected_list.items;
+    if (selected.len == 0) {
+        std.debug.print("shard {d}/{d} selects none of the {d} targets; use fewer shards.\n", .{ shard.index, shard.count, targets.len });
+        std.process.exit(1);
+    }
+    std.debug.print("fuzzing {d} of {d} targets (shard {d}/{d}), {s} each\n\n", .{ selected.len, targets.len, shard.index, shard.count, fuzz_flag });
 
-    for (targets, 1..) |target, n| {
-        std.debug.print("[{d}/{d}] {s}\n", .{ n, targets.len, target.name });
+    for (selected, 1..) |target, n| {
+        std.debug.print("[{d}/{d}] {s}\n", .{ n, selected.len, target.name });
 
         // tolerant: a crash file left behind by an earlier target would be status-allow: event or source ordering
         // read as this one's finding, so clear it before every run; usually
@@ -238,8 +251,14 @@ fn fuzzingAvailable() bool {
 }
 
 fn usage() void {
-    std.debug.print("usage: glowcap-fuzz <zig-exe> --fuzz=<budget>\n", .{});
+    std.debug.print("usage: glowcap-fuzz <zig-exe> --fuzz=<budget> [--shard=<k>/<n>]\n", .{});
     std.process.exit(2);
+}
+
+fn parseShardArg(arg: []const u8) ?Shard {
+    const prefix = "--shard=";
+    if (!std.mem.startsWith(u8, arg, prefix)) return null;
+    return Shard.parse(arg[prefix.len..]);
 }
 
 fn fileExists(io: std.Io, cwd: std.Io.Dir, path: []const u8) bool {

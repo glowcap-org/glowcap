@@ -207,6 +207,7 @@ pub fn register(ctx: Context) Registered {
     const runtime_gate = b.allocator.create(execution.RuntimeGate) catch @panic("OOM");
     runtime_gate.* = .{
         .step = b.step("runtime-check", "Run deterministic process, application, and language-workspace checks without cross-step contention"),
+        .build = b.step("runtime-check-build", "Compile everything runtime-check runs, so its deadline measures only the runs"),
     };
 
     // ── Tests ────────────────────────────────────────────────────────────────
@@ -321,12 +322,17 @@ pub fn register(ctx: Context) Registered {
     const memcheck_layers = b.addOptions();
     memcheck_layers.addOption([]const []const u8, "layers", &.{ "foundation", "model", "codec", "session", "engine", "actors" });
     memcheck_mod.addOptions("test_layers", memcheck_layers);
+    // LLVM on every host: Zig's own x86_64 backend probes a large frame's
+    // stack pages before it moves the stack pointer, and the checker reports
+    // each probe as a read below the stack.
     const memcheck_tests = b.addTest(.{
         .root_module = memcheck_mod,
         .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .use_llvm = true,
     });
     const run_memcheck = execution.addZigTest(b, memcheck_tests, .{ .memcheck = 900 });
     b.step("test-memcheck", "Run the protocol core and actors tests under valgrind, built for the baseline CPU (-Dtest-filter narrows it)").dependOn(&run_memcheck.step);
+    b.step("test-memcheck-build", "Compile the test-memcheck suite without running it").dependOn(&memcheck_tests.step);
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
     // Outside `check`: a search with no natural end does not
     // belong in a gate that has to finish. What `check` does carry is the
@@ -364,8 +370,11 @@ pub fn register(ctx: Context) Registered {
             .optimize = .Debug,
         }),
     });
+    const shard_mod = b.createModule(.{ .root_source_file = b.path("tools/build/shard.zig"), .target = b.graph.host });
+    fuzz_driver_exe.root_module.addImport("shard", shard_mod);
+    const fuzz_shard = common.shardOption(b, "fuzz-shard", "Search only the k-th of n interleaved slices of the targets, as k/n (default 1/1)");
     const fuzz_driver = execution.addArtifact(b, .search, fuzz_driver_exe);
-    fuzz_driver.addArgs(&.{ b.graph.zig_exe, b.fmt("--fuzz={s}", .{fuzz_budget}) });
+    fuzz_driver.addArgs(&.{ b.graph.zig_exe, b.fmt("--fuzz={s}", .{fuzz_budget}), b.fmt("--shard={d}/{d}", .{ fuzz_shard.index, fuzz_shard.count }) });
     fuzz_driver.has_side_effects = true;
     b.step("fuzz", "Mutation-fuzz every untrusted-input target (-Dfuzz-runs to change how long each one searches)")
         .dependOn(&fuzz_driver.step);
@@ -453,6 +462,8 @@ pub fn register(ctx: Context) Registered {
     const devcontainer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/env-sync.sh" });
     devcontainer_contracts.has_side_effects = true;
     source_check_step.dependOn(&devcontainer_contracts.step);
+    const shard_tests = b.addTest(.{ .name = "shard-tests", .root_module = shard_mod });
+    source_check_step.dependOn(&execution.addZigTest(b, shard_tests, .unit_test).step);
     check_step.dependOn(source_check_step);
     infrastructure_build.register(b);
 

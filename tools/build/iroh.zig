@@ -440,10 +440,6 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         "deno",                                                 "test", "--allow-ffi", "--allow-read", "--allow-env", "--unstable-ffi",
         "bindings/ts/iroh/test/constructor_diagnostic_test.ts",
     });
-    const iroh_constructor_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "bindings/ts/iroh/test/constructor_diagnostic_test.ts",
-    });
-    iroh_constructor_diagnostic.step.dependOn(&iroh_constructor_cache.step);
     iroh_constructor_diagnostic.step.dependOn(&iroh_abi_install.step);
     iroh_constructor_diagnostic.step.dependOn(b.getInstallStep());
     iroh_constructor_diagnostic.setEnvironmentVariable(
@@ -455,10 +451,6 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         "deno",                                          "test", "--allow-ffi", "--allow-read", "--allow-env", "--allow-net", "--unstable-ffi",
         "bindings/ts/iroh/test/driver_listener_test.ts",
     });
-    const iroh_driver_listener_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "bindings/ts/iroh/test/driver_listener_test.ts",
-    });
-    iroh_driver_listener.step.dependOn(&iroh_driver_listener_cache.step);
     iroh_driver_listener.step.dependOn(&iroh_abi_install.step);
     iroh_driver_listener.step.dependOn(b.getInstallStep());
     iroh_driver_listener.setEnvironmentVariable(

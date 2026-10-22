@@ -55,7 +55,6 @@ fn addBindingFamily(
     const aggregate = b.step(family.aggregate_name, family.aggregate_desc);
     for (family.rows) |client| {
         const run = addInstalledSystemRun(b, client.posture, client.argv);
-        addClientCaches(b, client, run);
         if (family.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
         if (family.needs_webrtc_peers) {
             run.step.dependOn(webrtc.abi_step);
@@ -70,36 +69,6 @@ fn addBindingFamily(
         aggregate.dependOn(&run.step);
     }
     return aggregate;
-}
-
-/// Keep cold Cargo compilation and Deno dependency resolution outside the
-/// bounded live proof. The row remains the command authority. This derives
-/// only the cache/build prefix and never executes the scenario twice.
-fn addClientCaches(b: *std.Build, client: BindingClientRow, run: *std.Build.Step.Run) void {
-    for (client.argv, 0..) |word, cargo_index| {
-        if (!std.mem.eql(u8, word, "cargo") or cargo_index + 1 >= client.argv.len) continue;
-        const is_test = std.mem.eql(u8, client.argv[cargo_index + 1], "test");
-        const is_run = std.mem.eql(u8, client.argv[cargo_index + 1], "run");
-        if (!is_test and !is_run) continue;
-        const cache = addInstalledSystemRun(b, .build_tool, if (is_test)
-            &.{ "cargo", "test", "--no-run" }
-        else
-            &.{ "cargo", "build" });
-        for (client.argv[cargo_index + 2 ..]) |arg| {
-            if (std.mem.eql(u8, arg, "--")) break;
-            cache.addArg(arg);
-        }
-        run.step.dependOn(&cache.step);
-    }
-    var deno_cache: ?*std.Build.Step.Run = null;
-    for (client.argv) |arg| {
-        if (!std.mem.endsWith(u8, arg, ".ts")) continue;
-        if (deno_cache == null) {
-            deno_cache = common.addRootedSystemCommand(b, .build_tool, &.{ "deno", "cache" });
-            run.step.dependOn(&deno_cache.?.step);
-        }
-        deno_cache.?.addArg(arg);
-    }
 }
 
 // ── Per-binding client families ──────────────────────────────────────────

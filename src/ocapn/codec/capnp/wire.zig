@@ -221,14 +221,22 @@ pub const Builder = struct {
     /// encoded bytes. Ownership transfers before the framing is written, so a
     /// refusal leaves the builder exactly as it was.
     ///
-    /// `toOwnedSlice` trims the growable buffer's spare capacity, which the
-    /// allocators glowcap ships against do in place. One that cannot falls back
-    /// to `std`'s allocate-and-copy.
+    /// A buffer still at its reservation goes to the frame whole, its unused
+    /// words included, so the encode never asks the allocator to shrink: a
+    /// shrink in place is the allocator's choice, and its fallback is a second
+    /// allocation and a copy. That keeps at most `initial_words` per frame. A
+    /// buffer that grew carries a payload's growth slack, so it is trimmed.
     pub fn finishOwned(self: *Builder, allocator: std.mem.Allocator) !foundation.Frame {
         std.debug.assert(self.words.items.len >= frame_header_words);
+        if (self.words.capacity == initial_words) {
+            const block = self.words.allocatedSlice();
+            const len = self.words.items.len;
+            self.words = .empty;
+            return frameFromOwnedWords(allocator, block, len);
+        }
         const frame_words = try self.words.toOwnedSlice(allocator);
         errdefer allocator.free(frame_words);
-        return frameFromOwnedWords(allocator, frame_words);
+        return frameFromOwnedWords(allocator, frame_words, frame_words.len);
     }
 
     /// Copy a framed snapshot while leaving the builder live. Canonical set
@@ -239,21 +247,21 @@ pub const Builder = struct {
         const frame_words = try allocator.alloc(u64, self.words.items.len);
         errdefer allocator.free(frame_words);
         @memcpy(frame_words[frame_header_words..], self.words.items[frame_header_words..]);
-        return frameFromOwnedWords(allocator, frame_words);
+        return frameFromOwnedWords(allocator, frame_words, frame_words.len);
     }
 
     /// Write the single-segment table into word zero and render the segment
-    /// little-endian in place, then adopt the words as a word-shaped frame. The
-    /// storage is 8-byte aligned because it was allocated as words, which is
-    /// what `FrameShape.word` requires.
-    fn frameFromOwnedWords(allocator: std.mem.Allocator, frame_words: []u64) !foundation.Frame {
+    /// little-endian in place, then adopt the block as a word-shaped frame of
+    /// its first `len` words. `FrameShape.word` requires 8-byte alignment, and
+    /// the block has it because it was allocated as words.
+    fn frameFromOwnedWords(allocator: std.mem.Allocator, block: []u64, len: usize) !foundation.Frame {
+        const frame_words = block[0..len];
         const segment_words = frame_words.len - frame_header_words;
         // Single segment: count - 1 = 0 in the low u32, segment size in the high.
         frame_words[0] = std.mem.nativeToLittle(u64, @as(u64, @intCast(segment_words)) << 32);
         for (frame_words[frame_header_words..]) |*word| {
             word.* = std.mem.nativeToLittle(u64, word.*);
         }
-        const storage = std.mem.sliceAsBytes(frame_words);
-        return foundation.Frame.initOwned(allocator, storage, .word, .fromByteUnits(word_bytes));
+        return foundation.Frame.initOwnedPrefix(allocator, std.mem.sliceAsBytes(block), len * word_bytes, .word, .fromByteUnits(word_bytes));
     }
 };

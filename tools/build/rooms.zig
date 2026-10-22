@@ -512,20 +512,22 @@ pub fn register(ctx: Context) Registered {
         .{ .step_name = "rooms-web-archive", .description = "Prove a member explicitly selects a durable archive peer, a generation split across two archives reads back as one account under both keepers, and a fresh browser profile recovers direct-message history from the same sturdyref (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/archive_peer_proof.ts", .wrapper_deadline_seconds = 150, .needs_iroh = true, .needs_archive = true },
     };
     const web_proofs_step = b.step("rooms-web-proofs", "Run every browser proof of the shipped Rooms page (needs cargo + deno + a Playwright Chromium). The proofs run concurrently, so a green run needs the machine to carry them: under fleet load the heaviest proofs (iroh dials) can exceed their wrapper deadline while passing alone through their own step.");
+    // CI runs the family as shards, each under its own gate deadline.
+    const web_proof_shard = common.shardOption(b, "rooms-web-proof-shard", "Run only the k-th of n interleaved slices of rooms-web-proofs, as k/n (default 1/1)");
     var concurrent: [web_proofs.len]*std.Build.Step = undefined;
     var concurrent_len: usize = 0;
-    for (web_proofs) |proof| {
+    for (web_proofs, 0..) |proof, position| {
         const run = webProofRun(ctx, proof, archive_install, peers.web_build, browser_assets);
         b.step(proof.step_name, proof.description).dependOn(&run.step);
-        if (proof.measures_time) continue;
+        if (proof.measures_time or !web_proof_shard.selects(position)) continue;
         web_proofs_step.dependOn(&run.step);
         concurrent[concurrent_len] = &run.step;
         concurrent_len += 1;
     }
     // A timed proof's own step stays standalone; the family gets a second
     // instance of it, ordered after every concurrent proof has finished.
-    for (web_proofs) |proof| {
-        if (!proof.measures_time) continue;
+    for (web_proofs, 0..) |proof, position| {
+        if (!proof.measures_time or !web_proof_shard.selects(position)) continue;
         const run = webProofRun(ctx, proof, archive_install, peers.web_build, browser_assets);
         for (concurrent[0..concurrent_len]) |step| run.step.dependOn(step);
         web_proofs_step.dependOn(&run.step);

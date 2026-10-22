@@ -117,7 +117,7 @@ try {
 			tcp.addressDesignator(HOST, gifterPort),
 			INTRODUCER_SWISS,
 			String(PORT + 1),
-			"nested",
+			`nested=${tcp.addressDesignator(HOST, PORT)}`,
 		],
 		stdout: "piped",
 		stderr: "piped",

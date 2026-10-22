@@ -7,6 +7,16 @@
 
 const std = @import("std");
 
+/// Every command built under the `build_tool` posture, so a gate can name the
+/// compile half of what it reaches (`addCompileHalf`). The build script
+/// configures one graph per process, so one set serves it.
+var build_tools: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
+
+fn registerBuildTool(b: *std.Build, run: *std.Build.Step.Run) *std.Build.Step.Run {
+    build_tools.put(b.allocator, &run.step, {}) catch @panic("OOM");
+    return run;
+}
+
 pub const Posture = union(enum) {
     /// A deterministic test or proof subprocess. The source gate holds this to
     /// the project's 30-second maximum. The build-time check keeps direct
@@ -92,7 +102,8 @@ pub fn addSystemCommand(
     return switch (posture) {
         .deterministic => |seconds| boundedCommand(b, argv, seconds),
         .browser_proof => |seconds| browserBoundedCommand(b, argv, seconds),
-        .benchmark, .build_tool, .child_bounded, .search, .real_internet, .service => b.addSystemCommand(argv),
+        .build_tool => registerBuildTool(b, b.addSystemCommand(argv)),
+        .benchmark, .child_bounded, .search, .real_internet, .service => b.addSystemCommand(argv),
         .profile => @panic("profile runs a compiled bench, never a system command"),
         .unit_test, .memcheck => @panic("system commands cannot use a Zig test posture"),
     };
@@ -156,7 +167,8 @@ pub fn addArtifact(
             run.addArtifactArg(compile);
             break :blk run;
         },
-        .benchmark, .build_tool, .child_bounded, .search, .real_internet, .service => b.addRunArtifact(compile),
+        .build_tool => registerBuildTool(b, b.addRunArtifact(compile)),
+        .benchmark, .child_bounded, .search, .real_internet, .service => b.addRunArtifact(compile),
         .unit_test, .memcheck => @panic("ordinary artifacts cannot use a Zig test posture"),
     };
 }
@@ -175,8 +187,13 @@ pub fn profileOutput(b: *std.Build, name: []const u8) []const u8 {
 /// runner's global execution lock without adding dependencies to its focused
 /// step or to a product command that shares a build prerequisite. Running one
 /// at a time keeps a proof's deadline from measuring another proof's CPU use.
+///
+/// `build` is the gate's compile half: every Zig compile and build-tool
+/// command the members reach. Running it first leaves the gate's own time to
+/// its runs, so a cold compile on a slow machine never counts against them.
 pub const RuntimeGate = struct {
     step: *std.Build.Step,
+    build: *std.Build.Step,
     members: std.ArrayListUnmanaged(*std.Build.Step) = .empty,
     prerequisite: ?*std.Build.Step = null,
     finalized: bool = false,
@@ -213,6 +230,7 @@ pub const RuntimeGate = struct {
             }
             makeRuntimeRunsExclusive(gpa, member);
         }
+        addCompileHalf(self.step, self.build);
 
         // Exclusivity must never change reachability. Recheck the protected
         // root so a later edit cannot hide a gate-membership cycle here.
@@ -224,6 +242,22 @@ pub const RuntimeGate = struct {
         };
     }
 };
+
+/// Make `half` depend on every Zig compile and build-tool command `gate`
+/// reaches. Running the half first as its own invocation leaves the gate's
+/// time to its runs, so a cold compile on a slow machine never spends a run's
+/// deadline. Call it after every registrar has wired `gate`.
+pub fn addCompileHalf(gate: *std.Build.Step, half: *std.Build.Step) void {
+    const gpa = gate.owner.allocator;
+    var reached: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
+    defer reached.deinit(gpa);
+    collectReachable(gpa, gate, &reached);
+    var reached_steps = reached.keyIterator();
+    while (reached_steps.next()) |reached_step| {
+        const compiles = reached_step.*.cast(std.Build.Step.Compile) != null;
+        if (compiles or build_tools.contains(reached_step.*)) half.dependOn(reached_step.*);
+    }
+}
 
 fn makeRuntimeRunsExclusive(gpa: std.mem.Allocator, root: *std.Build.Step) void {
     var seen: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;

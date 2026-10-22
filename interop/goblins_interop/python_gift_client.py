@@ -119,7 +119,7 @@ async def run() -> None:
         # Spawn Carol (the Goblins recipient): she dials glowcap's introducer,
         # asks for both greeters, redeems both gives, and calls Bob directly.
         carol = await asyncio.create_subprocess_exec(
-            RACKET, RECIPIENT_SCRIPT, tcp.address_designator(HOST, gifter_port), INTRODUCER_SWISS, str(PORT + 1), "nested",
+            RACKET, RECIPIENT_SCRIPT, tcp.address_designator(HOST, gifter_port), INTRODUCER_SWISS, str(PORT + 1), f"nested={tcp.address_designator(HOST, PORT)}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

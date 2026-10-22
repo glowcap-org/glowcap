@@ -94,14 +94,6 @@ pub fn register(
         dogfood_runs[i].step.dependOn(b.getInstallStep());
         b.step(dogfood.step_name, dogfood.description).dependOn(&dogfood_runs[i].step);
     }
-    // Compile/cache work is outside the bounded proof process:
-    // the deadline measures execution and teardown, not a cold Cargo build or
-    // first Deno dependency fetch.
-    const rust_dogfood_compile = addRootedSystemCommand(b, .build_tool, &.{
-        "cargo", "test", "--no-run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async",
-    });
-    rust_dogfood_compile.step.dependOn(b.getInstallStep());
-    dogfood_runs[0].step.dependOn(&rust_dogfood_compile.step);
     // The crate declares its Clippy floor so editors and direct Cargo use see
     // the same contract. This leg supplies only the whole-target feature shape
     // and promotes otherwise-unclassified rustc warnings to failures.
@@ -112,10 +104,6 @@ pub fn register(
     const rust_binding_lint_step = b.step("rust-binding-lint", "Lint the Rust binding library, tests, and examples with Clippy (needs cargo)");
     rust_binding_lint_step.dependOn(&rust_binding_lint.step);
     dogfood_runs[0].step.dependOn(&rust_binding_lint.step);
-    const deno_dogfood_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "cache", "bindings/ts/dogfood/zig_smoke.ts",
-    });
-    dogfood_runs[1].step.dependOn(&deno_dogfood_cache.step);
     const python_artifact_smoke = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "python3", "bindings/python/smoke/artifact.py",
     });
@@ -124,22 +112,19 @@ pub fn register(
     python_dogfood.step.dependOn(&python_artifact_smoke.step);
     // The macOS Rust test executable resolves glowcap's installed dylibs at
     // load time. Bind both Cargo's resolver and the test process to the archives
-    // this step installed.
+    // this step installed. The dogfood's compile prep shares its environment.
     const dogfood_lib_dir = common.rootPath(b, "zig-out/lib");
     // Pin every runtime to these installed archives. Otherwise a language's
     // ordinary cold-cache resolver may select an older versioned package first.
     for (dogfood_runs) |run| run.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
-    rust_dogfood_compile.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
     rust_binding_lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
     switch (builtin.os.tag) {
         .macos => {
             dogfood_runs[0].setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
-            rust_dogfood_compile.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
             rust_binding_lint.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
         },
         .linux, .freebsd, .netbsd, .openbsd, .dragonfly => {
             dogfood_runs[0].setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
-            rust_dogfood_compile.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
             rust_binding_lint.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
         },
         else => {},
@@ -458,7 +443,7 @@ pub fn registerChecks(
     bindings_fmt_check_step.dependOn(&deno_check.step);
     // Pure binding-edge invariants: no FFI permissions, but still a real
     // executable test because codec/profile input refusal is behavior.
-    const deno_stack_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const deno_stack_test = common.addSystemCommandIn(b, .{ .deterministic = 30 }, b.path("bindings/ts"), &.{
         "deno",
         "test",
         "runtime/test/errors_test.ts",
@@ -480,72 +465,29 @@ pub fn registerChecks(
         "webrtc/test/peer_test.ts",
         "webrtc/test/listener_test.ts",
     });
-    const deno_stack_cache = execution.addSystemCommand(b, .build_tool, &.{
-        "deno",
-        "test",
-        "--no-run",
-        "runtime/test/errors_test.ts",
-        "runtime/test/action_test.ts",
-        "runtime/test/terminal_release_test.ts",
-        "runtime/test/driver_failure_test.ts",
-        "runtime/test/value_test.ts",
-        "runtime/test/ffi_handle_test.ts",
-        "runtime/test/websocket_stack_test.ts",
-        "runtime/test/cancellation_test.ts",
-        "runtime/test/dial_test.ts",
-        "runtime/test/rendezvous_test.ts",
-        "runtime/test/websocket_test.ts",
-        "relay/test/relay_test.ts",
-        "relay/test/ws_relay_test.ts",
-        "relay/test/deno_channels_test.ts",
-        "relay/test/transport_test.ts",
-        "webrtc/test/channel_test.ts",
-        "webrtc/test/peer_test.ts",
-        "webrtc/test/listener_test.ts",
-    });
-    deno_stack_test.setCwd(b.path("bindings/ts"));
-    deno_stack_cache.setCwd(b.path("bindings/ts"));
-    deno_stack_test.step.dependOn(&deno_stack_cache.step);
     bindings_fmt_check_step.dependOn(&deno_stack_test.step);
     // These tests touch FFI but open no sockets; keep that capability out
     // of the otherwise pure stack suite.
     const deno_ffi_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/ffi_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts", "bindings/ts/runtime/test/driver_loop_teardown_test.ts",
     });
-    const deno_ffi_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/ffi_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts", "bindings/ts/runtime/test/driver_loop_teardown_test.ts",
-    });
-    deno_ffi_runtime_test.step.dependOn(&deno_ffi_runtime_cache.step);
     bindings_fmt_check_step.dependOn(&deno_ffi_runtime_test.step);
     // The WebRTC driver adapter's exchange book, driven by fakes. It imports
     // the C loader but never opens the library.
     const deno_webrtc_driver_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/webrtc/test/driver_test.ts",
     });
-    const deno_webrtc_driver_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/webrtc/test/driver_test.ts",
-    });
-    deno_webrtc_driver_test.step.dependOn(&deno_webrtc_driver_cache.step);
     bindings_fmt_check_step.dependOn(&deno_webrtc_driver_test.step);
     const deno_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "test", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
     });
-    const deno_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
-    });
-    deno_runtime_test.step.dependOn(&deno_runtime_cache.step);
     bindings_fmt_check_step.dependOn(&deno_runtime_test.step);
     const deno_driver_listener_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno",                                         "test", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env",
         "bindings/ts/tcp/test/driver_listener_test.ts",
     });
-    const deno_driver_listener_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno",                                         "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env",
-        "bindings/ts/tcp/test/driver_listener_test.ts",
-    });
-    deno_driver_listener_test.step.dependOn(&deno_driver_listener_cache.step);
     bindings_fmt_check_step.dependOn(&deno_driver_listener_test.step);
-    const deno_onion_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const deno_onion_test = common.addSystemCommandIn(b, .{ .deterministic = 30 }, b.path("bindings/ts"), &.{
         "deno",
         "test",
         "--allow-ffi",
@@ -553,7 +495,6 @@ pub fn registerChecks(
         "--allow-net=127.0.0.1",
         "onion/test/onion_test.ts",
     });
-    deno_onion_test.setCwd(b.path("bindings/ts"));
     // The test loads the Host and driver archives as well as onion. Depending
     // only on the onion install lets a focused run pair a freshly generated
     // fingerprint mirror with stale core archives left in zig-out. The full

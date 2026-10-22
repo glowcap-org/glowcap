@@ -533,8 +533,10 @@ else:
                 rows = json.loads(record_path.read_text())['rows'].splitlines()
                 if gate_failure:
                     self.assertGreater(len(rows), 1)
-                    self.assertTrue(rows[0].startswith('37\t'))
-                    self.assertTrue(all(row.startswith('0\t') for row in rows[1:]))
+                    failed = [row for row in rows if row.endswith(' ' + gate_failure)]
+                    self.assertEqual(len(failed), 1, rows)
+                    self.assertTrue(failed[0].startswith('37\t'))
+                    self.assertTrue(all(row.startswith('0\t') for row in rows if row is not failed[0]))
 
     def test_shipped_mode_partitions_cover_every_layer_once(self):
         source = (ROOT / 'test/all_test.zig').read_text()

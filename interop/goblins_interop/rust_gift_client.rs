@@ -176,7 +176,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 			&tcp::address_designator(HOST, gifter_port),
 			INTRODUCER_SWISS,
 			&(port + 1).to_string(),
-			"nested",
+			&format!("nested={}", tcp::address_designator(HOST, port)),
 		])
 		.stdout(std::process::Stdio::piped())
 		.stderr(std::process::Stdio::piped())

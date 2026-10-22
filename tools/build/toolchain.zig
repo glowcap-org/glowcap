@@ -179,6 +179,7 @@ pub fn register(
     }
     runtime_gate.addPrerequisite(&runtime_preflight.step);
     runtime_gate.finalize(check_step);
+    execution.addCompileHalf(check_step, b.step("check-build", "Compile everything check runs, so its deadline measures only the runs"));
 }
 
 fn containsGate(gates: []const Gate, expected: Gate) bool {

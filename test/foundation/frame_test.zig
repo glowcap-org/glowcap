@@ -114,6 +114,32 @@ test "word frame rejects non-word-sized payloads" {
     );
 }
 
+test "a prefix frame shows its first bytes and frees the whole block" {
+    // The testing allocator checks that a free matches its allocation, so the
+    // spare tail is proven to leave with the frame rather than leak.
+    const allocator = std.testing.allocator;
+    const block = try allocator.alignedAlloc(u8, .fromByteUnits(8), 64);
+    @memset(block, 0);
+    block[0] = 0x2a;
+
+    var frame = try foundation.Frame.initOwnedPrefix(allocator, block, 16, .word, .fromByteUnits(8));
+    defer frame.deinit();
+
+    try std.testing.expectEqual(@intFromPtr(block.ptr), @intFromPtr(frame.bytes().ptr));
+    try std.testing.expectEqual(@as(usize, 16), frame.bytes().len);
+    try std.testing.expectEqual(@as(u8, 0x2a), frame.bytes()[0]);
+}
+
+test "initOwnedPrefix frees the whole block when the shape is refused" {
+    const allocator = std.testing.allocator;
+    const block = try allocator.alignedAlloc(u8, .fromByteUnits(8), 64);
+
+    try std.testing.expectError(
+        foundation.Frame.Error.InvalidFrameShape,
+        foundation.Frame.initOwnedPrefix(allocator, block, 13, .word, .fromByteUnits(8)),
+    );
+}
+
 test "initOwned frees the storage when the shape is refused" {
     // Ownership transfer is unconditional: the testing allocator's leak check
     // proves the refused storage was freed here, not left with the caller.
