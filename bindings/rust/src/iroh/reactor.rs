@@ -102,7 +102,8 @@ impl IrohLoop {
 		});
 		let runner = Arc::clone(&iloop);
 		let handle = tokio::spawn(async move {
-			match AsyncFd::new(owned) {
+			// SAFETY: `owned` is this loop's own dup, open until the `AsyncFd` drops it.
+			match unsafe { AsyncFd::register(owned) } {
 				Ok(afd) => runner.run(afd).await,
 				Err(_) => runner.wake_all_closed(),
 			}

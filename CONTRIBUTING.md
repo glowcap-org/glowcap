@@ -175,14 +175,31 @@ A successful development run alone cannot qualify a commit for publication.
 
 The selected Linux jobs run independently with named phases, gate durations in
 their summaries, and JSON evidence attached as artifacts. A failed job does not
-cancel its siblings. The aggregate check requires every selected job to pass.
+cancel its siblings, and a failed test does not stop its job, so one run
+reports every failing test. A build that runs out of time ends its phase,
+because every later gate in that phase needs it. The aggregate check requires every selected job to pass.
 Superseded runs on the same branch and event are cancelled. Long gates report
 elapsed time once a minute without extending their deadlines.
 
+A deadline holds on the slowest machine that runs it. Hosted runners compile
+cold, an order of magnitude slower than a warm workstation, and run tests
+slower too. Each job therefore carries only the phases that fit its time limit,
+and a phase opens with its shared build under a separate build allowance so a
+proof's deadline times the proof. A step that passes using more than half its
+deadline says so, locally too. A test step whose deadline fires reruns once,
+and the log names the miss, so a retry absorbs a stalled runner without
+hiding a slow test.
+
 Each Linux job starts one devcontainer and reuses it across phases. Dependency
-downloads are cached between runs. Build outputs and test results are not
-restored, so each run exercises its own checkout. Separate jobs have separate
-build caches and ports. Linux jobs reclaim unused hosted-runner SDK space
+downloads and each job's Zig and Cargo compile state are cached between runs,
+and only pushes and nightly runs save them. Full qualification builds cold, so
+the result that qualifies `main` reuses no compiled state. Separate jobs have separate caches
+and ports.
+
+Zig keys every object by its inputs and every process proof reruns, so a
+restored cache saves compile time without skipping a proof. A Zig unit-test
+run whose inputs are unchanged is reused. A toolchain change starts fresh, and
+state past a size limit is dropped. Linux jobs reclaim unused hosted-runner SDK space
 and disable Rust incremental compilation to leave room for build outputs.
 
 Zig packages are fetched in a named setup step on Linux and macOS, with three
@@ -196,8 +213,8 @@ inputs, or builds one on a miss. Every Linux job uses the same immutable image.
 Only trusted `main` and `dev` runs publish images. A pull request with new image
 inputs shares its build through a temporary artifact within that run.
 
-The container keeps the environment declared in Compose. CI mounts its shared
-Zig package download store at the declared path, so startup checks and build
+The container keeps the environment declared in Compose. CI mounts its cached
+Zig package and compile stores at their declared paths, so startup checks and build
 commands see the same environment. Pages and agent-tool jobs use the same
 startup helper and image key with read-only registry access. On a cache miss,
 they build and consume a local image without publishing it.

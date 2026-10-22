@@ -130,7 +130,9 @@ fn feedMessagePacket(self: *Host, session: *HostSession, packet: []const u8) !vo
 /// is woken to write it. A channel refusal condemns the session without an
 /// abort echo and surfaces to the caller. At the opening hello the pause
 /// boundary holds: remaining ciphertext stays staged and
-/// `HostSession.resumeFeed` resumes it.
+/// `HostSession.resumeFeed` resumes it. Allocation pressure returns the caller's
+/// slice only while none of it was consumed. Once a record from it has opened,
+/// the receive nonce has moved, so the host owns the unread suffix the same way.
 fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.sealed.SealedChannel, bytes: []const u8) !void {
     if (bytes.len == 0 and !session.feed_tail.isActive() and !channel.hasStagedInbound()) return;
     const was_open = session.served.port.peer.sessionIsOpen();
@@ -140,6 +142,16 @@ fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.seal
         channel: *foundation.sealed.SealedChannel,
         bytes: []const u8,
         was_open: bool,
+
+        /// Own the unread suffix, or retire the session when it cannot be
+        /// owned: replaying ciphertext would advance the receive nonce twice.
+        fn parkSuffix(s: @This(), consumed: usize) !void {
+            s.channel.park(s.host.allocator, s.bytes[consumed..]) catch |err| {
+                host_pump.retireSealedSession(s.host, s.c);
+                return err;
+            };
+        }
+
         pub fn call(s: @This()) !void {
             const gpa = s.host.allocator;
             var consumed: usize = 0;
@@ -149,12 +161,8 @@ fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.seal
                         // The Noise record is already authoritative. Keep
                         // its plaintext borrow and own the unread wire
                         // suffix before reporting or retrying upper-layer
-                        // pressure; replaying ciphertext would advance the
-                        // receive nonce twice.
-                        s.channel.park(gpa, s.bytes[consumed..]) catch |park_err| {
-                            host_pump.retireSealedSession(s.host, s.c);
-                            return park_err;
-                        };
+                        // pressure.
+                        try s.parkSuffix(consumed);
                         if (err == error.OutOfMemory or err == error.OutboundBackpressure) return;
                         return err;
                     };
@@ -163,10 +171,7 @@ fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.seal
                     // unsealed arm. Own later ciphertext before the caller's
                     // borrowed receive buffer expires.
                     if (!s.was_open and s.c.served.port.peer.sessionIsOpen()) {
-                        s.channel.park(gpa, s.bytes[consumed..]) catch |err| {
-                            host_pump.retireSealedSession(s.host, s.c);
-                            return err;
-                        };
+                        try s.parkSuffix(consumed);
                         break;
                     }
                     continue;
@@ -174,11 +179,16 @@ fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.seal
 
                 const step = s.channel.ingest(gpa, s.bytes[consumed..]) catch |err| {
                     // The channel retired itself for anything but
-                    // allocation pressure, which leaves the staged bytes
-                    // intact and retryable instead.
-                    if (err != error.OutOfMemory)
+                    // allocation pressure, which consumes none of this
+                    // call's bytes. The slice is the caller's to retry only
+                    // while no record in it has opened.
+                    if (err != error.OutOfMemory) {
                         host_pump.retireSealedSession(s.host, s.c);
-                    return err;
+                        return err;
+                    }
+                    if (consumed == 0) return err;
+                    try s.parkSuffix(consumed);
+                    return;
                 };
                 consumed += step.consumed;
                 switch (step.event) {

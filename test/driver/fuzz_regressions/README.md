@@ -7,8 +7,8 @@ generated and not meant to be readable.
 
 To add a finding:
 
-1. When `zig build fuzz` reports a crash, copy its input from
-   `.zig-cache/f/crash` into this directory.
+1. When `zig build fuzz` reports a crash, copy the input file its report
+   names into this directory.
 2. Add the file to `regression_seeds` in `../fuzz_test.zig`.
 
 `zig build source-check` fails if a file here is not listed, since an unlisted

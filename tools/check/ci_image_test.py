@@ -117,7 +117,12 @@ class ImageTest(unittest.TestCase):
         self.assertNotIn('postCreateCommand', config)
         self.assertEqual(service['image'], REF)
         self.assertEqual(service['environment'], environment)
-        self.assertEqual(service['volumes'][-1]['target'], environment['ZIG_LOCAL_PKG_DIR'])
+        work = environment['ZIG_LOCAL_CACHE_DIR'].rsplit('/', 1)[0]
+        self.assertEqual({volume['target']: Path(volume['source']).name for volume in service['volumes']},
+                         {environment['ZIG_LOCAL_PKG_DIR']: 'zig-pkg',
+                          environment['ZIG_LOCAL_CACHE_DIR']: 'zig-local',
+                          work + '/cargo': 'cargo-build'})
+        self.assertTrue(environment['CARGO_BUILD_BUILD_DIR'].startswith(work + '/cargo/'))
         env = dict(os.environ, **environment, GLOWCAP_DEVCONTAINER_DIR='/test')
         command = ['bash', str(ROOT / '.devcontainer/hooks/verify-compose-env.sh')]
         result = subprocess.run(command, env=env, capture_output=True, text=True)
@@ -135,7 +140,8 @@ class ImageTest(unittest.TestCase):
             archive.write_bytes(b'fixture')
             config = {'configuration': {'service': 'glowcap-dev'}}
             compose = {'services': {'glowcap-dev': {'build': {'context': '..'},
-                       'environment': {'ZIG_LOCAL_PKG_DIR': '/declared/packages'}}}}
+                       'environment': {'ZIG_LOCAL_PKG_DIR': '/declared/work/zig-pkg',
+                                       'ZIG_LOCAL_CACHE_DIR': '/declared/work/zig-local'}}}}
 
             def response(*args, **kwargs):
                 if args[:2] == ('devcontainer', 'read-configuration'):

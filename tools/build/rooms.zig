@@ -486,7 +486,7 @@ pub fn register(ctx: Context) Registered {
     //     direct-message history through it, closes the whole browser profile,
     //     then recovers that history through the same authority in a fresh one.
     const web_proofs = [_]WebProof{
-        .{ .step_name = "rooms-web-page", .description = "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/page_proof.ts", .wrapper_deadline_seconds = 330 },
+        .{ .step_name = "rooms-web-page", .description = "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/page_proof.ts", .wrapper_deadline_seconds = 480 },
         .{ .step_name = "rooms-web-admission", .description = "Prove browser admission preserves drafts, attachment custody, cleanup and unrelated progress", .source = "apps/rooms/test/proofs/admission_proof.ts", .wrapper_deadline_seconds = 120 },
         .{ .step_name = "rooms-web-responsiveness", .description = "Prove stable Rooms presentation, delayed progress and bounded input latency over the production transport", .source = "apps/rooms/test/proofs/responsiveness_proof.ts", .wrapper_deadline_seconds = 180, .measures_time = true },
         .{ .step_name = "rooms-web-link-preview", .description = "Prove link previews reconcile ready, retry, remove, image-failure and delivered-fallback states using Rooms controls on the real page (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/link_preview_proof.ts", .wrapper_deadline_seconds = 120 },

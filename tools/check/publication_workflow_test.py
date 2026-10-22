@@ -490,7 +490,7 @@ else:
             lanes, full = PLAN.select('workflow_dispatch', 'refs/heads/dev', {}, [])
             self.assertTrue(full)
             phase_steps = re.findall(
-                r"if: matrix.lane == '([^']+)'( && needs.plan.outputs.full == 'true')?\n        run: devcontainer exec --workspace-folder \. --config \.devcontainer/\.ci/devcontainer\.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh ([a-z]+)", workflow)
+                r"if: \$\{\{ !cancelled\(\) && steps.fetch.outcome == 'success' && matrix.lane == '([^']+)'( && needs.plan.outputs.full == 'true')? \}\}\n        run: devcontainer exec --workspace-folder \. --config \.devcontainer/\.ci/devcontainer\.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh ([a-z]+)", workflow)
             phases = [phase for lane in lanes for condition, _, phase in phase_steps if condition == lane]
             self.assertEqual(len(phases), len(set(phases)))
             combined = []
@@ -522,7 +522,8 @@ else:
                 self.assertFalse(calls.exists())
                 self.assertFalse(record_path.exists())
                 record_path.write_text('{}')
-            # A phase stops at its first failure and records it. Recorder failure
+            # A failed gate does not stop its phase: every gate runs and records,
+            # and the phase exits with the first failure. Recorder failure
             # must not hide a failed gate, or turn a successful phase green.
             for gate_failure, record_failure, expected in [('check', '0', 37), ('check', '9', 37), ('', '9', 70)]:
                 result = subprocess.run(['bash', 'ci/gates.sh', 'core'], cwd=ROOT,
@@ -531,8 +532,9 @@ else:
                 self.assertEqual(result.returncode, expected, result.stderr)
                 rows = json.loads(record_path.read_text())['rows'].splitlines()
                 if gate_failure:
-                    self.assertEqual(len(rows), 1)
+                    self.assertGreater(len(rows), 1)
                     self.assertTrue(rows[0].startswith('37\t'))
+                    self.assertTrue(all(row.startswith('0\t') for row in rows[1:]))
 
     def test_shipped_mode_partitions_cover_every_layer_once(self):
         source = (ROOT / 'test/all_test.zig').read_text()
@@ -540,7 +542,7 @@ else:
         layers = [name.strip() for name in declared.split(',') if name.strip()]
         gates = (ROOT / 'ci/gates.sh').read_text()
         shipped = re.search(r'^phase shipped\n(.*?)(?=^phase |\Z)', gates, re.M | re.S)[1]
-        commands = re.findall(r'^gate zig build test -Doptimize=ReleaseSafe(.*)$', shipped, re.M)
+        commands = re.findall(r'^(?:gate|build) zig build test -Doptimize=ReleaseSafe(.*)$', shipped, re.M)
         selected_layers = []
         for command in commands:
             selection = re.fullmatch(r' -Dtest-layer=([a-z_,]+)', command)

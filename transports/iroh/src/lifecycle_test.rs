@@ -16,6 +16,24 @@ fn try_write(conn: *mut crate::GlowcapIrohConn, bytes: &[u8]) -> isize {
 	unsafe { crate::nonblocking::calls::glowcap_iroh_sidecar_conn_try_write(conn, bytes.as_ptr(), bytes.len()) }
 }
 
+/// A partner that stopped this stream or closed the connection takes no more
+/// bytes, which is backpressure rather than a fault: no write fails and no bare
+/// `EV_CLOSED` reports a lost connection. The departure is the reader's to
+/// report, after the partner's last bytes.
+fn assert_departure_left_to_reader(endpoint: *mut GlowcapIrohEndpoint, conn: *mut crate::GlowcapIrohConn) {
+	assert_eq!(try_write(conn, b"x"), crate::WOULD_BLOCK);
+	let mut ready = [crate::GlowcapIrohReadyEvent::from((0, 0)); 16];
+	// SAFETY: the callers pass the live endpoint from `direct_endpoint`, freed only after this call, and `ready` is a
+	// writable array of the capacity passed.
+	let drained = unsafe {
+		crate::nonblocking::calls::glowcap_iroh_sidecar_endpoint_drain_ready(endpoint, ready.as_mut_ptr(), ready.len())
+	};
+	assert!(drained >= 0);
+	for event in &ready[..drained as usize] {
+		assert!(event.events & crate::EV_CLOSED == 0 || event.events & crate::EV_READABLE != 0);
+	}
+}
+
 #[test]
 fn teardown_panics_become_failures() {
 	assert_eq!(teardown_status(|| Ok::<(), ()>(())), 0);
@@ -78,7 +96,7 @@ fn peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release(
 	// remote close first, exactly the ordering a runtime/session race permits.
 	assert_eq!(try_write(conn, b"late"), 4);
 	let writer_result = client_ref.writers.wait();
-	assert_eq!(try_write(conn, b"x"), -1);
+	assert_departure_left_to_reader(client, conn);
 	// SAFETY: `conn` is the owned handle `make_conn` returned for this endpoint; nothing has freed it, and it is not
 	// used after this call, which runs before either endpoint is freed.
 	unsafe { glowcap_iroh_sidecar_conn_free(conn) };
@@ -131,7 +149,7 @@ fn peer_stop_before_writer_observes_local_close_does_not_fail_endpoint_release()
 	// partner's stop first, exactly the ordering a loaded server permits.
 	assert_eq!(try_write(conn, b"late"), 4);
 	let writer_result = client_ref.writers.wait();
-	assert_eq!(try_write(conn, b"x"), -1);
+	assert_departure_left_to_reader(client, conn);
 	// SAFETY: `conn` is the owned handle `make_conn` returned for this endpoint; nothing has freed it, and it is not
 	// used after this call, which runs before either endpoint is freed.
 	unsafe { glowcap_iroh_sidecar_conn_free(conn) };

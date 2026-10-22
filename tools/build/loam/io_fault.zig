@@ -1,6 +1,6 @@
 //! Linux write, sync and read fault probes for both production disk engines.
 const std = @import("std");
-const execution = @import("../execution.zig");
+const common = @import("../common.zig");
 const Gates = @import("../gates.zig").Registered;
 const Engine = @import("crash.zig").Engine;
 
@@ -17,8 +17,10 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         root.addCSourceFile(.{ .file = b.path("test/loam/engines/io_fault/syscalls.c"), .flags = &.{} });
         root.linkSystemLibrary("dl", .{});
         const probe = b.addExecutable(.{ .name = b.fmt("loam-io-fault-{s}", .{engine.name}), .root_module = root });
-        const run = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"python3"});
-        run.addFileArg(b.path("test/loam/engines/io_fault/run.py"));
+        // The driver runs three bounded probe processes per write, sync and
+        // read the engine performs, so its healthy duration grows with that
+        // discovered count. Each child keeps its own five-second deadline.
+        const run = common.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "test/loam/engines/io_fault/run.py" });
         run.addArtifactArg(probe);
         run.addArg(engine.name);
         step.dependOn(&run.step);

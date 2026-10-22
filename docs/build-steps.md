@@ -14,8 +14,8 @@ cache and output directories there and resolves relative paths wrong.
 
 The aggregate checks divide evidence by the resources they own, as
 [everyday steps](#everyday-steps-and-checks) lists. The side-effecting
-commands in `runtime-check` take the build runner's execution lock, so their
-ports and output directories cannot overlap.
+commands in `runtime-check` take the build runner's execution lock and run
+one at a time, so no proof shares the CPU with another while its deadline runs.
 
 Build options:
 

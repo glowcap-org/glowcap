@@ -384,7 +384,8 @@ impl LoopShared {
 				.map_err(io_err)?;
 			let lp = Rc::clone(self);
 			try_spawn_local_handle(async move {
-				let Ok(afd) = AsyncFd::with_interest(fd, Interest::READABLE) else {
+				// SAFETY: `fd` is this task's own `OwnedFd` dup, open until the `AsyncFd` drops it.
+				let Ok(afd) = (unsafe { AsyncFd::register_with_interest(fd, Interest::READABLE) }) else {
 					lp.fail_background(Error::with_detail(
 						sys::ERR_INTERNAL,
 						"the driver readiness descriptor could not be registered".to_string(),

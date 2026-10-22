@@ -31,6 +31,7 @@ pub fn checkStabilityAreaTableRecurringClaims(
     };
     var listed: std.ArrayList([]const u8) = .empty;
     try inventories.collectBuildSteps(arena, ci, "\ngate zig build ", &listed);
+    try inventories.collectBuildSteps(arena, ci, "\nbuild zig build ", &listed);
 
     const header = "| Area | Evidence | What remains |";
     const hit = std.mem.indexOf(u8, doc, header) orelse {

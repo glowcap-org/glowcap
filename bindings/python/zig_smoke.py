@@ -497,6 +497,9 @@ def main() -> int:
     )
     print("python zig-smoke OK: canceled loop close waiter preserves terminal evidence")
 
+    runtime.run_managed(lifecycle.partner_release_keeps_a_freed_handle_from_loop_close())
+    print("python zig-smoke OK: a partner's release keeps the freed handle from loop close")
+
     runtime.run_managed(lifecycle._session_wire_failure_is_exact_and_retired())
     print("python zig-smoke OK: Session wire failure is exact and joins retirement")
 

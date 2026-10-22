@@ -87,6 +87,14 @@ const support_actors = @import("../support/actors.zig");
 const regression_seeds = [_][]const u8{
     // Repeated XOR mutations can restore the original authenticated record.
     @embedFile("fuzz_regressions/regression_seeds-sealed-cancelled-flips.bin"),
+    // Two records in one feed, the second's length damaged and its staging
+    // out of memory: the first had already opened, so the feed returned a
+    // retryable refusal over a committed record and dropped the suffix.
+    @embedFile("fuzz_regressions/regression_seeds-oom-after-record.bin"),
+    // A damaged length whose staging runs out of memory before any record in
+    // the feed opened: the refusal committed nothing and left the channel
+    // open, an outcome the sealed expectation has to admit.
+    @embedFile("fuzz_regressions/regression_seeds-oom-before-record.bin"),
     // The sealed regime's damaged arm, three flips in a record's body: the
     // search found the session's CapTP state still open after the channel
     // refused, which is the host's retirement rather than a close.
@@ -156,7 +164,9 @@ fn drainHost(host: *Host, session: *HostSession) void {
 /// Either the channel refuses it and the host retires the session, or a
 /// changed length leaves the channel waiting for bytes that never come. The
 /// retirement is the host's, not CapTP's: no abort is manufactured, so the
-/// session's protocol state is not what closes.
+/// session's protocol state is not what closes. A feed out of memory before
+/// any record opened is the third outcome: it refuses with nothing committed,
+/// so the channel is still open and the bytes are still the caller's.
 fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, from: *HostSession, wire: Wire) !void {
     var frame = (from.takeOutbound() catch null) orelse return;
     defer frame.deinit();
@@ -174,6 +184,7 @@ fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, fr
     }
     // XOR mutations can cancel; judge the resulting bytes, not the draw count.
     const changed = !std.mem.eql(u8, bytes, damaged[0..bytes.len]);
+    var out_of_memory = false;
     switch (wire) {
         .stream => {
             var stream_bytes: [max_input + glowcap.foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
@@ -183,14 +194,18 @@ fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, fr
             @memcpy(stream_bytes[prefix.len..][0..bytes.len], damaged[0..bytes.len]);
             host.feedBytes(session, stream_bytes[0 .. prefix.len + bytes.len]) catch {};
         },
-        .sealed => host.feedBytes(session, damaged[0..bytes.len]) catch {},
+        .sealed => host.feedBytes(session, damaged[0..bytes.len]) catch |err| {
+            out_of_memory = err == error.OutOfMemory;
+        },
     }
     drainHost(host, session);
     try checkSession(session);
     if (wire == .sealed and changed) {
         const channel = session.sealed.?;
         const refused = !channel.isOpen() and session.isTerminating();
-        try std.testing.expect(refused or channel.hasStagedInbound());
+        const untouched = out_of_memory and channel.isOpen() and !session.isTerminating() and
+            !channel.hasStagedInbound();
+        try std.testing.expect(refused or untouched or channel.hasStagedInbound());
     }
 }
 

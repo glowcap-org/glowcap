@@ -73,18 +73,21 @@ pub fn register(ctx: Context) *std.Build.Step {
     ctx.runtime_gate.add(install_test);
 
     const host_test = b.step("glowcap-host-test", "Prove verified host installation and Docker deployment commands without a daemon (needs python3)");
-    // Installation verifies the complete product inventory; deployment owns
-    // its command scenarios. Suite growth must not consume another's deadline.
-    inline for (.{ "--installation", "--deployment" }) |mode| {
+    // Installation verifies the complete product inventory, and each
+    // deployment scenario owns its commands. Suite growth must not consume
+    // another's deadline.
+    inline for (.{ "--installation", "--deployment", "--deployment-builds", "--deployment-reset" }) |mode| {
         const host_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
         host_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
         host_proof.addArg(mode);
         host_proof.step.dependOn(rooms_build);
         host_test.dependOn(&host_proof.step);
     }
-    // The exhausted 15-second product query budget needs its
-    // own calibrated process deadline, separate from installation/deployment.
-    const deadline_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
+    // The scenario waits out the product's fixed 15-second Docker query
+    // budget, which no runner speed changes. Its one child run carries the
+    // script's own 20-second bound, so the step is an orchestrator of a
+    // bounded child rather than work a process deadline should scale.
+    const deadline_proof = common.addInstalledSystemRun(b, .child_bounded, &.{ "python3", "tools/check/glowcap_host.py" });
     deadline_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
     deadline_proof.addArg("--deadline");
     deadline_proof.step.dependOn(rooms_build);

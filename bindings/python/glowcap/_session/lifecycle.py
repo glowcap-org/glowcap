@@ -227,9 +227,18 @@ class _LifecycleMixin:
 
     def _request_loop_close(self, loop_ref, ptr, options) -> "asyncio.Task[None]":
         """Start one loop request. The coordinator retains and observes it."""
-        task = asyncio.get_running_loop().create_task(
-            loop_ref.close_session(ptr, options)
-        )
+
+        async def request() -> None:
+            # The task runs after the turn that scheduled it, and the partner's
+            # close can release the handle in between. A released handle is
+            # freed, so it never reaches the FFI, and the coordinator joins
+            # the outcome that release recorded. Nothing awaits between this
+            # check and the call.
+            if self._released or self._ptr is not ptr:
+                return
+            await loop_ref.close_session(ptr, options)
+
+        task = asyncio.get_running_loop().create_task(request())
         if self._terminal_task is not None:
             self._loop_close_tasks.add(task)
         return task

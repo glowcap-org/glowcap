@@ -15,10 +15,15 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # Each unit or process proof owns its focused deadline. This wider deadline
 # contains a build-graph, setup, or cleanup wedge that falls outside those
 # boundaries. It names the gate and leaves no child behind. Override it with
-# GATE_TIMEOUT when measuring a slower runner. The aggregate check also
-# compiles the cold Zig and Rust graph, which exceeds 20m on hosted runners.
-# CHECK_TIMEOUT controls that build allowance; per-test limits stay unchanged.
-CHECK_TIMEOUT="${CHECK_TIMEOUT:-${GATE_TIMEOUT:-40m}}"
+# GATE_TIMEOUT when measuring a slower runner.
+#
+# A hosted runner compiles cold, an order of magnitude slower than a warm
+# workstation, so a deadline sized on a workstation is a failure waiting for
+# CI. A `build` line names a gate whose time is mostly that cold compile and
+# gives it BUILD_TIMEOUT. A phase opens with one when its proofs share a heavy
+# build, so each proof's deadline times the proof. Per-test limits stay
+# unchanged inside both.
+BUILD_TIMEOUT="${BUILD_TIMEOUT:-${GATE_TIMEOUT:-40m}}"
 GATE_TIMEOUT="${GATE_TIMEOUT:-20m}"
 
 # Whether an exit code means "the deadline killed it" rather than "it failed".
@@ -33,14 +38,23 @@ wedged_rc() {
 # Keep the literal gate inventory below authoritative for both local runs and CI.
 phase() { current_phase=$1; }
 
-gate() {
+# A failed gate does not stop the sequence: every later gate still runs, so
+# one run reports every failure, and the sequence exits with the first. A gate
+# that needed a failed build fails fast on the same compile error. A build
+# that ran out of time ends the phase, because every later gate in it needs
+# that build.
+first_failure=0
+
+gate() { run_gate "$GATE_TIMEOUT" continue "$@"; }
+build() { run_gate "$BUILD_TIMEOUT" stop "$@"; }
+
+run_gate() {
+  local timeout=$1 on_deadline=$2
+  shift 2
   if [ "${selected_phase:-all}" != all ] && [ "$selected_phase" != "${current_phase:-}" ]; then
     return 0
   fi
-  local rc=0 timeout=$GATE_TIMEOUT
-  if [ "${1:-}" = zig ] && [ "${2:-}" = build ] && [ "${3:-}" = check ]; then
-    timeout=$CHECK_TIMEOUT
-  fi
+  local rc=0
   local -a command=("$@")
   if [ "${1:-}" = zig ] && [ "${2:-}" = build ]; then
     local has_test_timeout=false arg
@@ -69,12 +83,17 @@ gate() {
     if wedged_rc "$rc"; then
       echo "  It exceeded $timeout and was killed." >&2
       echo "  Inspect the named gate's last output and any process still holding its port before retrying." >&2
+      if [ "$on_deadline" = stop ]; then
+        echo "  Every later gate in this phase needs this build, so the phase stops here." >&2
+        exit "$rc"
+      fi
     elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
       echo "  The command could not be run at all (not found, or not executable)." >&2
     else
       echo "  This is the gate's own failure, not the deadline's. Run it alone to see its output." >&2
     fi
-    exit "$rc"
+    [ "$first_failure" -eq 0 ] && first_failure=$rc
+    return 0
   fi
   printf 'ci/gates.sh: passed (%ss): %s\n' "$((SECONDS - began))" "${command[*]}" >&2
 }
@@ -126,7 +145,7 @@ gate bash tools/run-with-timeout-test.sh
 
 gate zig build infrastructure-check
 phase core
-gate zig build check
+build zig build check
 gate zig build test-memcheck
 gate zig build runtime-check
 # The optional Mbed TLS relay composition is deliberately absent from the
@@ -137,9 +156,9 @@ gate zig build relay-tls-build
 phase shipped
 # Bound optimizer memory without dropping a test layer. The workflow contract
 # checks this partition against the Layer enum in test/all_test.zig.
-gate zig build test -Doptimize=ReleaseSafe -Dtest-layer=loam,root,foundation,codec,model
-gate zig build test -Doptimize=ReleaseSafe -Dtest-layer=engine,session,actors,c_abi
-gate zig build test -Doptimize=ReleaseSafe -Dtest-layer=driver,net
+build zig build test -Doptimize=ReleaseSafe -Dtest-layer=loam,root,foundation,codec,model
+build zig build test -Doptimize=ReleaseSafe -Dtest-layer=engine,session,actors,c_abi
+build zig build test -Doptimize=ReleaseSafe -Dtest-layer=driver,net
 phase smoke
 # Representative browser and outside-authority proofs run on every change.
 gate zig build wasm-driver-test
@@ -198,6 +217,9 @@ gate zig build bindings-iroh-handoff
 gate zig build bindings-iroh-redeem-posture
 gate zig build racket-test
 phase browser
+# The Rooms browser application and the Loam browser consumer are cargo and
+# Wasm builds every proof below shares.
+build zig build loam-browser-build rooms-web-build
 # Shared storage changes must preserve the Rust/Wasm consumer's IndexedDB
 # transactions, cold restoration and capability custody in a real browser.
 gate zig build loam-browser-test
@@ -206,6 +228,8 @@ gate zig build rooms-rust-browser-test
 # release evidence rather than an opt-in demo.
 gate zig build rooms-web-proofs
 phase interop
+# The C ABI archives and the Rooms services every live proof below dials.
+build zig build build rooms-archive-build
 # The smallest outside-authority Rooms proof: a real Goblins vat and a Rooms
 # glowcap member exchange room traffic while the server records the Goblins
 # session on syrup/v1_0 and the glowcap session on capnp/next. This needs no
@@ -271,6 +295,8 @@ gate zig build ocapn-findings-check
 gate zig build ocapn-conformance-next
 gate zig build goblins-glowcap-pair-gift
 phase transports
+# The C ABI archives and the iroh transport every proof below links.
+build zig build build iroh-lib iroh-abi
 gate zig build iroh-interop
 # The provider seam (ADR-0024) in every FFI runtime: the C driver, the
 # Python binding, and the Rust binding each install an iroh provider package
@@ -296,3 +322,6 @@ gate zig build bindings-wss-relay
 # above already pays the cargo-iroh build, so the marginal cost is the wasm
 # build and the deno-driven runs (needs deno + uv + cargo).
 gate zig build bindings-relay-iroh
+
+# Every gate ran. Report the first failure, if any.
+exit "$first_failure"

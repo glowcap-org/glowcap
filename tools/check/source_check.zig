@@ -382,6 +382,7 @@ test {
     _ = @import("toolchain_check.zig");
     // Pull the check modules' unit tests into the source-check test artifact.
     _ = bans;
+    _ = fuzz;
     _ = binding_runtime_proof;
     _ = bs_ffi_surface;
     _ = c_abi_wiring;

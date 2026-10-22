@@ -5,8 +5,9 @@ Uses the public CLI from a foreign cwd. Docker is a recording fixture here;
 the release workflow separately runs the actual image on both Linux targets.
 Damaged inventories, unrelated executables, and failed builds must fail
 without activating or destroying another product.
-The build gives installation, deployment, and the exhausted query budget
-separate process limits. Individual product commands also retain their deadlines.
+The build gives installation, each deployment scenario, and the exhausted
+query budget separate process limits, so one scenario's growth never spends
+another's deadline. Individual product commands also retain their deadlines.
 """
 import hashlib
 import json
@@ -191,14 +192,30 @@ if a[:1] == ['compose'] and '--project-directory' in a:
     return fakebin
 
 
-def deployment(binary, root, scratch):
-    fakebin = docker_fixture(scratch)
-    log = scratch / "docker.log"
-    env = dict(PATH=f"{fakebin}:/usr/bin:/bin", HOME=str(scratch), DOCKER_LOG=str(log))
-    workspace = scratch / "deployment config"
-    def call(*args, **kwargs):
-        return run(binary, "apps", "rooms", "deployment", *args,
-                   "--dir", workspace, env=env, **kwargs)
+class Deployment:
+    """One scenario's Docker fixture, environment, and deployment workspace."""
+
+    def __init__(self, binary, scratch):
+        self.binary = binary
+        self.scratch = scratch
+        self.log = scratch / "docker.log"
+        self.env = dict(PATH=f"{docker_fixture(scratch)}:/usr/bin:/bin", HOME=str(scratch),
+                        DOCKER_LOG=str(self.log))
+        self.workspace = scratch / "deployment config"
+
+    def call(self, *args, **kwargs):
+        return run(self.binary, "apps", "rooms", "deployment", *args,
+                   "--dir", self.workspace, env=self.env, **kwargs)
+
+    def select(self, revision):
+        """Select the fixture image as if a product at `revision` built it."""
+        self.call("up", "--image", "example/rooms:test")
+        Path(f"{self.log}.label").write_text(revision)
+        return revision
+
+
+def lifecycle(deploy, root):
+    log, env, workspace, call = deploy.log, deploy.env, deploy.workspace, deploy.call
     call("doctor")
     assert not workspace.exists(), "doctor created state"
     before_up = log.read_text()
@@ -266,6 +283,11 @@ def deployment(binary, root, scratch):
     else:
         assert log.read_text() == before_calls
     del env["FAIL_BUILD"]
+
+
+def builds(deploy, scratch):
+    log, env, workspace, call = deploy.log, deploy.env, deploy.workspace, deploy.call
+    call("up", "--image", "example/rooms:test")
     fixture = scratch / "source fixture"
     metadata = fixture / "share/glowcap/release.json"
     value = json.loads(metadata.read_text())
@@ -287,13 +309,18 @@ def deployment(binary, root, scratch):
     build_call = next(json.loads(line) for line in reversed(log.read_text().splitlines()) if json.loads(line)[0] == "build")
     assert build_call[build_call.index("--label") + 1] == f"org.opencontainers.image.revision={revision}", build_call
     assert f"Built and selected image sha256:{'a' * 12} from {fixture} at revision {revision}" in built.stderr, built.stderr
-    checkout_deployment(binary, fixture, scratch, env, run)
+    checkout_deployment(deploy.binary, fixture, scratch, env, run)
     before_calls = log.read_text()
     (fixture / "README.md").write_text("changed beneath the recorded inventory")
     call("up", "--build", fixture, ok=False)
     new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
     assert not any(a[0] == "build" for a in new_calls)
     assert not list(workspace.glob(".image-build-*"))
+
+
+def reset(deploy):
+    log, env, workspace, call = deploy.log, deploy.env, deploy.workspace, deploy.call
+    revision = deploy.select("fixture-revision")
     before_calls = log.read_text()
     call("status")
     call("down")
@@ -329,7 +356,6 @@ def deployment(binary, root, scratch):
     assert not any("up" in a for a in new_calls), "partial reset silently restarted"
     del env["FAIL_VOLUME"]
     selected_volumes(call, env, log)
-    print("glowcap-host-test: verified install, atomic selection, refusal and Docker command lifecycle passed")
 
 
 def child_output(binary, scratch):
@@ -450,32 +476,43 @@ def interruption(binary, scratch):
 
 
 def main():
-    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] not in ("--installation", "--deployment", "--deadline")):
-        raise SystemExit("usage: glowcap_host.py PRODUCT [--installation|--deployment|--deadline]")
+    modes = ("--installation", "--deployment", "--deployment-builds", "--deployment-reset", "--deadline")
+    if len(sys.argv) != 3 or sys.argv[2] not in modes:
+        raise SystemExit(f"usage: glowcap_host.py PRODUCT {'|'.join(modes)}")
     root = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="glowcap-host-") as temporary:
         scratch = Path(temporary)
         os.chdir(scratch)
-        mode = sys.argv[2] if len(sys.argv) == 3 else None
+        mode = sys.argv[2]
         if mode == "--deadline":
             docker_fixture(scratch)
             deadline(root / "bin/glowcap", scratch)
             print("glowcap-host-test: timed-out Docker child diagnostics and retirement passed")
             return
-        if mode != "--deployment":
-            binary = installation(root, scratch)
-            if mode == "--installation":
-                print("glowcap-host-test: verified installation, atomic selection and damaged-inventory refusal passed")
-                return
-        else:
+        if mode == "--installation":
+            installation(root, scratch)
+            print("glowcap-host-test: verified installation, atomic selection and damaged-inventory refusal passed")
+            return
+        source_fixture(root, scratch, root / "share/glowcap/installation.manifest")
+        if mode == "--deployment":
+            # The lifecycle runs the installed product. The build and reset
+            # scenarios exercise the same commands from the build output.
             prefix = scratch / "installed product"
             run(root / "bin/glowcap", "install", "--prefix", prefix, env=dict(PATH="", HOME=str(scratch)))
             binary = prefix / "bin/glowcap"
-            source_fixture(root, scratch, root / "share/glowcap/installation.manifest")
-        deployment(binary, root, scratch)
-        reset_prompt(binary, scratch)
-        child_output(binary, scratch)
-        interruption(binary, scratch)
+            lifecycle(Deployment(binary, scratch), root)
+            child_output(binary, scratch)
+            print("glowcap-host-test: installed Docker command lifecycle and live output passed")
+        elif mode == "--deployment-builds":
+            deploy = Deployment(root / "bin/glowcap", scratch)
+            builds(deploy, scratch)
+            interruption(deploy.binary, scratch)
+            print("glowcap-host-test: image builds, checkout deployment, inventory refusal and interruption passed")
+        else:
+            deploy = Deployment(root / "bin/glowcap", scratch)
+            reset(deploy)
+            reset_prompt(deploy.binary, scratch)
+            print("glowcap-host-test: status, down, reset and volume selection passed")
 
 
 if __name__ == "__main__":

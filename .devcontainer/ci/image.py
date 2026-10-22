@@ -114,13 +114,27 @@ def consumer_config(config, compose, image, compose_path):
     service = compose['services'][config['service']]
     service['image'] = image
     # Keep Compose's declared environment intact. The checkout verifier rejects
-    # per-command overrides, so mount the download store at its declared path.
-    package_cache = str(Path.home() / '.cache/glowcap/ci/zig-pkg')
-    service.setdefault('volumes', []).append({
-        'type': 'bind', 'source': package_cache,
-        'target': service['environment']['ZIG_LOCAL_PKG_DIR'],
-    })
+    # per-command overrides, so mount each runner-cached store at its declared
+    # path: the package downloads, Zig's compile objects, and Cargo's
+    # intermediate build state.
+    work = service['environment']['ZIG_LOCAL_CACHE_DIR'].rsplit('/', 1)[0]
+    for name, target in ci_stores(work, service['environment']).items():
+        service.setdefault('volumes', []).append({
+            'type': 'bind', 'source': str(CI_CACHE / name), 'target': target,
+        })
     return config, compose
+
+
+# Runner-side stores the checks workflow restores between runs.
+CI_CACHE = Path.home() / '.cache/glowcap/ci'
+
+
+def ci_stores(work, environment):
+    return {
+        'zig-pkg': environment['ZIG_LOCAL_PKG_DIR'],
+        'zig-local': environment['ZIG_LOCAL_CACHE_DIR'],
+        'cargo-build': work + '/cargo',
+    }
 
 
 def start(image):
@@ -142,7 +156,8 @@ def start(image):
     config = json.loads(run('devcontainer', 'read-configuration', '--workspace-folder', '.', capture=True))['configuration']
     compose = json.loads(run('docker', 'compose', '-f', '.devcontainer/docker-compose.yml',
                              'config', '--format', 'json', capture=True))
-    (Path.home() / '.cache/glowcap/ci/zig-pkg').mkdir(parents=True, exist_ok=True)
+    for name in ('zig-pkg', 'zig-local', 'cargo-build'):
+        (CI_CACHE / name).mkdir(parents=True, exist_ok=True)
     directory = ROOT / '.devcontainer/.ci'
     directory.mkdir(exist_ok=True)
     config, compose = consumer_config(config, compose, image, directory / 'compose.json')

@@ -124,19 +124,23 @@ pub fn chain(
 /// primary cause name that is a `DialError` member is that classification, so
 /// a refused connect the provider named stays permanent under ADR-0030
 /// `isTransient` even though it rides the I/O status code. Without such a
-/// name the status code decides, and an I/O fault is `ConnectionLost`.
-pub fn dialError(code: i32, cause_name: ?[]const u8) net.netlayer.DialError {
-    if (cause_name) |named| {
+/// name the status code decides. An I/O fault is `ConnectionLost`, unless its
+/// secure handshake failed certificate verification: no retry changes the
+/// certificate or the trust it was checked against, so that one is refused.
+fn dialError(code: i32, failure: driver.OperationFailure) net.netlayer.DialError {
+    if (failure.chain.cause_name) |named| {
         inline for (@typeInfo(net.netlayer.DialError).error_set.error_names.?) |member| {
             if (std.mem.eql(u8, member, named)) return @field(net.netlayer.DialError, member);
         }
     }
+    const verification_refused = failure.carrier_phase == .secure_handshake and
+        failure.carrier_detail.verification_flags != 0;
     return switch (code) {
         shared.GLOWCAP_ERR_INVALID_ARGUMENT => error.InvalidAddress,
         shared.GLOWCAP_ERR_TIMEOUT => error.TimedOut,
         shared.GLOWCAP_ERR_WOULD_BLOCK => error.WouldBlock,
         shared.GLOWCAP_ERR_INTERNAL => error.OutOfMemory,
-        else => error.ConnectionLost,
+        else => if (verification_refused) error.ConnectionRefused else error.ConnectionLost,
     };
 }
 
@@ -146,7 +150,7 @@ pub fn dial(
 ) error{InvalidProviderFailure}!net.netlayer.DialFailure {
     const failure = try operation(code, report);
     return .{
-        .classification = dialError(code, name(report.primary_name, report.primary_name_len)),
+        .classification = dialError(code, failure),
         .chain = failure.chain,
         .carrier_phase = failure.carrier_phase,
         .carrier_detail = failure.carrier_detail,

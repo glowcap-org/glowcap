@@ -482,13 +482,18 @@ pub const SealedChannel = struct {
     /// Retain an unread borrowed suffix across an upper-layer pause. This is a
     /// deliberate ownership transfer for byte-fed hosts. Completion adapters
     /// retain the transport's receive-buffer borrow instead. Normal split-unit
-    /// ingestion does not call this method.
+    /// ingestion does not call this method. A suffix it cannot keep is lost,
+    /// and the next record can never open after it, so either refusal fails
+    /// the channel.
     pub fn park(self: *SealedChannel, gpa: std.mem.Allocator, bytes: []const u8) !void {
         if (bytes.len > std.math.maxInt(usize) - self.staged.len) {
             self.fail();
             return SealedError.InboundOverflow;
         }
-        try self.staged.absorbBytesPrecise(gpa, bytes);
+        self.staged.absorbBytesPrecise(gpa, bytes) catch |err| {
+            self.fail();
+            return err;
+        };
     }
 
     fn completeHandshake(self: *SealedChannel) !Event {

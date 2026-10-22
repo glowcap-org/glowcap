@@ -4,7 +4,7 @@
 //!
 //! First, `zig build <step> --fuzz=<n>` exits 0 even when the fuzzer crashes a
 //! test. It prints the failure, writes the offending input to
-//! `.zig-cache/f/crash`, and then reports success. Wrapping that command
+//! `f/crash` in the local cache, and then reports success. Wrapping that command
 //! directly would mean a build that goes green on a real bug, so this makes its
 //! own decision instead of trusting the exit code.
 //!
@@ -38,6 +38,11 @@ const std = @import("std");
 /// Where the fuzzer leaves the input that crashed a test, relative to the
 /// effective local cache (see `localCacheDir`).
 const crash_artifact = "f/crash";
+
+/// Where a finding is kept for whoever reads the report, including a CI run
+/// that uploads it: outside the build cache, which a clean or a restored CI
+/// cache replaces. A search never repeats, so this input is the only replay.
+const finding_path = "zig-out/fuzz-finding.bin";
 /// Where the fuzzer keeps its coverage counters, one file per distinct binary,
 /// relative to the effective local cache. The run counts in them are how we
 /// know a run really searched.
@@ -137,7 +142,8 @@ pub fn main(init: std.process.Init) !void {
         }
 
         if (fileExists(io, cache_dir, crash_artifact)) {
-            reportFinding(target);
+            const cached = try std.fs.path.join(arena, &.{ localCacheDir(init), crash_artifact });
+            reportFinding(target, keepFinding(io, cwd, cache_dir) orelse cached);
             std.process.exit(1);
         }
 
@@ -306,7 +312,15 @@ fn readRunCount(io: std.Io, dir: std.Io.Dir, name: []const u8) ?u64 {
     return header.n_runs;
 }
 
-fn reportFinding(target: Target) void {
+/// Copy the crash input to `finding_path`. A copy that fails leaves the input
+/// in the cache, and the report names that path instead.
+fn keepFinding(io: std.Io, cwd: std.Io.Dir, cache_dir: std.Io.Dir) ?[]const u8 {
+    cwd.createDirPath(io, std.fs.path.dirname(finding_path).?) catch return null;
+    std.Io.Dir.copyFile(cache_dir, crash_artifact, cwd, finding_path, io, .{}) catch return null;
+    return finding_path;
+}
+
+fn reportFinding(target: Target, input: []const u8) void {
     const dir = std.fs.path.dirname(target.file) orelse "test";
     std.debug.print(
         \\
@@ -317,7 +331,7 @@ fn reportFinding(target: Target) void {
         \\
         \\Details are in the output above; the input itself was written to
         \\
-        \\    .zig-cache/f/crash
+        \\    {s}
         \\
         \\Before treating it as a bug, check the output above for the words
         \\"in use by another fuzzer". Two sweeps at once, or one left behind by
@@ -325,13 +339,12 @@ fn reportFinding(target: Target) void {
         \\test never failed. Sweep for stray `fuzz-tests` processes and run
         \\this alone.
         \\
-        \\Otherwise it is real. The file lives in the build cache and will not
-        \\survive a clean, so turn it into a permanent test before you do
-        \\anything else:
+        \\Otherwise it is real. Fuzzing never repeats a search, so turn the
+        \\input into a permanent test before you do anything else:
         \\
         \\  1. Copy it, naming it for what broke:
         \\
-        \\       cp .zig-cache/f/crash {s}/fuzz_regressions/<name>.bin
+        \\       cp {s} {s}/fuzz_regressions/<name>.bin
         \\
         \\  2. Add one line to the regression seed list in that target's file.
         \\
@@ -342,5 +355,5 @@ fn reportFinding(target: Target) void {
         \\Fuzzing is not repeatable; the saved input is. That replay is what
         \\proves the fix, and what stops the bug coming back.
         \\
-    , .{ target.name, target.file, dir });
+    , .{ target.name, target.file, input, input, dir });
 }

@@ -103,12 +103,21 @@ spawnWeb({
 // this raises.
 // The timeout names the phase it interrupted and how long each finished phase
 // took, so one failed run says where it stopped instead of only that it did.
+// A healthy local run takes about 220s, most of it the page's own reconnect and
+// observation timers. The deadline leaves a runner twice as slow room to
+// finish, and the step's wrapper deadline sits just above it.
+const scenarioSeconds = 450;
 const seconds = (since: number) => ((performance.now() - since) / 1000).toFixed(1);
 const finished: string[] = [];
 let running = "startup";
 const deadline = setTimeout(
-	() => fail(`web-page scenario timed out after 300s in ${running}; finished: ${finished.join(", ") || "none"}`),
-	300_000,
+	() =>
+		fail(
+			`web-page scenario timed out after ${scenarioSeconds}s in ${running}; finished: ${
+				finished.join(", ") || "none"
+			}`,
+		),
+	scenarioSeconds * 1000,
 );
 async function phase<T>(name: string, work: () => Promise<T>): Promise<T> {
 	running = name;

@@ -12,7 +12,9 @@ import re
 import subprocess
 
 
-LANES = ("core", "bindings", "browser", "interop")
+# A lane is one hosted runner paying its own cold build. Each holds the phases
+# that fit its runner deadline, with headroom, at hosted-runner speed.
+LANES = ("core", "shipped", "bindings", "browser", "interop", "transports")
 
 
 def select(event_name, ref, event, paths):
@@ -22,7 +24,7 @@ def select(event_name, ref, event, paths):
             or event.get("pull_request", {}).get("base", {}).get("ref") == "main"
             or paths is None):
         return list(LANES), True
-    lanes = {"core"}
+    lanes = {"core", "shipped"}
     for path in paths:
         if path.endswith((".md", ".smd")):
             continue
@@ -31,9 +33,9 @@ def select(event_name, ref, event, paths):
         if path.startswith(("src/loam/", "test/loam/")):
             lanes.add("browser")
         elif path.startswith(("bindings/python/", "bindings/racket/")):
-            lanes.update(("bindings", "interop"))
+            lanes.update(("bindings", "interop", "transports"))
         elif path.startswith("conformance/"):
-            lanes.add("interop")
+            lanes.update(("interop", "transports"))
         elif path.startswith(("src/", "test/", "apps/", "bindings/")):
             lanes.update(LANES)
         else:

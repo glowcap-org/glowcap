@@ -352,11 +352,11 @@ pub const StreamProvider = struct {
         report: shared.GlowcapProviderFailure,
         comptime what: []const u8,
     ) anyerror {
-        const chain = owner_mod.failureChainFromProvider(code, report) catch {
+        const failure = owner_mod.dialFailureFromProvider(code, report) catch {
             self.sink.violation(self.sink.ctx, what ++ " returned an invalid structured failure");
             return error.ProviderContract;
         };
-        return owner_mod.dialErrorFromProvider(code, chain.cause_name);
+        return failure.classification;
     }
 
     fn connTakeFailure(ctx: *anyopaque, conn: *anyopaque) ?foundation.FailureChain {

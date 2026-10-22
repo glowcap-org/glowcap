@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -108,9 +109,15 @@ def check_racket() -> None:
     binding = ROOT / "bindings" / "racket"
     with tempfile.TemporaryDirectory(prefix="glowcap-site-racket-") as directory:
         work = Path(directory)
+        # A copy without bytecode: racket-dogfood runs `racket -y` over the
+        # same binding tree and writes its `compiled/` while this check runs,
+        # and a stale `.zo` could hide a broken source. The copy expands every
+        # binding module from source, while Racket's own libraries keep their
+        # installed bytecode.
+        no_bytecode = shutil.ignore_patterns("compiled")
         for module in binding.glob("*.rkt"):
-            (work / module.name).symlink_to(module)
-        (work / "private").symlink_to(binding / "private", target_is_directory=True)
+            shutil.copy2(module, work / module.name)
+        shutil.copytree(binding / "private", work / "private", ignore=no_bytecode)
         generated: list[str] = []
         for source_path in example_files("racket"):
             output = work / f"{source_path.parent.name}-{source_path.stem}.rkt"
@@ -122,13 +129,7 @@ def check_racket() -> None:
     (call-with-input-file path
       (lambda (input) (compile (read-syntax path input))))))
 """
-        # --no-compiled: the racket-dogfood step runs `racket -y` over the same
-        # binding tree and writes its `compiled/` bytecode while this check may
-        # be compiling through the symlinks. Refusing bytecode makes this check
-        # immune to that race and to stale caches; it always expands source.
-        subprocess.run(
-            ["racket", "--no-compiled", "-e", compiler, *generated], cwd=work, check=True
-        )
+        subprocess.run(["racket", "-e", compiler, *generated], cwd=work, check=True)
 
 
 def check_rust() -> None:

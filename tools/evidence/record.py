@@ -160,6 +160,9 @@ def record(gates: list[dict[str, Any]], started: str, outcome: str) -> dict[str,
             "system": platform.system(),
             "release": platform.release(),
             "machine": platform.machine(),
+            # Gate durations mean little without the machine size they ran on.
+            "cpus": len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count(),
+            "memory_bytes": os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"),
         },
         "gates": gates,
     }

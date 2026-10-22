@@ -16,7 +16,6 @@ const Owner = owner_mod.Owner;
 const listenerRestorationOutcome = owner_mod.listenerRestorationOutcome;
 const operationFailureFromProvider = owner_mod.operationFailureFromProvider;
 const failureChainFromProvider = owner_mod.failureChainFromProvider;
-const dialErrorFromProvider = owner_mod.dialErrorFromProvider;
 const dialFailureFromProvider = owner_mod.dialFailureFromProvider;
 const providerFailureIsEmpty = owner_mod.providerFailureIsEmpty;
 const GLOWCAP_OK = shared.GLOWCAP_OK;
@@ -226,17 +225,17 @@ pub const Adapter = struct {
             return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
         }
         if (code != GLOWCAP_OK) {
-            var chain = failureChainFromProvider(code, report) catch blk: {
+            var failure = dialFailureFromProvider(code, report) catch blk: {
                 self.failContract("claim_external returned an invalid structured failure");
-                break :blk foundation.FailureChain.init(error.ProviderContract);
+                break :blk net.netlayer.DialFailure.fromChain(error.InvalidOptions, .init(error.ProviderContract));
             };
             if (conn != 0) {
                 self.failContract("claim_external published an output on failure");
                 if (self.callSubjectTeardown(self.table.conn_close.?, conn, "claim_external rollback")) |cleanup|
-                    chain.noteChain(cleanup);
-                self.owner.runtime.noteTerminalOperationFailure(.fromChain(chain));
+                    failure.chain.noteChain(cleanup);
+                self.owner.runtime.noteTerminalOperationFailure(.fromDialFailure(failure));
             }
-            return .{ .failed = .fromChain(dialErrorFromProvider(code, chain.cause_name), chain) };
+            return .{ .failed = failure };
         }
         const connection = std.math.cast(usize, conn) orelse {
             self.failContract("claim_external returned a connection id outside the host range");

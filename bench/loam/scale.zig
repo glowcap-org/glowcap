@@ -28,7 +28,9 @@ const Profile = struct {
     samples: usize,
 };
 const full: Profile = .{ .populations = .{ 10_000, 1_000_000 }, .samples = 128 };
-const smoke_profile: Profile = .{ .populations = .{ 1_024, 8_192 }, .samples = 16 };
+/// About one leaf page of 256 slots, then eight, so the growth check spans leaf
+/// pages while the Debug smoke stays inside `check`'s per-test deadline.
+const smoke_profile: Profile = .{ .populations = .{ 256, 2_048 }, .samples = 16 };
 /// One transaction retains one change batch, and each appended resource is one
 /// of its effects, so a commit takes at most this many appends.
 const batch = g.loam.access.records.ChangeBatchRecord.max_effects;

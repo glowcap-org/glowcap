@@ -44,6 +44,7 @@ from .close import (
 from .session_coordinator import (
     cancelled_close_waiter_preserves_transport_coordinator as cancelled_close_waiter_preserves_transport_coordinator,
     cancelled_loop_close_waiter_preserves_terminal_chain as cancelled_loop_close_waiter_preserves_terminal_chain,
+    partner_release_keeps_a_freed_handle_from_loop_close as partner_release_keeps_a_freed_handle_from_loop_close,
 )
 
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
@@ -202,7 +203,7 @@ async def _supplied_host_iroh_listener_ownership() -> None:
     """The iroh resident uses the same supplied Host and driver barrier."""
     from glowcap.iroh import IrohConfig, Reachability, listen
 
-    supplied = Host(seed=b"glowcap-supplied-iroh-seed-000000"[:32])
+    supplied = Host()
     server = await listen(IrohConfig(Reachability.LOCAL_DISCOVERY), host=supplied)
     accepted_task = asyncio.create_task(server.__anext__())
     client = None

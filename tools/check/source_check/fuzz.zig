@@ -159,7 +159,7 @@ fn enclosingSeedList(source: []const u8, at: usize) ?[]const u8 {
     while (std.mem.indexOfPos(u8, source, probe, opener)) |hit| {
         probe = hit + opener.len;
         if (hit > at) break;
-        const close = std.mem.indexOfScalarPos(u8, source, probe, '}') orelse continue;
+        const close = matchingBrace(source, probe) orelse continue;
         if (at > close) continue;
         // Back over the identifier that precedes the `=`.
         var start = hit;
@@ -167,6 +167,47 @@ fn enclosingSeedList(source: []const u8, at: usize) ?[]const u8 {
         best = source[start..hit];
     }
     return best;
+}
+
+/// The index of the `}` that closes a brace opened just before `from`. An
+/// entry such as `draws(&.{ 0, 1 })` nests its own braces, and braces inside a
+/// line comment or string literal are text, so neither ends the list.
+fn matchingBrace(source: []const u8, from: usize) ?usize {
+    var depth: usize = 1;
+    var i = from;
+    while (i < source.len) : (i += 1) switch (source[i]) {
+        '{' => depth += 1,
+        '}' => {
+            depth -= 1;
+            if (depth == 0) return i;
+        },
+        '/' => if (i + 1 < source.len and source[i + 1] == '/') {
+            i = std.mem.indexOfScalarPos(u8, source, i, '\n') orelse return null;
+        },
+        '"' => {
+            i += 1;
+            while (i < source.len and source[i] != '"') : (i += 1) {
+                if (source[i] == '\\') i += 1;
+            }
+        },
+        else => {},
+    };
+    return null;
+}
+
+test "a seed list ends at its own closing brace" {
+    const harness =
+        \\const regression_seeds = [_][]const u8{
+        \\    // a comment's } is text
+        \\    seeds.seed("}") ++ draws(&.{ 0, 1 }),
+        \\    @embedFile("fuzz_regressions/after.bin"),
+        \\};
+        \\const other = @embedFile("fuzz_regressions/outside.bin");
+    ;
+    const inside = std.mem.indexOf(u8, harness, "after.bin").?;
+    try std.testing.expectEqualStrings("regression_seeds", enclosingSeedList(harness, inside).?);
+    const outside = std.mem.indexOf(u8, harness, "outside.bin").?;
+    try std.testing.expect(enclosingSeedList(harness, outside) == null);
 }
 
 /// How many distinct seed lists the harness declares.

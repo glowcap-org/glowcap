@@ -119,6 +119,34 @@ test "a refused connect named on the DialError axis fails the dial at once throu
     try std.testing.expectEqualStrings("ConnectionRefused", event.primary_name.?[0..event.primary_name_len]);
 }
 
+test "a provider's refused certificate fails the C driver dial at once" {
+    // Certificate verification rides the I/O status under its own cause name,
+    // which is no `DialError` member. No retry changes a certificate or the
+    // trust it was checked against, so the open fails without parking.
+    const owned_loop = try newLoop(0x5a);
+    defer owned_loop.deinit();
+    var resident = residents.InvalidMultiplexedResident{
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
+        .connect_io = true,
+        .finish_connect_untrusted = true,
+    };
+    defer resident.wake.deinit();
+    var table = resident.table();
+    try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "untrusted-connect"));
+    var ticket: u64 = 0;
+    try expectOk(try dialParts(owned_loop.raw, "untrusted-connect", "peer", "", &ticket));
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    var steps: usize = 0;
+    while (steps < 8) : (steps += 1) {
+        try expectStep(cdrv.glowcap_driver_step(owned_loop.raw, 10));
+        if (cdrv.glowcap_driver_next_event(owned_loop.raw, &event) == c.GLOWCAP_OK) break;
+    } else return error.UntrustedDialNeverFailed;
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, event.kind);
+    try std.testing.expectEqual(ticket, event.operation_id);
+    try std.testing.expectEqual(cdrv.GLOWCAP_CARRIER_PHASE_SECURE_HANDSHAKE, event.carrier_phase);
+    try std.testing.expectEqualStrings("CertificateUntrusted", event.primary_name.?[0..event.primary_name_len]);
+}
+
 test "a refused tcp connect fails the C driver dial at once" {
     // The tcp archive is a stream provider, so its refusal crosses the
     // completion loop as one scalar error. Twenty short steps stay far

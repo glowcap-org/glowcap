@@ -75,7 +75,7 @@ smoke run uses two lists of eight tasks.
 and then 1 million resources under one owner and measures a cold hosted read of
 a few of them. The unfiltered full run leaves it out because the 1 million
 population takes minutes to build. The unfiltered `--smoke` run, which `check`
-runs, and `--smoke --scale-only` use 1,024 and 8,192 resources and 16 samples
+runs, and `--smoke --scale-only` use 256 and 2,048 resources and 16 samples
 and keep every check below.
 
 [`scale.zig`](scale.zig) reuses the managed Store, Host and trusted setup. One

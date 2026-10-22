@@ -149,6 +149,7 @@ pub fn checkCommunityReviewCiMatrix(
     // would be two definitions of "runs in CI".
     var running: std.ArrayList([]const u8) = .empty;
     try collectBuildSteps(arena, ci, "\ngate zig build ", &running);
+    try collectBuildSteps(arena, ci, "\nbuild zig build ", &running);
 
     const header = "| Evidence | CI | Proves | Does not prove |";
     const hit = std.mem.indexOf(u8, doc, header) orelse {

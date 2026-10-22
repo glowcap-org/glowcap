@@ -87,12 +87,12 @@ relay = ["async"]
 
 [dependencies]
 # dep tokio: The async I/O behind the binding's `async` feature.
-tokio = { version = "1", default-features = false, features = ["rt", "io-util", "macros", "sync"], optional = true }
+tokio = { version = "1.54", default-features = false, features = ["rt", "io-util", "macros", "sync"], optional = true }
 # dep getrandom: Entropy for durable names, from the browser in the WebAssembly build.
 getrandom = { version = "0.4", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1", default-features = false, features = ["net", "time"], optional = true }
+tokio = { version = "1.54", default-features = false, features = ["net", "time"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"], optional = true }
@@ -121,7 +121,7 @@ serde_json = "1"
 # the lib's tokio, so examples and tests get it while the shipped library
 # stops carrying it.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio = { version = "1", default-features = false, features = ["process"] }
+tokio = { version = "1.54", default-features = false, features = ["process"] }
 # dep serde_json: The live WebRTC tests read the Zig peers' JSON signaling lines.
 serde_json = "1"
 

@@ -17,7 +17,6 @@ const GLOWCAP_OK = shared.GLOWCAP_OK;
 
 pub const operationFailureFromProvider = provider_failure.operation;
 pub const failureChainFromProvider = provider_failure.chain;
-pub const dialErrorFromProvider = provider_failure.dialError;
 pub const dialFailureFromProvider = provider_failure.dial;
 pub const providerFailureIsEmpty = provider_failure.isEmpty;
 

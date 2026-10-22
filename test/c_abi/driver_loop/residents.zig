@@ -84,6 +84,9 @@ pub const InvalidMultiplexedResident = struct {
     /// Fail every `finishConnect` with the I/O status and the `DialError`
     /// member name `ConnectionRefused`, the way the tcp provider reports one.
     finish_connect_refused: bool = false,
+    /// Fail every `finishConnect` with the I/O status and a secure handshake
+    /// whose certificate the trust store refused, the way a TLS carrier does.
+    finish_connect_untrusted: bool = false,
     conn_close_failure: bool = false,
     conn_close_calls: usize = 0,
     cancel_connect_failure: bool = false,
@@ -193,6 +196,12 @@ pub const InvalidMultiplexedResident = struct {
         self.pending_request = null;
         if (self.finish_connect_refused)
             return providerFailure(out_failure, c.GLOWCAP_ERR_IO, "ConnectionRefused");
+        if (self.finish_connect_untrusted) {
+            const code = providerFailure(out_failure, c.GLOWCAP_ERR_IO, "CertificateUntrusted");
+            out_failure.?.carrier_phase = cshared.transport_provider.GLOWCAP_CARRIER_PHASE_SECURE_HANDSHAKE;
+            out_failure.?.carrier_verification_flags = 0x08;
+            return code;
+        }
         if (self.finish_connect_failure_output) {
             out_conn.?.* = 7;
             return providerFailure(out_failure, c.GLOWCAP_ERR_IO, "ContradictoryConnectRefusal");

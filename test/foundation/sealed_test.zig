@@ -209,3 +209,36 @@ test "a transport symbol past the prologue bound is refused before any key work"
     var at_bound = try sealed.SealedChannel.initResponder(&identity, @splat(9), long_symbol[1..]);
     at_bound.deinit(std.testing.allocator);
 }
+
+test "a suffix park cannot keep fails the channel" {
+    const gpa = std.testing.allocator;
+
+    const initiator_identity = crypto.SecretKey.fromSeed(@splat(9));
+    const responder_identity = crypto.SecretKey.fromSeed(@splat(10));
+
+    var initiator = try sealed.SealedChannel.initInitiator(
+        &initiator_identity,
+        responder_identity.publicKey(),
+        @splat(11),
+        transport,
+    );
+    defer initiator.deinit(gpa);
+    var responder = try sealed.SealedChannel.initResponder(
+        &responder_identity,
+        @splat(12),
+        transport,
+    );
+    defer responder.deinit(gpa);
+    try openPair(&initiator, &responder);
+
+    var wire: std.ArrayList(u8) = .empty;
+    defer wire.deinit(gpa);
+    try initiator.sealBytes(gpa, &wire, "lost record");
+
+    // The caller's buffer expires after a refused park, so the record is
+    // gone and no later one can open behind it.
+    var failing = std.testing.FailingAllocator.init(gpa, .{ .fail_index = 0 });
+    try std.testing.expectError(error.OutOfMemory, responder.park(failing.allocator(), wire.items));
+    try std.testing.expect(!responder.isOpen());
+    try std.testing.expect(!responder.hasStagedInbound());
+}

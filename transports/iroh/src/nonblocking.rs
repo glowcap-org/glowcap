@@ -67,6 +67,11 @@ pub(crate) struct Outbound {
 	/// Set by `conn_close` / `conn_free`: the writer finishes the send stream
 	/// and exits once the buffer drains.
 	pub(crate) closed: bool,
+	/// Set when the partner stopped this stream or closed the connection before
+	/// the application closed it. The partner takes no more bytes, so the buffer
+	/// stays full, and the reader reports the departure once it has delivered
+	/// the partner's last bytes.
+	pub(crate) partner_stopped: bool,
 }
 
 impl Outbound {
@@ -103,6 +108,9 @@ impl Outbound {
 }
 
 pub(crate) fn enqueue_outbound(out: &mut Outbound, src: &[u8]) -> isize {
+	if out.partner_stopped {
+		return WOULD_BLOCK;
+	}
 	if out.closed {
 		return -1;
 	}
@@ -220,16 +228,25 @@ async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) -> Result<(), ()> {
 						ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed
 					)))
 			);
-			let closed_before_completion = nb.outbound.lock().unwrap().finish_batch(chunk, succeeded);
+			let (closed_before_completion, partner_stopped) = {
+				let mut out = nb.outbound.lock().unwrap();
+				let closed_before_completion = out.finish_batch(chunk, succeeded);
+				out.partner_stopped = clean_close && !closed_before_completion;
+				(closed_before_completion, out.partner_stopped)
+			};
 			if !succeeded {
+				// The partner's close, or its stop of this stream (its reader
+				// abort at connection release), can reach this writer before the
+				// reader has delivered the partner's last bytes. That departure
+				// is no fault: `EV_CLOSED` alone would tell the loop the
+				// connection was lost, and the bytes still in flight are often
+				// the partner's own abort. The reader reports it, in order.
+				if partner_stopped {
+					return Ok(());
+				}
 				nb.readiness.signal(nb.id, EV_CLOSED);
-				// Match the reader's connection-close classification. The writer
-				// can observe the peer's close, or its stop of this stream (its
-				// reader abort at connection release), before the application
-				// observes EV_CLOSED and closes its handle. That scheduling order
-				// must not turn a normal departure into a later endpoint release
-				// failure. Other live-write failures still fail the drain barrier;
-				// a local close retains its bounded best-effort farewell behavior.
+				// Other live-write failures still fail the drain barrier; a
+				// local close retains its bounded best-effort farewell behavior.
 				return if clean_close || closed_before_completion {
 					Ok(())
 				} else {

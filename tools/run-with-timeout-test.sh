@@ -61,6 +61,34 @@ else
 fi
 expect_code 3 "heartbeat preserves child failure" python3 "$RWT" --heartbeat 0.01s 5s sh -c 'sleep 0.05; exit 3'
 
+# A deadline retry reruns only a stopped attempt, says so, and still warns on
+# the pass. The child stalls on its first run and passes on its second.
+retry_marker="$scratch/retry-marker"
+retry_output="$scratch/retry"
+retry_rc=0
+python3 "$RWT" --deadline-retries 1 --kill-after 0.2s 1s sh -c 'if [ -e "$1" ]; then exit 0; fi; : >"$1"; sleep 30' sh "$retry_marker" >"$retry_output" 2>&1 || retry_rc=$?
+if [ "$retry_rc" -eq 0 ] && grep -q 'attempt 1 of 2, retrying' "$retry_output" && grep -q 'passed only after 1 deadline retry' "$retry_output"; then
+	ok "a deadline retry reruns the stalled attempt and reports the miss"
+else
+	bad "deadline retry lost its pass or its report (got $retry_rc)"
+fi
+expect_code 124 "deadline retries run out" python3 "$RWT" --deadline-retries 1 --kill-after 0.2s 0.3s sh -c 'sleep 30'
+retry_count="$scratch/retry-count"
+expect_code 3 "an ordinary failure is never retried" python3 "$RWT" --deadline-retries 2 5s sh -c 'echo run >>"$1"; exit 3' sh "$retry_count"
+if [ "$(wc -l <"$retry_count" | tr -d ' ')" -eq 1 ]; then
+	ok "an ordinary failure ran once"
+else
+	bad "an ordinary failure ran $(wc -l <"$retry_count" | tr -d ' ') times"
+fi
+expect_code 2 "deadline retries are bounded" python3 "$RWT" --deadline-retries 3 5s true
+headroom_said=$(python3 "$RWT" --quiet-success 0.4s sh -c 'sleep 0.3' 2>&1)
+case "$headroom_said" in
+*"of its 0.4s deadline"*) ok "a pass over half its deadline warns" ;;
+*) bad "a pass over half its deadline was silent (got: $headroom_said)" ;;
+esac
+roomy_said=$(python3 "$RWT" --quiet-success 5s true 2>&1)
+if [ -z "$roomy_said" ]; then ok "a pass with headroom stays quiet"; else bad "a roomy pass warned: $roomy_said"; fi
+
 quiet_output=$(python3 "$RWT" --quiet-success 5s sh -c 'echo hidden-out; echo hidden-error >&2' 2>&1)
 if [ -z "$quiet_output" ]; then
 	ok "quiet success suppresses child output"
@@ -207,18 +235,31 @@ if [ "$(grep -c -- '--test-timeout' "$fake_args")" -eq 1 ] && grep -qx 7s "$fake
 else
 	bad "ci duplicated or replaced the explicit per-test timeout"
 fi
-# Only the cold aggregate build gets its longer budget; ordinary gates keep
-# theirs. Both still receive the same per-test deadline above.
-GLOWCAP_TEST_ZIG_ARGS="$fake_args" GLOWCAP_TEST_DELAY=0.2 PATH="$fake_bin:$PATH" GATE_TIMEOUT=0.1s CHECK_TIMEOUT=2s gate zig build check
-ok "ci gives the cold check its separate build allowance"
-ordinary_rc=0
-(GLOWCAP_TEST_ZIG_ARGS="$fake_args" GLOWCAP_TEST_DELAY=0.2 PATH="$fake_bin:$PATH" GATE_TIMEOUT=0.1s CHECK_TIMEOUT=2s gate zig build test) >/dev/null 2>&1 || ordinary_rc=$?
-if [ "$ordinary_rc" -eq 124 ]; then
+# A `build` line gets the cold-build allowance; an ordinary gate keeps its
+# own. Both still receive the same per-test deadline above.
+GLOWCAP_TEST_ZIG_ARGS="$fake_args" GLOWCAP_TEST_DELAY=0.2 PATH="$fake_bin:$PATH" GATE_TIMEOUT=0.1s BUILD_TIMEOUT=2s build zig build check
+ok "ci gives a build line its build allowance"
+ordinary_said=$(GLOWCAP_TEST_ZIG_ARGS="$fake_args" GLOWCAP_TEST_DELAY=0.2 PATH="$fake_bin:$PATH" GATE_TIMEOUT=0.1s BUILD_TIMEOUT=2s gate zig build test 2>/dev/null; echo "first=$first_failure")
+if [ "$ordinary_said" = "first=124" ]; then
 	ok "ci retains the ordinary gate deadline"
 else
-	bad "ci widened the ordinary gate deadline (got $ordinary_rc)"
+	bad "ci widened the ordinary gate deadline (got $ordinary_said)"
 fi
-if [ "$(wc -l < "$EVIDENCE_ROWS" | tr -d ' ')" -eq 4 ]; then
+# A failed gate or build lets the sequence go on and keeps the first failure.
+continued=$( (GATE_TIMEOUT=5s gate sh -c 'exit 3'; BUILD_TIMEOUT=5s build sh -c 'exit 5'; echo "reached first=$first_failure") 2>/dev/null)
+if [ "$continued" = "reached first=3" ]; then
+	ok "a failed gate continues the sequence and keeps the first failure"
+else
+	bad "a failed gate stopped the sequence or lost its code (got $continued)"
+fi
+# A build that ran out of time stops the run with the deadline's code.
+stopped=$( (BUILD_TIMEOUT=0.2s build sh -c 'sleep 5'; GATE_TIMEOUT=5s gate echo after-the-build) 2>/dev/null; echo "rc=$?")
+if [ "$stopped" = "rc=124" ]; then
+	ok "a build past its deadline stops the run"
+else
+	bad "a timed-out build let the run continue (got $stopped)"
+fi
+if [ "$(wc -l < "$EVIDENCE_ROWS" | tr -d ' ')" -eq 7 ]; then
 	ok "ci records all exercised gates"
 else
 	bad "ci did not record all exercised gates"
