@@ -1,5 +1,9 @@
 // Ephemeral typing has one latest intent and one in-flight call. Selection
 // changes release the original sender only after its last call has drained.
+// A rate-limited flag waits out the room's stated delay and then sends whatever
+// is latest: typing is a level, so the draft still on screen is the gesture.
+// Any other refusal ends typing for that conversation.
+import { roomsErrorInMessage } from "../../../../lib/error_codes.ts";
 import type { RoomsManagedTyping } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ManagedRoomsSession } from "./session.ts";
 
@@ -49,6 +53,12 @@ export class ManagedTyping {
 				}
 				await this.#sender.handle.set(desired.on);
 			} catch (error) {
+				const delay = roomsErrorInMessage(error)?.retryAfterMs ?? null;
+				if (delay != null) {
+					this.#desired ??= desired;
+					await new Promise((resume) => setTimeout(resume, delay));
+					continue;
+				}
 				this.#failed = JSON.stringify([desired.id, desired.selected]);
 				failure ??= error;
 			}

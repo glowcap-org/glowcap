@@ -268,7 +268,20 @@ try {
 		(text) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
 		after,
 		{ timeout: 30_000 },
-	).catch(() => fail("the room did not echo a line sent after the reconnect, so nothing usable came back"));
+	).catch(async () => {
+		const state = await tab.evaluate(() => ({
+			composer: document.getElementById("composerAvailability")?.textContent ?? "",
+			line: (document.getElementById("line") as HTMLInputElement | null)?.value ?? "",
+			toasts: document.getElementById("toasts")?.textContent ?? "",
+			standing: document.getElementById("standingBtn")?.textContent ?? "",
+			log: document.getElementById("log")?.textContent?.slice(-1000) ?? "",
+		}));
+		fail(
+			`the room did not echo a line sent after the reconnect, so nothing usable came back: ${
+				JSON.stringify(state)
+			}`,
+		);
+	});
 
 	// And this reader is still away in it. The room forgot, it granted a
 	// membership to a connection that did not exist a moment ago, so what makes
