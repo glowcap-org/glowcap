@@ -59,7 +59,7 @@ async fn configured_managed_capacity_admits_deep_grants_after_cold_reopen<E: Eng
 					};
 					let host = Host::from_seed([8; 32]).unwrap();
 					let mut attachment = store.attach(&host, vec![registration()]).unwrap();
-					let (root, control) = attachment.restore(resource).unwrap();
+					let (root, control) = attachment.restore(resource).await.unwrap();
 					host.publish("resource", move || {
 						let root = root.clone();
 						Box::new(move |_, _| Ok(Argument::Reference(root.clone())))

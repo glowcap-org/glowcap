@@ -125,9 +125,6 @@ impl Bootstrap {
 			// cannot justify replacing a root; neither can absence after live use.
 			let session = Session::new(host.clone(), platform.clone(), reply_bytes);
 			let mut attachment = store.attach(host, vec![session.registration()])?;
-			#[cfg(not(target_arch = "wasm32"))]
-			let restored = attachment.restore(anchor.resource);
-			#[cfg(target_arch = "wasm32")]
 			let restored = attachment.restore(anchor.resource).await;
 			let absent = match restored {
 				Ok(held) => {

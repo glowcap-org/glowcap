@@ -290,6 +290,7 @@ async fn run_case(case: ResultCase) {
 				};
 				gate.block();
 				platform.deadline_ms.set(Some(100));
+				platform.deadline_after_parking.replace(Some(gate.clone()));
 				mutate(&host, &root, "command", &args).await.unwrap();
 				assert_eq!(finished(&host, &root, "issued", &root).await.as_str(), Some("unknown"));
 				assert!(gate.observed(), "actual lookup bytes reached the parked transport");
@@ -301,6 +302,7 @@ async fn run_case(case: ResultCase) {
 					"an unresolved receipt supplies no result custody"
 				);
 				platform.deadline_ms.set(None);
+				platform.deadline_after_parking.replace(None);
 				gate.open();
 				owner.resume_pending().unwrap();
 				assert_eq!(finished(&host, &root, "issued", &root).await.as_str(), Some("unknown"));

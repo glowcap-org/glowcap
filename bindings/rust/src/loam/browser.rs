@@ -504,36 +504,43 @@ impl Attachment {
 					let _custody = custody;
 					let mut occurrences = occurrences;
 					for (index, object) in [resource.raw.r#use, resource.raw.control].into_iter().enumerate() {
-						let slot = Rc::new(Cell::new(0u64));
-						let output = Rc::clone(&slot);
-						let attached = owner.raw.get();
-						let terminal = owner
-							.store
-							.backend
-							.transaction(false, move |plan| {
-								let mut raw = unsafe { core::mem::zeroed() };
-								let rc = unsafe {
-									ffi::glowcap_loam_restore_plan(
-										attached,
-										&object,
-										Some(callback),
-										plan.context(),
-										&mut raw,
-									)
-								};
-								if rc == crate::sys::OK {
-									output.set(raw.id);
-								}
-								Ok(rc)
-							})
-							.await;
-						occurrences.ids[index] = slot.get();
-						if terminal.outcome != 0 {
-							return Err(terminal
+						loop {
+							let slot = Rc::new(Cell::new(0u64));
+							let output = Rc::clone(&slot);
+							let attached = owner.raw.get();
+							let terminal = owner
+								.store
+								.backend
+								.transaction(false, move |plan| {
+									let mut raw = unsafe { core::mem::zeroed() };
+									let rc = unsafe {
+										ffi::glowcap_loam_restore_plan(
+											attached,
+											&object,
+											Some(callback),
+											plan.context(),
+											&mut raw,
+										)
+									};
+									if rc == crate::sys::OK {
+										output.set(raw.id);
+									}
+									Ok(rc)
+								})
+								.await;
+							occurrences.ids[index] = slot.get();
+							if terminal.outcome == 0 {
+								break;
+							}
+							let failure = terminal
 								.failure
-								.unwrap_or_else(|| invalid("browser restore did not complete")));
+								.unwrap_or_else(|| invalid("browser restore did not complete"));
+							if slot.get() != 0 || !owner.waits_on_commit(&failure) {
+								return Err(failure);
+							}
+							owner.join_progress().await;
 						}
-						if slot.get() == 0 {
+						if occurrences.ids[index] == 0 {
 							return Err(invalid("browser restore returned no capability"));
 						}
 					}

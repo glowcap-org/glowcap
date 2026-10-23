@@ -19,7 +19,7 @@ async fn volatile_store_restores_a_created_resource_and_serves_its_content() {
 				let resource = store.create_resource(&policy, SCHEMA, 1, b"in memory", 0).unwrap();
 				let host = Host::from_seed([8; 32]).unwrap();
 				let mut attachment = store.attach(&host, vec![registration()]).unwrap();
-				let (use_ref, control) = attachment.restore(resource).unwrap();
+				let (use_ref, control) = attachment.restore(resource).await.unwrap();
 				let pair = vec![Argument::Reference(use_ref), Argument::Reference(control)];
 				host.publish("resource", move || {
 					let pair = pair.clone();

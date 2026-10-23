@@ -70,7 +70,7 @@ async fn exercise(store: &Store, resource: Resource, writing: bool) {
 		.attach(&host, vec![content::registration(Rc::clone(&invocations))])
 		.unwrap();
 	#[cfg(not(target_arch = "wasm32"))]
-	let (use_ref, control) = attachment.restore(resource).unwrap();
+	let (use_ref, control) = attachment.restore(resource).await.unwrap();
 	#[cfg(target_arch = "wasm32")]
 	let (use_ref, control) = attachment.restore(resource).await.unwrap();
 	host.publish("session", move || {

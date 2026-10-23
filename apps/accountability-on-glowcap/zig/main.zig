@@ -53,8 +53,11 @@ const HostArgs = struct {
 };
 
 /// Accept one connection, publish the Affordance by name, and serve invocations
-/// until the caller leaves.
+/// until the caller leaves. The caller dials as soon as this starts, so the wait
+/// for it shares the handshake budget, and a run that fails before dialing can
+/// still join this thread.
 fn hostServe(args: HostArgs) !void {
+    if (!try args.server.waitAcceptable(session_opts.handshake.ms)) return error.NoCallerArrived;
     var vat = try args.server.accept();
     defer vat.deinit();
 
@@ -165,6 +168,9 @@ pub fn main(init: std.process.Init) !void {
     defer server.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator = try server.localDesignator(&designator_buf);
+    // Own the advertised route before the server starts on another thread.
+    const partner = try model.clonePeerLocator(allocator, try server.advertisedLocator());
+    defer model.freePeerLocator(allocator, partner);
 
     var served: usize = 0;
     var last_subject: [said.SAID_LEN]u8 = undefined;
@@ -174,10 +180,20 @@ pub fn main(init: std.process.Init) !void {
         .served = &served,
         .last_subject = &last_subject,
     }});
+    // An error before the join below still joins the serving thread, which
+    // finishes once the caller's session closes or its bounded accept expires.
+    var host_joined = false;
+    errdefer if (!host_joined) {
+        // best-effort: the run already returns its own error, and the serving
+        // thread can only add the refusal that follows from it.
+        host_future.await(io) catch {};
+    };
 
     // Caller side. `driver.connect` completes the keyed handshake before
     // returning.
-    var cv = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, try server.advertisedLocator(), .ephemeral, session_opts);
+    var cv = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, partner, .ephemeral, session_opts);
+    var cv_open = true;
+    errdefer if (cv_open) cv.deinit();
     std.debug.print("      session open over TCP {s}\n", .{designator});
 
     const affordance_ref = try cv.fetch(AFFORDANCE_NAME);
@@ -237,6 +253,8 @@ pub fn main(init: std.process.Init) !void {
 
     // Let the host observe EOF and finish.
     cv.deinit();
+    cv_open = false;
+    host_joined = true;
     _ = host_future.await(io) catch |err| {
         std.debug.print("      host fiber error: {s}\n", .{@errorName(err)});
         std.process.exit(1);

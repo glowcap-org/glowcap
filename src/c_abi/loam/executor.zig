@@ -115,6 +115,9 @@ pub fn Executor(comptime Engine: type) type {
 
         /// Restore from trusted persisted metadata. The ordinary Store read checks the
         /// full record before the attachment mints one held Host capability occurrence.
+        /// A record that is not resident refuses with StaleCompletion while a commit is
+        /// in flight, because the engine may already hold the next revision. Nothing
+        /// changes, and the caller retries once that work completes.
         pub fn restore(self: *Self, attachment: ?*c.GlowcapLoamAttachment, object: ?*const c.GlowcapLoamObject, out_ref: ?*shared.GlowcapReference) i32 {
             shared.lastErrorClear();
             const attached = bridge.attachment(attachment) catch |err| return bridge.code(err);
@@ -134,6 +137,12 @@ pub fn Executor(comptime Engine: type) type {
             return switch (try self.store.value.acquire(id)) {
                 .ready => |lease| lease,
                 .read => |request| blk: {
+                    if (self.store.value.phase == .writing) {
+                        // tolerant: a failed completion only retires the read ticket
+                        // and its buffer. The caller acts on the refusal below.
+                        self.store.value.completeRead(request.ticket, .{ .failed = error.StaleCompletion }) catch {};
+                        return error.StaleCompletion;
+                    }
                     try self.store.value.completeRead(request.ticket, self.engine.read(request));
                     break :blk (try self.store.value.acquire(id)).ready;
                 },

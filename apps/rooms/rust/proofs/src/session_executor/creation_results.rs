@@ -281,11 +281,13 @@ pub(super) async fn run() {
 				owner.replace_workspace(&workspace).await.unwrap();
 				gate.block();
 				platform.deadline_ms.set(Some(100));
+				platform.deadline_after_parking.replace(Some(gate.clone()));
 				platform.suspended.set(false);
 				assert_eq!(finished(&host, &root, "created", &root).await.as_str(), Some("unknown"));
 				assert!(gate.observed());
 				assert_eq!((calls.get(), bootstrap_calls.get()), (1, 1));
 				platform.deadline_ms.set(None);
+				platform.deadline_after_parking.replace(None);
 				gate.open();
 				owner.resume_pending().unwrap();
 				assert_eq!(finished(&host, &root, "created", &root).await.as_str(), Some("unknown"));

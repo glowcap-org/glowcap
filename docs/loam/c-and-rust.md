@@ -44,8 +44,9 @@ Link `libglowcap_loam` beside the Host archives, plus one engine archive:
 
 Rust enables the `loam` feature and uses
 `loam::{Store, Schema, Limits, Policy, Registration, Content}` with `Host`,
-`Ref` and `Session`. Opening, creating, and restoring the owner's capabilities
-block on disk, so finish them before you accept connections. Run Host work on
+`Ref` and `Session`. Opening and creating block on disk, so finish them
+before you accept connections. Restoring the owner's capabilities reads from
+disk too, and it waits for any commit the attachment has in flight. Run Host work on
 a Tokio `LocalSet` and engine jobs on a blocking executor. The
 [browser guide](browser.md) uses the same resource model with IndexedDB, where
 those steps are asynchronous.
@@ -69,7 +70,7 @@ let staged = store.stage_resource(&policy, schema, kind, initial, 2, owner_ident
 persist_private_resource(staged.resource().encode())?;
 let resource = staged.commit()?;
 let attachment = store.attach(&host, registrations)?;
-let (access, control) = attachment.restore(resource)?;
+let (access, control) = attachment.restore(resource).await?;
 ```
 
 ### Opening refusals

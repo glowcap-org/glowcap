@@ -129,7 +129,7 @@ async fn phase(disk: Disk, path: &Path) {
 		};
 		let mut attachment = store.attach(&host, vec![owner.registration(), registration]).unwrap();
 		attachment.start_live(None, 128).unwrap();
-		let (root, control) = attachment.restore(root_resource).unwrap();
+		let (root, control) = attachment.restore(root_resource).await.unwrap();
 		owner.bind(root.clone(), control).unwrap();
 		owner.initialize().await.unwrap();
 		owner
@@ -163,8 +163,8 @@ async fn phase(disk: Disk, path: &Path) {
 		};
 		let access_key = custody::FieldKey::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap());
 		if phase != "forgotten" {
-			let (access, _) = attachment.restore(access_resource).unwrap();
-			let (seat, _) = attachment.restore(seat_resource).unwrap();
+			let (access, _) = attachment.restore(access_resource).await.unwrap();
+			let (seat, _) = attachment.restore(seat_resource).await.unwrap();
 			if first {
 				for role in [custody::Role::DirectoryAccess, custody::Role::RoomAccess] {
 					owner.import(coordinate(role, 1), access.clone(), None).await.unwrap();

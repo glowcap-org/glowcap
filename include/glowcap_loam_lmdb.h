@@ -13,7 +13,7 @@ int32_t glowcap_loam_lmdb_open(const uint8_t *path, size_t path_len, const uint8
 int32_t glowcap_loam_lmdb_release(GlowcapLoamLmdb *raw);
 /* Execute one storage effect on the storage executor without touching Host state. Join before portable work_complete or work_release. Repeated execution, foreign Store work, and completed work refuse. Operational results remain on the work handle. */
 int32_t glowcap_loam_lmdb_work_run(GlowcapLoamLmdb *raw, GlowcapLoamWork *work_handle);
-/* Privileged restoration reads and validates a persisted rooted endpoint, then returns one held capability occurrence on the supplied Host attachment. Serialized object names never invoke. Release the occurrence through the existing Host reference release. */
+/* Privileged restoration reads and validates a persisted rooted endpoint, then returns one held capability occurrence on the supplied Host attachment. A record that is not resident returns GLOWCAP_LOAM_ERR_STALE_COMPLETION while one of the Store's commits is in flight. Retry after that work completes. Serialized object names never invoke. Release the occurrence through the existing Host reference release. */
 int32_t glowcap_loam_lmdb_restore(GlowcapLoamLmdb *raw, GlowcapLoamAttachment *attachment, const GlowcapLoamObject *object, GlowcapReference *out_ref);
 /* Submit privileged unattached staging through the same Store write/install contract. Committed output installs once; unchanged aborts and returns UNCHANGED with its storage cause in last_error; an unknown outcome leaves recovery required. Execute outside Host turns. */
 int32_t glowcap_loam_lmdb_commit(GlowcapLoamLmdb *raw);

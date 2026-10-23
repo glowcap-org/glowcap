@@ -114,6 +114,7 @@ pub fn glowcap_loam_work_finish(raw: ?*c.GlowcapLoamWork, outcome: u32) callconv
 }
 /// Restore only from a validated snapshot owned by this adapter. The caller
 /// retains the returned occurrence until its read transaction has completed.
+/// Refuses with StaleCompletion while a commit is in flight, before reading any row.
 pub fn glowcap_loam_restore_plan(raw: ?*c.GlowcapLoamAttachment, object: ?*const c.GlowcapLoamObject, callback: ?execution.GlowcapLoamKvFn, context: ?*anyopaque, out_ref: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const owner = attached.attachment(raw) catch |err| return common.code(err);
@@ -124,6 +125,9 @@ pub fn glowcap_loam_restore_plan(raw: ?*c.GlowcapLoamAttachment, object: ?*const
     guard.enter(owner.store) catch |err| return common.code(err);
     defer guard.leave();
     const id = common.object(source.*) catch |err| return common.code(err);
+    // A transaction that begins after an in-flight commit lands sees the next
+    // revision before that completion installs.
+    if (owner.store.value.phase == .writing) return common.code(error.StaleCompletion);
     var kv: execution.Kv = .{ .callback = callback orelse return shared.GLOWCAP_ERR_NULL_POINTER, .context = context };
     // Load all transaction inputs before acquiring a pending core read. A
     // missing callback row must not leave a core ticket without an executor.

@@ -386,7 +386,7 @@ impl Attachment {
 			.ok_or_else(|| invalid("attachment is closed"))
 	}
 	#[cfg(not(target_arch = "wasm32"))]
-	pub fn restore(&self, resource: Resource) -> Result<(Ref, Ref)> {
+	pub async fn restore(&self, resource: Resource) -> Result<(Ref, Ref)> {
 		let owner = self.inner()?;
 		let restore = |object: &ffi::GlowcapLoamObject| -> Result<Ref> {
 			// SAFETY: `GlowcapReference` is a plain C struct of integers and null pointers; all-zero is a valid value,
@@ -400,7 +400,9 @@ impl Attachment {
 			reference.attach_guard(crate::gc::owned_guard(&owner.host, raw.id));
 			Ok(reference)
 		};
-		Ok((restore(&resource.raw.r#use)?, restore(&resource.raw.control)?))
+		let use_ref = owner.behind_commit(|| restore(&resource.raw.r#use)).await?;
+		let control = owner.behind_commit(|| restore(&resource.raw.control)).await?;
+		Ok((use_ref, control))
 	}
 	pub async fn close(&mut self) -> Result<()> {
 		let Some(owner) = self.inner.as_ref().map(Rc::clone) else {
@@ -446,6 +448,21 @@ impl AttachmentInner {
 	fn work_retired(&self) {
 		self.storage_jobs.set(self.storage_jobs.get() - 1);
 		self.progress_changed.notify_waiters();
+	}
+	/// A restore that needs a storage read refuses as stale while one of this
+	/// attachment's commits is in flight, because the engine may already hold
+	/// the next revision. Retiring that work installs its completion.
+	fn waits_on_commit(&self, error: &Error) -> bool {
+		error.code() == ffi::GLOWCAP_LOAM_ERR_STALE_COMPLETION && self.storage_jobs.get() != 0
+	}
+	#[cfg(not(target_arch = "wasm32"))]
+	async fn behind_commit<T>(&self, mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
+		loop {
+			match attempt() {
+				Err(error) if self.waits_on_commit(&error) => self.join_progress().await,
+				outcome => return outcome,
+			}
+		}
 	}
 	async fn join_progress(&self) {
 		loop {

@@ -173,7 +173,7 @@ async fn run(database: Database, phases: &[usize], inspect_baseline: bool) {
 		};
 		let mut attachment = store.attach(&source, vec![content::registration(application)]).unwrap();
 		#[cfg(not(target_arch = "wasm32"))]
-		let (root, control) = attachment.restore(Resource::decode(resource.unwrap())).unwrap();
+		let (root, control) = attachment.restore(Resource::decode(resource.unwrap())).await.unwrap();
 		#[cfg(target_arch = "wasm32")]
 		let (root, control) = attachment.restore(Resource::decode(resource.unwrap())).await.unwrap();
 		let revision = if phase == 0 { 1 } else { 2 };

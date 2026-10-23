@@ -50,9 +50,6 @@ pub(super) async fn run() {
 				);
 				staged.abort().unwrap();
 				let mut probe = store.attach(&host, vec![probe_owner.registration()]).unwrap();
-				#[cfg(not(target_arch = "wasm32"))]
-				let missing = probe.restore(staged.resource());
-				#[cfg(target_arch = "wasm32")]
 				let missing = probe.restore(staged.resource()).await;
 				assert_eq!(
 					missing.expect_err("aborted root is absent").kind(),

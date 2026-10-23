@@ -20,7 +20,7 @@ async fn receipt_continuations_own_confirmation_and_private_results<E: Engine>(e
 				let mut attachment = store
 					.attach(&host, vec![continuations::wrap(registration(), &state)])
 					.unwrap();
-				let (root, control) = attachment.restore(resource).unwrap();
+				let (root, control) = attachment.restore(resource).await.unwrap();
 				state.target.borrow_mut().replace(root.clone());
 				let exported_control = control.clone();
 				host.publish("resource", move || {
@@ -74,7 +74,7 @@ async fn executor_abandonment_retires_unconsumed_confirmation<E: Engine>(engine:
 				let mut attachment = store
 					.attach(&host, vec![continuations::wrap(registration(), &state)])
 					.unwrap();
-				let (target, control) = attachment.restore(resource).unwrap();
+				let (target, control) = attachment.restore(resource).await.unwrap();
 				let published = target.clone();
 				host.publish("resource", move || {
 					Box::new(move |_, _| Ok(Argument::Reference(published.clone())))

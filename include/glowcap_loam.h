@@ -406,7 +406,7 @@ int32_t glowcap_loam_work_kind(GlowcapLoamWork *raw, uint32_t *out_kind);
 int32_t glowcap_loam_work_plan(GlowcapLoamWork *raw, GlowcapLoamKvFn callback, void *context);
 /* After physical database retirement, report 0=completed plan, 1=known abort, 2=indeterminate write. Then complete and release work on the Host thread. Only writes admit an indeterminate outcome. Duplicate retirement refuses. */
 int32_t glowcap_loam_work_finish(GlowcapLoamWork *raw, uint32_t outcome);
-/* Restore a rooted endpoint from adapter-owned transaction-local rows. Missing rows return WOULD_BLOCK. The adapter retains the returned Host occurrence until the read transaction terminates and releases it on abort. Trusted persisted names never bypass endpoint validation. */
+/* Restore a rooted endpoint from adapter-owned transaction-local rows. Missing rows return WOULD_BLOCK. Any call while one of the Store's commits is in flight returns GLOWCAP_LOAM_ERR_STALE_COMPLETION. Retry after that work completes. The adapter retains the returned Host occurrence until the read transaction terminates and releases it on abort. Trusted persisted names never bypass endpoint validation. */
 int32_t glowcap_loam_restore_plan(GlowcapLoamAttachment *raw, const GlowcapLoamObject *object, GlowcapLoamKvFn callback, void *context, GlowcapReference *out_ref);
 /* Validate copied schema descriptors and bounded Store configuration without opening or claiming physical storage. */
 int32_t glowcap_loam_validate_configuration(const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits);

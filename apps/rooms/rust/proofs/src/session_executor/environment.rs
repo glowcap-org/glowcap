@@ -14,6 +14,10 @@ use std::{
 #[derive(Clone, Default)]
 pub(super) struct Platform {
 	pub deadline_ms: Rc<Cell<Option<u64>>>,
+	/// While set, every bounded wait's deadline counts from the moment a
+	/// write parks at this gate, so a scenario that expects a parked request
+	/// to expire never races the timer against the write itself.
+	pub deadline_after_parking: Rc<RefCell<Option<super::gate::Gate>>>,
 	pub suspended: Suspension,
 	pub observation_suspended: Suspension,
 	pub refuse_observation: Rc<Cell<bool>>,
@@ -75,7 +79,18 @@ impl Deadline for Platform {
 			return None;
 		}
 		self.observation_suspended.wait().await;
-		within(self.deadline_ms.get().unwrap_or(ms), work).await
+		let ms = self.deadline_ms.get().unwrap_or(ms);
+		let parking = self.deadline_after_parking.borrow().clone();
+		match parking {
+			None => within(ms, work).await,
+			Some(gate) => tokio::select! {
+				result = work => Some(result),
+				() = async {
+					gate.parked().await;
+					within(ms, core::future::pending::<()>()).await;
+				} => None,
+			},
+		}
 	}
 }
 impl rooms_runtime::clock::Clock for Platform {
@@ -213,14 +228,7 @@ pub(super) async fn create(store: &Store, policy: &Policy, schema: Schema, paylo
 	}
 }
 pub(super) async fn restore(attachment: &Attachment, resource: Resource) -> (Ref, Ref) {
-	#[cfg(not(target_arch = "wasm32"))]
-	{
-		attachment.restore(resource).unwrap()
-	}
-	#[cfg(target_arch = "wasm32")]
-	{
-		attachment.restore(resource).await.unwrap()
-	}
+	attachment.restore(resource).await.unwrap()
 }
 pub(super) async fn close(store: &mut Store) {
 	#[cfg(not(target_arch = "wasm32"))]

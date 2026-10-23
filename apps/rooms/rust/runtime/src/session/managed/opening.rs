@@ -97,9 +97,6 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 		live_capacity: u32,
 		persist: impl FnOnce(StartupAnchor) -> F,
 	) -> Result<()> {
-		#[cfg(not(target_arch = "wasm32"))]
-		let (root, private_control) = self.attachment.restore(self.anchor.resource)?;
-		#[cfg(target_arch = "wasm32")]
 		let (root, private_control) = self.attachment.restore(self.anchor.resource).await?;
 		self.session.bind(root.clone(), private_control)?;
 		self.attachment.start_live(self.anchor.marker, live_capacity)?;

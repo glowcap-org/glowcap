@@ -19,8 +19,8 @@ transactions, and runs recovery.
 records how the work is split.
 
 Use the schemas, policies, and content registrations from the
-[C and Rust guide](c-and-rust.md). In the browser, opening, creating,
-restoring, and closing are asynchronous:
+[C and Rust guide](c-and-rust.md). In the browser, opening, creating, and
+closing are asynchronous too:
 
 ```rust
 let mut store = Store::open("documents", identity, true, &[schema], limits).await?;

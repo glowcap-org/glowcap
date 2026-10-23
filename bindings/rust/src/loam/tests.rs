@@ -12,6 +12,10 @@ mod continuation;
 mod continuations;
 mod engines;
 #[cfg(feature = "tcp")]
+mod held;
+#[cfg(feature = "tcp")]
+mod restore;
+#[cfg(feature = "tcp")]
 mod volatile;
 #[cfg(feature = "tcp")]
 use crate::ListenerIdentity;
@@ -231,7 +235,7 @@ async fn create_share_edit_restart_and_cold_reopen<E: Engine>(engine: EngineFn<E
 				let mut attachment = store.attach(&host, vec![registration()]).unwrap();
 				attachment.start_live(None, 2).unwrap();
 				assert!(attachment.live_marker().unwrap().is_none());
-				let (use_ref, control) = attachment.restore(resource).unwrap();
+				let (use_ref, control) = attachment.restore(resource).await.unwrap();
 				let (use_copy, control_copy) = (use_ref.clone(), control.clone());
 				host.publish("resource", move || {
 					let pair = vec![
@@ -376,7 +380,7 @@ async fn create_share_edit_restart_and_cold_reopen<E: Engine>(engine: EngineFn<E
 				let host = Host::from_seed([8; 32]).unwrap();
 				let attachment = store.attach(&host, vec![registration()]).unwrap();
 				attachment.start_live(Some(live_marker), 2).unwrap();
-				let (restored, restored_control) = attachment.restore(Resource::decode(saved_resource)).unwrap();
+				let (restored, restored_control) = attachment.restore(Resource::decode(saved_resource)).await.unwrap();
 				host.publish("control", move || {
 					let control = restored_control.clone();
 					Box::new(move |_, _| Ok(Argument::Reference(control.clone())))
