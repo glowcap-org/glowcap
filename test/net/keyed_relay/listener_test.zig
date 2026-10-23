@@ -435,7 +435,7 @@ test "keyed-relay listener recovers a stalled replacement without invalidating i
     });
     var listener_live = true;
     defer if (listener_live) netlayer_test.close(listener);
-    try std.testing.expect(try listener.waitAcceptable(1000));
+    try std.testing.expect(try listener.waitAcceptable(wait.accept_deadline_ms));
     try std.testing.expect(!replacement_seen.load(.acquire));
     // The listener's replacement leg is its own lifetime. Destroying the
     // factory before accept must not leave that task borrowing URL slices.
@@ -475,7 +475,7 @@ test "keyed-relay listener recovers a stalled replacement without invalidating i
     }
     model.freePeerLocator(allocator, recovered_locator);
     send_recovered.store(true, .release);
-    try std.testing.expect(try listener.waitAcceptable(1000));
+    try std.testing.expect(try listener.waitAcceptable(wait.accept_deadline_ms));
 
     release.store(true, .release);
     const repair_failure = listener.close().?;

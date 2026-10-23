@@ -1,3 +1,5 @@
+#[path = "../announce.rs"]
+mod announce;
 use rooms_services::irc_bridge::{self, Config};
 use std::rc::Rc;
 
@@ -28,7 +30,7 @@ async fn start() -> Result<(), String> {
 			tokio::select! {_=interrupt.recv()=>(), _=terminate.recv()=>()}
 		},
 		|ready| {
-			println!("ROOMS-IRC-BRIDGE-LISTENING {} {}", ready.port, ready.room);
+			announce::announce(&format!("ROOMS-IRC-BRIDGE-LISTENING {} {}", ready.port, ready.room));
 		},
 	)
 	.await

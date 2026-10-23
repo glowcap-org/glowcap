@@ -6,6 +6,8 @@
 //! readiness mirror a running peer wrote, prints the sturdyref when the file
 //! holds exactly one, and exits nonzero otherwise, so the container needs no
 //! second runtime to ask whether the peer is up.
+#[path = "../announce.rs"]
+mod announce;
 use rooms_services::session::{self, Config, Notice};
 use std::rc::Rc;
 #[path = "rooms-session/commands/mod.rs"]
@@ -76,8 +78,11 @@ async fn start() -> Result<(), String> {
 					return Err(error.to_string());
 				}
 			};
-		println!("ROOMS-SESSION-LISTENING {}", peer.link());
-		println!("ROOMS-SESSION-MANAGEMENT {}", peer.management_link());
+		announce::announce(&format!(
+			"ROOMS-SESSION-LISTENING {}\nROOMS-SESSION-MANAGEMENT {}",
+			peer.link(),
+			peer.management_link()
+		));
 		let served = peer.serve(control.serve(stop)).await;
 		// A transport can end serving before the halt future resolves. Both
 		// exits drain local commands while the peer still owns a running Host.
@@ -106,8 +111,9 @@ async fn start() -> Result<(), String> {
 		config,
 		stop,
 		|link, management| {
-			println!("ROOMS-SESSION-LISTENING {link}");
-			println!("ROOMS-SESSION-MANAGEMENT {management}");
+			announce::announce(&format!(
+				"ROOMS-SESSION-LISTENING {link}\nROOMS-SESSION-MANAGEMENT {management}"
+			));
 			eprintln!("rooms session: host peer ready over {transport}");
 		},
 		report,

@@ -1,3 +1,5 @@
+#[path = "../announce.rs"]
+mod announce;
 use rooms_services::server::{self, Config, Error, Ready};
 use std::{cell::Cell, rc::Rc};
 #[tokio::main(flavor = "current_thread")]
@@ -76,9 +78,9 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 			// The announce line stays first and alone on stdout: its readers
 			// wait for it. The human block rides behind it on stderr.
 			if structured {
-				println!("{}", ready.announcement());
+				announce::announce(ready.announcement());
 			} else {
-				println!("ROOMS-SERVER-LISTENING {token}");
+				announce::announce(&format!("ROOMS-SERVER-LISTENING {token}"));
 			}
 			if let Some(trace) = &ready.trace {
 				eprintln!("ROOMS-TRACE-LISTENING {trace}");

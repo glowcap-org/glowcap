@@ -1,3 +1,5 @@
+#[path = "../announce.rs"]
+mod announce;
 use rooms_services::archive::peer::{self, Config};
 use std::rc::Rc;
 #[tokio::main(flavor = "current_thread")]
@@ -33,7 +35,7 @@ async fn start() -> Result<(), String> {
 		config,
 		stop,
 		|link| {
-			println!("ROOMS-ARCHIVE-LISTENING {link}");
+			announce::announce(&format!("ROOMS-ARCHIVE-LISTENING {link}"));
 			eprintln!("rooms archive: host peer ready over {transport}; the sturdyref is the archive authority");
 		},
 		report,

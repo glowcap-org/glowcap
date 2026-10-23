@@ -137,3 +137,32 @@ fn managed_local_control_joins_and_replies_through_actual_custody() {
 	}
 	server.signal("-TERM");
 }
+#[test]
+fn a_session_whose_stdout_is_closed_keeps_serving_its_local_control() {
+	let temp = Temp(std::env::temp_dir().join(format!("rooms-closed-stdout-{}", std::process::id())));
+	std::fs::create_dir(&temp.0).unwrap();
+	let state = temp.0.join("unread");
+	let mut command = super::command();
+	command.args([
+		format!("--state={}", state.display()),
+		"--transport=tcp".into(),
+		"--local-control".into(),
+	]);
+	let mut process = Process(command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap());
+	drop(process.0.stdout.take());
+	let errors = process.0.stderr.take().unwrap();
+	let (send, receive) = mpsc::channel();
+	std::thread::spawn(move || {
+		for line in BufReader::new(errors).lines().map_while(Result::ok) {
+			if line.contains("nobody read the readiness announcement") {
+				let _ = send.send(());
+			}
+		}
+	});
+	receive
+		.recv_timeout(Duration::from_secs(8))
+		.expect("the session never reported its unread announcement");
+	let batch = call(&state, "tick", json!({"wait":["0"]}));
+	assert!(batch["pending"].is_array(), "{batch}");
+	process.signal("-TERM");
+}

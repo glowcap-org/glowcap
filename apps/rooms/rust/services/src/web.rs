@@ -168,8 +168,14 @@ async fn serve(
 	let relay = relay::Relay::with_admission(limits, current.clone(), jobs, stopping.clone(), admission);
 	let mut workers = tokio::task::JoinSet::new();
 	if let Some(peer) = shared {
-		println!("ROOMS-SESSION-LISTENING {}", peer.link());
-		println!("ROOMS-SESSION-MANAGEMENT {}", peer.management_link());
+		announce(
+			&report,
+			&format!(
+				"ROOMS-SESSION-LISTENING {}\nROOMS-SESSION-MANAGEMENT {}",
+				peer.link(),
+				peer.management_link()
+			),
+		);
 		let mut session_stop = stopping.clone();
 		workers.spawn_local(async move { peer.run(stopped(&mut session_stop)).await.map_err(|e| e.to_string()) });
 	}
@@ -185,14 +191,17 @@ async fn serve(
 			location: current,
 			previews: Rc::new(previews),
 			relay,
-			report,
+			report: report.clone(),
 		}),
 		incoming,
 		stop.clone(),
 		stopping.clone(),
 	));
-	println!(
-		"rooms: serving\n\n  web ui           http://localhost:{port}\n  web locator      http://localhost:{port}/locator\n  room directory   {public_locator}\n\nrooms: ready"
+	announce(
+		&report,
+		&format!(
+			"rooms: serving\n\n  web ui           http://localhost:{port}\n  web locator      http://localhost:{port}/locator\n  room directory   {public_locator}\n\nrooms: ready"
+		),
 	);
 	let mut result = tokio::select! {
 		_ = stopped(&mut stopping) => Ok(()),
@@ -224,6 +233,13 @@ fn local_relay_url(mut address: std::net::SocketAddr) -> String {
 /// Release the watch read guard before the caller can enter async cleanup.
 /// Returning that guard through select would retain it while reaping a child
 /// and deadlock a concurrent shutdown sender on the same executor.
+/// Print a readiness announcement. Its reader may have closed stdout once it
+/// had what it waited for, so the refusal is a notice and serving continues.
+fn announce(report: &Report, text: &str) {
+	if let Err(error) = crate::announce::announce(text) {
+		report(Notice::AnnouncementUnread(error.to_string()));
+	}
+}
 async fn stopped(stop: &mut watch::Receiver<bool>) {
 	drop(stop.wait_for(|stopped| *stopped).await);
 }

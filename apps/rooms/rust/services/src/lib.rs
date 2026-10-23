@@ -1,4 +1,5 @@
 //! Rooms service composition over portable policy and explicit host effects.
+pub mod announce;
 pub mod archive;
 #[cfg(feature = "processes")]
 use rooms_runtime::cleanup;

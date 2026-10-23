@@ -14,6 +14,11 @@ pub const Error = error{WaitTimedOut};
 /// real hang fails within low tens of seconds with a located error.
 pub const default_deadline_ms: u64 = 15_000;
 
+/// The same bound for a listener's `waitAcceptable`, which takes `i32`
+/// milliseconds. A positive accept wait returns as soon as the connection
+/// lands, so only a hang ever spends it.
+pub const accept_deadline_ms: i32 = default_deadline_ms;
+
 /// Spin until `pred(ctx)` is true, or fail with `error.WaitTimedOut`.
 fn until(
     io: std.Io,

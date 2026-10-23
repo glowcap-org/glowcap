@@ -21,6 +21,7 @@ pub enum Notice {
 	ChildOutputEnded { label: &'static str, cause: String },
 	ChildOutputTaskFailed { label: &'static str, cause: String },
 	ChildShutdownRequestFailed(String),
+	AnnouncementUnread(String),
 }
 
 impl fmt::Display for Notice {
@@ -47,6 +48,9 @@ impl fmt::Display for Notice {
 			Self::ChildOutputEnded { label, cause } => write!(f, "reading {label} output ended early: {cause}"),
 			Self::ChildOutputTaskFailed { label, cause } => write!(f, "the {label} output reader failed: {cause}"),
 			Self::ChildShutdownRequestFailed(cause) => write!(f, "requesting child shutdown failed: {cause}"),
+			Self::AnnouncementUnread(cause) => {
+				write!(f, "nobody read the readiness announcement on stdout: {cause}")
+			}
 		}
 	}
 }

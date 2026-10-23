@@ -2,6 +2,7 @@
 //! physical stop before releasing callback storage or its final runtime lease.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 const driver = glowcap.driver;
 const net = glowcap.net;
@@ -127,7 +128,7 @@ test "Zig Server: ready wait releases affinity and close claims an unconsumed li
     const server = try driver.listen(allocator, io, .{ .residents = &providers }, fixtures.AcceptOwnershipResident.transport, .{ .designator = "" }, .ephemeral, fixtures.opts);
     defer server.deinit();
     resident.inner.announceAccept();
-    try std.testing.expect(try server.waitAcceptable(100));
+    try std.testing.expect(try server.waitAcceptable(wait.accept_deadline_ms));
     try std.testing.expect(try server.waitAcceptable(0));
     var moved_wait = try io.concurrent(waitReady, .{server});
     try std.testing.expect(try moved_wait.await(io));

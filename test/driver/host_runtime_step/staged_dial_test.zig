@@ -5,6 +5,7 @@
 //! deadline escalation, and one session's timeout leaving its Host active.
 
 const std = @import("std");
+const wait = @import("../../support/wait.zig");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -298,7 +299,7 @@ test "runtime finish close realizes a core dial admitted before its barrier" {
     runtime.beginClose(.{ .finish = .{ .ms = 1_000 } });
     _ = try runtime.stepAny(0);
 
-    try std.testing.expect(try server.waitAcceptable(100));
+    try std.testing.expect(try server.waitAcceptable(wait.accept_deadline_ms));
     var accepted = try server.accept();
     defer accepted.deinit();
     try accepted.attend();
