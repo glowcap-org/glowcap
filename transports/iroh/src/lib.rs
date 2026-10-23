@@ -50,7 +50,7 @@ use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
-use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier, TaskFailure};
+use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
 type Readiness = glowcap_sidecar_common::Readiness<GlowcapIrohReadyEvent>;
@@ -92,7 +92,8 @@ const IROH_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
 /// Maximum lifetime of an admitted non-blocking write after local close. The
 /// loop-facing free remains immediate, while a peer that never restores QUIC
 /// flow-control credit cannot strand a detached task and its bounded batch for
-/// the endpoint's remaining lifetime.
+/// the endpoint's remaining lifetime. Endpoint release waits the same bound for
+/// its connection closes to drain.
 const CLOSE_DRAIN_TIMEOUT: std::time::Duration = IDLE_TIMEOUT;
 
 /// Worker threads for one endpoint's runtime when the caller names none. It is a
@@ -521,8 +522,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIro
 }
 
 /// Release an endpoint handle. Blocks while iroh delivers queued connection
-/// closes, then shuts the runtime down. Free every connection minted from this
-/// endpoint first.
+/// closes, for at most the close-drain bound, then shuts the runtime down. A
+/// close no peer acknowledges in that time is not a failure. Free every
+/// connection minted from this endpoint first.
 ///
 /// # Safety
 /// `ep` must be null or an owned endpoint handle not previously freed, and status-allow: ownership and operation ordering
@@ -548,11 +550,16 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_free(ep: *mut GlowcapIroh
 			endpoint.close().await;
 			let _ = closed_tx.send(());
 		}));
-		let close_result = closed_rx.recv_timeout(CLOSE_DRAIN_TIMEOUT).map_err(|_| TaskFailure);
+		// tolerant: a close that no peer acknowledges within the bound is the
+		// peer's silence, not this teardown's failure. A peer that closed at the
+		// same moment and then released its endpoint keeps our connection
+		// draining until noq's backed-off probe timeout, and that peer learns
+		// nothing more from waiting longer.
+		let _ = closed_rx.recv_timeout(CLOSE_DRAIN_TIMEOUT);
 		// RuntimeOwner is safe to drop even when this C call originated inside an
 		// unrelated Tokio runtime.
 		drop(handle);
-		writer_result.and(close_result)
+		writer_result
 	})
 }
 

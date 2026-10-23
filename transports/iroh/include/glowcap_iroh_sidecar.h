@@ -335,9 +335,11 @@ intptr_t glowcap_iroh_sidecar_conn_try_write(glowcap_iroh_sidecar_conn *conn, co
 void glowcap_iroh_sidecar_endpoint_close(glowcap_iroh_sidecar_endpoint *ep);
 
 /* Release an endpoint handle. Blocks while iroh delivers queued connection
- * closes, then shuts the runtime down. Free every connection minted from this
- * endpoint first. NULL is a no-op. */
-/* Consumes ep and returns 0 after clean shutdown, or -1 when teardown panicked.
+ * closes, for at most the close-drain bound, then shuts the runtime down. A
+ * close no peer acknowledges in that time is not a failure. Free every
+ * connection minted from this endpoint first. NULL is a no-op. */
+/* Consumes ep and returns 0 after shutdown, or -1 when teardown or one of its
+ * writer tasks panicked.
  * No panic crosses the archive boundary. */
 int32_t glowcap_iroh_sidecar_endpoint_free(glowcap_iroh_sidecar_endpoint *ep);
 
