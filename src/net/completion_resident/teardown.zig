@@ -84,7 +84,6 @@ pub fn Machine(comptime Self: type) type {
             return outcome;
         }
 
-
         pub fn closeAndDrain(self: *Self, timeout_ms: u32) !void {
             try closeOpen(self);
             var out: [64]completion.Completion = undefined;

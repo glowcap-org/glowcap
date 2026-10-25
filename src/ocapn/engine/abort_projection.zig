@@ -95,6 +95,10 @@ pub fn classify(err: anyerror) Classification {
             .kind = .invalid_start_session_signature,
             .message = "op:start-session claims a key designator this session did not expect",
         } },
+        error.ReflectedSessionKey => .{ .domain = .session, .abort = .{
+            .kind = .invalid_start_session_signature,
+            .message = "op:start-session claims this session's own key",
+        } },
         error.UnknownTransportSemantics => .{ .domain = .session, .abort = .{
             .kind = .protocol_error,
             .message = "op:start-session names a transport whose designator semantics are unknown",

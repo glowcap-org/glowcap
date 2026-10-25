@@ -340,6 +340,7 @@ test "a call to a local promise export queues on its backing answer" {
     try std.testing.expectEqual(engine.StepOutcome.progress, try caller.step());
     try receiver.feedOwned(caller.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try receiver.step());
+    receiver.session_state.collectLocalPromiseProjectionsNow();
     try std.testing.expect(!receiver.session_state.hasExport(promise_export));
     try std.testing.expect(receiver.session_state.inboundAnswerNamed(backing_answer) == null);
     try std.testing.expect(receiver.session_state.answerForLocalPromiseExport(promise_export) == null);
@@ -375,6 +376,7 @@ test "a local promise projection survives wire GC until its settlement drains" {
         .{ .@"break" = .{ .message = "not available" } },
     );
     try std.testing.expectEqual(engine.StepOutcome.progress, try receiver.step());
+    receiver.session_state.collectLocalPromiseProjectionsNow();
     try std.testing.expect(!receiver.session_state.hasExport(projection.export_position));
     try std.testing.expect(receiver.session_state.inboundAnswerNamed(projection.answer_name) == null);
     try std.testing.expect(receiver.session_state.answerForLocalPromiseExport(projection.export_position) == null);
@@ -415,6 +417,7 @@ test "a terminal settlement drain retires a released local promise projection" {
     );
     try std.testing.expectError(error.LocalDeliveryCapExceeded, receiver.step());
 
+    receiver.session_state.collectLocalPromiseProjectionsNow();
     try std.testing.expect(!receiver.session_state.hasExport(projection.export_position));
     try std.testing.expect(receiver.session_state.inboundAnswerNamed(projection.answer_name) == null);
     try std.testing.expect(receiver.session_state.answerForLocalPromiseExport(projection.export_position) == null);

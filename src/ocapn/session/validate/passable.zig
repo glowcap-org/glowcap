@@ -495,7 +495,6 @@ fn validateOutboundHandoffArgument(self: *const Session, handoff: model.Handoff)
     }
 }
 
-
 /// Certify every argument an outbound inventory returns to, after lowering
 /// and shortening rewrote the tree's references in place: each reference per
 /// `ref_check`, each handoff's certificate, and each set's element

@@ -165,6 +165,7 @@ test "same-peer local promise chain preserves late calls after backing settlemen
         try std.testing.expectEqual(@as(u64, 9), event.view().deliver.target.near.export_position.int());
         try std.testing.expect(peer.session_state.inboundAnswerNamed(projection.answer_name) != null);
         try receive(&peer, .{ .gc_answer = .{ .positions = &.{42} } });
+        peer.session_state.collectLocalPromiseProjectionsNow();
         try std.testing.expect(peer.session_state.inboundAnswerNamed(projection.answer_name) == null);
         try std.testing.expect(!peer.session_state.hasExport(projection.export_position));
     }
@@ -212,6 +213,7 @@ test "same-peer local promise chain detects cycles and enforces chain bound" {
             }
             try std.testing.expectEqual(@as(usize, 1), callbacks);
             try receive(&peer, .{ .gc_answer = .{ .positions = &.{42} } });
+            peer.session_state.collectLocalPromiseProjectionsNow();
             try std.testing.expect(peer.session_state.inboundAnswerNamed(first.answer_name) == null);
             try std.testing.expect(peer.session_state.inboundAnswerNamed(second.answer_name) == null);
             // Reclaiming the last projection retires the cold registry too.
@@ -262,6 +264,7 @@ test "same-peer local promise chain retains nested capabilities until listener e
             .positions = &.{projection.export_position.int()},
             .deltas = &.{1},
         } });
+        peer.session_state.collectLocalPromiseProjectionsNow();
         try std.testing.expect(!peer.session_state.hasExport(projection.export_position));
         try std.testing.expect(peer.session_state.inboundAnswerNamed(projection.answer_name) == null);
     }
@@ -315,7 +318,7 @@ test "nested local promise stays discoverable between detached listener carriers
         // second still borrows this exact payload's nested capability tree.
         try std.testing.expect(peer.session_state.answerPayloadForTarget(target) == payload);
         try std.testing.expectEqual(@as(u32, 2), payload.refs);
-        peer.session_state.collectLocalPromiseProjections();
+        peer.session_state.collectLocalPromiseProjectionsNow();
         try std.testing.expect(peer.session_state.hasExport(projection.export_position));
 
         try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
@@ -330,7 +333,54 @@ test "nested local promise stays discoverable between detached listener carriers
             .positions = &.{projection.export_position.int()},
             .deltas = &.{2},
         } });
+        peer.session_state.collectLocalPromiseProjectionsNow();
         try std.testing.expect(!peer.session_state.hasExport(projection.export_position));
         try std.testing.expect(peer.session_state.inboundAnswerNamed(projection.answer_name) == null);
     }
+}
+
+test "a release flood traces once per interval, and a forced collection reclaims an unheld projection at once" {
+    var peer = peer_fixture.openPeer(std.testing.allocator);
+    defer peer.deinit();
+    const projection = try peer.session_state.allocateLocalPromiseProjection();
+    try peer.session_state.installInboundAnswer(.from(42));
+    // Answer 42's stored resolution is the only thing that holds the
+    // projection once it is settled: the partner never received its export.
+    try peer.sendAnswerResolutionCopying(.fromWire(.from(42)), .{ .fulfill = .{
+        .reference = .{ .near = model.NearRef.promise(projection.export_position.int()) },
+    } });
+    try peer.session_state.registerExport(.from(9));
+    try peer.sendAnswerResolutionCopying(projection.answer_name, .{ .fulfill = .{
+        .reference = .{ .near = model.NearRef.object(9) },
+    } });
+    try pump(&peer);
+    const registry = peer.session_state.local_promises.?;
+    const interval = glowcap.ocapn.session.local_promise_trace_interval_floor;
+
+    // Every release the partner sends collects a few times, and only the
+    // collection that fills the interval traces: the counter climbs, stays
+    // under the interval, and is reset by each trace.
+    var traces: usize = 0;
+    var released: u32 = 0;
+    while (released < 3 * interval) : (released += 1) {
+        const question: u64 = 100 + released;
+        try peer.session_state.installInboundAnswer(.from(question));
+        try peer.sendAnswerResolutionCopying(.fromWire(.from(question)), .{ .fulfill = .{ .integer = 1 } });
+        try pump(&peer);
+        const before = registry.collects_since_trace;
+        try receive(&peer, .{ .gc_answer = .{ .positions = &.{question} } });
+        try std.testing.expect(registry.collects_since_trace < interval);
+        if (registry.collects_since_trace <= before) traces += 1;
+    }
+    try std.testing.expect(traces >= 2);
+    // The trace kept the projection, since answer 42 still mentions it.
+    try std.testing.expect(peer.session_state.hasExport(projection.export_position));
+
+    // Releasing 42 leaves the projection unheld. It waits for the pacing, and
+    // a forced collection takes it now, the registry with it.
+    try receive(&peer, .{ .gc_answer = .{ .positions = &.{42} } });
+    try std.testing.expect(peer.session_state.hasExport(projection.export_position));
+    peer.session_state.collectLocalPromiseProjectionsNow();
+    try std.testing.expect(!peer.session_state.hasExport(projection.export_position));
+    try std.testing.expect(peer.session_state.local_promises == null);
 }

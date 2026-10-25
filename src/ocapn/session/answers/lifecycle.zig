@@ -43,8 +43,7 @@ pub fn consumeOutboundNotification(self: *Session, target: session.OutboundAnswe
 /// commits it only after the rest of the inbound frame is prepared.
 pub fn prepareFreshInboundNamed(self: *Session, id: model.AnswerName) !void {
     if (self.inbound_answers.contains(id)) return error.UnexpectedMessage;
-    if (self.inboundAnswerObligationCount() >= self.limits.max_inbound_answers)
-        return error.InboundAnswerCapExceeded;
+    if (self.inboundAnswersAtCap()) return error.InboundAnswerCapExceeded;
     try self.inbound_answers.ensureUnusedCapacity(self.allocator, 1);
 }
 

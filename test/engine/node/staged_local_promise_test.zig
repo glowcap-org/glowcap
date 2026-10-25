@@ -57,6 +57,7 @@ fn exercise(codec_id: model.CodecId, profile: model.CaptpVersion, abandon: bool)
     try std.testing.expectEqual(@as(u32, 2), recipient.session_state.exports.purpose(local.export_position).?.local_promise_answer.staging_owners);
     if (abandon) {
         try node.giftIdFailed(ticket);
+        recipient.session_state.collectLocalPromiseProjectionsNow();
         try std.testing.expect(!recipient.session_state.hasExport(local.export_position));
         try std.testing.expect(recipient.session_state.inboundAnswerNamed(local.answer_name) == null);
         return;
@@ -75,6 +76,7 @@ fn exercise(codec_id: model.CodecId, profile: model.CaptpVersion, abandon: bool)
         .positions = &.{local.export_position.int()},
         .deltas = &.{2},
     } });
+    recipient.session_state.collectLocalPromiseProjectionsNow();
     try std.testing.expect(!recipient.session_state.hasExport(local.export_position));
     try std.testing.expect(recipient.session_state.inboundAnswerNamed(local.answer_name) == null);
 }

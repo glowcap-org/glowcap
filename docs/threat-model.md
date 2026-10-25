@@ -112,7 +112,7 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 **A message against live session state: deliver, resolve, listen, release, GC, abort**
 
 - Read by: `session.validate`, then the engine's dispatch into the tables
-- Bounded by: `max_imports`, `max_inbound_answers`, `queue_cap`, `max_listeners_per_target`, `max_resolution_chain`, `max_local_deliveries`, `max_retained_sent_answer_bytes`, `max_queued_call_bytes`, `max_compare_visits`
+- Bounded by: `max_imports`, `max_inbound_answers`, `queue_cap`, `max_listeners_per_target`, `max_resolution_chain`, `max_local_deliveries`, `max_retained_sent_answer_bytes`, `max_queued_call_bytes`, `max_compare_visits`. A release also runs the local promise collector, whose trace walks every retained value, so it traces once per interval of releases and the interval grows with that walk (`local_promise_gc.zig`): a flood of one-line GC messages cannot buy a scan per message
 - Searched by: `engine/fuzz_test.zig` and `driver/fuzz_test.zig`, which drive a program to build live tables and then hold `max_imports`, `max_inbound_answers`, `queue_cap`, `max_listeners_per_target`, the nesting depth, and the frame cap after each step (`support/session_bounds.zig`). The other four bounds are not searched. The second `engine/fuzz_test.zig` target runs the same program between two conforming peers and, once the wire settles, holds the two sessions to each other (`support/session_agreement.zig`): every import is a mention the partner made that many times and every open question an answer the partner still owes
 - Refusal proved by:
   - `max_resolution_chain`: `engine/projection_test.zig` (a distinct chain past the bound breaks the answer with the bound named)
@@ -120,6 +120,7 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
   - `max_retained_sent_answer_bytes`: `engine/node/answer_settlement_test.zig` (`RetainedAnswerCapExceeded`)
   - `max_queued_call_bytes`: `session/resolver_test.zig` (`QueuedCallBytesExceeded` refuses the call that would carry the session's queued pipelined calls past the budget, and draining an answer's queue returns its charge)
   - `max_compare_visits`: `session/set_uniqueness_test.zig` (`CompareBudgetExhausted`)
+  - The collector's pacing: `engine/peer/pipeline_local_promise_test.zig` (a release flood traces once per interval, and a projection nothing holds is reclaimed by the next trace)
   - A `near` the partner never received or has released: `session/grant_test.zig`, `engine/resolver_export_test.zig` and `engine/peer/v1_translation/gc_test.zig` (every door holds it to the partner's wire hold, so a resolver callback at a guessed or released export is refused `InvalidReference` like any other reference)
   - A `desc:answer` with no live question, or an unheld `near`: `session/answer_test.zig` (held to the asker's live questions as a target, an argument, or a payload, in every nesting shape on every carrier, with no table row changed by the refusal)
   - A promise received as a call argument: `driver/promise_argument_test.zig` (the call fails, the session stays open)
@@ -128,9 +129,9 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 **A hello (`op:start-session`)**
 
 - Read by: `validateStartSession`, then the signature check in `engine/hello.zig`
-- Bounded by: the CapTP version must match, `max_count` locator hints in `model/hints.zig`, and the handshake deadline the caller sets
+- Bounded by: the CapTP version must match, `max_count` locator hints in `model/hints.zig`, and the handshake deadline the caller sets. A verifying peer also refuses a hello that claims its own session key, which is its hello reflected back by a cleartext path and verifies under that key
 - Searched by: `session/fuzz_test.zig` (route lists), `model/fuzz_test.zig` (locator text)
-- Refusal proved by: `engine/pairing/signature_test.zig` (a signature that does not match the claimed key, tampered hint bytes), `session/lifecycle_test.zig` (a version mismatch)
+- Refusal proved by: `engine/pairing/signature_test.zig` (a signature that does not match the claimed key, tampered hint bytes, the peer's own hello reflected back), `session/lifecycle_test.zig` (a version mismatch)
 
 **A locator or sturdyref as text, in a hello, a handoff, or from a program**
 
@@ -166,6 +167,13 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 - Bounded by: `max_record_bytes` per record, the frame cap on the plaintext, and a nonce that refuses its reserved value
 - Searched by: `foundation/fuzz_test.zig` (a damaged record never opens, and a split lands anywhere)
 - Refusal proved by: `foundation/noise_test.zig` (a plaintext one byte over the record maximum is refused when sealing, and the reserved nonce is refused in both directions), `driver/sealed_channel_test.zig` (a plaintext frame cannot bypass the channel, a split header, an allocation failure mid-record)
+
+**Allocation failure while a frame is applied**
+
+- Read by: every allocating door of `Peer`, which are `recvBorrowed`, `feedOwned`, `step`, and the sends
+- Bounded by: the allocator alone. The contract is two states and no third. The borrowed door commits nothing, and the Host offers the same bytes again. The owned door and the dispatch close the session, recording `OutOfMemory`. A send or a step leaves its message queued for a retry. No path applies half a frame or forgets one
+- Searched by: `engine/allocation_failure_test.zig` (a program between two conforming peers run once per allocation site with that one allocation refused, and once per site with every allocation from it on refused, under both profiles). Each run ends with the pair agreeing about every row or with the refused peer closed for memory, and with every byte it took returned
+- Refusal proved by: the same test, and `driver/sealed_channel_test.zig` (an allocation failure mid-record)
 
 **Session traffic as a flood**
 
@@ -215,9 +223,15 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 - **Traffic analysis.** The sizes and timing of sealed records are visible on
   the path.
 - **The program's secrets and entropy.** glowcap signs with the seed it is
-  given and cannot tell whether it is sound. On a cleartext netlayer a hello
-  reflected back to its sender verifies under its own key, and only a sealed
-  transport rules that out.
+  given and cannot tell whether it is sound.
+- **How many gifts an introducer deposits.** A peer that answers a caller
+  with an object homed on a third connection deposits one gift on that
+  connection per answer. The exporter holds each gift until it is withdrawn,
+  up to `max_deposited_gifts` and `max_deposited_gift_bytes` for that
+  session, then condemns the session. A caller that never withdraws
+  spends the introducer's room at the exporter. Whether to answer an
+  untrusted caller with another connection's objects, and how often, is the
+  program's to decide, like any rate.
 - **Calls off the owner thread.** One thread drives a Host at a time. A verb
   from another thread is refused `WrongThread` before it touches Host state,
   and a wake (`glowcap_driver_wake`) is the one call any thread may make while

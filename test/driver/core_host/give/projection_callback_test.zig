@@ -103,6 +103,7 @@ test "core host: terminal projection callback preserves appended projections and
                 const projected = probe.projection orelse return error.CallbackDidNotProject;
                 try std.testing.expect(projected == .near);
                 try std.testing.expect(live.a.sessionOpen());
+                live.a.served.port.peer.session_state.collectLocalPromiseProjectionsNow();
                 try std.testing.expect(live.a.served.port.peer.session_state.answerForLocalPromiseExport(projected.near.export_position) == null);
                 try std.testing.expectError(error.PromiseBroken, host.routeCapability(live.a, promise, .object_only));
                 try host.releaseCapability(promise, 1);

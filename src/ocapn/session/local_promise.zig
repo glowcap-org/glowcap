@@ -19,11 +19,15 @@ pub const CollectionState = enum { active, deferred };
 /// Session that never projects a local promise pays one pointer. The list lets
 /// collection visit projections without scanning the shared resolver map or
 /// partner-sized answer tables. Each projection spends one inbound-answer
-/// obligation, bounded by SessionLimits.max_inbound_answers. Freed with the
-/// last projection or at teardown.
+/// obligation, bounded by SessionLimits.max_inbound_answers, and a projection
+/// nothing holds keeps spending it until the next trace reclaims it
+/// (`local_promise_gc.collect` paces the traces). Freed with the last
+/// projection or at teardown.
 pub const Registry = struct {
     state: CollectionState = .active,
     projections: std.ArrayListUnmanaged(model.ExportPosition) = .empty,
+    /// Collections since the last trace, the pacing the collector reads.
+    collects_since_trace: u32 = 0,
 };
 
 pub const Projection = struct {
@@ -158,6 +162,9 @@ pub fn destroyRegistry(self: *Session) void {
 }
 
 pub const collect = @import("local_promise_gc.zig").collect;
+pub const collectNow = @import("local_promise_gc.zig").collectNow;
+pub const min_trace_interval = @import("local_promise_gc.zig").min_trace_interval;
+pub const collectAtAnswerCap = @import("local_promise_gc.zig").collectAtAnswerCap;
 
 /// Temporary custody of local references before a Node-staged payload records
 /// its Session mentions. This retain is local ownership, never a wire grant.

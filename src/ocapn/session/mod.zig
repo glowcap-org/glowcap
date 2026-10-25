@@ -20,6 +20,8 @@ pub const slot = @import("slot.zig");
 const sturdyref_cache = @import("sturdyref_cache.zig");
 const imported_promise = @import("promises/imported.zig");
 const local_promise = @import("local_promise.zig");
+/// Collections the local promise collector performs between traces at the least.
+pub const local_promise_trace_interval_floor = local_promise.min_trace_interval;
 const gc = @import("gc.zig");
 const resolver_export = @import("resolver_export.zig");
 const shortening = @import("shortening.zig");
@@ -496,6 +498,14 @@ pub const Session = struct {
     pub const deferredLocalPromiseSettlement = local_promise.deferredSettlement;
     pub const clearDeferredLocalPromiseSettlement = local_promise.clearDeferredSettlement;
     pub const collectLocalPromiseProjections = local_promise.collect;
+    pub const collectLocalPromiseProjectionsNow = local_promise.collectNow;
+    /// Whether another inbound answer obligation would pass the cap, after
+    /// the collector has reclaimed what it was still owed.
+    pub fn inboundAnswersAtCap(self: *Session) bool {
+        if (self.inboundAnswerObligationCount() < self.limits.max_inbound_answers) return false;
+        local_promise.collectAtAnswerCap(self);
+        return self.inboundAnswerObligationCount() >= self.limits.max_inbound_answers;
+    }
     pub const releaseUnsharedExport = positions.releaseUnsharedExport;
     pub const releaseImportRetain = positions.releaseImportRetain;
     pub const releaseSessionImportRetain = positions.releaseSessionImportRetain;

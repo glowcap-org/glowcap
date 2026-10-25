@@ -68,7 +68,15 @@ pub fn failClosed(self: *Peer, err: anyerror) void {
 /// `recordSend`, which would reject against post-failure
 /// session state. An encode/push failure is recorded beside the originating
 /// failure, which remains the returned authority, and closes the session.
+///
+/// A session already closed keeps the cause that closed it. A frame refused
+/// afterwards, the partner's traffic still in the pipe, is recorded beside
+/// that cause and projects no second abort.
 pub fn emitAbortForError(self: *Peer, err: anyerror) void {
+    if (self.sessionIsClosed()) {
+        self.recordSecondaryFailure(err);
+        return;
+    }
     self.recordFailure(err);
     const projected = abort_projection.abortForError(err) orelse return;
     self.commitAbortOutbound(.{
@@ -127,6 +135,16 @@ fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
         ) orelse return error.PartnerDesignatorMismatch;
         if (!demanded.eql(claimed_key)) return error.PartnerDesignatorMismatch;
     }
+}
+
+/// A hello carrying this session's own key is this session's hello reflected
+/// back by the path, and it verifies under that key. The two ends of a
+/// session hold distinct keys, so the reflection is refused before the key is
+/// learned. A session that has sent no hello has nothing a path could reflect,
+/// and an unverified key is an assertion, which in-process pairs share.
+fn refuseReflectedHello(self: *Peer, ss: model.view.StartSession) error{ReflectedSessionKey}!void {
+    const ours = self.session_state.localSessionKey() orelse return;
+    if (std.mem.eql(u8, ours, ss.session_pubkey)) return error.ReflectedSessionKey;
 }
 
 /// Apply an already-decoded inbound frame: install listeners, enqueue a
@@ -216,6 +234,7 @@ fn applyPlainOwnedFrame(
     if (decoded_body.* == .start_session and self.session_state.awaitsPartnerHello()) {
         if (self.verify_partner_handshake) {
             try engine.verifyPartnerStartSession(self.allocator, recorded_body.start_session);
+            try refuseReflectedHello(self, recorded_body.start_session);
         }
         // What this side demands of the partner's durable claim (ADR-0028),
         // at this same pre-open chokepoint: one byte-fed `feed` can carry the

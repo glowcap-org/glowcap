@@ -60,6 +60,41 @@ test "a verifying peer aborts an op:start-session whose signature does not match
     try std.testing.expectEqual(model.AbortKind.invalid_start_session_signature, view.abort.kind);
 }
 
+test "a verifying peer refuses its own hello reflected back, before any partner key is learned" {
+    const allocator = std.testing.allocator;
+
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    peer.verify_partner_handshake = true;
+
+    // The peer's own keyed hello, as a path that echoes bytes would return it.
+    // Its signature verifies under the key it claims, so only the key being
+    // this session's own tells it apart from a partner's.
+    const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:9", .hints = model.Hints.emptyFalse() };
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x55)));
+    const signed = try codec.syrup.canonicalLocationSignedBytes(allocator, loc);
+    defer allocator.free(signed);
+    const sig = crypto.sign(&secret, signed);
+    try peer.sendBorrowed(.{ .start_session = .{
+        .captp_version = .v1_0,
+        .session_pubkey = .{ .bytes = secret.publicKey().asBytes() },
+        .acceptable_location = loc,
+        .acceptable_location_sig = .{ .bytes = sig.asBytes() },
+    } });
+    _ = try peer.step();
+    const reflected = peer.takeOutbound().?;
+
+    try peer.feedOwned(reflected);
+    try std.testing.expectError(error.ReflectedSessionKey, peer.step());
+    try std.testing.expectEqual(session.State.closed, peer.session_state.state);
+    try std.testing.expect(peer.session_state.partnerSessionKey() == null);
+
+    var abort_frame = peer.takeOutbound().?;
+    defer abort_frame.deinit();
+    const view = try codec.syrup.decodeBody(abort_frame.view());
+    try std.testing.expectEqual(model.AbortKind.invalid_start_session_signature, view.abort.kind);
+}
+
 test "a pinned peer opens when the partner's start-session carries exactly the expected key" {
     const allocator = std.testing.allocator;
 

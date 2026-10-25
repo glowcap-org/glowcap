@@ -318,6 +318,7 @@ test "core host: an inline give becomes one nested promise identity and terminal
         "handoff redeem failed: exporter unavailable",
         pipelined.reason_buf[0..pipelined.reason_len],
     );
+    session.served.port.peer.session_state.collectLocalPromiseProjectionsNow();
     try std.testing.expect(session.served.port.peer.session_state.inboundAnswerNamed(backing_answer) == null);
     try std.testing.expect(
         session.served.port.peer.session_state.answerForLocalPromiseExport(projected.near.export_position) == null,

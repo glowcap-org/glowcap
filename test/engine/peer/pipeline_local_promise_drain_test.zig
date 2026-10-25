@@ -95,6 +95,7 @@ test "forwarding an earlier queued call preserves a later call's local promise a
                 .positions = &.{projection.export_position.int()},
                 .deltas = &.{1},
             } });
+            peer.session_state.collectLocalPromiseProjectionsNow();
             try std.testing.expect(!peer.session_state.hasExport(projection.export_position));
             try std.testing.expect(peer.session_state.inboundAnswerNamed(projection.answer_name) == null);
         }

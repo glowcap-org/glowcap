@@ -130,8 +130,13 @@ pub fn ownedFrameFromView(
 
 /// Dispatch a borrowed inbound frame. The transient bytes are materialized once
 /// into an owned frame because the surfaced event outlives this call.
-/// An over-cap frame is refused before allocation or copying.
+/// An over-cap frame, and any frame for a closed session, is refused before
+/// allocation or copying.
 pub fn recvBorrowed(self: *Peer, frame: foundation.FrameView) !void {
+    if (self.sessionIsClosed()) {
+        inbound.emitAbortForError(self, error.SessionClosed);
+        return error.SessionClosed;
+    }
     inbound.checkFrameSize(self, frame.bytes.len) catch |err| {
         inbound.emitAbortForError(self, err);
         return err;

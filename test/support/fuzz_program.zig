@@ -83,6 +83,11 @@ pub fn heldOutboundAnswer(peer: *engine.Peer) ?u64 {
 pub const drain_step_cap: usize = 256;
 
 /// Step a peer until it has nothing left to do, or say it is stuck.
+///
+/// A step refused for memory leaves its work queued for the next step, so
+/// the embedder's action is to come back, which the next drain does. Under an
+/// allocator that keeps refusing, the peer stays where it is, which is the
+/// state those runs then judge.
 pub fn stepBounded(peer: *engine.Peer) !void {
     var steps: usize = 0;
     while (steps < drain_step_cap) : (steps += 1) {
@@ -90,6 +95,20 @@ pub fn stepBounded(peer: *engine.Peer) !void {
         if (outcome == .idle) return;
     }
     return error.PeerDidNotReachIdle;
+}
+
+/// What an embedder does when an inbound door refuses a frame for memory and
+/// the frame cannot be offered again: the frame's authority is lost, so the
+/// session ends with the cause named, the way the Host condemns under
+/// `resource_exhausted`. The abort itself may fail to encode under the same
+/// shortage, and then the session still closes.
+pub fn condemnForMemory(peer: *engine.Peer) void {
+    if (!peer.sessionIsOpen()) return;
+    peer.recordFailure(error.OutOfMemory);
+    peer.commitAbortOutbound(.{
+        .kind = .resource_exhausted,
+        .message = "inbound frame refused under memory pressure",
+    }) catch peer.closeSession();
 }
 
 /// Collect everything the application side owes a release on. A real embedder
@@ -105,23 +124,40 @@ pub fn drainApplication(peer: *engine.Peer) !void {
 
 /// Move one peer's queued frames into the other, the way a connection would.
 /// This is what builds real state: the partner's answers, imports, and listeners
-/// only exist because legitimate traffic created them.
+/// only exist because legitimate traffic created them. A frame the receiver
+/// refuses is gone, as on a connection, and the ones behind it are still
+/// offered: after an abort they meet a closed session and are dropped.
 pub fn shuttle(from: *engine.Peer, to: *engine.Peer) void {
-    // A send only queues; the frames exist once the sender has stepped. Draining
-    // without stepping takes nothing, which quietly means no traffic ever
-    // reaches the partner and no state is built on either side.
-    stepBounded(from) catch return;
+    // A send only queues; the frames exist once the sender has stepped.
+    // Draining without stepping takes nothing, which quietly means no traffic
+    // ever reaches the partner and no state is built on either side. A step
+    // the sender cannot finish still leaves the frames it did encode, a closed
+    // sender's abort among them, so the drain goes on.
+    stepBounded(from) catch {};
     var shuttled: usize = 0;
     while (from.takeOutbound()) |frame_in| : (shuttled += 1) {
         var frame = frame_in;
         if (shuttled % 2 == 1) {
-            // The owned door consumes the frame on every outcome.
-            to.feedOwned(frame) catch return;
+            // The owned door consumes the frame on every outcome, so a
+            // refusal for memory has lost it, and the embedder condemns.
+            to.feedOwned(frame) catch |err| switch (err) {
+                error.OutOfMemory => condemnForMemory(to),
+                else => {},
+            };
         } else {
             defer frame.deinit();
-            to.recvPacket(frame.bytes()) catch return;
+            // The borrowed door commits nothing when it refuses for memory,
+            // so the same bytes are offered once more, the Host's retry. A
+            // second refusal is the lasting shortage, and the frame is lost.
+            to.recvPacket(frame.bytes()) catch |err| switch (err) {
+                error.OutOfMemory => to.recvPacket(frame.bytes()) catch |again| switch (again) {
+                    error.OutOfMemory => condemnForMemory(to),
+                    else => {},
+                },
+                else => {},
+            };
         }
-        drainApplication(to) catch return;
+        drainApplication(to) catch {};
     }
 }
 
@@ -216,7 +252,9 @@ pub fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *en
 /// state every cross-peer comparison is made in. Each round moves both
 /// directions and lets the application side release what it was handed,
 /// because a release is itself traffic. A pair that is still producing frames
-/// after the cap is a dispatcher that never settles, which is a finding.
+/// after the cap is a dispatcher that never settles, which is a finding, and a
+/// peer whose step keeps failing is one that cannot settle, which the caller
+/// judges by the allocator it gave the pair.
 pub fn settle(p1: *engine.Peer, p2: *engine.Peer) !void {
     var rounds: usize = 0;
     while (rounds < settle_round_cap) : (rounds += 1) {
@@ -224,13 +262,25 @@ pub fn settle(p1: *engine.Peer, p2: *engine.Peer) !void {
         shuttle(p2, p1);
         try drainApplication(p1);
         try drainApplication(p2);
-        if (!p1.hasOutbound() and !p2.hasOutbound()) return;
+        if (quiescent(p1) and quiescent(p2)) return;
     }
     return error.PairDidNotSettle;
+}
+
+/// Whether a peer has nothing left to do: it stepped to idle with no frame
+/// queued, or its session is closed and every frame it encoded was taken. A
+/// step that fails is work the peer still owes.
+pub fn quiescent(peer: *engine.Peer) bool {
+    if (peer.sessionIsClosed()) return !peer.hasOutbound();
+    var steps: usize = 0;
+    while (steps < drain_step_cap) : (steps += 1) {
+        const outcome = peer.step() catch return false;
+        if (outcome == .idle) return !peer.hasOutbound();
+    }
+    return false;
 }
 
 /// Rounds `settle` allows. Each legitimate operation produces a bounded
 /// number of frames, and each reply to one produces fewer, so a pair that
 /// has not settled in this many rounds is ping-ponging.
 const settle_round_cap: usize = 64;
-

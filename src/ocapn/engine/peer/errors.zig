@@ -14,6 +14,10 @@ pub const Error = error{
     /// dial demanded. An address route makes no durable claim and is weighed
     /// by the channel realizer instead (ADR-0028).
     PartnerDesignatorMismatch,
+    /// The partner's `op:start-session` carries this session's own key: our
+    /// hello reflected back, which verifies under that key on a cleartext
+    /// netlayer. The two ends of a session hold distinct keys.
+    ReflectedSessionKey,
     /// The partner selected an extension transport whose designation semantics
     /// are unknown to this node.
     UnknownTransportSemantics,

@@ -452,9 +452,7 @@ pub fn installInboundAnswerNamed(self: *Session, answer: model.AnswerName) !void
         if (entry.status() != .pending) return error.UnexpectedMessage;
         return;
     }
-    if (self.inboundAnswerObligationCount() >= self.limits.max_inbound_answers) {
-        return error.InboundAnswerCapExceeded;
-    }
+    if (self.inboundAnswersAtCap()) return error.InboundAnswerCapExceeded;
     try self.inbound_answers.put(
         self.allocator,
         answer,

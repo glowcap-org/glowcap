@@ -151,6 +151,7 @@ comptime {
     }
     if (wanted(.engine)) {
         _ = @import("engine/fuzz_test.zig");
+        _ = @import("engine/allocation_failure_test.zig");
         _ = @import("engine/parse_once_test.zig");
         _ = @import("engine/give_location_test.zig");
         _ = @import("engine/peer/ownership_test.zig");

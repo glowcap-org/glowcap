@@ -3,12 +3,40 @@
 //! projection. This allocation-free mark/sweep supplies that lifetime without
 //! strong reference cycles. Scratch lives in the existing resolver-purpose
 //! union and never participates in its BiMap identity.
+//!
+//! A trace walks every projection, every inbound answer row, and every value
+//! those rows retain, and the partner drives every site that collects: a GC
+//! message, a release, a settled carrier. Traced on each one, a one-line
+//! `op:gc-answers` would buy a walk over everything the partner has queued.
+//! So a collection traces once per interval, and the interval grows with the
+//! walk, which keeps the amortized cost of a release constant. A projection
+//! nothing holds waits for the next trace, spending its answer obligation
+//! meanwhile, and the answer cap refusal traces first so that wait never
+//! refuses a partner whose live rows fit.
 const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
 const answers = @import("answers/store.zig");
 const local_promise = @import("local_promise.zig");
 const LocalPromiseAnswer = @import("promises/types.zig").LocalPromiseAnswer;
+
+/// Collections a session performs between traces at the least, so a small
+/// session amortizes too, and the most projections the answer cap refusal
+/// lets wait: at the cap it traces once this many collections have passed.
+pub const min_trace_interval: u32 = 16;
+
+/// Retained bytes that count as one row of trace work. An argument node is
+/// a few dozen bytes, so this charges the walk over queued calls and
+/// retained resolutions at about one visit per node.
+const bytes_per_row_of_work: usize = 64;
+
+/// Collections between traces: a quarter of the walk, so the walk costs at
+/// most four row visits per collection however large the tables.
+fn traceInterval(owner: *const session.Session, registry: *const local_promise.Registry) u32 {
+    const retained = owner.retained_sent_answer_bytes + owner.queued_call_bytes;
+    const work = registry.projections.items.len + owner.inbound_answers.rows.count() + retained / bytes_per_row_of_work;
+    return @intCast(@max(min_trace_interval, @min(work / 4, std.math.maxInt(u32))));
+}
 
 const Trace = struct {
     owner: *session.Session,
@@ -96,12 +124,41 @@ fn selfRooted(owner: *session.Session, position: model.ExportPosition, projectio
 /// producer roots. No heap table or recursion across the promise graph exists;
 /// value-tree recursion is bounded by the admission-time model depth check.
 ///
-/// Every collection site is a release the partner can drive, so the scan of
-/// the answer tables runs only when some projection lacks a root of its own. Otherwise tracing could reclaim nothing, and the cost is
-/// one pass over the registry.
+/// The paced entry: the trace runs once `traceInterval` collections have
+/// asked for it, or at once when the registry is empty.
 pub fn collect(owner: *session.Session) void {
     const registry = owner.local_promises orelse return;
     if (registry.state != .active) return;
+    if (registry.projections.items.len == 0) {
+        local_promise.destroyRegistry(owner);
+        return;
+    }
+    registry.collects_since_trace += 1;
+    if (registry.collects_since_trace < traceInterval(owner, registry)) return;
+    trace(owner, registry);
+}
+
+/// Trace at once, whatever the pacing: a caller that must know the tables
+/// hold only what is reachable, such as a test of the collector itself.
+pub fn collectNow(owner: *session.Session) void {
+    const registry = owner.local_promises orelse return;
+    if (registry.state != .active) return;
+    trace(owner, registry);
+}
+
+/// The trace the answer cap refusal runs first, so projections awaiting
+/// collection never refuse a partner whose live rows fit. Paced at the
+/// floor: a partner holding its tables at the cap buys one trace per
+/// `min_trace_interval` collections, never one per message.
+pub fn collectAtAnswerCap(owner: *session.Session) void {
+    const registry = owner.local_promises orelse return;
+    if (registry.state != .active) return;
+    if (registry.collects_since_trace < min_trace_interval) return;
+    trace(owner, registry);
+}
+
+fn trace(owner: *session.Session, registry: *local_promise.Registry) void {
+    registry.collects_since_trace = 0;
     var candidate = false;
     for (registry.projections.items) |position| {
         const projection = projectionAt(owner, position);
@@ -109,25 +166,22 @@ pub fn collect(owner: *session.Session) void {
         projection.gc_next = .from(0);
         if (!selfRooted(owner, position, projection)) candidate = true;
     }
-    if (!candidate) {
-        if (registry.projections.items.len == 0) local_promise.destroyRegistry(owner);
-        return;
-    }
+    if (!candidate) return;
 
-    var trace: Trace = .{ .owner = owner };
+    var marks: Trace = .{ .owner = owner };
     for (registry.projections.items) |position| {
-        if (selfRooted(owner, position, projectionAt(owner, position))) trace.markExport(position);
+        if (selfRooted(owner, position, projectionAt(owner, position))) marks.markExport(position);
     }
     var rows = owner.inbound_answers.rows.iterator();
     while (rows.next()) |entry| {
         if (entry.key_ptr.* == .virtual and local_promise.isAnswer(owner, entry.key_ptr.*)) continue;
-        if (entry.value_ptr.payload) |value| trace.payload(value);
+        if (entry.value_ptr.payload) |value| marks.payload(value);
     }
     if (owner.detached_inbound_answers) |detached| {
         var detached_rows = detached.rows.valueIterator();
-        while (detached_rows.next()) |entry| trace.payload(entry.payload);
+        while (detached_rows.next()) |entry| marks.payload(entry.payload);
     }
-    trace.drain();
+    marks.drain();
 
     // The registry, not either table, drives the sweep, so removing a BiMap or
     // answer row cannot invalidate the walk.
