@@ -38,6 +38,20 @@
 //! cap does exactly that without ever crashing, a "no crash" fuzzer will run
 //! past it forever. `test/support/session_bounds.zig` owns both the caps and
 //! the check, and this reads the counts back after every step.
+//!
+//! The second target runs the same legitimate operations alone, between two
+//! peers that both keep the protocol, and after the wire settles holds the two
+//! sessions to each other (`test/support/session_agreement.zig`): every import
+//! is a mention the partner made that many times, and every open question is an
+//! answer the partner still owes. That is the class the bounds check is blind
+//! to. A row one side keeps and the other has dropped never crashes and never
+//! crosses a cap, and each table is right by its own rules. It is wrong only
+//! against the partner: an import nobody can release, a question nobody will
+//! answer, a mention nobody holds. Two peers that both keep the rules and still
+//! disagree have a defect in the implementation of the rules, so a
+//! disagreement is a finding on its own. The program also never closes the
+//! session, because a frame one side refuses is one the other should not have
+//! sent, so a closed session is reported with its abort instead of skipped.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -60,6 +74,16 @@ const session_span: u16 = 4096;
 /// Every shape in the checked-in corpus, so the search starts from bytes that
 /// decode instead of rediscovering what a frame looks like.
 const seeds = @import("../support/corpus_seeds.zig");
+/// The legitimate operations this target interleaves with its injections,
+/// shared with the agreement target that runs them alone.
+const program = @import("../support/fuzz_program.zig");
+const legitimateOp = program.legitimateOp;
+const shuttle = program.shuttle;
+const drainApplication = program.drainApplication;
+const stepBounded = program.stepBounded;
+const heldImport = program.heldImport;
+/// The cross-peer relation the agreement target holds.
+const agreement = @import("../support/session_agreement.zig");
 
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it
@@ -198,113 +222,6 @@ const program_seeds = blk: {
     break :blk built;
 };
 
-/// Which end of the import table a release addresses. The table iterates in
-/// hash order, so "the first row" would name a different import from one
-/// build to the next. The lowest and highest positions are the same rows every
-/// time, and a program that needs one of them can say which.
-const ImportPick = enum { lowest, highest };
-
-/// The position of some import this peer holds, or null when it holds
-/// none. A release for a position nobody holds is refused before it reaches any
-/// of the accounting worth exercising. With `releasable_only`, a row the
-/// session holds entirely for a release of its own, a pending listener's, is
-/// skipped, so the release lands where a caller's may. Without it, that row
-/// is exactly the one a release has to be refused on.
-fn heldImport(peer: *engine.Peer, releasable_only: bool, pick: ImportPick) ?u64 {
-    const Found = struct {
-        releasable_only: bool,
-        pick: ImportPick,
-        position: ?u64 = null,
-        fn take(self: *@This(), view: glowcap.ocapn.session.ImportView) void {
-            if (view.refcount == 0) return;
-            if (self.releasable_only and view.session_held == view.refcount) return;
-            const candidate = view.position.int();
-            const current = self.position orelse {
-                self.position = candidate;
-                return;
-            };
-            self.position = switch (self.pick) {
-                .lowest => @min(current, candidate),
-                .highest => @max(current, candidate),
-            };
-        }
-    };
-    var found: Found = .{ .releasable_only = releasable_only, .pick = pick };
-    glowcap.ocapn.session.inspect.forEachImport(&peer.session_state, &found, Found.take);
-    return found.position;
-}
-
-/// The lowest wire position of a question this peer asked and still holds, or
-/// null when it holds none. Lowest, for the same reason `heldImport` picks by
-/// position rather than table order.
-fn heldOutboundAnswer(peer: *engine.Peer) ?u64 {
-    const Found = struct {
-        position: ?u64 = null,
-        fn take(self: *@This(), view: glowcap.ocapn.session.AnswerRowView) void {
-            const candidate = switch (view.position) {
-                .wire => |wire| wire.int(),
-                .virtual => return,
-            };
-            self.position = if (self.position) |current| @min(current, candidate) else candidate;
-        }
-    };
-    var found: Found = .{};
-    glowcap.ocapn.session.inspect.forEachOutboundAnswer(&peer.session_state, &found, Found.take);
-    return found.position;
-}
-
-/// How many steps one drain may take before the peer is treated as stuck.
-///
-/// `stepToIdle` loops until the peer says idle, and a dispatcher that never says
-/// idle would spin here forever. Under a fuzzer that is the worst outcome
-/// available: not a finding, not a failure, just a sweep that stops making
-/// progress and looks like a slow one. `pairing` bounds its own shuttle for the
-/// same reason.
-const drain_step_cap: usize = 256;
-
-/// Step a peer until it has nothing left to do, or say it is stuck.
-fn stepBounded(peer: *engine.Peer) !void {
-    var steps: usize = 0;
-    while (steps < drain_step_cap) : (steps += 1) {
-        const outcome = peer.step() catch return;
-        if (outcome == .idle) return;
-    }
-    return error.PeerDidNotReachIdle;
-}
-
-/// Collect everything the application side owes a release on. A real embedder
-/// polls events and drains outbound after every read. Skipping it would report a
-/// leak the contract does not have.
-fn drainApplication(peer: *engine.Peer) !void {
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
-    try stepBounded(peer);
-}
-
-/// Move one peer's queued frames into the other, the way a connection would.
-/// This is what builds real state: the partner's answers, imports, and listeners
-/// only exist because legitimate traffic created them.
-fn shuttle(from: *engine.Peer, to: *engine.Peer) void {
-    // A send only queues; the frames exist once the sender has stepped. Draining
-    // without stepping takes nothing, which quietly means no traffic ever
-    // reaches the partner and no state is built on either side.
-    stepBounded(from) catch return;
-    var shuttled: usize = 0;
-    while (from.takeOutbound()) |frame_in| : (shuttled += 1) {
-        var frame = frame_in;
-        if (shuttled % 2 == 1) {
-            // The owned door consumes the frame on every outcome.
-            to.feedOwned(frame) catch return;
-        } else {
-            defer frame.deinit();
-            to.recvPacket(frame.bytes()) catch return;
-        }
-        drainApplication(to) catch return;
-    }
-}
-
 /// Feed the fuzzer's own bytes in as one frame, through whichever door its
 /// first byte picks.
 fn inject(peer: *engine.Peer, bytes: []const u8) !void {
@@ -364,95 +281,6 @@ fn injectDamagedFrame(smith: *std.testing.Smith, actor: *engine.Peer, partner: *
         damaged[at] ^= smith.valueRangeAtMost(u8, 1, 255);
     }
     try inject(actor, damaged[0..bytes.len]);
-}
-
-/// One legitimate operation, chosen by the fuzzer. These are what build the
-/// tables the injected bytes then meet.
-fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine.Peer) !void {
-    switch (smith.valueRangeAtMost(u8, 0, 7)) {
-        // Call the partner's bootstrap, which mints an answer on both sides.
-        0 => {
-            const answer = smith.valueRangeAtMost(u8, 1, 40);
-            actor.sendBorrowed(.{ .deliver = .{
-                .target = .{ .far = model.FarRef.object(0) },
-                .args = &.{.{ .integer = 1 }},
-                .answer = model.AnswerPosition.from(answer),
-            } }) catch {};
-        },
-        // Answer one, so the partner grows a resolved answer with listeners.
-        1 => {
-            const answer = smith.valueRangeAtMost(u8, 1, 40);
-            actor.sendBorrowed(.{ .resolve = .{
-                .answer = model.AnswerPosition.from(answer),
-                .resolution = .{ .fulfill = .{ .integer = 7 } },
-            } }) catch {};
-        },
-        // Watch a promise, the act that queues listener fires. Half the time
-        // the listener is an object of this peer's own, so the partner takes a
-        // retain it must release beside the fire: the row a release from that
-        // side may never spend.
-        2 => {
-            const answer = smith.valueRangeAtMost(u8, 1, 40);
-            const listener: model.Reference = if (smith.valueRangeAtMost(u8, 0, 1) == 1) blk: {
-                const position = actor.exportNextObject() catch return;
-                actor.session_state.registerExport(model.ExportPosition.from(position)) catch return;
-                break :blk .{ .near = model.NearRef.object(position) };
-            } else .{ .far = model.FarRef.object(0) };
-            actor.sendBorrowed(.{ .listen = .{
-                .target = .{ .promise = .{ .answer_position = model.AnswerPosition.from(answer) } },
-                .listener = listener,
-                .mode = if (smith.valueRangeAtMost(u8, 0, 1) == 1)
-                    .shortening_or_settling
-                else
-                    .settling_only,
-            } }) catch {};
-        },
-        // Publish an object, so there is something live to deliver to.
-        3 => _ = actor.exportNextObject() catch {},
-        // Hand the partner a reference. This is the only operation that makes
-        // the partner's import table grow, and without it the release below has
-        // nothing to release: a `gc-exports` for a position nobody holds is
-        // refused as an underflow every single time.
-        4 => {
-            const answer = smith.valueRangeAtMost(u8, 1, 40);
-            // Allocating a position only reserves it. The partner cannot be
-            // handed a reference to it until the export row exists, so grant it
-            // here, otherwise every send below is refused as an unknown
-            // reference and the import table never grows at all.
-            const position = actor.exportNextObject() catch return;
-            actor.session_state.registerExport(model.ExportPosition.from(position)) catch return;
-            actor.sendBorrowed(.{ .resolve = .{
-                .answer = model.AnswerPosition.from(answer),
-                .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(position) } } },
-            } }) catch {};
-        },
-        // Release an import the peer actually holds. Picking a position out of
-        // the live table is what makes this the real release path, where the
-        // refcount and the wire delta have to agree, rather than a refusal.
-        5 => {
-            const releasable_only = smith.valueRangeAtMost(u8, 0, 3) != 0;
-            const pick: ImportPick = if (smith.valueRangeAtMost(u8, 0, 1) == 0) .lowest else .highest;
-            const held = heldImport(actor, releasable_only, pick) orelse return;
-            const positions = [_]u64{held};
-            const deltas = [_]u64{1};
-            actor.sendBorrowed(.{ .gc_export = .{
-                .positions = positions[0..],
-                .deltas = deltas[0..],
-            } }) catch {};
-        },
-        // Let the partner's queued traffic land. This is what turns the
-        // reference sent above into an import row on the other side.
-        6 => shuttle(partner, actor),
-        // Release a question this peer asked, while whatever the engine
-        // queued against its answer may still be pending: the same shape as
-        // the import release above, one table over.
-        else => {
-            const answer = heldOutboundAnswer(actor) orelse return;
-            const positions = [_]u64{answer};
-            actor.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..] } }) catch {};
-        },
-    }
-    try drainApplication(actor);
 }
 
 fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
@@ -614,4 +442,72 @@ test "fuzz: no program of operations and untrusted bytes crashes or leaks a sess
     }
 
     try std.testing.fuzz({}, programOne, .{ .corpus = (program_seeds ++ regression_seeds)[0..] });
+}
+
+/// One of every four steps settles the wire and compares the tables, so a
+/// disagreement is caught near the operation that made it rather than at the
+/// end of a program that has since moved on.
+const compare_every: u8 = 4;
+
+fn agreementProgramOne(_: void, smith: *std.testing.Smith) anyerror!void {
+    // The shipped limits: a program this short cannot reach them, and a cap it
+    // did reach would be the receiver's documented refusal (ADR-0008), which
+    // the first target searches, not a row the two sides read differently.
+    // The first draw picks the profile, so both the CapTP 1.0 Syrup pair and
+    // the negotiated glowcap-next pair are held to the relation.
+    var pair = if (smith.valueRangeAtMost(u8, 0, 1) == 0)
+        try pairing.pairedWithLimits(std.testing.allocator, .syrup, .{})
+    else
+        try pairing.paired(std.testing.allocator);
+    defer pair.deinit();
+    var step: usize = 0;
+    while (step < max_steps) : (step += 1) {
+        if (smith.eos()) break;
+        const on_p1 = smith.valueRangeAtMost(u8, 0, 1) == 0;
+        const actor = if (on_p1) &pair.p1 else &pair.p2;
+        const partner = if (on_p1) &pair.p2 else &pair.p1;
+        try program.legitimateOp(smith, actor, partner);
+        try bounds.checkDeclared(&pair.p1.session_state);
+        try bounds.checkDeclared(&pair.p2.session_state);
+        if (smith.valueRangeAtMost(u8, 0, compare_every - 1) == 0) try settleAndCompare(&pair);
+    }
+    try settleAndCompare(&pair);
+}
+
+fn settleAndCompare(pair: *pairing.Pair) !void {
+    try program.settle(&pair.p1, &pair.p2);
+    if (!pair.p1.sessionIsOpen() or !pair.p2.sessionIsOpen()) {
+        std.debug.print("closed: p1 open {} abort {any}\np2 open {} abort {any}\n", .{
+            pair.p1.sessionIsOpen(), pair.p1.lastAbort(), pair.p2.sessionIsOpen(), pair.p2.lastAbort(),
+        });
+        return error.SessionClosed;
+    }
+    if (agreement.find(&pair.p1, &pair.p2)) |finding| {
+        std.debug.print("disagreement: {any}\n", .{finding});
+        return finding.kind;
+    }
+}
+
+/// Draws are little-endian words, so a run of one byte value is a program
+/// that repeats one choice: every operation on one peer, or alternating peers
+/// through the whole menu.
+const agreement_seeds = [_][]const u8{
+    &repeated(&.{0}),
+    &repeated(&.{1}),
+    &repeated(&.{ 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0 }),
+    &repeated(&.{ 1, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0 }),
+};
+
+/// `pattern` repeated to fill a program of `seed_bytes`.
+fn repeated(comptime pattern: []const u8) [seed_bytes]u8 {
+    @setEvalBranchQuota(64 * seed_bytes);
+    var out: [seed_bytes]u8 = undefined;
+    for (&out, 0..) |*byte, i| byte.* = pattern[i % pattern.len];
+    return out;
+}
+
+const seed_bytes = 256;
+
+test "fuzz: no legitimate program leaves the two peers disagreeing about a row" {
+    try std.testing.fuzz({}, agreementProgramOne, .{ .corpus = (agreement_seeds ++ regression_seeds)[0..] });
 }

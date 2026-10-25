@@ -204,6 +204,11 @@ fn liftValueInner(
         .bytes => |v| .{ .bytes = try bytes.materialize(arena, v) },
         .symbol => |v| .{ .symbol = try bytes.materialize(arena, v) },
         .reference => |reference| blk: {
+            // A promise received as an argument names a question this side
+            // still owes an answer to. The Host has no capability promise for
+            // it, so the value is refused here, before any lift, and the call
+            // fails while the session stays open (`docs/boundaries.md`).
+            if (reference == .promise) return error.UnsupportedValue;
             try lifts.ensureOne(if (bytes == .owned) self.allocator else arena);
             const lifted = try identity.liftCapabilityTracked(self, session, try identity.callableReference(reference));
             lifts.appendAssumeCapacity(lifted, .reference);

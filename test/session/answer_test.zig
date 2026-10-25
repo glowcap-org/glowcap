@@ -476,3 +476,120 @@ test "a desc:answer names a live question in the asker's table on every carrier"
         .args = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(6) } } }},
     } });
 }
+
+/// A row count of every session table a reference can touch. Equal counts
+/// before and after a refused message show the refusal committed nothing.
+const TableCounts = struct {
+    imports: usize = 0,
+    import_refs: u64 = 0,
+    exports: usize = 0,
+    export_refs: u64 = 0,
+    inbound_answers: usize = 0,
+    outbound_answers: usize = 0,
+
+    fn of(s: *const session.Session) TableCounts {
+        var counts: TableCounts = .{};
+        session.inspect.forEachImport(s, &counts, countImport);
+        session.inspect.forEachExport(s, &counts, countExport);
+        session.inspect.forEachInboundAnswer(s, &counts, countInbound);
+        session.inspect.forEachOutboundAnswer(s, &counts, countOutbound);
+        return counts;
+    }
+    fn countImport(self: *TableCounts, view: session.ImportView) void {
+        self.imports += 1;
+        self.import_refs += view.refcount;
+    }
+    fn countExport(self: *TableCounts, view: session.ExportView) void {
+        self.exports += 1;
+        self.export_refs += view.refcount;
+    }
+    fn countInbound(self: *TableCounts, _: session.AnswerRowView) void {
+        self.inbound_answers += 1;
+    }
+    fn countOutbound(self: *TableCounts, _: session.AnswerRowView) void {
+        self.outbound_answers += 1;
+    }
+};
+
+/// Every nesting a reference can take inside a message's values.
+fn shapes(comptime inner: model.Argument) [5]model.Argument {
+    const entry = [_]model.StructEntry{.{ .key = "k", .value = inner }};
+    const nested_entry = [_]model.StructEntry{.{ .key = "k", .value = .{ .list = &.{inner} } }};
+    return .{
+        inner,
+        .{ .list = &.{inner} },
+        .{ .tagged = .{ .tag = "t", .value = &.{inner} } },
+        .{ .@"struct" = &entry },
+        .{ .tagged = .{ .tag = "t", .value = &.{.{ .@"struct" = &nested_entry }} } },
+    };
+}
+
+test "a dead reference is refused in every nesting shape on every carrier, committing nothing" {
+    const allocator = std.testing.allocator;
+    // The validator walks a message's values once, so a position it refuses at
+    // the top is refused inside a list, a tagged value, a struct, and a struct
+    // inside a tagged value, and in every place a value can ride: a received
+    // call's arguments, a received resolution, a sent call's arguments, and a
+    // sent resolution. The partner asked question 41 with resolver import 8,
+    // we asked question 5, we hold import 3, export 9 is one we have
+    // mentioned, and nothing else exists.
+    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
+    defer s.deinit();
+    try s.registerImport(.from(3));
+    const partner = model.Reference{ .far = .{ .import_position = .from(3) } };
+    const bootstrap = model.Reference{ .near = .{ .export_position = .from(0) } };
+    try s.recordRecv(.{ .deliver = .{
+        .target = bootstrap,
+        .args = &.{},
+        .answer = .from(41),
+        .resolve_me_desc = .{ .far = model.FarRef.object(8) },
+    } });
+    try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{}, .answer = .from(5) } });
+    try s.registerExport(.from(9));
+    const before = TableCounts.of(&s);
+
+    // A question nobody asked, and an export nobody holds.
+    const dead_answer = comptime model.Argument{ .reference = .{ .promise = .{ .answer_position = .from(42) } } };
+    const unheld_near = comptime model.Argument{ .reference = .{ .near = .{ .export_position = .from(99) } } };
+    for (comptime shapes(dead_answer) ++ shapes(unheld_near)) |value| {
+        try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .deliver = .{ .target = bootstrap, .args = &.{value} } }));
+        try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .resolve = .{ .answer = .from(5), .resolution = .{ .fulfill = value } } }));
+        try std.testing.expectEqual(before, TableCounts.of(&s));
+    }
+    // Sent, a dead answer is refused the same way. A sent `near` is this side's
+    // own export and mints its row, so only the answer is dead on this side. A
+    // sent resolution is owned by the session, which frees a refused one.
+    for (comptime shapes(dead_answer)) |value| {
+        try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{value} } }));
+        const owned = try model.cloneArgument(allocator, value);
+        try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .resolve = .{ .answer = .from(41), .resolution = .{ .fulfill = owned } } }));
+        try std.testing.expectEqual(before, TableCounts.of(&s));
+    }
+    // A refused message that also carries a held export of ours takes no
+    // mention for it: the export's count is part of `before`.
+    const held_near = comptime model.Argument{ .reference = .{ .near = .{ .export_position = .from(9) } } };
+    const both = try model.cloneArgument(allocator, .{ .list = &.{ dead_answer, held_near } });
+    try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .resolve = .{ .answer = .from(41), .resolution = .{ .fulfill = both } } }));
+    try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{ dead_answer, held_near } } }));
+    const unasked = try model.cloneArgument(allocator, held_near);
+    try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = unasked } } }));
+    try std.testing.expectEqual(before, TableCounts.of(&s));
+
+    // The live rows still answer: the partner's question in a received call,
+    // ours in a received resolution and a sent call, and the partner's in a
+    // sent resolution.
+    const theirs = model.Argument{ .reference = .{ .promise = .{ .answer_position = .from(41) } } };
+    const ours = model.Argument{ .reference = .{ .promise = .{ .answer_position = .from(5) } } };
+    try s.recordRecv(.{ .deliver = .{ .target = bootstrap, .args = &.{.{ .list = &.{theirs} }} } });
+    try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{.{ .list = &.{ours} }} } });
+    try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{}, .answer = .from(6) } });
+    try s.recordRecv(.{ .resolve = .{ .answer = .from(5), .resolution = .{ .fulfill = .{ .list = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(6) } } }} } } } });
+    try s.recordRecv(.{ .deliver = .{
+        .target = bootstrap,
+        .args = &.{},
+        .answer = .from(43),
+        .resolve_me_desc = .{ .far = model.FarRef.object(8) },
+    } });
+    const settled = try model.cloneArgument(allocator, .{ .list = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(43) } } }} });
+    try s.recordSend(.{ .resolve = .{ .answer = .from(41), .resolution = .{ .fulfill = settled } } });
+}

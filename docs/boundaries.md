@@ -250,6 +250,13 @@ assets are not published.
   physical session. A give keeps its route list only when both sessions
   negotiated it. Otherwise it falls back to the exporter's claimed location.
   New route advice reaches later gives only after one withdrawal succeeds.
+- **A promise received as an argument is not lifted.** A `desc:answer` inside a
+  deliver's arguments names a question this side still owes an answer to, and
+  the Host has no capability promise for it. The call fails with
+  `UnsupportedValue` and the session stays open
+  (`test/driver/promise_argument_test.zig`). Pipelining rides a promise
+  target, which the engine queues
+  ([ADR-0003](decisions/adr/ADR-0003-promise-pipelining-and-listeners.md)).
 - **Handoff signatures always use Syrup**, even on a Cap'n Proto session.
 - **Pinned Goblins can reject handoffs from independent receivers.** Goblins
   keeps the `handoff-count` on the wrong session, so a second receiver starting

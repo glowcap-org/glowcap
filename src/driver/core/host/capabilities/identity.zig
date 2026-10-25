@@ -263,12 +263,25 @@ pub fn discardCapabilityObservation(self: *Host, session: *HostSession, referenc
     // A void verb: with the owner asserted here, the verbs below cannot
     // refuse `WrongThread`, so their catch arms judge pressure alone.
     self.assertOwner();
-    const lifted = lift: {
-        const owned = callableReference(reference) catch break :lift null;
-        break :lift liftCapabilityTracked(self, session, owned) catch null;
-    } orelse {
-        host_pump.condemnAndClose(self, session, .resource_exhausted, "failed capability projection cleanup");
-        return;
+    // Only a `far` or a `routed` carries wire authority this side observed:
+    // the import retain the partner's mention made. A sturdyref, a broken
+    // reference, and a promise name no import, and a `near` names this
+    // side's own export, so a shape the lift refuses leaves nothing to give
+    // back and the session open.
+    // tolerant: a sturdyref or a broken reference holds no import to give back.
+    const owned = callableReference(reference) catch return;
+    const lifted = liftCapabilityTracked(self, session, owned) catch |err| switch (err) {
+        error.UncallableTarget, error.NoSuchActor => return,
+        // The partner named a held position under the other kind: its
+        // violation, not this side's pressure.
+        error.ImportKindConflict => {
+            host_pump.condemnAndClose(self, session, .protocol_error, "import named under a conflicting kind");
+            return;
+        },
+        else => {
+            host_pump.condemnAndClose(self, session, .resource_exhausted, "failed capability projection cleanup");
+            return;
+        },
     };
     commitCapabilityLift(self, lifted);
     rollbackCapabilityLift(self, lifted);
