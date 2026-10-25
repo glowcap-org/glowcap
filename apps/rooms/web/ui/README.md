@@ -344,7 +344,9 @@ Every sentence a reader sees lives in `lib/text/`.
 - **A video** plays where it was posted and also opens full-screen.
 - **Audio** gets a player and no viewer, because a player is all a listener needs.
 - **Anything else** is a row with one control, which fetches the bytes and hands them to the browser to save in a single
-  press.
+  press. An SVG is one of these, as is any type a browser would read as a page: a shown file lives at a `blob:` URL in
+  this origin, a reader can open it in its own tab, and a document opened there could carry script. Such a file is
+  held as plain bytes, never as a document.
 
 The log does not jump as files arrive: the sender measures a picture before posting it, the message records that size,
 and the reader reserves that space, shimmering until the bytes arrive.

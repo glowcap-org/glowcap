@@ -18,7 +18,7 @@ A table indexed by untrusted positions faces a different collision risk from a t
 
 ## Decision
 
-Every session table declares who chooses its keys. Locally selected keys use their direct identity representation. Peer-selected keys hash under a session-derived secret multiplier and a public finisher.
+Every session table declares who chooses its keys. Locally selected keys use their direct identity representation. Peer-selected keys hash under a session-derived secret multiplier and a public finisher. A peer-selected byte name (a swissnum, a gift id, a cached sturdyref) hashes under SipHash keyed by a bearer secret the Node derives beside the multiplier under its own domain (`foundation.bearer_table`), because a multiplier mixes words and a name is bytes of the peer's chosen length, and because what a peer learns about one table's buckets must say nothing about the other's. The owner holds each secret once and hands it to the table's verbs.
 
 A compound key declares its identity words, and equality and hashing use those same words. A non-injective fold cannot stand in for the full identity. The Node supplies the session's secret explicitly from its owning identity and peer handle.
 

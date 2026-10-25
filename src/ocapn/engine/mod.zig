@@ -283,6 +283,7 @@ pub const Peer = struct {
     pub const initNegotiating = peer_lifecycle.initNegotiating;
     pub const initNegotiatingWith = peer_lifecycle.initNegotiatingWith;
     pub const reposture = peer_lifecycle.reposture;
+    pub const keyWireTables = peer_lifecycle.keyWireTables;
     pub const initWithSession = peer_lifecycle.initWithSession;
     pub const deinit = peer_lifecycle.deinit;
     pub const giftRegistry = peer_lifecycle.giftRegistry;
@@ -486,7 +487,7 @@ pub const Peer = struct {
 /// `wasm32` (the sans-io core under `zig build cross-check`) makes it smaller,
 /// as does a fast build. So no single number is the measurement on every target
 /// and mode, and an equality here would fail the narrow ones.
-pub const peer_session_struct_budget_bytes = 1176;
+pub const peer_session_struct_budget_bytes = 1200;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget. " ++

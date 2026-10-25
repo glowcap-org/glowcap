@@ -94,7 +94,10 @@ async fn compile(root: &Path, outdir: &Path, before: &str, mut stop: watch::Rece
 	// Development builds identify the actual source state. A commit-plus-dirty
 	// label cannot distinguish successive edits and therefore cannot drive
 	// reliable browser refresh.
-	let revision = format!("source-{}", &after[..12]);
+	let short = after
+		.get(..12)
+		.ok_or_else(|| format!("source version `{after}` is shorter than a revision"))?;
+	let revision = format!("source-{short}");
 	tokio::fs::write(outdir.join("source.version"), format!("{after}\n"))
 		.await
 		.map_err(|e| e.to_string())?;

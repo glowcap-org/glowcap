@@ -28,7 +28,18 @@ pub fn serviceResident(self: *HostRuntime, resident_index: usize, own: ?*driver_
     const resident = self.residents.items[resident_index].resident;
     var own_fed: usize = 0;
     const events = try resident.drainReady(&self.event_scratch);
-    for (events) |event| own_fed += try handleResidentEvent(self, resident_index, event, own);
+    // `drainReady` already took every record from the resident, so one
+    // event's refusal must not abandon the siblings drained behind it: each
+    // is served, and the first refusal is reported afterward, as the
+    // completion loop's `dispatchBatch` holds.
+    var first_err: ?anyerror = null;
+    for (events) |event| {
+        own_fed += handleResidentEvent(self, resident_index, event, own) catch |err| blk: {
+            if (first_err == null) first_err = err;
+            break :blk 0;
+        };
+    }
+    if (first_err) |err| return err;
     return own_fed;
 }
 

@@ -26,7 +26,9 @@ const ConnSource = struct {
     pub fn readSome(self: ConnSource, dest: []u8) Io.Reader.Error!usize {
         const n = sidecar.glowcap_iroh_sidecar_conn_read(self.conn, dest.ptr, dest.len);
         if (n == 0) return error.EndOfStream;
-        if (n < 0) return error.ReadFailed;
+        // A negative count is a fault, and one past `dest` is the sidecar
+        // breaking its contract.
+        if (n < 0 or n > dest.len) return error.ReadFailed;
         return @intCast(n);
     }
 

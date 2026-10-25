@@ -52,9 +52,12 @@ pub fn init(
 ) Host.InitError!Host {
     if (opts.host_work_quantum == 0)
         return error.InvalidHostWorkQuantum;
+    const node = engine.Node.init(allocator, seed);
     return .{
         .allocator = allocator,
-        .node = engine.Node.init(allocator, seed),
+        .node = node,
+        .publications = .empty,
+        .publication_secret = node.hostBearerSecret(),
         .opts = opts,
         .vat = actors.Vat.init(allocator),
         .capabilities = capability.Registry.init(opts.capability_id_issuer),

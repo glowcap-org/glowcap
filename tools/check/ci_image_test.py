@@ -165,6 +165,18 @@ class ImageTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     IMAGE.start('ghcr.io/glowcap-org/glowcap/devcontainer:ci')
 
+    def test_runner_disk_is_reclaimed_by_one_script(self):
+        # Every job that starts the devcontainer frees the hosted runner's
+        # disk first, and the list of what goes lives in one script.
+        script = ROOT / '.devcontainer/ci/reclaim-disk.sh'
+        self.assertTrue(os.access(script, os.X_OK), script)
+        for path in ('.github/workflows/check.yml', '.github/workflows/pages.yml',
+                     '.github/workflows/agent-tools.yml', '.devcontainer/ci/action.yml'):
+            source = (ROOT / path).read_text()
+            with self.subTest(path=path):
+                self.assertIn('run: .devcontainer/ci/reclaim-disk.sh', source)
+                self.assertNotIn('rm -rf /usr/share/dotnet', source)
+
     def test_fingerprint_covers_contents_names_and_modes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

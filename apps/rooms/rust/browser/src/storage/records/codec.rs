@@ -23,10 +23,12 @@ fn conversation(kind: ConversationKind) -> &'static str {
 		ConversationKind::Direct => "direct",
 	}
 }
-fn json(value: impl serde::Serialize) -> JsValue {
-	serde_json::to_string(&value).expect("archive key serialization").into()
+fn json(value: impl serde::Serialize) -> Result<JsValue, Error> {
+	serde_json::to_string(&value)
+		.map(JsValue::from)
+		.map_err(|_| Error::Invalid("archive key serialization failed"))
 }
-pub(super) fn key(record: &Record) -> JsValue {
+pub(super) fn key(record: &Record) -> Result<JsValue, Error> {
 	let c = record.coordinates();
 	json((
 		&c.source,
@@ -40,7 +42,7 @@ pub(super) fn key(record: &Record) -> JsValue {
 }
 // One bounded serialized context per stored envelope. IndexedDB owns the
 // compound context/revision index and updates it atomically with every put/delete.
-pub(super) fn context(record: &Record) -> JsValue {
+pub(super) fn context(record: &Record) -> Result<JsValue, Error> {
 	json((
 		kind(record),
 		record.conversation_kind().map(conversation).unwrap_or(""),
@@ -48,18 +50,20 @@ pub(super) fn context(record: &Record) -> JsValue {
 		record.conversation(),
 	))
 }
-pub(super) fn selected_context(filter: &Filter) -> Option<JsValue> {
+pub(super) fn selected_context(filter: &Filter) -> Result<Option<JsValue>, Error> {
 	if filter.kind != Some(Kind::Line) {
-		return None;
+		return Ok(None);
 	}
-	Some(json((
-		"line",
-		conversation(filter.conversation_kind?),
-		filter.directory.as_ref()?,
-		filter.conversation.as_ref()?,
-	)))
+	let (Some(kind), Some(directory), Some(conversation_id)) = (
+		filter.conversation_kind,
+		filter.directory.as_ref(),
+		filter.conversation.as_ref(),
+	) else {
+		return Ok(None);
+	};
+	json(("line", conversation(kind), directory, conversation_id)).map(Some)
 }
-pub(super) fn coordinates(record: &Record) -> JsValue {
+pub(super) fn coordinates(record: &Record) -> Result<JsValue, Error> {
 	let c = record.coordinates();
 	match record.conversation_kind() {
 		Some(k) => json((
@@ -81,7 +85,7 @@ pub(super) fn coordinates(record: &Record) -> JsValue {
 		)),
 	}
 }
-pub(in crate::storage) fn address_key(address: &Address) -> JsValue {
+pub(in crate::storage) fn address_key(address: &Address) -> Result<JsValue, Error> {
 	let c = address.coordinates();
 	json((
 		&c.source,
@@ -93,7 +97,7 @@ pub(in crate::storage) fn address_key(address: &Address) -> JsValue {
 		address.index(),
 	))
 }
-pub(in crate::storage) fn address_coordinates(address: &Address) -> JsValue {
+pub(in crate::storage) fn address_coordinates(address: &Address) -> Result<JsValue, Error> {
 	let c = address.coordinates();
 	json((
 		&c.source,
@@ -107,9 +111,9 @@ pub(in crate::storage) fn address_coordinates(address: &Address) -> JsValue {
 }
 pub(super) fn encode(record: &Record, revision: u64) -> Result<JsValue, Error> {
 	value::object(&[
-		("key", key(record)),
-		("coordinates", coordinates(record)),
-		("context", context(record)),
+		("key", key(record)?),
+		("coordinates", coordinates(record)?),
+		("context", context(record)?),
 		("revision", (revision as f64).into()),
 		("digests", digests(record).into()),
 		("row", Values::list(archive::output::record::<Values>(record))),
@@ -122,10 +126,10 @@ pub(in crate::storage) fn decode(row: JsValue) -> Result<Entry, Error> {
 		return Err(Error::Invalid("invalid archive storage revision"));
 	}
 	let record = archive::protocol::record(&Stored::new(value::get(&row, "row")?))?;
-	if value::get(&row, "key")? != key(&record) || value::get(&row, "coordinates")? != coordinates(&record) {
+	if value::get(&row, "key")? != key(&record)? || value::get(&row, "coordinates")? != coordinates(&record)? {
 		return Err(Error::Invalid("archive record does not match its storage key"));
 	}
-	if value::get(&row, "context")? != context(&record) {
+	if value::get(&row, "context")? != context(&record)? {
 		return Err(Error::Invalid("archive record does not match its conversation index"));
 	}
 	if !digests_match(&value::get(&row, "digests")?, &record) {

@@ -34,7 +34,7 @@ jobs:
       actions: read
       contents: read
       packages: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,7 +62,7 @@ jobs:
           python3 tools/check/require-main-check.py "$DEPLOY_SHA"
 
       - name: Reclaim disk space for the toolchain image
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+        run: .devcontainer/ci/reclaim-disk.sh
 
       - name: Install the pinned Dev Containers CLI
         run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
@@ -90,7 +90,7 @@ jobs:
           path: zig-out/site
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: build
     permissions:

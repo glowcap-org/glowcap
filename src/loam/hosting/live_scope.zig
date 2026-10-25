@@ -165,7 +165,7 @@ pub const Scope = struct {
     /// Trusted lifetime metadata for one committed facet. The existing bounded
     /// inventory retains its guarded pair. Observation borrows the Host session
     /// without disclosing either capability or constructing another facade.
-    pub fn dependentExporter(self: *Scope, facet: driver.Capability) ?*driver.HostSession {
+    pub fn dependentExporter(self: *Scope, facet: driver.Capability) error{WrongThread}!?*driver.HostSession {
         for (self.entries) |entry| {
             if (entry.phase != .committed or !entry.capability.eql(facet)) continue;
             const pair = entry.dependent orelse return null;
@@ -262,8 +262,8 @@ pub const Reservation = struct {
     staged: ?struct { ticket: core.Ticket, edge: core.Edge } = null,
 
     pub fn stage(self: *Reservation, store: *core.Store, arena: std.mem.Allocator) !core.Edge {
-        if (store != self.scope.store) return error.ForeignStore;
         if (self.phase != .reserved or store.phase != .staging) return error.WrongPhase;
+        if (store != self.scope.store) return error.ForeignStore;
         if (try store.proposed(self.scope.epoch.?.object) != null) return error.LiveReferenceExpired;
         if (self.staged) |staged| if (std.meta.eql(staged.ticket, store.ticket.?)) return staged.edge;
         const edge = try (Recipe{ .live = self.scope.epoch.? }).stage(store, arena);

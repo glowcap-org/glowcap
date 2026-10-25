@@ -95,7 +95,7 @@ fn listenToWithProgress(
     // This verb is callback-safe, so claim the owner without refusing the
     // callback latch. Ownership still precedes routing, which may inspect or
     // mutate node/session state for a far target.
-    self.assertOwner();
+    try self.claimOwner();
     try self.admitApplicationOperation();
     try self.checkOwnedSession(session);
     try self.admitSessionOperation(session);
@@ -137,7 +137,7 @@ fn observeCapability(
     accept_objects: bool,
     drive_now: bool,
 ) !CapabilityResolution {
-    self.assertOwner();
+    try self.claimOwner();
     try self.admitApplicationOperation();
     var current = target;
     var resolved_target = self.capabilities.resolve(current) orelse return error.UnknownCapability;

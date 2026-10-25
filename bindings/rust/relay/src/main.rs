@@ -2,6 +2,12 @@
 //! ADR-0033 relay contract, proving the contract is language-neutral and not a
 //! TypeScript-and-Python shape with a doc wrapper.
 //!
+//! Like the Deno reference relay, it is a conformance fixture: it listens on
+//! loopback only, relays to whatever target the proofs name, and caps nothing
+//! beyond the generated binding policy. The target allow-list and capacity
+//! admission belong to the embedding app, as in the Rooms relay at
+//! `apps/rooms/rust/services/src/web/relay.rs`.
+//!
 //! It carries the raw bytes of a keyed CapTP session between a browser peer's
 //! WebSocket and a native host, without parsing them, so the keyed handshake and
 //! session authority run end to end and the relay holds no capability. The same

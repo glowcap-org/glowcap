@@ -49,6 +49,10 @@ pub const Options = struct {
     /// keeps this public constant lets a peer precompute colliding positions,
     /// which is fine for a scenario and for nothing a peer reaches.
     wire_hash_multiplier: u64 = foundation.identity_hash.default_multiplier,
+    /// The secret the tables keyed by peer-chosen names hash under. A Node
+    /// replaces it at registration beside `wire_hash_multiplier`, and the same
+    /// public default serves a scenario.
+    bearer_secret: u64 = foundation.identity_hash.default_multiplier,
 };
 
 /// Move the export allocator to its host-assigned range before it has handed
@@ -100,6 +104,7 @@ pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
         .outbound_answers = .empty,
         .imported_promises = .keyed(options.wire_hash_multiplier),
         .wire_hash_multiplier = options.wire_hash_multiplier,
+        .bearer_secret = options.bearer_secret,
         .handshake_local_sent = false,
         .handshake_remote_received = false,
         .partner_session_key = &.{},
@@ -115,12 +120,14 @@ pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
     };
 }
 
-/// Give the session the secret its peer-keyed tables hash under, before a
-/// peer-chosen position is held. Asserted rather than tolerated: a table
-/// re-keyed with rows in it could no longer find them. status-allow: lifecycle transition
-pub fn keyWireTables(self: *Session, multiplier: u64) void {
+/// Give the session the secrets its peer-keyed tables hash under, before a
+/// peer-chosen position or name is held. Asserted rather than tolerated: a
+/// table re-keyed with rows in it could no longer find them. status-allow: lifecycle transition
+pub fn keyWireTables(self: *Session, multiplier: u64, bearer_secret: u64) void {
     std.debug.assert(self.detached_inbound_answers == null);
+    std.debug.assert(self.bootstrap.count() == 0 and self.sturdyref_cache_index.count() == 0);
     self.wire_hash_multiplier = multiplier;
+    self.bearer_secret = bearer_secret;
     self.imports.keyWire(multiplier);
     self.inbound_answers.keyWire(multiplier);
     self.imported_promises.keyWire(multiplier);

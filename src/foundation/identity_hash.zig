@@ -287,6 +287,11 @@ pub fn WireMap(comptime K: type, comptime V: type) type {
             return self.inner.removeContext(key, self.ctx());
         }
 
+        /// Remove the row `key_ptr` names, safe during an iteration.
+        pub fn removeByPtr(self: *Self, key_ptr: *K) void {
+            self.inner.removeByPtr(key_ptr);
+        }
+
         pub fn fetchRemove(self: *Self, key: K) ?KV {
             return self.inner.fetchRemoveContext(key, self.ctx());
         }

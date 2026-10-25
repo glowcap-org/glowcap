@@ -184,8 +184,8 @@ pub fn entropy_bytes(hex: &str) -> Option<[u8; ENTROPY_BYTES]> {
 		return None;
 	}
 	let mut out = [0u8; ENTROPY_BYTES];
-	for (at, byte) in out.iter_mut().enumerate() {
-		*byte = u8::from_str_radix(&hex[at * 2..at * 2 + 2], 16).ok()?;
+	for (byte, pair) in out.iter_mut().zip(hex.as_bytes().as_chunks::<2>().0) {
+		*byte = u8::from_str_radix(core::str::from_utf8(pair).ok()?, 16).ok()?;
 	}
 	Some(out)
 }

@@ -300,19 +300,19 @@ test "loam live dependent exporter observes only exact committed remote custody"
     try pairs.pumpToQuiescence(&.{pair});
     fixture.host.releaseCapabilityTerminal(fixture.target, null);
     fixture.target = try fixture.host.liftCapability(pair.a, try fetched.require());
-    try std.testing.expect(fixture.scope.dependentExporter(fixture.target) == null);
-    try std.testing.expect(fixture.scope.dependentExporter(fixture.root) == null);
+    try std.testing.expect((try fixture.scope.dependentExporter(fixture.target)) == null);
+    try std.testing.expect((try fixture.scope.dependentExporter(fixture.root)) == null);
     const put = try fixture.put("putDependent", 256);
     defer put.deinit();
     const batch = try fixture.write();
     const facet = fixture.scope.entries[0].capability;
-    try std.testing.expect(fixture.scope.dependentExporter(facet) == null);
+    try std.testing.expect((try fixture.scope.dependentExporter(facet)) == null);
     try fixture.attached.completeWrite(batch.ticket, fixture.data.backend.commit(batch));
     try fixture.drainPair(pair);
-    try std.testing.expectEqual(pair.a, fixture.scope.dependentExporter(facet).?);
+    try std.testing.expectEqual(pair.a, (try fixture.scope.dependentExporter(facet)).?);
     var other = try f.hosting.LiveScope.init(a, &fixture.host, &fixture.data.store, 2);
     defer other.deinit() catch unreachable;
-    try std.testing.expect(other.dependentExporter(facet) == null);
+    try std.testing.expect((try other.dependentExporter(facet)) == null);
     const clear = try fixture.host.callLocalCapability(a, fixture.root, "clear", &.{}, 256);
     defer clear.deinit();
     try fixture.drainPair(pair);
@@ -320,7 +320,7 @@ test "loam live dependent exporter observes only exact committed remote custody"
     fixture.data.store.evict();
     try fixture.drainPair(pair);
     _ = try fixture.attached.advanceProgress();
-    try std.testing.expect(fixture.scope.dependentExporter(facet) == null);
+    try std.testing.expect((try fixture.scope.dependentExporter(facet)) == null);
 }
 
 test "loam live reference unknown outcome retains reservation through commit or absence and canceled observation" {

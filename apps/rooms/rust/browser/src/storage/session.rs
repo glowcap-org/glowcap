@@ -23,6 +23,9 @@ pub struct Prepared {
 	name: String,
 	bootstrap: Bootstrap,
 }
+fn split_failure() -> glowcap::Error {
+	loam::refusal("Rooms identity entropy has an unexpected length")
+}
 impl Prepared {
 	pub async fn open(database: Database, tab: &str, mut entropy: impl Entropy) -> Result<Self> {
 		if tab.is_empty() || tab.len() > 64 || !tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
@@ -35,9 +38,9 @@ impl Prepared {
 			.fill(&mut random)
 			.map_err(|_| loam::refusal("Rooms identity entropy unavailable"))?;
 		let fresh = Bootstrap {
-			seed: random[..32].try_into().expect("fixed seed"),
-			store_identity: random[32..48].try_into().expect("fixed Store identity"),
-			owner_identity: random[48..].try_into().expect("fixed owner identity"),
+			seed: random[..32].try_into().map_err(|_| split_failure())?,
+			store_identity: random[32..48].try_into().map_err(|_| split_failure())?,
+			owner_identity: random[48..].try_into().map_err(|_| split_failure())?,
 			anchor: None,
 		};
 		let selected = key.clone();

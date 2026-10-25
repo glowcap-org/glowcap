@@ -161,6 +161,9 @@ pub const SettleMailbox = struct {
             self.wake_failure.record(err);
             return err;
         };
+        // The byte is on the channel: `drainWake` reads it only when this is
+        // set, and an unread byte keeps the owner's wait returning at once.
+        self.posted.store(true, .release);
     }
 
     /// Drain the wake channel, on the owning thread, before applying. A post

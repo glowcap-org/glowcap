@@ -14,6 +14,7 @@ pub(super) struct Environment {
 	pub previews: Rc<super::preview::Preview>,
 	pub relay: Rc<super::relay::Relay>,
 	pub report: super::Report,
+	pub trusted_proxies: super::client_address::TrustedProxies,
 }
 pub(super) type Reply = Response<Full<Bytes>>;
 pub(super) const MAX_CONNECTIONS: usize = 256;
@@ -40,7 +41,8 @@ pub(super) async fn serve(
 					let mut stopping = stop.clone();
 					connections.spawn_local(async move {
 						let service = service_fn(move |mut request| {
-							request.extensions_mut().insert(address.ip());
+							let source = super::client_address::source_address(address.ip(), request.headers(), &environment.trusted_proxies);
+							request.extensions_mut().insert(source);
 							let environment = environment.clone();
 							async move { Ok::<_,Infallible>(reply(request, &environment).await) }
 						});

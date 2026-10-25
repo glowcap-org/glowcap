@@ -32,10 +32,12 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
   peers, iroh when you need discovery or NAT traversal, and WebRTC for a direct
   browser channel when you trust its signaling. An application with its own authenticated channel records the
   proof through `glowcap_host_session_bind_verified_channel_key`.
-- **A TCP locator names a socket.** On plain TCP, the crossed-connection
-  tiebreak trusts the location each peer declares. A peer that can connect and
-  claim an address you are dialing can make your outgoing session lose that
-  tiebreak. Only a channel-authenticated key designator can collapse a session.
+- **An address locator names a socket.** On `tcp` and `onion`, the
+  crossed-connection tiebreak trusts the location each peer declares. While
+  your dial's handshake is outstanding, a peer that can connect and claim the
+  address you are dialing can make that dial lose the tiebreak. An open
+  session is never condemned this way, and only a channel-authenticated key
+  designator can collapse one.
 - **Two sessions to one peer stay open on an address transport.** `127.0.0.1`
   and `[::1]` are different designators, and neither is an identity glowcap
   acts on. A key-designator transport with channel proof recognizes the peer

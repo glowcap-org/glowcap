@@ -1,7 +1,10 @@
 //! One browser display budget and Blob materializer for live and archived
 //! readers. Chunks cross Wasm once. The URL owns its charge until retirement.
 use crate::attached::{Environment, Result, observation::call};
-use rooms_application::files::{CHUNK_BYTES, receiving::Charge};
+use rooms_application::files::{
+	CHUNK_BYTES,
+	receiving::{Charge, blob_type},
+};
 use wasm_bindgen::prelude::*;
 
 pub(crate) trait Reader {
@@ -59,7 +62,7 @@ pub(crate) async fn materialize(
 		}
 	}
 	let options = web_sys::BlobPropertyBag::new();
-	options.set_type(mime);
+	options.set_type(blob_type(mime));
 	let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&chunks, &options)
 		.map_err(|_| "Rooms file could not be materialized")?;
 	let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(|_| "Rooms file view could not be opened")?;

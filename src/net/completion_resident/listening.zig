@@ -139,7 +139,13 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             const self = of(ctx);
             defer self.pump();
             const listener: *Listener = @ptrCast(@alignCast(listener_ctx));
-            if (listener.accepted.items.len == 0) return .{ .connection = null };
+            if (listener.accepted.items.len == 0) {
+                // Arrivals accepted before the refusal are claimed first;
+                // the refusal follows them once, and the runtime decides.
+                const failure = listener.accept_failure orelse return .{ .connection = null };
+                listener.accept_failure = null;
+                return .{ .failed = .fromChain(error.AcceptRefused, .init(failure)) };
+            }
             const fd = listener.accepted.orderedRemove(0);
             // A listener that stopped at the unclaimed bound accepts again
             // once a claim makes room.

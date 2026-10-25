@@ -293,10 +293,9 @@ impl<P: Platform> Sink for Recording<P> {
 			// The confirmed Loam lifetime and exact callback field distinguish
 			// repeated line IDs, reconnects and cold restoration. A display name
 			// supplies neither authority nor archive identity.
-			let marker = owner.activity.token(0)?;
+			let marker = owner.activity.incarnation_hex()?;
 			let key = selection.coordinate().key;
-			let generation: DocumentText =
-				format!("{}:{:016x}{:016x}", &marker[..82], key.slot(), key.generation()).into();
+			let generation: DocumentText = format!("{}:{:016x}{:016x}", marker, key.slot(), key.generation()).into();
 			let directory = directory.text().clone();
 			let conversation = selection
 				.history_id()

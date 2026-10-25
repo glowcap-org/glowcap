@@ -13,6 +13,11 @@ const default_max_frame_bytes: usize = 1_048_576;
 pub const SessionLimits = struct {
     /// Max pipelined calls queued against a single pending answer.
     queue_cap: usize = 1024,
+    /// Max owned bytes held by pipelined calls queued against pending answers,
+    /// summed across the session. `queue_cap` bounds a count, and each queued
+    /// call is a frame-sized owned copy, so the count alone leaves a partner
+    /// `queue_cap * max_frame_bytes` per answer it never resolves.
+    max_queued_call_bytes: u32 = 1 << 24,
     /// Max live or detached inbound answer obligations held at once.
     max_inbound_answers: usize = 65_536,
     /// Max listeners or stored-answer projections anchored on one target.

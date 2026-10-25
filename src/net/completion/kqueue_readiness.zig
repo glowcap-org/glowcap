@@ -122,10 +122,11 @@ pub fn complete(
                     // would park the whole loop (ADR-0017). The accepted
                     // fd also needs SO_NOSIGPIPE before any send, so a
                     // torn-down peer becomes a completion error rather
-                    // than a process signal. If either socket option
+                    // than a process signal, and close-on-exec so a child
+                    // the embedder spawns never inherits it. If any option
                     // cannot be set, refuse the connection; the loop's
                     // re-arm recovers.
-                    if (accepted >= 0 and (!socket_tcp.setNonblocking(accepted) or !socket_tcp.setNoSigpipe(accepted) or !socket_tcp.setNodelay(tcp_os, accepted))) {
+                    if (accepted >= 0 and (!socket_tcp.setNonblocking(accepted) or !socket_tcp.setNoSigpipe(accepted) or !socket_tcp.setNodelay(tcp_os, accepted) or !socket_tcp.setCloseOnExec(accepted))) {
                         _ = close(accepted);
                         comp.result = -1;
                         comp.failure = error.SocketConfigurationFailed;

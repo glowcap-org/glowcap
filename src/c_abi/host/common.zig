@@ -339,6 +339,9 @@ pub fn valueMessageFromC(
     args_len: usize,
 ) !ValueMessage {
     const verb_slice = try shared.sliceFromC(verb, verb_len);
+    // The scratch is Host state: a caller off the owner thread is refused
+    // before the reset, not after the operation it feeds notices.
+    try inst.core.claimOwner();
     if (!inst.core.withinCallback())
         _ = inst.arg_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
     return .{
@@ -385,6 +388,7 @@ fn refusePlainReference(ctx: void, ref: shared.GlowcapReference) anyerror!model.
 /// spine clones what a listener may outlive). Resets the scratch exactly as
 /// `valueMessageFromC` does at a top-level call.
 pub fn plainArgumentFromC(inst: *Instance, arg: shared.GlowcapArgument) !model.Argument {
+    try inst.core.claimOwner();
     if (!inst.core.withinCallback())
         _ = inst.arg_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
     return shared.argumentFromCWith(anyerror, {}, refusePlainReference, inst.arg_scratch.allocator(), arg, 0, false);

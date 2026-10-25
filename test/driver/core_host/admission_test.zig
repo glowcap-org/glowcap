@@ -116,8 +116,9 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // wire-hash root adds one word (ADR-0037). The session, peer, and
     // ingress tables are handle tables (ADR-0038): each is an array list
     // header with a free chain head and two counts in place of a hash map
-    // header and a handle counter, 64 bytes across the three.
-    try std.testing.expectEqual(@as(usize, 2704), @sizeOf(Host));
+    // header and a handle counter, 64 bytes across the three. The Node's
+    // three keyed promise-proxy tables add one multiplier word each.
+    try std.testing.expectEqual(@as(usize, 2744), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expectEqual(@as(usize, 88), @sizeOf(driver.core.HostAction));
 }

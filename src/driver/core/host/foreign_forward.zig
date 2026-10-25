@@ -53,7 +53,7 @@ pub fn begin(turn: *actors.Turn, source: *local.Producer, target: capability.Ref
     const host = source.host;
     const lease = if (source.lease) |*lease| lease else return error.NoPendingWork;
     try lease.checkHost(host);
-    const session = host.capabilitySession(target) orelse return error.UnknownCapability;
+    const session = (try host.capabilitySession(target)) orelse return error.UnknownCapability;
     const answer = transfer orelse {
         try delivery.tellValuesAdmitted(host, session, target, verb, args, turn.arena, .{ .retained = lease });
         turn.forwardNoAnswer();

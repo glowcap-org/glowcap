@@ -55,10 +55,12 @@ pub const MultiplexedAdapter = struct {
 
     pub fn drainReady(self: *MultiplexedAdapter, out: []net.multiplexed_resident.ReadyEvent) error{ReadinessFailed}!usize {
         var scratch: [32]sidecar.ReadyEvent = undefined;
-        const got = self.endpoint.drainReady(scratch[0..@min(out.len, scratch.len)]);
-        if (got < 0) return error.ReadinessFailed;
+        const room = scratch[0..@min(out.len, scratch.len)];
+        const got = self.endpoint.drainReady(room);
+        // A count past the room is the sidecar breaking its contract.
+        if (got < 0 or got > room.len) return error.ReadinessFailed;
         var total: usize = 0;
-        for (scratch[0..@intCast(got)]) |event| {
+        for (room[0..@intCast(got)]) |event| {
             if (event.events & sidecar.ev_accept != 0) {
                 const listener = self.listener orelse continue;
                 out[total] = .{ .subject = listener.route, .events = event.events };
@@ -150,7 +152,13 @@ pub const MultiplexedAdapter = struct {
         try self.endpoint.setLoopAdmission(false);
     }
 
-    fn latch(row: *ConnRow, result: isize) isize {
+    /// A count past `len` is the sidecar breaking its contract, never bytes
+    /// moved: the row fails as on a fault and the caller sees a fault.
+    fn latch(row: *ConnRow, len: usize, result: isize) isize {
+        if (result > len) {
+            if (row.failure == null) row.failure = .init(error.IrohSidecarContract);
+            return -1;
+        }
         if (result < 0 and result != sidecar.would_block and row.failure == null)
             row.failure = .init(error.ConnectionLost);
         return result;
@@ -158,12 +166,12 @@ pub const MultiplexedAdapter = struct {
 
     pub fn tryRead(self: *MultiplexedAdapter, id: usize, bytes: []u8) isize {
         const row = self.conns.getPtr(id) orelse return -1;
-        return latch(row, self.endpoint.loopTryRead(row.handle, bytes));
+        return latch(row, bytes.len, self.endpoint.loopTryRead(row.handle, bytes));
     }
 
     pub fn tryWrite(self: *MultiplexedAdapter, id: usize, bytes: []const u8) isize {
         const row = self.conns.getPtr(id) orelse return -1;
-        return latch(row, self.endpoint.loopTryWrite(row.handle, bytes));
+        return latch(row, bytes.len, self.endpoint.loopTryWrite(row.handle, bytes));
     }
 
     pub fn closeConnection(self: *MultiplexedAdapter, id: usize) void {

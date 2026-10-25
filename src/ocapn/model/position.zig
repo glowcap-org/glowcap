@@ -143,12 +143,12 @@ pub const AnswerName = union(enum) {
         return null;
     }
 
-    /// The one word an identity-keyed table hashes: the position, with the
-    /// low bit saying which arm named it.
-    pub fn identityKey(self: AnswerName) u64 {
+    /// The two words an identity-keyed table hashes: which arm named the
+    /// answer, then its whole position, so no two names share a key.
+    pub fn identityWords(self: AnswerName) [2]u64 {
         return switch (self) {
-            .wire => |position| @backingInt(position) << 1,
-            .virtual => |answer| (@backingInt(answer) << 1) | 1,
+            .wire => |position| .{ 0, @backingInt(position) },
+            .virtual => |answer| .{ 1, @backingInt(answer) },
         };
     }
 };

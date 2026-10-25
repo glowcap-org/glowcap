@@ -261,6 +261,7 @@ pub fn replay_lines<'a>(
 	state.sort_by_key(|(seq, _)| *seq);
 	state
 		.into_iter()
-		.map(|(_, line)| alloc::format!("{{\"replay\":true,{}", &line[1..]))
+		.filter_map(|(_, line)| line.strip_prefix('{'))
+		.map(|object| alloc::format!("{{\"replay\":true,{object}"))
 		.collect()
 }

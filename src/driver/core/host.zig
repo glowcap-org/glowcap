@@ -119,9 +119,10 @@ pub const Host = struct {
     /// Incarnation stamp for remote import rows first lifted into Host space.
     /// Monotonic for the Host lifetime. Zero is never issued.
     next_import_incarnation: u64 = 1,
-    /// Crossed-hellos tiebreak state (ADR-0012): `openDialedLocator` registers
-    /// the outbound before its hello moves. Accepted CapTP sessions compare
-    /// inbound start-sessions against it.
+    /// Crossed-hellos tiebreak state (ADR-0012): `enroll` registers a dialed
+    /// session's outbound before its hello moves, and `finishSessionOpen`
+    /// removes it. Accepted CapTP sessions compare inbound start-sessions
+    /// against it.
     hellos: CrossedHellos = .{},
     /// Root from which `mintShell` derives each session's signing seed
     /// (ADR-0028). The embedder supplies a fresh root for each process.
@@ -166,8 +167,12 @@ pub const Host = struct {
     /// same value.
     transport_profiles: std.StringHashMapUnmanaged(model.transport.Metadata) = .empty,
     /// Host-wide bootstrap aliases. A fetch performs one keyed discovery lookup
-    /// and lazily projects the actor onto the requesting Port.
-    publications: foundation.bearer_table.Table(publish_mod.Publication) = .empty,
+    /// and lazily projects the actor onto the requesting Port. Fetched names
+    /// arrive from the peer, so every verb hashes under `publication_secret`.
+    publications: foundation.bearer_table.Table(publish_mod.Publication),
+    /// The bearer secret `publications` hashes under: the node's root under
+    /// its own domain, so no session's table word is also the host's.
+    publication_secret: u64,
     /// Lowering receipts held until the running turn's outcome (ADR-0058).
     turn_receipts: host_capability_lower.TurnReceipts = .{},
     publication_lookup: ?*const @import("publication_lookup.zig").Lookup = null,
@@ -536,11 +541,12 @@ pub const Host = struct {
     // ── The pump ─────────────────────────────────────────────────────────────
 
     // Thread ownership, callback exclusion, and operation admission live in
-    // `host/admission.zig`; private aliases are sibling implementation seams,
-    // while `assertOwner` remains public only for Host-core siblings.
+    // `host/admission.zig`. A fallible verb claims the owner thread with
+    // `claimOwner` and refuses `WrongThread`; `assertOwner` stays for the void
+    // verbs a C entry has already claimed for, and for Host-core siblings.
     pub const assertOwner = host_admission.assertOwner;
     pub const releaseDriverOwnership = host_admission.releaseDriverOwnership;
-    const claimOwner = host_admission.claimOwner;
+    pub const claimOwner = host_admission.claimOwner;
     const checkOwnerIfClaimed = host_admission.checkOwnerIfClaimed;
     const admitConfigurationMutation = host_admission.admitConfigurationMutation;
     pub const refuseReentry = host_admission.refuseReentry;

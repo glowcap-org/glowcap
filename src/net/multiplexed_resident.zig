@@ -184,6 +184,14 @@ pub const MultiplexedResident = struct {
         /// Close and release one connection. Later records naming the id
         /// drain to nothing.
         conn_close: *const fn (ctx: *anyopaque, conn: usize) TeardownOutcome,
+        /// Drop one connection now, discarding what a pending `conn_close`
+        /// was still sending, and release it. A resident whose pending close
+        /// waits on the partner reading declares this, so that wait ends at
+        /// the runtime's deadline instead of holding the socket and its read
+        /// buffer. One whose pending close is its own asynchronous
+        /// retirement, reported through `ev_closed`, leaves it null and the
+        /// runtime joins that close at release. It never reports `.pending`.
+        conn_abort: ?*const fn (ctx: *anyopaque, conn: usize) TeardownOutcome = null,
         /// The channel-authenticated remote durable key, when this transport
         /// proves one (iroh's remote node id). Null on a transport whose
         /// channel proves nothing. The realizer seam then stays silent.
@@ -517,6 +525,13 @@ pub const MultiplexedResident = struct {
 
     pub fn connCloseOutcome(self: MultiplexedResident, conn: usize) TeardownOutcome {
         return self.vtable.conn_close(self.ctx, conn);
+    }
+
+    /// Null when the resident declares no abort, so its close completes on
+    /// its own terms.
+    pub fn connAbortOutcome(self: MultiplexedResident, conn: usize) ?TeardownOutcome {
+        const abort = self.vtable.conn_abort orelse return null;
+        return abort(self.ctx, conn);
     }
 
     pub fn takeFailure(self: MultiplexedResident, conn: usize) ?foundation.FailureChain {

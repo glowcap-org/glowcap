@@ -90,7 +90,7 @@ pub const PendingWorkLease = struct {
         try admission.check(host);
         if (host.localActorFor(target) != null)
             return @import("local_delivery.zig").callAdmitted(host, allocator, target, verb, args, reply_bytes, admission);
-        const session = host.capabilitySession(target) orelse return error.UnknownCapability;
+        const session = (try host.capabilitySession(target)) orelse return error.UnknownCapability;
         return @import("owned_call.zig").callAdmitted(host, allocator, session, target, verb, args, reply_bytes, admission);
     }
 

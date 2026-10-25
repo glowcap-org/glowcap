@@ -127,10 +127,10 @@ impl RoomsManagedWorkspace {
 				return Err("Access row already exists; recover its original request".into());
 			}
 			let mut releases = Vec::new();
-			if let Some(index) = existing {
-				if let Some(access) = snapshot.intent.accesses.as_slice()[index].access {
-					releases.push(coordinate(custody::Role::SessionAccess, access));
-				}
+			if let Some(index) = existing
+				&& let Some(access) = snapshot.intent.accesses.as_slice()[index].access
+			{
+				releases.push(coordinate(custody::Role::SessionAccess, access));
 			}
 			let mut platform = environment.platform.clone();
 			let access = access

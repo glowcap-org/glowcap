@@ -59,7 +59,7 @@ pub const CapabilityLift = struct {
 /// import and the same import reached through Node routing reuse one
 /// canonical Host row.
 pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: model.Reference) !CapabilityLift {
-    self.assertOwner();
+    try self.claimOwner();
     try self.checkSession(session);
     const source_route_id = self.node.redeemedRouteId(reference);
     var claimed_wire_retain = false;
@@ -169,7 +169,7 @@ fn retainLiveLocalCapability(self: *Host, actor_id: u64) !LocalRetain {
 /// Retain one already-rooted live actor as a Host capability. A fresh slot adds
 /// its own Vat root. Repeated observations reuse that root and identity.
 pub fn retainLocalCapability(self: *Host, actor: actors.Ref) !capability.Ref {
-    self.assertOwner();
+    try self.claimOwner();
     const actor_id = try localActorId(actor);
     // Vat retain is tolerant for relationships that outlive a restore. This
     // mint is not: no registry identity may be published for an actor that is
@@ -185,7 +185,7 @@ pub fn retainLocalCapability(self: *Host, actor: actors.Ref) !capability.Ref {
 /// grant-on-marshal), so an unpassed spawn is rooted by its handle alone and
 /// the final release reclaims it.
 pub fn liftLocalActor(self: *Host, actor: actors.Ref) !capability.Ref {
-    self.assertOwner();
+    try self.claimOwner();
     const actor_id = try localActorId(actor);
     // Preflight before Registry mutation: `Vat.retainActor` and
     // `Vat.releaseActor` are tolerant no-ops for retired rows, while a Host
@@ -260,6 +260,9 @@ pub fn callableReference(reference: model.view.Reference) error{UncallableTarget
 }
 
 pub fn discardCapabilityObservation(self: *Host, session: *HostSession, reference: model.view.Reference) void {
+    // A void verb: with the owner asserted here, the verbs below cannot
+    // refuse `WrongThread`, so their catch arms judge pressure alone.
+    self.assertOwner();
     const lifted = lift: {
         const owned = callableReference(reference) catch break :lift null;
         break :lift liftCapabilityTracked(self, session, owned) catch null;
@@ -275,7 +278,7 @@ pub fn discardCapabilityObservation(self: *Host, session: *HostSession, referenc
 /// verbs call this immediately before spawn/publication and commit the token
 /// without another capability-registry operation in between.
 pub fn reserveFreshCapability(self: *Host, session: ?*HostSession) !capability.FreshLocalReservation {
-    self.assertOwner();
+    try self.claimOwner();
     if (session) |home| try self.checkSession(home);
     return self.capabilities.reserveFreshLocal(self.allocator);
 }
@@ -313,7 +316,7 @@ pub fn capabilityFromRaw(self: *const Host, raw: u64) capability.Ref {
 /// retains its target through the promise row. This query transfers no custody.
 /// Pending redemption and terminal failure remain distinct from live objects.
 pub fn settledCapability(self: *Host, ref: capability.Ref) !capability.Ref {
-    self.assertOwner();
+    try self.claimOwner();
     const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
     return switch (target) {
         .local, .remote => ref,
@@ -337,8 +340,11 @@ pub fn localActorFor(self: *Host, ref: capability.Ref) ?actors.Ref {
 /// Local actors belong to the Host Vat and return null because any Port may
 /// project them. A returned shell remains Host-owned and is invalidated with
 /// its remote import session.
-pub fn capabilitySession(self: *Host, ref: capability.Ref) ?*HostSession {
-    const settled = self.settledCapability(ref) catch return null;
+pub fn capabilitySession(self: *Host, ref: capability.Ref) error{WrongThread}!?*HostSession {
+    const settled = self.settledCapability(ref) catch |err| switch (err) {
+        error.WrongThread => return error.WrongThread,
+        else => return null,
+    };
     const target = self.capabilities.resolve(settled) orelse return null;
     return switch (target) {
         .local, .deferred => null,
@@ -358,7 +364,7 @@ pub fn capabilitySession(self: *Host, ref: capability.Ref) ?*HostSession {
 /// session teardown already reclaimed the wire authority, while the application
 /// handle still deserves a deterministic terminal recipient.
 pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
-    self.assertOwner();
+    try self.claimOwner();
     const retains = self.capabilities.retainCount(ref) orelse return error.UnknownCapability;
     if (delta > retains) return error.ReleaseExceedsRetains;
     if (delta == 0) return;
@@ -429,6 +435,9 @@ pub fn releaseCapabilityTerminal(
     ref: capability.Ref,
     closing_peer: ?engine.PeerHandle,
 ) void {
+    // A void verb: with the owner asserted here, `releaseCapability` cannot
+    // refuse `WrongThread`, so the catch below judges pressure alone.
+    self.assertOwner();
     releaseCapability(self, ref, 1) catch {
         const target = self.capabilities.resolve(ref) orelse return;
         if (target == .remote) {

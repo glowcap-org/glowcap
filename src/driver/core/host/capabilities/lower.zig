@@ -384,7 +384,7 @@ fn lowerTargetTracked(
     ref: capability.Ref,
     target: capability.Target,
 ) !LoweredCapability {
-    self.assertOwner();
+    try self.claimOwner();
     try self.checkSession(session);
     return switch (target) {
         .local => |actor_id| blk: {

@@ -78,7 +78,8 @@ For the driver loop, link `libglowcap_ocapn`, `libglowcap_host`, and
 `libglowcap_driver`. When the application owns the byte-fed loop, link only
 `libglowcap_ocapn` and `libglowcap_host`. Add the TCP archive and any optional
 transport archives whose providers you install. Every build checks the
-generated headers against their Zig declarations.
+generated headers against their Zig declarations. Link every archive from one
+build: the archives share private layouts the fingerprint does not cover.
 
 Before minting sessions, override Host policy with a caller-owned
 `GlowcapSessionLimitOptions`. Set `abi_version` to
@@ -165,6 +166,11 @@ so the C ABI refuses to infer or default it.
 Transport archives carry bytes for a Host session and own no CapTP state. iroh
 and WebRTC are built from Rust and need Cargo.
 
+A provider's callbacks run on the driving thread, inside the driver verb that
+called them. A callback reports through its return code and failure
+out-parameter, never by unwinding across the boundary, and a driver verb it
+calls is refused as re-entry.
+
 TCP, in-process, and onion expose blocking frame shuttles. Their listener
 readiness descriptors keep your program from entering `accept` early, but
 readiness is advisory and a whole-frame read can wait for the rest of a
@@ -193,7 +199,9 @@ API:
    of the operation result.
 
 Constructors ending in `_in` allocate through the `GlowcapContext` supplied by
-the caller. `GlowcapManagedFrame` owns its bytes and must be released once. Do
+the caller. A handle is the object's address, so release each one once: any
+call on a released handle, a second release included, is undefined.
+`GlowcapManagedFrame` owns its bytes and must be released once. Do
 not inspect or modify its opaque private words. A `GlowcapReference` is an
 integer, but its Host retain is explicit and must be returned with
 `glowcap_host_ref_release`, including every reference inside a callback argument
@@ -224,9 +232,13 @@ that owns the Host as one typed record. Drain that queue with
 the loss on the next one.
 
 Serialize calls on one Host behind one thread or lock. Distinct Hosts are
-independent, and the C Host itself is unsynchronized. A binding that exposes an
-event-loop owner should reject foreign-thread Host calls or marshal teardown
-back to the owning loop.
+independent, and the C Host itself is unsynchronized. A verb that reaches the
+Host from a thread other than the one driving it is refused with
+`GLOWCAP_ERR_INVALID_ARGUMENT` before it touches Host state, and the last-error
+text names `WrongThread`. That is a last line rather than a lock: two calls
+racing each other are still a data race. A binding that exposes an event-loop owner
+should reject foreign-thread Host calls or marshal teardown back to the owning
+loop.
 
 Stream transport connections are full-duplex: one frame read and one frame
 write may run concurrently, and the archive serializes calls within each

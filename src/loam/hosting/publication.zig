@@ -39,7 +39,7 @@ pub fn restore(attachment: *h.Attachment, lease: core.Lease) !driver.Host.Durabl
     const view = try attachment.store.currentView(lease);
     const target = try activeTarget(view);
     const ref = try h.restoreEdge(attachment, target);
-    defer attachment.host.releaseCapability(ref, 1) catch unreachable;
+    defer attachment.host.releaseCapabilityTerminal(ref, null);
     return attachment.host.publishDurableCapability(entropyOf(view), ref);
 }
 
@@ -79,7 +79,7 @@ pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
 fn reserve(attachment: *h.Attachment, record: core.ObjectId, swiss: driver.Host.DurableSwiss) !void {
     for (attachment.retirements) |slot| if (slot) |held| if (held.record.eql(record)) return error.RetirementPending;
     for (attachment.retirements) |*slot| if (slot.* == null) {
-        slot.* = .{ .record = record, .swiss = swiss, .registered = attachment.host.publications.contains(swiss.slice()) };
+        slot.* = .{ .record = record, .swiss = swiss, .registered = attachment.host.publications.contains(attachment.host.publication_secret, swiss.slice()) };
         return;
     };
     return error.RetirementCapacity;

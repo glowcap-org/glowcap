@@ -10,7 +10,7 @@ const runtime = @import("../host_runtime.zig");
 const HostRuntime = runtime.HostRuntime;
 const Internal = runtime.Internal;
 const Error = driver_core.Error;
-const AdmissionError = Error || error{ProviderContract};
+const AdmissionError = Error || error{ ProviderContract, WrongThread };
 
 /// Release one session and its wire: outbound the core already queued for it
 /// is written first (a condemned session's abort must reach the partner). A
@@ -78,7 +78,7 @@ pub fn claimReferenceExporter(self: *HostRuntime, raw_ref: u64) AdmissionError!?
     self.enterDriver();
     defer self.leaveDriver();
 
-    const session = self.core.capabilitySession(self.core.capabilityFromRaw(raw_ref)) orelse return null;
+    const session = (try self.core.capabilitySession(self.core.capabilityFromRaw(raw_ref))) orelse return null;
     claimExporterSessionOwned(self, session) catch |err| switch (err) {
         error.SessionNotOwned => return null,
         else => return err,

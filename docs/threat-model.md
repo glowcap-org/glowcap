@@ -27,7 +27,8 @@ identity and scale stop.
   altered record closes the session
   ([ADR-0041](decisions/adr/ADR-0041-sealed-byte-channels.md)). On
   `tcp`, `keyed-tcp`, and `keyed-relay` they read and can alter every frame,
-  and the signed hello proves only the session key.
+  and the signed hello proves only that a session key signed the location,
+  which an observer can replay.
 - **A peer that speaks CapTP.** Holds a real session and sends any message the
   protocol allows, in any order, at any rate, with any value. Its goal is a
   reference it was never given, a table that grows without bound, or a process
@@ -63,7 +64,9 @@ identity and scale stop.
   random bytes behind a reserved prefix. The publication table compares a
   presented name in constant time over the stored name (`bearer_table`), and
   the discovery waiters compare the same way, so a near miss costs what a far
-  miss costs. The host that published a sturdyref
+  miss costs. The table hashes under a secret the host derives from its seed,
+  so which bucket a name probes says nothing about the stored name
+  ([ADR-0037](decisions/adr/ADR-0037-peer-chosen-table-keys.md)). The host that published a sturdyref
   decides which peer may redeem it
   ([ADR-0007](decisions/adr/ADR-0007-sturdyrefs-and-publication.md)).
 - **The export, import, and answer tables.** Every reference a peer holds is a
@@ -109,9 +112,9 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 **A message against live session state: deliver, resolve, listen, release, GC, abort**
 
 - Read by: `session.validate`, then the engine's dispatch into the tables
-- Bounded by: `max_imports`, `max_inbound_answers`, `queue_cap`, `max_listeners_per_target`, `max_resolution_chain`, `max_local_deliveries`, `max_retained_sent_answer_bytes`, `max_compare_visits`
+- Bounded by: `max_imports`, `max_inbound_answers`, `queue_cap`, `max_listeners_per_target`, `max_resolution_chain`, `max_local_deliveries`, `max_retained_sent_answer_bytes`, `max_queued_call_bytes`, `max_compare_visits`
 - Searched by: `engine/fuzz_test.zig` and `driver/fuzz_test.zig`, which drive a program to build live tables and then hold `max_imports`, `max_inbound_answers`, `queue_cap`, `max_listeners_per_target`, the nesting depth, and the frame cap after each step (`support/session_bounds.zig`). The other four bounds are not searched
-- Refusal proved by: `max_resolution_chain`: `engine/projection_test.zig` (a distinct chain past the bound breaks the answer with the bound named). `max_local_deliveries`: `engine/peer/pipeline/fail_closed_test.zig` and `engine/resolve_window_test.zig` (`LocalDeliveryCapExceeded` closes the session with an abort). `max_retained_sent_answer_bytes`: `engine/node/answer_settlement_test.zig` (`RetainedAnswerCapExceeded`). `max_compare_visits`: `session/set_uniqueness_test.zig` (`CompareBudgetExhausted`). The abort path: `engine/abort_projection_test.zig`, `driver/host_runtime_step/refused_partner_release_test.zig` (releasing the session one partner's refused frame ended leaves the runtime serving everyone else)
+- Refusal proved by: `max_resolution_chain`: `engine/projection_test.zig` (a distinct chain past the bound breaks the answer with the bound named). `max_local_deliveries`: `engine/peer/pipeline/fail_closed_test.zig` and `engine/resolve_window_test.zig` (`LocalDeliveryCapExceeded` closes the session with an abort). `max_retained_sent_answer_bytes`: `engine/node/answer_settlement_test.zig` (`RetainedAnswerCapExceeded`). `max_queued_call_bytes`: `session/resolver_test.zig` (`QueuedCallBytesExceeded` refuses the call that would carry the session's queued pipelined calls past the budget, and draining an answer's queue returns its charge). `max_compare_visits`: `session/set_uniqueness_test.zig` (`CompareBudgetExhausted`). The abort path: `engine/abort_projection_test.zig`, `driver/host_runtime_step/refused_partner_release_test.zig` (releasing the session one partner's refused frame ended leaves the runtime serving everyone else)
 
 **A hello (`op:start-session`)**
 
@@ -158,16 +161,16 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 **Session traffic as a flood**
 
 - Read by: the host's per-turn budget and the completion loop's deadlines
-- Bounded by: the outbound high-water mark per connection, `park_kill_ms`, and the turn budget per session
+- Bounded by: the outbound high-water mark per connection, `park_kill_ms` when the embedder sets one (off by default), the turn budget per session, and the close deadline after which a completion resident drops a closed connection the partner never reads, with its read buffer returned (a C provider's asynchronous close is its own, reported through its closed record)
 - Searched by: none (the input is not bytes)
-- Refusal proved by: `driver/core_host_budget_test.zig` (a flood fed on one connection and landing on a sibling condemns the sibling with a close action and `LocalTurnLimitExceeded`, while the feeding connection survives), `net/completion_loop_deadlines_test.zig` (a connection whose queue crosses the outbound mark gets a `park_kill` deadline, and draining the queue clears it), `driver/host_runtime_multiplexed/provider_test.zig` (an always-ready resident cannot starve a sibling), `net/completion_loop_backpressure_test.zig`
+- Refusal proved by: `driver/core_host_budget_test.zig` (a flood fed on one connection and landing on a sibling condemns the sibling with a close action and `LocalTurnLimitExceeded`, while the feeding connection survives), `net/completion_loop_deadlines_test.zig` (a connection whose queue crosses the outbound mark gets a `park_kill` deadline, and draining the queue clears it), `driver/host_runtime_multiplexed/provider_test.zig` (an always-ready resident cannot starve a sibling), `net/completion_loop_backpressure_test.zig`, `net/completion_resident_test.zig` (a close the partner never reads holds no read buffer, and the abort ends it)
 
 **Half-open handshakes in bulk**
 
 - Read by: `HostRuntime` accepting connections, behind the completion resident's listener
-- Bounded by: `max_pending_opens`, default <!-- value ../src/driver/host_runtime.zig default_max_pending_opens -->256<!-- /value -->, and the handshake deadline, default <!-- value ../src/driver/core/vocab.zig default_handshake_timeout_ms milliseconds -->10 seconds<!-- /value -->. A listener holds at most `max_unclaimed_accepts` accepted sockets the runtime has not claimed and stops accepting past that, so arrivals wait in the kernel's listen backlog
+- Bounded by: `max_pending_opens`, default <!-- value ../src/driver/host_runtime.zig default_max_pending_opens -->256<!-- /value -->, and the handshake deadline, default <!-- value ../src/driver/core/vocab.zig default_handshake_timeout_ms milliseconds -->10 seconds<!-- /value -->. A listener holds at most `max_unclaimed_accepts` accepted sockets the runtime has not claimed and stops accepting past that, so arrivals wait in the kernel's listen backlog. A frame that arrives before the handshake completes is held to the same `max_frame_bytes` as every other, so `max_pending_opens` times that cap is the most a flood of half-open peers can make the host hold. An accept the kernel refuses for descriptor quota is not retried against the same quota: the resident hands the refusal to the runtime, which closes that listener and reports it to the embedder
 - Searched by: none (the input is not bytes)
-- Refusal proved by: `net/completion_resident_test.zig` (a listener stops accepting at the unclaimed bound and resumes on a claim), `driver/host_runtime_step/flood_test.zig` (the slots all held by handshakes that never finish, the next arrival refused, the accepted count held, and an honest session opening once the deadline frees them) and `driver/host_runtime_step/serve_test.zig` (an arrival while a slot is held closes with no session)
+- Refusal proved by: `net/completion_resident_test.zig` (a listener stops accepting at the unclaimed bound and resumes on a claim, and an accept refused for descriptor quota reaches the claim as a failure and does not re-arm), `driver/host_runtime_step/flood_test.zig` (the slots all held by handshakes that never finish, the next arrival refused, the accepted count held, and an honest session opening once the deadline frees them) and `driver/host_runtime_step/serve_test.zig` (an arrival while a slot is held closes with no session)
 
 **Tor control and SOCKS replies, text from a daemon the operator runs**
 
@@ -189,7 +192,8 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
   capability it calls. Who receives one, how often a holder may call, and how
   long a call may take are the program's to decide, above the library.
 - **A person's identity, and the front door.** glowcap proves which key a
-  peer holds. Who gets a key, and what proof the door asks for, is the
+  peer holds on a sealed transport, and only the session key on a cleartext
+  one. Who gets a key, and what proof the door asks for, is the
   application's ([What about identity?](https://glowcap.org/identity/)).
 - **An agent talked into using its key.** A narrow capability limits what a
   misled agent can reach. Whether the agent uses it well is up to the agent
@@ -202,6 +206,28 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 - **Traffic analysis.** The sizes and timing of sealed records are visible on
   the path.
 - **The program's secrets and entropy.** glowcap signs with the seed it is
-  given and cannot tell whether it is sound.
-- **A few bits of a swissnum's hash.** The publication table's lookup can show
-  which bucket and fingerprint the stored name has (`bearer_table`).
+  given and cannot tell whether it is sound. On a cleartext netlayer a hello
+  reflected back to its sender verifies under its own key, and only a sealed
+  transport rules that out.
+- **Calls off the owner thread.** One thread drives a Host at a time. A verb
+  from another thread is refused `WrongThread` before it touches Host state,
+  and a wake (`glowcap_driver_wake`) is the one call any thread may make while
+  the driver lives. Ordering a wake against the driver's release is the
+  embedder's, like any free.
+- **A storage directory it did not write.** Loam reads its own files and
+  stays running on a short or failed read, and it recovers from the restore
+  locators its controller names. A data directory another program crafted is
+  not an input it defends against, and the controller chooses which locators
+  a restore may trust.
+- **Why a fetch was refused.** A fetch the host refuses breaks with the
+  refusal's name (capacity, recovery, corruption), so a peer can tell a
+  retryable refusal from a missing name, and so it learns which one it was.
+- **Where a peer tells it to dial.** A relay hint in a hello and the exporter
+  locator in a handoff name an address, and the host dials it on the
+  transports it negotiated, at most `max_pending_opens` at a time. Whether a
+  program should reach that address is the program's to decide, above the
+  host.
+- **How much a peer with a grant may store.** Loam derives from a grant until
+  the store reaches `map_bytes`, and it keeps no quota per peer. The
+  controller sizes the store with `Lmdb.grow` and chooses the grant depth it
+  hands out.

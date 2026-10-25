@@ -277,6 +277,44 @@ test "pipelining caps fail loud rather than silently dropping" {
     ));
 }
 
+test "queued pipelined calls are bounded by their owned bytes across the session" {
+    const allocator = std.testing.allocator;
+    // One abort message measures past half the budget, so the second call on
+    // either answer is refused while the per-answer count cap is far away.
+    const one_call = try model.measureMessageOwnedBytes(.{ .abort = .{ .kind = .other, .message = "x" } });
+    var s = session.Session.initWith(allocator, .{
+        .limits = .{ .queue_cap = 64, .max_queued_call_bytes = @intCast(one_call + one_call / 2) },
+    });
+    defer s.deinit();
+
+    try s.registerExport(.from(1));
+    for ([_]u64{ 7, 8 }) |answer| try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(1) } },
+        .args = &.{},
+        .answer = .from(answer),
+    } });
+
+    try s.enqueuePipelinedCall(.from(7), .{ .abort = .{ .kind = .other, .message = try allocator.dupe(u8, "x") } });
+    try std.testing.expectEqual(one_call, @as(usize, s.queued_call_bytes));
+    // The budget is session-wide: a second answer's first call is over it.
+    try std.testing.expectError(error.QueuedCallBytesExceeded, s.enqueuePipelinedCall(
+        .from(8),
+        .{ .abort = .{ .kind = .other, .message = try allocator.dupe(u8, "x") } },
+    ));
+    try std.testing.expectEqual(one_call, @as(usize, s.queued_call_bytes));
+
+    // Draining returns the exact charge, and the budget admits again.
+    const drained = try s.takePipelinedCalls(.from(7));
+    defer {
+        for (drained) |call| call.deinit(allocator);
+        allocator.free(drained);
+    }
+    try std.testing.expectEqual(@as(usize, 1), drained.len);
+    try std.testing.expectEqual(@as(u32, 0), s.queued_call_bytes);
+    try s.enqueuePipelinedCall(.from(8), .{ .abort = .{ .kind = .other, .message = try allocator.dupe(u8, "x") } });
+    try std.testing.expectEqual(one_call, @as(usize, s.queued_call_bytes));
+}
+
 test "outbound gc-export cannot spend the retain a linked resolver keeps" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{

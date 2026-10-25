@@ -78,10 +78,14 @@ impl Source {
 		}
 		let attempt = {
 			let mut current = self.0.current.borrow_mut();
-			if current.as_ref().is_none_or(|attempt| !attempt.running()) {
-				*current = Some(request::Attempt::start(&self.0.url)?);
+			match current.as_ref() {
+				Some(attempt) if attempt.running() => attempt.clone(),
+				_ => {
+					let attempt = request::Attempt::start(&self.0.url)?;
+					*current = Some(attempt.clone());
+					attempt
+				}
 			}
-			current.as_ref().expect("admitted ICE request").clone()
 		};
 		let servers = attempt.observe().await?;
 		if self.0.closed.get() {

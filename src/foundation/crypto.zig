@@ -243,13 +243,23 @@ pub fn sign(secret: *const SecretKey, payload: []const u8) Signature {
 /// Check that `sig` really is `pubkey`'s signature over `payload`.
 ///
 /// You get `CryptoError.MalformedKey` if the public-key bytes aren't a point on
-/// the curve, and `CryptoError.InvalidSignature` if they're shaped right but
-/// just don't match.
+/// the curve, or name a point of low order, and `CryptoError.InvalidSignature`
+/// if they're shaped right but just don't match.
+///
+/// The key is a peer's claim, so two checks go beyond what RFC 8032 asks of a
+/// verifier. A low-order point is refused: every signature under one is
+/// forgeable by anyone, so a peer naming one as its key, or as a handoff's
+/// recipient, names a key the whole world holds. The equation is then checked
+/// without the cofactor (`verifyStrict`), so a signature with a small-order
+/// component is refused too. Both accept everything an RFC 8032 signer
+/// produces, so interop with Goblins and the conformance suite is unchanged.
 pub fn verify(pubkey: PeerKey, payload: []const u8, sig: Signature) CryptoError!void {
     const key = Ed25519.PublicKey.fromBytes(pubkey.bytes) catch
         return CryptoError.MalformedKey;
+    const point = Ed25519.Curve.fromBytes(key.bytes) catch return CryptoError.MalformedKey;
+    point.rejectLowOrder() catch return CryptoError.MalformedKey;
     const signature = Ed25519.Signature.fromBytes(sig.bytes);
-    signature.verify(payload, key) catch return CryptoError.InvalidSignature;
+    signature.verifyStrict(payload, key) catch return CryptoError.InvalidSignature;
 }
 
 /// Work out the OCapN Public Identifier for a `PeerKey`.

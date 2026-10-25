@@ -6,6 +6,7 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 const session = @import("session");
 const actions = @import("../actions.zig");
@@ -44,15 +45,25 @@ pub const Recipient = struct {
 };
 
 /// Composite identity for a home-session wire import that is being proxied.
+/// The position is the home peer's choice, so the tables hash it under the
+/// Node's secret multiplier (ADR-0037).
 pub const HomeKey = struct {
     home: PeerHandle,
     wire_pos: u64,
+
+    pub fn identityWords(self: HomeKey) [2]u64 {
+        return .{ self.home.int(), self.wire_pos };
+    }
 };
 
 /// Home-session listener export that receives the home `op:listen` fire.
 pub const ListenerKey = struct {
     home: PeerHandle,
     listener_export: u64,
+
+    pub fn identityWords(self: ListenerKey) [2]u64 {
+        return .{ self.home.int(), self.listener_export };
+    }
 };
 
 /// Armed introducing-session proxy: **one** home `op:listen`, one or more
@@ -74,9 +85,13 @@ pub const Proxy = struct {
     }
 };
 
-pub const Proxies = std.AutoHashMapUnmanaged(HomeKey, Proxy);
-pub const ByListener = std.AutoHashMapUnmanaged(ListenerKey, HomeKey);
-pub const BySource = std.AutoHashMapUnmanaged(HomeKey, HomeKey);
+pub const Proxies = foundation.identity_hash.MapOf(.wire, HomeKey, Proxy);
+pub const ByListener = foundation.identity_hash.MapOf(.wire, ListenerKey, HomeKey);
+pub const BySource = foundation.identity_hash.MapOf(.wire, HomeKey, HomeKey);
+/// Admission's per-home grouping of the promises one prepare lowers.
+pub fn Groups(comptime Group: type) type {
+    return foundation.identity_hash.MapOf(.wire, HomeKey, Group);
+}
 
 pub fn prepareShortening(self: *Node, home: PeerHandle, source: u64, target: u64) !void {
     const source_root = self.proxy_by_source.get(.{ .home = home, .wire_pos = source }) orelse

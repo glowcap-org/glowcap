@@ -177,6 +177,9 @@ pub const QueuedCall = struct {
     /// or the forwarding drain's GC, independently of rewritten arguments.
     introduced_far_imports: ?[]model.ImportPosition = null,
     reference_slots: ?u32 = null,
+    /// Owned bytes this call holds against `Session.queued_call_bytes`,
+    /// measured once at admission and returned when the call leaves the queue.
+    charge: usize = 0,
 
     pub fn deinit(self: QueuedCall, allocator: std.mem.Allocator) void {
         model.freeMessage(allocator, self.message);
@@ -470,32 +473,45 @@ pub fn retainAnswerPayload(payload: *AnswerPayload) !void {
         return error.QueueCapExceeded;
 }
 
+/// The exact session charges a payload's final release gives back, so the
+/// Session subtracts each once regardless of whether the live row or a
+/// detached carrier dies last. Both are zero while another owner remains.
+pub const ReleasedCharges = struct {
+    /// Owned resolution bytes, against `Session.retained_sent_answer_bytes`.
+    resolution: usize = 0,
+    /// Owned queued-call bytes, against `Session.queued_call_bytes`.
+    queued_calls: usize = 0,
+
+    pub const none: ReleasedCharges = .{};
+};
+
 /// Release one owner of a stable answer payload. Returns the exact retained
-/// resolution charge only when this was the final owner, so the Session can
-/// subtract it once regardless of whether the live row or a detached carrier
-/// dies last.
-pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayload) usize {
+/// charges only when this was the final owner.
+pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayload) ReleasedCharges {
     std.debug.assert(payload.refs != 0);
     payload.refs -= 1;
-    if (payload.refs != 0) return 0;
-    const resolution_charge = payload.resolution_charge;
+    if (payload.refs != 0) return .none;
+    var released: ReleasedCharges = .{ .resolution = payload.resolution_charge };
     if (payload.imported_result) |batch| batch.ready();
-    for (payload.queue.items) |call| call.deinit(allocator);
+    for (payload.queue.items) |call| {
+        released.queued_calls += call.charge;
+        call.deinit(allocator);
+    }
     payload.queue.deinit(allocator);
     payload.listeners.deinit(allocator);
     for (payload.projections.items) |projection| deinitProjection(allocator, projection);
     payload.projections.deinit(allocator);
     if (payload.resolution) |resolution| model.freeResolution(allocator, resolution.value);
     allocator.destroy(payload);
-    return resolution_charge;
+    return released;
 }
 
-fn freeAnswerPayload(allocator: std.mem.Allocator, payload_ptr: *?*AnswerPayload) usize {
-    const payload = payload_ptr.* orelse return 0;
+fn freeAnswerPayload(allocator: std.mem.Allocator, payload_ptr: *?*AnswerPayload) ReleasedCharges {
+    const payload = payload_ptr.* orelse return .none;
     payload_ptr.* = null;
     return releaseAnswerPayload(allocator, payload);
 }
 
-pub fn deinitAnswerCell(allocator: std.mem.Allocator, cell: *AnswerCell) usize {
+pub fn deinitAnswerCell(allocator: std.mem.Allocator, cell: *AnswerCell) ReleasedCharges {
     return freeAnswerPayload(allocator, &cell.payload);
 }

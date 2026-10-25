@@ -1,5 +1,6 @@
 //! Authority custody for one membership, independent of transport and executor.
 use super::authority::Refusal;
+use crate::server::trace::constant_time_equals;
 use alloc::{
 	rc::{Rc, Weak},
 	string::String,
@@ -159,22 +160,41 @@ impl<R> Stewardship<R> {
 	}
 	/// Exact generations control retained state. Any notice invalidates pending
 	/// acquisition: its returned publication may not yet be known to this owner. status-allow: pending state or quoted runtime label
-	/// No list of retired tokens or unbounded pending work is retained.
+	/// No list of retired tokens or unbounded pending work is retained. A
+	/// presented token is matched in constant time: the publication token is
+	/// the authority to retire it, so a mismatch takes as long as a match.
 	pub fn forget(&mut self, kind: Kind, token: &str) {
 		self.invalidate();
 		match kind {
-			Kind::Room if self.room.as_ref().is_some_and(|p| p.token == token) => {
+			Kind::Room
+				if self
+					.room
+					.as_ref()
+					.is_some_and(|p| constant_time_equals(&p.token, token)) =>
+			{
 				self.room = None;
 				self.steward = None;
 				self.reference = None;
 				self.retired = true;
 			}
-			Kind::Steward if self.steward.as_ref().is_some_and(|p| p.token == token) => {
+			Kind::Steward
+				if self
+					.steward
+					.as_ref()
+					.is_some_and(|p| constant_time_equals(&p.token, token)) =>
+			{
 				self.steward = None;
 				self.reference = None;
 				self.retired = true;
 			}
-			Kind::Manager if self.manager.as_ref().is_some_and(|p| p.token == token) => self.manager = None,
+			Kind::Manager
+				if self
+					.manager
+					.as_ref()
+					.is_some_and(|p| constant_time_equals(&p.token, token)) =>
+			{
+				self.manager = None
+			}
 			_ => {}
 		}
 	}

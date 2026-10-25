@@ -8,11 +8,14 @@ use tokio::sync::watch;
 /// classed failure. A sender dropped without reporting means the task was
 /// cancelled with nobody left to say why.
 pub(super) async fn settled(ended: &mut watch::Receiver<Option<super::Result<()>>>) -> super::Result<()> {
-	while ended.borrow().is_none() {
+	loop {
+		let outcome = ended.borrow().clone();
+		if let Some(outcome) = outcome {
+			return outcome;
+		}
 		ended
 			.changed()
 			.await
 			.map_err(|_| "a Rooms browser owner retired without reporting".to_owned())?;
 	}
-	ended.borrow().as_ref().expect("settled owner").clone()
 }

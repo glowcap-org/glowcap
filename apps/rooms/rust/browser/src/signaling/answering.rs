@@ -231,8 +231,8 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 	let mut applying = None;
 	let prepared = {
 		let work = async {
-			peer = Some(RtcPeer::new(host, RtcRole::Answerer, &config.await?)?);
-			let peer = peer.as_ref().expect("created answering peer");
+			let created = RtcPeer::new(host, RtcRole::Answerer, &config.await?)?;
+			let peer = &*peer.insert(created);
 			tokio::select! {
 				result = async {
 					peer.set_remote_offer(description.as_str()).await?;
@@ -249,8 +249,8 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 				} => result,
 				result = async {
 					while let Some(candidate) = candidates.recv().await {
-						applying = Some(candidate);
-						peer.add_remote_candidate(applying.as_ref().expect("held candidate").value.as_str()).await?;
+						let held = applying.insert(candidate);
+						peer.add_remote_candidate(held.value.as_str()).await?;
 						applying = None;
 					}
 					Err(Error::Stopped)
@@ -275,7 +275,10 @@ async fn answer<D: Deadline + Tasks + Clone + 'static>(
 			error => Err(error.retain(cleanup)),
 		};
 	}
-	let channel = peer.expect("prepared answering peer").into_channel().await?;
+	let Some(peer) = peer else {
+		return Err(Error::Channel(std::io::Error::other("answering peer was not created")));
+	};
+	let channel = peer.into_channel().await?;
 	drop(applying);
 	let stopping = *stop.borrow();
 	if let Some(reason) = stopping {

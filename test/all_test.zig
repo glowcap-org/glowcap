@@ -327,6 +327,7 @@ comptime {
         _ = @import("net/completion_listeners_test.zig");
         _ = @import("net/tcp_completion_policy_test.zig");
         _ = @import("net/completion_resident_test.zig");
+        _ = @import("net/completion_resident_listener_test.zig");
         _ = @import("net/fuzz_test.zig");
         _ = @import("net/connection_test.zig");
         _ = @import("net/completion_contract_test.zig");

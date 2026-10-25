@@ -48,6 +48,9 @@ pub const Error = error{
     /// (ADR-0003). A loud bound on a partner flooding calls against a promise it
     /// never resolves, never a silent drop.
     QueueCapExceeded,
+    /// Pipelined calls queued across the session would hold more owned bytes
+    /// than `SessionLimits.max_queued_call_bytes`.
+    QueuedCallBytesExceeded,
     /// The inbound answer table exceeded `SessionLimits.max_inbound_answers`.
     InboundAnswerCapExceeded,
     /// Sent inbound-answer rows would retain more owned resolution bytes than

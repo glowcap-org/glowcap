@@ -67,7 +67,8 @@ pub fn referenceExporter(
     const slot = out_session orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const ref_ptr = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const ref = inst.core.capabilityFromRaw(ref_ptr.id);
-    slot.* = if (inst.core.capabilitySession(ref)) |session| @ptrCast(session) else null;
+    const session = inst.core.capabilitySession(ref) catch |err| return common.errToCode(err);
+    slot.* = if (session) |live| @ptrCast(live) else null;
     return shared.GLOWCAP_OK;
 }
 

@@ -17,6 +17,8 @@ impl<T> Clone for Held<T> {
 impl<T> Deref for Held<T> {
 	type Target = T;
 	fn deref(&self) -> &T {
+		// `value` is `Some` until `Value::drop` takes it, so no live handle sees `None`.
+		#[allow(clippy::expect_used)]
 		self.0.value.as_ref().expect("held value")
 	}
 }

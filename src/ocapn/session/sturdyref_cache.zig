@@ -168,7 +168,7 @@ fn reserveCacheRow(self: *Session) !void {
     const additional = @min(room, demand);
     const index_additional = std.math.cast(u32, additional) orelse return error.OutOfMemory;
     try self.sturdyref_cache.ensureUnusedCapacity(self.allocator, additional);
-    try self.sturdyref_cache_index.ensureUnusedCapacity(self.allocator, index_additional);
+    try self.sturdyref_cache_index.ensureUnusedCapacity(self.bearer_secret, self.allocator, index_additional);
 }
 
 /// Commit a cache row whose list and index capacity were reserved by
@@ -186,7 +186,7 @@ fn appendReservedSturdyrefCacheRow(self: *Session, owned: []u8, far: model.FarRe
         .older = newest,
         .newer = 0,
     });
-    self.sturdyref_cache_index.putAssumeCapacity(owned, index);
+    self.sturdyref_cache_index.putAssumeCapacity(self.bearer_secret, owned, index);
 }
 
 fn findSturdyrefCache(self: *Session, swissnum: []const u8) ?*SturdyrefCacheEntry {
@@ -196,7 +196,7 @@ fn findSturdyrefCache(self: *Session, swissnum: []const u8) ?*SturdyrefCacheEntr
 
 /// O(1) swissnum to row index via the side map kept in sync with the FIFO list.
 fn findSturdyrefCacheIndex(self: *const Session, swissnum: []const u8) ?usize {
-    return self.sturdyref_cache_index.get(swissnum);
+    return self.sturdyref_cache_index.get(self.bearer_secret, swissnum);
 }
 
 /// Row zero is the FIFO anchor even after arbitrary import invalidation.
@@ -207,7 +207,7 @@ fn evictOldest(self: *Session) void {
 fn removeAt(self: *Session, index: usize) void {
     const evicted = self.sturdyref_cache.items[index];
     const last = self.sturdyref_cache.items.len - 1;
-    std.debug.assert(self.sturdyref_cache_index.remove(evicted.swissnum));
+    std.debug.assert(self.sturdyref_cache_index.remove(self.bearer_secret, evicted.swissnum));
     self.allocator.free(evicted.swissnum);
     if (last == 0) {
         _ = self.sturdyref_cache.pop();
@@ -235,7 +235,7 @@ fn repairRow(self: *Session, index: usize) void {
         self.sturdyref_cache.items[entry.older].newer = index;
         self.sturdyref_cache.items[entry.newer].older = index;
     }
-    self.sturdyref_cache_index.getPtr(entry.swissnum).?.* = index;
+    self.sturdyref_cache_index.getPtr(self.bearer_secret, entry.swissnum).?.* = index;
 }
 
 fn swapRows(self: *Session, a: usize, b: usize) void {

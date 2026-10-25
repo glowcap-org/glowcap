@@ -186,13 +186,16 @@ pub fn checkRequiredSubstrings(
 ) !void {
     try expectCursorHook(io, gpa, root, violations);
     try expectClaudeHook(io, gpa, root, violations);
-    try expectMcpServer(io, gpa, root, violations, ".mcp.json", &.{
+    // Claude Code sessions start on the host, where Serena and zls are not
+    // installed, so the server runs through the devcontainer front.
+    try expectMcpServer(io, gpa, root, violations, ".mcp.json", ".agents/skills/work/bin/glowcap-dev", &.{
+        "serena",
         "start-mcp-server",
         "--context",
         "claude-code",
         "--project-from-cwd",
     });
-    try expectMcpServer(io, gpa, root, violations, ".cursor/mcp.json", &.{
+    try expectMcpServer(io, gpa, root, violations, ".cursor/mcp.json", "serena", &.{
         "start-mcp-server",
         "--context",
         "ide",
@@ -317,6 +320,7 @@ fn expectMcpServer(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     path: []const u8,
+    expected_command: []const u8,
     expected_args: []const []const u8,
 ) !void {
     var parsed = try parseJsonFile(io, gpa, root, violations, path) orelse return;
@@ -334,8 +338,8 @@ fn expectMcpServer(
         try appendViolation(gpa, violations, "{s}: missing `mcpServers.serena.command`", .{path});
         return;
     };
-    if (!jsonStringEquals(command, "serena")) {
-        try appendViolation(gpa, violations, "{s}: `mcpServers.serena.command` must be `serena`", .{path});
+    if (!jsonStringEquals(command, expected_command)) {
+        try appendViolation(gpa, violations, "{s}: `mcpServers.serena.command` must be `{s}`", .{ path, expected_command });
     }
 
     const args = getField(serena, "args") orelse {

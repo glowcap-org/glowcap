@@ -30,15 +30,8 @@ pub fn projectSignedHandoff(ctx: model.view.LazyHandoff.Ctx) model.view.ProjectE
 /// consumed. `envelope_start` lets a give borrow its whole signed byte span.
 fn finishSignedHandoff(bytes: []const u8, cursor: *usize, envelope_start: usize) Error!model.view.Handoff {
     try syntax.readByte(bytes, cursor, '<');
-    if (syntax.readKnownLabel(bytes, cursor, "desc:handoff-give")) {
-        var give = try readBorrowedGivePayload(bytes, cursor);
-        try syntax.readByte(bytes, cursor, '>');
-        const sig = try syntax.readSignatureView(bytes, cursor);
-        give.signature = .{ .halves = .{ .r = sig.r, .s = sig.s } };
-        try syntax.readByte(bytes, cursor, '>');
-        give.raw_signed = bytes[envelope_start..cursor.*];
-        return .{ .give = give };
-    }
+    if (syntax.readKnownLabel(bytes, cursor, "desc:handoff-give"))
+        return .{ .give = try finishSignedGive(bytes, cursor, envelope_start) };
 
     if (syntax.readKnownLabel(bytes, cursor, "desc:handoff-receive")) {
         var receive = try readBorrowedReceivePayload(bytes, cursor);
@@ -53,6 +46,18 @@ fn finishSignedHandoff(bytes: []const u8, cursor: *usize, envelope_start: usize)
     // malformed before unsupported.
     _ = try syntax.readLabel(bytes, cursor);
     return Error.UnsupportedMessage;
+}
+
+/// Finish a signed give whose `<desc:sig-envelope <desc:handoff-give` prefix
+/// is already consumed.
+fn finishSignedGive(bytes: []const u8, cursor: *usize, envelope_start: usize) Error!model.view.HandoffGive {
+    var give = try readBorrowedGivePayload(bytes, cursor);
+    try syntax.readByte(bytes, cursor, '>');
+    const sig = try syntax.readSignatureView(bytes, cursor);
+    give.signature = .{ .halves = .{ .r = sig.r, .s = sig.s } };
+    try syntax.readByte(bytes, cursor, '>');
+    give.raw_signed = bytes[envelope_start..cursor.*];
+    return give;
 }
 
 fn readBorrowedGivePayload(bytes: []const u8, cursor: *usize) Error!model.view.HandoffGive {
@@ -75,11 +80,15 @@ fn readBorrowedReceivePayload(bytes: []const u8, cursor: *usize) Error!model.vie
     const receiving_session = try syntax.readBytes(bytes, cursor);
     const receiving_side = try syntax.readBytes(bytes, cursor);
     const handoff_count = try syntax.readPositiveInt(bytes, cursor);
-    const signed = try readBorrowedSignedHandoff(bytes, cursor);
-    const signed_give = switch (signed) {
-        .give => |give| give,
-        .receive => return Error.MalformedFrame,
-    };
+    // The wrapped envelope is read as a give directly: a receive inside a
+    // receive is malformed, and reading it through the envelope arm would
+    // recurse as deep as the bytes nest.
+    const envelope_start = cursor.*;
+    try syntax.readByte(bytes, cursor, '<');
+    try syntax.expectSymbol(bytes, cursor, "desc:sig-envelope");
+    try syntax.readByte(bytes, cursor, '<');
+    if (!syntax.readKnownLabel(bytes, cursor, "desc:handoff-give")) return Error.MalformedFrame;
+    const signed_give = try finishSignedGive(bytes, cursor, envelope_start);
     return .{
         .receiving_session = receiving_session,
         .receiving_side = receiving_side,

@@ -125,7 +125,7 @@ test "libglowcap_host owning local callback preserves identities and has no fabr
     const host = borrow.core();
     var context: Context = .{ .host = host, .ref = undefined };
     try h.expectOk(cd.glowcap_host_publish(raw, "local", 5, behavior, &context, null));
-    context.ref = try host.retainLocalCapability(host.publications.get("local").?.actor);
+    context.ref = try host.retainLocalCapability(host.publications.get(host.publication_secret, "local").?.actor);
     defer host.releaseCapabilityTerminal(context.ref, null);
     const call = try host.callLocalCapability(a, context.ref, "echo", &.{.{ .list = &.{ .{ .capability = context.ref }, .{ .capability = context.ref } } }}, 512);
     defer call.deinit();
@@ -144,7 +144,7 @@ test "libglowcap_host application send owns nested identities without a session 
     const host = borrow.core();
     var context: Context = .{ .host = host, .ref = undefined };
     try h.expectOk(cd.glowcap_host_publish(raw, "local", 5, behavior, &context, null));
-    context.ref = try host.retainLocalCapability(host.publications.get("local").?.actor);
+    context.ref = try host.retainLocalCapability(host.publications.get(host.publication_secret, "local").?.actor);
     defer host.releaseCapabilityTerminal(context.ref, null);
     const target: c.GlowcapReference = .{ .id = context.ref.raw() };
     const fields = [_]c.GlowcapArgument{ h.argRef(target), h.argRef(target) };
@@ -180,7 +180,7 @@ test "libglowcap_host owning local forwarding preserves nested exact C identitie
     const host = borrow.core();
     var context: Context = .{ .host = host, .ref = undefined };
     try h.expectOk(cd.glowcap_host_publish(raw, "local", 5, behavior, &context, null));
-    context.ref = try host.retainLocalCapability(host.publications.get("local").?.actor);
+    context.ref = try host.retainLocalCapability(host.publications.get(host.publication_secret, "local").?.actor);
     defer host.releaseCapabilityTerminal(context.ref, null);
     const call = try host.callLocalCapability(a, context.ref, "forward", &.{.{ .list = &.{ .{ .capability = context.ref }, .{ .capability = context.ref } } }}, 512);
     defer call.deinit();
@@ -220,7 +220,7 @@ test "libglowcap_host owning local C forwarding and effects preserve exact repli
         defer host.releaseCapabilityTerminal(imported, null);
         var context: Context = .{ .host = host, .ref = undefined, .target = if (remote) imported else null };
         try h.expectOk(cd.glowcap_host_publish(raw, "local", 5, behavior, &context, null));
-        context.ref = try host.retainLocalCapability(host.publications.get("local").?.actor);
+        context.ref = try host.retainLocalCapability(host.publications.get(host.publication_secret, "local").?.actor);
         defer host.releaseCapabilityTerminal(context.ref, null);
         const call = try host.callLocalCapability(a, context.ref, verb, &.{.{ .list = &.{ .{ .capability = context.ref }, .{ .capability = context.ref } } }}, 4096);
         defer call.deinit();
@@ -246,7 +246,7 @@ test "libglowcap_host owning local callback defers a nested capability result th
     const host = borrow.core();
     var context: Context = .{ .host = host, .ref = undefined };
     try h.expectOk(cd.glowcap_host_publish(raw, "local", 5, behavior, &context, null));
-    context.ref = try host.retainLocalCapability(host.publications.get("local").?.actor);
+    context.ref = try host.retainLocalCapability(host.publications.get(host.publication_secret, "local").?.actor);
     defer host.releaseCapabilityTerminal(context.ref, null);
     const call = try host.callLocalCapability(a, context.ref, "wait", &.{}, 512);
     defer call.deinit();
@@ -272,7 +272,7 @@ test "libglowcap_host owning local callback can spawn the exact reply capability
     const host = borrow.core();
     var context: Context = .{ .host = host, .ref = undefined };
     try h.expectOk(cd.glowcap_host_publish(raw, "local", 5, behavior, &context, null));
-    context.ref = try host.retainLocalCapability(host.publications.get("local").?.actor);
+    context.ref = try host.retainLocalCapability(host.publications.get(host.publication_secret, "local").?.actor);
     defer host.releaseCapabilityTerminal(context.ref, null);
     const call = try host.callLocalCapability(a, context.ref, "spawn", &.{}, 512);
     defer call.deinit();
@@ -294,7 +294,7 @@ test "libglowcap_host owning local C projection refusal retires unexposed observ
     const host = borrow.core();
     var context: Context = .{ .host = host, .ref = undefined };
     try h.expectOk(cd.glowcap_host_publish(raw, "local", 5, behavior, &context, null));
-    context.ref = try host.retainLocalCapability(host.publications.get("local").?.actor);
+    context.ref = try host.retainLocalCapability(host.publications.get(host.publication_secret, "local").?.actor);
     defer host.releaseCapabilityTerminal(context.ref, null);
     const items: [64]driver.Value = @splat(.{ .capability = context.ref });
     const call = try host.callLocalCapability(a, context.ref, "echo", &.{.{ .list = &items }}, 512);

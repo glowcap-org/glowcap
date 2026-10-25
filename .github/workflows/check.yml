@@ -75,13 +75,8 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      # These SDKs belong to the disposable hosted runner. Product tools are
-      # supplied by the devcontainer, so they only consume build disk here.
       - name: Reclaim disk space for container builds
-        run: |
-          df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
-          df -h /
+        run: .devcontainer/ci/reclaim-disk.sh
 
       # Download stores are shared between runs. Installed tools and
       # credentials are never restored.
@@ -101,7 +96,10 @@ jobs:
       # Compile state is restored too, because a hosted runner compiles cold an
       # order of magnitude slower than a workstation. Zig keys every object by
       # its inputs and every process proof always reruns, so a restore saves
-      # compile time and skips no proof. Each lane keeps its own entry, and a
+      # compile time and skips no proof. Deno's type-check, dependency-analysis,
+      # and code caches are compile state as well: without them every
+      # `deno test` under a 30-second proof deadline type-checks its modules
+      # cold on two CPUs first. Each lane keeps its own entry, and a
       # toolchain change starts a new family. Zig's cache has no collector, so
       # state past the limit, or more than the runner's disk can spare, is
       # dropped and that run saves a fresh one. Full qualification builds cold
@@ -116,17 +114,32 @@ jobs:
             ~/.cache/glowcap/tool/zig
             ~/.cache/glowcap/ci/zig-local
             ~/.cache/glowcap/ci/cargo-build
+            ~/.cache/glowcap/tool/deno/gen
+            ~/.cache/glowcap/tool/deno/check_cache_v2
+            ~/.cache/glowcap/tool/deno/dep_analysis_cache_v2
+            ~/.cache/glowcap/tool/deno/v8_code_cache_v2
           key: build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.lane }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.lane }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-
 
       - name: Bound the restored build state
         if: needs.plan.outputs.full != 'true'
         env:
+          # The repository's cache quota is 10 GB compressed across every
+          # lane, so a lane's state is held near its cold size instead of
+          # growing: Zig's cache has no collector.
           LIMIT_GB: 12
-          # A cold core lane ends with about 13 GB free after its own build.
-          FREE_FLOOR_GB: 30
+          # Free disk the lane needs beyond its restored state: the 6 GB
+          # container image, zig-out, cargo outputs, and proof scratch. On a
+          # hosted runner the heaviest lane's cold build grew used disk by
+          # 30 GB including the state it then saved, and the others by 9 to
+          # 14 GB with 5 to 9 GB of that being state. The check runs after
+          # the restore, so the floor is what the lane adds on top of the
+          # state, not the whole cold build: set to the whole cold build it
+          # dropped every restore, and no run ever built warm.
+          FREE_FLOOR_GB: 20
         run: |
-          stores=(~/.cache/glowcap/tool/zig ~/.cache/glowcap/ci/zig-local ~/.cache/glowcap/ci/cargo-build)
+          stores=(~/.cache/glowcap/tool/zig ~/.cache/glowcap/ci/zig-local ~/.cache/glowcap/ci/cargo-build ~/.cache/glowcap/tool/deno/gen ~/.cache/glowcap/tool/deno/check_cache_v2 ~/.cache/glowcap/tool/deno/dep_analysis_cache_v2 ~/.cache/glowcap/tool/deno/v8_code_cache_v2)
+          du -sh "${stores[@]}" 2>/dev/null || true
           size=$(du -s --block-size=1G "${stores[@]}" 2>/dev/null | awk '{ total += $1 } END { print total + 0 }')
           free=$(df --output=avail --block-size=1G / | tail -1 | tr -d ' ')
           echo "Restored build state: ${size} GB of ${LIMIT_GB} GB, ${free} GB free"
@@ -160,46 +173,54 @@ jobs:
         run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json bash ci/fetch-zig.sh
 
       # Every phase runs once the container is ready, even after an earlier
-      # phase failed, so one run reports every failure in the lane.
+      # phase failed, so one run reports every failure in the lane. Cargo's
+      # intermediate state is cached between runs, so incremental compilation
+      # would only add disk, and dev-profile debug info keeps source lines
+      # without the variable data that dominates a target directory; the
+      # Rooms test profile makes the same choice in its manifest.
       - name: Infrastructure and timeout checks
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'core' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh infrastructure
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh infrastructure
 
-      - name: Core, memory, runtime, and TLS checks
+      - name: Core and memory checks
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'core' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh core
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh core
+
+      - name: Runtime process and TLS checks
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'runtime' }}
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh runtime
 
       - name: ReleaseSafe tests in bounded compile groups
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'shipped' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh shipped
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh shipped
 
       - name: Browser and interoperability smoke checks
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'shipped' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh smoke
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh smoke
 
       - name: Bounded mutation fuzzing
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'shipped' && needs.plan.outputs.full == 'true' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh fuzz
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh fuzz
 
       - name: Rust sidecar tests
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'bindings' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh sidecars
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh sidecars
 
       - name: Bindings and cross-language scenarios
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'bindings' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh bindings
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh bindings
 
       - name: Wasm and browser scenarios
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'browser' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh browser
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh browser
 
       - name: Goblins and OCapN interoperability
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'interop' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh interop
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh interop
 
       - name: Iroh providers and relay matrices
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'transports' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh transports
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh transports
 
       # The evidence record is the run's product: what ran, on what, and how
       # each gate ended. It is kept on failure too, since a red run's record
@@ -235,6 +256,10 @@ jobs:
             ~/.cache/glowcap/tool/zig
             ~/.cache/glowcap/ci/zig-local
             ~/.cache/glowcap/ci/cargo-build
+            ~/.cache/glowcap/tool/deno/gen
+            ~/.cache/glowcap/tool/deno/check_cache_v2
+            ~/.cache/glowcap/tool/deno/dep_analysis_cache_v2
+            ~/.cache/glowcap/tool/deno/v8_code_cache_v2
           key: build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.lane }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Summarize gate results

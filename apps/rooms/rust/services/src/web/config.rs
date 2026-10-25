@@ -35,7 +35,8 @@ pub const HELP: &str = "rooms-web [http-port] [room-port] [options]
   --admin-listeners --diagnostics --operator --peering --irc --trace
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
-  --http-admission-per-address=true|false  use actual socket source (default: false)
+  --http-admission-per-address=true|false  charge each source address its own budget (default: false)
+  --http-trusted-proxies=<address|cidr,...>  proxies whose X-Forwarded-For client address selects the budget (default: none)
   --browser-admission-scale=<1..100> --browser-admission-rows=<1..65536>
   --browser-admission-rates=<class=burst/per-minute,...> --browser-admission-aggregate-scale=<1..100>
 Server options and GLOWCAP_ROOMS_* variables have the same meaning as rooms-server.
@@ -145,6 +146,7 @@ impl Config {
 			options.remove(&format!("browser-{key}"));
 		}
 		options.remove("http-admission-per-address");
+		options.remove("http-trusted-proxies");
 		let server_args: Vec<_> = options
 			.into_iter()
 			.map(|(key, value)| raw_options.remove(&key).unwrap_or_else(|| format!("--{key}={value}")))
@@ -206,6 +208,26 @@ mod tests {
 		assert!(!config.server_args.iter().any(|s| s.starts_with("--http-admission")));
 		assert!(config.admission.settings.summary().contains("admission-rates=argument"));
 		assert!(Config::parse(["--http-admission-rows=0".into()], |_| None).is_err());
+	}
+
+	#[test]
+	fn trusted_proxies_are_read_from_arguments_or_environment_and_stay_out_of_server_args() {
+		let config = Config::parse(["--http-trusted-proxies=10.0.0.0/8, fd00::1".into()], |_| None)
+			.unwrap()
+			.unwrap();
+		assert_eq!(config.admission.trusted_proxies.len(), 2);
+		assert!(!config.server_args.iter().any(|s| s.contains("trusted-proxies")));
+		let config = Config::parse([], |key| {
+			(key == "GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES").then(|| "127.0.0.1".into())
+		})
+		.unwrap()
+		.unwrap();
+		assert_eq!(config.admission.trusted_proxies.len(), 1);
+		assert_eq!(parse(&[]).admission.trusted_proxies.len(), 0);
+		let error = Config::parse(["--http-trusted-proxies=10.0.0.0/40".into()], |_| None)
+			.err()
+			.unwrap();
+		assert!(error.contains("10.0.0.0/40"), "{error}");
 	}
 
 	#[test]

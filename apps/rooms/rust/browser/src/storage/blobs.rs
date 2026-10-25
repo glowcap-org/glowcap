@@ -41,7 +41,7 @@ impl Cache {
 		let at = cache
 			.iter()
 			.position(|held| held.digest == digest && held.blob.size() == size as f64)?;
-		let held = cache.remove(at).expect("located verified blob");
+		let held = cache.remove(at)?;
 		let result = held.blob.clone();
 		cache.push_back(held);
 		Some(result)
@@ -110,14 +110,17 @@ impl ReadAccess {
 					steps
 						.store(RECORDS)?
 						.index("coordinates")?
-						.get(&codec::address_coordinates(reader.address()))?,
+						.get(&codec::address_coordinates(reader.address())?)?,
 					move |steps, row| {
 						let entry = codec::decode(row)?;
 						let attachment = reader.resolve_record(&entry.record)?;
 						let length = reader.record_read_length(&entry.record, offset, maximum)?;
 						let size = attachment.size();
-						let digest = attachment.blob().expect("resolved blob").to_owned();
-						let key = codec::address_key(reader.address());
+						let digest = attachment
+							.blob()
+							.ok_or(Error::Invalid("resolved attachment has no blob"))?
+							.to_owned();
+						let key = codec::address_key(reader.address())?;
 						steps.request(steps.store(BLOBS)?.get(&key)?, move |steps, row| {
 							value::shape(&row, &["key", "digest", "size", "bytes"])?;
 							if value::get(&row, "key")? != key

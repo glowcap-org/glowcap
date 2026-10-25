@@ -41,7 +41,10 @@ Run `Attachment.Work.lookup` through `backend.lookup` and pass its result to
 tagged with the Store and revision it read, and a stale result is retried.
 
 - By default, at most <!-- value ../../src/loam/hosting/discovery.zig max_names -->16<!-- /value --> distinct names and <!-- value ../../src/loam/hosting/discovery.zig max_fetches -->64<!-- /value --> fetches can wait at once. Past that,
-  fetches are refused.
+  fetches are refused. One peer holds at most `max_fetches_per_origin` of
+  those fetch slots, a quarter of `max_fetches` unless the listener sets it,
+  so a flood from one peer leaves room for the others. A local fetch is its
+  own origin, so the bound never reaches local callers.
 - Listening allocates the lookup table and two bounded arrays, and each
   waiting name holds its 16 secret bytes.
 - A submitted lookup runs to completion even if everyone waiting on it

@@ -420,7 +420,7 @@ fn admitVowVerb(self: *Host, vow_id: u64) !ResolvedVow {
 }
 
 fn resolveVowSession(self: *Host, vow_id: u64) HostError!ResolvedVow {
-    self.assertOwner();
+    try self.claimOwner();
     const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
     const peer_handle = row.peer() orelse return HostError.SessionlessVow;
     const session = self.sessions.get(peer_handle) orelse return HostError.NoSuchVow;

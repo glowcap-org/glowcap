@@ -26,20 +26,27 @@ const Session = session.Session;
 /// row has only grown private queue capacity, which carries no semantic state.
 pub const PreparedCallQueue = struct {
     payload: store.PreparedPendingPayload,
+    /// The owned bytes the admitted call charges, and the session total once
+    /// it commits. Admission checked both against `max_queued_call_bytes`.
+    charge: usize,
+    next_queued_bytes: u32,
 
     pub fn abandon(self: *PreparedCallQueue, owner: *Session) void {
         self.payload.abandon(owner);
     }
 
     pub fn commit(self: *PreparedCallQueue, owner: *Session, message: model.Message) void {
-        self.commitNamed(.{ .message = message, .answer = switch (message) {
+        self.commitNamed(owner, .{ .message = message, .charge = self.charge, .answer = switch (message) {
             .deliver => |deliver| if (deliver.answer) |answer| owner.answerTargetNamed(.fromWire(answer)) else null,
             else => null,
         } });
     }
 
-    pub fn commitNamed(self: *PreparedCallQueue, call: store.QueuedCall) void {
+    pub fn commitNamed(self: *PreparedCallQueue, owner: *Session, call: store.QueuedCall) void {
+        std.debug.assert(call.charge == self.charge);
+        std.debug.assert(owner.queued_call_bytes + self.charge == self.next_queued_bytes);
         self.payload.payload.queue.appendAssumeCapacity(call);
+        owner.queued_call_bytes = self.next_queued_bytes;
         self.payload.commit();
     }
 };
@@ -68,7 +75,7 @@ pub fn enqueuePipelinedCallNamed(
     message: model.Message,
 ) !void {
     errdefer model.freeMessage(self.allocator, message);
-    var prepared = try preparePipelinedCallNamed(self, answer_position);
+    var prepared = try preparePipelinedCallNamed(self, answer_position, try model.measureMessageOwnedBytes(message));
     errdefer prepared.abandon(self);
     prepared.commit(self, message);
 }
@@ -76,35 +83,52 @@ pub fn enqueuePipelinedCallNamed(
 /// Prepare one bounded queue append without consuming a message or changing
 /// answer semantics. This is the receive transaction's queue half. Commit is
 /// allocation-free after the frame's answer/import/resolver authority moves.
+/// `charge` is the owned bytes the call will hold
+/// (`model.measureMessageOwnedBytes`), checked here against
+/// `max_queued_call_bytes` so a refused call allocates nothing.
 pub fn preparePipelinedCallNamed(
     self: *Session,
     answer_position: model.AnswerName,
+    charge: usize,
 ) !PreparedCallQueue {
     const target = self.answerTargetNamed(answer_position) orelse return error.InvalidReference;
-    return preparePipelinedCallTarget(self, target);
+    return preparePipelinedCallTarget(self, target, charge);
 }
 
 pub fn preparePipelinedCallTarget(
     self: *Session,
     target: session.AnswerTarget,
+    charge: usize,
 ) !PreparedCallQueue {
+    const charge32 = std.math.cast(u32, charge) orelse return error.QueuedCallBytesExceeded;
+    const next_queued_bytes = std.math.add(u32, self.queued_call_bytes, charge32) catch
+        return error.QueuedCallBytesExceeded;
+    if (next_queued_bytes > self.limits.max_queued_call_bytes)
+        return error.QueuedCallBytesExceeded;
     var payload = try store.preparePendingPayloadTarget(self, target);
     errdefer payload.abandon(self);
     if (payload.payload.queue.items.len >= self.limits.queue_cap)
         return error.QueueCapExceeded;
     try payload.payload.queue.ensureUnusedCapacity(self.allocator, 1);
-    return .{ .payload = payload };
+    return .{ .payload = payload, .charge = charge, .next_queued_bytes = next_queued_bytes };
 }
 
+/// Queue a call, charging its owned bytes against the session budget. A call
+/// drained once and re-queued behind another pending answer keeps the charge
+/// it was measured at; a fresh call (charge zero, which no message measures
+/// to) is measured here, and the stored call carries the result.
 pub fn enqueuePipelinedCallTarget(
     self: *Session,
     target: session.AnswerTarget,
     call: store.QueuedCall,
 ) !void {
     errdefer call.deinit(self.allocator);
-    var prepared = try preparePipelinedCallTarget(self, target);
+    const charge = if (call.charge != 0) call.charge else try model.measureMessageOwnedBytes(call.message);
+    var prepared = try preparePipelinedCallTarget(self, target, charge);
     errdefer prepared.abandon(self);
-    prepared.commitNamed(call);
+    var charged = call;
+    charged.charge = charge;
+    prepared.commitNamed(self, charged);
 }
 
 pub fn takePipelinedCalls(
@@ -129,7 +153,11 @@ pub fn takePipelinedCallsNamed(
 /// reusable wire name, remains their owner until settlement.
 pub fn takePayloadCalls(self: *Session, payload: *session.AnswerPayload) ![]store.QueuedCall {
     if (payload.queue.items.len == 0) return &.{};
-    return payload.queue.toOwnedSlice(self.allocator);
+    const calls = try payload.queue.toOwnedSlice(self.allocator);
+    var released: usize = 0;
+    for (calls) |call| released += call.charge;
+    self.returnReleasedCharges(.{ .queued_calls = released });
+    return calls;
 }
 
 pub fn takePipelinedListeners(

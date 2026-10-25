@@ -180,13 +180,16 @@ notes behind, so publish them with `git push origin refs/notes/evidence`.
 
 ## Repository protection
 
-The versioned [main ruleset](../.github/rulesets/main.json) and
-[dev ruleset](../.github/rulesets/dev.json) define the settings to activate and
-verify on GitHub. Committing these files does not enable protection. Once
-activated, both branches take only signed commits in a linear history, and
-neither can be force-pushed or deleted. `main` also requires the `gates` and
-`macos-runtime` checks to have passed on the pushed commit. There is no
-bypass, so the maintainer's own push answers to the same rules.
+The versioned [main ruleset](../.github/rulesets/main.json),
+[dev ruleset](../.github/rulesets/dev.json), and
+[release tag ruleset](../.github/rulesets/tags.json) define the settings to
+activate and verify on GitHub. Committing these files does not enable
+protection. Once activated, both branches take only signed commits in a linear
+history, and neither can be force-pushed or deleted. `main` also requires the
+`gates` and `macos-runtime` checks to have passed on the pushed commit. A `v*`
+tag must be signed, and once pushed it can neither move nor be deleted, so the
+commit a release names stays the commit that was checked. There is no bypass,
+so the maintainer's own push answers to the same rules.
 
 GitHub verifies a signature only against a signing key on the maintainer's
 account, so upload the public key as a signing key before activating the

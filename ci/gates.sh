@@ -26,6 +26,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # two-CPU runner, and BUILD_TIMEOUT gives it twice that.
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-${GATE_TIMEOUT:-60m}}"
 GATE_TIMEOUT="${GATE_TIMEOUT:-20m}"
+# A `long` line names a gate that serializes many process proofs, each under
+# its own deadline, so its healthy duration on a two-CPU runner is itself
+# tens of minutes. It gets LONG_TIMEOUT, twice its measured hosted-runner
+# time, so the wedge detector still fires while a healthy run keeps headroom.
+LONG_TIMEOUT="${LONG_TIMEOUT:-${GATE_TIMEOUT:-40m}}"
 
 # Whether an exit code means "the deadline killed it" rather than "it failed".
 # A function so it can be exercised directly: a grep for the two literals
@@ -47,6 +52,7 @@ phase() { current_phase=$1; }
 first_failure=0
 
 gate() { run_gate "$GATE_TIMEOUT" continue "$@"; }
+long() { run_gate "$LONG_TIMEOUT" continue "$@"; }
 build() { run_gate "$BUILD_TIMEOUT" stop "$@"; }
 
 run_gate() {
@@ -105,7 +111,7 @@ if [ -n "${GATES_SOURCE_ONLY:-}" ]; then return 0; fi
 selected_phase=${1:-all}
 if [ "$#" -gt 1 ]; then echo "ci/gates.sh: expected at most one phase" >&2; exit 2; fi
 case "$selected_phase" in
-  all|infrastructure|core|shipped|smoke|fuzz|sidecars|bindings|browser|interop|transports) ;;
+  all|infrastructure|core|runtime|shipped|smoke|fuzz|sidecars|bindings|browser|interop|transports) ;;
   *) echo "ci/gates.sh: unknown phase: $selected_phase" >&2; exit 2 ;;
 esac
 
@@ -150,8 +156,13 @@ build zig build check-build
 gate zig build check
 build zig build test-memcheck-build
 gate zig build test-memcheck
+# The process, application, and language-workspace proofs. They share one
+# cold build with the core phase, and the two phases together exceed what one
+# hosted runner holds: a 72 GB runner ends a combined lane near full and its
+# compile state too large to save, so each phase is its own lane.
+phase runtime
 build zig build runtime-check-build
-gate zig build runtime-check
+long zig build runtime-check
 # The optional Mbed TLS relay composition is deliberately absent from the
 # base library graph, so `check` cannot prove it. Fetch the pinned Mbed TLS
 # release by checksum and run both pollable and completion carriers through the

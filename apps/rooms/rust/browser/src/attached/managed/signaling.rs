@@ -165,16 +165,15 @@ async fn run(
 				match prepared {
 					Ok((authority, registration)) => {
 						held.insert(id.clone(), Preparation::Running);
-						let (routes, ice, admission, trouble, stopping) = (
-							environment.managed_signaling.clone(),
-							environment.ice.clone(),
-							environment.incoming.admission(),
-							environment.trouble.clone(),
-							stop.clone(),
-						);
+						let services = Services {
+							routes: environment.managed_signaling.clone(),
+							ice: environment.ice.clone(),
+							admission: environment.incoming.admission(),
+							trouble: environment.trouble.clone(),
+						};
+						let stopping = stop.clone();
 						workers.spawn_local(async move {
-							let result =
-								listen(&id, authority, registration, routes, ice, admission, trouble, stopping).await;
+							let result = listen(&id, authority, registration, services, stopping).await;
 							(id, result)
 						});
 					}
@@ -199,8 +198,10 @@ async fn run(
 				changes.retry();
 			},
 			changed = changes.changed() => {
-				if let Err(error) = changed {
-					if let Some(environment) = embedding.upgrade() { environment.trouble.report("Managed signaling changes", &error.to_string()); }
+				if let Err(error) = changed
+					&& let Some(environment) = embedding.upgrade()
+				{
+					environment.trouble.report("Managed signaling changes", &error.to_string());
 				}
 			},
 			ended = workers.join_next(), if !workers.is_empty() => {
@@ -226,16 +227,26 @@ async fn run(
 	}
 	outcome
 }
-async fn listen(
-	id: &str,
-	authority: String,
-	mut registration: SignalingRegistration<Platform>,
+/// The application services one listening worker shares with its siblings.
+struct Services {
 	routes: Rc<Routes>,
 	ice: crate::ice::Source,
 	admission: super::super::peers::Admission,
 	trouble: super::super::TroubleReporter,
+}
+async fn listen(
+	id: &str,
+	authority: String,
+	mut registration: SignalingRegistration<Platform>,
+	services: Services,
 	mut stop: watch::Receiver<bool>,
 ) -> Result<()> {
+	let Services {
+		routes,
+		ice,
+		admission,
+		trouble,
+	} = services;
 	let mut rejections = JoinSet::new();
 	let mut delay = 1_000;
 	let result = loop {

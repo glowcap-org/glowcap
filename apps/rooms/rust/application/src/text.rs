@@ -164,7 +164,11 @@ impl Serialize for DocumentText {
 fn append_json_run(json: &mut String, run: &mut String) -> Result<(), serde_json::Error> {
 	if !run.is_empty() {
 		let encoded = serde_json::to_string(run)?;
-		json.push_str(&encoded[1..encoded.len() - 1]);
+		let inner = encoded
+			.strip_prefix('"')
+			.and_then(|quoted| quoted.strip_suffix('"'))
+			.ok_or_else(|| <serde_json::Error as serde::ser::Error>::custom("JSON string is not quoted"))?;
+		json.push_str(inner);
 		run.clear();
 	}
 	Ok(())

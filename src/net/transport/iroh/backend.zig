@@ -79,6 +79,9 @@ pub fn CompletionBackend(comptime Platform: type) type {
             pub fn tryRead(entry: *ConnEntry, buf: []u8) completion.TryRead {
                 const n = sidecar.glowcap_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
                 if (n == would_block) return .would_block;
+                // A count past the buffer is the sidecar breaking its
+                // contract, never bytes to read.
+                if (n > buf.len) return .{ .failed = error.IrohSidecarContract };
                 if (n > 0) return .{ .transferred = @intCast(n) };
                 // 0 = clean EOF, negative = fault.
                 if (n == 0) return .closed;
@@ -88,6 +91,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             pub fn tryWrite(entry: *ConnEntry, bytes: []const u8) completion.TryWrite {
                 const n = sidecar.glowcap_iroh_sidecar_conn_try_write(entry.cconn, bytes.ptr, bytes.len);
                 if (n == would_block) return .would_block;
+                if (n > bytes.len) return .{ .failed = error.IrohSidecarContract };
                 if (n > 0) return .{ .transferred = @intCast(n) };
                 return .{ .failed = error.IrohWriteFailed };
             }
@@ -541,7 +545,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
         fn harvestSidecar(self: *Self) !void {
             var events_buf: [256]ReadyEvent = undefined;
             const n = self.resident.drainReady(&events_buf);
-            if (n < 0) return error.SidecarDrainFailed;
+            // A count past the buffer is the sidecar breaking its contract.
+            if (n < 0 or n > events_buf.len) return error.SidecarDrainFailed;
             const count: usize = @intCast(n);
             for (events_buf[0..count]) |ev| self.dispatchReady(ev);
         }

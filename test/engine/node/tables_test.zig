@@ -22,9 +22,11 @@ test "Node action extraction preserves the inline Node footprint" {
     // array list (ADR-0058). The root of the sessions' wire-hash secrets
     // adds one word (ADR-0037). The peer table is a handle table: its rows
     // are an array list, and a free chain head and two counts replace the
-    // monotonic handle counter (ADR-0038).
+    // monotonic handle counter (ADR-0038). The three promise-proxy tables
+    // each carry the Node's table multiplier, one word apiece, so a peer's
+    // wire positions hash under a secret there too.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 1016), @sizeOf(Node));
+    try std.testing.expectEqual(@as(usize, 1040), @sizeOf(Node));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));
 }
 

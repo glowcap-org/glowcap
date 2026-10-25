@@ -55,7 +55,10 @@ pub fn registerPeer(self: *Node, options: engine.Peer.NegotiatingOptions) !PeerH
     errdefer export_ranges.recycleExportBase(self, new_peer.session_state.exports.base);
 
     const handle = try self.peers.mint(self.allocator, .{ .peer = new_peer, .ownership = .node_owned });
-    new_peer.session_state.keyWireTables(wire_hash.multiplier(self.wire_hash_secret, handle.int()));
+    new_peer.keyWireTables(
+        wire_hash.multiplier(self.wire_hash_secret, handle.int()),
+        wire_hash.bearerSecret(self.wire_hash_secret, handle.int()),
+    );
     new_peer.node_services = .{ .node = self, .peer_handle = handle };
     return handle;
 }
@@ -70,7 +73,10 @@ pub fn registerPeerOver(self: *Node, adopted: *engine.Peer) !PeerHandle {
     try export_ranges.applyExportRange(self, adopted);
     errdefer export_ranges.recycleExportBase(self, adopted.session_state.exports.base);
     const handle = try self.peers.mint(self.allocator, .{ .peer = adopted, .ownership = .borrowed });
-    adopted.session_state.keyWireTables(wire_hash.multiplier(self.wire_hash_secret, handle.int()));
+    adopted.keyWireTables(
+        wire_hash.multiplier(self.wire_hash_secret, handle.int()),
+        wire_hash.bearerSecret(self.wire_hash_secret, handle.int()),
+    );
     adopted.node_services = .{ .node = self, .peer_handle = handle };
     return handle;
 }

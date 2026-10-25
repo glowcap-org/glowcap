@@ -33,6 +33,18 @@ privately through a GitHub security advisory or email
 
 Glowcap LLC aims to acknowledge reports within seven days. Reports of broken protocol invariants take priority.
 
+## Supported versions
+
+Fixes land on `main` and in the next tagged release. Only the latest release
+receives fixes, so a deployment tracks it.
+
+## Disclosure
+
+A report stays private until a fix is published or ninety days have passed
+since acknowledgement, whichever comes first. The reporter and the maintainer
+can agree on a different date when a fix needs longer or when the issue is
+already public.
+
 ## What counts as a security issue
 
 A session keeps tables of the references it has exported and imported and the

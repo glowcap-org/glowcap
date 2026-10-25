@@ -103,7 +103,7 @@ pub fn releaseOutbound(self: *Session, id: model.AnswerPosition) session.Error!v
     if (entry.count != 0) return;
     const resolver_export = entry.resolverExport();
     const released = store.deinitAnswerCell(self.allocator, entry);
-    std.debug.assert(released == 0);
+    std.debug.assert(released.resolution == 0 and released.queued_calls == 0);
     // Under V1.0 the partner's `op:resolve` names our position, and one for a
     // question we released early may still be in flight: the position stays
     // out of circulation. The next profile resolves through the resolver
@@ -126,9 +126,7 @@ pub fn abandonUnsharedInboundNamed(self: *Session, id: model.AnswerName) void {
     self.inbound_answers.remove(id);
 }
 
-/// Retire one inbound cell and release its exact retained-resolution charge.
+/// Retire one inbound cell and release its exact retained charges.
 pub fn releaseInboundCell(self: *Session, entry: *AnswerCell) void {
-    const released = store.deinitAnswerCell(self.allocator, entry);
-    std.debug.assert(self.retained_sent_answer_bytes >= released);
-    self.retained_sent_answer_bytes -= released;
+    self.returnReleasedCharges(store.deinitAnswerCell(self.allocator, entry));
 }

@@ -214,7 +214,7 @@ pub const Backend = struct {
 
     pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void {
         const sqe = try self.getSqe();
-        sqe.prep_accept(listen_fd, null, null, 0);
+        sqe.prep_accept(listen_fd, null, null, linux.SOCK.CLOEXEC);
         sqe.user_data = user_data;
         self.listeners.noteAccept(listen_fd, user_data);
     }

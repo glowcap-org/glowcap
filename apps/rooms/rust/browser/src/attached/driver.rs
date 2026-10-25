@@ -248,17 +248,8 @@ impl Driver {
 		}
 		let mut ended = self.0.ended.clone();
 		wasm_bindgen_futures::future_to_promise(async move {
-			while ended.borrow().is_none() {
-				ended
-					.changed()
-					.await
-					.map_err(|_| js_error("Rooms application retirement lost its owner"))?;
-			}
-			ended
-				.borrow()
-				.as_ref()
-				.expect("terminal application outcome")
-				.clone()
+			super::connections::settled(&mut ended)
+				.await
 				.map(|()| JsValue::UNDEFINED)
 				.map_err(|error| js_error(&error))
 		})

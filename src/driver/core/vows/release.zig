@@ -165,7 +165,14 @@ pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) v
             const entry = self.resolver_index.get(resolver_id) orelse unreachable;
             const row = self.vows.get(entry.vow_id) orelse unreachable;
             std.debug.assert(row.forwardedPeer() == peer_handle);
-            self.vat.breakVow(entry.vat_resolver, reason) catch unreachable;
+            self.vat.breakVow(entry.vat_resolver, reason) catch |err| switch (err) {
+                // The reason could not be copied into the settle arena. The
+                // vow still breaks, under a reason that needs no allocation.
+                error.OutOfMemory => self.vat.breakVowTerminal(entry.vat_resolver, "session released"),
+                // The row is indexed and unsettled, and rows drop only at the
+                // top level, outside any turn or callback.
+                else => unreachable,
+            };
             settlement.markRowSettled(self, row);
             std.debug.assert(self.resolver_index.remove(resolver_id));
             settlement.retireRow(self, row);

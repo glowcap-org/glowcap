@@ -181,7 +181,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 				.ok_or_else(|| loam::refusal("original direct route is absent"))?,
 			source: source_key,
 			id,
-			generation: Text::new(format!("{}:sent", &owner.activity.token(0)?[..82]).into())
+			generation: Text::new(format!("{}:sent", owner.activity.incarnation_hex()?).into())
 				.ok_or_else(|| loam::refusal("outgoing live identity is not admitted"))?,
 			directory: direct.directory.clone(),
 			conversation: direct.id.clone(),

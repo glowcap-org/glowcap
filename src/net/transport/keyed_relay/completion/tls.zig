@@ -205,8 +205,8 @@ pub fn Machine(
                         backend,
                         c,
                         plaintext_chunk_bytes,
-                    ) catch {
-                        fail(backend, c, .receive, error.OutOfMemory);
+                    ) catch |err| {
+                        fail(backend, c, .receive, err);
                         return;
                     };
                     const transition = transform.step(

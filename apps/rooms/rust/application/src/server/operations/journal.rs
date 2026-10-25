@@ -64,11 +64,14 @@ fn bounded(text: &str, max: usize) -> String {
 	if text.len() <= max {
 		return text.into();
 	}
-	let mut end = max.saturating_sub(3);
-	while end > 0 && !text.is_char_boundary(end) {
-		end -= 1;
-	}
-	let mut cut = String::from(&text[..end]);
+	let limit = max.saturating_sub(3);
+	let end = text
+		.char_indices()
+		.map(|(at, _)| at)
+		.take_while(|&at| at <= limit)
+		.last()
+		.unwrap_or(0);
+	let mut cut = String::from(text.split_at_checked(end).map_or("", |(head, _)| head));
 	cut.push('…');
 	cut
 }

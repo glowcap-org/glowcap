@@ -148,26 +148,6 @@ fn openDialedCommitted(
             return err;
         };
     }
-    // Register the outbound before any bytes move: a crossed inbound
-    // start-session from the same partner must find this dial (ADR-0012).
-    // The mint above moves none, so this is still ahead of the hello.
-    //
-    // Two identities, two roles (ADR-0028). `partner_designator` is the
-    // durable peer this dial races for: it decides *which two attempts
-    // are racing*. The identifier beside it is this outbound session
-    // attempt's own identity: it decides *which of the two survives*.
-    // Registering after the mint is what lets the
-    // second one be the session's key rather than the host's: they are the
-    // same value only when a host signs every session with its durable
-    // key, and reading the wrong one would order the tiebreak by a
-    // quantity both connection attempts to a peer share.
-    const our_session_id = crypto.derivePublicIdentifier(session.sessionPublicKey());
-    const dial_target = target(session.transport, session.role.dialed);
-    self.hellos.registerOutbound(self.allocator, dial_target, our_session_id) catch |err| {
-        failOpen(self, session);
-        return err;
-    };
-    errdefer self.hellos.unregister(self.allocator, dial_target);
     // The dial's own demand, before the hello. The shared open tail's
     // `errdefer failOpen` covers hello failures.
     if (admission.demanded_key) |expected|
@@ -373,8 +353,6 @@ pub fn releaseSession(self: *Host, session: *HostSession) SessionReleaseError!vo
         session.served.port.breakFarVows(session.served.closeReason("connection released"));
     }
 
-    if (session.role == .dialed)
-        self.hellos.unregister(self.allocator, target(session.transport, session.role.dialed));
     finishSessionOpen(self, session);
     unindexSession(self, session);
     const peer_handle = session.peer_handle;
@@ -428,7 +406,10 @@ pub fn mint(self: *Host, source: PeerSource, spec: RoleSpec, transport: []const 
     try self.held_releases.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
     // The session being minted owes a flush and a close of its own.
     try self.reserveActions(2);
-    if (spec == .dialed) try self.dialed_by_target.ensureUnusedCapacity(self.allocator, 1);
+    if (spec == .dialed) {
+        try self.dialed_by_target.ensureUnusedCapacity(self.allocator, 1);
+        try self.hellos.reserveOutbound(self.allocator);
+    }
     const peer_handle = switch (source) {
         .mint => try self.node.registerPeer(negotiatingOptions(self)),
         .over => |peer| try self.node.registerPeerOver(peer),
@@ -539,10 +520,22 @@ pub fn enroll(self: *Host, session: *HostSession) void {
     session.control.open_pending = true;
     self.beginSessionOperation(session);
     if (session.role == .dialed) {
-        self.dialed_by_target.putAssumeCapacity(
-            target(session.transport, session.role.dialed),
-            session.peer_handle,
-        );
+        const dial_target = target(session.transport, session.role.dialed);
+        self.dialed_by_target.putAssumeCapacity(dial_target, session.peer_handle);
+        // The crossed-hellos entry, before any bytes move (ADR-0012): the
+        // hello is queued but leaves in the pump that follows enrollment.
+        // It lives while the open is pending, so `finishSessionOpen` removes
+        // it when the partner's hello lands or the dial dies, and a later
+        // peer naming this address cannot condemn an open session.
+        //
+        // Two identities, two roles (ADR-0028). The target is the durable
+        // peer this dial races for: it decides *which two attempts are
+        // racing*. The identifier beside it is this outbound session
+        // attempt's own key, not the host's: it decides *which of the two
+        // survives*. The two are the same value only when a host signs
+        // every session with its durable key, and ordering by that would
+        // order the tiebreak by a quantity both attempts to a peer share.
+        self.hellos.registerOutbound(dial_target, crypto.derivePublicIdentifier(session.sessionPublicKey()));
     }
 }
 
@@ -552,6 +545,10 @@ pub fn enroll(self: *Host, session: *HostSession) void {
 pub fn finishSessionOpen(self: *Host, session: *HostSession) void {
     if (!session.control.open_pending) return;
     session.control.open_pending = false;
+    if (session.role == .dialed) self.hellos.unregister(
+        target(session.transport, session.role.dialed),
+        crypto.derivePublicIdentifier(session.sessionPublicKey()),
+    );
     self.finishSessionOperation(session);
 }
 
@@ -563,9 +560,10 @@ pub const spawnHosted = publication.spawnHosted;
 /// Free one session's owned shell after it has been unregistered from every
 /// canceled: the served Port, unconsumed feed tail, connection identity bytes,
 /// then the shell itself. Every session teardown funnels through here so no
-/// path drops one of these frees. Call only after `unindexSession` (and, for
-/// a dialed session, `hellos.unregister`): the transport and designator bytes
-/// back the dial index key until this frees their shared block.
+/// path drops one of these frees. Call only after `unindexSession`: the
+/// transport and designator bytes back the dial index key, and the
+/// crossed-hellos entry `finishSessionOpen` drops first, until this frees
+/// their shared block.
 pub fn freeSessionShell(self: *Host, session: *HostSession) void {
     finishSessionOpen(self, session);
     host_close.removeSessionCloseTiming(self, session.peer_handle);

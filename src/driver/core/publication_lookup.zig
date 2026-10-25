@@ -132,7 +132,7 @@ pub const Fetch = struct {
 pub fn resolveFetch(context: ?*anyopaque, scope: engine.PeerHandle, request: engine.bootstrap.FetchContext) engine.bootstrap.gifts.LocalObjectProjection.Error!engine.bootstrap.FetchOutcome {
     const host: *Host = @ptrCast(@alignCast(context.?));
     const session = host.sessions.get(scope) orelse return error.UnknownCapability;
-    if (host.publications.get(request.swissnum)) |row| {
+    if (host.publications.get(host.publication_secret, request.swissnum)) |row| {
         // A hidden reservation already owns this name: never consult storage.
         if (!row.active) return .missing;
         return .{ .found = (try session.served.port.projectActor(&host.vat, row.actor)).export_position };
@@ -156,7 +156,7 @@ pub fn resolveFetch(context: ?*anyopaque, scope: engine.PeerHandle, request: eng
 pub fn resolveLocal(host: *Host, name: []const u8, recipient: Recipient, admission: @import("host/admission.zig").WorkAdmission) !u64 {
     const id = try @import("vows.zig").peekVowId(host);
     if (recipient == .action) try host.reserveActions(1);
-    if (host.publications.get(name)) |row| {
+    if (host.publications.get(host.publication_secret, name)) |row| {
         if (row.active) {
             const retained = try host.retainLocalCapability(row.actor);
             host.vow_ids.commit(id);

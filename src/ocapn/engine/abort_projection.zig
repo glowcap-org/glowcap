@@ -123,6 +123,7 @@ pub fn classify(err: anyerror) Classification {
         // (ADR-0018): a partner cannot push any of them past its cap.
         error.InboundAnswerCapExceeded,
         error.RetainedAnswerCapExceeded,
+        error.QueuedCallBytesExceeded,
         error.ListenerCapExceeded,
         error.ProjectionCapExceeded,
         error.ImportCapExceeded,

@@ -1,17 +1,89 @@
-//! The end of a `net.completion_resident`: close what the runtime left open
-//! and retire every operation the backend still owes before any staging it
-//! borrows is freed.
+//! The ends of a `net.completion_resident`: one connection's close and
+//! abort, and the drain that closes what the runtime left open and retires
+//! every operation the backend still owes before any staging it borrows is
+//! freed.
 
 const std = @import("std");
 
 const completion = @import("../completion/loop.zig");
 const completions = @import("completions.zig");
+const resident_mod = @import("../multiplexed_resident.zig");
 
+const TeardownOutcome = resident_mod.TeardownOutcome;
 const userData = completions.userData;
 
 pub fn Machine(comptime Self: type) type {
     return struct {
         const Completions = completions.Machine(Self);
+
+        /// The runtime's claim on connection `id` ends here. The row lives
+        /// on, out of reach of every verb, until the backend retires the
+        /// operations that borrow its staging.
+        pub fn connClose(self: *Self, id: usize) TeardownOutcome {
+            defer Completions.pump(self);
+            const conn = self.conns.getPtr(id) orelse return .complete;
+            if (conn.close == .closing) return .complete;
+            // Readiness backends perform sends when polled, not when submitted.
+            // Keep the socket open until every admitted byte has completed.
+            conn.send_queued = false;
+            Completions.startSend(self, id, conn);
+            Completions.submitQueued(self);
+            Completions.pump(self);
+            if (conn.write_failure == null and
+                (conn.sending or conn.front.items.len != conn.sent or conn.back.items.len != 0))
+            {
+                // The runtime reads nothing more from a closed wire, so a
+                // buffer this row holds goes back to the pool now rather
+                // than for as long as the partner takes to read the drain.
+                releaseRecv(self, id, conn);
+                conn.close = .draining;
+                conn.owes_writable = true;
+                return .pending;
+            }
+            return shutConn(self, id, conn);
+        }
+
+        /// Drop connection `id` now, whatever `connClose` was still sending.
+        pub fn connAbort(self: *Self, id: usize) TeardownOutcome {
+            defer Completions.pump(self);
+            const conn = self.conns.getPtr(id) orelse return .complete;
+            if (conn.close == .closing) return .complete;
+            conn.send_queued = false;
+            return shutConn(self, id, conn);
+        }
+
+        /// Return a held pool buffer and leave the starved queue.
+        fn releaseRecv(self: *Self, id: usize, conn: *Self.Conn) void {
+            if (conn.recv == .holding) {
+                const held = conn.recv.holding.comp;
+                conn.recv = .idle;
+                Completions.recycle(self, held);
+            }
+            Completions.forgetStarved(self, id);
+        }
+
+        /// Release the row and shut its socket. The row lives on until the
+        /// backend retires the operations still borrowing it.
+        fn shutConn(self: *Self, id: usize, conn: *Self.Conn) TeardownOutcome {
+            releaseRecv(self, id, conn);
+            conn.close = .closing;
+            self.backend.shutdownFd(conn.fd);
+            var outcome: TeardownOutcome = .complete;
+            if (self.backend.submitClose(userData(.close, id), conn.fd)) {
+                conn.inflight += 1;
+            } else |err| {
+                self.backend.closeFd(conn.fd);
+                outcome = .{ .failed = .init(err) };
+                // The descriptor is closed and its armed operations complete
+                // nowhere, so a row still counting them can never retire.
+                // The resident is the smallest scope that can report that,
+                // and its owner retires it.
+                if (conn.inflight != 0) Completions.latch(self, err);
+            }
+            Completions.retireIfQuiet(self, id, conn);
+            return outcome;
+        }
+
 
         pub fn closeAndDrain(self: *Self, timeout_ms: u32) !void {
             try closeOpen(self);
@@ -42,7 +114,7 @@ pub fn Machine(comptime Self: type) type {
             var conns = self.conns.iterator();
             while (conns.next()) |entry| {
                 const conn = entry.value_ptr;
-                if (conn.close != .open) continue;
+                if (conn.close == .closing) continue;
                 if (conn.recv == .holding) {
                     // Every receive is closing, so no starved one is fed.
                     self.backend.recycleBorrowed(conn.recv.holding.comp);
@@ -64,6 +136,9 @@ pub fn Machine(comptime Self: type) type {
                 switch (dial.state) {
                     .connecting => {
                         dial.state = .cancelling;
+                        // Shut the connect down first: the queued connect
+                        // holds the socket past the descriptor's close.
+                        self.backend.shutdownFd(dial.fd);
                         if (self.backend.submitClose(userData(.dial_close, entry.key_ptr.*), dial.fd)) {
                             dial.inflight += 1;
                         } else |_| {

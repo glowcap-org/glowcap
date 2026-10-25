@@ -28,7 +28,7 @@ pub const ApplicationTarget = struct { ref: capability.Ref, session: ?*HostSessi
 /// follow the retained target to its actual local or foreign home. These are
 /// borrowed identities. Admission uses the existing promise queue.
 pub fn applicationTarget(self: *Host, ref: capability.Ref) !ApplicationTarget {
-    self.assertOwner();
+    try self.claimOwner();
     var current = ref;
     while (true) {
         const target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
@@ -79,7 +79,7 @@ pub fn routeCapability(
     ref: capability.Ref,
     gate: Gate,
 ) !RoutedSend {
-    self.assertOwner();
+    try self.claimOwner();
     try self.admitSessionOperation(session);
     try self.checkSession(session);
     const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
@@ -156,7 +156,7 @@ fn routeTarget(
     args: []const model.Argument,
     scope: RouteScope,
 ) !RoutedSend {
-    self.assertOwner();
+    try self.claimOwner();
     try self.admitSessionOperation(session);
     try self.checkSession(session);
     switch (target) {

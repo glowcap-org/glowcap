@@ -92,6 +92,7 @@ impl Relay {
 					rooms_application::admission::POOLED_AGGREGATE_SCALE,
 				),
 				per_address: false,
+				trusted_proxies: Default::default(),
 			}),
 		)
 	}

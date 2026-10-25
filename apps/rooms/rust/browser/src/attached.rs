@@ -11,7 +11,7 @@ mod uploads;
 mod view;
 use crate::{ice, platform::Platform, transport};
 use glowcap::{Host, PendingWork, Runtime};
-use rooms_runtime::cleanup::combine as retain;
+use rooms_runtime::cleanup::{combine as retain, failed};
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 type Result<T> = std::result::Result<T, String>;
@@ -74,11 +74,10 @@ impl Environment {
 		{
 			Ok(runtime) => Rc::new(runtime),
 			Err(error) => {
-				return Err(retain(
-					Err(error.to_string()),
+				return Err(failed(
+					error.to_string(),
 					host.close(PendingWork::Cancel).await.map_err(|error| error.to_string()),
-				)
-				.unwrap_err());
+				));
 			}
 		};
 		let mut environment = Self {
@@ -94,7 +93,7 @@ impl Environment {
 		};
 		match managed::Owner::open(&environment, prepared, admission).await {
 			Ok(owner) => environment.managed = Some(owner),
-			Err(error) => return Err(retain(Err(error), environment.close().await).unwrap_err()),
+			Err(error) => return Err(failed(error, environment.close().await)),
 		}
 		Ok(environment)
 	}

@@ -1,6 +1,8 @@
 //! HTTP has no authenticated Rooms identity. Apply a deployment envelope and,
-//! only when configured, a budget for the actual socket address. Forwarded
-//! headers never select a budget or confer trust.
+//! only when configured, a budget for the source address. The client address
+//! module decides that address, so a header from an untrusted peer never
+//! selects a budget or confers trust.
+use super::client_address::TrustedProxies;
 use super::http::{Reply, response};
 use rooms_application::admission::{Charge, Class, Policy, Profile, Rate, Registry, Settings};
 use std::{cell::RefCell, net::IpAddr, rc::Rc, time::Instant};
@@ -22,10 +24,11 @@ impl Policy<Key> for Rates {
 		}
 	}
 }
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct Config {
 	pub settings: Settings,
 	pub per_address: bool,
+	pub trusted_proxies: TrustedProxies,
 }
 impl Config {
 	pub fn read(
@@ -61,7 +64,17 @@ impl Config {
 			Some("1" | "true" | "yes") => true,
 			Some(_) => return Err("GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS must be a boolean".into()),
 		};
-		Ok(Self { settings, per_address })
+		let trusted_proxies = match value("trusted-proxies") {
+			None => TrustedProxies::default(),
+			Some(text) => {
+				TrustedProxies::parse(&text).map_err(|e| format!("GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES: {e}"))?
+			}
+		};
+		Ok(Self {
+			settings,
+			per_address,
+			trusted_proxies,
+		})
 	}
 }
 pub(super) struct Admission {
@@ -137,6 +150,7 @@ mod tests {
 		let policy = Admission::new(Config {
 			settings,
 			per_address: true,
+			trusted_proxies: Default::default(),
 		});
 		let first = "127.0.0.1".parse().unwrap();
 		let other = "127.0.0.2".parse().unwrap();
@@ -146,6 +160,7 @@ mod tests {
 		let aggregate = Admission::new(Config {
 			settings,
 			per_address: false,
+			trusted_proxies: Default::default(),
 		});
 		for _ in 0..8 {
 			aggregate.start(Class::HttpStart, Some(first)).unwrap();

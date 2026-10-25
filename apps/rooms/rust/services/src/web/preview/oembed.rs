@@ -55,8 +55,8 @@ impl Provider {
 fn domain(host: &str, base: &str) -> bool {
 	host.eq_ignore_ascii_case(base)
 		|| host
-			.get(..host.len().saturating_sub(base.len()))
-			.is_some_and(|prefix| prefix.ends_with('.') && host[host.len() - base.len()..].eq_ignore_ascii_case(base))
+			.split_at_checked(host.len().saturating_sub(base.len()))
+			.is_some_and(|(prefix, suffix)| prefix.ends_with('.') && suffix.eq_ignore_ascii_case(base))
 }
 
 #[derive(Deserialize)]

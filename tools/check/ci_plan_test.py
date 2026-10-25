@@ -28,10 +28,10 @@ class PlanTest(unittest.TestCase):
 
     def test_development_selects_consumers_and_fails_closed(self):
         cases = [
-            (["README.md", "docs/shipped.md"], ["core", "shipped"], False),
-            (["src/loam/core/mod.zig"], ["core", "shipped", "browser"], False),
-            (["bindings/python/glowcap/__init__.py"], ["core", "shipped", "bindings", "interop", "transports"], False),
-            (["conformance/goblins-peer/peer.rkt"], ["core", "shipped", "interop", "transports"], False),
+            (["README.md", "docs/shipped.md"], ["core", "runtime", "shipped"], False),
+            (["src/loam/core/mod.zig"], ["core", "runtime", "shipped", "browser"], False),
+            (["bindings/python/glowcap/__init__.py"], ["core", "runtime", "shipped", "bindings", "interop", "transports"], False),
+            (["conformance/goblins-peer/peer.rkt"], ["core", "runtime", "shipped", "interop", "transports"], False),
             (["apps/rooms/lib/peer.ts"], list(PLAN.LANES), False),
             (["bindings/rust/src/lib.rs"], list(PLAN.LANES), False),
             (["bindings/proofs/scenario.ts"], list(PLAN.LANES), False),
@@ -44,7 +44,7 @@ class PlanTest(unittest.TestCase):
             (["test/driver/fuzz_test.zig"], list(PLAN.LANES), True),
             (["an-unclassified-file"], list(PLAN.LANES), True),
             (None, list(PLAN.LANES), True),
-            ([], ["core", "shipped"], False),
+            ([], ["core", "runtime", "shipped"], False),
         ]
         for event in ("push", "pull_request"):
             for paths, lanes, full in cases:

@@ -327,15 +327,11 @@ pub fn Machine(
                     Lifecycle.retireConnOp(self, slot);
                 },
                 .close => {
-                    if (comp.result < 0) {
-                        if (slot < self.conns.len) {
-                            const c = &self.conns[slot];
-                            failure_projection.record(&c.peer, comp, error.CloseFailed);
-                            if (c.state == .closing) self.backend.closeFd(c.fd);
-                        }
-                        if (slot == self.conns.len) {
-                            if (self.listener_close_fd) |fd| self.backend.closeFd(fd);
-                        }
+                    // close(2) releases the descriptor whatever it reports, so
+                    // a failure is recorded and never retried against a number
+                    // the kernel may already have reissued.
+                    if (comp.result < 0 and slot < self.conns.len) {
+                        failure_projection.record(&self.conns[slot].peer, comp, error.CloseFailed);
                     }
                     if (slot == self.conns.len) {
                         self.listener_close_pending = false;

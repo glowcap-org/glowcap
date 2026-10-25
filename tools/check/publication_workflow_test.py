@@ -490,7 +490,7 @@ else:
             lanes, full = PLAN.select('workflow_dispatch', 'refs/heads/dev', {}, [])
             self.assertTrue(full)
             phase_steps = re.findall(
-                r"if: \$\{\{ !cancelled\(\) && steps.fetch.outcome == 'success' && matrix.lane == '([^']+)'( && needs.plan.outputs.full == 'true')? \}\}\n        run: devcontainer exec --workspace-folder \. --config \.devcontainer/\.ci/devcontainer\.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh ([a-z]+)", workflow)
+                r"if: \$\{\{ !cancelled\(\) && steps.fetch.outcome == 'success' && matrix.lane == '([^']+)'( && needs.plan.outputs.full == 'true')? \}\}\n        run: devcontainer exec --workspace-folder \. --config \.devcontainer/\.ci/devcontainer\.json (?:--remote-env [A-Z_]+=[^ ]+ )+bash ci/gates.sh ([a-z]+)", workflow)
             phases = [phase for lane in lanes for condition, _, phase in phase_steps if condition == lane]
             self.assertEqual(len(phases), len(set(phases)))
             combined = []
@@ -512,7 +512,7 @@ else:
             self.assertFalse(full)
             reduced_phases = [phase for lane, full_only, phase in phase_steps
                               if lane in reduced and not full_only]
-            self.assertEqual(reduced_phases, ['infrastructure', 'core', 'shipped', 'smoke'])
+            self.assertEqual(reduced_phases, ['infrastructure', 'core', 'runtime', 'shipped', 'smoke'])
             for arguments in (['unknown'], ['core', 'browser']):
                 calls.unlink(missing_ok=True)
                 record_path.unlink()
@@ -603,6 +603,15 @@ else:
                              {"gates", "macos-runtime"})
             self.assertIn("name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}",
                           conditions["gates"][1])
+        # A release tag names the commit release.yml publishes, so once pushed
+        # it can neither move nor disappear, and it carries a signature.
+        tags = json.loads((ROOT / ".github/rulesets/tags.json").read_text())
+        self.assertEqual(tags["target"], "tag")
+        self.assertEqual(tags["enforcement"], "active")
+        self.assertEqual(tags["bypass_actors"], [])
+        self.assertEqual(tags["conditions"]["ref_name"], {"include": ["refs/tags/v*"], "exclude": []})
+        self.assertEqual({rule["type"] for rule in tags["rules"]}, {"deletion", "update", "required_signatures"})
+        self.assertIn('tags: ["v*"]', (ROOT / ".github/workflows/release.yml").read_text())
 
     def test_pages_requires_trusted_push_or_manual_main(self):
         condition = jobs(".github/workflows/pages.yml")["build"][0]

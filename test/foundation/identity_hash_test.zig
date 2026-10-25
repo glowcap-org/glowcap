@@ -86,6 +86,19 @@ test "a node keys each session's wire tables from its identity" {
     try std.testing.expectEqual(a, node.peer(first).?.session_state.imports.rows.multiplier);
 }
 
+test "a node keys each session's bearer tables apart from its position tables" {
+    var node = glowcap.ocapn.engine.Node.init(std.testing.allocator, @as([foundation.crypto.seed_bytes]u8, @splat(0x5c)));
+    defer node.deinit();
+    const first = try node.registerPeer(.{});
+    const second = try node.registerPeer(.{});
+    const a = node.peer(first).?.session_state;
+    const b = node.peer(second).?.session_state;
+    try std.testing.expect(a.bearer_secret != foundation.identity_hash.default_multiplier);
+    try std.testing.expect(a.bearer_secret != a.wire_hash_multiplier);
+    try std.testing.expect(a.bearer_secret != b.bearer_secret);
+    try std.testing.expectEqual(a.bearer_secret, node.peer(first).?.gift_registry.wire_hash_secret);
+}
+
 test "a host's fresh salt keys a session apart from the node's handle-only multiplier" {
     var node = glowcap.ocapn.engine.Node.init(std.testing.allocator, @as([foundation.crypto.seed_bytes]u8, @splat(0x5c)));
     defer node.deinit();

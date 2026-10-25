@@ -93,3 +93,9 @@ fn a_subscriber_queue_is_bounded() {
 	assert!(queue.admit(10));
 	assert!(!queue.admit(MAX_LINE_BYTES + 1));
 }
+
+#[test]
+fn replay_skips_a_stored_line_that_is_not_an_object_instead_of_splitting_a_character() {
+	let lines = replay_lines([(1, "é{\"a\":1}"), (2, "{\"b\":2}")].into_iter(), core::iter::empty());
+	assert_eq!(lines, ["{\"replay\":true,\"b\":2}"]);
+}

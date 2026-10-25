@@ -15,6 +15,10 @@ const tcp = net.tcp;
 
 const frame_cap = 8192;
 
+/// A finish grace that only a wedged close can exhaust: the close loops bound
+/// themselves at 1000 rounds of 10 ms.
+const finish_grace_ms = 20_000;
+
 const harness = @import("harness.zig");
 const FailureCapture = harness.FailureCapture;
 const Treasure = harness.Treasure;
@@ -215,6 +219,19 @@ test "runtime cancel close interrupts an admitted transport open and seals admis
     }));
 }
 
+/// Accept the dial's server session while stepping the client too. The
+/// accept completes on the client's hello, so a client left unstepped (or
+/// stepped once, on a runner too slow for that to write it) never lets the
+/// accept finish, and a blocking `accept` would hide that behind its own wait.
+fn acceptWhileStepping(runtime: *driver.HostRuntime, server: *driver.Server) !*driver.Session {
+    var rounds: usize = 0;
+    while (rounds < 1_000) : (rounds += 1) {
+        _ = try runtime.stepAny(0);
+        if (try server.waitAcceptable(10)) return server.accept();
+    }
+    return error.DialNeverAccepted;
+}
+
 test "runtime finish close publishes an admitted transport open before closing its session" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -245,9 +262,11 @@ test "runtime finish close publishes an admitted transport open before closing i
         .failed = DialRecorder.failed,
     });
 
-    runtime.beginClose(.{ .finish = .{ .ms = 1_000 } });
-    _ = try runtime.stepAny(0);
-    var accepted = try server.accept();
+    // The grace outlasts the round bound below, so only a wedged dial can
+    // exhaust it. A short grace races a slow runner into cancellation.
+    runtime.beginClose(.{ .finish = .{ .ms = finish_grace_ms } });
+
+    var accepted = try acceptWhileStepping(&runtime, server);
     defer accepted.deinit();
     try accepted.attend();
 
@@ -256,7 +275,6 @@ test "runtime finish close publishes an admitted transport open before closing i
         _ = try runtime.stepAny(10);
         while (try server.runtime.stepAny(0) != null) {}
     }
-
     try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.closeOutcome());
     try std.testing.expectEqual(@as(usize, 1), recorder.opened_count);
     try std.testing.expectEqual(@as(?anyerror, null), recorder.failed_err);
@@ -296,11 +314,8 @@ test "runtime finish close realizes a core dial admitted before its barrier" {
         .swissnum = "not-published",
     });
 
-    runtime.beginClose(.{ .finish = .{ .ms = 1_000 } });
-    _ = try runtime.stepAny(0);
-
-    try std.testing.expect(try server.waitAcceptable(wait.accept_deadline_ms));
-    var accepted = try server.accept();
+    runtime.beginClose(.{ .finish = .{ .ms = finish_grace_ms } });
+    var accepted = try acceptWhileStepping(&runtime, server);
     defer accepted.deinit();
     try accepted.attend();
 
@@ -309,7 +324,6 @@ test "runtime finish close realizes a core dial admitted before its barrier" {
         _ = try runtime.stepAny(10);
         while (try server.runtime.stepAny(0) != null) {}
     }
-
     try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.closeOutcome());
 }
 

@@ -174,11 +174,13 @@ impl fmt::Display for Failure<'_> {
 /// Borrow the bounded UTF-8 prefix so callers choose whether retention is needed.
 pub const MAX_REASON_BYTES: usize = 4096;
 pub fn reason_prefix(reason: &str) -> &str {
-	let mut end = reason.len().min(MAX_REASON_BYTES);
-	while !reason.is_char_boundary(end) {
-		end -= 1;
-	}
-	&reason[..end]
+	let end = reason
+		.char_indices()
+		.map(|(at, c)| at + c.len_utf8())
+		.take_while(|&end| end <= MAX_REASON_BYTES)
+		.last()
+		.unwrap_or(0);
+	reason.split_at_checked(end).map_or("", |(head, _)| head)
 }
 
 #[cfg(test)]

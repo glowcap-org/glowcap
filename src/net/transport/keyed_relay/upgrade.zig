@@ -78,7 +78,16 @@ fn readResponse(
             if (fds[0].revents & (std.posix.POLL.ERR | std.posix.POLL.HUP) != 0 and
                 fds[0].revents & std.posix.POLL.IN == 0)
                 return error.ConnectionLost;
-            break;
+            // Readiness is the socket's, not the reader's: over TLS a record
+            // can be half here. Fill without blocking and poll again for the
+            // rest, so the deadline above still bounds the wait.
+            switch (stream.source.tryFill() catch |err| {
+                stream.noteSourceFailure(err);
+                return error.ConnectionLost;
+            }) {
+                .progress, .would_block => {},
+                .closed => return error.ConnectionLost,
+            }
         }
         const byte = stream.source.reader.takeByte() catch |err| {
             stream.noteSourceFailure(err);

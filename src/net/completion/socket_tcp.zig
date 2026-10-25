@@ -273,14 +273,28 @@ fn openStream(comptime os: Os) !i32 {
         .darwin => {
             const fd = socket(af_inet, sock_stream, 0);
             if (fd < 0) return error.SocketFailed;
+            if (!setCloseOnExec(fd)) {
+                closeFd(os, fd);
+                return error.SocketFailed;
+            }
             return fd;
         },
         .linux => {
-            const fd_rc = linux.socket(linux.AF.INET, linux.SOCK.STREAM, 0);
+            const fd_rc = linux.socket(linux.AF.INET, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, 0);
             try checkLinux(fd_rc, error.SocketFailed);
             return @intCast(fd_rc);
         },
     }
+}
+
+/// Darwin's socket(2) and accept(2) take no CLOEXEC flag, so the descriptor
+/// flag is set after creation (the kqueue backend does the same for each
+/// accepted socket). Linux passes `SOCK_CLOEXEC` to socket(2) and accept(2),
+/// so a program that forks never hands a child this process's peer sockets.
+pub fn setCloseOnExec(fd: i32) bool {
+    const c = std.c;
+    const fd_cloexec: c_int = 1;
+    return c.fcntl(fd, c.F.SETFD, fd_cloexec) >= 0;
 }
 
 fn setReuseAddr(comptime os: Os, fd: i32) !void {

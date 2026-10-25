@@ -213,7 +213,10 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\unwinds. The host-driving verbs (among them feed, take_outbound,
         \\next_action, pump_drain, the dial reports, open_*, publish/spawn,
         \\fetch/enliven, close and release) are refused there with
-        \\GLOWCAP_ERR_INVALID_ARGUMENT.
+        \\GLOWCAP_ERR_INVALID_ARGUMENT. A verb reaching the host from a thread
+        \\other than the one driving it is refused the same way before it touches
+        \\host state, with glowcap_host_last_error naming WrongThread; two calls
+        \\racing each other are still a data race.
     );
 
     try b.appendSlice(gpa,

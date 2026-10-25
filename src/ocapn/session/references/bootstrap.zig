@@ -41,12 +41,12 @@ fn bind(self: *Session, swissnum: []const u8, export_position: model.ExportPosit
     // Structural refusal, rather than a process-local tombstone, prevents an
     // old durable reference from being retargeted after restart (ADR-0007).
     if (isDurableSwiss(swissnum)) return error.ReservedDurableNamespace;
-    const gop = try self.bootstrap.getOrPut(self.allocator, swissnum);
+    const gop = try self.bootstrap.getOrPut(self.bearer_secret, self.allocator, swissnum);
     if (!gop.found_existing) {
         // getOrPut borrowed the caller slice. Replace it with arena ownership;
         // if that allocation fails, remove the borrowed key before returning.
         gop.key_ptr.* = self.key_arena.allocator().dupe(u8, swissnum) catch |err| {
-            std.debug.assert(self.bootstrap.remove(swissnum));
+            std.debug.assert(self.bootstrap.remove(self.bearer_secret, swissnum));
             return err;
         };
     }
@@ -55,7 +55,7 @@ fn bind(self: *Session, swissnum: []const u8, export_position: model.ExportPosit
 
 /// The local export serving `swissnum`, or null if none is registered.
 pub fn lookup(self: *const Session, swissnum: []const u8) ?model.ExportPosition {
-    return self.bootstrap.get(swissnum);
+    return self.bootstrap.get(self.bearer_secret, swissnum);
 }
 
 /// Restore the mapping paired with a grant that never became observable.
@@ -65,8 +65,8 @@ pub fn lookup(self: *const Session, swissnum: []const u8) ?model.ExportPosition 
 /// Session teardown, matching the otherwise-monotonic bootstrap registry.
 pub fn restore(self: *Session, swissnum: []const u8, prior: ?model.ExportPosition) void {
     if (prior) |position| {
-        self.bootstrap.getPtr(swissnum).?.* = position;
+        self.bootstrap.getPtr(self.bearer_secret, swissnum).?.* = position;
     } else {
-        std.debug.assert(self.bootstrap.remove(swissnum));
+        std.debug.assert(self.bootstrap.remove(self.bearer_secret, swissnum));
     }
 }

@@ -88,3 +88,56 @@ impl Drop for Charge {
 		self.usage.set(usage);
 	}
 }
+
+/// The type a received file's bytes are given when the browser holds them.
+///
+/// A shown file lives at a `blob:` URL in the page's origin, and a reader can
+/// open any shown image in its own tab. An SVG opened that way is a document,
+/// and a document carries script. Among the types the viewer shows or plays,
+/// the XML ones are the documents, so those are held as plain bytes along
+/// with everything a reader can only save; the rest keep the type an `<img>`
+/// or `<video>` needs. The sender chose the type, so it is read as the
+/// browser would: case-insensitive, with parameters such as a charset
+/// ignored. The page's `media.ts` makes the same decision for bytes it holds
+/// itself.
+pub fn blob_type(mime: &str) -> &str {
+	// Byte slices, because a sender's type may hold a multibyte character
+	// where a str slice would have to land on a boundary.
+	let essence = mime.split(';').next().unwrap_or("").trim().as_bytes();
+	let starts = |prefix: &[u8]| essence.len() >= prefix.len() && essence[..prefix.len()].eq_ignore_ascii_case(prefix);
+	let ends = |suffix: &[u8]| {
+		essence.len() >= suffix.len() && essence[essence.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+	};
+	let shown = starts(b"image/") || starts(b"video/") || starts(b"audio/");
+	if shown && !ends(b"+xml") {
+		mime
+	} else {
+		"application/octet-stream"
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::blob_type;
+
+	#[test]
+	fn a_type_a_browser_would_run_script_from_is_held_as_bytes() {
+		for mime in [
+			"image/svg+xml",
+			"IMAGE/SVG+XML",
+			"image/svg+xml; charset=utf-8",
+			"text/html",
+			"application/xhtml+xml",
+			"text/xml",
+			"application/xml",
+			"image/custom+xml",
+			"application/pdf",
+			"",
+		] {
+			assert_eq!(blob_type(mime), "application/octet-stream", "{mime}");
+		}
+		for mime in ["image/png", "image/webp", "video/mp4", "audio/ogg"] {
+			assert_eq!(blob_type(mime), mime);
+		}
+	}
+}

@@ -7,7 +7,15 @@ const h = @import("attachment.zig");
 const publication = @import("publication.zig");
 const storage = @import("storage.zig");
 
-pub const Options = struct { max_names: usize = 16, max_fetches: usize = 64 };
+pub const Options = struct {
+    max_names: usize = 16,
+    max_fetches: usize = 64,
+    /// Waiting fetches one peer may hold at once, so a flood from one peer
+    /// leaves slots for the others. A local fetch's origin is its own vow, so
+    /// the bound never reaches local callers. Null takes a quarter of
+    /// `max_fetches`, and at least one.
+    max_fetches_per_origin: ?usize = null,
+};
 const Waiter = struct { group: usize, fetch: driver.Host.PublicationFetch };
 const Group = struct {
     entropy: publication.Entropy,
@@ -23,12 +31,15 @@ pub const Discovery = struct {
     registration: driver.Host.PublicationLookup,
     groups: []?Group,
     waiters: []?Waiter,
+    max_fetches_per_origin: usize,
     sequence: u64 = 0,
 
     pub fn create(owner: *h.Attachment, options: Options) !*Discovery {
         try owner.topLevel();
         if (owner.discovery != null) return error.PublicationLookupInstalled;
         if (options.max_names == 0 or options.max_fetches == 0) return error.InvalidLimits;
+        const per_origin = options.max_fetches_per_origin orelse @max(1, options.max_fetches / 4);
+        if (per_origin == 0 or per_origin > options.max_fetches) return error.InvalidLimits;
         const configured = for (owner.store.cache.schemas) |schema| {
             if (schema.id == publication.schema.id and schema.version == publication.schema.version and schema.name_offset == 0) break true;
         } else false;
@@ -41,7 +52,7 @@ pub const Discovery = struct {
         const waiters = try owner.allocator.alloc(?Waiter, options.max_fetches);
         errdefer owner.allocator.free(waiters);
         @memset(waiters, null);
-        self.* = .{ .owner = owner, .registration = .{ .context = self, .idle = idle, .start = start, .cancel = cancel }, .groups = groups, .waiters = waiters };
+        self.* = .{ .owner = owner, .registration = .{ .context = self, .idle = idle, .start = start, .cancel = cancel }, .groups = groups, .waiters = waiters, .max_fetches_per_origin = per_origin };
         try owner.host.setPublicationLookup(&self.registration);
         owner.discovery = self;
         return self;
@@ -69,6 +80,12 @@ pub const Discovery = struct {
         const waiter = for (self.waiters) |*slot| {
             if (slot.* == null) break slot;
         } else return .{ .refused = error.FetchCapacity };
+        const origin = fetch.origin();
+        var held: usize = 0;
+        for (self.waiters) |slot| if (slot) |waiting| {
+            if (std.meta.eql(waiting.fetch.origin(), origin)) held += 1;
+        };
+        if (held >= self.max_fetches_per_origin) return .{ .refused = error.FetchCapacity };
         const index = for (self.groups, 0..) |group, i| {
             // The name a peer fetched decides which group it joins. Constant
             // time, like the publication table, so a near miss costs the same.
@@ -191,7 +208,7 @@ pub const Discovery = struct {
                 group.failure = error.RecoveryRequired;
             } else if (self.owner.store.phase != .idle) continue;
             var target: ?driver.Capability = null;
-            defer if (target) |ref| self.owner.host.releaseCapability(ref, 1) catch unreachable;
+            defer if (target) |ref| self.owner.host.releaseCapabilityTerminal(ref, null);
             if (group.phase == .record) {
                 target = self.restore(group) catch |err| blk: {
                     if (err == error.PendingRead) continue;

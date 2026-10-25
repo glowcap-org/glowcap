@@ -268,7 +268,10 @@ const Link = struct {
     storage: []u8,
 
     fn create(allocator: std.mem.Allocator, ring_bytes: usize) !*Link {
-        const storage = try allocator.alloc(u8, ring_bytes * 2);
+        // The rings index modulo their length, so an empty ring is refused
+        // here rather than dividing by zero on the first write.
+        if (ring_bytes == 0) return error.InvalidRingBytes;
+        const storage = try allocator.alloc(u8, try std.math.mul(usize, ring_bytes, 2));
         errdefer allocator.free(storage);
         const link = try allocator.create(Link);
         link.* = .{

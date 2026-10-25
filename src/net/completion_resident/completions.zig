@@ -29,6 +29,19 @@ fn idOf(user_data: u64) usize {
     return @intCast(user_data & ((@as(u64, 1) << 56) - 1));
 }
 
+/// Whether an accept refusal outlives the arrival it was reported for. The
+/// arrival itself failing (reset before accept took it, or refusing a socket
+/// option) leaves the next one unaffected, so the listener accepts again.
+/// Every other refusal (descriptor quota, memory, a dead listener) would
+/// complete again for as long as the arrival waits, so the unknown case is
+/// the persistent one.
+pub fn acceptRefusalPersists(err: anyerror) bool {
+    return switch (err) {
+        error.ConnectionAborted, error.SocketConfigurationFailed => false,
+        else => true,
+    };
+}
+
 pub fn Machine(comptime Self: type) type {
     return struct {
         const Conn = Self.Conn;
@@ -64,7 +77,7 @@ pub fn Machine(comptime Self: type) type {
         }
 
         pub fn startSend(self: *Self, id: usize, conn: *Conn) void {
-            if (conn.sending or conn.close != .open) return;
+            if (conn.sending or conn.close == .closing) return;
             if (conn.front.items.len == conn.sent) {
                 if (conn.back.items.len == 0) return;
                 std.mem.swap(std.ArrayListUnmanaged(u8), &conn.front, &conn.back);
@@ -285,12 +298,12 @@ pub fn Machine(comptime Self: type) type {
                     const conn = self.conns.getPtr(id) orelse return;
                     conn.inflight -= 1;
                     conn.sending = false;
-                    if (conn.close == .open and comp.result <= 0) {
+                    if (conn.close != .closing and comp.result <= 0) {
                         conn.write_failure = failure_projection.primary(comp, error.ConnectionLost);
                         keepChain(self, .conn_failures, id, comp);
                     }
                     recycle(self, comp);
-                    if (conn.close != .open) return retireIfQuiet(self, id, conn);
+                    if (conn.close == .closing) return retireIfQuiet(self, id, conn);
                     if (comp.result <= 0) {
                         record(self, id, resident_mod.ev_writable | resident_mod.ev_readable);
                         return;
@@ -351,6 +364,16 @@ pub fn Machine(comptime Self: type) type {
                         listener.accepted.append(self.allocator, acceptedFd(comp)) catch
                             self.backend.closeFd(acceptedFd(comp));
                         record(self, listener.route, resident_mod.ev_accept);
+                    } else {
+                        const err = failure_projection.primary(comp, error.AcceptFailed);
+                        if (acceptRefusalPersists(err)) {
+                            // Re-arming would complete with the same refusal
+                            // for as long as the arrival waits, so hand it to
+                            // the runtime through the claim verb.
+                            if (listener.accept_failure == null) listener.accept_failure = err;
+                            record(self, listener.route, resident_mod.ev_accept);
+                            return;
+                        }
                     }
                     // Past the unclaimed bound the listener waits for a
                     // claim, which re-arms it (`finishAccept`).

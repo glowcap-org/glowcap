@@ -24,6 +24,12 @@ impl Put {
 			revision: None,
 		}
 	}
+	fn record(&self) -> Result<&Record, Error> {
+		self.record.as_ref().ok_or(Error::Invalid("archive put has no record"))
+	}
+	fn take_record(&mut self) -> Result<Record, Error> {
+		self.record.take().ok_or(Error::Invalid("archive put has no record"))
+	}
 }
 pub(super) fn clear(database: &Database) -> Result<Operation<Put>, Error> {
 	Operation::start(
@@ -77,7 +83,7 @@ pub(super) fn clear_source(database: &Database, source: DocumentText) -> Result<
 								if attachment.blob().is_some() {
 									steps
 										.store(BLOBS)?
-										.delete(&codec::address_key(&Address::of(&entry.record, i)?))?;
+										.delete(&codec::address_key(&Address::of(&entry.record, i)?)?)?;
 								}
 							}
 							Ok(())
@@ -128,7 +134,7 @@ pub(super) fn put(
 	)
 }
 fn prepare(steps: &Steps<Put>) -> Result<(), Error> {
-	let key = steps.data(|put| Ok(codec::key(put.record.as_ref().expect("put record"))))?;
+	let key = steps.data(|put| codec::key(put.record()?))?;
 	steps.request(steps.store(RECORDS)?.get(&key)?, move |steps, row| {
 		steps.data(|put| {
 			let prior = if row.is_undefined() {
@@ -136,7 +142,7 @@ fn prepare(steps: &Steps<Put>) -> Result<(), Error> {
 			} else {
 				Some(codec::decode(row)?.record)
 			};
-			let record = put.record.take().expect("put record").prepare_put(prior.as_deref());
+			let record = put.take_record()?.prepare_put(prior.as_deref());
 			let record = if put.files.is_empty() {
 				record
 			} else {
@@ -160,7 +166,7 @@ fn bytes(record: &Record) -> u64 {
 fn account(steps: &Steps<Put>, row: wasm_bindgen::JsValue) -> Result<(), Error> {
 	let retained = codec::meta(row, "blob-bytes", MAX_BLOB_BYTES as u64)?;
 	steps.data(|put| {
-		let record = put.record.as_ref().expect("put record");
+		let record = put.record.as_ref().ok_or(Error::Invalid("archive put has no record"))?;
 		put.bytes = retained
 			.checked_sub(put.prior.as_deref().map_or(0, bytes))
 			.ok_or(Error::Invalid("inconsistent archive byte count"))?
@@ -170,13 +176,13 @@ fn account(steps: &Steps<Put>, row: wasm_bindgen::JsValue) -> Result<(), Error> 
 			let next = blobs::files(record).unwrap_or(&[]);
 			for (i, a) in blobs::files(prior).unwrap_or(&[]).iter().enumerate() {
 				if a.blob().is_some() && a.blob() != next.get(i).and_then(|a| a.blob()) {
-					store.delete(&codec::address_key(&Address::of(prior, i)?))?;
+					store.delete(&codec::address_key(&Address::of(prior, i)?)?)?;
 				}
 			}
 		}
 		for (i, staged) in put.files.iter().enumerate() {
 			store.put(&value::object(&[
-				("key", codec::address_key(&Address::of(record, i)?)),
+				("key", codec::address_key(&Address::of(record, i)?)?),
 				("digest", staged.digest.as_str().into()),
 				("size", staged.blob.size().into()),
 				("bytes", staged.blob.clone().into()),
@@ -188,9 +194,7 @@ fn account(steps: &Steps<Put>, row: wasm_bindgen::JsValue) -> Result<(), Error> 
 		let revision = codec::meta(row, "revision", MAX_SAFE - 1)? + 1;
 		steps.store(META)?.put(&codec::number("revision", revision)?)?;
 		steps.data(|put| {
-			steps
-				.store(RECORDS)?
-				.put(&codec::encode(put.record.as_ref().expect("put record"), revision)?)?;
+			steps.store(RECORDS)?.put(&codec::encode(put.record()?, revision)?)?;
 			put.revision = Some(revision);
 			Ok(())
 		})?;
@@ -217,7 +221,7 @@ fn evict(steps: &Steps<Put>, count: wasm_bindgen::JsValue) -> Result<(), Error> 
 				if a.blob().is_some() {
 					steps
 						.store(BLOBS)?
-						.delete(&codec::address_key(&Address::of(&entry.record, i)?))?;
+						.delete(&codec::address_key(&Address::of(&entry.record, i)?)?)?;
 				}
 			}
 			Ok(())

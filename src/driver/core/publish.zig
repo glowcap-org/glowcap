@@ -42,7 +42,7 @@ pub const Publication = struct {
 pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, swissnum: []const u8) !?model.ExportPosition {
     const host: *Host = @ptrCast(@alignCast(ctx.?));
     const session = host.sessions.get(scope) orelse return null;
-    const row = host.publications.get(swissnum) orelse return null;
+    const row = host.publications.get(host.publication_secret, swissnum) orelse return null;
     if (!row.active) return null;
     return (try session.served.port.projectActor(&host.vat, row.actor)).export_position;
 }
@@ -57,10 +57,10 @@ pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, swissn
 /// (ADR-0007): the prefix, not a tombstone, is what keeps an old
 /// sturdyref from being retargeted after restart.
 pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
-    self.assertOwner();
+    try self.claimOwner();
     try self.admitApplicationOperation();
     if (engine.isDurableSwiss(name)) return error.ReservedDurableNamespace;
-    if (self.publications.getPtr(name)) |existing| {
+    if (self.publications.getPtr(self.publication_secret, name)) |existing| {
         const displaced = existing.actor;
         existing.actor = actor;
         self.vat.releaseActor(localActorId(displaced) catch unreachable);
@@ -68,7 +68,7 @@ pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
     }
     const owned = try self.allocator.dupe(u8, name);
     errdefer self.allocator.free(owned);
-    try self.publications.putNoClobber(self.allocator, owned, .{ .name = owned, .actor = actor });
+    try self.publications.putNoClobber(self.publication_secret, self.allocator, owned, .{ .name = owned, .actor = actor });
 }
 
 /// Spawn `initial` in this Host's Vat and bind `name` as a Host-wide alias.
@@ -117,7 +117,7 @@ pub fn unpublish(
     // name is removed only through `removeDurable`, so the two authority
     // surfaces stay distinct (ADR-0007).
     if (engine.isDurableSwiss(name)) return error.ReservedDurableNamespace;
-    const removed = self.publications.fetchRemove(name) orelse return error.UnknownPublication;
+    const removed = self.publications.fetchRemove(self.publication_secret, name) orelse return error.UnknownPublication;
     // Key and row name are one allocation (`bindPublication`); free once.
     self.allocator.free(removed.value.name);
     // Release the alias root the row adopted (ADR-0014): with no other
@@ -202,12 +202,12 @@ pub fn publishHostedDurable(
 }
 
 pub fn bindDurable(self: *Host, entropy: [engine.durable_swiss_entropy_len]u8, actor: actors.Ref) !DurableSwiss {
-    self.assertOwner();
+    try self.claimOwner();
     const minted = mintDurableSwiss(entropy);
-    if (self.publications.contains(minted.slice())) return error.DurableNameCollision;
+    if (self.publications.contains(self.publication_secret, minted.slice())) return error.DurableNameCollision;
     const owned = try self.allocator.dupe(u8, minted.slice());
     errdefer self.allocator.free(owned);
-    try self.publications.putNoClobber(self.allocator, owned, .{ .name = owned, .actor = actor });
+    try self.publications.putNoClobber(self.publication_secret, self.allocator, owned, .{ .name = owned, .actor = actor });
     return minted;
 }
 
@@ -232,7 +232,7 @@ pub const DurableReservation = struct {
     pub fn commit(self: *DurableReservation) void {
         const host = self.host orelse return;
         host.assertOwner();
-        host.publications.getPtr(self.swiss.slice()).?.active = true;
+        host.publications.getPtr(host.publication_secret, self.swiss.slice()).?.active = true;
         self.host = null;
         self.lifetime.complete();
     }
@@ -240,7 +240,7 @@ pub const DurableReservation = struct {
     pub fn cancel(self: *DurableReservation) void {
         const host = self.host orelse return;
         host.assertOwner();
-        const removed = host.publications.fetchRemove(self.swiss.slice()).?;
+        const removed = host.publications.fetchRemove(host.publication_secret, self.swiss.slice()).?;
         std.debug.assert(!removed.value.active);
         host.allocator.free(removed.value.name);
         host.vat.releaseActor(removed.value.actor.local);
@@ -256,7 +256,7 @@ pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref:
     try self.admitApplicationOperation();
     const actor = self.localActorFor(ref) orelse return error.NotLocal;
     const minted = mintDurableSwiss(entropy);
-    if (self.publications.get(minted.slice())) |row| {
+    if (self.publications.get(self.publication_secret, minted.slice())) |row| {
         if (!std.meta.eql(row.actor, actor)) return error.DurableNameCollision;
         if (!row.active) return error.PublicationPending;
         return .{ .host = null, .swiss = minted, .lifetime = .{ .host = null } };
@@ -266,7 +266,7 @@ pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref:
     self.vat.retainActor(actor.local);
     errdefer self.vat.releaseActor(actor.local);
     const swiss = try bindDurable(self, entropy, actor);
-    self.publications.getPtr(swiss.slice()).?.active = false;
+    self.publications.getPtr(self.publication_secret, swiss.slice()).?.active = false;
     return .{ .host = self, .swiss = swiss, .lifetime = lifetime };
 }
 
@@ -284,8 +284,8 @@ pub fn removeDurable(
     try self.refuseReentry();
     try self.admitApplicationOperation();
     if (!engine.isDurableSwiss(swiss)) return error.NotDurableName;
-    if (self.publications.get(swiss)) |row| if (!row.active) return error.UnknownPublication;
-    const removed = self.publications.fetchRemove(swiss) orelse return error.UnknownPublication;
+    if (self.publications.get(self.publication_secret, swiss)) |row| if (!row.active) return error.UnknownPublication;
+    const removed = self.publications.fetchRemove(self.publication_secret, swiss) orelse return error.UnknownPublication;
     self.allocator.free(removed.value.name);
     self.vat.releaseActor(localActorId(removed.value.actor) catch unreachable);
 }
@@ -307,7 +307,7 @@ pub fn durableProvenance(
 /// alias lazily projects its Vat actor onto the session's Port. Null when
 /// neither namespace holds the name.
 pub fn publishedPosition(self: *Host, session: *HostSession, name: []const u8) !?u64 {
-    self.assertOwner();
+    try self.claimOwner();
     try self.checkSession(session);
     if (session.served.port.peer.session_state.bootstrapLookup(name)) |position| return position.int();
     const position = try resolvePublishedTarget(self, session.peer_handle, name) orelse return null;
@@ -324,7 +324,7 @@ pub fn publishedCapability(self: *Host, session: *HostSession, name: []const u8)
     try self.checkSession(session);
     const actor = if (session.served.port.peer.session_state.bootstrapLookup(name)) |position|
         session.served.refForExport(position.int()) orelse return error.NoSuchActor
-    else if (self.publications.get(name)) |row|
+    else if (self.publications.get(self.publication_secret, name)) |row|
         if (row.active) row.actor else return null
     else
         return null;

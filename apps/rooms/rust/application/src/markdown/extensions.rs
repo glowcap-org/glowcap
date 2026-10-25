@@ -24,14 +24,14 @@ pub(super) fn spoilers(nodes: Vec<Node>, count: &mut usize) -> Result<Vec<Node>,
 		};
 		let mut rest = text.as_str();
 		let mut credited = true;
-		while let Some(at) = rest.find("||") {
-			push_split_text(&rest[..at], target(&mut visible, &mut hidden), count, &mut credited)?;
+		while let Some((before, after)) = rest.split_once("||") {
+			push_split_text(before, target(&mut visible, &mut hidden), count, &mut credited)?;
 			if let Some(children) = hidden.take() {
 				push_node(&mut visible, Node::Spoiler { children }, count)?;
 			} else {
 				hidden = Some(Vec::new());
 			}
-			rest = &rest[at + 2..];
+			rest = after;
 		}
 		push_split_text(rest, target(&mut visible, &mut hidden), count, &mut credited)?;
 	}
@@ -77,29 +77,29 @@ fn plain_extensions(text: &str, out: &mut Vec<Node>, count: &mut usize) -> Resul
 	let mut plain = 0;
 	let mut cursor = 0;
 	while cursor < text.len() {
-		let character = text[cursor..].chars().next().ok_or(())?;
+		let character = span(text, cursor..)?.chars().next().ok_or(())?;
 		if character == '\n' {
-			push_text(&text[plain..cursor], out, count)?;
+			push_text(span(text, plain..cursor)?, out, count)?;
 			push_node(out, Node::Break { hard: false }, count)?;
 			cursor += 1;
 			plain = cursor;
 			continue;
 		}
-		if character == '@' && mention_starts(&text[..cursor]) {
+		if character == '@' && mention_starts(span(text, ..cursor)?) {
 			let start = cursor + 1;
 			let mut end = start;
-			for candidate in text[start..].chars() {
+			for candidate in span(text, start..)?.chars() {
 				if !mention_character(candidate) {
 					break;
 				}
 				end += candidate.len_utf8();
 			}
-			while end > start && text[..end].ends_with('-') {
+			while end > start && span(text, ..end)?.ends_with('-') {
 				end -= 1;
 			}
 			if end > start {
-				push_text(&text[plain..cursor], out, count)?;
-				let name = &text[start..end];
+				push_text(span(text, plain..cursor)?, out, count)?;
+				let name = span(text, start..end)?;
 				push_node(
 					out,
 					Node::Mention {
@@ -115,7 +115,13 @@ fn plain_extensions(text: &str, out: &mut Vec<Node>, count: &mut usize) -> Resul
 		}
 		cursor += character.len_utf8();
 	}
-	push_text(&text[plain..], out, count)
+	push_text(span(text, plain..)?, out, count)
+}
+
+/// `text` sliced by a cursor this module advances by whole characters; a
+/// range that is off a boundary or out of bounds refuses instead of panicking.
+fn span(text: &str, range: impl core::slice::SliceIndex<str, Output = str>) -> Result<&str, ()> {
+	text.get(range).ok_or(())
 }
 
 fn mention_character(value: char) -> bool {

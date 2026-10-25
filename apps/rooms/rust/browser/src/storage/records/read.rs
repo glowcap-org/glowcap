@@ -27,7 +27,7 @@ pub(super) fn page(database: &Database, filter: Filter, after: u64, limit: usize
 			steps.request(steps.store(META)?.get(&"revision".into())?, move |steps, row| {
 				let latest = codec::meta(row, "revision", MAX_SAFE)?;
 				let filter = requested.clone();
-				let context = codec::selected_context(&filter);
+				let context = codec::selected_context(&filter)?;
 				let (index, range) = if let Some(context) = &context {
 					let lower = js_sys::Array::of2(context, &(after as f64).into());
 					let upper = js_sys::Array::of2(context, &(MAX_SAFE as f64).into());
@@ -64,7 +64,7 @@ pub(super) fn page(database: &Database, filter: Filter, after: u64, limit: usize
 							return Err(Error::Invalid("invalid archive conversation cursor"));
 						}
 						let key = js_sys::Array::from(&key);
-						if key.length() != 2 || key.get(0) != *context || codec::context(&entry.record) != *context {
+						if key.length() != 2 || key.get(0) != *context || codec::context(&entry.record)? != *context {
 							return Err(Error::Invalid("inconsistent archive conversation index"));
 						}
 						value::natural(&key.get(1), MAX_SAFE)?

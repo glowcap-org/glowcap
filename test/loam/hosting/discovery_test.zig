@@ -12,7 +12,7 @@ test "loam publication own key cold enliven coalesces public and owned fetches a
     try fixture.init(.{});
     defer fixture.deinit();
     _ = try stage(&fixture, 0x51);
-    try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 3 });
+    try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 3, .max_fetches_per_origin = 3 });
     const designator = fixture.host.node.publicKey().toDesignator();
     const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x51));
     const sturdy: @import("glowcap").ocapn.model.SturdyRef = .{
@@ -100,7 +100,7 @@ test "loam publication cold fetch coalesces names and preserves exact authority 
     try fixture.init(.{});
     defer fixture.deinit();
     _ = try stage(&fixture, 0x41);
-    try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 2 });
+    try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 2, .max_fetches_per_origin = 2 });
     var client = hosts.init(std.testing.allocator, @splat(0x82), f.driver.Host.Options.withFrameCap(4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9720");
@@ -184,6 +184,39 @@ test "loam publication cold fetch refuses pressure and distinguishes missing nam
     try drain(&fixture);
     try pairs.pumpToQuiescence(&.{pair});
     _ = try retry.require();
+}
+
+test "loam publication fetch slots are shared per origin" {
+    // The first peer holds its whole share; its next fetch is refused while a
+    // second peer's fetch on the same name is admitted into the free slots.
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    _ = try stage(&fixture, 0x46);
+    try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 4, .max_fetches_per_origin = 1 });
+    var first_client = hosts.init(std.testing.allocator, @splat(0x86), f.driver.Host.Options.withFrameCap(4096));
+    defer first_client.deinit();
+    var second_client = hosts.init(std.testing.allocator, @splat(0x87), f.driver.Host.Options.withFrameCap(4096));
+    defer second_client.deinit();
+    const first_pair = try pairs.openPair(&first_client, &fixture.host, "127.0.0.1:9729");
+    const second_pair = try pairs.openPair(&second_client, &fixture.host, "127.0.0.1:9730");
+    const swiss = f.driver.Host.DurableSwiss.fromEntropy(@splat(0x46));
+    var held: CapturedRef = .{};
+    var refused: CapturedRef = .{};
+    var other: CapturedRef = .{};
+    try first_client.vowOn(try first_client.fetch(first_pair.a, swiss.slice()), .{ .ctx = &held, .func = CapturedRef.record });
+    try first_client.vowOn(try first_client.fetch(first_pair.a, swiss.slice()), .{ .ctx = &refused, .func = CapturedRef.record });
+    try second_client.vowOn(try second_client.fetch(second_pair.a, swiss.slice()), .{ .ctx = &other, .func = CapturedRef.record });
+    try pairs.pumpToQuiescence(&.{ first_pair, second_pair });
+    try std.testing.expect(refused.broken);
+    try std.testing.expectEqualStrings("FetchCapacity", refused.reason_buf[0..refused.reason_len]);
+    try std.testing.expect(!held.broken and !other.broken);
+    const lookup = (try fixture.attached.nextWork()).?.lookup;
+    try fixture.attached.completeLookup(lookup.ticket, .{ .failed = error.InjectedLookupFailure });
+    try drain(&fixture);
+    try pairs.pumpToQuiescence(&.{ first_pair, second_pair });
+    try std.testing.expectEqualStrings("InjectedLookupFailure", held.reason_buf[0..held.reason_len]);
+    try std.testing.expectEqualStrings("InjectedLookupFailure", other.reason_buf[0..other.reason_len]);
 }
 
 test "loam publication retirement races cold lookup and unknown outcomes fail closed" {
@@ -405,7 +438,7 @@ test "loam publication bounds distinct cold names separately from fetch waiters"
     try fixture.init(.{});
     defer fixture.deinit();
     _ = try stage(&fixture, 0x4a);
-    try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 2 });
+    try f.hosting.publication.listen(fixture.attached, .{ .max_names = 1, .max_fetches = 2, .max_fetches_per_origin = 2 });
     var client = hosts.init(std.testing.allocator, @splat(0x8b), f.driver.Host.Options.withFrameCap(4096));
     defer client.deinit();
     const pair = try pairs.openPair(&client, &fixture.host, "127.0.0.1:9728");

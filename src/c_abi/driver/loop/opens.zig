@@ -26,6 +26,8 @@ const openFailedEvent = events.openFailedEvent;
 // ── Transport providers ─────────────────────────────────────────────────────
 
 /// Install a provider package atomically through the generic provider registry.
+/// `provider.retain` runs inside the driver bracket, so a driver verb it calls
+/// is refused as re-entry.
 pub export fn glowcap_driver_add_provider(
     raw: ?*c.GlowcapDriverLoop,
     provider: ?*const shared.GlowcapTransportProvider,
@@ -40,6 +42,10 @@ pub export fn glowcap_driver_add_provider(
         return failure_output.refuse(failure_slot, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     if (reentrancyCode(inst, "add_provider")) |code|
         return failure_output.refuse(failure_slot, code, error.ReenteredHost);
+    // The provider's retain callback runs inside, so a verb it calls back
+    // into is refused as re-entry.
+    inst.runtime.enterDriver();
+    defer inst.runtime.leaveDriver();
     const outcome = inst.providers.addProvider(provider);
     if (outcome.failure) |failure| failure_output.project(failure_slot, outcome.result, failure);
     return outcome.result;

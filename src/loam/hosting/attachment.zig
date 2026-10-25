@@ -211,14 +211,14 @@ pub const Attachment = struct {
         const source_entry = self.liveEntry(source) orelse return error.NotDurable;
         const guard = try self.host.retainLocalCapability(source_entry.actor.?);
         const retained = self.host.retainValueCapabilities(self.allocator, &.{.{ .capability = target }}) catch |err| {
-            self.host.releaseCapability(guard, 1) catch unreachable;
+            self.host.releaseCapabilityTerminal(guard, null);
             return err;
         };
         defer self.allocator.free(retained);
         const held_target = retained[0];
         if (self.dependent_facets == std.math.maxInt(usize)) {
-            self.host.releaseCapability(held_target, 1) catch unreachable;
-            self.host.releaseCapability(guard, 1) catch unreachable;
+            self.host.releaseCapabilityTerminal(held_target, null);
+            self.host.releaseCapabilityTerminal(guard, null);
             return error.EndpointCapacity;
         }
         self.dependent_facets += 1;

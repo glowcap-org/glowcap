@@ -54,10 +54,13 @@ glowcap apps rooms session serve --dir=./rooms-session --admission-scale=2 --adm
 ```
 
 HTTP also accepts `--http-admission-per-address=true|false`, or
-`GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS`. It defaults to false. Only the actual
-socket address supplies this key. Forwarded headers never select allowance.
-Behind a proxy, the socket address identifies the proxy and may group unrelated
-people. Configure this option only when that grouping is intended.
+`GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS`. It defaults to false. The budget key
+is the socket address. When the socket address is listed in
+`--http-trusted-proxies=<address|cidr,...>` (or `GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES`),
+the key is the rightmost untrusted `X-Forwarded-For` entry that proxy reported,
+falling back to the proxy's address. Headers from an untrusted peer never select
+a budget. Behind an unlisted proxy, the socket address identifies the proxy and
+may group unrelated people.
 
 Default row caps are <!-- value ../../apps/rooms/rust/application/src/admission/settings.rs DIRECTORY_ROWS -->8,192<!-- /value --> for the directory, <!-- value ../../apps/rooms/rust/application/src/admission/settings.rs SESSION_ROWS -->4,096<!-- /value --> for the managed session and
 <!-- value ../../apps/rooms/rust/application/src/admission/settings.rs HTTP_ROWS -->2,048<!-- /value --> for HTTP. Session and HTTP aggregate pools multiply the profile by <!-- value ../../apps/rooms/rust/application/src/admission/settings.rs POOLED_AGGREGATE_SCALE -->8<!-- /value -->.

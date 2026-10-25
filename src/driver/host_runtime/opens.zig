@@ -153,7 +153,10 @@ pub fn stageDial(
     authority: OpenAdmissionAuthority,
 ) !void {
     var admission = try Internal.acquireOpenAdmission(self, authority);
-    errdefer admission.release();
+    // Set once the row owns what the errdefers below would otherwise retire,
+    // so a failure after the hand-off never frees or releases anything twice.
+    var row_owns_cleanup = false;
+    errdefer if (!row_owns_cleanup) admission.release();
     // A routed dial knows its candidates before it has a session. Prove the
     // provider for this attempt first so an unavailable route cannot become
     // this node's advertised location before fallback. Application dials keep
@@ -184,9 +187,9 @@ pub fn stageDial(
             };
         },
     };
-    errdefer Internal.abandonFreshSession(self, session);
+    errdefer if (!row_owns_cleanup) Internal.abandonFreshSession(self, session);
     const row = try self.allocator.create(PendingOpen);
-    errdefer self.allocator.destroy(row);
+    errdefer if (!row_owns_cleanup) self.allocator.destroy(row);
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
     // The row owns a copy of the caller's borrowed locator so a transient
     // failure can re-issue the dial after the call returns (ADR-0018).
@@ -195,7 +198,7 @@ pub fn stageDial(
     // clone leaves no attempt behind.
     const dial_locator: ?model.PeerLocator =
         if (authority == .application) try model.clonePeerLocator(self.allocator, locator) else null;
-    errdefer if (dial_locator) |owned| model.freePeerLocator(self.allocator, owned);
+    errdefer if (!row_owns_cleanup) if (dial_locator) |owned| model.freePeerLocator(self.allocator, owned);
     const deadline_ms = handshakeDeadline(self);
     const provider = pending_provider orelse
         Internal.providerFor(self, locator.transport) orelse return Error.UnknownTransport;
@@ -226,6 +229,7 @@ pub fn stageDial(
             };
             self.pending_opens.appendAssumeCapacity(row);
             pending.remove(&self.pending_opens, row);
+            row_owns_cleanup = true;
             try failPendingOpenFailure(self, row, .fromDialFailure(failure));
             return;
         },
@@ -478,14 +482,14 @@ fn retryOrFailResidentDial(
 ) !void {
     const policy = self.opts.dial_retry;
     const now_ms = self.nowMs();
-    const interval_ms: i64 = @intCast(policy.retry_interval_ms);
+    const interval_ms: i64 = std.math.cast(i64, policy.retry_interval_ms) orelse std.math.maxInt(i64);
     const transient = dial_retry.isTransient(failure.classification);
-    const deadline_leaves_room = row.deadline_ms == null or row.deadline_ms.? >= now_ms + interval_ms;
+    const deadline_leaves_room = row.deadline_ms == null or row.deadline_ms.? >= now_ms +| interval_ms;
     if (transient and row.dial_attempt < policy.max_attempts and deadline_leaves_room) {
         row.stage = .{ .retry_wait = .{
             .resident = resident_index,
             .attempt = row.dial_attempt,
-            .due_ms = now_ms + interval_ms,
+            .due_ms = now_ms +| interval_ms,
         } };
         reportDialOutcome(self, .transient_retry, row.dial_attempt);
         return;

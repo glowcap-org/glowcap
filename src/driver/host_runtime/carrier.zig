@@ -202,16 +202,22 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
         self.nowMs() >= deadline
     else
         false;
-    if (expired) {
+    const rl = &wire.link;
+    const resident = self.residents.items[rl.index].resident;
+    const outcome = if (expired) blk: {
         noteWireCloseFailure(wire, .fromError(error.CloseTimedOut));
         clearCarrierCloseDeadline(self, wire);
-        // The resident package still owns the operation and will join it at
-        // release; timeout cannot fabricate physical completion.
-        return;
-    }
-    const rl = &wire.link;
-    switch (self.residents.items[rl.index].resident.connCloseOutcome(rl.conn)) {
+        // The partner had `transport_close_ms` to read the close. A resident
+        // that can abort drops the connection now, returning its socket and
+        // read buffer to the pool. One that cannot still owns the operation
+        // and joins it at release: a timeout cannot fabricate physical
+        // completion.
+        break :blk resident.connAbortOutcome(rl.conn) orelse return;
+    } else resident.connCloseOutcome(rl.conn);
+    switch (outcome) {
         .complete => finishWireCarrierClose(self, wire),
+        // An abort never reports pending, so this is the close waiting on
+        // the resident.
         .pending => wire.carrier_close = .wait_resident,
         .failed => |reported| {
             noteWireCloseChain(wire, reported);

@@ -7,6 +7,8 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
+
 const model = @import("model");
 const session_mod = @import("session");
 const handoff_names = @import("../handoff_names.zig");
@@ -128,7 +130,7 @@ const GiftEntry = struct {
 /// sessions never deposit a gift, so `GiftRegistry` creates this owner on the
 /// first successful insert and destroys it when the final row leaves.
 const GiftStore = struct {
-    gifts: std.StringHashMapUnmanaged(GiftEntry) = .empty,
+    gifts: foundation.bearer_table.Table(GiftEntry),
     retained_bytes: usize = 0,
 };
 
@@ -149,6 +151,11 @@ pub const GiftRegistry = struct {
     /// last withdrawal, so a session that never carries gifts pays one pointer
     /// instead of an inline hash-map header.
     store: ?*GiftStore = null,
+    /// The bearer secret the gift table hashes under (ADR-0037): gift ids are
+    /// the peer's choice, so a public hash would let it fill one bucket. The
+    /// table stores none, so this is the registry's one copy of the session's
+    /// word, set with the session's tables through `keyWire`.
+    wire_hash_secret: u64 = foundation.identity_hash.default_multiplier,
     /// Highest accepted `handoff_count` on this Exporter-Receiver session.
     /// Optional state retains the full `u64` count domain, including zero and
     /// `maxInt(u64)` as distinct accepted values.
@@ -196,6 +203,13 @@ pub const GiftRegistry = struct {
 
     fn acceptHandoffCount(self: *GiftRegistry, count: u64) void {
         self.accepted_handoff_count = count;
+    }
+
+    /// Name the secret before the first deposit. A re-keyed table cannot find
+    /// the rows it holds, so emptiness is asserted.
+    pub fn keyWire(self: *GiftRegistry, secret: u64) void {
+        std.debug.assert(self.store == null);
+        self.wire_hash_secret = secret;
     }
 
     pub fn deinit(self: *GiftRegistry, allocator: std.mem.Allocator, projection: ?LocalObjectProjection) void {
@@ -289,7 +303,7 @@ pub const GiftRegistry = struct {
         if (gift_id.len == 0) return error.MalformedMessage;
 
         const store = self.store;
-        const existing = if (store) |s| s.gifts.getPtr(gift_id) else null;
+        const existing = if (store) |s| s.gifts.getPtr(self.wire_hash_secret, gift_id) else null;
         const replacement_bytes = try entryRetainedBytes(gift_id, spec);
         const prior_bytes = if (existing) |entry|
             admittedEntryRetainedBytes(gift_id, entry.payload)
@@ -325,7 +339,7 @@ pub const GiftRegistry = struct {
         const id_copy = try allocator.dupe(u8, gift_id);
         errdefer allocator.free(id_copy);
         if (store) |s| {
-            const gop = try s.gifts.getOrPut(allocator, id_copy);
+            const gop = try s.gifts.getOrPut(self.wire_hash_secret, allocator, id_copy);
             std.debug.assert(!gop.found_existing);
             gop.key_ptr.* = id_copy;
             gop.value_ptr.* = .{ .payload = stored };
@@ -335,9 +349,9 @@ pub const GiftRegistry = struct {
 
         // Construct the first store off-registry. No authority or accounting is
         // visible until its map row and owner box both exist.
-        var staged: GiftStore = .{};
+        var staged: GiftStore = .{ .gifts = .empty };
         errdefer staged.gifts.deinit(allocator);
-        const gop = try staged.gifts.getOrPut(allocator, id_copy);
+        const gop = try staged.gifts.getOrPut(self.wire_hash_secret, allocator, id_copy);
         std.debug.assert(!gop.found_existing);
         gop.key_ptr.* = id_copy;
         gop.value_ptr.* = .{ .payload = stored };
@@ -350,12 +364,12 @@ pub const GiftRegistry = struct {
 
     pub fn giftLive(self: *const GiftRegistry, gift_id: []const u8) bool {
         const store = self.store orelse return false;
-        return store.gifts.contains(gift_id);
+        return store.gifts.contains(self.wire_hash_secret, gift_id);
     }
 
     pub fn giftedCap(self: *const GiftRegistry, gift_id: []const u8) ?model.Reference {
         const store = self.store orelse return null;
-        const entry = store.gifts.get(gift_id) orelse return null;
+        const entry = store.gifts.get(self.wire_hash_secret, gift_id) orelse return null;
         return switch (entry.payload) {
             .verbatim_cap => |reference| reference,
             .local_target, .provenance => null,
@@ -366,7 +380,7 @@ pub const GiftRegistry = struct {
     /// withdrawal or returns. Overwrite, withdrawal, and deinit invalidate it.
     pub fn giftPayload(self: *const GiftRegistry, gift_id: []const u8) ?GiftPayload {
         const store = self.store orelse return null;
-        return (store.gifts.get(gift_id) orelse return null).payload;
+        return (store.gifts.get(self.wire_hash_secret, gift_id) orelse return null).payload;
     }
 
     /// The owned-message form of the withdraw check. Production validates the
@@ -393,7 +407,7 @@ pub const GiftRegistry = struct {
     /// authenticated and narrowed a borrowed or parked certificate.
     pub fn validateWithdrawGiftClaim(self: *const GiftRegistry, claim: WithdrawGiftClaim) session_mod.Error!void {
         const store = self.store orelse return error.InvalidGift;
-        const gift = store.gifts.get(claim.gift_id) orelse return error.InvalidGift;
+        const gift = store.gifts.get(self.wire_hash_secret, claim.gift_id) orelse return error.InvalidGift;
         switch (gift.payload) {
             .provenance => |recipient_key| if (!std.mem.eql(u8, recipient_key, claim.recipient_key))
                 return error.InvalidGift,
@@ -450,7 +464,7 @@ pub const GiftRegistry = struct {
         claim: WithdrawGiftClaim,
     ) session_mod.Error!PreparedWithdrawCommit {
         const store = gifts.store orelse return error.InvalidGift;
-        const gift = store.gifts.getKey(claim.gift_id) orelse return error.InvalidGift;
+        const gift = store.gifts.getKey(gifts.wire_hash_secret, claim.gift_id) orelse return error.InvalidGift;
         return .{ .handoff_count = claim.handoff_count, .gift = gift };
     }
 
@@ -486,7 +500,7 @@ pub const GiftRegistry = struct {
         // `prepareWithdrawCommit` borrowed `prepared.gift` from this store in
         // the same synchronized turn.
         const store = deposited.store orelse unreachable;
-        const kv = store.gifts.fetchRemove(prepared.gift) orelse unreachable;
+        const kv = store.gifts.fetchRemove(deposited.wire_hash_secret, prepared.gift) orelse unreachable;
         store.retained_bytes -= admittedEntryRetainedBytes(kv.key, kv.value.payload);
         allocator.free(kv.key);
         var entry = kv.value;

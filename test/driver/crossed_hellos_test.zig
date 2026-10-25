@@ -33,7 +33,8 @@ test "crossed hellos: the higher-keyed seat aborts its inbound, keeps its outbou
     defer registry.deinit(allocator);
 
     // Our pid (9) is higher than the inbound partner's (1).
-    try registry.registerOutbound(allocator, target("tcp", designator), pid(9));
+    try registry.reserveOutbound(allocator);
+    registry.registerOutbound(target("tcp", designator), pid(9));
 
     const verdict = registry.checkInbound(target("tcp", designator), pid(1)) orelse
         return error.ExpectedCollision;
@@ -49,7 +50,8 @@ test "crossed hellos: the lower-keyed seat keeps its inbound, aborts its outboun
 
     // Our pid (1) is lower than the inbound partner's (9): the verdict keeps
     // the inbound, and the host condemns its own outbound dial instead.
-    try registry.registerOutbound(allocator, target("tcp", designator), pid(1));
+    try registry.reserveOutbound(allocator);
+    registry.registerOutbound(target("tcp", designator), pid(1));
 
     const verdict = registry.checkInbound(target("tcp", designator), pid(9)) orelse
         return error.ExpectedCollision;
@@ -63,7 +65,8 @@ test "crossed hellos: equal identifiers abort inbound (no live session opens to 
     var registry = CrossedHellos{};
     defer registry.deinit(allocator);
 
-    try registry.registerOutbound(allocator, target("tcp", designator), pid(5));
+    try registry.reserveOutbound(allocator);
+    registry.registerOutbound(target("tcp", designator), pid(5));
 
     const verdict = registry.checkInbound(target("tcp", designator), pid(5)) orelse
         return error.ExpectedCollision;
@@ -76,7 +79,8 @@ test "crossed hellos: an inbound from an un-dialed partner is no collision" {
     var registry = CrossedHellos{};
     defer registry.deinit(allocator);
 
-    try registry.registerOutbound(allocator, target("tcp", "ocapn://peer-a.example"), pid(5));
+    try registry.reserveOutbound(allocator);
+    registry.registerOutbound(target("tcp", "ocapn://peer-a.example"), pid(5));
 
     // No outbound to peer-b is in flight, so the inbound crosses nothing.
     try std.testing.expectEqual(
@@ -92,8 +96,9 @@ test "crossed hellos: unregister drops the tracked outbound" {
     var registry = CrossedHellos{};
     defer registry.deinit(allocator);
 
-    try registry.registerOutbound(allocator, target("tcp", designator), pid(2));
-    registry.unregister(allocator, target("tcp", designator));
+    try registry.reserveOutbound(allocator);
+    registry.registerOutbound(target("tcp", designator), pid(2));
+    registry.unregister(target("tcp", designator), pid(2));
 
     // Once the outbound is unregistered the inbound finds nothing to cross with.
     try std.testing.expectEqual(
@@ -110,12 +115,18 @@ test "crossed hellos: unregister removes exactly one row, not every dial to the 
     defer registry.deinit(allocator);
 
     // Two concurrent dials to the same partner: tearing one down must leave
-    // the sibling dial's row live for a crossed inbound to find.
-    try registry.registerOutbound(allocator, target("tcp", designator), pid(2));
-    try registry.registerOutbound(allocator, target("tcp", designator), pid(2));
-    registry.unregister(allocator, target("tcp", designator));
+    // the sibling dial's row, and the sibling's row in particular, since each
+    // row borrows its own session's bytes.
+    try registry.reserveOutbound(allocator);
+    registry.registerOutbound(target("tcp", designator), pid(2));
+    try registry.reserveOutbound(allocator);
+    registry.registerOutbound(target("tcp", designator), pid(8));
+    registry.unregister(target("tcp", designator), pid(2));
 
-    try std.testing.expect(registry.checkInbound(target("tcp", designator), pid(9)) != null);
+    // Only the dial keyed 8 remains, so an inbound keyed 5 loses to it.
+    const verdict = registry.checkInbound(target("tcp", designator), pid(5)) orelse
+        return error.SiblingRowDropped;
+    try std.testing.expect(verdict.abort_inbound);
 }
 
 test "crossed hellos: equal designators on different transports do not collide" {
@@ -125,7 +136,8 @@ test "crossed hellos: equal designators on different transports do not collide" 
     var registry = CrossedHellos{};
     defer registry.deinit(allocator);
 
-    try registry.registerOutbound(allocator, target("iroh", designator), pid(9));
+    try registry.reserveOutbound(allocator);
+    registry.registerOutbound(target("iroh", designator), pid(9));
     try std.testing.expectEqual(
         @as(?CrossedHellos.Verdict, null),
         registry.checkInbound(target("webrtc", designator), pid(1)),

@@ -514,7 +514,7 @@ fn runNestedGivePipelining(case: PipeliningCase) !void {
     // session may immediately pipeline through the same Host identity; the
     // queued operation must not mistake that source for the exporter route.
     const r_to_anchor = try openPair(allocator, &recipient, &anchor, "127.0.0.1:7113", &dials);
-    try std.testing.expect(recipient.capabilitySession(promise) == null);
+    try std.testing.expect((try recipient.capabilitySession(promise)) == null);
 
     // Listening to the Host-owned handoff promise observes redemption itself.
     // When it becomes an object under glowcap-next, no second object-listen may
@@ -587,7 +587,7 @@ fn runNestedGivePipelining(case: PipeliningCase) !void {
             recipient.routeCapability(r_to_anchor.a, promise, .object_only),
         );
         try std.testing.expect(ready.broken);
-        try std.testing.expect(recipient.capabilitySession(promise) == null);
+        try std.testing.expect((try recipient.capabilitySession(promise)) == null);
         try std.testing.expect(resolved_ready.broken);
         if (application) {
             try std.testing.expectError(error.PromiseBroken, recipient.sendApplicationValues(promise, "poke", &.{}, call_arena.allocator()));
@@ -597,7 +597,7 @@ fn runNestedGivePipelining(case: PipeliningCase) !void {
         try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g, r_to_anchor, r_to_e }, &dials);
         const routed = try recipient.routeCapability(dialed, promise, .object_only);
         try std.testing.expect(routed.session == dialed);
-        try std.testing.expect(recipient.capabilitySession(promise) == dialed);
+        try std.testing.expect((try recipient.capabilitySession(promise)) == dialed);
         const observed = try recipient.routeSend(dialed, try ready.require(), &.{});
         try std.testing.expect(observed.session == dialed);
         try std.testing.expect(observed.target == .far);

@@ -26,11 +26,13 @@ pub fn explanation(command: &str, leading: &[&str], prefix: &str, text: &str) ->
 	params.pop();
 	params.push(MARKER);
 	let overhead = protocol::encode_message(command, &params, Some(prefix))?.len();
-	let mut end = (protocol::LINE_BYTES - overhead).min(safe.len());
-	while !safe.is_char_boundary(end) {
-		end -= 1;
-	}
-	let shortened = format!("{}{MARKER}", &safe[..end]);
+	let limit = protocol::LINE_BYTES - overhead;
+	let head: String = safe
+		.char_indices()
+		.take_while(|&(at, c)| at + c.len_utf8() <= limit)
+		.map(|(_, c)| c)
+		.collect();
+	let shortened = format!("{head}{MARKER}");
 	params.pop();
 	params.push(&shortened);
 	protocol::encode_message(command, &params, Some(prefix))

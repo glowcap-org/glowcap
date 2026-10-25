@@ -21,16 +21,18 @@
 //! is the kind of property that stays true until one refactor makes it false
 //! and nothing says so.
 //!
-//! Five targets live here. The first, `readOne`, is the blocking frame read
+//! Eight targets live here. The first, `readOne`, is the blocking frame read
 //! above. The second, `lifecycle_drive`, runs the completion loop against a
 //! fuzzer-driven backend and compares its derived counts against a walk of the
 //! slots after the schedule drains. The third, `stream_plan`, feeds known
 //! frames through arbitrary chunk geometry and asks that each comes back whole,
-//! in order, once. The last two, at the end of the file, feed the Tor onion
+//! in order, once. The next two, near the end of the file, feed the Tor onion
 //! transport's parsers whatever a daemon the operator runs might send: one
 //! control-port reply line, and the SOCKS5 greeting reply, connect reply head,
 //! and service id. They assert that every refusal is one of the parser's own
-//! errors and that a split reply field is a view into the line it came from. Validated by
+//! errors and that a split reply field is a view into the line it came from. The last three, in
+//! `fuzz/websocket_client.zig`, feed the WebSocket client's frame headers, close
+//! payloads, and upgrade response what a relay might send. Validated by
 //! injecting a reply field whose value runs one byte past its line, which the
 //! seeds caught, and a `checkServiceId` that accepts a 55 byte id, which the
 //! search found within its first few runs. They cannot reach a control line
@@ -376,4 +378,25 @@ const socks_seeds = [_][]const u8{
 
 test "fuzz: arbitrary SOCKS5 reply bytes never crash the reply readers" {
     try std.testing.fuzz({}, socksReplyBytes, .{ .corpus = (socks_seeds ++ socks_regression_seeds)[0..] });
+}
+
+const ws_client = @import("fuzz/websocket_client.zig");
+
+/// Frame headers, close payloads, and upgrade responses the fuzzer found here,
+/// replayed by the ordinary suite. One list each because a saved header means
+/// nothing to the upgrade validator.
+const ws_frame_regression_seeds = [_][]const u8{};
+const ws_close_regression_seeds = [_][]const u8{};
+const ws_upgrade_regression_seeds = [_][]const u8{};
+
+test "fuzz: arbitrary server frame headers keep the WebSocket client's length contract" {
+    try std.testing.fuzz({}, ws_client.frameHeader, .{ .corpus = (ws_client.frame_seeds ++ ws_frame_regression_seeds)[0..] });
+}
+
+test "fuzz: arbitrary close payloads never crash the WebSocket close validator" {
+    try std.testing.fuzz({}, ws_client.closePayload, .{ .corpus = (ws_client.close_seeds ++ ws_close_regression_seeds)[0..] });
+}
+
+test "fuzz: arbitrary upgrade responses are judged the same by both WebSocket validators" {
+    try std.testing.fuzz({}, ws_client.upgrade, .{ .corpus = (ws_client.upgrade_seeds ++ ws_upgrade_regression_seeds)[0..] });
 }

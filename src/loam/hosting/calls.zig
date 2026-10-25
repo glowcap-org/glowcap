@@ -143,7 +143,7 @@ pub const DependentEndpoint = struct {
 
     pub fn deinit(self: *DependentEndpoint, _: std.mem.Allocator) void {
         self.owner.host.releaseCapabilityTerminal(self.target, null);
-        self.owner.host.releaseCapability(self.guard, 1) catch unreachable;
+        self.owner.host.releaseCapabilityTerminal(self.guard, null);
         std.debug.assert(self.owner.dependent_facets != 0);
         self.owner.dependent_facets -= 1;
         h.releaseClosed(self.owner);

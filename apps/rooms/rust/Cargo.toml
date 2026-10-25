@@ -77,6 +77,10 @@ all = { level = "deny", priority = -1 }
 # lint-checked reason; `clippy.toml` exempts tests.
 unwrap_used = "deny"
 expect_used = "deny"
+# A `str` sliced by byte index panics inside a multibyte character, and the
+# text Rooms slices is a peer's: a media type, a name, a line. Slice the bytes
+# or use the `str` methods that find their own boundaries.
+string_slice = "deny"
 
 [profile.test]
 # Keep source locations for failure backtraces without full variable/type

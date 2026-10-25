@@ -32,11 +32,9 @@ where
 				}
 				if let DialOrigin::Pending {
 					introducer: Some(source),
-				} = &origin
+				} = &origin && directory.session().is_none_or(|session| !session.same_session(source))
 				{
-					if directory.session().is_none_or(|session| !session.same_session(source)) {
-						return Err("Rooms signaling directory differs from the introducing session".into());
-					}
+					return Err("Rooms signaling directory differs from the introducing session".into());
 				}
 				Ok((directory, timeout))
 			})();

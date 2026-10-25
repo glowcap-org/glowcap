@@ -7,6 +7,11 @@ pub fn direct_history_id(directory: js_sys::JsString, registration: js_sys::JsSt
 	let registration =
 		crate::js_text::scalar(&registration, 64).map_err(|error| js_sys::Error::new(&error.to_string()))?;
 	rooms_application::content::session::workspace::history::direct(&directory, &registration)
-		.map(|id| id.text().as_str().expect("shared scalar history identity").to_owned())
+		.and_then(|id| {
+			id.text()
+				.as_str()
+				.map(str::to_owned)
+				.ok_or("shared history identity is not a scalar")
+		})
 		.map_err(|error| js_sys::Error::new(error).into())
 }

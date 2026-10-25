@@ -5,6 +5,7 @@ mod admission;
 mod assets;
 mod browser_admission;
 mod bundle;
+mod client_address;
 mod compiler;
 mod config;
 mod http;
@@ -88,11 +89,12 @@ async fn serve(
 	};
 	report(Notice::BrowserAdmission(browser_admission.settings.summary()));
 	let ice = ice::Policy::open(ice).await?;
-	let admission = admission::Admission::new(admission_config);
+	let admission = admission::Admission::new(admission_config.clone());
 	report(Notice::Admission(format!(
-		"{}; per-address={}",
+		"{}; per-address={}; trusted-proxies={}",
 		admission_config.settings.summary(),
-		admission_config.per_address
+		admission_config.per_address,
+		admission_config.trusted_proxies.len()
 	)));
 	let previews = preview::Preview::open(admission.clone()).await?;
 	if *stopping.borrow() {
@@ -192,6 +194,7 @@ async fn serve(
 			previews: Rc::new(previews),
 			relay,
 			report: report.clone(),
+			trusted_proxies: admission_config.trusted_proxies,
 		}),
 		incoming,
 		stop.clone(),

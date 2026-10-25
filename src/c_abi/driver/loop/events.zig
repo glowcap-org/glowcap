@@ -99,7 +99,9 @@ pub fn enqueueReservedEvent(inst: *Instance, event: OwnedEvent) void {
 }
 
 pub fn reentrancyCode(inst: *Instance, operation: []const u8) ?i32 {
-    if (inst.stepping) {
+    // `driver_depth` covers the provider callbacks the driver runs under
+    // `enterDriver`, which the runtime's own check does not count.
+    if (inst.stepping or inst.runtime.driver_depth != 0) {
         shared.setLastError("driver: {s} refused during driver execution", .{operation});
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     }

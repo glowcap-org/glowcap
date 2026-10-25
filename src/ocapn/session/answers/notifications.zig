@@ -92,7 +92,7 @@ pub fn prepareGc(self: *Session, positions: []const u64) !void {
         const answer_payload = row.payload orelse unreachable;
         row.payload = null;
         const released = answers.releaseAnswerPayload(self.allocator, answer_payload);
-        std.debug.assert(released == 0);
+        std.debug.assert(released.resolution == 0 and released.queued_calls == 0);
     };
 
     var detached_count: u32 = 0;
@@ -196,9 +196,15 @@ pub fn validateSettlement(
 }
 
 pub fn releasePayload(self: *Session, answer_payload: *answers.AnswerPayload) void {
-    const released = answers.releaseAnswerPayload(self.allocator, answer_payload);
-    std.debug.assert(self.retained_sent_answer_bytes >= released);
-    self.retained_sent_answer_bytes -= released;
+    self.returnReleasedCharges(answers.releaseAnswerPayload(self.allocator, answer_payload));
+}
+
+/// Subtract the exact charges a final payload release gave back.
+pub fn returnReleasedCharges(self: *Session, released: answers.ReleasedCharges) void {
+    std.debug.assert(self.retained_sent_answer_bytes >= released.resolution);
+    self.retained_sent_answer_bytes -= released.resolution;
+    std.debug.assert(self.queued_call_bytes >= released.queued_calls);
+    self.queued_call_bytes -= @intCast(released.queued_calls);
 }
 
 pub fn retainPayload(_: *Session, answer_payload: *answers.AnswerPayload) !void {

@@ -45,7 +45,8 @@ const listening = @import("completion_resident/listening.zig");
 const MultiplexedResident = resident_mod.MultiplexedResident;
 const ReadyEvent = resident_mod.ReadyEvent;
 const crypto = foundation.crypto;
-const userData = completions.userData;
+pub const userData = completions.userData;
+pub const acceptRefusalPersists = completions.acceptRefusalPersists;
 
 pub const Options = struct {
     /// Bytes one connection may hold between `try_write` and the backend.
@@ -78,7 +79,10 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
     return struct {
         const Self = @This();
         pub const Fd = Backend.Fd;
-        const Completions = completions.Machine(Self);
+        /// The completion machine, public for white-box tests that hand the
+        /// resident a kernel verdict no loopback socket can be made to
+        /// produce (an accept refused for descriptor quota).
+        pub const Completions = completions.Machine(Self);
         const armRecv = Completions.armRecv;
         const startSend = Completions.startSend;
         pub const armAccept = Completions.armAccept;
@@ -121,9 +125,11 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             write_failure: ?anyerror = null,
             /// `take_failure` has claimed this row's failure.
             failure_claimed: bool = false,
-            /// `closing` rows are already released to the runtime and live on
-            /// only until the backend retires the operations borrowing them.
-            close: enum { open, closing } = .open,
+            /// A `draining` row belongs to no runtime wire: no read is armed
+            /// or lent, and only the bytes `conn_close` admitted keep the
+            /// socket open. `closing` rows are released and live on only
+            /// until the backend retires the operations borrowing them.
+            close: enum { open, draining, closing } = .open,
             /// Completions the backend still owes this row.
             inflight: u8 = 0,
         };
@@ -153,6 +159,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             identity: ?crypto.PeerKey,
             accepted: std.ArrayListUnmanaged(Fd) = .empty,
             accept_armed: bool = false,
+            /// An accept the kernel refused for a reason that will not clear
+            /// on its own (descriptor quota, memory). The listener stays
+            /// unarmed until `finishAccept` hands the failure to the runtime,
+            /// which owns the verdict; re-arming here would spin against the
+            /// same refusal while the backlog holds an arrival.
+            accept_failure: ?anyerror = null,
             /// A backend listener still finishing its setup reports here.
             setup: union(enum) { ready, pending, failed: anyerror } = .ready,
         };
@@ -210,7 +222,8 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         /// retryable, as `completion.Loop.closeAndDrain` is. `deinit` requires
         /// it to have succeeded, because an owed operation may still borrow a
         /// connection's staging.
-        pub const closeAndDrain = teardown.Machine(Self).closeAndDrain;
+        const Teardown = teardown.Machine(Self);
+        pub const closeAndDrain = Teardown.closeAndDrain;
 
         /// After a successful `closeAndDrain`.
         pub fn deinit(self: *Self) void {
@@ -254,6 +267,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             .flush_writes = flushWrites,
             .take_failure = takeFailure,
             .conn_close = connClose,
+            .conn_abort = connAbort,
             .conn_remote_key = connRemoteKey,
             .dial = .{
                 .start_connect = startConnect,
@@ -454,44 +468,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         /// out of reach of every verb, until the backend retires the
         /// operations that borrow its staging.
         fn connClose(ctx: *anyopaque, id: usize) resident_mod.TeardownOutcome {
-            const self = of(ctx);
-            defer self.pump();
-            const conn = self.conns.getPtr(id) orelse return .complete;
-            if (conn.close == .closing) return .complete;
-            // Readiness backends perform sends when polled, not when submitted.
-            // Keep the socket open until every admitted byte has completed.
-            conn.send_queued = false;
-            self.startSend(id, conn);
-            self.submitQueued();
-            self.pump();
-            if (conn.write_failure == null and
-                (conn.sending or conn.front.items.len != conn.sent or conn.back.items.len != 0))
-            {
-                conn.owes_writable = true;
-                return .pending;
-            }
-            if (conn.recv == .holding) {
-                const held = conn.recv.holding.comp;
-                conn.recv = .idle;
-                self.forgetStarved(id);
-                self.recycle(held);
-            } else self.forgetStarved(id);
-            conn.close = .closing;
-            self.backend.shutdownFd(conn.fd);
-            var outcome: resident_mod.TeardownOutcome = .complete;
-            if (self.backend.submitClose(userData(.close, id), conn.fd)) {
-                conn.inflight += 1;
-            } else |err| {
-                self.backend.closeFd(conn.fd);
-                outcome = .{ .failed = .init(err) };
-                // The descriptor is closed and its armed operations complete
-                // nowhere, so a row still counting them can never retire.
-                // The resident is the smallest scope that can report that,
-                // and its owner retires it.
-                if (conn.inflight != 0) self.latch(err);
-            }
-            self.retireIfQuiet(id, conn);
-            return outcome;
+            return Teardown.connClose(of(ctx), id);
+        }
+
+        /// Drop the connection now, whatever `connClose` was still sending.
+        fn connAbort(ctx: *anyopaque, id: usize) resident_mod.TeardownOutcome {
+            return Teardown.connAbort(of(ctx), id);
         }
 
         fn connRemoteKey(ctx: *anyopaque, id: usize) resident_mod.ContractError!?crypto.PeerKey {
@@ -587,6 +569,10 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 },
                 .connecting => {
                     dial.state = .cancelling;
+                    // A queued connect holds the socket, so closing the
+                    // descriptor alone leaves it connecting until the kernel
+                    // gives up. Shutting it down retires the connect now.
+                    self.backend.shutdownFd(dial.fd);
                     self.backend.submitClose(userData(.dial_close, request_id), dial.fd) catch |err| {
                         self.backend.closeFd(dial.fd);
                         return .init(err);

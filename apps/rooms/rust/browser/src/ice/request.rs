@@ -99,6 +99,9 @@ impl Attempt {
 		self.observers.set(count + 1);
 		let _observer = Observer(&self.observers);
 		self.retired().await?;
-		self.result.borrow().clone().expect("retired request result")
+		self.result
+			.borrow()
+			.clone()
+			.unwrap_or(Err(Error::Platform("Rooms ICE request retired without a result")))
 	}
 }

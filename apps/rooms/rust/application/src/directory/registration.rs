@@ -202,14 +202,13 @@ impl Id {
 	pub fn from_entropy(mut bytes: [u8; 16]) -> Self {
 		bytes[6] = (bytes[6] & 0x0f) | 0x40;
 		bytes[8] = (bytes[8] & 0x3f) | 0x80;
-		let digits = lower_hex(&bytes);
 		let text = format!(
 			"{}-{}-{}-{}-{}",
-			&digits[..8],
-			&digits[8..12],
-			&digits[12..16],
-			&digits[16..20],
-			&digits[20..],
+			lower_hex(&bytes[..4]),
+			lower_hex(&bytes[4..6]),
+			lower_hex(&bytes[6..8]),
+			lower_hex(&bytes[8..10]),
+			lower_hex(&bytes[10..]),
 		);
 		debug_assert!(super::registration_id_text(&text));
 		Self(text)

@@ -24,7 +24,7 @@ fn peekResolverId(self: *const Host) error{CapabilitySpaceExhausted}!u64 {
 /// Host/Vat row and the forward listener are reserved before either side is
 /// published, so refusal leaves no resolver and no forwarded effect behind.
 pub fn deferTurn(self: *Host, maybe_session: ?*HostSession, turn: *actors.Turn) !u64 {
-    self.assertOwner();
+    try self.claimOwner();
     const session = maybe_session orelse return deferOwned(self, turn);
     try self.admitApplicationOperation();
     if (session.host != self or self.sessions.get(session.peer_handle) != session)

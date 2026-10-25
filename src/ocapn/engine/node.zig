@@ -233,11 +233,13 @@ pub const Node = struct {
     actions: node_actions.State = .{},
     /// Introducing-session foreign-promise proxies keyed by home wire import
     /// (ADR-0039). Rows are only inserted once the home `op:listen` is armed.
-    promise_proxies: proxy_topology.Proxies = .empty,
+    /// The three tables hash peer-chosen positions under one Node multiplier
+    /// derived from the identity seed.
+    promise_proxies: proxy_topology.Proxies,
     /// Home listener export → home-wire key, for O(1) fire dispatch.
-    proxy_by_listener: proxy_topology.ByListener = .empty,
+    proxy_by_listener: proxy_topology.ByListener,
     /// Current shortening target -> stable root key in `promise_proxies`.
-    proxy_by_source: proxy_topology.BySource = .empty,
+    proxy_by_source: proxy_topology.BySource,
 
     // ── Export ranges (`export_ranges.zig`) ─────────────────────────────────
     // Disjoint per-session export numbering: the slot arithmetic, the range
@@ -252,12 +254,23 @@ pub const Node = struct {
     /// A node bound to a caller-supplied durable identity `seed`, with empty
     /// tables. Draw it at the embedder's I/O boundary because the sans-io core
     /// never generates entropy.
+    /// The bearer secret for a byte-named table the Host keeps outside any
+    /// session (its publications), derived from the root under its own domain.
+    pub fn hostBearerSecret(self: *const Node) u64 {
+        return wire_hash.hostBearerSecret(self.wire_hash_secret);
+    }
+
     pub fn init(allocator: std.mem.Allocator, seed: [crypto.seed_bytes]u8) Node {
         const base = initialExportBase(seed);
+        const hash_secret = wire_hash.secret(seed);
+        const table_multiplier = wire_hash.nodeMultiplier(hash_secret);
         return .{
             .allocator = allocator,
             .secret = crypto.SecretKey.fromSeed(seed),
-            .wire_hash_secret = wire_hash.secret(seed),
+            .wire_hash_secret = hash_secret,
+            .promise_proxies = .keyed(table_multiplier),
+            .proxy_by_listener = .keyed(table_multiplier),
+            .proxy_by_source = .keyed(table_multiplier),
             .next_export_base = base,
             .export_base_end = exportBaseEndFor(base),
         };

@@ -66,6 +66,9 @@ pub fn RawConnectionDialOutcome(comptime RawConnection: type) type {
 
 pub const ListenError = error{ InvalidAddress, InvalidOptions, BindFailed } || std.mem.Allocator.Error;
 pub const AcceptError = error{
+    /// The kernel refused the accept itself for a reason that will not clear
+    /// on its own (descriptor quota, memory); the chain carries which.
+    AcceptRefused,
     ConnectionLost,
     SocketConfigurationFailed,
     WakeNudgeFailed,

@@ -1,7 +1,9 @@
 //! Crossed-hellos tiebreak state (ADR-0012): the outbound-dial table an
 //! accepted session's inbound `op:start-session` is compared against, unlocked
-//! because one thread drives one host by contract. `openDialedLocator`
-//! registers the outbound before its hello moves. The host condemns the losing
+//! because one thread drives one host by contract. `enroll` registers the
+//! outbound before its hello moves, and `finishSessionOpen` removes it when
+//! the partner's hello lands or the dial dies, so a later claim on the same
+//! address never condemns an open session. The host condemns the losing
 //! session immediately rather than deferring a flag to a later pump. Public for
 //! its unit tests. Embedders never touch it, since the host runs the tiebreak.
 //!
@@ -48,10 +50,9 @@ pub const CrossedHellos = struct {
     entries: std.ArrayListUnmanaged(Entry) = .empty,
 
     const Entry = struct {
-        /// One allocation backing both slices in `target`.
-        target_bytes: []u8,
         /// The matching axis: the complete locator identity this outbound dial
-        /// is trying to reach. Authentication is a separate Host fact.
+        /// is trying to reach, borrowed from the session shell, which outlives
+        /// the entry. Authentication is a separate Host fact.
         target: DialTarget,
         /// The ordering axis: the OCapN session identifier derived from *this
         /// outbound session attempt's* own key.
@@ -63,26 +64,15 @@ pub const CrossedHellos = struct {
     /// session the higher-keyed peer opened.
     pub const Verdict = struct { abort_inbound: bool };
 
-    pub fn registerOutbound(
-        self: *CrossedHellos,
-        allocator: std.mem.Allocator,
-        target: DialTarget,
-        our_session_id: foundation.PeerId,
-    ) !void {
-        const byte_len = std.math.add(usize, target.transport.len, target.designator.len) catch
-            return error.OutOfMemory;
-        const bytes = try allocator.alloc(u8, byte_len);
-        errdefer allocator.free(bytes);
-        @memcpy(bytes[0..target.transport.len], target.transport);
-        @memcpy(bytes[target.transport.len..], target.designator);
-        try self.entries.append(allocator, .{
-            .target_bytes = bytes,
-            .target = .{
-                .transport = bytes[0..target.transport.len],
-                .designator = bytes[target.transport.len..],
-            },
-            .our_session_id = our_session_id,
-        });
+    /// Make room for one more outbound, before the dial is minted, so
+    /// `registerOutbound` cannot fail once the session's open is pending.
+    pub fn reserveOutbound(self: *CrossedHellos, allocator: std.mem.Allocator) error{OutOfMemory}!void {
+        try self.entries.ensureUnusedCapacity(allocator, 1);
+    }
+
+    /// Track one outbound dial under the room `reserveOutbound` made.
+    pub fn registerOutbound(self: *CrossedHellos, target: DialTarget, our_session_id: foundation.PeerId) void {
+        self.entries.appendAssumeCapacity(.{ .target = target, .our_session_id = our_session_id });
     }
 
     /// Match an inbound start-session against the registered outbound dials by
@@ -103,12 +93,12 @@ pub const CrossedHellos = struct {
         return null;
     }
 
-    /// Remove exactly one entry for `target`: one row is appended
-    /// per dial, so a sweep would drop a sibling dial's still-live entry.
-    pub fn unregister(self: *CrossedHellos, allocator: std.mem.Allocator, target: DialTarget) void {
+    /// Remove the one entry `registerOutbound` added for this dial, named by
+    /// its target and its own session identifier: a sibling dial to the same
+    /// target keeps its row, which borrows its own shell's bytes.
+    pub fn unregister(self: *CrossedHellos, target: DialTarget, our_session_id: foundation.PeerId) void {
         for (self.entries.items, 0..) |entry, i| {
-            if (entry.target.eql(target)) {
-                allocator.free(entry.target_bytes);
+            if (entry.our_session_id.eql(our_session_id) and entry.target.eql(target)) {
                 _ = self.entries.orderedRemove(i);
                 return;
             }
@@ -116,7 +106,6 @@ pub const CrossedHellos = struct {
     }
 
     pub fn deinit(self: *CrossedHellos, allocator: std.mem.Allocator) void {
-        for (self.entries.items) |entry| allocator.free(entry.target_bytes);
         self.entries.deinit(allocator);
     }
 };
@@ -149,9 +138,12 @@ pub fn tiebreakInbound(self: *host_mod.Host, session: *host_mod.HostSession, ss:
     // an address transport has nothing else to match on at hello time. Refusing
     // to act on it there is not ours to choose. Dropping it makes that test
     // hang waiting for the abort. So on an address transport a peer that can
-    // open a connection and name an address we are dialing can condemn our dial
-    // to it. ADR-0012 models that exposure, and it is why a designator that
-    // *is* an identity is the one that gets checked; see `docs/boundaries.md`.
+    // open a connection and name an address we are dialing can condemn that
+    // dial, for as long as its handshake is outstanding: `finishSessionOpen`
+    // drops the entry once the partner's hello lands. `docs/boundaries.md`
+    // states what remains, and a designator that *is* an identity is the one
+    // that gets checked.
+
     if (try self.designatorScheme(ss.acceptable_location.transport) == .key) {
         const claimed = crypto.PeerKey.fromDesignator(designator) orelse return;
         if (!std.mem.eql(u8, &claimed.bytes, &partner_key.bytes)) return;

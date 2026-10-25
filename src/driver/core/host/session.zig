@@ -360,7 +360,7 @@ pub fn flushSession(self: *Host, session: *HostSession) !void {
     // verb inside a listener enqueues, and the enclosing top-level verb's
     // unwind encodes, so a session verb that ends in this flush keeps working
     // from callback context.
-    self.assertOwner();
+    try self.claimOwner();
     try self.checkSession(session);
     try host_pump.dirtyThenPump(self, session.peer_handle);
 }
@@ -400,7 +400,7 @@ pub fn transportClosed(self: *Host, session: *HostSession, message: []const u8) 
 /// authenticated-channel provenance. Returned views borrow session-owned bytes
 /// and remain valid until the session is released.
 pub fn partnerIdentity(self: *Host, session: *HostSession) !vocab.PartnerIdentity {
-    self.assertOwner();
+    try self.claimOwner();
     try self.checkSession(session);
     const peer = session.served.port.peer;
     if (!peer.verify_partner_handshake) return error.PartnerUnverified;
@@ -419,7 +419,7 @@ pub fn partnerIdentity(self: *Host, session: *HostSession) !vocab.PartnerIdentit
 /// (ADR-0028). This must arrive before the partner hello is applied. Repeating
 /// the same evidence is idempotent and conflicting evidence is refused.
 pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []const u8) !void {
-    self.assertOwner();
+    try self.claimOwner();
     try self.checkSession(session);
     const key = crypto.PeerKey.fromDesignator(designator) orelse
         return error.InvalidChannelKey;

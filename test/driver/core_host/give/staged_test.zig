@@ -95,7 +95,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
     // The accepted send owns the delayed occurrence after the caller releases
     // its last direct capability handle.
     try gifter.releaseCapability(widget, 1);
-    try std.testing.expect(gifter.capabilitySession(widget) == g_to_e.a);
+    try std.testing.expect((try gifter.capabilitySession(widget)) == g_to_e.a);
 
     var gift_ticket: ?u64 = null;
     while (try harness.popAction(&gifter)) |action| switch (action) {
@@ -115,7 +115,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
         else => return error.UnexpectedAction,
     };
     try std.testing.expect(gift_ticket != null);
-    try std.testing.expect(gifter.capabilitySession(widget) == g_to_e.a);
+    try std.testing.expect((try gifter.capabilitySession(widget)) == g_to_e.a);
 
     if (owner != .observed) {
         if (call) |held| {
@@ -180,7 +180,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
     };
     try std.testing.expectEqual(@as(usize, @intFromBool(success)), deliveries);
     try std.testing.expectEqual(@as(usize, @intFromBool(success)), releases);
-    try std.testing.expect(gifter.capabilitySession(widget) == null);
+    try std.testing.expect((try gifter.capabilitySession(widget)) == null);
     try std.testing.expectEqual(@as(usize, 0), gifter.vows.count());
     try std.testing.expectEqual(@as(usize, 0), port.peer.pending_send_bytes);
     try std.testing.expectEqual(@as(usize, 0), port.peer.pending_send_reservations);

@@ -38,10 +38,34 @@ export function fetchesOnArrival(
 }
 
 export function kindOf(mime: string): MediaKind {
+	if (carriesScript(mime)) return "file";
 	if (mime.startsWith("image/")) return "image";
 	if (mime.startsWith("video/")) return "video";
 	if (mime.startsWith("audio/")) return "audio";
 	return "file";
+}
+
+/** Whether a media type is a document a browser would run script from.
+ *
+ * A posted file is shown from a `blob:` URL in this page's origin, and a
+ * reader can open any shown image in its own tab. An SVG opened that way is
+ * a document, and a document carries script. Among the types the viewer
+ * shows or plays, the XML ones are the documents, so those are met as files.
+ * The page's own policy also blocks inline script in such a document, and
+ * this keeps that policy from being the only thing that does. The sender chose
+ * the type, so it is read as the browser would: case-insensitive, with
+ * parameters such as a charset ignored. */
+function carriesScript(mime: string): boolean {
+	return mime.split(";", 1)[0].trim().toLowerCase().endsWith("+xml");
+}
+
+/** The type a posted file's bytes are given when the browser holds them.
+ *
+ * What the viewer plays or shows keeps the sender's type, because an `<img>`
+ * or `<video>` needs it. Anything the reader can only save is held as plain
+ * bytes, so the browser never has a document with this origin to open. */
+export function blobType(mime: string): string {
+	return kindOf(mime) === "file" ? "application/octet-stream" : mime;
 }
 
 /** How big a file reads to a person: bytes up to a kilobyte, then one decimal

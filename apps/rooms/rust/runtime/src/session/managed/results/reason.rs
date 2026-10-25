@@ -19,7 +19,8 @@ impl Write for Diagnostic {
 			}
 			self.units += units;
 		}
-		self.text.push_str(&text[..end]);
+		self.text
+			.push_str(text.split_at_checked(end).map_or(text, |(head, _)| head));
 		if self.truncated { Err(fmt::Error) } else { Ok(()) }
 	}
 }

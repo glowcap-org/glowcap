@@ -91,7 +91,8 @@ const PreparedRecipient = struct {
 };
 
 pub const Prepared = struct {
-    groups: std.AutoHashMapUnmanaged(topology.HomeKey, Group) = .empty,
+    /// Keyed like `Node.promise_proxies`, whose rows these become.
+    groups: topology.Groups(Group),
     recipients: std.ArrayListUnmanaged(PreparedRecipient) = .empty,
     committed: bool = false,
 
@@ -282,7 +283,7 @@ pub fn prepare(
     recipient_peer: PeerHandle,
     promises: []passable.PromiseProjection,
 ) !Prepared {
-    var prepared: Prepared = .{};
+    var prepared: Prepared = .{ .groups = .keyed(self.promise_proxies.multiplier) };
     errdefer prepared.deinit(self);
     if (promises.len == 0) return prepared;
 

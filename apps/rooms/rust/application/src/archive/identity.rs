@@ -19,7 +19,12 @@ impl RecordingIdentity {
 			reason = "a 16-byte hex newtype has no failing serialization arm"
 		)]
 		let encoded = serde_json::to_string(self).expect("fixed recording identity");
-		encoded[1..encoded.len() - 1].into()
+		#[expect(clippy::expect_used, reason = "serde_json always quotes a string")]
+		let inner = encoded
+			.strip_prefix('"')
+			.and_then(|quoted| quoted.strip_suffix('"'))
+			.expect("a JSON string is quoted");
+		inner.into()
 	}
 }
 #[derive(Serialize)]

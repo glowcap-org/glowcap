@@ -198,6 +198,10 @@ pub const Session = struct {
     /// accounting ends when a settlement moves here. Answer GC, local-promise
     /// retirement, and teardown release the exact charge.
     retained_sent_answer_bytes: usize = 0,
+    /// Owned bytes in pipelined calls queued against pending inbound answers,
+    /// bounded by `limits.max_queued_call_bytes`. A drain or a payload release
+    /// returns each call's exact charge. `u32` like its limit.
+    queued_call_bytes: u32 = 0,
     import_release_outbox: ?*@import("import_release_outbox.zig").Outbox = null,
     /// Promises imported from a third party via handoff (ADR-0039), keyed by
     /// import position for O(1) lookup. Host designators are interned in
@@ -208,6 +212,12 @@ pub const Session = struct {
     /// through `keyWireTables`, and each such table carries a copy because
     /// its verbs run without the session in hand.
     wire_hash_multiplier: u64,
+    /// The secret the tables keyed by names the peer chooses (`bootstrap`,
+    /// `sturdyref_cache_index`) hash under, handed to each verb because
+    /// `foundation.bearer_table` stores none (ADR-0037). Its own derivation,
+    /// never the position multiplier, so neither table's buckets tell a peer
+    /// about the other's.
+    bearer_secret: u64,
     /// Session-wide monotonic source for every store-row identity stamp a
     /// queued fire carrier checks at encode: `AnswerCell.row_id` and
     /// `ImportedPromise.row_id`. One counter for all (not per-row seeds) so no
@@ -261,7 +271,7 @@ pub const Session = struct {
     /// Side index for `sturdyref_cache`: swissnum to dense row index, O(1) lookup.
     /// Keys are the same owned slices the ArrayList rows hold (one owner). Kept
     /// in lockstep on insert and FIFO eviction (`sturdyref_cache.zig`).
-    sturdyref_cache_index: std.StringHashMapUnmanaged(usize),
+    sturdyref_cache_index: foundation.bearer_table.Table(usize),
     /// In-flight sturdyref enlivens, mapping a swissnum to its outstanding answer
     /// (ADR-0007 dedup). O(1) lookup. Rows are removed on completion, so swissnum
     /// keys are gpa-owned and freed on removal.
@@ -350,6 +360,7 @@ pub const Session = struct {
     pub const validateAnswerSettlement = answer_notifications.validateSettlement;
     pub const retainAnswerPayload = answer_notifications.retainPayload;
     pub const releaseAnswerPayload = answer_notifications.releasePayload;
+    pub const returnReleasedCharges = answer_notifications.returnReleasedCharges;
     pub const answerPayloadResolution = answer_notifications.resolution;
     pub const answerPayloadStoredResolution = answer_notifications.storedResolution;
     pub const answerPayloadResolver = answer_notifications.resolver;

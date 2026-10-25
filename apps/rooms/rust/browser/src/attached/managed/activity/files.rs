@@ -99,12 +99,13 @@ async fn read(environment: &Environment, custody: &Custody, offset: u64, maximum
 	if custody.borrow().is_none() {
 		return Err("File custody was released during its acquisition".into());
 	}
+	let reader = file.reader.get().ok_or("File reader was not acquired")?;
 	let reply = environment
 		.platform
 		.within(
 			rooms_application::room::authority::REQUEST_TIMEOUT_MS,
 			std::future::IntoFuture::into_future(environment.runtime.host().send(
-				file.reader.get().expect("acquired file reader"),
+				reader,
 				rooms_application::protocol_data::READ,
 				&[Argument::Integer(offset as i64), Argument::Integer(maximum as i64)],
 			)),

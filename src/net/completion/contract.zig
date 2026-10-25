@@ -54,8 +54,8 @@
 //!     cancel a pending accept and close its handle, or close a connection
 //!     after the loop calls `shutdownFd`. A userspace backend whose shutdown is
 //!     a no-op must synthesize completions for every pending recv and send. A
-//!     negative close result means the handle remains owned and the loop calls
-//!     `closeFd`.
+//!     close result releases the handle whatever its sign: the loop records a
+//!     negative one as the connection's close failure and never retries it.
 //!   * `pub fn shutdownFd(self: *Backend, fd: Fd) void;`
 //!   * `pub fn wireFraming(self: *Backend, fd: Fd)
 //!     model.transport.WireFraming;`: whether recv completions are arbitrary
@@ -434,7 +434,9 @@ pub fn failureFromErrno(errno: std.posix.E) anyerror {
         .CANCELED => error.Canceled,
         .BADF => error.InvalidFileDescriptor,
         .NOMEM => error.OutOfMemory,
-        .NOSPC => error.SystemResources,
+        .NOSPC, .NOBUFS => error.SystemResources,
+        .MFILE => error.ProcessFdQuotaExceeded,
+        .NFILE => error.SystemFdQuotaExceeded,
         else => error.Unexpected,
     };
 }

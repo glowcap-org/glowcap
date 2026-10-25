@@ -38,7 +38,9 @@ information blocks a safe edit or the user asks.
 - Config: [`.serena/project.yml`](../../../.serena/project.yml)
 - Cursor MCP: [`.cursor/mcp.json`](../../../.cursor/mcp.json) (stdio, started
   with `serena start-mcp-server`)
-- Claude MCP: [`.mcp.json`](../../../.mcp.json) (stdio, starts its own server)
+- Claude MCP: [`.mcp.json`](../../../.mcp.json) (stdio, through
+  `glowcap-dev`, so the pinned server and `zls` run in the worktree's
+  devcontainer whether the session runs on the host or inside it)
 - Runtime state: `.serena/cache`, `.serena/logs`, and `.serena/memories` are
   per-clone and ignored.
 

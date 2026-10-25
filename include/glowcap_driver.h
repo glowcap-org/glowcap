@@ -182,7 +182,9 @@ int32_t glowcap_driver_release(GlowcapDriverLoop *loop, GlowcapDriverFailure *ou
 /* Install one validated provider package. out_failure must identify the current
    version/layout and receives the exact primary and rollback chain. The driver
    acquires its lease through provider.retain, copies profiles and tables,
-   and calls provider.release after every listener, connection, and callback retires. */
+   and calls provider.release after every listener, connection, and callback retires.
+   provider.retain runs inside the driver, so a driver verb it calls is refused as
+   reentry with GLOWCAP_ERR_INVALID_ARGUMENT. */
 int32_t glowcap_driver_add_provider(GlowcapDriverLoop *loop, const GlowcapTransportProvider *provider, GlowcapDriverFailure *out_failure);
 /* Report whether one installed provider owns the transport symbol. */
 int32_t glowcap_driver_has_transport(GlowcapDriverLoop *loop, const uint8_t *transport, size_t transport_len, uint8_t *out_present);

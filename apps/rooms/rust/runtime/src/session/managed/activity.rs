@@ -235,17 +235,24 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 		self.incarnation.set(Some(marker));
 		Ok(())
 	}
-	pub fn token(&self, cursor: u64) -> Result<String> {
+	/// The confirmed lifetime in lowercase hexadecimal: every token's prefix.
+	pub fn incarnation_hex(&self) -> Result<String> {
 		use std::fmt::Write;
 		let marker = self
 			.incarnation
 			.get()
 			.ok_or_else(|| loam::refusal("activity lifetime is not confirmed"))?;
-		let mut token = String::with_capacity(103);
+		let mut hex = String::with_capacity(82);
 		for byte in marker.encode() {
-			let _ = write!(&mut token, "{byte:02x}");
+			let _ = write!(&mut hex, "{byte:02x}");
 		}
-		let _ = write!(&mut token, ":{cursor}");
+		Ok(hex)
+	}
+	pub fn token(&self, cursor: u64) -> Result<String> {
+		let mut token = self.incarnation_hex()?;
+		token.reserve(21);
+		token.push(':');
+		token.push_str(&cursor.to_string());
 		Ok(token)
 	}
 	pub(super) fn parse_token(&self, token: &str) -> Result<u64> {
@@ -255,8 +262,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 		let (incarnation, counter) = token
 			.split_once(':')
 			.ok_or_else(|| loam::refusal("invalid activity token"))?;
-		let expected = self.token(0)?;
-		if incarnation != &expected[..82] {
+		if incarnation != self.incarnation_hex()? {
 			return Err(loam::refusal("activity token belongs to another incarnation"));
 		}
 		let id = counter

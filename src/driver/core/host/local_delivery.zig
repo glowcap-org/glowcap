@@ -286,7 +286,7 @@ pub fn send(turn: *actors.Turn, target: capability.Ref, verb: []const u8, args: 
     try lease.checkHost(parent.host);
     if (parent.host.localActorFor(target) != null)
         return @import("local_completion.zig").send(parent.host, lease, target, verb, args);
-    const session = parent.host.capabilitySession(target) orelse return error.UnknownCapability;
+    const session = (try parent.host.capabilitySession(target)) orelse return error.UnknownCapability;
     return @import("delivery.zig").sendValuesAdmitted(parent.host, session, target, verb, args, turn.arena, .{ .retained = lease });
 }
 
@@ -296,7 +296,7 @@ pub fn tell(turn: *actors.Turn, target: capability.Ref, verb: []const u8, args: 
     try lease.checkHost(parent.host);
     if (parent.host.localActorFor(target) != null)
         return tellLocal(parent.host, lease, target, verb, args);
-    const session = parent.host.capabilitySession(target) orelse return error.UnknownCapability;
+    const session = (try parent.host.capabilitySession(target)) orelse return error.UnknownCapability;
     return @import("delivery.zig").tellValuesAdmitted(parent.host, session, target, verb, args, turn.arena, .{ .retained = lease });
 }
 

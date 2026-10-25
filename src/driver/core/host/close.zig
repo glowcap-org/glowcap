@@ -163,7 +163,7 @@ pub fn beginSessionClose(
     pending: close_mod.PendingWork,
     now_ms: i64,
 ) !void {
-    self.assertOwner();
+    try self.claimOwner();
     try self.checkOwnedSession(session);
     // As for Host close, expiry belongs to the first finish request and must
     // win over a later cancel arriving at or after its deadline.

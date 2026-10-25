@@ -63,7 +63,7 @@ pub fn validateRecvView(self: *Session, body: *const model.view.Body, introduced
 /// application unvalidated, an authority gap versus deliver and listen.
 fn validateProjectionOp(self: *Session, receiver: anytype, answer: model.AnswerPosition) passable.ReferenceError(@TypeOf(receiver))!void {
     if (self.captp_version == .next) return error.UnexpectedMessage;
-    try passable.validateReference(self, receiver, .received, .held_import);
+    try passable.validateDeliverOrListenTarget(self, receiver, .received);
     try checkInboundAnswerPosition(self, answer);
 }
 

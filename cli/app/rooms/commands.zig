@@ -42,6 +42,7 @@ const serve = directory ++ [_]Flag{
     value("http-admission-rows", "HTTP accounting row cap (1..65536)"),
     value("http-admission-aggregate-scale", "HTTP deployment allowance multiplier (1..100)"),
     value("http-admission-per-address", "Apply an additional actual socket source budget (true or false)"),
+    value("http-trusted-proxies", "Proxy addresses or CIDR prefixes whose X-Forwarded-For client selects that budget"),
     value("browser-admission-scale", "Scale browser-local session work allowances (1..100)"),
     value("browser-admission-rates", "Browser-local class=burst/per-minute overrides"),
     value("browser-admission-rows", "Browser-local accounting row cap (1..65536)"),

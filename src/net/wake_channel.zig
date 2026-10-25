@@ -78,7 +78,7 @@ pub const WakeChannel = struct {
     pub fn open() error{WakeChannelFailed}!WakeChannel {
         if (is_linux) {
             var sv: [2]i32 = undefined;
-            const rc = linux.socketpair(linux.AF.UNIX, linux.SOCK.STREAM | linux.SOCK.NONBLOCK, 0, &sv);
+            const rc = linux.socketpair(linux.AF.UNIX, linux.SOCK.STREAM | linux.SOCK.NONBLOCK | linux.SOCK.CLOEXEC, 0, &sv);
             if (linux.errno(rc) != .SUCCESS) return error.WakeChannelFailed;
             return .{ .read = sv[0], .write = sv[1] };
         }
@@ -87,7 +87,7 @@ pub const WakeChannel = struct {
         // arm reaches (Darwin); Linux takes the syscall arm above.
         if (socketpair(1, 1, 0, &sv) < 0) return error.WakeChannelFailed;
         for (sv) |fd| {
-            if (!socket.setNonblocking(fd) or !socket.setNoSigpipe(fd)) {
+            if (!socket.setNonblocking(fd) or !socket.setNoSigpipe(fd) or !socket.setCloseOnExec(fd)) {
                 _ = close(sv[0]);
                 _ = close(sv[1]);
                 return error.WakeChannelFailed;

@@ -41,6 +41,7 @@ pub fn close(
     if (!common.embedderOwnsDrive(inst, "close")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const policy = c.parseCloseOptions(options) catch |err|
         return c.closeOptionsErrorCode("host", err);
+    inst.core.claimOwner() catch |err| return common.errToCode(err);
     inst.core.beginClose(policy, now_ms);
     return shared.GLOWCAP_OK;
 }

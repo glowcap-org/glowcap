@@ -245,7 +245,7 @@ pub fn acceptInlineGive(self: *Host, session: *HostSession, give: model.HandoffG
 /// the session record. The node encodes the locator to canonical Syrup record
 /// bytes, so a URI string cannot be passed here.
 pub fn setExporterLocation(self: *Host, session: *HostSession, location: ?model.PeerLocator) !void {
-    self.assertOwner();
+    try self.claimOwner();
     try self.admitApplicationOperation();
     try self.admitSessionOperation(session);
     try self.checkSession(session);

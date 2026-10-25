@@ -113,11 +113,10 @@ impl Owner {
 		let (workspace, changes) = match inputs {
 			Ok(inputs) => inputs,
 			Err(error) => {
-				return Err(super::retain(
-					Err(error.to_string()),
+				return Err(rooms_runtime::cleanup::failed(
+					error.to_string(),
 					opened.close().await.map_err(|error| error.to_string()),
-				)
-				.unwrap_err());
+				));
 			}
 		};
 		let trace = std::rc::Rc::new(rooms_runtime::trace::Trace::start(
@@ -131,7 +130,7 @@ impl Owner {
 				trace.close().await.map_err(|error| error.to_string()),
 				opened.close().await.map_err(|error| error.to_string()),
 			);
-			return Err(super::retain(Err(error.to_string()), cleanup).unwrap_err());
+			return Err(rooms_runtime::cleanup::failed(error.to_string(), cleanup));
 		}
 		let archive_worker = tokio::task::spawn_local(worker.run());
 		Ok(Self {
@@ -211,7 +210,7 @@ impl Owner {
 				environment.incoming.admission(),
 			)?);
 		}
-		let relay = relay.as_ref().expect("prepared publication route");
+		let relay = relay.as_ref().ok_or("The publication route was not prepared")?;
 		relay.ready().await?;
 		Ok(relay.locator().clone())
 	}
@@ -232,9 +231,17 @@ fn key<K>(platform: &mut Platform) -> Result<custody::FieldKey<K>> {
 	use rooms_runtime::entropy::Entropy;
 	let mut bytes = [0; 16];
 	platform.fill(&mut bytes).map_err(|e| e.to_string())?;
-	let slot = NonZeroU64::new(u64::from_be_bytes(bytes[..8].try_into().unwrap())).ok_or("Empty custody identity")?;
-	let generation =
-		NonZeroU64::new(u64::from_be_bytes(bytes[8..].try_into().unwrap())).ok_or("Empty custody generation")?;
+	let (slot, generation) = bytes.split_at(8);
+	let slot = slot
+		.try_into()
+		.ok()
+		.and_then(|slot| NonZeroU64::new(u64::from_be_bytes(slot)))
+		.ok_or("Empty custody identity")?;
+	let generation = generation
+		.try_into()
+		.ok()
+		.and_then(|generation| NonZeroU64::new(u64::from_be_bytes(generation)))
+		.ok_or("Empty custody generation")?;
 	Ok(custody::FieldKey::new(slot, generation))
 }
 fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coordinate {
@@ -576,9 +583,10 @@ fn committed_data(result: &Argument) -> Result<JsValue> {
 			Err(format!("The original operation is {status}. Its receipt remains held."))
 		}
 		Argument::String(data) => json(data),
-		Argument::List(values) if matches!(values.as_slice(), [Argument::String(_), Argument::List(_)]) => {
-			json(values[0].as_str().unwrap())
-		}
+		Argument::List(values) => match values.as_slice() {
+			[Argument::String(data), Argument::List(_)] => json(data),
+			_ => Err("The operation has no committed data yet".into()),
+		},
 		_ => Err("The operation has no committed data yet".into()),
 	}
 }

@@ -38,6 +38,8 @@ pub const CloseProgress = connection.CloseProgress;
 /// the upgrade response and frame headers with room for payload batching. The
 /// CapTP-facing steady state is the caller's `Buffers`, not this.
 const inner_buf_bytes = 2048;
+/// Frames one `tryReadSome` consumes before it hands the turn back.
+const max_frames_per_read: usize = 64;
 const staged_control_bytes = max_header_len + max_control_payload;
 const max_staged_application_bytes = inner_buf_bytes - max_header_len - staged_control_bytes;
 
@@ -287,11 +289,18 @@ pub const RelayStream = struct {
     /// only a hint for WebSocket: it may announce a ping, a partial header, or
     /// EOF rather than application data. This loop consumes exactly the bytes
     /// available, stages one bounded control reply, and reports
-    /// `WouldBlock` once another kernel edge is required.
+    /// `WouldBlock` once another kernel edge is required or
+    /// `max_frames_per_read` frames went by.
     pub fn tryReadSome(rs: *RelayStream, dest: []u8) (Io.Reader.Error || error{WouldBlock})!usize {
         if (rs.source.hasPendingWrite()) return error.WouldBlock;
         var written: usize = 0;
+        var frames: usize = 0;
         while (written < dest.len) {
+            // A partner sending only empty data frames or unsolicited pongs
+            // makes progress without filling `dest`. The budget hands the
+            // turn back, and `hasBufferedReadWork` brings the caller back
+            // for what is still buffered.
+            if (frames == max_frames_per_read) return if (written > 0) written else error.WouldBlock;
             if (rs.read_closed) return if (written > 0) written else error.EndOfStream;
             if (rs.remaining > 0) {
                 const r = rs.source.reader;
@@ -352,6 +361,7 @@ pub const RelayStream = struct {
             const body = r.buffered()[0..body_len];
             const step = rs.applyFrame(parsed.frame, body, .staged) catch |err| return rs.readFailed(err);
             r.toss(body_len);
+            frames += 1;
             switch (step) {
                 .data => {},
                 .closed => return if (written > 0) written else error.EndOfStream,

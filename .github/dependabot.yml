@@ -1,3 +1,8 @@
+# Every update lands on dev through the ordinary checks. One grouped pull
+# request per ecosystem keeps the hosted-runner cost to one full run per
+# cycle. Toolchain pins (.devcontainer/pins.sh), the devcontainer base image,
+# Zig packages (build.zig.zon), Mbed TLS, and the conformance submodules move
+# through their own owners and are not watched here.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -5,3 +10,47 @@ updates:
     target-branch: dev
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directories:
+      - /apps/rooms/rust
+      - /apps/rooms/clients/rust
+      - /apps/tasks/rust
+      - /apps/tools/rust
+      - /bench/capnp/rust
+      - /bench/langs/clients/rust_bench
+      - /bindings/proofs/loam_browser/rust
+      - /bindings/rust
+      - /bindings/rust/relay
+      - /transports/iroh
+      - /transports/sidecar-common
+      - /transports/webrtc
+    target-branch: dev
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directories:
+      - /bindings/python
+      - /conformance/ocapn-conformance
+    target-branch: dev
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /apps/rooms/web/deploy
+    target-branch: dev
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1

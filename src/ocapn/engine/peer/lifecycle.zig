@@ -67,10 +67,11 @@ pub fn reposture(self: *Peer, options: NegotiatingOptions) void {
     self.session_state.features = options.features;
     self.session_state.limits = options.limits;
     if (options.wire_hash_salt) |salt| {
-        self.session_state.keyWireTables(foundation.identity_hash.saltedMultiplier(
-            self.session_state.wire_hash_multiplier,
-            salt,
-        ));
+        keyWireTables(
+            self,
+            foundation.identity_hash.saltedMultiplier(self.session_state.wire_hash_multiplier, salt),
+            foundation.identity_hash.saltedMultiplier(self.session_state.bearer_secret, salt),
+        );
     }
     self.verify_partner_handshake = options.verify_partner_handshake;
     self.outbound_budget = options.outbound_high_water_bytes orelse std.math.maxInt(usize);
@@ -143,10 +144,19 @@ pub fn detachNodeServices(self: *Peer) void {
     self.node_services = null;
 }
 
-/// Retire every gift this session registered and leave an empty registry.
+/// Give every table keyed by positions the peer chooses the session's
+/// multiplier, and every table keyed by names it chooses the session's bearer
+/// secret (ADR-0037), before the peer has chosen any.
+pub fn keyWireTables(self: *Peer, multiplier: u64, bearer_secret: u64) void {
+    self.session_state.keyWireTables(multiplier, bearer_secret);
+    self.gift_registry.keyWire(bearer_secret);
+}
+
+/// Retire every gift this session registered and leave an empty registry
+/// under the same secret.
 pub fn retireGiftRegistry(self: *Peer) void {
     self.gift_registry.deinit(self.allocator, self.localObjectProjection());
-    self.gift_registry = .{};
+    self.gift_registry = .{ .wire_hash_secret = self.gift_registry.wire_hash_secret };
 }
 
 /// Retire every parked receive and its scheduler registration. Kept public to

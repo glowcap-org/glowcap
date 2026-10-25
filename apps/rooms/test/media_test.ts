@@ -7,7 +7,7 @@
 // so the branch is pinned here rather than by carrying a video fixture through
 // a headless browser to learn the same fact.
 
-import { fetchesOnArrival, fileSize, kindOf } from "../web/ui/media.ts";
+import { blobType, fetchesOnArrival, fileSize, kindOf } from "../web/ui/media.ts";
 import { attachmentRefusal, readAttachmentsExact } from "../lib/attachment.ts";
 import { AUTO_IMAGE_BYTES, MAX_ATTACHMENT_BYTES, MAX_MESSAGE_FILES } from "../lib/limits.ts";
 import { Ref } from "@glowcap/runtime";
@@ -15,7 +15,6 @@ import { assertEquals } from "./assert.ts";
 
 Deno.test("a media type picks how the file is met", () => {
 	assertEquals(kindOf("image/png"), "image");
-	assertEquals(kindOf("image/svg+xml"), "image");
 	assertEquals(kindOf("video/mp4"), "video");
 	assertEquals(kindOf("audio/ogg"), "audio");
 	// Anything else is a file to download, including an empty type, which is
@@ -25,6 +24,35 @@ Deno.test("a media type picks how the file is met", () => {
 	// The prefix has to be the type's own, not a substring of it: a name-like
 	// type that merely mentions one is not that kind.
 	assertEquals(kindOf("application/vnd.image-thing"), "file");
+});
+
+Deno.test("a type a browser would run script from is met as a file", () => {
+	// An SVG is the one image a browser also reads as a document, and a
+	// document opened from a blob: URL runs in this page's origin. The sender
+	// chose the type, so it is read as the browser would: any case, with or
+	// without parameters.
+	for (
+		const mime of [
+			"image/svg+xml",
+			"IMAGE/SVG+XML",
+			"image/svg+xml; charset=utf-8",
+			"text/html",
+			"application/xhtml+xml",
+			"text/xml",
+			"application/xml",
+			"image/custom+xml",
+		]
+	) {
+		assertEquals(kindOf(mime), "file", mime);
+		assertEquals(blobType(mime), "application/octet-stream", mime);
+	}
+	// What the viewer shows or plays keeps the type an <img> or <video> needs.
+	for (const mime of ["image/png", "image/webp", "video/mp4", "audio/ogg"]) {
+		assertEquals(blobType(mime), mime);
+	}
+	// Anything the reader can only save is held as bytes, not as a document.
+	assertEquals(blobType("application/pdf"), "application/octet-stream");
+	assertEquals(blobType(""), "application/octet-stream");
 });
 
 Deno.test("a size reads the way the reader is deciding about it", () => {

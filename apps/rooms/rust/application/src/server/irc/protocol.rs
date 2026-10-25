@@ -109,13 +109,13 @@ pub fn parse_line(line: &str) -> Result<Message, Error> {
 	let mut rest = line;
 	let mut tags = BTreeMap::new();
 	if let Some(tagged) = rest.strip_prefix('@') {
-		let end = tagged.find(' ').ok_or(Error::TagsWithoutCommand)?;
-		if end == 0 {
+		let (fields, after_tags) = tagged.split_once(' ').ok_or(Error::TagsWithoutCommand)?;
+		if fields.is_empty() {
 			return Err(Error::TagsWithoutCommand);
 		}
-		for field in tagged[..end].split(';') {
-			let (key, value) = match field.find('=') {
-				Some(at) => (&field[..at], Some(unescape_tag(&field[at + 1..]))),
+		for field in fields.split(';') {
+			let (key, value) = match field.split_once('=') {
+				Some((key, value)) => (key, Some(unescape_tag(value))),
 				None => (field, None),
 			};
 			if key.is_empty()
@@ -127,21 +127,18 @@ pub fn parse_line(line: &str) -> Result<Message, Error> {
 			}
 			tags.insert(key.into(), value);
 		}
-		rest = &tagged[end + 1..];
+		rest = after_tags;
 	}
 	let mut prefix = None;
 	if let Some(prefixed) = rest.strip_prefix(':') {
-		let end = prefixed.find(' ').ok_or(Error::PrefixWithoutCommand)?;
-		if end == 0 {
+		let (name, after_prefix) = prefixed.split_once(' ').ok_or(Error::PrefixWithoutCommand)?;
+		if name.is_empty() {
 			return Err(Error::PrefixWithoutCommand);
 		}
-		prefix = Some(prefixed[..end].to_string());
-		rest = &prefixed[end + 1..];
+		prefix = Some(name.to_string());
+		rest = after_prefix;
 	}
-	let (command, after) = match rest.find(' ') {
-		Some(end) => (&rest[..end], &rest[end + 1..]),
-		None => (rest, ""),
-	};
+	let (command, after) = rest.split_once(' ').unwrap_or((rest, ""));
 	let command = command.to_ascii_uppercase();
 	if !valid_command(&command) {
 		return Err(Error::Command);
@@ -157,14 +154,14 @@ pub fn parse_line(line: &str) -> Result<Message, Error> {
 			params.push(trailing.to_string());
 			break;
 		}
-		match rest.find(' ') {
+		match rest.split_once(' ') {
 			None => {
 				params.push(rest.to_string());
 				break;
 			}
-			Some(end) => {
-				params.push(rest[..end].to_string());
-				rest = &rest[end + 1..];
+			Some((param, after_param)) => {
+				params.push(param.to_string());
+				rest = after_param;
 			}
 		}
 	}
@@ -309,10 +306,7 @@ pub fn fold(value: &str) -> String {
 
 pub fn nick_from_prefix(prefix: Option<&str>) -> Option<&str> {
 	let prefix = prefix?;
-	Some(match prefix.find(['!', '@']) {
-		Some(end) => &prefix[..end],
-		None => prefix,
-	})
+	Some(prefix.split(['!', '@']).next().unwrap_or(prefix))
 }
 
 /// Join refusal numerics name the channel after the recipient nick. Text in

@@ -57,13 +57,14 @@ pub(super) fn fresh(entropy: &mut impl Entropy) -> Result<DocumentText, Error> {
 		.map_err(|_| Error::Invalid("history identity entropy unavailable"))?;
 	bytes[6] = (bytes[6] & 0x0f) | 0x40;
 	bytes[8] = (bytes[8] & 0x3f) | 0x80;
-	use std::fmt::Write;
+	const HEX: &[u8; 16] = b"0123456789abcdef";
 	let mut text = String::with_capacity(36);
 	for (i, byte) in bytes.iter().enumerate() {
 		if matches!(i, 4 | 6 | 8 | 10) {
 			text.push('-');
 		}
-		write!(text, "{byte:02x}").expect("writing into String");
+		text.push(char::from(HEX[usize::from(byte >> 4)]));
+		text.push(char::from(HEX[usize::from(byte & 0x0f)]));
 	}
 	Ok(text.into())
 }

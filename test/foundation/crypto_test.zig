@@ -61,6 +61,26 @@ test "verify with arbitrary bytes returns typed error, never panics" {
     try std.testing.expect(std.meta.isError(result));
 }
 
+test "verify refuses a low-order public key as malformed" {
+    // Every signature under a low-order key verifies for anyone who knows
+    // the key, so a peer naming one claims a key the whole world holds.
+    // The order-4 point (y = 0), an order-8 point, and the identity (y = 1)
+    // are small-order encodings a cofactored verifier would accept.
+    const low_order = [_][32]u8{
+        @splat(0),
+        hex32("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
+        hex32("0100000000000000000000000000000000000000000000000000000000000000"),
+    };
+    const secret = SecretKey.fromSeed(SEED_A);
+    const sig = crypto.sign(&secret, "payload");
+    for (low_order) |bytes| {
+        try std.testing.expectError(
+            CryptoError.MalformedKey,
+            crypto.verify(PeerKey.fromBytes(bytes), "payload", sig),
+        );
+    }
+}
+
 test "secret key seed round-trips to the same public key" {
     const secret = SecretKey.fromSeed(SEED_A);
     const seed = secret.seed();

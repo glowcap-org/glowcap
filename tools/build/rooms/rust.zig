@@ -117,6 +117,20 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", rooms_lib_dir);
     const lint_step = b.step("rooms-rust-lint", "Lint the Rooms Rust workspace with clippy, warnings denied (needs cargo)");
     lint_step.dependOn(&lint.step);
+    // The browser crates compile most of their bodies only under
+    // `cfg(target_arch = "wasm32")`, which the pass above never reads, so the
+    // same verdict is read again for the Wasm target. The binding's build
+    // script asserts the Wasm archives exist, so this waits for them.
+    const wasm_lint = execution.addSystemCommand(b, .build_tool, &.{"env"});
+    wasm_lint.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "wasm/lib" } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
+    wasm_lint.addArgs(&.{
+        "cargo", "clippy",        "--quiet",  "--locked",              "--manifest-path", "apps/rooms/rust/Cargo.toml",
+        "-p",    "rooms-browser", "-p",       "rooms-contract-proofs", "--target",        "wasm32-unknown-unknown",
+        "--",    "-D",            "warnings",
+    });
+    wasm_lint.setCwd(b.path("."));
+    wasm_lint.step.dependOn(wasm_archives);
+    lint_step.dependOn(&wasm_lint.step);
     runtime_gate.add(lint_step);
 
     const wasm = execution.addSystemCommand(b, .build_tool, &.{"env"});

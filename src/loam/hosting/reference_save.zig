@@ -136,7 +136,7 @@ pub fn beginPrepared(owner: *h.Attachment, allocator: std.mem.Allocator, scratch
 /// The same Host object-target gate owns admission on save and cold restore.
 /// A URI cannot give a pending promise a supported field representation.
 pub fn validateForeignObject(host: *driver.Host, capability: driver.Capability) !void {
-    const home = host.capabilitySession(capability) orelse return error.NotDurable;
+    const home = (try host.capabilitySession(capability)) orelse return error.NotDurable;
     _ = host.routeCapability(home, capability, .object_only) catch |err| switch (err) {
         error.UncallableTarget => return error.NotDurable,
         else => return err,

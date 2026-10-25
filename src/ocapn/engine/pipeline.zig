@@ -77,6 +77,8 @@ pub const PreparedPipelinedCall = struct {
 
     action: Action,
     message: ?model.Message,
+    /// The owned bytes `message` was measured at, carried by the queued call.
+    charge: usize,
     answer: ?model.AnswerName,
     introduced_far_imports: ?[]model.ImportPosition,
     reference_slots: u32,
@@ -109,10 +111,11 @@ pub const PreparedPipelinedCall = struct {
             .answer = answer,
             .introduced_far_imports = self.introduced_far_imports,
             .reference_slots = self.reference_slots,
+            .charge = self.charge,
         };
         self.introduced_far_imports = null;
         switch (self.action) {
-            .queue => |*prepared| prepared.commitNamed(call),
+            .queue => |*prepared| prepared.commitNamed(&peer.session_state, call),
             .dispatch => |outcome| {
                 peer.local_delivery_depth = 0;
                 try dispatchDrainedCall(peer, call, outcome);
@@ -150,6 +153,7 @@ pub fn preparePipelinedCall(
     const answer = pipelinedAnswer(peer, &deliver.target) orelse return null;
     const owned = try (model.view.Body{ .deliver = deliver.* }).toOwned(peer.allocator);
     errdefer freeMessage(peer.allocator, owned);
+    const charge = try model.measureMessageOwnedBytes(owned);
     const imports = try introduced.dupeArgumentMentions(peer.allocator);
     errdefer if (imports) |positions| peer.allocator.free(positions);
 
@@ -165,10 +169,11 @@ pub fn preparePipelinedCall(
     const action: PreparedPipelinedCall.Action = if (resolution_chain.settledOutcome(peer, target)) |outcome|
         .{ .dispatch = outcome }
     else
-        .{ .queue = try peer.session_state.preparePipelinedCallNamed(answer) };
+        .{ .queue = try peer.session_state.preparePipelinedCallNamed(answer, charge) };
     return .{
         .action = action,
         .message = owned,
+        .charge = charge,
         .answer = call_answer,
         .introduced_far_imports = imports,
         .reference_slots = introduced.reference_slots,

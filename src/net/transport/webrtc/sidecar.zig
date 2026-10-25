@@ -306,7 +306,8 @@ pub const Peer = struct {
         if (n == 0) return error.Closed;
         if (n == rc_would_block) return error.WouldBlock;
         if (n == rc_buffer_too_small) return error.BufferTooSmall;
-        if (n < 0) return error.Failed;
+        // A count past the buffer is the sidecar breaking its contract.
+        if (n < 0 or n > buf.len) return error.Failed;
         return @intCast(n);
     }
 
@@ -317,7 +318,7 @@ pub const Peer = struct {
         const n = glowcap_webrtc_sidecar_conn_try_send_packet(self.peer, bytes.ptr, bytes.len);
         if (n == rc_would_block) return error.WouldBlock;
         if (n == rc_buffer_too_small) return error.BufferTooSmall;
-        if (n < 0) return error.Failed;
+        if (n < 0 or n > bytes.len) return error.Failed;
         return @intCast(n);
     }
 };
@@ -380,7 +381,8 @@ pub const Resident = struct {
     /// byte for the next poll.
     pub fn drainReady(self: *const Resident, out: []ReadyEvent) error{ReadinessFailed}!usize {
         const count = glowcap_webrtc_sidecar_endpoint_drain_ready(self.endpoint, out.ptr, out.len);
-        if (count < 0) return error.ReadinessFailed;
+        // A count past `out` is the sidecar breaking its contract.
+        if (count < 0 or count > out.len) return error.ReadinessFailed;
         return @intCast(count);
     }
 
@@ -393,7 +395,7 @@ pub const Resident = struct {
 
     pub fn drainDriverReady(self: *const Resident, out: []ReadyEvent) error{ReadinessFailed}!usize {
         const count = glowcap_webrtc_sidecar_endpoint_drain_driver_ready(self.endpoint, out.ptr, out.len);
-        if (count < 0) return error.ReadinessFailed;
+        if (count < 0 or count > out.len) return error.ReadinessFailed;
         return @intCast(count);
     }
 
