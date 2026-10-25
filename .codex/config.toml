@@ -1,0 +1,8 @@
+# Codex project MCP: Serena for Zig symbols, through the devcontainer front
+# so the pinned server and zls run in this worktree's container whether the
+# session runs on the host or inside it. Codex reads this file only for a
+# trusted project.
+[mcp_servers.serena]
+command = ".agents/skills/work/bin/glowcap-dev"
+args = ["serena", "start-mcp-server", "--context", "codex", "--project-from-cwd"]
+startup_timeout_sec = 120

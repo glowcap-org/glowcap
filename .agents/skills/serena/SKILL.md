@@ -41,6 +41,12 @@ information blocks a safe edit or the user asks.
 - Claude MCP: [`.mcp.json`](../../../.mcp.json) (stdio, through
   `glowcap-dev`, so the pinned server and `zls` run in the worktree's
   devcontainer whether the session runs on the host or inside it)
+- Codex MCP: [`.codex/config.toml`](../../../.codex/config.toml) (the same
+  `glowcap-dev` command; Codex reads it for a trusted project started at the
+  repository root)
+- Pi MCP: [`.pi/mcp.json`](../../../.pi/mcp.json) (the same `glowcap-dev`
+  command; Pi reads it for a trusted project, and `pi mcp list` shows the
+  connection and its tools without starting a session)
 - Runtime state: `.serena/cache`, `.serena/logs`, and `.serena/memories` are
   per-clone and ignored.
 

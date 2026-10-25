@@ -1,7 +1,8 @@
 //! The agent-scaffolding checks.
 //!
 //! Cursor and Claude overlays complete and unbroken, Codex direct-loading kept
-//! free of duplicate mirrors, the hook and MCP configurations, rule/skill/persona
+//! free of duplicate mirrors, the hook configurations and the Serena MCP entry
+//! for Claude, Pi, Codex, and Cursor, rule/skill/persona
 //! index parity in both directions, agent routing, and rule
 //! frontmatter. These are the checks that keep the scaffolding a public API
 //! whose consumers act on what it says. Wired by the source-check driver
@@ -195,6 +196,14 @@ pub fn checkRequiredSubstrings(
         "claude-code",
         "--project-from-cwd",
     });
+    // Pi reads a project MCP file of the same shape, through the same front.
+    try expectMcpServer(io, gpa, root, violations, ".pi/mcp.json", ".agents/skills/work/bin/glowcap-dev", &.{
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "claude-code",
+        "--project-from-cwd",
+    });
     try expectMcpServer(io, gpa, root, violations, ".cursor/mcp.json", "serena", &.{
         "start-mcp-server",
         "--context",
@@ -246,6 +255,14 @@ pub fn checkRequiredSubstrings(
         ".agents/skills",
         "`.codex/skills` mirror",
         "bin/",
+        "config.toml",
+    });
+    // Codex has no JSON MCP file: its TOML entry is held to the same
+    // devcontainer-front command as `.mcp.json`, in Serena's `codex` context.
+    try expectFileContains(io, gpa, root, violations, ".codex/config.toml", &.{
+        "[mcp_servers.serena]",
+        "command = \".agents/skills/work/bin/glowcap-dev\"",
+        "args = [\"serena\", \"start-mcp-server\", \"--context\", \"codex\", \"--project-from-cwd\"]",
     });
     try expectFileContains(io, gpa, root, violations, ".agents/hooks/format-edited-file.sh", &.{
         "*.tsx",

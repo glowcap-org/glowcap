@@ -1,12 +1,13 @@
 ---
 description: "The scaffolding is a public API whose consumers are agents. Keeping claims true, the scaffolding gate, the ratchet, and the budget. Load before changing anything under .agents/, AGENTS.md, overlays, hooks, or skills."
-globs: AGENTS.md, .agents/**, .claude/**, .cursor/**, .codex/**
+globs: AGENTS.md, .agents/**, .claude/**, .cursor/**, .codex/**, .pi/**
 paths:
   - "AGENTS.md"
   - ".agents/**"
   - ".claude/**"
   - ".cursor/**"
   - ".codex/**"
+  - ".pi/**"
 ---
 
 # glowcap — Agent Scaffolding
