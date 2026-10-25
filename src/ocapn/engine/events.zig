@@ -352,6 +352,10 @@ pub fn resolutionFromResolverCallback(
     var it = args.iterator();
     const tag_arg = (try it.next()) orelse return error.MalformedView;
     const payload = (try it.next()) orelse return error.MalformedView;
+    // The shape is exactly the tag and its payload. A third argument is one
+    // the settlement never validates or introduces, so it is refused rather
+    // than carried unread past the authority checks on the payload.
+    if ((try it.next()) != null) return error.MalformedView;
     const tag_symbol = switch (tag_arg) {
         .symbol => |symbol| symbol,
         else => return error.MalformedView,

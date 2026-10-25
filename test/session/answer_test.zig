@@ -1,7 +1,8 @@
 //! The answer tables: recording and settling, refusing an unheld far in a
 //! fulfill, validate-before-apply, bounded inbound answers over the complete
-//! u64 namespace, wire answers never aliasing private local promises, and
-//! position reuse only after release.
+//! u64 namespace, wire answers never aliasing private local promises,
+//! position reuse only after release, and an answer descriptor naming a live
+//! question in the asker's table on every message that carries one.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -414,4 +415,64 @@ test "CapTP 1.0 withholds a pending question's position the partner may still re
     const second = try s.allocateOutboundAnswer();
     try std.testing.expectEqual(first.position.int() + 1, second.position.int());
     try std.testing.expectEqual(@as(u64, 0), s.outbound_answers.count(first.position));
+}
+
+test "a desc:answer names a live question in the asker's table on every carrier" {
+    const allocator = std.testing.allocator;
+    // The asker is the sender of a call and the receiver of a resolution, so
+    // the same descriptor is checked against the partner's questions in a
+    // deliver's arguments and against ours in a resolve's payload. A position
+    // with no live row is refused in every position it can appear, because an
+    // unknown one would alias the next question asked at that number.
+    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
+    defer s.deinit();
+    try s.registerImport(.from(3));
+    const partner = model.Reference{ .far = .{ .import_position = .from(3) } };
+    const bootstrap = model.Reference{ .near = .{ .export_position = .from(0) } };
+    // A question the partner asked (41) and one we asked (5).
+    try s.recordRecv(.{ .deliver = .{
+        .target = bootstrap,
+        .args = &.{},
+        .answer = .from(41),
+        .resolve_me_desc = .{ .far = model.FarRef.object(8) },
+    } });
+    try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{}, .answer = .from(5) } });
+
+    // In a received call, a `desc:answer` is the partner's question.
+    const asked = model.Argument{ .reference = .{ .promise = .{ .answer_position = .from(41) } } };
+    const never_asked = model.Argument{ .reference = .{ .promise = .{ .answer_position = .from(42) } } };
+    try s.recordRecv(.{ .deliver = .{ .target = bootstrap, .args = &.{asked} } });
+    try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .deliver = .{
+        .target = bootstrap,
+        .args = &.{never_asked},
+    } }));
+    // Nested inside a list, the same rule.
+    try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .deliver = .{
+        .target = bootstrap,
+        .args = &.{.{ .list = &.{never_asked} }},
+    } }));
+
+    // In a received resolution, a `desc:answer` is our question: the partner
+    // may settle 5 with the promise for another question we asked, never with
+    // one of its own or one we never asked.
+    try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{}, .answer = .from(6) } });
+    try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .resolve = .{
+        .answer = .from(5),
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(41) } } } },
+    } }));
+    try std.testing.expect(s.outboundAnswer(.from(5)).?.status == .pending);
+    try s.recordRecv(.{ .resolve = .{
+        .answer = .from(5),
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(6) } } } },
+    } });
+
+    // In a sent call, a `desc:answer` is our question.
+    try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .deliver = .{
+        .target = partner,
+        .args = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(41) } } }},
+    } }));
+    try s.recordSend(.{ .deliver = .{
+        .target = partner,
+        .args = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(6) } } }},
+    } });
 }

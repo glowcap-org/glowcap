@@ -147,11 +147,31 @@ pub const IntroducedImports = struct {
 /// positions cannot learn that a reservation exists (ADR-0027).
 pub const Perspective = enum { sent, received };
 
-/// How the one reference validator treats a `far`. Everything else about a
-/// reference is position-independent, `promise`/`broken` are always
-/// acceptable, and a `sturdy` always requires the negotiated sturdyref
-/// feature, so beyond the `near` perspective rule, the `far` arm is the only
-/// axis a position varies on.
+/// Which message carries the reference. A `desc:answer` names a question in
+/// the asker's table, and the asker is the sender of a call (a deliver,
+/// listen, or projection op) but the receiver of a resolution, so the table a
+/// `promise` is checked against follows the carrier and the perspective
+/// together. On send, the carrier also decides the `near` rule: a call's
+/// arguments name exports this session already holds, while a resolution's
+/// payload may export an object for the first time (`retainSentExportRef`
+/// mints its row through `validateExportPositionForMarshal`, so the position
+/// must still be a name in this session's own range).
+///
+/// That exemption stops at the `near` arm. A `far` names the partner's export
+/// on *this* session and nowhere else, so one this session does not hold names
+/// nothing here: the fulfill would put `<desc:export N>` on the wire for an
+/// export this partner never made. Nothing downstream recovers it. A partner
+/// that numbers its exports from zero, as Goblins does, is liable to hold a
+/// live and unrelated object at that number, so the reference designates the
+/// wrong capability instead of failing. A partner that does not holds nothing
+/// there and refuses the whole session. The far arm of the call rule is what
+/// closes it, the import-side twin of the export-range admission above.
+pub const Carrier = enum { call, resolution };
+
+/// How the one reference validator treats a `far`. A `broken` is always
+/// acceptable, a `promise` follows `Carrier`, and a `sturdy` always requires
+/// the negotiated sturdyref feature, so beyond the `near` perspective rule,
+/// the `far` arm is the only other axis a position varies on.
 pub const FarPolicy = enum {
     /// The `far` names an import we must already hold: a deliver/listen target,
     /// a projection receiver, or any reference we put on the wire ourselves.
@@ -181,21 +201,13 @@ pub fn validateDeliverOrListenTarget(
 ) ReferenceError(@TypeOf(reference))!void {
     switch (perspective) {
         .sent => switch (reference) {
-            .far => try validateReference(self, reference, .sent, .held_import),
-            .promise => |promise| {
-                if (!self.outbound_answers.contains(promise.answer_position)) {
-                    return error.InvalidReference;
-                }
-            },
+            .far => try validateReference(self, reference, .sent, .held_import, .call),
+            .promise => |promise| try validatePromiseReference(self, promise, .sent, .call),
             else => return error.InvalidReference,
         },
         .received => switch (reference) {
-            .near => try validateReference(self, reference, .received, .held_import),
-            .promise => |promise| {
-                if (!self.inbound_answers.contains(.fromWire(promise.answer_position))) {
-                    return error.InvalidReference;
-                }
-            },
+            .near => try validateReference(self, reference, .received, .held_import, .call),
+            .promise => |promise| try validatePromiseReference(self, promise, .received, .call),
             else => return error.InvalidReference,
         },
     }
@@ -213,11 +225,11 @@ pub fn validateListenListener(
 ) ReferenceError(@TypeOf(reference))!void {
     switch (perspective) {
         .sent => switch (reference) {
-            .near => try validateReference(self, reference, .sent, .held_import),
+            .near => try validateReference(self, reference, .sent, .held_import, .call),
             else => return error.InvalidReference,
         },
         .received => switch (reference) {
-            .far => try validateReference(self, reference, .received, .introduction),
+            .far => try validateReference(self, reference, .received, .introduction, .call),
             else => return error.InvalidReference,
         },
     }
@@ -233,14 +245,36 @@ pub fn validateReference(
     reference: anytype,
     comptime perspective: Perspective,
     comptime far_policy: FarPolicy,
+    comptime carrier: Carrier,
 ) ReferenceError(@TypeOf(reference))!void {
     return switch (reference) {
         .routed => Error.InvalidReference,
         .near => |near| validateNearReference(self, near, perspective),
         .far => |far| validateFarReference(self, far, far_policy),
-        .promise, .broken => {},
+        .promise => |promise| validatePromiseReference(self, promise, perspective, carrier),
+        .broken => {},
         .sturdy => |sturdy| validateSturdyReference(self, sturdy),
     };
+}
+
+/// A `desc:answer` names a live question in the asker's table (`Carrier`).
+/// The rule is the same wherever the descriptor appears, as a target or inside
+/// an argument or payload tree, because the position is a promise only while
+/// that row lives (CapTP `desc:answer`), and an unknown one would alias the
+/// next question asked at that position.
+fn validatePromiseReference(
+    self: *Session,
+    promise: anytype,
+    comptime perspective: Perspective,
+    comptime carrier: Carrier,
+) Error!void {
+    // We are the asker of a call we sent and of a resolution we received.
+    const we_asked = (perspective == .sent) == (carrier == .call);
+    const live = if (we_asked)
+        self.outbound_answers.contains(promise.answer_position)
+    else
+        self.inbound_answers.contains(.fromWire(promise.answer_position));
+    if (!live) return error.InvalidReference;
 }
 
 fn validateNearReference(self: *Session, near: model.NearRef, comptime perspective: Perspective) Error!void {
@@ -286,6 +320,7 @@ pub fn validateInboundArguments(
     args: anytype,
     depth: usize,
     introduced: *IntroducedImports,
+    comptime carrier: Carrier,
 ) RecvViewError!void {
     if (depth > self.limits.max_nesting_depth) return error.NestingTooDeep;
     if (comptime @TypeOf(args) == model.view.Args) {
@@ -295,9 +330,9 @@ pub fn validateInboundArguments(
         // Forward cursor: one linear pass over the borrowed list region, no
         // per-element `at(i)` re-scan from the start and no `len()` pre-walk.
         var it = args.iterator();
-        while (try it.nextRef()) |arg| try validateInboundArgument(self, arg, depth, introduced);
+        while (try it.nextRef()) |arg| try validateInboundArgument(self, arg, depth, introduced, carrier);
     } else {
-        for (args) |*arg| try validateInboundArgument(self, arg, depth, introduced);
+        for (args) |*arg| try validateInboundArgument(self, arg, depth, introduced, carrier);
     }
 }
 
@@ -306,16 +341,17 @@ pub inline fn validateInboundArgument(
     arg: anytype,
     depth: usize,
     introduced: *IntroducedImports,
+    comptime carrier: Carrier,
 ) RecvViewError!void {
     switch (arg.*) {
         .reference => |reference| {
-            try validateReference(self, reference, .received, .introduction);
+            try validateReference(self, reference, .received, .introduction, carrier);
             if (reference == .far) try introduced.noteFar(self, reference.far);
             introduced.reference_slots += 1;
         },
-        .list => |items| try validateInboundArguments(self, items, depth + 1, introduced),
+        .list => |items| try validateInboundArguments(self, items, depth + 1, introduced, carrier),
         .set => |items| {
-            try validateInboundArguments(self, items, depth + 1, introduced);
+            try validateInboundArguments(self, items, depth + 1, introduced, carrier);
             const scratch = self.recv_scratch.allocator();
             if (comptime @TypeOf(items) == model.view.Args) {
                 try set_uniqueness.checkBorrowed(scratch, items, &introduced.compare_budget);
@@ -323,8 +359,8 @@ pub inline fn validateInboundArgument(
                 try set_uniqueness.checkOwned(scratch, items, &introduced.compare_budget);
             }
         },
-        .tagged => |tagged| try validateInboundArguments(self, tagged.value, depth + 1, introduced),
-        .@"struct" => |entries| try validateInboundStructEntries(self, entries, depth + 1, introduced),
+        .tagged => |tagged| try validateInboundArguments(self, tagged.value, depth + 1, introduced, carrier),
+        .@"struct" => |entries| try validateInboundStructEntries(self, entries, depth + 1, introduced, carrier),
         // Exhaustive: a new Argument arm must decide here whether it
         // can carry a reference. The struct arm above was once missed behind an
         // `else`, which let a struct-wrapped reference dodge this walk entirely.
@@ -389,13 +425,14 @@ fn validateInboundStructEntries(
     entries: anytype,
     depth: usize,
     introduced: *IntroducedImports,
+    comptime carrier: Carrier,
 ) RecvViewError!void {
     if (depth > self.limits.max_nesting_depth) return error.NestingTooDeep;
     if (comptime @TypeOf(entries) == model.view.StructEntries) {
         var it = entries.iterator();
-        while (try it.nextRef()) |entry| try validateInboundArgument(self, &entry.value, depth, introduced);
+        while (try it.nextRef()) |entry| try validateInboundArgument(self, &entry.value, depth, introduced, carrier);
     } else {
-        for (entries) |*entry| try validateInboundArgument(self, &entry.value, depth, introduced);
+        for (entries) |*entry| try validateInboundArgument(self, &entry.value, depth, introduced, carrier);
     }
 }
 
@@ -458,34 +495,12 @@ fn validateOutboundHandoffArgument(self: *const Session, handoff: model.Handoff)
     }
 }
 
-/// How the send-side walker treats a leaf `reference`. Both send paths hold
-/// every reference to the same rule, and differ on exactly one arm.
-///
-/// A deliver's arguments must each name something this session already holds
-/// (`.held`). A resolve's fulfill payload exempts the `near` arm
-/// (`.near_may_be_first_export`), because resolving an answer with a `.near`
-/// is how the application exports that object for the first time: there is no
-/// export row yet, and `retainSentExportRef` mints one, admitting the position status-allow: pending state or quoted runtime label
-/// through `validateExportPositionForMarshal` so it must still be a name in this
-/// session's own range.
-///
-/// The exemption stops at that arm. A `far` names the partner's export on
-/// *this* session and nowhere else, so one this session does not hold names
-/// nothing here: the fulfill would put `<desc:export N>` on the wire for an
-/// export this partner never made. Nothing downstream recovers it. A partner
-/// that numbers its exports from zero, as Goblins does, is liable to hold a
-/// live and unrelated object at that number, so the reference designates the
-/// wrong capability instead of failing. A partner that does not holds nothing
-/// there and refuses the whole session. The far arm of the deliver path's
-/// rule is what closes it, and it is the import-side twin of the export-range
-/// admission `retainSentExportRef` already performs for the `near` arm above.
-pub const SendRefCheck = enum { held, near_may_be_first_export };
 
 /// Certify every argument an outbound inventory returns to, after lowering
 /// and shortening rewrote the tree's references in place: each reference per
 /// `ref_check`, each handoff's certificate, and each set's element
 /// uniqueness. The walk that took the inventory certified depth, struct keys,
-/// and bytes, which no later pass changes. `ref_check` is comptime, so the
+/// and bytes, which no later pass changes. `carrier` is comptime, so the
 /// reference branch folds away per call site. The uniqueness fold allocates
 /// bounded scratch (gpa, stack-first), so the pass carries the allocator
 /// errors the pure reference checks do not.
@@ -495,19 +510,19 @@ pub fn certifySent(
     self: *Session,
     inventory: session.Inventory,
     root: ?*const model.Argument,
-    comptime ref_check: SendRefCheck,
+    comptime carrier: Carrier,
 ) SendArgError!void {
-    for (inventory.slots) |slot| try certifySentArgument(self, slot.read(root).*, ref_check);
+    for (inventory.slots) |slot| try certifySentArgument(self, slot.read(root).*, carrier);
 }
 
-fn certifySentArgument(self: *Session, arg: model.Argument, comptime ref_check: SendRefCheck) SendArgError!void {
+fn certifySentArgument(self: *Session, arg: model.Argument, comptime carrier: Carrier) SendArgError!void {
     switch (arg) {
-        .reference => |reference| switch (ref_check) {
-            .held => try validateReference(self, reference, .sent, .held_import),
-            // Only the `near` arm is exempt; see `SendRefCheck`.
-            .near_may_be_first_export => switch (reference) {
+        .reference => |reference| switch (carrier) {
+            .call => try validateReference(self, reference, .sent, .held_import, .call),
+            // Only the `near` arm is exempt; see `Carrier`.
+            .resolution => switch (reference) {
                 .near => |near| try self.validateExportPositionForMarshal(near.export_position),
-                else => try validateReference(self, reference, .sent, .held_import),
+                else => try validateReference(self, reference, .sent, .held_import, .resolution),
             },
         },
         .set => |items| {

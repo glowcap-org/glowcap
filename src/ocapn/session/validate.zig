@@ -192,7 +192,7 @@ pub fn validateInboundResolve(self: *Session, resolve: anytype, introduced: *Int
     // status and re-introducing the fulfill's imports.
     if (entry.status() != .pending) return error.UnexpectedMessage;
     switch (resolve.resolution) {
-        .fulfill => |arg| try passable.validateInboundArgument(self, &arg, 0, introduced),
+        .fulfill => |arg| try passable.validateInboundArgument(self, &arg, 0, introduced, .resolution),
         .@"break" => {},
     }
 }
@@ -247,18 +247,18 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
         .get => |get| {
             if (self.captp_version == .next) return error.UnexpectedMessage;
             try checkOutboundAnswerPosition(self, get.answer);
-            try passable.validateReference(self, get.receiver, .sent, .held_import);
+            try passable.validateReference(self, get.receiver, .sent, .held_import, .call);
         },
         .index => |index| {
             if (self.captp_version == .next) return error.UnexpectedMessage;
             try checkOutboundAnswerPosition(self, index.answer);
-            try passable.validateReference(self, index.receiver, .sent, .held_import);
+            try passable.validateReference(self, index.receiver, .sent, .held_import, .call);
         },
         .untag => |untag| {
             if (self.captp_version == .next) return error.UnexpectedMessage;
             if (!self.features.untag) return error.FeatureNotNegotiated;
             try checkOutboundAnswerPosition(self, untag.answer);
-            try passable.validateReference(self, untag.receiver, .sent, .held_import);
+            try passable.validateReference(self, untag.receiver, .sent, .held_import, .call);
         },
         // `op:abort` carries no send-side validation. Listing the remaining
         // no-op kinds explicitly (rather than `else`) makes a new
@@ -284,14 +284,14 @@ pub fn validateSentResolutionNamed(
 
 /// Certify a resolution this session is about to send or store, from the
 /// inventory its owner took of it. The fulfillment's own export may be a
-/// first mention (`SendRefCheck.near_may_be_first_export`).
+/// first mention (`passable.Carrier.resolution`).
 pub fn validateSentResolutionValue(
     self: *Session,
     resolution: model.Resolution,
     inventory: session.Inventory,
 ) passable.SendArgError!void {
     const root: ?*const model.Argument = if (resolution == .fulfill) &resolution.fulfill else null;
-    try passable.certifySent(self, inventory, root, .near_may_be_first_export);
+    try passable.certifySent(self, inventory, root, .resolution);
 }
 
 pub fn validateRecv(self: *Session, message: model.Message, introduced: *IntroducedImports) !void {
@@ -337,9 +337,9 @@ fn validateOutboundDeliver(self: *Session, deliver: model.Deliver, inventory: se
     try passable.validateDeliverOrListenTarget(self, deliver.target, .sent);
     if (deliver.resolve_me_desc) |reference| {
         if (self.captp_version == .next and (deliver.listen_mode == .settling_only or reference != .near)) return error.UnexpectedMessage;
-        try passable.validateReference(self, reference, .sent, .held_import);
+        try passable.validateReference(self, reference, .sent, .held_import, .call);
     }
-    try passable.certifySent(self, inventory, null, .held);
+    try passable.certifySent(self, inventory, null, .call);
 }
 
 /// One locally chosen answer position names one outstanding question until a
@@ -375,7 +375,7 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *Intr
             else => return error.UnexpectedMessage,
         }
     }
-    try passable.validateInboundArguments(self, deliver.args, 0, introduced);
+    try passable.validateInboundArguments(self, deliver.args, 0, introduced, .call);
 }
 
 /// Enforce the fixed gift-id domain on the profile that mints under it, without
@@ -403,5 +403,5 @@ pub fn validateHandoffGiftId(self: *const Session, gift_id: []const u8) Error!vo
 /// set/struct folds for every fan-out recipient.
 pub fn validateListenerFireTarget(self: *Session, listener: model.FarRef) Error!void {
     const reference: model.Reference = .{ .far = listener };
-    try passable.validateReference(self, reference, .sent, .held_import);
+    try passable.validateReference(self, reference, .sent, .held_import, .call);
 }

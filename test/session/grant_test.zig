@@ -1,7 +1,8 @@
 //! Addressability is an explicit grant (ADR-0027): a reserved export is
 //! unaddressable until marshalled, a partner that releases everything loses
 //! addressability, caps are decided in validate so refusals commit nothing,
-//! and a position outside the session's range is refused at every door.
+//! a position outside the session's range is refused at every door, and an
+//! export the partner does not hold is refused at every door it could name it.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -334,4 +335,85 @@ test "an export position from outside this session's range is refused at every d
     try std.testing.expect(s.exports.nextPosition().int() <= 1061);
     const fresh = try s.allocateExport();
     try std.testing.expect(fresh.int() >= 1000 and fresh.int() < 1100);
+}
+
+test "every inbound door refuses an export the partner does not hold (ADR-0027)" {
+    const allocator = std.testing.allocator;
+    // One rule, every door: a `near` the partner never received, or has
+    // released, is refused wherever an inbound message can name one of our
+    // exports. Each door is a separate reader of the export table, so each is
+    // proved alone, in both unheld states, on both profiles.
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        var s = session.Session.initWith(allocator, .{ .captp_version = profile });
+        defer s.deinit();
+        try s.registerImport(.from(3));
+        const partner = model.Reference{ .far = .{ .import_position = .from(3) } };
+        // Reserved: minted here, never marshalled.
+        const reserved = try s.allocateExport();
+        // Released: marshalled once, then every wire mention returned.
+        const released = try s.allocateExport();
+        try s.recordSend(.{ .deliver = .{
+            .target = partner,
+            .args = &.{.{ .reference = .{ .near = .{ .export_position = released } } }},
+            .answer = .from(1),
+        } });
+        const release = [_]u64{released.int()};
+        try s.recordRecv(.{ .gc_export = .{ .positions = &release, .deltas = &.{1} } });
+        // A question we asked, for the resolve door.
+        try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{}, .answer = .from(2) } });
+
+        for ([_]model.ExportPosition{ reserved, released }) |position| {
+            const near = model.Reference{ .near = .{ .export_position = position } };
+            const bootstrap = model.Reference{ .near = .{ .export_position = .from(0) } };
+            // The question and resolver every probe carries, so a refusal
+            // that committed anything would leave an answer or an import.
+            const resolver = model.Reference{ .far = model.FarRef.object(8) };
+            // Deliver target.
+            try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .deliver = .{
+                .target = near,
+                .args = &.{},
+                .answer = .from(11),
+                .resolve_me_desc = resolver,
+            } }));
+            // Deliver argument, on a target the partner holds.
+            try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .deliver = .{
+                .target = bootstrap,
+                .args = &.{.{ .reference = near }},
+                .answer = .from(11),
+                .resolve_me_desc = resolver,
+            } }));
+            // Listen target.
+            try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .listen = .{
+                .target = near,
+                .listener = .{ .far = model.FarRef.object(9) },
+                .mode = .shortening_or_settling,
+            } }));
+            switch (profile) {
+                // Projection receiver.
+                .v1_0 => try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .get = .{
+                    .receiver = near,
+                    .field = "x",
+                    .answer = .from(11),
+                } })),
+                // Fulfill payload of a resolve to our question.
+                .next => try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .resolve = .{
+                    .answer = .from(2),
+                    .resolution = .{ .fulfill = .{ .reference = near } },
+                } })),
+            }
+            // A release of what the partner does not hold.
+            const positions = [_]u64{position.int()};
+            try std.testing.expectError(error.GcUnderflow, s.recordRecv(.{ .gc_export = .{
+                .positions = &positions,
+                .deltas = &.{1},
+            } }));
+            // Every refusal committed nothing: no answer, no import, no hold.
+            try std.testing.expect(s.inboundAnswer(.from(11)) == null);
+            try std.testing.expect(!s.holdsImport(.from(8)));
+            try std.testing.expect(!s.holdsImport(.from(9)));
+            try std.testing.expectEqual(@as(u64, 0), s.exports.wireHeld(position));
+            try std.testing.expect(s.hasExport(position));
+        }
+        try std.testing.expect(s.outboundAnswer(.from(2)) != null);
+    }
 }

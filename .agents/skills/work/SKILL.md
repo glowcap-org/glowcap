@@ -27,7 +27,11 @@ The fix does not redefine completion.
 Read only what the task needs. Start with the smallest authoritative slice,
 widen when a claim depends on another surface, and prefer generated inventories
 or build steps to re-deriving facts by hand. Start a release review with the
-core invariants and failure paths, then follow their consumers outward. Record
+core invariants and failure paths, then follow their consumers outward: a
+review ordered by input class or by code path accepts whatever checks each
+path happens to carry, so start from the rule a decision record states and
+walk every reader of the table it governs, and a probe that runs ahead of the
+shared validator is a finding, not a route. Record
 what each layer's evidence establishes and what remains open before expanding
 to the next layer, because a green gate or one repaired defect does not show
 the design is sound.
