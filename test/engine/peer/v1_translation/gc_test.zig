@@ -1,5 +1,6 @@
-//! V1.0 resolver-link GC: a resolver export survives the partner's release
-//! of its wire mention, and a gc-answers wave drops every released link.
+//! V1.0 resolver-link GC: a resolver export's row survives the partner's
+//! release of its wire mention, a released resolver is unaddressable, and a
+//! gc-answers wave drops every released link.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -52,13 +53,11 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
     try std.testing.expect(p1.session_state.hasExport(.from(resolver_export)));
     try std.testing.expectEqual(@as(u64, 1), p1.session_state.exportRefcount(.from(resolver_export)));
 
-    // The partner's resolver callback still settles answer 42: the V1.0
-    // translation seam routes a deliver to a known resolver export through
-    // the resolver link (`answerForResolverExport`), not through the ADR-0027
-    // near-target admission an ordinary export answers to, and the link's
-    // whole point is surviving the released wire mention above. The callback
-    // can only settle the answer we minted the resolver for, so no broader
-    // authority rides on it.
+    // The row outlives the mention for our own bookkeeping: the answer row
+    // still names the export. Addressability does not. A partner that
+    // released its only wire mention and then calls the resolver is refused
+    // exactly as it is for any export it does not hold (ADR-0027), so the
+    // answer stays unsettled.
     {
         const callback = try codec.syrup.encodeMessage(allocator, .{ .deliver = .{
             .target = .{ .far = model.FarRef.promise(resolver_export) },
@@ -67,10 +66,8 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
         } });
         try p1.feedOwned(callback);
     }
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    var resolve_event = p1.pollEvent().?;
-    defer resolve_event.deinit();
-    try std.testing.expectEqual(engine.EventKind.resolve, resolve_event.kind());
+    try std.testing.expectError(error.InvalidReference, p1.step());
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(42)), p1.session_state.answerForResolverExport(.from(resolver_export)));
 }
 
 test "a gc wave over many answered delivers drops every V1.0 resolver link" {

@@ -109,8 +109,15 @@ pub fn classify(
     // names an export row, so a partner-named `.far` in the same integer
     // space cannot reach a purpose. One read of the row classifies every
     // resolver kind; a local promise's projection is an ordinary target.
+    //
+    // A resolver the partner never received, or has released, is no callback
+    // target: a purpose exists from the nomination, before the message that
+    // shares it goes out, and a retired row keeps its tombstone only while
+    // the partner's mention stands. Reading the purpose only for a wire-held
+    // export leaves the rest to the ordinary validation below, which refuses
+    // an unheld near reference as it does for any export.
     if (deliver.target.exportPosition()) |position| {
-        if (peer.session_state.resolverPurpose(position)) |purpose| if (purpose.isCallback()) {
+        if (peer.session_state.exports.wireHeld(position) != 0) if (peer.session_state.resolverPurpose(position)) |purpose| if (purpose.isCallback()) {
             try validateResolverCallbackEnvelope(deliver);
             switch (purpose) {
                 .forwarding => {

@@ -47,6 +47,25 @@ fn fireAt(partner: *engine.Peer, holder: *engine.Peer, position: u64, args: []co
     try holder.feedOwned(partner.takeOutbound().?);
 }
 
+test "an unshared resolver cannot be invoked by guessing its position" {
+    const allocator = std.testing.allocator;
+    for (profiles) |version| {
+        var pair = try syrupPair(allocator, version);
+        defer pair.deinit();
+        const nomination = try pair.p1.session_state.nominateResolverExport();
+        try std.testing.expectEqual(@as(u64, 0), pair.p1.session_state.exports.wireHeld(nomination.resolver_export));
+
+        // Encode directly: an adversarial peer need not hold the import its
+        // message claims. No listen or deliver has shared this nomination.
+        var callback = try glowcap.ocapn.codec.syrup.encodeMessageForProfile(allocator, version, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(nomination.resolver_export.int()) },
+            .args = &.{ .{ .symbol = "fulfill" }, .{ .integer = 17 } },
+        } });
+        defer callback.deinit();
+        try std.testing.expectError(error.InvalidReference, pair.p1.recvBorrowed(callback.view()));
+    }
+}
+
 test "a deliver to a resolver export re-tags as a resolve on every profile" {
     const allocator = std.testing.allocator;
     for (profiles) |version| {
