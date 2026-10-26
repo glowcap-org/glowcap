@@ -300,9 +300,10 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 - **Where a peer tells it to dial.** A relay hint in a hello and the exporter
   locator in a handoff name an address, and the host dials it on the
   transports it negotiated, at most `max_pending_redeem_dials` at a time for
-  handoffs and `max_pending_opens` across every open. Whether a
-  program should reach that address is the program's to decide, above the
-  host.
+  handoffs and `max_pending_opens` across every open. A relay hint is
+  followed only by a backend built with relay options, which carry the
+  WebSocket entropy a relay leg draws from. Whether a program should reach
+  that address is the program's to decide, above the host.
 - **How much a peer with a grant may store.** Loam derives from a grant until
   the store reaches `map_bytes`, and it keeps no quota per peer. The
   controller sizes the store with `Lmdb.grow` and chooses the grant depth it

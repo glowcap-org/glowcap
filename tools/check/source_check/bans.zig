@@ -209,6 +209,7 @@ const profiles = @import("bans/profiles.zig");
 const route_bundle = @import("bans/route_bundle.zig");
 const ts_double_cast = @import("bans/ts_double_cast.zig");
 const rooms = @import("bans/rooms.zig");
+const entropy = @import("bans/entropy.zig");
 
 const deno_dependency_reproducibility = [_]Ban{
     .{
@@ -262,6 +263,7 @@ pub const all: []const Ban =
     layers.clock_seam ++
     layers.actors_layer_purity ++
     core_fifo.rows ++
+    entropy.rows ++
     engine_peer_handle.rows ++
     layers.outbound_answer_cursor_rows ++
     layers.codec_decode_nesting_rows ++

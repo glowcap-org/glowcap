@@ -35,6 +35,20 @@ fn Tests(comptime Backend: type) type {
         const readableNow = H.readableNow;
         const wait_budget_ms = H.wait_budget_ms;
 
+        /// Park until something arrives or the budget passes. A park may end
+        /// with nothing arrived: a thread that holds io_uring task work has
+        /// its blocking waits interrupted with no signal delivered, and the
+        /// backend reports that as an empty wait. The runtime parks again on
+        /// its own deadline, so this does too.
+        fn parkUntilWoken(ops: net.MultiplexedResident) bool {
+            const deadline = net.clock.nowMonotonicMs() + wait_budget_ms;
+            while (true) {
+                const remaining = deadline - net.clock.nowMonotonicMs();
+                if (remaining <= 0) return false;
+                if (ops.park(@intCast(remaining))) return true;
+            }
+        }
+
         /// Weigh any growth before raising it. Stated under runtime safety, where each staging list header carries std's
         /// one-word pointer-stability lock.
         const completion_resident_connection_state_bytes: usize = 152;
@@ -200,7 +214,7 @@ fn Tests(comptime Backend: type) type {
                 }
             }.run, .{wake});
             defer nudger.join();
-            try std.testing.expect(ops.park(@intCast(wait_budget_ms)));
+            try std.testing.expect(parkUntilWoken(ops));
             try std.testing.expect(!ops.readyPending());
             try std.testing.expect(try readableNow(wake.read));
             try wake.drain();
@@ -210,7 +224,7 @@ fn Tests(comptime Backend: type) type {
             _ = try wake.nudge();
             ops.beforeWait(.park);
             ops.reap();
-            try std.testing.expect(ops.park(@intCast(wait_budget_ms)));
+            try std.testing.expect(parkUntilWoken(ops));
             try wake.drain();
         }
 

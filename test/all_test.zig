@@ -361,6 +361,7 @@ comptime {
         _ = @import("net/keyed_relay/close_test.zig");
         _ = @import("net/keyed_relay/registration_test.zig");
         _ = @import("net/keyed_relay_completion_test.zig");
+        _ = @import("net/keyed_relay_completion_dial_test.zig");
         _ = @import("net/keyed_relay_completion_bounds_test.zig");
         _ = @import("net/keyed_relay_bounds_test.zig");
         _ = @import("net/keyed_relay_registration_bounds_test.zig");

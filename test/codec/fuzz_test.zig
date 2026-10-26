@@ -58,7 +58,6 @@ const corpus = @import("../support/corpus_seeds.zig");
 const message_seeds = corpus.message_seeds;
 const corpus_seeds = corpus.all ++ regression_seeds;
 const seed = corpus.seed;
-const runtimeSeed = corpus.runtimeSeed;
 
 /// Re-encoding a decoded message may refuse through the codec's typed refusals
 /// (e.g. a decoded `near` deliver target never re-enters the wire, the
@@ -234,31 +233,42 @@ fn capnpOne(_: void, smith: *std.testing.Smith) anyerror!void {
     expectReencodeStability(capnp, gpa, first) catch |err| return budget.onlyInducedFailure(err);
 }
 
+/// Every committed Cap'n Proto fixture frame, wired as a seed: a message kind
+/// that is not a seed is a shape the search never starts from, and a random
+/// mutation rarely survives the segment table.
+const capnp_seeds = [_][]const u8{
+    corpus.seed(@embedFile("capnp_fixtures/op_abort.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_deliver.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_deliver_deposit_gift.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_deliver_integers.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_gc_answer.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_gc_export.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_get.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_index.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_listen.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_resolve_break.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_resolve_fulfill.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_start_session.bin")),
+    corpus.seed(@embedFile("capnp_fixtures/op_untag.bin")),
+};
+
+/// Every seed's frame part must still decode as a word frame, otherwise the
+/// corpus silently stops seeding the success paths.
+fn ratifyCapnpSeeds(entries: []const []const u8) !void {
+    for (entries) |entry| {
+        var words: [max_input]u8 align(8) = undefined;
+        const frame = entry[4..];
+        try std.testing.expect(frame.len % 8 == 0 and frame.len <= max_input);
+        @memcpy(words[0..frame.len], frame);
+        _ = try capnp.decodeBody(.{ .bytes = words[0..frame.len], .shape = .word });
+    }
+}
+
 test "fuzz: capnp decode is total over arbitrary word frames and round-trips what it accepts" {
-    const gpa = std.testing.allocator;
-
-    const args = [_]model.Argument{ .{ .bytes = "hello" }, .{ .integer = 7 } };
-    var deliver_frame = try capnp.encodeMessage(gpa, .{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(0) } },
-        .args = args[0..],
-        .answer = .from(11),
-    } });
-    defer deliver_frame.deinit();
-    var resolve_frame = try capnp.encodeMessage(gpa, .{ .resolve = .{
-        .answer = .from(3),
-        .resolution = .{ .fulfill = .{ .string = "done" } },
-    } });
-    defer resolve_frame.deinit();
-
-    var buf0: [4 + 256]u8 = undefined;
-    var buf1: [4 + 256]u8 = undefined;
-    // The regressions ride along with the shaped seeds. Without them a crash
-    // this target found and an author saved has no way back into the ordinary
-    // suite, which is the whole point of keeping the file.
-    var corpus_with_regressions: [2 + regression_seeds.len][]const u8 = undefined;
-    corpus_with_regressions[0] = runtimeSeed(&buf0, deliver_frame.bytes());
-    corpus_with_regressions[1] = runtimeSeed(&buf1, resolve_frame.bytes());
-    for (regression_seeds, 0..) |entry, i| corpus_with_regressions[2 + i] = entry;
+    try ratifyCapnpSeeds(capnp_seeds[0..]);
+    // The regressions ride along with the fixture seeds, so a crash this target
+    // found and an author saved replays in the ordinary suite.
+    const corpus_with_regressions = capnp_seeds ++ regression_seeds;
     try std.testing.fuzz({}, capnpOne, .{ .corpus = corpus_with_regressions[0..] });
 }
 

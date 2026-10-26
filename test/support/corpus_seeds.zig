@@ -95,13 +95,6 @@ pub fn seed(comptime frame: []const u8) []const u8 {
     return &entry;
 }
 
-/// Runtime sibling of `seed`, for a seed an encoder produces inside a test.
-pub fn runtimeSeed(buf: []u8, frame_bytes: []const u8) []const u8 {
-    std.mem.writeInt(u32, buf[0..4], @intCast(frame_bytes.len), .little);
-    @memcpy(buf[4..][0..frame_bytes.len], frame_bytes);
-    return buf[0 .. 4 + frame_bytes.len];
-}
-
 /// One generator draw, in the shape it reads one: a little-endian u64.
 fn drawBytes(v: u64) [8]u8 {
     var out: [8]u8 = undefined;

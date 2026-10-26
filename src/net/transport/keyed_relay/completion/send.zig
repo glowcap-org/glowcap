@@ -93,6 +93,7 @@ pub fn Machine(
         ) !void {
             std.debug.assert(kind == .application or kind == .control);
             std.debug.assert(c.ws_send_kind == .none and c.ws_out.items.len == 0);
+            const relay = if (backend.relay) |*relay| relay else return error.NoRendezvousConfigured;
             var header: [max_header_len]u8 = undefined;
             const prefix = try protocol.writeFrameHeader(&header, opcode, bytes.len, @splat(0));
             const frame_len = try std.math.add(usize, prefix.len, bytes.len);
@@ -101,7 +102,7 @@ pub fn Machine(
             // Entropy is consumed only after every fallible size and capacity
             // check, so rollback never copies or rewinds CSPRNG state.
             var mask: [4]u8 = undefined;
-            backend.rng.random().bytes(&mask);
+            relay.rng.random().bytes(&mask);
             @memcpy(header[prefix.len - mask.len .. prefix.len], &mask);
             c.ws_out.appendSliceAssumeCapacity(prefix);
             const start = c.ws_out.items.len;

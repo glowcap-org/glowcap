@@ -355,7 +355,9 @@ pub const Backend = struct {
                 // End this turn instead of restarting the full wait. The loop
                 // owns the deadline and recomputes its remaining time before
                 // polling again. Reusing `timeout_ms` here could extend a
-                // finite deadline after every signal.
+                // finite deadline after every signal. No signal need be
+                // delivered: io_uring task work posted to this thread ends a
+                // blocking wait the same way, so every caller re-parks.
                 .INTR => return 0,
                 else => return error.EpollWaitFailed,
             }

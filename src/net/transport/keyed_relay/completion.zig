@@ -227,8 +227,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
         tls_send_retries: TlsSendRetryQueue = .{},
         registration: completion_registration.State,
         next_id: ConnId = 1,
-        rng: std.Random.DefaultCsprng,
 
+        /// Build a backend whose dials and listeners are the platform's. A
+        /// `keyed-relay` dial is refused `NoRendezvousConfigured` even when
+        /// its locator carries a relay hint, because the WebSocket entropy a
+        /// relay leg draws from arrives only with `RelayOptions`.
         pub fn init(
             allocator: std.mem.Allocator,
             queue_entries: u16,
@@ -317,10 +320,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
                     options.send_staging_bytes
                 else
                     default_send_staging_bytes,
-                .rng = std.Random.DefaultCsprng.init(if (relay_options) |options|
-                    options.entropy_seed
-                else
-                    @as([std.Random.DefaultCsprng.secret_seed_length]u8, @splat(0))),
             };
         }
 
@@ -556,10 +555,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
         pub const peek = Poll.peek;
 
         fn startRelayDial(self: *Self, user_data: u64, target: @FieldType(ConnectTarget, "keyed_relay")) !Fd {
-            const relay_url = if (self.relay) |relay|
-                relay.routes.selectDialRoute(target.relay)
-            else
-                target.relay orelse return error.NoRendezvousConfigured;
+            const relay = if (self.relay) |*relay| relay else return error.NoRendezvousConfigured;
+            const relay_url = relay.routes.selectDialRoute(target.relay);
             if (crypto.PeerKey.fromDesignator(target.designator) == null) return error.InvalidAddress;
             return LegStart.start(self, .{
                 .url = relay_url,

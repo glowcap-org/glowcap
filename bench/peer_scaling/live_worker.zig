@@ -43,9 +43,12 @@ fn rootFor(role: u8, shard: usize) [32]u8 {
     return root;
 }
 
-fn initHost(allocator: std.mem.Allocator, role: u8, shard: usize) !Host {
+/// A shard's Host admits exactly the sessions the coordinator assigns it, so
+/// the run measures the session cap at the bound a service would set.
+fn initHost(allocator: std.mem.Allocator, role: u8, shard: usize, max_sessions: usize) !Host {
     return Host.init(allocator, rootFor(role, 0), rootFor(role, shard + 1), .{
         .limits = .{ .max_frame_bytes = frame_cap },
+        .max_sessions = max_sessions,
     });
 }
 
@@ -108,8 +111,9 @@ const ServerShard = struct {
         io: std.Io,
         shared: *ServerShared,
         shard: usize,
+        quota: usize,
     ) !void {
-        self.host = try initHost(allocator, 0x53, shard);
+        self.host = try initHost(allocator, 0x53, shard, quota);
         errdefer self.host.deinit();
         self.shared = shared;
         self.loop_error = null;
@@ -371,7 +375,7 @@ pub fn runServer(io: std.Io, allocator: std.mem.Allocator, total: usize, shard_c
     var initialized: usize = 0;
     errdefer for (shards[0..initialized]) |*shard| shard.deinit();
     while (initialized < shard_count) : (initialized += 1) {
-        try shards[initialized].init(allocator, worker_io, &shared, initialized);
+        try shards[initialized].init(allocator, worker_io, &shared, initialized, shardQuota(total, shard_count, initialized));
     }
     var started: usize = 0;
     errdefer {

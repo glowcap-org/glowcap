@@ -253,8 +253,9 @@ pub fn Machine(
             leg: route.Leg,
             designator: []const u8,
         ) !void {
+            const relay = if (backend.relay) |*relay| relay else return error.NoRendezvousConfigured;
             var key_bytes: [16]u8 = undefined;
-            backend.rng.random().bytes(&key_bytes);
+            relay.rng.random().bytes(&key_bytes);
             var key_b64: [24]u8 = undefined;
             _ = std.base64.standard.Encoder.encode(&key_b64, &key_bytes);
             protocol.acceptKey(&c.expected_accept, &key_b64);

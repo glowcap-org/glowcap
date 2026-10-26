@@ -286,6 +286,11 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
         pub const RelayConfig = struct {
             routes: configuration.Config,
             tls: ?tls_runtime_owner.Lease = null,
+            /// WebSocket request keys and client masks for every relay leg,
+            /// seeded once from the caller's entropy. It lives here so a
+            /// backend without relay configuration owns no generator a leg
+            /// could draw from.
+            rng: std.Random.DefaultCsprng,
 
             pub fn init(allocator: std.mem.Allocator, value: options.RelayOptions) !RelayConfig {
                 var routes = try configuration.Config.init(allocator, .{
@@ -296,6 +301,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
                 return .{
                     .routes = routes,
                     .tls = if (value.tls_owner) |owner| try owner.lease() else null,
+                    .rng = std.Random.DefaultCsprng.init(value.entropy_seed),
                 };
             }
 
