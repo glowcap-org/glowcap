@@ -46,7 +46,13 @@ send to it, and listen on it. The C ABI exposes the verb, and every binding's
 send and tell accept a promise as an argument, bare or nested, with a scenario
 per binding. Each binding lowers a promise to the Host's capability in any
 state, since the vow row keeps its drained completion and the Host carries a
-settled promise as its value.
+settled promise as its value. The Zig Session passes a promise the same way.
+
+The live Goblins step covers both directions. glowcap passes a pending reply
+to a Goblins actor as `desc:answer` in argument position, and Goblins 0.18.0
+hands its actor the descriptor unlifted, which the run pins. A Goblins netlayer
+writes a deliver naming its own pending question in argument position, and a
+glowcap actor reads the lifted promise's value.
 
 Every other row the conformance manifest does not mark adopted is owned by
 the handshake plan or is an explicit coverage limit in the upstream suite
@@ -87,17 +93,13 @@ argument by calling it.
 
 Each step is one commit with its own test.
 
-7. **Outside evidence.** Goblins passes an answer reference to a glowcap
-   object and glowcap passes one to Goblins, in the live interop step.
-   Conformance rows cite the evidence. Test: `goblins-interop` and
-   `ocapn-conformance`.
 8. **Documentation.** Remove the limitation from known limitations, add the
    behavior to the shipped inventory and the binding guide, and delete this
    plan with the roadmap item. Test: `source-check`.
 
 ## Parallel work
 
-Steps 7 and 8 follow in one lane.
+Step 8 closes the plan.
 One owner holds the shipped inventory and the limitation list. The decision is [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md).
 
 ## Questions for you
@@ -127,4 +129,3 @@ One owner holds the shipped inventory and the limitation list. The decision is [
 | --- | --- |
 | 8 | `source-check` |
 | 6 | the generated header and layout checks, then `runtime-check` |
-| 7 | `check-external` |

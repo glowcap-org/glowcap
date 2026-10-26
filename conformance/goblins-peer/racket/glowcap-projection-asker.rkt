@@ -19,7 +19,7 @@
          goblins/ocapn
          goblins/ocapn/structs-urls
          "tcp-netlayer.rkt"
-         "captp-projection-wire.rkt"
+         "captp-interop-wire.rkt"
          racket/async-channel)
 
 (file-stream-buffer-mode (current-output-port) 'line)
@@ -54,30 +54,6 @@
 
 (define (put-err tag . parts)
   (async-channel-put response-ch (cons 'err (cons tag parts))))
-
-(define (record-label obj)
-  (and (struct? obj)
-       (let* ([vec (struct->vector obj)]
-              [raw (and (> (vector-length vec) 0) (vector-ref vec 0))]
-              [text (format "~a" raw)])
-         (cond
-           [(regexp-match #rx"^struct:(.+)$" text) => cadr]
-           [else text]))))
-
-(define (record-field obj idx)
-  (define vec (struct->vector obj))
-  (and (> (vector-length vec) idx) (vector-ref vec idx)))
-
-(define (export-desc-pos desc)
-  (and (equal? (record-label desc) "desc:export")
-       (record-field desc 1)))
-
-(define (payload->text payload)
-  (cond
-    [(string? payload) payload]
-    [(bytes? payload) (bytes->string/latin-1 payload)]
-    [(symbol? payload) (symbol->string payload)]
-    [else #f]))
 
 (define (observe-outbound msg)
   (when (equal? (record-label msg) "op:deliver")

@@ -92,6 +92,24 @@
       [(read) n]
       [else (error '^tally "no such method: ~a" verb)])))
 
+;; Swiss-num for the inspect cap. It answers with the record label of its one
+;; argument, so a partner sees what Goblins' unmarshaller handed the actor for
+;; a descriptor it does not lift, such as `desc:answer` in argument position.
+(define INSPECT-SWISS-NUM
+  (string->bytes/latin-1 "glowcapInspectSwissnumABCDEF1234"))
+
+;; Inspect behavior. A record struct answers with its label ("desc:answer"),
+;; and any other value with its printed form.
+(define (^inspect _bcom)
+  (lambda (x)
+    (cond
+      [(struct? x)
+       (define text (format "~a" (vector-ref (struct->vector x) 0)))
+       (cond
+         [(regexp-match #rx"^struct:(.+)$" text) => cadr]
+         [else text])]
+      [else (format "~a" x)])))
+
 ;; ─── CLI ─────────────────────────────────────────────────────────
 
 (define argv (current-command-line-arguments))
@@ -168,6 +186,8 @@
      ($ nonce-registry 'register record RECORD-SWISS-NUM)
      (define tally (spawn ^tally))
      ($ nonce-registry 'register tally TALLY-SWISS-NUM)
+     (define inspect (spawn ^inspect))
+     ($ nonce-registry 'register inspect INSPECT-SWISS-NUM)
      (on (<- tcp-netlayer 'our-location)
          (lambda (_location)
            (emit-ndjson
@@ -191,7 +211,12 @@
             `(("event" . "cap-published")
               ("vat" . ,vat-id)
               ("name" . "tally")
-              ("swiss" . ,(bytes->string/latin-1 TALLY-SWISS-NUM)))))))))
+              ("swiss" . ,(bytes->string/latin-1 TALLY-SWISS-NUM))))
+           (emit-ndjson
+            `(("event" . "cap-published")
+              ("vat" . ,vat-id)
+              ("name" . "inspect")
+              ("swiss" . ,(bytes->string/latin-1 INSPECT-SWISS-NUM)))))))))
 
 ;; ─── Boot all vats ───────────────────────────────────────────────
 

@@ -111,10 +111,10 @@ fn publishStaged(self: *Host, id: capability.PromiseId, state: Row.State) void {
     self.node.publishPromiseSettled(@backingInt(id));
 }
 
-/// The capability a held completion names, retained for the promise. The
-/// row holds no retain of its own, so one the application released is gone
-/// and breaks the promise. A reference to the promise's own projection
-/// breaks as a resolution cycle does.
+/// The capability a held completion names, retained for the promise. A row
+/// an embedder drained holds no retain of its own, so one the application
+/// released is gone and breaks the promise. A reference to the promise's own
+/// projection breaks as a resolution cycle does.
 fn retainedState(self: *Host, id: capability.PromiseId, ref: capability.Ref) Row.State {
     const target = self.capabilities.resolve(ref) orelse
         return .{ .breaking = Row.Failure.init(@errorName(error.UnknownCapability)) };

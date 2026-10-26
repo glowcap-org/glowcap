@@ -34,7 +34,7 @@ directory holds glowcap's wrappers and small Racket programs around its API.
 
 | File                              | Role                                                                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `racket/goblins-host.rkt`         | Echo + Struct host glowcap dials as client (NDJSON readiness).                               |
+| `racket/goblins-host.rkt`         | Echo, Struct, tally, and inspect host glowcap dials as client (NDJSON readiness). `inspect` answers with the record label of its argument, which pins what Goblins hands an actor for a `desc:answer` in argument position. |
 | `racket/goblins-iroh-host.rkt`    | The same echo host over iroh: a vat reachable at an `iroh` locator, announcing its endpoint id and direct addresses (`goblins-iroh`). |
 | `racket/glowcap-iroh-caller.rkt`  | Goblins client over iroh: dials a glowcap peer by endpoint id, calls its actor, and prints what its netlayer proved about the partner (`goblins-iroh`). |
 | `racket/goblins-onion-host.rkt`   | The same echo host over upstream Goblins' own onion netlayer, reachable at a Tor onion address (`goblins-onion`). |
@@ -46,7 +46,8 @@ directory holds glowcap's wrappers and small Racket programs around its API.
 | `racket/glowcap-break-call.rkt`   | Goblins client: unknown-swiss fetch, asserts glowcap's break reason.                         |
 | `racket/glowcap-export-listen.rkt` | Goblins client: `listen` on a live glowcap object export, asserts the fulfill.              |
 | `racket/glowcap-projection-asker.rkt` | Goblins client: writes canonical `op:get` / `op:index` at glowcap's responders, sends `op:listen` for each projected answer, and observes glowcap's resolver-callback fulfillments. Goblins 0.18.0 has no application-level outbound projection send, so it marshals records Goblins already defines through the live session. |
-| `racket/captp-projection-wire.rkt` | The projection records and marshallers `glowcap-projection-asker.rkt` writes with.          |
+| `racket/glowcap-answer-argument.rkt` | Goblins client: names its own pending `make` question with `desc:answer` in argument position of a `read` deliver it writes through its netlayer, and observes glowcap answer `read` with the value `make` settled to. |
+| `racket/captp-interop-wire.rkt`   | The CapTP records, marshallers, and record readers the asker and the answer-argument dialer share. |
 | `racket/handoff-introducer-host.rkt` | Goblins Alice+Bob for recipient-side handoff over TCP and iroh (`goblins-handoff`, `goblins-handoff-iroh`, and binding checks).   |
 | `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for glowcap-as-gifter (`*-goblins-gift`).                                  |
 | `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a glowcap-minted give (`*-goblins-gift`).             |

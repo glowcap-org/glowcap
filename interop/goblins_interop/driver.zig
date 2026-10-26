@@ -16,6 +16,8 @@
 //! (`prepareEnliven`/`recordEnlivenment`, the surface every binding's `enliven`
 //! rides), calls the enlivened cap, and asserts a repeat enliven hits the cache
 //! with no wire traffic, which proves enliven against a real Goblins-published cap.
+//! Through the Zig Session, the same vat then receives a pending reply as a
+//! capability argument (`promise_argument.zig`).
 //!
 //! The listener bracket: glowcap then binds its own TCP listener on an
 //! ephemeral port and a real Goblins client dials in. Five scenarios share
@@ -28,10 +30,11 @@
 //! object export and hears the settlement, and a projection asker
 //! (`glowcap-projection-asker.rkt`), where Goblins writes canonical `op:get`
 //! and `op:index` at glowcap's responders, then observes glowcap's
-//! resolver-callback fulfillments for those projected answers. Together the
-//! brackets prove the
-//! bidirectional capability: glowcap drives Goblins, and Goblins drives a
-//! glowcap actor.
+//! resolver-callback fulfillments for those projected answers. A seventh
+//! scenario (`promise_argument.zig`) serves a Host-level actor that reads a
+//! pending Goblins question passed in argument position. Together the
+//! brackets prove the bidirectional capability: glowcap drives Goblins, and
+//! Goblins drives a glowcap actor.
 //!
 //! This is not part of the hermetic `zig build check`: it needs `racket` + the
 //! `goblins` collection on PATH, so it runs as the sibling step
@@ -41,6 +44,7 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const converse = @import("converse.zig");
+const promise_argument = @import("promise_argument.zig");
 const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
@@ -167,6 +171,16 @@ pub fn main(init: std.process.Init) !void {
 
     std.debug.print("goblins-interop: OK (glowcap as client), handshake + bootstrap fetch + echo deliver/resolve with live Goblins\n", .{});
 
+    // The same vat through the Zig Session: a pending reply passed as a
+    // capability argument reaches Goblins as `desc:answer` in argument position.
+    promise_argument.passToGoblins(io, allocator, swiss, port) catch |err| {
+        std.debug.print("goblins-interop: promise argument toward goblins failed: {s}\n", .{@errorName(err)});
+        goblins_child.dumpChildStderr(io, "goblins-interop", &child);
+        child.kill(io);
+        reaped = true;
+        return err;
+    };
+
     // Tear the client-scenario vat down before opening the reverse direction.
     child.kill(io);
     reaped = true;
@@ -246,6 +260,10 @@ pub fn main(init: std.process.Init) !void {
         .expect_inbound_ops = &.{ .get, .index },
     });
     std.debug.print("goblins-interop: OK, glowcap accepted canonical op:get/op:index frames a Goblins netlayer wrote\n", .{});
+
+    // Seventh bracket: Goblins names one of its own pending questions in
+    // argument position, and a glowcap actor reads the lifted promise.
+    try promise_argument.receiveFromGoblins(init);
 }
 
 /// One Goblins-dials-glowcap scenario over the shared listener bracket.

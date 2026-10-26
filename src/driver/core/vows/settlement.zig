@@ -63,9 +63,14 @@ pub const VowRow = struct {
     /// the vow. The row lives on for the fire, or for the drain of the
     /// completion the fire queued, and retires itself there.
     handle_released: bool = false,
-    /// The completion the embedder drained, kept with the row until release:
-    /// what the vow passes as once it settled (ADR-0068). `.none` while the
-    /// completion is still queued for the drain, and for every local row.
+    /// The row holds the action's retain on every capability its held
+    /// completion names, because the drive that drained it had no embedder
+    /// to hand them to. The retire releases them.
+    held_retains: bool = false,
+    /// The drained completion, kept with the row until release: what the
+    /// vow passes as once it settled (ADR-0068), and what a Zig `settle`
+    /// reads. `.none` while the completion is still queued for the drain,
+    /// and for every local row.
     completion: Completion = .none,
     /// The actual deferred reply destination, independent of the resolver
     /// row's sessionless storage. Owning results never pass through model refs.

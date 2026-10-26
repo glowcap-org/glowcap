@@ -122,9 +122,18 @@ pub const HostAction = union(enum) {
 };
 
 /// A drained completion moves to its session row, which keeps it for the
-/// vow's remaining life (ADR-0068). Every other payload is discarded.
+/// vow's remaining life (ADR-0068) and names its capabilities without
+/// retaining them: the embedder that drained it took its retains, or wants
+/// nothing more from it. Every other payload is discarded.
 pub fn freePayload(self: *Host, action: HostAction) void {
-    if (vow_completion.holdDrained(self, action)) return;
+    if (vow_completion.holdDrained(self, action, .embedder)) return;
+    discardPayload(self, action);
+}
+
+/// `freePayload` for a drive with no embedder to take a completion's
+/// retains: the row keeps them for `Session.settle` or the release.
+pub fn holdForRow(self: *Host, action: HostAction) void {
+    if (vow_completion.holdDrained(self, action, .row)) return;
     discardPayload(self, action);
 }
 

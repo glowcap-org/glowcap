@@ -265,6 +265,11 @@ assets are not published.
   at zero is refused. glowcap keeps reconnects safe inside one Node but cannot
   coordinate separate receivers
   ([upstream watch](upstream-watch.md#handoff-count-across-independent-receiver-sessions)).
+- **Pinned Goblins does not lift an answer reference in argument position.**
+  Goblins 0.18.0 reads `desc:answer` only in target position, so a promise
+  argument glowcap sends reaches the Goblins actor as the descriptor record
+  itself. `zig build goblins-interop` pins that, and glowcap lifts one it
+  receives to a promise (ADR-0068).
 - **Remote equality does not cross unrelated sessions.** Without durable peer
   proof, two sessions' targets stay unrelated even when their locators look
   alike.

@@ -59,6 +59,10 @@ at each declaration, and this inventory names Host runtime and custody costs.
     results need no arena backing.
   - <!-- value ../../../../src/driver/core/host/capabilities/lift.zig inline_capacity -->8<!-- /value --> lift receipts stay inline. Spill uses temporary Host storage freed
     before publication.
+  - A drained completion moves to its vow row without another clone
+    (`holdDrained`). The Zig Session's drive keeps its retains there, and
+    `takeHeld` clones the reply once into the caller's arena when `settle`
+    reads it, for a reply no listener awaited.
   - Actions move through drains and parked tables without another clone. Their
     inline arena state, the diagnostic presence word of a local completion (it
     has no originating peer), and archive-neutral turn failure text add inline

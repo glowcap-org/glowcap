@@ -523,7 +523,8 @@ test "core host owning local warmed custody allocates only its producer and vow 
         if (@sizeOf(usize) == 8) {
             // The row's watching promise (ADR-0068) is an optional id, and
             // its held completion is a value with its arena state or a
-            // failure with its message, under one tag.
+            // failure with its message, under one tag. Whether the row keeps
+            // that completion's retains shares the flag bytes.
             try std.testing.expectEqual(@as(usize, 240), @sizeOf(Row));
             try std.testing.expectEqual(@as(usize, 312), @sizeOf(Producer));
         }

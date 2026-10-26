@@ -57,6 +57,7 @@ const vows_mod = @import("vows.zig");
 const vow_settlement = @import("vows/settlement.zig");
 const vow_release = @import("vows/release.zig");
 const vow_resolvers = @import("vows/resolvers.zig");
+const vow_completion = @import("vows/completion.zig");
 const sessions_mod = @import("sessions.zig");
 const handoff_mod = @import("handoff.zig");
 const capability_promise = @import("capability_promise.zig");
@@ -459,6 +460,7 @@ pub const Host = struct {
     const VowRow = vow_settlement.VowRow;
     const ResolverIndexEntry = vows_mod.ResolverIndexEntry;
     pub const vowOn = vows_mod.vowOn;
+    pub const vowTakeHeld = vow_completion.takeHeld;
     pub const vowSession = vows_mod.vowSession;
     pub const pendingVowCount = vows_mod.pendingVowCount;
     pub const vowRelease = vow_release.release;
@@ -507,6 +509,7 @@ pub const Host = struct {
     pub const peekAction = host_action.peekAction;
     pub const takeAction = host_action.takeAction;
     pub const freeAction = host_action.freeAdopted;
+    pub const holdAction = host_action.holdForRow;
     pub const reserveActions = host_action.reserveActions;
 
     /// Third-party handoff (`handoff.zig`): the node-service callbacks, the

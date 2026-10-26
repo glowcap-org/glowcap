@@ -147,14 +147,18 @@ const Exec = struct {
 
     pub fn complete(self: Exec, action: driver_core.HostAction) !void {
         switch (self.runtime.drive) {
-            .blocking => {},
+            // No embedder takes this completion, so its row keeps it with
+            // its retains for `Promise.settle` or the handle's release.
+            .blocking => self.runtime.core.holdAction(action),
             .stepped => |*stepped| {
                 const sink = stepped.completion_sink;
                 if (sink.take(sink.ctx, action)) return;
+                // A sink declines only while its embedder releases the loop,
+                // so nothing asks for this completion again.
                 sink.release(sink.ctx);
+                self.runtime.core.freeAction(action);
             },
         }
-        self.runtime.core.freeAction(action);
     }
 };
 

@@ -494,3 +494,136 @@ test "Identity.ephemeral signs the unreachable-client designator" {
         identity.dialedDesignator(),
     );
 }
+
+/// Answers `read(capability)` with the kind of capability the Host handed it,
+/// a lifted promise or a settled object, and `echo(capability)` with the
+/// capability itself.
+const CapabilityKindReader = struct {
+    pub fn handle(_: *@This(), ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        if (std.mem.eql(u8, verb, "echo")) return .{ .capability = try args.capability(0) };
+        if (!std.mem.eql(u8, verb, "read")) return error.NoSuchMethod;
+        const cap = try args.capability(0);
+        defer ht.releaseValues(&.{.{ .capability = cap }});
+        const kind: []const u8 = switch (ht.host.capabilities.resolve(cap) orelse return error.UnknownCapability) {
+            .deferred => "promise",
+            .local, .remote => "object",
+        };
+        return .{ .string = kind };
+    }
+};
+
+/// Accept one partner, publish the greeter beside the kind reader, and serve
+/// until the client leaves.
+fn serveKindReaderOnce(server: *driver.Server) anyerror!void {
+    var session = try server.accept();
+    defer session.deinit();
+    _ = try session.publish("greeter", Greeter, .{});
+    _ = try session.publish("reader", CapabilityKindReader, .{});
+    try session.serve();
+}
+
+/// Pass a promise as a capability argument: the reader sees a promise, the
+/// minted capability is released, and the promise still settles to its reply.
+fn passPromiseOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+    var buf: [64]u8 = undefined;
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
+    defer session.deinit();
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const greeter = try session.fetch("greeter");
+    const reader = try session.fetch("reader");
+    const pending = try session.send(greeter, "greet", &.{});
+    const as_capability = try pending.capability();
+    const kind = session.call(reader, "read", &.{.{ .capability = as_capability }}, arena);
+    try session.release(as_capability);
+    switch (try kind) {
+        .fulfilled => |arg| {
+            try std.testing.expect(arg == .string);
+            try std.testing.expectEqualStrings("promise", arg.string);
+        },
+        .broken => return error.CallBroke,
+    }
+    switch (try pending.settle(arena)) {
+        .fulfilled => |arg| {
+            try std.testing.expect(arg == .string);
+            try std.testing.expectEqualStrings(greeting, arg.string);
+        },
+        .broken => return error.CallBroke,
+    }
+}
+
+test "session: a promise passes as a capability argument and still settles" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var server = try listenLoopback(allocator, io);
+    defer server.deinit();
+    const address = try serverAddress(server);
+
+    var host_future = try io.concurrent(serveKindReaderOnce, .{server});
+    const client_result = passPromiseOnce(io, address, allocator);
+    const host_result = host_future.await(io);
+    try client_result;
+    try host_result;
+}
+
+/// A reply naming a capability arrives while another call pumps, so no
+/// listener sees it. `settle` reads it from the vow row afterward, and the
+/// capability it names is still live.
+fn settleUnobservedCapabilityOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+    var buf: [64]u8 = undefined;
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
+    defer session.deinit();
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const greeter = try session.fetch("greeter");
+    const reader = try session.fetch("reader");
+    const echoed = try session.send(reader, "echo", &.{.{ .capability = greeter }});
+    // The pump inside this call drains the echo reply with no listener on it.
+    switch (try session.call(reader, "read", &.{.{ .capability = greeter }}, arena)) {
+        .fulfilled => |arg| try std.testing.expectEqualStrings("object", arg.string),
+        .broken => return error.CallBroke,
+    }
+    const greeter_again = switch (try echoed.settle(arena)) {
+        .fulfilled => |arg| switch (arg) {
+            .capability => |cap| cap,
+            else => return error.WrongReplyShape,
+        },
+        .broken => return error.CallBroke,
+    };
+    // The same promise settles once.
+    try std.testing.expectError(error.NoSuchVow, echoed.settle(arena));
+    try session.release(greeter);
+    switch (try session.call(greeter_again, "greet", &.{}, arena)) {
+        .fulfilled => |arg| try std.testing.expectEqualStrings(greeting, arg.string),
+        .broken => return error.CallBroke,
+    }
+    try session.release(greeter_again);
+}
+
+test "session: a promise reply naming a capability survives an unobserved drain" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var server = try listenLoopback(allocator, io);
+    defer server.deinit();
+    const address = try serverAddress(server);
+
+    var host_future = try io.concurrent(serveKindReaderOnce, .{server});
+    const client_result = settleUnobservedCapabilityOnce(io, address, allocator);
+    const host_result = host_future.await(io);
+    try client_result;
+    try host_result;
+}

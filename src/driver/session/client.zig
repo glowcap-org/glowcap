@@ -27,8 +27,10 @@ const connect_mod = @import("connect.zig");
 /// An allocation-free eventual result scoped to the owning Session. Its core
 /// vow row is pending work from creation until settlement, including when the
 /// caller ignores the value. Use `Session.tell` for fire-and-forget delivery.
-/// Register `on` before stepping the runtime, matching `actors.Vow`'s one-shot
-/// listener contract.
+/// `settle` reads a reply that arrived while another verb pumped the session,
+/// with its capabilities still held, so `release` a promise you will not
+/// settle. `on` takes a listener only while the reply is pending, matching
+/// `actors.Vow`'s one-shot listener contract.
 pub const Promise = struct {
     owner: *Session,
     home: *driver_core.HostSession,
@@ -50,6 +52,15 @@ pub const Promise = struct {
 
     pub fn on(self: Promise, listener: actors.Listener) !void {
         return self.owner.observePromise(self, listener);
+    }
+
+    /// This promise as a capability to pass in a send or tell (ADR-0068). On
+    /// its own session it travels as the answer reference, and on another
+    /// session as a local promise the Host settles when this one does. The
+    /// capability carries its own retain, so `Session.release` it once the
+    /// send has it.
+    pub fn capability(self: Promise) !Capability {
+        return self.owner.promiseCapability(self);
     }
 
     /// Release an unobserved promise handle and its remote answer. Copies of
@@ -415,14 +426,35 @@ pub const Session = struct {
         try self.runtime.core.vowRelease(promise.id);
     }
 
+    fn promiseCapability(self: *Session, promise: Promise) !Capability {
+        self.enterCall();
+        defer self.leaveCall();
+        return self.runtime.core.vowCapability(promise.id);
+    }
+
     fn settlePromise(self: *Session, promise: Promise, arena: std.mem.Allocator) !Reply {
         self.enterCall();
         defer self.leaveCall();
         return self.replyVowId(promise.home, promise.id, arena);
     }
 
-    /// The blocking settle every `Reply`-returning verb shares.
+    /// The blocking settle every `Reply`-returning verb shares. A reply that
+    /// arrived while another verb pumped is held on the vow row and read
+    /// from there.
     fn replyVowId(self: *Session, hs: *driver_core.HostSession, id: u64, arena: std.mem.Allocator) !Reply {
+        switch (try self.runtime.core.vowTakeHeld(id, arena)) {
+            .taken => |held| return held,
+            .pending => {},
+            // The drain that carried the reply stopped at outbound pressure,
+            // so the row holds it after this one.
+            .queued => {
+                try self.runtime.drainActions();
+                switch (try self.runtime.core.vowTakeHeld(id, arena)) {
+                    .taken => |held| return held,
+                    .pending, .queued => return error.AlreadySettled,
+                }
+            },
+        }
         var capture = driver.SettleCapture{ .arena = arena };
         try self.awaitVowIdOn(hs, id, .{ .ctx = &capture, .func = driver.SettleCapture.fire });
         return self.replyFromSettled(hs, arena, try capture.finish());
