@@ -7,7 +7,7 @@ decision: "A pending answer is a send target."
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0068]
 ---
 
 # ADR-0003 Promise pipelining and listeners

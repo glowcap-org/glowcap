@@ -80,9 +80,6 @@ argument by calling it.
 
 Each step is one commit with its own test.
 
-1. **Record the decision.** An ADR amending the pipelining record with the
-   lift, its identity dimension, the data settlement, the bound, and the
-   outbound projection. Test: `source-check`.
 2. **Settle to data.** The capability promise row accepts a data resolution.
    A send to it breaks, a listen fulfills with the data. Test: driver tests
    on an inline-give promise driven to each settlement.
@@ -117,11 +114,11 @@ Each step is one commit with its own test.
 
 ## Parallel work
 
-Steps 1 through 4 are one lane, since each builds on the row change. Step 5
-can start after step 1 in a second lane and touches the lowering path and
-the vow verbs, which steps 2 to 4 do not edit. Step 6 waits for both lanes.
-Steps 7 and 8 follow in one lane. One owner holds the ADR, the shipped
-inventory, and the limitation list.
+Steps 2 through 4 are one lane, since each builds on the row change. Step 5
+can start in a second lane and touches the lowering path and the vow verbs,
+which steps 2 to 4 do not edit. Step 6 waits for both lanes. Steps 7 and 8
+follow in one lane. One owner holds the shipped inventory and the limitation
+list. The decision is [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md).
 
 ## Questions for you
 
@@ -148,7 +145,7 @@ inventory, and the limitation list.
 
 | Steps | Gate |
 | --- | --- |
-| 1, 8 | `source-check` |
+| 8 | `source-check` |
 | 2 to 5 | `test` on the driver and session layers, then `oracle-check` |
 | 6 | the generated header and layout checks, then `runtime-check` |
 | 7 | `check-external` |

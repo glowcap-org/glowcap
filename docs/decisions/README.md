@@ -33,6 +33,7 @@ record's id, filename and status.
 - [ADR-0001 Codec profiles and negotiation](adr/ADR-0001-codec-profiles-and-negotiation.md)
 - [ADR-0002 Session handshake and bootstrap](adr/ADR-0002-session-handshake-and-bootstrap.md)
 - [ADR-0003 Promise pipelining and listeners](adr/ADR-0003-promise-pipelining-and-listeners.md)
+- [ADR-0068 Promise arguments](adr/ADR-0068-promise-arguments.md)
 - [ADR-0004 Baseline wire interoperability](adr/ADR-0004-baseline-wire-interoperability.md)
 - [ADR-0005 Passable value model](adr/ADR-0005-passable-value-model.md)
 - [ADR-0006 Receiver-perspective references](adr/ADR-0006-receiver-perspective-references.md)
