@@ -220,7 +220,7 @@ fn sendValuesWithProgress(
         if (drive_now) host_pump.finishCommittedWork(self, session);
         return id;
     }
-    const routed = try routing.routeCapability(self, session, target, .object_only);
+    const routed = try routing.routeCapability(self, session, target, .any_target);
     try self.checkOutboundAdmission(routed.session);
     if (freightOf(routed, verb, values)) |freight|
         return commitRoutedSend(self, routed, freight, drive_now, null, observer);
@@ -276,7 +276,7 @@ fn sendCapabilityWithProgress(
     drive_now: bool,
 ) !u64 {
     try self.admitApplicationOperation();
-    const routed = try routing.routeCapability(self, session, target, .object_only);
+    const routed = try routing.routeCapability(self, session, target, .any_target);
     try self.checkOutboundAdmission(routed.session);
     try routing.validateRoutedArguments(self, routed.session, msg.args);
     return commitRoutedSend(self, routed, msg.delivery(), drive_now, null, null);
@@ -332,7 +332,7 @@ pub fn tell(self: *Host, session: *HostSession, target: model.Reference, msg: ac
 
 pub fn tellCapability(self: *Host, session: *HostSession, target: capability.Ref, msg: actors.Message) !void {
     try self.admitApplicationOperation();
-    const routed = try routing.routeCapability(self, session, target, .object_only);
+    const routed = try routing.routeCapability(self, session, target, .any_target);
     try self.checkOutboundAdmission(routed.session);
     try routing.validateRoutedArguments(self, routed.session, msg.args);
     return commitRoutedTell(self, routed, msg.delivery());
@@ -356,7 +356,7 @@ pub fn tellValuesAdmitted(self: *Host, session: *HostSession, target: capability
         host_pump.finishCommittedWork(self, session);
         return;
     }
-    const routed = try routing.routeCapability(self, session, target, .object_only);
+    const routed = try routing.routeCapability(self, session, target, .any_target);
     try self.checkOutboundAdmission(routed.session);
     if (freightOf(routed, verb, values)) |freight| return commitRoutedTell(self, routed, freight);
     var prepared = try lower.prepareValues(self, routed.session, arena, values);

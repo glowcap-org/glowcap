@@ -14,6 +14,7 @@ const engine = @import("engine");
 
 const host_mod = @import("../host.zig");
 const host_pump = @import("../host/pump.zig");
+const capability_promise = @import("../capability_promise.zig");
 const completion = @import("completion.zig");
 
 const Host = host_mod.Host;
@@ -52,6 +53,13 @@ pub const VowRow = struct {
     pending_cancel: PendingCancel = .unpublished,
     inner: ?actors.Listener = null,
     settled: bool = false,
+    /// The capability promise this vow was passed outbound as (ADR-0068).
+    /// The fire stages the settlement on it before anything else sees the
+    /// resolution, and the promise clears the watch when it is done.
+    watcher: ?capability.PromiseId = null,
+    /// The application released its handle while a promise still watched
+    /// the vow. The row lives on for the fire and releases itself there.
+    handle_released: bool = false,
     /// The actual deferred reply destination, independent of the resolver
     /// row's sessionless storage. Owning results never pass through model refs.
     forwarded: union(enum) {
@@ -228,6 +236,17 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
         return;
     };
     const routed = if (kind == .fetch) enrollFetched(self, peer_handle, resolution) else resolution;
+    if (row.watcher) |watcher| {
+        const session = self.sessions.get(peer_handle) orelse unreachable;
+        capability_promise.stageVowSettlement(self, watcher, session, routed);
+    }
+    if (row.handle_released) {
+        const session = self.sessions.get(peer_handle) orelse unreachable;
+        settleObservedAnswer(self, row, session);
+        markRowSettled(self, row);
+        retireRow(self, row);
+        return;
+    }
     if (inner) |listener| {
         const session = self.sessions.get(peer_handle) orelse unreachable;
         settleObservedAnswer(self, row, session);

@@ -176,6 +176,22 @@ pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, ar
     return value;
 }
 
+/// Lift one reference the partner delivered. A promise received as an
+/// argument names a question this side still owes an answer to, and an
+/// export of ours that serves no actor names the local promise a projection
+/// stands for: each is a capability promise that settles with the answer
+/// (ADR-0068). Every other reference lifts as the capability it names.
+pub fn liftReference(self: *Host, session: *HostSession, reference: model.view.Reference) LiftError!Host.CapabilityLift {
+    return switch (reference) {
+        .promise => |promise| capability_promise.liftAnswer(self, session, promise.answer_position),
+        .near => |near| identity.liftCapabilityTracked(self, session, .{ .near = near }) catch |err| switch (err) {
+            error.NoSuchActor => capability_promise.liftNearPromise(self, session, near.export_position),
+            else => err,
+        },
+        else => identity.liftCapabilityTracked(self, session, try identity.callableReference(reference)),
+    };
+}
+
 /// Everything the value lift walk can refuse. The walk is recursive, so its
 /// set is spelled from the non-recursive steps it takes. An answer reference
 /// lifts through `capability_promise.liftAnswer`, which owns the answer's
@@ -208,13 +224,7 @@ fn liftValueInner(
         .symbol => |v| .{ .symbol = try bytes.materialize(arena, v) },
         .reference => |reference| blk: {
             try lifts.ensureOne(if (bytes == .owned) self.allocator else arena);
-            // A promise received as an argument names a question this side
-            // still owes an answer to: a capability promise that settles
-            // with the answer (ADR-0068).
-            const lifted = switch (reference) {
-                .promise => |promise| try capability_promise.liftAnswer(self, session, promise.answer_position),
-                else => try identity.liftCapabilityTracked(self, session, try identity.callableReference(reference)),
-            };
+            const lifted = try liftReference(self, session, reference);
             lifts.appendAssumeCapacity(lifted, .reference);
             break :blk .{ .capability = lifted.ref };
         },

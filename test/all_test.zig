@@ -224,6 +224,7 @@ comptime {
     if (wanted(.driver)) {
         _ = @import("driver/fuzz_test.zig");
         _ = @import("driver/promise_argument_test.zig");
+        _ = @import("driver/vow_capability_test.zig");
         _ = @import("driver/off_turn_settle_test.zig");
         if (@import("builtin").os.tag == .linux) {
             _ = @import("driver/host_runtime_multiplexed/lifecycle_test.zig");

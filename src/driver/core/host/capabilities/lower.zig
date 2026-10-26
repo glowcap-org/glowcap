@@ -422,11 +422,15 @@ fn lowerTargetTracked(
                     const resolved_target = self.capabilities.resolve(resolved) orelse return error.UnknownCapability;
                     break :blk try lowerTargetTracked(self, session, resolved, resolved_target);
                 },
-                .broken => return error.PromiseBroken,
+                .breaking, .broken => return error.PromiseBroken,
                 // Data is a value, not a target. `lowerValueInner` lowers it
                 // in place of the capability.
                 .fulfilled_data => return error.UncallableTarget,
                 .pending, .settling, .settling_data => {
+                    // A vow's promise on the vow's own session is the open
+                    // answer, which the partner already holds.
+                    if (capability_promise.vowAnswerReference(self, &row, session)) |reference|
+                        break :blk .{ .reference = reference, .receipt = null };
                     const projection = try capability_promise.prepareProjection(self, id, session);
                     break :blk .{
                         .reference = projection.reference,

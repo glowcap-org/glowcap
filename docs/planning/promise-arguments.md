@@ -38,8 +38,11 @@ per-session bound, its typed refusal, release when the application lets the
 capability go, survival of the partner's garbage collection, and breaking on
 session close are in place with their tests.
 
-In the other direction an application's handle to a pending answer is a vow,
-and a vow is not a value. Nothing turns it into something a call can carry.
+In the other direction a Host verb turns a public vow into a capability. On
+the question's own session it lowers as the answer reference, and on another
+session it is a local promise projection the Host settles when the vow fires,
+to data, to a capability, or broken. A partner may pass the projection back,
+send to it, and listen on it. The C ABI and the bindings have no verb for it.
 
 Every other row the conformance manifest does not mark adopted is owned by
 the handshake plan or is an explicit coverage limit in the upstream suite
@@ -80,13 +83,6 @@ argument by calling it.
 
 Each step is one commit with its own test.
 
-5. **Project a vow outbound.** A Host verb turns a public vow into a
-   capability. Same-session lowering encodes the answer reference, and
-   cross-session lowering projects a local promise. The inbound lift refuses
-   a reference to one of this Host's own promise exports, so a projected vow
-   that comes back inside a partner's answer needs that lift to accept it.
-   Test: two Hosts, a factory call followed by a pass of its unsettled result
-   to another object on the same peer and on a third peer, each settling once.
 6. **C ABI and bindings.** One C verb for the projection, and every binding's
    send accepts its promise type as an argument. Received promises already
    arrive as capability handles. Test per binding: pass a pending promise,
@@ -101,7 +97,7 @@ Each step is one commit with its own test.
 
 ## Parallel work
 
-Step 5 is one lane. Step 6 waits for it. Steps 7 and 8 follow in one lane.
+Step 6 is one lane. Steps 7 and 8 follow in one lane.
 One owner holds the shipped inventory and the limitation list. The decision is [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md).
 
 ## Questions for you
@@ -118,10 +114,10 @@ One owner holds the shipped inventory and the limitation list. The decision is [
 | Capability promise rows and verbs | `src/driver/core/capability_promise.zig`, `capability_promise/row.zig`, `capability_promise/answer.zig` |
 | Inbound answer settlement and retention | `src/ocapn/session/answers/notifications.zig` |
 | Session validation of the reference | `src/ocapn/session/validate/passable.zig` |
-| Lowering values and vows | `src/driver/core/host/capabilities/lower.zig`, `src/driver/core/vows/settlement.zig` |
+| Lowering values and vows | `src/driver/core/host/capabilities/lower.zig`, `src/driver/core/capability_promise/vow.zig`, `src/driver/core/vows/settlement.zig` |
 | Local promise projection for relayed promises | `src/ocapn/session/local_promise.zig` |
 | Session limits | `src/ocapn/session/limits.zig` |
-| The acceptance test | `test/driver/promise_argument_test.zig` |
+| The acceptance tests | `test/driver/promise_argument_test.zig`, `test/driver/vow_capability_test.zig` |
 | Fuzz corpus | `test/support/fuzz_program.zig` |
 | C Host vow verbs | `src/c_abi/host/session.zig` |
 | Live Goblins programs | `conformance/goblins-peer/racket/` |
@@ -130,6 +126,5 @@ One owner holds the shipped inventory and the limitation list. The decision is [
 | Steps | Gate |
 | --- | --- |
 | 8 | `source-check` |
-| 5 | `test` on the driver and session layers, then `oracle-check` |
 | 6 | the generated header and layout checks, then `runtime-check` |
 | 7 | `check-external` |

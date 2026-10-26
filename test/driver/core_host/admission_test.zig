@@ -120,7 +120,7 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // three keyed promise-proxy tables add one multiplier word each. The
     // count of pending inline gives per introducing session is one
     // Host-wide map (24 bytes), so a session shell holds no counter. The
-    // Node's seat count for `answer_settled` actions is one word (ADR-0068).
+    // Node's seat count for `promise_settled` actions is one word (ADR-0068).
     try std.testing.expectEqual(@as(usize, 2792), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expectEqual(@as(usize, 88), @sizeOf(driver.core.HostAction));

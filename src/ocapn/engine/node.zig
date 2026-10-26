@@ -525,9 +525,9 @@ pub const Node = struct {
     pub const pushParked = node_actions.pushParked;
     pub const freeParked = node_actions.freeParked;
     pub const nextAction = node_actions.nextAction;
-    pub const reserveAnswerSubscription = node_actions.reserveAnswerSubscription;
-    pub const releaseAnswerSubscription = node_actions.releaseAnswerSubscription;
-    pub const publishAnswerSettled = node_actions.publishAnswerSettled;
+    pub const reservePromiseSettlement = node_actions.reservePromiseSettlement;
+    pub const releasePromiseSettlement = node_actions.releasePromiseSettlement;
+    pub const publishPromiseSettled = node_actions.publishPromiseSettled;
 
     pub const acceptGive = redeem_dial_admission.acceptGive;
     pub const acceptInlineGive = redeem_dial_admission.acceptInlineGive;

@@ -16,7 +16,7 @@ const tags = [_][]const u8{
     "retire_exporter",
     "need_gift_id",
     "release_capability",
-    "answer_settled",
+    "promise_settled",
 };
 
 pub fn check(
@@ -48,7 +48,7 @@ pub fn check(
         "retire_exporter: PeerHandle",
         "need_gift_id: struct { ticket: u64 }",
         "release_capability: u64",
-        "answer_settled: u64",
+        "promise_settled: u64",
         "pub fn claimTicketRange",
     });
     if (try fileContains(io, gpa, root, "src/ocapn/engine/node/actions.zig", "action_locator"))
@@ -130,13 +130,13 @@ test "missing Node action executor arm is rejected" {
         \\    retire_exporter: void,
         \\    need_gift_id: void,
         \\    release_capability: void,
-        \\    answer_settled: void,
+        \\    promise_settled: void,
         \\};
     ;
     const pump_src =
         \\fn execNodeAction() void {
         \\    .dial => {}; .cancel_dial => {}; .flush => {}; .settle => {}; .fail => {};
-        \\    .retire_exporter => {}; .need_gift_id => {}; .answer_settled => {};
+        \\    .retire_exporter => {}; .need_gift_id => {}; .promise_settled => {};
         \\}
     ;
     var violations: std.ArrayList([]const u8) = .empty;
@@ -160,14 +160,14 @@ test "extra Node action tag is rejected" {
         \\    retire_exporter: void,
         \\    need_gift_id: void,
         \\    release_capability: void,
-        \\    answer_settled: void,
+        \\    promise_settled: void,
         \\    hidden: void,
         \\};
     ;
     const pump_src =
         \\fn execNodeAction() void {
         \\    .dial => {}; .cancel_dial => {}; .flush => {}; .settle => {}; .fail => {};
-        \\    .retire_exporter => {}; .need_gift_id => {}; .answer_settled => {};
+        \\    .retire_exporter => {}; .need_gift_id => {}; .promise_settled => {};
         \\    .release_capability => {};
         \\}
     ;

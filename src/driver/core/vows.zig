@@ -19,6 +19,7 @@ const value_mod = @import("value.zig");
 const host_mod = @import("host.zig");
 const host_pump = @import("host/pump.zig");
 const vocab = @import("vocab.zig");
+const capability_promise = @import("capability_promise.zig");
 const settlement = @import("vows/settlement.zig");
 
 const Host = host_mod.Host;
@@ -35,7 +36,7 @@ const AnswerRelease = settlement.AnswerRelease;
 const PendingCancel = settlement.PendingCancel;
 
 pub const ResolverIndexEntry = struct { vow_id: u64, vat_resolver: u64 };
-const ResolvedVow = struct { row: *VowRow, session: *HostSession };
+pub const ResolvedVow = struct { row: *VowRow, session: *HostSession };
 
 const Projection = union(enum) { index: i64, untag: []const u8, get: []const u8 };
 
@@ -316,6 +317,7 @@ pub fn moveDeferredVow(self: *Host, vow_id: u64, target: *HostSession) void {
     if (self.sessions.get(source_peer)) |source| self.finishSessionOperation(source);
     self.beginSessionOperation(target);
     row.owner = .{ .session = target.peer_handle };
+    if (row.watcher) |watcher| capability_promise.vowMoved(self, watcher, target.peer_handle);
 }
 
 /// Attach a pre-minted deferred Host vow directly to the real Vat/Port vow.
@@ -395,7 +397,7 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
     return id;
 }
 
-fn pipelineAnswer(row: *const VowRow) !engine.OutboundAnswerTarget {
+pub fn pipelineAnswer(row: *const VowRow) !engine.OutboundAnswerTarget {
     if (row.answer_release != .peer_visible and row.answer_release != .shared_peer_visible) return error.NotPipelineable;
     return switch (row.vow) {
         .far => |answer| answer,
@@ -419,9 +421,12 @@ fn admitVowVerb(self: *Host, vow_id: u64) !ResolvedVow {
     return resolved;
 }
 
-fn resolveVowSession(self: *Host, vow_id: u64) HostError!ResolvedVow {
+pub fn resolveVowSession(self: *Host, vow_id: u64) HostError!ResolvedVow {
     try self.claimOwner();
     const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
+    // A released handle whose row waits on a watching promise is gone to
+    // the application, as a retired row is.
+    if (row.handle_released) return HostError.NoSuchVow;
     const peer_handle = row.peer() orelse return HostError.SessionlessVow;
     const session = self.sessions.get(peer_handle) orelse return HostError.NoSuchVow;
     try self.checkSession(session);

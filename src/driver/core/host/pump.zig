@@ -341,7 +341,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !ActionOutcome {
             const ref = self.capabilities.refForRaw(raw) orelse return .done;
             self.releaseCapabilityTerminal(ref, null);
         },
-        .answer_settled => |id| return capability_promise.settleLiftedAnswer(self, @fromBackingInt(@intCast(id))),
+        .promise_settled => |id| return capability_promise.finishSettlement(self, @fromBackingInt(@intCast(id))),
     }
     return .done;
 }

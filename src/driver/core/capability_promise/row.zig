@@ -1,6 +1,6 @@
 //! The state contract for one Host-owned capability promise: a signed give
-//! redeemed inline, or a partner's pending answer passed as an argument
-//! (ADR-0068).
+//! redeemed inline, a partner's pending answer passed as an argument, or a
+//! public Host vow passed as one (ADR-0068).
 //!
 //! `host.zig` stores these rows while `capability_promise.zig` drives their
 //! lifecycle. Keeping the row vocabulary here makes that shared contract
@@ -37,6 +37,11 @@ pub const Row = struct {
         /// holds one retain on the answer payload until the answer settles,
         /// so the stored resolution outlives the partner's GC of the position.
         answer: Answer,
+        /// A public Host vow this Host asked, passed outbound as a
+        /// capability. The vow row names this promise as its watcher and
+        /// stages the settlement here when it fires. Closing the vow's
+        /// session ends it, as it ends the vow.
+        vow: Vow,
 
         pub const Answer = struct {
             peer_handle: engine.PeerHandle,
@@ -47,10 +52,19 @@ pub const Row = struct {
             payload: ?*engine.AnswerPayload,
         };
 
+        pub const Vow = struct {
+            peer_handle: engine.PeerHandle,
+            vow_id: u64,
+            /// Whether the vow has fired and published the `promise_settled`
+            /// action on the seat reserved when the promise was made.
+            published: bool = false,
+        };
+
         pub fn peer(self: Origin) engine.PeerHandle {
             return switch (self) {
                 .inline_give => |peer_handle| peer_handle,
                 .answer => |answer| answer.peer_handle,
+                .vow => |vow| vow.peer_handle,
             };
         }
     };
@@ -116,14 +130,26 @@ pub const Row = struct {
         /// Settled to data. A send to the promise breaks with the reason a
         /// message to a non-object gets, and a listen fulfills with the data.
         fulfilled_data: SettledData,
+        /// A vow broke and the break is held until the pump breaks the
+        /// promise, since the vow fires where nothing may refuse.
+        breaking: Failure,
         broken: Failure,
 
         /// Whether the promise still accepts queued operations and routes
         /// through its origin session: it is unsettled, or settled and still
-        /// finishing what was queued.
+        /// finishing what was queued. A held break accepts nothing more.
         pub fn isPending(self: State) bool {
             return switch (self) {
                 .pending, .settling, .settling_data => true,
+                .breaking, .fulfilled, .fulfilled_data, .broken => false,
+            };
+        }
+
+        /// Whether a settlement is still owed to the promise's holders and
+        /// projections: everything short of a settled row.
+        pub fn awaitsSettlement(self: State) bool {
+            return switch (self) {
+                .pending, .settling, .settling_data, .breaking => true,
                 .fulfilled, .fulfilled_data, .broken => false,
             };
         }

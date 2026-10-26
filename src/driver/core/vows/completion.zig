@@ -39,9 +39,13 @@ pub fn queueVowCompletion(self: *Host, peer_handle: engine.PeerHandle, vow_id: u
             } });
         },
         .broken => |message| queueFailure(self, peer_handle, vow_id, classifyFailure(self, peer_handle), host_action.retainFailureMessage(self.allocator, message)),
-        .give => queueFailure(self, peer_handle, vow_id, .broken, host_action.retainFailureMessage(self.allocator, "raw handoff reached a settle listener")),
+        .give => queueFailure(self, peer_handle, vow_id, .broken, host_action.retainFailureMessage(self.allocator, give_reason)),
     }
 }
+
+/// The break a vow reports when its resolution is a raw handoff give, which
+/// no settle listener can hold.
+pub const give_reason = "raw handoff reached a settle listener";
 
 /// Classify a Vat break while the owning session row is still authoritative.
 /// Finishing keeps admitted work live, so only terminal teardown is closure.

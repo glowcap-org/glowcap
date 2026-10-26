@@ -89,10 +89,10 @@ pub const Action = union(enum) {
     /// inline-Passable transaction. This is terminal cleanup: Host consumes
     /// the retain even when its home session can no longer carry wire GC. status-allow: lifecycle transition
     release_capability: u64,
-    /// An inbound answer a Host capability promise stands for has settled
-    /// (ADR-0068). The value is the promise the payload named, and the Host
-    /// settles it from the stored resolution.
-    answer_settled: u64,
+    /// What a Host capability promise stands for has settled (ADR-0068): an
+    /// inbound answer the Peer drained, or a Host vow the Host staged. The
+    /// value is the promise, and the Host finishes it from the settlement.
+    promise_settled: u64,
 };
 
 /// Inline action authority. Keeping these facts together makes reservations,
@@ -104,10 +104,10 @@ pub const State = struct {
     /// Queue seats promised to actions the Host has parked off the queue
     /// (`parkPeekedAction`), one each, so their return never allocates.
     parked_reservations: usize = 0,
-    /// Queue seats promised to `answer_settled` actions, one per inbound
-    /// answer with a Host promise subscribed, so the Peer publishes the
-    /// settlement without allocating.
-    answer_subscriptions: usize = 0,
+    /// Queue seats promised to `promise_settled` actions, one per Host
+    /// promise awaiting an answer or a vow, so the settlement publishes
+    /// without allocating.
+    promise_settlements: usize = 0,
     last: ?Action = null,
     next_ticket: redeem_dials.PendingId = 0,
 };
@@ -124,7 +124,7 @@ fn free(self: *Node, action: Action) void {
             .owned => |reason| self.allocator.free(reason),
             .static => {},
         },
-        .dial, .cancel_dial, .flush, .settle, .retire_exporter, .need_gift_id, .release_capability, .answer_settled => {},
+        .dial, .cancel_dial, .flush, .settle, .retire_exporter, .need_gift_id, .release_capability, .promise_settled => {},
     }
 }
 
@@ -136,7 +136,7 @@ pub fn reserve(self: *Node, immediate: usize) !void {
         self.redeems.promisedActions() +
         self.inline_passable_batches.action_reservations +
         self.actions.parked_reservations +
-        self.actions.answer_subscriptions +
+        self.actions.promise_settlements +
         immediate;
     try self.actions.queue.reserve(self.allocator, total);
 }
@@ -173,27 +173,26 @@ pub fn pushReserved(self: *Node, action: Action) void {
     self.actions.queue.pushReserved(action);
 }
 
-/// Promise the seat one inbound answer's `answer_settled` action will take.
-/// The Host reserves it when a capability promise subscribes to the answer,
+/// Promise the seat one `promise_settled` action will take. The Host
+/// reserves it when a capability promise subscribes to an answer or a vow,
 /// before the row exists, so a refusal commits nothing.
-pub fn reserveAnswerSubscription(self: *Node) !void {
+pub fn reservePromiseSettlement(self: *Node) !void {
     try reserve(self, 1);
-    self.actions.answer_subscriptions += 1;
+    self.actions.promise_settlements += 1;
 }
 
-/// Give back a promised seat whose answer will never publish: its session
-/// closed with the answer still pending.
-pub fn releaseAnswerSubscription(self: *Node) void {
-    std.debug.assert(self.actions.answer_subscriptions > 0);
-    self.actions.answer_subscriptions -= 1;
+/// Give back a promised seat whose settlement will never publish: the
+/// promise broke or left with its session while still pending.
+pub fn releasePromiseSettlement(self: *Node) void {
+    std.debug.assert(self.actions.promise_settlements > 0);
+    self.actions.promise_settlements -= 1;
 }
 
-/// Publish the settlement of an answer a Host promise subscribes to, on the
-/// seat the subscription promised.
-pub fn publishAnswerSettled(self: *Node, promise: u64) void {
-    std.debug.assert(self.actions.answer_subscriptions > 0);
-    self.actions.answer_subscriptions -= 1;
-    self.actions.queue.pushReserved(.{ .answer_settled = promise });
+/// Publish the settlement a Host promise awaits, on the seat it promised.
+pub fn publishPromiseSettled(self: *Node, promise: u64) void {
+    std.debug.assert(self.actions.promise_settlements > 0);
+    self.actions.promise_settlements -= 1;
+    self.actions.queue.pushReserved(.{ .promise_settled = promise });
 }
 
 /// Claim a contiguous range in the Node-wide external-effect ticket namespace.

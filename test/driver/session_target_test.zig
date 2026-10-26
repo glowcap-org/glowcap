@@ -1,17 +1,13 @@
-//! Eventual-send target refusal on `driver.Session`: `call` /
-//! `send` / `tell` admit only an _object_ capability. A promise-kind
-//! capability (an unresolved import promise) must be refused with
-//! `Error.UncallableTarget`, not silently coerced into an object turn:
-//! pipelining rides the returned Promise (`Promise.send`), never a promise-kind
-//! target. The shapes that are not capabilities at all, a promise-kind local
-//! export, a bare answer-promise, cannot even be lifted into the opaque
-//! surface: the Host refuses them at the lift, so the facade has nothing to
-//! gate.
+//! Target shapes on `driver.Session`: a far object calls and settles, an
+//! import lifted under the wrong kind is refused as a conflict, and the
+//! shapes that are not capabilities at all, a promise-kind local export and
+//! a bare answer-promise, cannot even be lifted into the opaque surface.
+//! A promise the partner exported is a send target like any object: the
+//! partner queues the deliver on it (ADR-0068, proved in
+//! `test/driver/vow_capability_test.zig`).
 //!
 //! Driven over TCP loopback, `driver.Session` multiplexes its blocking waits
-//! with poll over the runtime's readiness descriptors. The positive
-//! control is a genuine far object that still calls and settles. That shows
-//! the gate refuses on _kind_, not by over-rejecting every capability.
+//! with poll over the runtime's readiness descriptors.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -335,20 +331,6 @@ fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress
         client.hs,
         .{ .far = .{ .import_position = import_position, .kind = .promise } },
     ));
-
-    // A genuine promise-kind capability (a fresh promise import, lifted
-    // through the core escape, the opaque surface itself never mints one
-    // from a send): every eventual-send verb must refuse it, never coerce it
-    // into an object turn.
-    const fresh_promise_position: u64 = 40;
-    try client.peer().importObject(fresh_promise_position);
-    const far_promise = try client.runtime.core.liftCapability(
-        client.hs,
-        .{ .far = .{ .import_position = model.ImportPosition.from(fresh_promise_position), .kind = .promise } },
-    );
-    try std.testing.expectError(error.UncallableTarget, client.call(far_promise, "greet", &.{}, arena.allocator()));
-    try std.testing.expectError(error.UncallableTarget, client.send(far_promise, "greet", &.{}));
-    try std.testing.expectError(error.UncallableTarget, client.tell(far_promise, "greet", &.{}));
 
     // The shapes that are not capabilities cannot even enter the opaque
     // surface: a promise-kind local export and a bare answer-promise are

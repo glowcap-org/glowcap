@@ -462,6 +462,7 @@ pub const Host = struct {
     pub const vowSession = vows_mod.vowSession;
     pub const pendingVowCount = vows_mod.pendingVowCount;
     pub const vowRelease = vow_release.release;
+    pub const vowCapability = capability_promise.vowCapability;
     pub const deferTurn = vow_resolvers.deferTurn;
     pub const resolverFulfill = vow_resolvers.fulfill;
     pub const resolverFulfillValue = vow_resolvers.fulfillValue;

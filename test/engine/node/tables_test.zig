@@ -25,7 +25,7 @@ test "Node action extraction preserves the inline Node footprint" {
     // monotonic handle counter (ADR-0038). The three promise-proxy tables
     // each carry the Node's table multiplier, one word apiece, so a peer's
     // wire positions hash under a secret there too. One more word counts the
-    // seats promised to `answer_settled` actions, one per inbound answer a
+    // seats promised to `promise_settled` actions, one per inbound answer a
     // Host capability promise subscribes to (ADR-0068).
     if (!std.debug.runtime_safety) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 1048), @sizeOf(Node));

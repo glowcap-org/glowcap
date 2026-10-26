@@ -4,7 +4,7 @@
 //! The row subscribes to the inbound answer through one retain on its payload
 //! and the payload's `host_promise` mark, so the same question passed twice is
 //! one capability and the stored resolution outlives the partner's GC of the
-//! position. The Peer publishes one `answer_settled` Node action when the
+//! position. The Peer publishes one `promise_settled` Node action when the
 //! settlement leaves, on a seat reserved at the first subscription, and the
 //! Host follows the stored resolution chain to its end: a reference lifts as an
 //! ordinary capability, data settles the row to data, a break breaks it, and a
@@ -49,6 +49,31 @@ pub fn lift(
     return liftTarget(self, session, target);
 }
 
+/// Lift a reference to an export of ours that serves no actor. The one such
+/// export is the local promise a projection stands for, whose virtual answer
+/// is an inbound answer like any other: it lifts as a partner's question
+/// does and settles when the projection resolves. Any other export is no
+/// actor at all.
+pub fn liftNearPromise(
+    self: *Host,
+    session: *HostSession,
+    export_position: model.ExportPosition,
+) capability_lift.LiftError!Host.CapabilityLift {
+    const peer = session.served.port.peer;
+    const name = peer.session_state.answerForLocalPromiseExport(export_position) orelse return error.NoSuchActor;
+    // A projection this Host still owes names the promise that owes it, and
+    // the same promise coming back is one capability. The walk is over the
+    // Host's promise rows, on the rare path of a projection returning before
+    // it settles. A settled one lifts as what its answer settled to.
+    var rows = self.capability_promises.iterator();
+    while (rows.next()) |entry| for (entry.value_ptr.projections.items) |projection| {
+        if (projection.peer_handle == session.peer_handle and projection.export_position == export_position)
+            return capability_promise.retainShared(self, entry.key_ptr.*);
+    };
+    const target = peer.session_state.answerTargetNamed(name) orelse return error.InvalidReference;
+    return liftTarget(self, session, target);
+}
+
 /// An answer already settled lifts as what it settled to. One with a promise
 /// subscribed shares that promise. Otherwise a new promise subscribes.
 fn liftTarget(
@@ -60,7 +85,7 @@ fn liftTarget(
     if (peer.session_state.answerPayloadForTarget(target)) |payload| {
         if (peer.session_state.answerPayloadStoredResolution(payload) != null)
             return liftSettled(self, session, target, engine.resolution_chain.followAnswer(peer, target, payload));
-        if (payload.host_promise != 0) return retainShared(self, @fromBackingInt(payload.host_promise));
+        if (payload.host_promise != 0) return capability_promise.retainShared(self, @fromBackingInt(payload.host_promise));
     }
     return liftPending(self, session, target);
 }
@@ -115,15 +140,6 @@ fn settledRow(self: *Host, origin: Row.Origin, state: Row.State) !Host.Capabilit
     return .{ .ref = ref, .claimed_wire_retain = false };
 }
 
-/// One more application retain on the promise already subscribed to this
-/// answer. A row the application had let go of is wanted again.
-fn retainShared(self: *Host, id: capability.PromiseId) !Host.CapabilityLift {
-    const row = self.capability_promises.getPtr(id) orelse unreachable;
-    const ref = try self.capabilities.retain(self.allocator, .{ .deferred = id });
-    row.abandoned = false;
-    return .{ .ref = ref, .claimed_wire_retain = false };
-}
-
 /// Subscribe a new promise to a pending answer: the session's subscription,
 /// which holds the bound and the payload retain, the Node seat, and the
 /// registry row, each rolled back by a later refusal.
@@ -138,8 +154,8 @@ fn liftPending(
     try self.capability_promises.ensureUnusedCapacity(self.allocator, 1);
     const payload = try peer.session_state.subscribeHostPromise(target, @backingInt(id));
     errdefer peer.session_state.unsubscribeHostPromise(target, payload);
-    try self.node.reserveAnswerSubscription();
-    errdefer self.node.releaseAnswerSubscription();
+    try self.node.reservePromiseSettlement();
+    errdefer self.node.releasePromiseSettlement();
     const ref = try self.capabilities.retain(self.allocator, .{ .deferred = id });
     self.capability_promises.putAssumeCapacity(id, .{ .origin = .{ .answer = .{
         .peer_handle = session.peer_handle,
@@ -150,7 +166,7 @@ fn liftPending(
     return .{ .ref = ref, .claimed_wire_retain = false };
 }
 
-/// The `answer_settled` action: the answer a promise stands for has settled.
+/// The `promise_settled` action: the answer a promise stands for has settled.
 /// Memory or outbound pressure leaves the action retryable, and a projection
 /// recipient's backpressure parks it as an inline give's settle does. Any other
 /// refusal met before the row changes state breaks the promise with it, since
@@ -159,7 +175,7 @@ pub fn settle(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
     const row = self.capability_promises.getPtr(id) orelse return .done;
     const answer = switch (row.origin) {
         .answer => |answer| answer,
-        .inline_give => unreachable,
+        .inline_give, .vow => unreachable,
     };
     const session = self.sessions.get(answer.peer_handle) orelse return .done;
     const peer = session.served.port.peer;
@@ -167,6 +183,8 @@ pub fn settle(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
         .pending => {},
         .settling => |lifted| return capability_promise.fulfillLifted(self, id, lifted),
         .settling_data => return finishData(self, id),
+        // Only a vow holds a break for the pump.
+        .breaking => unreachable,
         .fulfilled, .fulfilled_data, .broken => return .done,
     }
     const payload = answer.payload orelse unreachable;
@@ -220,8 +238,8 @@ fn moveSubscription(
             return capability_promise.breakPromise(self, id, engine.resolution_chain.cycle_message);
     }
     const answer = &row.origin.answer;
-    try self.node.reserveAnswerSubscription();
-    errdefer self.node.releaseAnswerSubscription();
+    try self.node.reservePromiseSettlement();
+    errdefer self.node.releasePromiseSettlement();
     const next_payload = try peer.session_state.moveHostPromise(answer.target, answer.payload.?, next, @backingInt(id));
     answer.target = next;
     answer.payload = next_payload;
@@ -248,8 +266,7 @@ fn fulfillWithPromise(self: *Host, id: capability.PromiseId, target: capability.
     row.operations.clearRetainingCapacity();
     row.operation_head = 0;
     row.projections.clearRetainingCapacity();
-    const session = self.sessions.get(row.origin.peer()) orelse unreachable;
-    finished(self, session, &row.origin.answer);
+    finished(self, &row.origin.answer);
     return capability_promise.completeFulfilled(self, id, .{ .ref = ref, .claimed_wire_retain = false });
 }
 
@@ -271,7 +288,10 @@ fn fulfillData(
     return finishData(self, id);
 }
 
-fn ownData(self: *Host, session: *HostSession, argument: model.Argument) !Row.SettledData {
+/// Own `argument` under `session`: one arena holds the value, and every
+/// capability inside it holds a Host retain. The vow origin stages its data
+/// settlement through this too.
+pub fn ownData(self: *Host, session: *HostSession, argument: model.Argument) !Row.SettledData {
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     errdefer arena.deinit();
     const value = try capability_lift.ownValue(self, session, arena.allocator(), argument);
@@ -291,7 +311,7 @@ pub fn releaseData(self: *Host, data: *Row.SettledData, closing_peer: ?engine.Pe
 /// projection. A recipient's backpressure parks with its projection still
 /// owed, and a listener or recipient the data cannot be lowered for hears the
 /// refusal as its break.
-fn finishData(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
+pub fn finishData(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
     var row = self.capability_promises.getPtr(id) orelse return .done;
     const value = row.state.settling_data.value;
     // Firing a vow may run an in-process listener that releases this promise
@@ -351,8 +371,7 @@ fn finishData(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
     }
     row.operations.clearRetainingCapacity();
     row.operation_head = 0;
-    const session = self.sessions.get(row.origin.peer()) orelse unreachable;
-    finished(self, session, &row.origin.answer);
+    capability_promise.finishOrigin(self, id, row);
     var data = row.state.settling_data;
     if (row.abandoned) {
         row.projections.deinit(self.allocator);
@@ -411,23 +430,16 @@ fn nothingToCancel(_: *Host, _: u64, _: u64) PendingCancel.CancelError!void {}
 fn nothingToCancelTerminal(_: *Host, _: u64, _: u64) void {}
 
 /// Leave the answer's subscription: give back the Node seat if the settlement
-/// never published, then the session's mark, count, and payload retain.
-fn unsubscribe(self: *Host, session: *HostSession, answer: *Answer) void {
+/// never published, then the session's mark, count, and payload retain. Only
+/// a held retain names its session: a row forgotten at teardown holds none,
+/// and its session may be gone by the time the row is released.
+fn unsubscribe(self: *Host, answer: *Answer) void {
     const payload = answer.payload orelse return;
     answer.payload = null;
-    if (!payload.host_promise_notified) self.node.releaseAnswerSubscription();
+    if (!payload.host_promise_notified) self.node.releasePromiseSettlement();
+    const session = self.sessions.get(answer.peer_handle) orelse unreachable;
     session.served.port.peer.session_state.unsubscribeHostPromise(answer.target, payload);
 }
 
 /// A subscribed row reached its settlement or broke.
 pub const finished = unsubscribe;
-
-/// Host teardown: release every payload retain this session's rows hold
-/// before the session shell, and the Peer that owns the payloads, is freed.
-pub fn forgetSession(self: *Host, session: *HostSession) void {
-    var rows = self.capability_promises.valueIterator();
-    while (rows.next()) |row| switch (row.origin) {
-        .answer => |*answer| if (answer.peer_handle == session.peer_handle) unsubscribe(self, session, answer),
-        .inline_give => {},
-    };
-}

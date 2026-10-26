@@ -63,7 +63,21 @@ pub fn cancelObserved(self: *Host, vow_id: u64, listener: actors.Listener) void 
     const row = self.vows.get(vow_id) orelse unreachable;
     std.debug.assert(!row.settled and row.inner != null);
     std.debug.assert(row.inner.?.ctx == listener.ctx and row.inner.?.func == listener.func);
+    if (row.watcher != null) {
+        // A watching promise still needs the fire. The observer's release
+        // reservation carries over to the row's own release there.
+        row.inner = null;
+        row.handle_released = true;
+        return;
+    }
     const session = self.sessions.get(row.peer().?) orelse unreachable;
+    retireUnwatched(self, row, session);
+}
+
+/// Retire an unsettled row nothing holds any more, neither a handle, an
+/// observer, nor a watching promise: cancel its producer, settle the answer
+/// it observed, and free it.
+pub fn retireUnwatched(self: *Host, row: *VowRow, session: *HostSession) void {
     cancelPendingTerminal(self, row, session);
     settlement.settleObservedAnswer(self, row, session);
     settlement.retireRow(self, row);
@@ -83,6 +97,9 @@ pub fn cancelObserved(self: *Host, vow_id: u64, listener: actors.Listener) void 
 pub fn release(self: *Host, vow_id: u64) !void {
     try self.refuseReentry();
     const row = self.vows.get(vow_id) orelse return;
+    // A handle released while a promise watched the row is gone to the
+    // application, so a second release finds nothing, as with a retired row.
+    if (row.handle_released) return;
     if (row.inner != null) return error.AlreadyListening;
     if (row.owner == .owning) {
         if (row.owner.owning.destination != .public) return error.SessionlessVow;
@@ -105,6 +122,16 @@ pub fn release(self: *Host, vow_id: u64) !void {
         host_pump.finishCommittedWork(self, session);
     }
     const wire_dead = !session.wireLive();
+    // A watching promise settles from the fire, so the row outlives its
+    // handle and releases itself there (ADR-0068). A dead wire has no fire
+    // to wait for, and the session's close breaks the promise.
+    if (row.watcher != null and !row.settled and !wire_dead) {
+        try self.checkSession(session);
+        if (row.answer_release == .peer_visible)
+            row.observer_release = try session.served.port.peer.reserveAnswerRelease();
+        row.handle_released = true;
+        return;
+    }
     if (row.answer_release == .shared_peer_visible) {
         const owned = row.pending_cancel.shared_answer;
         if (!row.settled) {

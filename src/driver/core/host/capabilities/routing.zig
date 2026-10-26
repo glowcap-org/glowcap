@@ -47,7 +47,7 @@ pub fn applicationTarget(self: *Host, ref: capability.Ref) !ApplicationTarget {
                     },
                     .fulfilled => |settled| current = settled,
                     .fulfilled_data => return error.UncallableTarget,
-                    .broken => return error.PromiseBroken,
+                    .breaking, .broken => return error.PromiseBroken,
                 }
             },
         }
@@ -69,8 +69,10 @@ pub fn routeSend(
     return routeTarget(self, session, target, args, .host);
 }
 
-/// Which far targets a verb may address: a send or tell reaches objects only,
-/// while a listen may address a promise.
+/// Which far targets a verb may address. A send, tell, or listen may address
+/// a promise the partner exported: the deliver names the export, and the
+/// partner queues it on the promise (ADR-0068). A durable save reaches
+/// objects only, since a pending promise has no stored form.
 pub const Gate = enum { object_only, any_target };
 
 /// Resolve one opaque Host capability to the actor/session that owns it.

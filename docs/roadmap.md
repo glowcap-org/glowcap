@@ -44,13 +44,12 @@ Items run side by side when their plans' lanes allow, so a later item waits
 for an earlier one to start, not to finish. A plan marked as waiting for
 review needs that review before its first step.
 
-1. **Promise arguments.** The Host refuses a promise a peer passes as an
-   argument when it names a question this side has not answered, and a
-   glowcap application cannot pass its own pending promise as an argument.
-   Pipelining already works. This is the one protocol-semantics gap on the
-   list, so it leads. The [promise arguments plan](planning/promise-arguments.md)
-   lifts the received promise to a capability and projects a vow outbound,
-   with live Goblins evidence in both directions.
+1. **Promise arguments.** The Host lifts a promise a peer passes as an
+   argument to a capability and passes an application's pending vow as one,
+   and pipelining already works. The C ABI and the bindings have no verb for
+   the vow, and the live Goblins evidence is owed in both directions. This is
+   the one protocol-semantics gap on the list, so it leads. The
+   [promise arguments plan](planning/promise-arguments.md) closes it.
 2. **Interop coverage.** Extend live binding checks to automatic capability
    finalization, and live Goblins relay checks to Python, Rust and Racket.
    Keep the exact role and transport coverage in community review. Work that

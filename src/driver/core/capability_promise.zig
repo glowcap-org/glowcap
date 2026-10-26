@@ -1,11 +1,13 @@
 //! Host-owned capability promises: a signed handoff give that appears inline
-//! in a Passable value, or a partner's pending answer passed as an argument
-//! (ADR-0068). The Node owns cross-session redemption, and the answer's own
-//! session owns its settlement. This module owns the application identity
-//! that exists while either is pending and the eventual settlement: a Host
-//! capability, data, or a break. The row contract shared with Host storage
-//! lives in `capability_promise/row.zig`, the answer subscription in
-//! `capability_promise/answer.zig`, and the queued operations in
+//! in a Passable value, a partner's pending answer passed as an argument, or
+//! a public Host vow passed as one (ADR-0068). The Node owns cross-session
+//! redemption, the answer's own session owns its settlement, and the vow row
+//! owns its fire. This module owns the application identity that exists
+//! while any is pending and the eventual settlement: a Host capability,
+//! data, or a break. The row contract shared with Host storage lives in
+//! `capability_promise/row.zig`, the answer subscription in
+//! `capability_promise/answer.zig`, the vow watcher in
+//! `capability_promise/vow.zig`, and the queued operations in
 //! `capability_promise/operations.zig`.
 
 const std = @import("std");
@@ -20,6 +22,7 @@ const promise_answer = @import("capability_promise/answer.zig");
 const promise_operations = @import("capability_promise/operations.zig");
 const promise_projection = @import("capability_promise/projection.zig");
 const promise_row = @import("capability_promise/row.zig");
+const promise_vow = @import("capability_promise/vow.zig");
 const host_mod = @import("host.zig");
 const host_pump = @import("host/pump.zig");
 const vows = @import("vows.zig");
@@ -31,9 +34,12 @@ const Row = promise_row.Row;
 pub const prepareProjection = promise_projection.prepare;
 pub const rollbackProjection = promise_projection.rollback;
 pub const liftAnswer = promise_answer.lift;
-pub const settleLiftedAnswer = promise_answer.settle;
+pub const liftNearPromise = promise_answer.liftNearPromise;
+pub const vowCapability = promise_vow.vowCapability;
+pub const stageVowSettlement = promise_vow.stage;
+pub const vowAnswerReference = promise_vow.answerReference;
 pub const listenData = promise_answer.listenData;
-pub const forgetSessionAnswers = promise_answer.forgetSession;
+pub const vowMoved = promise_vow.moved;
 pub const queueSendValues = promise_operations.queueSendValues;
 pub const queueTellValues = promise_operations.queueTellValues;
 pub const queueListen = promise_operations.queueListen;
@@ -91,10 +97,52 @@ pub fn liftInlineGive(
 /// inline give. Every pending row was counted when it was lifted, so the
 /// entry is there, and the last settlement removes it. An answer-origin row
 /// gives its seat back when it finishes, in `promise_answer.finished`.
+/// The `promise_settled` action: what a promise stands for has settled, and
+/// its origin finishes the row from what it stored.
+pub fn finishSettlement(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
+    const row = self.capability_promises.getPtr(id) orelse return .done;
+    return switch (row.origin) {
+        .answer => promise_answer.settle(self, id),
+        .vow => promise_vow.settle(self, id),
+        // An inline give settles through the Node's own `settle` action.
+        .inline_give => unreachable,
+    };
+}
+
+/// One more application retain on a promise that already exists for its
+/// origin. A row the application had let go of is wanted again.
+pub fn retainShared(self: *Host, id: capability.PromiseId) !Host.CapabilityLift {
+    const row = self.capability_promises.getPtr(id) orelse unreachable;
+    const ref = try self.capabilities.retain(self.allocator, .{ .deferred = id });
+    row.abandoned = false;
+    return .{ .ref = ref, .claimed_wire_retain = false };
+}
+
+/// A row reached its settlement or broke: release what its origin held for
+/// the wait. An answer drops its subscription, and a vow drops its watch.
+pub fn finishOrigin(self: *Host, id: capability.PromiseId, row: *Row) void {
+    switch (row.origin) {
+        .answer => |*answer| promise_answer.finished(self, answer),
+        .vow => |*vow| promise_vow.finished(self, id, vow),
+        .inline_give => {},
+    }
+}
+
+/// Host teardown: give back what every row of `session` holds in the Peer
+/// and the Node before either is freed. The rows themselves go with the map.
+pub fn forgetSession(self: *Host, session: *HostSession) void {
+    var rows = self.capability_promises.valueIterator();
+    while (rows.next()) |row| switch (row.origin) {
+        .answer => |*answer| if (answer.peer_handle == session.peer_handle) promise_answer.finished(self, answer),
+        .vow => |*vow| if (vow.peer_handle == session.peer_handle) promise_vow.forget(self, vow),
+        .inline_give => {},
+    };
+}
+
 fn settledPending(self: *Host, row: *const Row) void {
     const introducing_peer = switch (row.origin) {
         .inline_give => |peer_handle| peer_handle,
-        .answer => return,
+        .answer, .vow => return,
     };
     const count = self.pending_inline_gives.getPtr(introducing_peer).?;
     count.* -= 1;
@@ -122,7 +170,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
             break :blk lifted;
         },
         .settling => |prepared| prepared,
-        .settling_data, .fulfilled, .fulfilled_data, .broken => return .done,
+        .settling_data, .breaking, .fulfilled, .fulfilled_data, .broken => return .done,
     };
     return fulfillLifted(self, id, lifted);
 }
@@ -139,10 +187,7 @@ pub fn fulfillLifted(self: *Host, id: capability.PromiseId, lifted: Host.Capabil
     if (try settleProjections(self, row, resolved)) |parked| return parked;
     row.operations.clearRetainingCapacity();
     row.operation_head = 0;
-    if (row.origin == .answer) {
-        const session = self.sessions.get(row.origin.peer()) orelse unreachable;
-        promise_answer.finished(self, session, &row.origin.answer);
-    }
+    finishOrigin(self, id, row);
     return completeFulfilled(self, id, lifted);
 }
 
@@ -168,7 +213,7 @@ pub fn settledData(self: *Host, id: capability.PromiseId) ?*const value_mod.Valu
                 if (target != .deferred) return null;
                 current = target.deferred;
             },
-            .pending, .settling, .settling_data, .broken => return null,
+            .pending, .settling, .settling_data, .breaking, .broken => return null,
         }
     }
 }
@@ -285,7 +330,7 @@ const Dispatched = enum { dispatched, settled_in_place };
 
 fn dispatchQueued(self: *Host, current: *Row, pending: *Row.PendingOperation, resolved: capability.Ref) !Dispatched {
     const source = self.sessions.get(pending.source_peer) orelse return error.UnknownCapability;
-    const routed = try self.routeCapability(source, resolved, if (pending.action == .listen) .any_target else .object_only);
+    const routed = try self.routeCapability(source, resolved, .any_target);
     try self.checkOutboundAdmission(routed.session);
     switch (pending.action) {
         .send => |*message| try dispatchQueuedSend(self, routed, message, pending.result_vow.?),
@@ -393,7 +438,7 @@ fn breakPromiseImpl(
     var settling_ref: ?capability.Ref = null;
     var settling_data: ?Row.SettledData = null;
     switch (row.state) {
-        .pending => {},
+        .pending, .breaking => {},
         .settling => |lifted| if (terminal) {
             settling_ref = lifted.ref;
         } else return .done,
@@ -432,10 +477,7 @@ fn breakPromiseImpl(
     const failure = Row.Failure.init(reason);
     row.state = .{ .broken = failure };
     if (was_pending) settledPending(self, row);
-    if (row.origin == .answer) {
-        const session = self.sessions.get(row.origin.peer()) orelse unreachable;
-        promise_answer.finished(self, session, &row.origin.answer);
-    }
+    finishOrigin(self, id, row);
     row.projections.deinit(self.allocator);
     row.projections = .empty;
     var operations = row.operations;
@@ -465,15 +507,12 @@ pub fn abandon(self: *Host, id: capability.PromiseId) void {
     var data: ?Row.SettledData = null;
     switch (row.state) {
         .pending => {
-            // A lifted answer nothing waits on, with no application retain,
-            // no owed projection, and no queued operation, leaves its seat in
-            // the session's bound at once instead of holding it to the
+            // A lifted answer or watched vow nothing waits on, with no
+            // application retain, no owed projection, and no queued
+            // operation, leaves at once instead of holding its seat to the
             // settlement. One a settle has begun keeps its state.
-            if (row.origin == .answer and row.projections.items.len == 0 and row.operation_head >= row.operations.items.len) {
-                if (row.origin.answer.payload != null) {
-                    const session = self.sessions.get(row.origin.peer()) orelse unreachable;
-                    promise_answer.finished(self, session, &row.origin.answer);
-                }
+            if (row.origin != .inline_give and row.projections.items.len == 0 and row.operation_head >= row.operations.items.len) {
+                finishOrigin(self, id, row);
                 row.projections.deinit(self.allocator);
                 row.operations.deinit(self.allocator);
                 std.debug.assert(self.capability_promises.remove(id));
@@ -482,7 +521,7 @@ pub fn abandon(self: *Host, id: capability.PromiseId) void {
             row.abandoned = true;
             return;
         },
-        .settling, .settling_data => {
+        .settling, .settling_data, .breaking => {
             row.abandoned = true;
             return;
         },
@@ -511,7 +550,7 @@ pub fn sessionReleased(self: *Host, peer_handle: engine.PeerHandle, reason: []co
         var promise_rows = self.capability_promises.iterator();
         while (promise_rows.next()) |entry| {
             if (entry.value_ptr.origin.peer() != peer_handle) continue;
-            if (!entry.value_ptr.state.isPending()) continue;
+            if (!entry.value_ptr.state.awaitsSettlement()) continue;
             introduced = entry.key_ptr.*;
             break;
         }
@@ -558,7 +597,7 @@ pub fn resolvedRef(self: *Host, id: capability.PromiseId) !capability.Ref {
     const row = self.capability_promises.get(id) orelse return error.UnknownCapability;
     return switch (row.state) {
         .pending, .settling, .settling_data => error.PromisePending,
-        .broken => error.PromiseBroken,
+        .breaking, .broken => error.PromiseBroken,
         // Data is not a target. The listen path reads it.
         .fulfilled_data => error.UncallableTarget,
         .fulfilled => |ref| if (self.capabilities.resolve(ref) != null)
@@ -586,7 +625,7 @@ pub fn deinit(self: *Host) void {
         row.projections.deinit(self.allocator);
         switch (row.state) {
             .settling_data, .fulfilled_data => |*data| data.arena.deinit(),
-            .pending, .settling, .fulfilled, .broken => {},
+            .pending, .settling, .breaking, .fulfilled, .broken => {},
         }
     }
     self.capability_promises.deinit(self.allocator);

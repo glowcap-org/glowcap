@@ -160,7 +160,7 @@ fn observeCapability(
                 if (drive_now) host_pump.finishCommittedWork(self, session);
                 return .{ .pending = id };
             },
-            .broken => return error.PromiseBroken,
+            .breaking, .broken => return error.PromiseBroken,
         }
     }
     const routed = try self.routeCapability(session, current, .any_target);
