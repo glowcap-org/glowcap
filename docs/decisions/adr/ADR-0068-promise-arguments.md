@@ -96,6 +96,5 @@ handling if OCapN adds a wire form for third-party promise shortening.
 `test/driver/promise_argument_test.zig` is the acceptance test: a promise
 argument reaches the hosted object as a capability that settles with the
 answer. Driver tests on `capability_promise` cover data settlement and the
-bound. The Goblins interop scenarios and the OCapN conformance manifest hold
-the wire evidence, and `docs/boundaries.md` no longer lists the refusal once
-every step of [the plan](../../planning/promise-arguments.md) lands.
+bound. The live Goblins interop step holds the wire evidence in both
+directions, and the OCapN conformance manifest cites it.

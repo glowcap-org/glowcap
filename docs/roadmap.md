@@ -44,18 +44,12 @@ Items run side by side when their plans' lanes allow, so a later item waits
 for an earlier one to start, not to finish. A plan marked as waiting for
 review needs that review before its first step.
 
-1. **Promise arguments.** The Host lifts a promise a peer passes as an
-   argument to a capability and passes an application's vow as one in any
-   state, from the C ABI and every binding. The live Goblins evidence is owed
-   in both directions. This is the one protocol-semantics gap on the list, so
-   it leads. The [promise arguments plan](planning/promise-arguments.md)
-   closes it.
-2. **Interop coverage.** Extend live binding checks to automatic capability
+1. **Interop coverage.** Extend live binding checks to automatic capability
    finalization, and live Goblins relay checks to Python, Rust and Racket.
    Keep the exact role and transport coverage in community review. Work that
    requires unsupported Goblins operations waits on upstream support, and the
    rest starts here ([plan to plan](planning/plan-to-plan.md)).
-3. **Sealed scale.** Repeat the 500,000 live session run on `noise-tcp`. The
+2. **Sealed scale.** Repeat the 500,000 live session run on `noise-tcp`. The
    load half drives raw peers through completion loops, and the product
    refuses a second session between one pair of durable identities. So the
    sealed run needs a load half that opens one Noise channel per connection
@@ -64,7 +58,7 @@ review needs that review before its first step.
    [live-session report](https://glowcap.org/performance/#live-sessions)
    records a completed sealed run beside the cleartext one
    ([plan to plan](planning/plan-to-plan.md)).
-4. **Session open cost.** The
+3. **Session open cost.** The
    [session-opening report](https://glowcap.org/performance/#live-sessions)
    measures connect, handshake, fetch, and close. Its cost model needs
    per-session key derivation, socket setup, accept wake, and the fetch round
@@ -73,7 +67,7 @@ review needs that review before its first step.
    floors for both transports, with each total under 2× its named floors or
    an explanation of the remaining cost
    ([plan to plan](planning/plan-to-plan.md)).
-5. **Measure the remaining access workloads.** The
+4. **Measure the remaining access workloads.** The
    [access storage guide](loam/access-storage.md#performance-contract-and-measurements)
    names each workload and what it must observe. Warm reads by depth, scope
    selection, descendant growth, hot reads under slow writes, churn, and
@@ -81,18 +75,18 @@ review needs that review before its first step.
    default engine, SQLite. One that locates a limit in it reopens that choice
    ([ADR-0062](decisions/adr/ADR-0062-sqlite-default-storage.md),
    [plan to plan](planning/plan-to-plan.md)).
-6. **Managed-access failure isolation.** Add commit-panic and
+5. **Managed-access failure isolation.** Add commit-panic and
    owner-retirement coverage while unrelated actors remain active. Prove
    recovery or explicit refusal, no premature publication, and progress for
    unrelated owners. The existing process-kill suite does not prove these
    cases. Coordinate with the hosted access C surface item below
    ([plan to plan](planning/plan-to-plan.md)).
-7. **Power-loss assumptions.** Establish which power-loss assumptions each
+6. **Power-loss assumptions.** Establish which power-loss assumptions each
    disk engine's flush supports before claiming them, SQLite first because it
    is the default. [Stability](stability.md) says power loss is untested, so
    this extends evidence rather than repairing a claim
    ([plan to plan](planning/plan-to-plan.md)).
-8. **Integrate Rooms content and access.** Use the settled interaction
+7. **Integrate Rooms content and access.** Use the settled interaction
    contract. Integrate recursive rooms, directory access, branching
    conversations and reorganization in the
    [Rooms plan](planning/rooms.md).
@@ -101,7 +95,7 @@ review needs that review before its first step.
    resource work, and the [session guide](rooms/session.md) and
    [effect contract](rooms/session-effects.md) describe the session that
    exists.
-9. **Interface definitions.** An interface gets one written form, a Syrup
+8. **Interface definitions.** An interface gets one written form, a Syrup
    value with a small text language above it, and from that form every
    language gets a generated client and server scaffold, with an optional
    way for an object to describe itself. The
@@ -111,13 +105,13 @@ review needs that review before its first step.
    [discovery](planning/interface-discovery.md). The hand-built Tasks clients, the Rooms
    grammar table, and the Rooms typed management client are replaced by
    generated code. Phase one can start beside the Rooms work.
-10. **Hosted access C surface.** Bounded resource-tree operations and the
+9. **Hosted access C surface.** Bounded resource-tree operations and the
     owner lifecycle, create, open, retire, are reachable only from Zig. Project
     them through the C ABI over the existing Host, with Zig admission,
     receipts, and recovery staying authoritative. Ready to plan once the
     [shared hosting plan](planning/rooms-hosting.md) names the owner API it
     needs ([plan to plan](planning/plan-to-plan.md)).
-11. **Shared Rooms hosting and sign-in.** Host independent Rooms sessions
+10. **Shared Rooms hosting and sign-in.** Host independent Rooms sessions
     over shared transport, storage and execution, with bounded per-session
     costs, and add optional identity-provider login that restores explicitly
     held access. The [hosting plan](planning/rooms-hosting.md) defines
@@ -126,7 +120,7 @@ review needs that review before its first step.
     custody and recovery. Hosting builds on the Rooms plan's policy catalog
     and room-owned grants, so it starts after those land. Both contracts wait
     for maintainer review before implementation.
-12. **Bindings own their symbol omissions.** Each C archive's symbol
+11. **Bindings own their symbol omissions.** Each C archive's symbol
     inventory (`symbols.zig`) carries a per-binding omit flag, so the C ABI
     layer names its consumers and a new binding adds a field to a shared row
     type. Each binding should hold its own short list of the symbols it skips

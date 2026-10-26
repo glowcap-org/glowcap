@@ -109,6 +109,11 @@ do not need the intermediate results. A promise belongs to the Host that
 created it: any Session of that Host may use it, and a different Host refuses
 it.
 
+A promise is also an argument. Pass it where a capability goes in `send` or
+`tell`, pending or settled, and the receiver gets a promise for the same
+answer, which it can send to, listen on, or pass along. A promise whose reply
+capability you released breaks, and a broken promise cannot be passed.
+
 ## Closing sessions and hosts
 
 Closing a session ends one connection. Closing a Host first stops its listeners
