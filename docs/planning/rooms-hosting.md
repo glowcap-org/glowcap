@@ -5,16 +5,18 @@ Delete this plan when its steps land and its roadmap item closes.
 
 ## What this is for
 
-Rooms sessions keep the same capability model whether owned in a browser,
-run locally or hosted together on a server. Shared hosting serves many
-independent sessions. Optional accounts remember explicitly entrusted access
-and offer sign-in recovery. Creating, using and sharing a session needs no
-identity-provider account.
+A Rooms session runs today as one process with its own Host, transport
+runtime, database and archive, whether a person runs it in a browser or on
+their own machine. This plan makes one server host many sessions for many
+people. Each session keeps exactly the authority it has today, and nobody
+has to make an account to create, use, or share one. An account is optional:
+it remembers the sessions a person has chosen to entrust to it and offers a
+way to sign back in after losing a device.
 
-The design spends memory and execution capacity on active work. Creating a
-session on a shared host must not create a process, thread, Host, listener
-or database cache.
-Sharing infrastructure must preserve separate authority, personas and costs.
+The hard part is cost. Creating a session on a shared host must not create a
+process, a thread, a Host, a listener or a database cache. Memory and work go
+to sessions that are active, and sharing the infrastructure never blurs whose
+authority, persona, or bill a piece of work belongs to.
 
 ## Where things stand
 
@@ -374,9 +376,9 @@ Keep identity providers and Rooms tenancy out of the CapTP engine. This does
 not promise zero Zig changes. Generic missing support for pooled hosting,
 bounded scheduling or owner lifecycle belongs in Loam or the driver, with
 its C ABI and binding changes. Do not duplicate those mechanisms in Rooms
-to keep the core diff small. Coordinate needed owner APIs with the existing
-[typed hosted access plan](typed-hosted-access.md), without starting its
-remaining work as an incidental dependency.
+to keep the core diff small. Name the owner APIs this plan needs so the
+[hosted access C surface item](../roadmap.md#what-starts-next) can be planned,
+without starting that work as an incidental dependency.
 
 ### Scrutiny and acceptance
 

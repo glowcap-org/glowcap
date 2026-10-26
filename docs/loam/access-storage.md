@@ -535,7 +535,7 @@ The workload sizes below are test inputs.
 indexed reads from disk.
 `zig build loam-browser-test` checks atomic browser storage, ownership,
 cancellation, sharing, and restoring after a page reload. The
-[roadmap](../roadmap.md#durable-applications) tracks the rest.
+[roadmap](../roadmap.md#what-starts-next) tracks the rest.
 
 | Workload | What it must show |
 | --- | --- |

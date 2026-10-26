@@ -2,7 +2,7 @@
 
 Status: active plan. Work on the remaining steps waits for maintainer review.
 Delete it, with the [design contract](rooms-design.md), when the last step
-lands and the [roadmap row](../roadmap.md#durable-applications) closes.
+lands and the [roadmap row](../roadmap.md#what-starts-next) closes.
 
 ## What this is for
 

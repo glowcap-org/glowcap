@@ -200,4 +200,4 @@ need documented schemas and tests against outside peers.
 
 Applications call managed access through Zig's `glowcap.loam.access` and a
 fixed-resource C and Rust API. A typed API with one resource type per interface
-is on the [roadmap](../roadmap.md#durable-applications).
+is on the [roadmap](../roadmap.md#what-starts-next).

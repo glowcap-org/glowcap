@@ -14,7 +14,7 @@ well as merged text. Each number below was checked on October 13, 2026.
 Which draft sections each profile has adopted, deferred, or left pending is
 the [conformance manifest](ocapn-conformance.md). Implementation work is
 listed under
-[OCapN direction](roadmap.md#ocapn-direction) on the roadmap.
+[waiting on upstream](roadmap.md#waiting-on-upstream) on the roadmap.
 
 Where two pinned sources disagree, `zig build ocapn-findings-check` reproduces
 the disagreement against the exact upstream revisions this repository pins, and

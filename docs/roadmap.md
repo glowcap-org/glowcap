@@ -1,6 +1,6 @@
 ---
 type: living
-description: The unfinished work, each item linked to its plan.
+description: The unfinished work in the order it starts, each item linked to its plan.
 sources: []
 ---
 
@@ -12,13 +12,18 @@ present, [known limitations](boundaries.md) covers their consequences, and
 [the ladder](ladder.md) tracks progress toward 1.0. [Upstream
 watch](upstream-watch.md) tracks open OCapN and Goblins questions.
 
+Work that can start sits first, in the order it starts. Work that waits on
+something outside the code follows, grouped by what it waits on. An item moves
+up when its wait ends.
+
 ## Opening the repository
 
 Public source and contribution do not require a finished roadmap or stable
 APIs. Publish the implemented scope with its known limits. The publication
-row below owns repository activation, and public release evidence owns checks
-on the exact candidate commit. A tagged package additionally needs the
-published-archive checks. None of these milestones means 1.0.
+item under [waiting on you](#waiting-on-you) owns repository activation, and
+public release evidence owns checks on the exact candidate commit. A tagged
+package additionally needs the published-archive checks. None of these
+milestones means 1.0.
 
 Fix known correctness defects in advertised behavior and broken contributor
 paths before inviting use. Planned features, broader platform support and
@@ -31,21 +36,143 @@ stay in known limitations, evidence gaps stay in stability, and accepted work
 to change either belongs here. Plans own implementation steps and acceptance,
 not a second publication checklist.
 
-## Platforms and reachability
+## What starts next
 
-OS portability and platform acceptance, including Windows with IOCP and
-macOS validation, are release obligations the maintainer runs.
+The order follows [the ladder](ladder.md): protocol behavior, then
+performance, then hosted applications, then the C surface and its bindings.
+Items run side by side when their plans' lanes allow, so a later item waits
+for an earlier one to start, not to finish. A plan marked as waiting for
+review needs that review before its first step.
 
-- **Windows and IOCP.** There is no Windows runtime check and no IOCP backend.
-  Windows support needs an IOCP backend that meets the existing
-  completion-loop contract in full (`validateBackend` checks it), then live
-  tests and release artifacts. It waits on Windows hardware for the checks
+1. **Promise arguments.** The Host refuses a promise a peer passes as an
+   argument when it names a question this side has not answered, and a
+   glowcap application cannot pass its own pending promise as an argument.
+   Pipelining already works. This is the one protocol-semantics gap on the
+   list, so it leads. The [promise arguments plan](planning/promise-arguments.md)
+   lifts the received promise to a capability and projects a vow outbound,
+   with live Goblins evidence in both directions.
+2. **Interop coverage.** Extend live binding checks to automatic capability
+   finalization, and live Goblins relay checks to Python, Rust and Racket.
+   Keep the exact role and transport coverage in community review. Work that
+   requires unsupported Goblins operations waits on upstream support, and the
+   rest starts here ([plan to plan](planning/plan-to-plan.md)).
+3. **Sealed scale.** Repeat the 500,000 live session run on `noise-tcp`. The
+   load half drives raw peers through completion loops, and the product
+   refuses a second session between one pair of durable identities. So the
+   sealed run needs a load half that opens one Noise channel per connection
+   under its own fresh key, with the sealed channel between the socket and
+   the raw peer. Done when the generated
+   [live-session report](https://glowcap.org/performance/#live-sessions)
+   records a completed sealed run beside the cleartext one
+   ([plan to plan](planning/plan-to-plan.md)).
+4. **Session open cost.** The
+   [session-opening report](https://glowcap.org/performance/#live-sessions)
+   measures connect, handshake, fetch, and close. Its cost model needs
+   per-session key derivation, socket setup, accept wake, and the fetch round
+   trip. Profile one open and either name those as floors or fix the layer
+   that owns the cost. Done when the report includes measured component
+   floors for both transports, with each total under 2× its named floors or
+   an explanation of the remaining cost
+   ([plan to plan](planning/plan-to-plan.md)).
+5. **Measure the remaining access workloads.** The
+   [access storage guide](loam/access-storage.md#performance-contract-and-measurements)
+   names each workload and what it must observe. Warm reads by depth, scope
+   selection, descendant growth, hot reads under slow writes, churn, and
+   browser latency and responsiveness are not measured. Measure each on the
+   default engine, SQLite. One that locates a limit in it reopens that choice
+   ([ADR-0062](decisions/adr/ADR-0062-sqlite-default-storage.md),
+   [plan to plan](planning/plan-to-plan.md)).
+6. **Managed-access failure isolation.** Add commit-panic and
+   owner-retirement coverage while unrelated actors remain active. Prove
+   recovery or explicit refusal, no premature publication, and progress for
+   unrelated owners. The existing process-kill suite does not prove these
+   cases. Coordinate with the hosted access C surface item below
+   ([plan to plan](planning/plan-to-plan.md)).
+7. **Power-loss assumptions.** Establish which power-loss assumptions each
+   disk engine's flush supports before claiming them, SQLite first because it
+   is the default. [Stability](stability.md) says power loss is untested, so
+   this extends evidence rather than repairing a claim
+   ([plan to plan](planning/plan-to-plan.md)).
+8. **Integrate Rooms content and access.** Use the settled interaction
+   contract. Integrate recursive rooms, directory access, branching
+   conversations and reorganization in the
+   [Rooms plan](planning/rooms.md).
+   Deliver the shared access editor with each integration. The
+   [design contract](planning/rooms-design.md) specifies the remaining
+   resource work, and the [session guide](rooms/session.md) and
+   [effect contract](rooms/session-effects.md) describe the session that
+   exists.
+9. **Interface definitions.** An interface gets one written form, a Syrup
+   value with a small text language above it, and from that form every
+   language gets a generated client and server scaffold, with an optional
+   way for an object to describe itself. The
+   [interface definitions plan](planning/interface-definitions.md) runs in
+   three phases, each its own plan: [the model](planning/interface-model.md),
+   [the language and generators](planning/interface-language.md), then
+   [discovery](planning/interface-discovery.md). The hand-built Tasks clients, the Rooms
+   grammar table, and the Rooms typed management client are replaced by
+   generated code. Phase one can start beside the Rooms work.
+10. **Hosted access C surface.** Bounded resource-tree operations and the
+    owner lifecycle, create, open, retire, are reachable only from Zig. Project
+    them through the C ABI over the existing Host, with Zig admission,
+    receipts, and recovery staying authoritative. Ready to plan once the
+    [shared hosting plan](planning/rooms-hosting.md) names the owner API it
+    needs ([plan to plan](planning/plan-to-plan.md)).
+11. **Shared Rooms hosting and sign-in.** Host independent Rooms sessions
+    over shared transport, storage and execution, with bounded per-session
+    costs, and add optional identity-provider login that restores explicitly
+    held access. The [hosting plan](planning/rooms-hosting.md) defines
+    ownership, multiplexed membership and scale acceptance, and its optional
+    [account contract](planning/rooms-hosting-accounts.md) defines sign-in
+    custody and recovery. Hosting builds on the Rooms plan's policy catalog
+    and room-owned grants, so it starts after those land. Both contracts wait
+    for maintainer review before implementation.
+12. **Bindings own their symbol omissions.** Each C archive's symbol
+    inventory (`symbols.zig`) carries a per-binding omit flag, so the C ABI
+    layer names its consumers and a new binding adds a field to a shared row
+    type. Each binding should hold its own short list of the symbols it skips
+    and why, beside its generated table, and the generators join the two
+    ([plan to plan](planning/plan-to-plan.md)).
+
+The [Loam guide](loam.md) covers the Loam foundation, its managed access
+module, and persistence research. The C/Rust and browser fixed-resource
+lifecycles are described in the [C/Rust scope](loam/c-and-rust.md) and the
+[browser scope and evidence](loam/browser.md). The exercised fixed-resource
+profile does not freeze the broader foreign ABI.
+[ADR-0048](decisions/adr/ADR-0048-loam-persistence-foundation.md) records
+ownership.
+
+## Waiting on you
+
+Each item is a maintainer action or a decision only the maintainer can make.
+None of them needs a plan until the decision is made.
+
+- **Publication.** Remain private and use
+  [local integration](maintaining.md#integrating-locally) until the
+  maintainer authorizes publication. Then verify hosted runner availability,
+  make the repository public, activate and verify
+  [main protection](maintaining.md#repository-protection), confirm the
+  checked `dev` commit and resulting fast-forward `main` push pass their
+  required checks, enable private vulnerability reporting, set Pages to deploy
+  from Actions and run `pages`. Done when the badge, run, and site are visible
+  without authentication and an unchecked promotion is refused. The items
+  under [waiting on publication](#waiting-on-publication) then take over
   ([plan to plan](planning/plan-to-plan.md)).
-- **Public-certificate relay URLs.** Local WSS with a fixture authority is
-  checked. A public certificate at a real relay hostname is still unproven
-  across every execution form outside the browser
-  ([known limitations](boundaries.md#browser-reachability)). It waits on a
-  real relay hostname ([plan to plan](planning/plan-to-plan.md)).
+- **Public release evidence.** Before an invite or release, run the exact
+  release commit through the checks and macOS jobs, then verify the
+  repository, badge, and run are visible without authentication
+  ([plan to plan](planning/plan-to-plan.md)).
+- **Loam acceptance on macOS.** One successful macOS run of
+  `zig build test loam-lmdb-test loam-sqlite-test` plus the Loam crash probes
+  the macOS job runs, recorded with revision and commands. Done when
+  `docs/stability.md` records the run and the macOS sentences in
+  [stability](stability.md) and [shipped](shipped.md#resource-models) change
+  to present tense ([plan to plan](planning/plan-to-plan.md)).
+- **Visualizer playback.** Re-measure playback on the reporting machine's
+  real GPU with the committed stress corpus. Done when there is no visible
+  playhead jump with the work-budget tests green, and the table in
+  `apps/ocapnviz/test-data/README.md` gains the new row
+  ([plan to plan](planning/plan-to-plan.md)).
 - **Primary TypeScript runtime.** Cloudflare ends its development of the Deno
   runtime after a one-year maintenance window that began in October 2026, and
   Bun cannot host the binding's driver loop because its FFI runs on the
@@ -56,14 +183,66 @@ macOS validation, are release obligations the maintainer runs.
   Nothing moves before the record is accepted. The pinned Deno release stays
   the environment of record until then
   ([plan to plan](planning/plan-to-plan.md)).
+- **A2A facade.** Deferred by
+  [ADR-0032](decisions/adr/ADR-0032-cli-and-product-boundaries.md). A
+  [design sketch](planning/glowcap-a2a-on-captp-design.md) records the
+  design. It waits on a decision to undefer it
+  ([plan to plan](planning/plan-to-plan.md)).
+- **OpenTelemetry export.** Adapter-only OTLP off the Host and session event
+  spine, enabled by `OTEL_*` or a flag, off by default, never in a
+  `core = true` module. It waits on a decision to take it up
+  ([plan to plan](planning/plan-to-plan.md)).
+- **The object layer.** Facts the trace tap does not report: what a session
+  carries, rather than which sessions exist. It waits on a decision to take
+  it up ([plan to plan](planning/plan-to-plan.md)).
+- **Control capabilities.** Observation and control stay separate grants
+  ([ADR-0040](decisions/adr/ADR-0040-trace-observation-authority.md)). No
+  endpoint offers a control capability. It waits on a decision to take it up
+  ([plan to plan](planning/plan-to-plan.md)).
+- **Admission and accountability.** A front-door pattern for applications:
+  check a cheap pass before any session, exchange one proof for a scoped,
+  budgeted, revocable facet, and follow responsibility across delegation
+  hops. [What about identity?](https://glowcap.org/identity/)
+  explains the model. It waits on a decision to take it up
+  ([plan to plan](planning/plan-to-plan.md)).
 
-## OCapN direction
+## Waiting on publication
+
+These follow the publication item above or a release decision. The
+engineering work under [what starts next](#what-starts-next) does not depend
+on them.
+
+- **Nightly fuzz.** Record a successful scheduled fuzz run from `check.yml`
+  on the published default branch. Done when one scheduled run on `main` is
+  green ([plan to plan](planning/plan-to-plan.md)).
+- **Evidence that travels with the change.** Each run of `ci/gates.sh`
+  writes a record, a clean run notes it on the commit, and the integrator
+  signs what lands on `dev`. A landing check has to refuse a `dev` commit
+  with no record for its tree. The record needs a signed attestation form, so
+  a release ships as an evidence bundle, and a ledger page generated from the
+  records. Change stacks on Jujutsu and a community front door on Rooms
+  follow ([plan to plan](planning/plan-to-plan.md)).
+- **Published C archives.** No versioned assets are live. Publication needs
+  green packages for every target, a tagged exact-SHA release, verified live
+  assets, then the `releases_published` consumer switch in
+  [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json) and a
+  cold-cache smoke against the real release URL. The order is fixed by the
+  [packaging guide](../bindings/PACKAGING.md#publishing-c-archives)
+  ([plan to plan](planning/plan-to-plan.md)).
+- **Language package publication.** Local package rehearsals run through
+  `zig build bindings-package-check`. Registry ownership, first publication,
+  and cold-cache installs against hosted C archives remain release work.
+  The [packaging guide](../bindings/PACKAGING.md) owns the order and intended
+  names. Direct npm publication needs its own package and consumer proof
+  ([plan to plan](planning/plan-to-plan.md)).
+
+## Waiting on upstream
 
 The `1.0` profile preserves pinned Goblins interoperability, and
 `glowcap-next` tracks the merged draft. The
 [conformance manifest](ocapn-conformance.md) records adopted, deferred, and
-pending sections independently of the specification reference. [Upstream watch](upstream-watch.md) holds
-what glowcap cannot settle alone.
+pending sections independently of the specification reference.
+[Upstream watch](upstream-watch.md) holds what glowcap cannot settle alone.
 
 - **Five-field `op:start-session`.** The merged draft moves `crypto-version`
   into the hello and replaces the structured key and signature records with
@@ -76,164 +255,23 @@ what glowcap cannot settle alone.
   The [transition plan](planning/ocapn-crypto-version-handshake.md) lists what
   must be ready and the steps after that.
 
-## Protocol API work
+## Waiting on hardware or a hostname
 
-- **Promise-valued arguments.** The Host refuses a `desc:answer` promise
-  passed as an argument with `UnsupportedValue` while preserving the session. Implement
-  promise lifting with correct settlement, release and failure behavior,
-  backed by protocol scenarios and outside-peer evidence. Target pipelining
-  already works. This is separate from the crypto transition and needs a
-  design before implementation ([plan to plan](planning/plan-to-plan.md)).
+OS portability and platform acceptance, including Windows with IOCP and
+macOS validation, are release obligations the maintainer runs.
 
-## Release dependencies
-
-The first-publication steps in the
-[open obligations](#open-obligations-from-retired-plans) wait on maintainer
-account actions. These checks follow that publication or a release decision,
-and the engineering work above does not depend on them.
-
-- **Evidence that travels with the change.** Each run of `ci/gates.sh`
-  writes a record, a clean run notes it on the commit, and the integrator
-  signs what lands on `dev`. A landing check still has to refuse a `dev`
-  commit with no record for its tree. The record still needs a signed
-  attestation form, so a release ships as an evidence bundle, and a ledger
-  page generated from the records. Change stacks on Jujutsu and a community
-  front door on Rooms follow. [Plan to plan](planning/plan-to-plan.md).
-- **Public release evidence.** Before an invite or release, run the exact
-  release commit through the checks and macOS jobs, then verify the repository,
-  badge, and run are visible without authentication. Maintainer action
+- **Windows and IOCP.** There is no Windows runtime check and no IOCP backend.
+  Windows support needs an IOCP backend that meets the existing
+  completion-loop contract in full (`validateBackend` checks it), then live
+  tests and release artifacts. It waits on Windows hardware for the checks
   ([plan to plan](planning/plan-to-plan.md)).
-- **Published C archives.** No versioned assets are live. Publication needs
-  green packages for every target, a tagged exact-SHA release, verified live
-  assets, then the `releases_published` consumer switch in
-  [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json) and a
-  cold-cache smoke against the real release URL. The order is fixed by the
-  [packaging guide](../bindings/PACKAGING.md#publishing-c-archives).
-  It waits on publication ([plan to plan](planning/plan-to-plan.md)).
-- **Language package publication.** Local package rehearsals run through
-  `zig build bindings-package-check`. Registry ownership, first publication,
-  and cold-cache installs against hosted C archives remain release work.
-  The [packaging guide](../bindings/PACKAGING.md) owns the order and intended
-  names. Direct npm publication needs its own package and consumer proof
-  ([plan to plan](planning/plan-to-plan.md)).
-
-- **Bindings own their symbol omissions.** Each C archive's symbol inventory
-  (`symbols.zig`) carries a per-binding omit flag, so the C ABI layer names
-  its consumers and a new binding adds a field to a shared row type. Each
-  binding should hold its own short list of the symbols it skips and why,
-  beside its generated table, and the generators join the two
-  ([plan to plan](planning/plan-to-plan.md)).
-
-## Durable applications
-
-The [Loam guide](loam.md) covers the Loam foundation, its managed access
-module, and persistence research. Nothing above blocks this work.
-
-1. **Integrate Rooms content and access.** Use the settled interaction
-   contract. Integrate recursive rooms, directory access, branching
-   conversations and reorganization in the
-   [Rooms plan](planning/rooms.md).
-   Deliver the shared access editor with each integration.
-2. **Power-loss assumptions.** Establish which power-loss assumptions each
-   disk engine's flush supports before claiming them, SQLite first because it
-   is the default
-   ([plan to plan](planning/plan-to-plan.md)).
-3. **Measure the remaining access workloads.** The
-   [access storage guide](loam/access-storage.md#performance-contract-and-measurements)
-   names each workload and what it must observe. Warm reads by depth, scope
-   selection, descendant growth, hot reads under slow writes, churn, and browser
-   latency and responsiveness are not measured. Measure each on the
-   default engine, SQLite. One that locates a limit in it reopens that choice
-   ([ADR-0062](decisions/adr/ADR-0062-sqlite-default-storage.md),
-   [plan to plan](planning/plan-to-plan.md)).
-4. **Typed hosted access API.** Build typed resource and control clients over
-   the existing Host, and expose bounded resource-tree operations and the
-   owner lifecycle through the C ABI and Rust. The
-   [implementation plan](planning/typed-hosted-access.md) waits for maintainer
-   review before execution. Existing Zig admission, receipts, and recovery
-   remain authoritative.
-5. **Shared Rooms hosting and sign-in.** Host independent Rooms sessions
-   over shared transport, storage and execution, with bounded per-session
-   costs. Add optional identity-provider login that restores explicitly held
-   access. The [hosting plan](planning/rooms-hosting.md) defines ownership,
-   multiplexed membership and scale acceptance. Its optional
-   [account contract](planning/rooms-hosting-accounts.md) defines sign-in
-   custody and recovery.
-
-   The account-free hosting foundation precedes account integration, but
-   neither blocks opening the repository. Coordinate contributions touching
-   these ownership contracts against the plan. Both contracts wait for
-   maintainer review before implementation.
-
-The C/Rust and browser fixed-resource lifecycles are described in the
-[C/Rust scope](loam/c-and-rust.md) and the
-[browser scope and evidence](loam/browser.md). The exercised fixed-resource
-profile does not freeze the broader foreign ABI.
-
-The [Rooms design contract](planning/rooms-design.md) specifies the remaining
-resource work. The [session guide](rooms/session.md) and
-[effect contract](rooms/session-effects.md) describe the session that exists.
-[ADR-0048](decisions/adr/ADR-0048-loam-persistence-foundation.md) records
-ownership.
-
-## Evidence follow-ups
-
-These extend the documented evidence, not the claims of the initial public
-repository. Keep unsupported deployments and unproved guarantees explicit
-until their checks pass.
-
-- **Managed-access failure isolation.** Add commit-panic and owner-retirement
-  coverage while unrelated actors remain active. Prove recovery or explicit
-  refusal, no premature publication, and progress for unrelated owners.
-  The existing process-kill suite does not prove these cases. Coordinate
-  with the owner-lifecycle work in the
-  [typed hosted access plan](planning/typed-hosted-access.md)
-  ([plan to plan](planning/plan-to-plan.md)).
+- **Public-certificate relay URLs.** Local WSS with a fixture authority is
+  checked. A public certificate at a real relay hostname is unproven across
+  every execution form outside the browser
+  ([known limitations](boundaries.md#browser-reachability)). It waits on a
+  real relay hostname ([plan to plan](planning/plan-to-plan.md)).
 - **Transport deployment coverage.** Exercise iroh between separate NATs,
   including a publishable direct address without a relay. Record the network
   setup and observed route. Extend non-Linux relay and runtime coverage when
-  runners are available. Public-certificate work remains in Platforms and
-  reachability ([plan to plan](planning/plan-to-plan.md)).
-- **Interop coverage.** Extend live binding checks to automatic capability
-  finalization, and live Goblins relay checks to Python, Rust and Racket.
-  Keep the exact role and transport coverage in community review. Work that
-  requires unsupported Goblins operations waits on upstream support
-  ([plan to plan](planning/plan-to-plan.md)).
-
-## Open obligations from retired plans
-
-Each row is done when its evidence sentence is true. Then delete the row.
-
-| Area | Remaining obligation | Evidence that closes it |
-| --- | --- | --- |
-| Sealed scale | Repeat the 500,000 live session run on `noise-tcp`. The load half drives raw peers through completion loops, and the product refuses a second session between one pair of durable identities. So the sealed run needs a load half that opens one Noise channel per connection under its own fresh key, with the sealed channel between the socket and the raw peer ([plan to plan](planning/plan-to-plan.md)). | The generated [live-session report](https://glowcap.org/performance/#live-sessions) records a completed sealed run beside the cleartext one. |
-| Session open cost | The [session-opening report](https://glowcap.org/performance/#live-sessions) measures connect, handshake, fetch, and close. Its cost model still needs per-session key derivation, socket setup, accept wake, and the fetch round trip. Profile one open and either name those as floors or fix the layer that owns the cost ([plan to plan](planning/plan-to-plan.md)). | The generated session-opening report includes measured component floors for both transports, with each total under 2× its named floors or an explanation of the remaining cost. |
-| Nightly fuzz | Record a successful scheduled fuzz run from `check.yml` on the published default branch ([plan to plan](planning/plan-to-plan.md)). | One scheduled run on `main` is green. |
-| Loam acceptance | One successful macOS run of `zig build test loam-lmdb-test loam-sqlite-test` plus the Loam crash probes the macOS job runs, recorded with revision and commands. Maintainer-owned. Awaiting successful hosted verification ([plan to plan](planning/plan-to-plan.md)). | `docs/stability.md` records the run. The macOS sentences in [stability](stability.md) and [shipped](shipped.md#resource-models) change to present tense. |
-| Visualizer | Re-measure playback on the reporting machine's real GPU with the committed stress corpus. Maintainer action ([plan to plan](planning/plan-to-plan.md)). | No visible playhead jump with the work-budget tests green. The table in `apps/ocapnviz/test-data/README.md` gains the new row. |
-| Publication | Remain private and use [local integration](maintaining.md#integrating-locally) until the maintainer authorizes publication. Then verify hosted runner availability, make the repository public, activate and verify [main protection](maintaining.md#repository-protection), confirm the checked `dev` commit and resulting fast-forward `main` push pass their required checks, enable private vulnerability reporting, set Pages to deploy from Actions and run `pages`. Maintainer-owned ([plan to plan](planning/plan-to-plan.md)). | The badge, run, and site are visible without authentication. An unchecked promotion is refused. The release section of the [release dependencies](#release-dependencies) takes over. |
-
-## Further application work
-
-- **A2A facade.** Deferred by
-  [ADR-0032](decisions/adr/ADR-0032-cli-and-product-boundaries.md). A
-  [design sketch](planning/glowcap-a2a-on-captp-design.md) records the
-  design. It waits on a maintainer decision to undefer it
-  ([plan to plan](planning/plan-to-plan.md)).
-- **OpenTelemetry export.** Adapter-only OTLP off the Host and session event
-  spine, enabled by `OTEL_*` or a flag, off by default, never in a
-  `core = true` module. It waits on a maintainer decision
-  ([plan to plan](planning/plan-to-plan.md)).
-- **The object layer.** Facts the trace tap does not report: what a session
-  carries, rather than which sessions exist. It waits on a maintainer
-  decision ([plan to plan](planning/plan-to-plan.md)).
-- **Control capabilities.** Observation and control stay separate grants
-  ([ADR-0040](decisions/adr/ADR-0040-trace-observation-authority.md)). No endpoint
-  offers a control capability yet. It waits on a maintainer decision
-  ([plan to plan](planning/plan-to-plan.md)).
-- **Admission and accountability.** A front-door pattern for applications:
-  check a cheap pass before any session, exchange one proof for a scoped,
-  budgeted, revocable facet, and follow responsibility across delegation
-  hops. [What about identity?](https://glowcap.org/identity/)
-  explains the model. It waits on a maintainer decision
+  runners are available. Public-certificate work is the item above
   ([plan to plan](planning/plan-to-plan.md)).

@@ -18,7 +18,7 @@ This page is permanent. It says how work goes from an idea to a plan to done.
 
 So every roadmap item links either its own plan or this page, and
 `source-check` fails if one links neither. The roadmap is the only list of
-work. Nothing else lists plans or their status.
+work, in the order it starts. Nothing else lists plans or their status.
 
 ## When an item is ready to plan
 
@@ -55,6 +55,9 @@ acts.
    - **Where the code is**, the file paths and names, last.
 5. Write it so the maintainer can read it once and understand it. Explain a
    term the first time it's used, and keep code names in the last section.
+   The test: after the first section, the maintainer can say in a few plain
+   sentences what is missing and what the plan makes true. A first section
+   that needs a code name or an abstraction to say that is unfinished.
 6. In the same commit, point the roadmap item at the new plan instead of here.
 7. The maintainer reviews the plan before any step starts. After that review,
    the status line drops "waiting for maintainer review".

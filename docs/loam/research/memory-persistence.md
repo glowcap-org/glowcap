@@ -462,10 +462,10 @@ whole-system costs justify adoption.
 | --- | --- |
 | 1. Observable model | Store incarnations and the record contract are written down ([ADR-0048](../../decisions/adr/ADR-0048-loam-persistence-foundation.md), [store](../store.md)). No model checker runs short interleavings. |
 | 2. Two consumers | Done. Plain actor graphs, managed access, and ordinary records share one store, and the Tasks app is a second application on it. |
-| 3. Application workload | Done for the Tasks workload on both disk engines ([Loam benchmarks](../../../bench/loam/README.md)). The remaining access workloads are on the [roadmap](../../roadmap.md#durable-applications). |
+| 3. Application workload | Done for the Tasks workload on both disk engines ([Loam benchmarks](../../../bench/loam/README.md)). The remaining access workloads are on the [roadmap](../../roadmap.md#what-starts-next). |
 | 4. Recovery and custody | Process kills and injected I/O faults run on both disk engines ([stability](../../stability.md)). Power loss, old-backup restoration, and stale writer custody have no tests. |
 | 5. CapTP and bindings | Done for the fixed-resource C, Rust, and browser API. The broader foreign API is on the roadmap. |
-| 6. Production profile | SQLite is the default disk engine. Region layouts, PMDK, and NVM are tried only once a measurement locates a limit in SQLite ([roadmap](../../roadmap.md#durable-applications)). |
+| 6. Production profile | SQLite is the default disk engine. Region layouts, PMDK, and NVM are tried only once a measurement locates a limit in SQLite ([roadmap](../../roadmap.md#what-starts-next)). |
 
 The baseline platform is a normal operating system and SSD. The browser is a
 separate required persistence profile. PMDK, NVM, and hardware compartments are

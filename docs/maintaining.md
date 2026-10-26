@@ -16,7 +16,7 @@ sources:
 The maintainer reviews changes into `dev`. Local work reaches `dev` through
 the worktree integrator. Hosted pull requests and protected promotion to
 `main`, the publication branch, require GitHub checks and repository protection
-to be available. The [roadmap](roadmap.md#open-obligations-from-retired-plans)
+to be available. The [roadmap](roadmap.md#waiting-on-you)
 owns activation and outstanding hosted verification.
 
 ## Release status

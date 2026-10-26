@@ -5,6 +5,23 @@ internal plan, not text to send upstream. Delete it after the transition is
 complete and the code, tests, decision records, and living documentation own
 the result.
 
+## What this is for
+
+When two peers connect, the first CapTP message each sends is its hello, the
+opening record that carries the protocol version, the session's public key,
+and a signed statement of where the peer can be reached. OCapN is changing
+the shape of that record upstream: a fifth field names the cryptographic
+suite, and the key and signature become raw bytes instead of the structures
+borrowed from gcrypt. Every peer on the network must agree on the record's
+shape before anything else can be said, so glowcap cannot adopt the change
+piecemeal or only on its experimental profile.
+
+This plan says what glowcap does about that: nothing until the specification
+and the reference implementations agree, then one clean cutover to the new
+record, with the evidence replaced in the same change. It names the contracts
+that stay fixed either way, the condition that makes the work ready, and the
+steps of the cutover.
+
 ## Decision
 
 glowcap will not implement OCapN PR 288 while the specification and the
