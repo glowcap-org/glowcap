@@ -177,8 +177,11 @@ pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, ar
 }
 
 /// Everything the value lift walk can refuse. The walk is recursive, so its
-/// set is spelled from the non-recursive steps it takes.
+/// set is spelled from the non-recursive steps it takes. An answer reference
+/// lifts through `capability_promise.liftAnswer`, which owns the answer's
+/// data through this walk again, so its refusals are spelled here too.
 pub const LiftError = error{ NestingTooDeep, MalformedView, UnsupportedValue } ||
+    error{ LiftedAnswerCapExceeded, CapabilitySpaceExhausted, InvalidReference, UnexpectedMessage, QueueCapExceeded, RetainOverflow } ||
     std.mem.Allocator.Error ||
     model.view.ProjectError ||
     foundation.error_sets.Of(CapabilityLiftReceipts.ensureOne) ||
@@ -204,13 +207,14 @@ fn liftValueInner(
         .bytes => |v| .{ .bytes = try bytes.materialize(arena, v) },
         .symbol => |v| .{ .symbol = try bytes.materialize(arena, v) },
         .reference => |reference| blk: {
-            // A promise received as an argument names a question this side
-            // still owes an answer to. The Host has no capability promise for
-            // it, so the value is refused here, before any lift, and the call
-            // fails while the session stays open (`docs/boundaries.md`).
-            if (reference == .promise) return error.UnsupportedValue;
             try lifts.ensureOne(if (bytes == .owned) self.allocator else arena);
-            const lifted = try identity.liftCapabilityTracked(self, session, try identity.callableReference(reference));
+            // A promise received as an argument names a question this side
+            // still owes an answer to: a capability promise that settles
+            // with the answer (ADR-0068).
+            const lifted = switch (reference) {
+                .promise => |promise| try capability_promise.liftAnswer(self, session, promise.answer_position),
+                else => try identity.liftCapabilityTracked(self, session, try identity.callableReference(reference)),
+            };
             lifts.appendAssumeCapacity(lifted, .reference);
             break :blk .{ .capability = lifted.ref };
         },

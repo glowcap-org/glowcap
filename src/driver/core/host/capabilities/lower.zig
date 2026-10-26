@@ -423,7 +423,10 @@ fn lowerTargetTracked(
                     break :blk try lowerTargetTracked(self, session, resolved, resolved_target);
                 },
                 .broken => return error.PromiseBroken,
-                .pending, .settling => {
+                // Data is a value, not a target. `lowerValueInner` lowers it
+                // in place of the capability.
+                .fulfilled_data => return error.UncallableTarget,
+                .pending, .settling, .settling_data => {
                     const projection = try capability_promise.prepareProjection(self, id, session);
                     break :blk .{
                         .reference = projection.reference,
@@ -493,6 +496,10 @@ fn lowerValueInner(
         .capability => |ref| blk: {
             try prepared.receipts.ensureOne(arena);
             const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+            // A promise that settled to data is that data (ADR-0068): the
+            // row's arena holds it for as long as the capability is held.
+            if (target == .deferred) if (capability_promise.settledData(self, target.deferred)) |data|
+                return lowerValueInner(self, session, prepared, data, depth + 1, out);
             const lowered = try lowerTargetTracked(self, session, ref, target);
             if (lowered.receipt) |receipt| prepared.receipts.appendAssumeCapacity(receipt);
             switch (lowered.reference) {

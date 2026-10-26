@@ -10,17 +10,15 @@ answered: ask a factory for a car, then tell the car to drive, then hand the
 car to a garage, all in one breath. The third step passes a promise as an
 argument. On the wire the sender names the still-open question, and the
 receiver is expected to treat that name as a promise for whatever it will
-answer. glowcap refuses that call. The refusal is typed, bounded to the one
-call, and the session keeps serving, but a Goblins peer that uses the idiom
-cannot talk to a glowcap object that way, and a glowcap application cannot
-write the idiom itself.
+answer. A promise a peer passes to glowcap this way arrives as a capability
+the application can send to, wait on, or pass along. A glowcap application
+cannot write the idiom itself: its handle to a pending answer is a vow, and
+nothing turns a vow into a value a call can carry.
 
-This plan makes both directions work. A promise a peer passes as an argument
-arrives as a capability the application can send to, wait on, or pass along.
-A promise a glowcap application holds can be passed as an argument to a call
-on the same peer or a different one. When this lands the conformance manifest
-has no protocol behavior that glowcap refuses, apart from the cryptographic
-handshake it tracks against upstream in its own plan.
+This plan makes the sending direction work and proves both against Goblins.
+When it lands the conformance manifest has no protocol behavior that glowcap
+refuses, apart from the cryptographic handshake it tracks against upstream in
+its own plan.
 
 ## Where things stand
 
@@ -33,10 +31,12 @@ appears inside a value already becomes a Host capability promise with its own
 identity, pending operations, and settlement, so the Host has the row type
 this plan needs.
 
-The one refused shape is the answer reference: a value inside a call's
-arguments that names a question the receiver has not answered. The Host
-rejects it at the lift, before any actor runs. The session layer accepts it
-as valid on every carrier, so only the Host is missing the behavior.
+An answer reference inside a call's arguments lifts to a Host capability
+promise keyed by the answer, which settles when the answer does: to the
+capability it names, to its data, to another lifted answer, or broken. The
+per-session bound, its typed refusal, release when the application lets the
+capability go, survival of the partner's garbage collection, and breaking on
+session close are in place with their tests.
 
 In the other direction an application's handle to a pending answer is a vow,
 and a vow is not a value. Nothing turns it into something a call can carry.
@@ -80,26 +80,13 @@ argument by calling it.
 
 Each step is one commit with its own test.
 
-2. **Settle to data.** The capability promise row accepts a data resolution.
-   A send to it breaks, a listen fulfills with the data. Test: driver tests
-   on an inline-give promise driven to each settlement.
-3. **Lift the answer reference.** The Host lifts a pending answer reference
-   to a capability promise keyed by row identity, retains the payload, and
-   settles the promise when the answer settles. A settled reference shortens,
-   and settled data or a break lifts settled. Test: the existing refusal test
-   becomes the acceptance test. The actor runs, sends to the promise before
-   and after settlement, listens, receives the same capability for the same
-   question twice, and the session stays active. A fuzz target seeds the
-   corpus with answer references in every nesting shape.
-4. **Bound and release.** The per-session limit, the typed refusal when it is
-   exceeded, release when the application drops the capability, survival of
-   the peer's garbage collection of the position, and breaking on session
-   close. Test: each case alone, and the footprint pins hold.
 5. **Project a vow outbound.** A Host verb turns a public vow into a
    capability. Same-session lowering encodes the answer reference, and
-   cross-session lowering projects a local promise. Test: two Hosts, a
-   factory call followed by a pass of its unsettled result to another object
-   on the same peer and on a third peer, each settling once.
+   cross-session lowering projects a local promise. The inbound lift refuses
+   a reference to one of this Host's own promise exports, so a projected vow
+   that comes back inside a partner's answer needs that lift to accept it.
+   Test: two Hosts, a factory call followed by a pass of its unsettled result
+   to another object on the same peer and on a third peer, each settling once.
 6. **C ABI and bindings.** One C verb for the projection, and every binding's
    send accepts its promise type as an argument. Received promises already
    arrive as capability handles. Test per binding: pass a pending promise,
@@ -114,11 +101,8 @@ Each step is one commit with its own test.
 
 ## Parallel work
 
-Steps 2 through 4 are one lane, since each builds on the row change. Step 5
-can start in a second lane and touches the lowering path and the vow verbs,
-which steps 2 to 4 do not edit. Step 6 waits for both lanes. Steps 7 and 8
-follow in one lane. One owner holds the shipped inventory and the limitation
-list. The decision is [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md).
+Step 5 is one lane. Step 6 waits for it. Steps 7 and 8 follow in one lane.
+One owner holds the shipped inventory and the limitation list. The decision is [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md).
 
 ## Questions for you
 
@@ -130,8 +114,8 @@ list. The decision is [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md)
 
 | Concern | Where |
 | --- | --- |
-| The refusal | `src/driver/core/host/capabilities/lift.zig`, `liftValueInner` |
-| Capability promise rows and verbs | `src/driver/core/capability_promise.zig`, `capability_promise/row.zig` |
+| The lift | `src/driver/core/host/capabilities/lift.zig`, `liftValueInner` |
+| Capability promise rows and verbs | `src/driver/core/capability_promise.zig`, `capability_promise/row.zig`, `capability_promise/answer.zig` |
 | Inbound answer settlement and retention | `src/ocapn/session/answers/notifications.zig` |
 | Session validation of the reference | `src/ocapn/session/validate/passable.zig` |
 | Lowering values and vows | `src/driver/core/host/capabilities/lower.zig`, `src/driver/core/vows/settlement.zig` |
@@ -146,6 +130,6 @@ list. The decision is [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md)
 | Steps | Gate |
 | --- | --- |
 | 8 | `source-check` |
-| 2 to 5 | `test` on the driver and session layers, then `oracle-check` |
+| 5 | `test` on the driver and session layers, then `oracle-check` |
 | 6 | the generated header and layout checks, then `runtime-check` |
 | 7 | `check-external` |

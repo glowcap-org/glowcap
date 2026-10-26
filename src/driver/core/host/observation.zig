@@ -145,7 +145,7 @@ fn observeCapability(
         const promise = self.capability_promises.get(resolved_target.deferred) orelse
             return error.UnknownCapability;
         switch (promise.state) {
-            .pending, .settling => {
+            .pending, .settling, .settling_data => {
                 const id = try capability_promise.queueListen(self, resolved_target.deferred, session);
                 if (drive_now) host_pump.finishCommittedWork(self, session);
                 return .{ .pending = id };
@@ -153,6 +153,12 @@ fn observeCapability(
             .fulfilled => |resolved| {
                 current = resolved;
                 resolved_target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
+            },
+            // The vow is settled with the data before it is returned.
+            .fulfilled_data => {
+                const id = try capability_promise.listenData(self, resolved_target.deferred, session);
+                if (drive_now) host_pump.finishCommittedWork(self, session);
+                return .{ .pending = id };
             },
             .broken => return error.PromiseBroken,
         }

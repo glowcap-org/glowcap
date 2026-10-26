@@ -90,6 +90,7 @@ const surfaces = [_]Surface{
         "node_services",
         "pairing",
         "pipeline",
+        "resolution_chain",
         "sturdyref",
         "v1_0",
     } },

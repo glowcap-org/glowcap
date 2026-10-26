@@ -41,11 +41,12 @@ pub fn applicationTarget(self: *Host, ref: capability.Ref) !ApplicationTarget {
             .deferred => |id| {
                 const promise = self.capability_promises.get(id) orelse return error.UnknownCapability;
                 switch (promise.state) {
-                    .pending, .settling => return .{
+                    .pending, .settling, .settling_data => return .{
                         .ref = current,
-                        .session = self.sessions.get(promise.introducing_peer) orelse return error.UnknownCapability,
+                        .session = self.sessions.get(promise.origin.peer()) orelse return error.UnknownCapability,
                     },
                     .fulfilled => |settled| current = settled,
+                    .fulfilled_data => return error.UncallableTarget,
                     .broken => return error.PromiseBroken,
                 }
             },

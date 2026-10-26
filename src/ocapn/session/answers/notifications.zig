@@ -211,6 +211,64 @@ pub fn retainPayload(_: *Session, answer_payload: *answers.AnswerPayload) !void 
     try answers.retainAnswerPayload(answer_payload);
 }
 
+/// Subscribe the Host capability promise `promise` to an answer that is still
+/// pending (ADR-0068): retain its payload, creating the box for a bare row,
+/// and mark the payload so the Peer publishes one action when the answer
+/// settles. The session's `max_lifted_answers` bounds the subscriptions, and
+/// a payload already marked is refused as `UnexpectedMessage`, as is an answer
+/// that already holds its resolution, whose subscriber would never be
+/// notified: the caller follows the stored chain instead. The release is
+/// `unsubscribeHostPromise`.
+pub fn subscribeHostPromise(self: *Session, target: answers.AnswerTarget, promise: u64) !*answers.AnswerPayload {
+    if (self.inbound_answers.host_promises >= self.limits.max_lifted_answers) return error.LiftedAnswerCapExceeded;
+    const marked = try markHostPromise(self, target, promise);
+    self.inbound_answers.host_promises += 1;
+    return marked;
+}
+
+/// Move a subscription to the answer the first one's resolution named. The
+/// next payload is prepared, retained, and marked before the first is
+/// released, so a refusal leaves the subscription where it was, and the count
+/// never moves because the move holds the one seat it held.
+pub fn moveHostPromise(
+    self: *Session,
+    from: answers.AnswerTarget,
+    from_payload: *answers.AnswerPayload,
+    to: answers.AnswerTarget,
+    promise: u64,
+) !*answers.AnswerPayload {
+    std.debug.assert(from_payload.host_promise == promise);
+    const marked = try markHostPromise(self, to, promise);
+    from_payload.host_promise = 0;
+    from_payload.host_promise_notified = false;
+    releaseCarrier(self, from, from_payload);
+    return marked;
+}
+
+fn markHostPromise(self: *Session, target: answers.AnswerTarget, promise: u64) !*answers.AnswerPayload {
+    var prepared = try answers.preparePendingPayloadTarget(self, target);
+    errdefer prepared.abandon(self);
+    if (prepared.payload.host_promise != 0) return error.UnexpectedMessage;
+    try answers.retainAnswerPayload(prepared.payload);
+    prepared.commit();
+    prepared.payload.host_promise = promise;
+    prepared.payload.host_promise_notified = false;
+    return prepared.payload;
+}
+
+/// Leave a subscription made by `subscribeHostPromise`: clear the mark, return
+/// the bound's seat, and release the retain, which also retires a detached row
+/// the retain outlived. Whether the action was published is the caller's to
+/// read first, because the Node seat it rode is the caller's.
+pub fn unsubscribeHostPromise(self: *Session, target: answers.AnswerTarget, answer_payload: *answers.AnswerPayload) void {
+    std.debug.assert(answer_payload.host_promise != 0);
+    answer_payload.host_promise = 0;
+    answer_payload.host_promise_notified = false;
+    std.debug.assert(self.inbound_answers.host_promises > 0);
+    self.inbound_answers.host_promises -= 1;
+    releaseCarrier(self, target, answer_payload);
+}
+
 pub fn resolution(_: *Session, answer_payload: *answers.AnswerPayload) ?*const model.Resolution {
     if (answer_payload.resolution) |*stored| return &stored.value;
     return null;

@@ -112,8 +112,10 @@ pub const Host = struct {
     /// session. Wire positions remain owned by their session. This table keeps
     /// the owning peer beside the target and rejects stale generations.
     capabilities: capability.Registry = .{},
-    /// Inline handoff promises. Rows exist only while redemption is pending or
-    /// while their opaque capability identity remains live.
+    /// Capability promises: inline handoff gives under redemption and
+    /// partner answers lifted from arguments (ADR-0068). Rows exist only while
+    /// the settlement is pending or while their opaque capability identity
+    /// remains live.
     capability_promises: std.AutoHashMapUnmanaged(capability.PromiseId, capability_promise_row.Row) = .empty,
     /// Rows above whose redemption has not settled, counted by the session
     /// that delivered the give. Each session is held to its

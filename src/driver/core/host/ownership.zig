@@ -87,6 +87,8 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
         session.*.served.port.breakFarVows(session.*.served.closeReason("host released"));
         _ = self.capabilities.invalidatePeer(session.*.peer_handle);
         @import("../vows/release.zig").dropSessionRows(self, session.*, session.*.served.closeReason("host released"));
+        // Lifted answers hold payload retains the Peer below must see returned.
+        capability_promise.forgetSessionAnswers(self, session.*);
     }
     var free_it = self.sessions.valueIterator();
     while (free_it.next()) |session| {

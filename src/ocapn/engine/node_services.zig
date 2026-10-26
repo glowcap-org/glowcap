@@ -117,6 +117,12 @@ pub const NodeServices = struct {
         Internal.sessionClosed(self.node, self.peer_handle);
     }
 
+    /// An inbound answer a Host capability promise subscribes to has settled
+    /// (ADR-0068). Publishes on the seat the subscription promised.
+    pub fn answerSettled(self: NodeServices, promise: u64) void {
+        self.node.publishAnswerSettled(promise);
+    }
+
     pub fn prepareV1EmittedHandoffCount(self: NodeServices) HandoffCountError!bootstrap.gifts.PreparedHandoffCount {
         return Internal.prepareV1HandoffCount(self.node);
     }

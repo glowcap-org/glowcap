@@ -12,7 +12,7 @@ test "loam save preparation waits for the exact inline handoff and preserves its
     defer fixture.deinit();
     const alias = try fixture.host.capabilities.retain(a, .{ .deferred = @fromBackingInt(1) });
     const id = fixture.host.capabilities.resolve(alias).?.deferred;
-    try fixture.host.capability_promises.put(a, id, .{ .introducing_peer = @fromBackingInt(1) });
+    try fixture.host.capability_promises.put(a, id, .{ .origin = .{ .inline_give = @fromBackingInt(1) } });
     const lease = try records.load(&fixture.data.store, &fixture.data.backend, fixture.id);
     defer fixture.data.store.release(lease) catch unreachable;
     var memory: f.hosting.Call.Memory = undefined;
@@ -57,7 +57,7 @@ test "loam settled handoff save validates the canonical foreign object against i
         const alias = try fixture.host.capabilities.retain(a, .{ .deferred = @fromBackingInt(1) });
         defer fixture.host.releaseCapabilityTerminal(alias, null);
         const id = fixture.host.capabilities.resolve(alias).?.deferred;
-        try fixture.host.capability_promises.put(a, id, .{ .introducing_peer = pair.a.peer_handle, .state = .{ .fulfilled = resolved } });
+        try fixture.host.capability_promises.put(a, id, .{ .origin = .{ .inline_give = pair.a.peer_handle }, .state = .{ .fulfilled = resolved } });
         const other = try remote.spawn(pair.b, wire.Widget, .{});
         defer remote.releaseCapabilityTerminal(other, null);
         const wrong = try remote.publishDurableCapability(@splat(0x22), other);

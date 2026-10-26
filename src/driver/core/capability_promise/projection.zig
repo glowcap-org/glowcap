@@ -20,7 +20,7 @@ pub const Prepared = struct {
 /// that transaction exact rollback authority until then.
 pub fn prepare(self: *Host, id: capability.PromiseId, session: *HostSession) !Prepared {
     const row = self.capability_promises.getPtr(id) orelse return error.UnknownCapability;
-    if (row.state != .pending and row.state != .settling) return error.PromiseNotPending;
+    if (!row.state.isPending()) return error.PromiseNotPending;
     for (row.projections.items) |projection| {
         if (projection.peer_handle == session.peer_handle) return .{
             .reference = .{ .near = model.NearRef.promise(projection.export_position.int()) },

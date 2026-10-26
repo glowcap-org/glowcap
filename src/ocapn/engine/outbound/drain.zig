@@ -160,6 +160,15 @@ fn emitSettledAnswer(self: *Peer, sa: outbound.SettledAnswer) !void {
         return err;
     };
     listeners_prepared = false;
+    // Host capability promises lifted from this answer (ADR-0068) learn of
+    // the settlement through the Node, on the seat their subscription
+    // promised, after the last retryable boundary so one answer publishes once.
+    if (sa.payload.host_promise != 0 and !sa.payload.host_promise_notified) {
+        if (self.node_services) |services| {
+            services.answerSettled(sa.payload.host_promise);
+            sa.payload.host_promise_notified = true;
+        }
+    }
     const consumed = self.takePending();
     consumed.item.deinit(self);
 }

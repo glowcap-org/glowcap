@@ -41,6 +41,11 @@ pub const SessionLimits = struct {
     max_retained_sent_answer_bytes: u32 = 1 << 24,
     /// Max early withdraws parked while waiting for deposits on another session.
     max_pending_withdraws: u32 = 4_096,
+    /// Max pending answers of this session the Host holds as lifted capability
+    /// promises at once (ADR-0068). Each holds a payload retain and a row until
+    /// the answer settles, so the partner's open questions bound them, and this
+    /// bounds them again when the partner passes many at once.
+    max_lifted_answers: u32 = 4_096,
     /// Max resolved sturdyref enlivenments cached for dedup. Overflow evicts
     /// oldest because a miss costs one bootstrap fetch, not correctness.
     max_sturdyref_cache_entries: usize = 256,

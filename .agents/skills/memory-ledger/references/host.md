@@ -132,3 +132,16 @@ at each declaration, and this inventory names Host runtime and custody costs.
   - Projection records each lift so a later failure rolls the partial projection
     back with an exact wire GC release. The lift receipts stay on the stack before
     spilling.
+- **Capability promise rows**: `Host.capability_promises` (ADR-0068). One
+  gpa map row per inline handoff give under redemption and per partner answer
+  lifted from an argument, with its queued operations and per-session
+  projections in two lists that grow on demand and are freed at settlement.
+  - A lifted answer holds one retain on the session's answer payload until the
+    answer settles, so the stored resolution outlives the partner's GC of the
+    position, and one Node action seat reserved at the lift
+    (`Node.reserveAnswerSubscription`), so the Peer publishes the settlement
+    without allocating. `SessionLimits.max_lifted_answers` bounds the
+    subscriptions per session, and the same answer lifts to one row.
+  - A promise that settles to data owns the data in one arena on the row
+    (`Row.SettledData`), lifted once under the origin session, held while the
+    application holds the capability, and freed with the row.

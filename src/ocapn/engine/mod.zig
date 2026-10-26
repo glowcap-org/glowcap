@@ -96,6 +96,7 @@ pub const testing = if (builtin.is_test) struct {
 pub const PeerHandle = @import("peer_handle.zig").PeerHandle;
 pub const pairing = @import("pairing.zig");
 pub const pipeline = @import("pipeline.zig");
+pub const resolution_chain = @import("resolution_chain.zig");
 /// Outbound queue carriers and encode helpers. `FireTarget` is re-exported here
 /// for `pipeline` and binding docs that name `engine.FireTarget`.
 pub const FireTarget = outbound.FireTarget;
@@ -109,6 +110,7 @@ pub const StepOutcome = events.StepOutcome;
 pub const EventKind = events.EventKind;
 pub const Event = events.Event;
 pub const AnswerTarget = session.AnswerTarget;
+pub const AnswerPayload = session.AnswerPayload;
 pub const OutboundAnswerTarget = session.OutboundAnswerTarget;
 
 /// Encode a verbatim `<ocapn-peer …>` Syrup record carrying hint entries, so a
@@ -477,6 +479,10 @@ pub const Peer = struct {
 /// answers): each keeps a free-list head and a live count beside its vector
 /// where the hash map it replaced kept only a header, and the export table
 /// keeps its base and span beside its rows.
+/// Eight bytes are the inbound answer table's count of pending answers a Host
+/// capability promise subscribes to (ADR-0068): the session owns the mark on
+/// each payload and the `max_lifted_answers` bound, so it owns the count that
+/// the bound judges, a word once padded.
 /// Every footprint budget is stated under the safe modes, because every gate runs there and `release-pack` names ReleaseSafe as
 /// the mode to ship.
 ///
@@ -487,7 +493,7 @@ pub const Peer = struct {
 /// `wasm32` (the sans-io core under `zig build cross-check`) makes it smaller,
 /// as does a fast build. So no single number is the measurement on every target
 /// and mode, and an equality here would fail the narrow ones.
-pub const peer_session_struct_budget_bytes = 1200;
+pub const peer_session_struct_budget_bytes = 1208;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget. " ++

@@ -155,6 +155,63 @@ test "Syrup encoder matches reference and rich argument fixtures" {
         try expectFixtureBytes("op_deliver_arg_void.bin", frame);
     }
 
+    // An answer reference in every container an argument can nest in: the
+    // shapes the Host lifts as a capability promise (ADR-0068).
+    {
+        const args = [_]model.Argument{.{ .reference = .{ .promise = .{ .answer_position = .from(3) } } }};
+        var frame = try syrup.encodeMessage(allocator, .{
+            .deliver = .{
+                .target = .{ .far = .{ .import_position = .from(7) } },
+                .args = args[0..],
+                .answer = .from(42),
+            },
+        });
+        defer frame.deinit();
+        try expectFixtureBytes("op_deliver_arg_answer.bin", frame);
+    }
+
+    {
+        const inner = [_]model.Argument{.{ .reference = .{ .promise = .{ .answer_position = .from(3) } } }};
+        const args = [_]model.Argument{.{ .list = inner[0..] }};
+        var frame = try syrup.encodeMessage(allocator, .{
+            .deliver = .{
+                .target = .{ .far = .{ .import_position = .from(7) } },
+                .args = args[0..],
+                .answer = .from(42),
+            },
+        });
+        defer frame.deinit();
+        try expectFixtureBytes("op_deliver_arg_answer_in_list.bin", frame);
+    }
+
+    {
+        const inner = [_]model.Argument{.{ .reference = .{ .promise = .{ .answer_position = .from(3) } } }};
+        const args = [_]model.Argument{.{ .set = inner[0..] }};
+        var frame = try syrup.encodeMessage(allocator, .{
+            .deliver = .{
+                .target = .{ .far = .{ .import_position = .from(7) } },
+                .args = args[0..],
+                .answer = .from(42),
+            },
+        });
+        defer frame.deinit();
+        try expectFixtureBytes("op_deliver_arg_answer_in_set.bin", frame);
+    }
+
+    {
+        const inner = [_]model.Argument{.{ .reference = .{ .promise = .{ .answer_position = .from(3) } } }};
+        const args = [_]model.Argument{.{ .tagged = .{ .tag = "point", .value = inner[0..] } }};
+        var frame = try syrup.encodeMessage(allocator, .{
+            .deliver = .{
+                .target = .{ .far = .{ .import_position = .from(7) } },
+                .args = args[0..],
+                .answer = .from(42),
+            },
+        });
+        defer frame.deinit();
+        try expectFixtureBytes("op_deliver_arg_answer_in_tagged.bin", frame);
+    }
+
     {
         const values = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
         const args = [_]model.Argument{.{ .tagged = .{ .tag = "point", .value = values[0..] } }};

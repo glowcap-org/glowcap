@@ -242,10 +242,7 @@ fn unsettledPromiseOf(self: *Host, target: capability.Ref) !?capability.PromiseI
     const resolved = self.capabilities.resolve(target) orelse return error.UnknownCapability;
     if (resolved != .deferred) return null;
     const promise = self.capability_promises.get(resolved.deferred) orelse return error.UnknownCapability;
-    return switch (promise.state) {
-        .pending, .settling => resolved.deferred,
-        .fulfilled, .broken => null,
-    };
+    return if (promise.state.isPending()) resolved.deferred else null;
 }
 
 /// A far send of values that carry no capability leaves as freight: the

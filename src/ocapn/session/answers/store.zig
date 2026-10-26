@@ -232,6 +232,15 @@ pub const AnswerPayload = struct {
     /// live answer-name index. This captured import is the detached obligation
     /// that survives removal and legal reuse of that name.
     resolver_import: ?model.ImportPosition = null,
+    /// The Host capability promise lifted from this answer while it was
+    /// pending (ADR-0068), or 0. That row holds one payload retain, so the
+    /// stored resolution outlives the partner's GC of the position. The Peer
+    /// reads the mark once, when the settlement leaves, and hands the Node
+    /// one action for it.
+    host_promise: u64 = 0,
+    /// Whether that action was published. The Host releases the seat it
+    /// reserved for the action only when the row leaves before it is.
+    host_promise_notified: bool = false,
 };
 
 /// Session-local identity of one inbound answer incarnation. `AnswerName`
@@ -364,6 +373,9 @@ pub const AnswerView = struct {
 /// hashed under the session's secret multiplier (ADR-0037).
 pub const InboundAnswerTable = struct {
     rows: foundation.identity_hash.MapOf(.wire, model.AnswerName, AnswerCell),
+    /// Pending answers whose payload a Host capability promise holds
+    /// (ADR-0068), held to `SessionLimits.max_lifted_answers`.
+    host_promises: u32 = 0,
 
     pub const Id = model.AnswerName;
 
