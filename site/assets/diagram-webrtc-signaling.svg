@@ -4,7 +4,7 @@
   width="760"
   height="224"
   role="img"
-  aria-label="The caller's offer goes through the signaling capability to the answerer, the answer comes back the same way, and then a direct DataChannel opens straight between the two peers, DTLS encrypted end to end."
+  aria-label="The caller and answerer exchange an offer and answer through the signaling capability. They then run CapTP over a DTLS-encrypted DataChannel."
 >
   <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); paint-order: stroke; stroke: var(--paper, #fff3df); stroke-width: 3.5px; stroke-linejoin: round; }
     .title { font-size: 15px; font-weight: 700; }
@@ -249,6 +249,6 @@
   <g class="dcstream">
     <circle class="dot dcdot" r="4" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="1.5"/>
   </g>
-  <text x="380" y="164" text-anchor="middle" class="lblbytes step3">3&#8201;now they speak directly</text>
+  <text x="380" y="164" text-anchor="middle" class="lblbytes step3">3&#8201;the CapTP session</text>
   <text x="380" y="196" text-anchor="middle" class="sub dtls">DTLS encrypted, end to end</text>
 </svg>

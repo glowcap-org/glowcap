@@ -168,15 +168,15 @@ automatically. To retry a failed deployment of that checked commit, run
 `gh workflow run pages.yml --ref main`. A manual `check` defaults to full
 validation. Select `suite=fuzz` for the separate long fuzz search.
 
-Every run of `ci/gates.sh` writes an evidence record to
-`zig-out/evidence/<commit>.json`: the commit, the hash of the working tree
-the gates ran on, whether that tree is the commit's, the submodule revisions, the toolchain pins' digests, the host,
-and every gate with its exit status and duration. The checks workflow keeps
-the record as the `evidence-<commit>` artifact on success and failure alike,
-and a run on a clean checkout also attaches it to the commit as a git note
-under `refs/notes/evidence`. A green run whose record step fails exits 70,
-because a check without its record is not evidence. A branch push leaves
-notes behind, so publish them with `git push origin refs/notes/evidence`.
+Each `ci/gates.sh` run records the commit, working-tree hash and dirty state,
+submodule revisions, toolchain pins, host, and each gate's exit status and
+duration. A full local run writes `zig-out/evidence/<commit>.json` and, on a
+clean checkout, attaches a Git note under `refs/notes/evidence`. A phase run
+writes `zig-out/evidence/<phase>/<commit>.json` without attaching a note.
+
+CI uploads these records as `evidence-<commit>-<lane>` artifacts on success
+and failure. A green sequence whose record step fails exits 70. To publish
+notes from a full local run, use `git push origin refs/notes/evidence`.
 
 ## Repository protection
 

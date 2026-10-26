@@ -8,8 +8,8 @@
 
 Call a capability from your shell, host a peer, inspect a live session in the
 REPL, or expose CapTP tools over MCP (Model Context Protocol, which AI
-assistants use to call tools), with the same [Host]($link.page('modules')) and
-transports as the library. The [CLI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md)
+assistants use to call tools), with the library's [Host]($link.page('modules')).
+The [CLI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md)
 is the complete reference.
 
 ```sh
@@ -20,7 +20,8 @@ glowcap help
 
 # Join a room over iroh
 
-Rooms is glowcap's chat application. This command starts your Rooms workspace
+Rooms needs the [complete installation](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md),
+including its services and browser assets. This command starts your workspace
 from the shell in the directory you name, and its peers talk over
 [iroh]($link.page('transports/iroh')), an encrypted QUIC transport:
 

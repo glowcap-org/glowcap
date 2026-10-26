@@ -6,7 +6,7 @@
 // every partial resource, and the iroh dial loads @glowcap/iroh once and lazily.
 
 import type { RelayChannel } from "./relay.ts";
-import type { Timer } from "../runtime/timer.ts";
+import type { Timer } from "@glowcap/runtime/transport";
 import { recordProcessBindingFailure, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime/transport";
 import { BINDING_RELAY_TCP_DIAL_TIMEOUT_MS } from "@glowcap/abi";
 

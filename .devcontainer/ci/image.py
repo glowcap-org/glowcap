@@ -57,7 +57,11 @@ def resolve(tag, *, readonly):
                             capture_output=True, text=True, timeout=120)
     if result.returncode:
         detail = result.stderr.lower()
-        missing = 'not found' in detail or 'manifest unknown' in detail
+        # A missing host or credential helper is not a missing image. Preserve
+        # those failures instead of hiding them behind an expensive rebuild.
+        missing = ('manifest unknown' in detail or
+                   re.search(r'\b404\s+not found\b', detail) is not None or
+                   re.search(re.escape(tag.lower()) + r': not found\s*$', detail) is not None)
         inaccessible = readonly and ('unauthorized' in detail or 'denied' in detail or '403' in detail)
         if not (missing or inaccessible):
             raise RuntimeError(f'image lookup failed: {result.stderr}')

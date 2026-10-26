@@ -24,8 +24,9 @@ change.
 
 # [In Zig]($section.id('in-zig'))
 
-glowcap is a [Zig](https://ziglang.org/) package. Add a pinned checkout to
-your build:
+glowcap is a [Zig](https://ziglang.org/) package. Use the compiler version in
+the [toolchain pins](https://github.com/glowcap-org/glowcap/blob/main/docs/dependencies.md),
+then add a pinned checkout to your build:
 
 ```sh
 zig fetch --save git+https://github.com/glowcap-org/glowcap#COMMIT_SHA
@@ -623,8 +624,8 @@ Each binding wraps the C ABI in its language's own idiom. The
 [bindings overview]($link.page('bindings')) compares them, and the list at the
 top links each one.
 
-For the browser, the TypeScript binding also compiles to WebAssembly as
-`@glowcap/web`. A page cannot open a listening socket, but it can accept peers
+For the browser, `@glowcap/web` provides the TypeScript API over glowcap's core
+compiled to WebAssembly. A page cannot open a listening socket, but it can accept peers
 over WebRTC or through a relay. See
 [In the browser]($link.page('bindings/browser')).
 

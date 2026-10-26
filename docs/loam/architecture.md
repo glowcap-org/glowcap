@@ -10,7 +10,7 @@ sources:
 
 # Loam: durable capability applications
 
-Loam is glowcap's storage layer, and its access module manages who can use
+Loam is an optional module in glowcap, and its access module manages who can use
 which resources. [ADR-0048](../decisions/adr/ADR-0048-loam-persistence-foundation.md)
 records the design, the [Loam guide](../loam.md) covers the Zig API, and the
 [API page](api.md) covers operations and lifetimes.
@@ -237,13 +237,13 @@ budget or an index that tracks the cost.
 Storage reads can block, so storage work runs outside the Host's message
 processing and read transactions stay short. Holding a remote capability does
 not hold an engine read transaction open. A browser transaction cannot span
-an `await`, so Loam assembles and checks the whole write batch before it opens
+a network or user wait, so Loam assembles and checks the whole write batch before it opens
 the IndexedDB transaction.
 
 Opening a store creates no actor or in-memory entry per stored object.
 Indexes on disk answer durable name and object lookups when they are asked.
-Only active holds, work in flight, and the configured cache take memory, and
-startup cost does not grow with the graph.
+Records load into a bounded cache as needed. Startup does not restore the
+stored graph.
 
 ## Order of work
 

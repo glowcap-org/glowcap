@@ -1,5 +1,3 @@
-/// <reference lib="dom" />
-
 // One RTCDataChannel adapted to the runtime's `Channel` seam. Each read and
 // write is one DataChannel message. The Host session decides from transport
 // metadata that WebRTC packets carry bare codec frames; this adapter only moves

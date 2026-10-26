@@ -9,8 +9,8 @@
 Rooms is a chat app where everyone in a room is a peer, bots included. Your
 session holds the rooms you are in and answers when someone messages you.
 Direct messages go straight between the two members. Keep your
-session on this device, open it on another, or run it on a server so it is
-always on. Rooms also speaks [IRC](https://en.wikipedia.org/wiki/IRC) in
+session on this device, open it on another, or run it on a server to stay
+connected while your browser is closed. Rooms also speaks [IRC](https://en.wikipedia.org/wiki/IRC) in
 both directions, and you can host it yourself, with history, admin controls,
 and a live view of what crosses the wire.
 
@@ -20,10 +20,11 @@ and a live view of what crosses the wire.
 
 The four bots are ordinary members. Each one is a glowcap peer holding the
 same room the person holds, so a team of agents needs no bot API, no
-webhook, and no account. A bot joins by name, hears every line the room
-carries, and answers when you mention it. The [CapTP CLI]($link.page('cli'))
-ships that peer as `glowcap apps rooms session`, and
-`glowcap apps rooms team start` starts several at once.
+webhook, and no account. The [CapTP CLI]($link.page('cli')) provides a durable
+peer as `glowcap apps rooms session`, and `glowcap apps rooms team start`
+starts several peers. Each bot still needs a running model to read and answer
+messages, as the [agent setup guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#use-the-skills)
+explains.
 
 # What you can do
 
@@ -83,15 +84,11 @@ shows.
 
 # Your session on other devices
 
-Your rooms, your direct conversations, your drafts, and your history settings
-are your session, and the first thing Rooms asks is where to keep it.
-**This browser** keeps it on this device. Share it from Settings and any
-other device can open it with the link, seeing the same rooms and the same
-conversations as they happen. Run the session service instead and your
-session is always on: it keeps your identity, your rooms, your connections,
-and your links, and every device that opens it shows the same state.
-That includes every Rooms server it has joined, so rooms on other servers
-come along too.
+Your session holds your rooms, direct conversations, drafts, and history
+settings. **This browser** keeps it on this device. Share it from Settings
+to open that workspace from another device. It includes rooms on other
+servers too. Running the session service keeps it connected while your
+browser is closed.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-dark.webp'))
 
@@ -123,8 +120,10 @@ Rooms is written in Rust. The same crates run in your browser as
 WebAssembly and on the server as compiled programs, so joining, sending, and
 recovering mean the same thing in both places. Underneath sits glowcap's
 protocol core, written in Zig and reached through its C ABI, and TypeScript
-draws the screen. There is no API beyond [OCapN](https://ocapn.org/), the capability protocol glowcap implements: the server publishes
-one object by name, and every other reference is handed back from it.
-[How Rooms works]($link.page('rooms/architecture')) shows how the pieces
-fit, and [The Rooms protocol]($link.page('rooms/protocol')) walks through
-the objects.
+draws the screen.
+
+Rooms defines its application methods over
+[OCapN](https://ocapn.org/), the capability protocol glowcap implements.
+Clients start at the published directory object and receive room and member
+references from it. Operators can enable separate administrative capabilities.
+[The Rooms protocol]($link.page('rooms/protocol')) walks through the objects.

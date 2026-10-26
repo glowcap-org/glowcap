@@ -11,20 +11,14 @@ holding a reference to an object is the permission to use it.
 
 # How common protocols authorize
 
-When a program calls a service, it usually identifies itself first. An HTTP
-request carries a bearer token, a cookie, or an API key. An SSH client logs in
-as an account. An IRC client identifies with a nickname and a password. In
-each case the service looks the caller up in a permission table and decides
-what to allow.
+Services authorize requests through credentials such as cookies, API keys,
+and bearer tokens. A credential can grant an entire account's access or just
+one operation on one resource. HTTP leaves that choice to the application.
 
-Security people call this ambient authority: permission comes from who you
-are. Once you are authenticated, every line of code running as you holds all
-of it, including every library you link.
-
-The model works until you need to hand part of your access to someone else. A
-bearer token rarely means one album, read only, for an hour. It usually means
-everything your account can do, until someone rotates it, and any program you
-give it to can do all of that as you.
+The example below starts with a service that offers only an account-wide
+token. Sharing it gives a helper all the account's access. Scoped tokens
+could narrow that access too. OCapN makes passing callable object references
+part of the protocol, including introductions between peers.
 
 # One job, delegated two ways
 
@@ -198,11 +192,11 @@ with capabilities.
 		<button type="button" class="btn btn-secondary" data-dir="1">Next</button>
 	</div>
 	<ol class="capwalk-steps">
-		<li>Every request carries a credential, and the credential names you, not the action. The service looks you up in its permission table and decides.</li>
+		<li>This service issues an account-wide token. Each request carries it, and the service allows whatever the account may do.</li>
 		<li>You want the thumbnailer to shrink one album. Your token is the smallest thing you have to hand it, so the thumbnailer now holds everything your account can do.</li>
-		<li>The thumbnailer has a bug, and it deletes your photos. The service allowed it, because every request looked like it came from you. This is the confused deputy problem.</li>
-		<li>Under capability rules, signing in returns a live reference to your album. Holding that reference is the permission, and there is no permission table.</li>
-		<li>You pass the thumbnailer a reference to that one album. It never learns who you are, and it cannot reach anything else of yours. Passing a reference like this is delegation.</li>
+		<li>The thumbnailer has a bug, and it deletes your photos. Its token allowed deletion even though the job needed only reads.</li>
+		<li>In the capability version, signing in returns a live reference to your album. Holding that reference lets you call the album's methods.</li>
+		<li>You pass the thumbnailer a reference to that one album. That grant gives it no access to your other albums. Passing a reference like this is delegation.</li>
 		<li>You would rather it could not delete anything, so you hand it a wrapper instead: an object of yours, running in your process, that forwards reads to the album and refuses the rest. The Photos service never knows the wrapper exists. Narrowing a grant this way is attenuation.</li>
 		<li>When the job is done, you switch the wrapper off, and every copy of it stops working. Your own reference still works, and the Photos service is not involved. This is revocation.</li>
 		<li>Later the thumbnailer needs your print service, so you send it a signed introduction. It presents the introduction to the print service, and the two talk over their own session from then on. This is a three-party handoff, and the path bypasses you.</li>
@@ -212,18 +206,15 @@ with capabilities.
 
 # How a reference travels
 
-A reference still crosses the network as bytes, but the bytes are not the
-permission. When two programs meet, each proves a key it holds, and a session
-opens between them. Each side keeps a private table of the objects it has
-chosen to share, and your album travels as a position in that table, say
-slot 3. Slot 3 means your album only inside this one session. The table holds
-no identities and no rights, only which object each position means.
+Inside a CapTP session, a reference travels as a position in a table, say
+slot 3. Each side records which objects it has shared with the other. Slot 3
+names your album in this session, but carries no authority in another one.
 
-A bearer token works for whoever presents it, anywhere, so a leaked token
-hands over your access. Someone who records capability traffic gets slot
-numbers for a session they cannot join, and guessing a slot number gets them
-no further. The transport still has to protect the connection, as it does for
-your tokens.
+A leaked bearer token can be reused at the service that accepts it, within
+its granted scope. A session-table position cannot be reused that way.
+Both still need a protected connection: CapTP alone does not encrypt traffic.
+[Choosing a transport]($link.page('transports/choosing')) explains how glowcap
+protects a session and establishes peer identity.
 
 ```=html
 <figure class="tokref">
@@ -308,14 +299,15 @@ You still need a first reference, and you get it the usual way. You sign in
 once, or you redeem a durable link called a sturdyref, an unguessable address
 that names one published object. After that, access moves by passing
 references inside sessions. A sturdyref does work like a bearer secret, but it
-names only what its maker chose to publish, never an account.
+names a published object. That object's methods determine how much access
+it grants.
 
 # Where the idea comes from
 
-Memory-safe languages already work this way inside one process. Code can use
-an object only if it was given a reference to it, and it cannot make a pointer
-to a private object out of nothing. Object-capability security builds the
-whole security model on that rule.
+Object references are familiar from ordinary programming. Object-capability
+systems make them the way code receives access: it uses the objects it can
+reach through references it holds, and delegates by passing those references
+onward.
 
 The idea has been around since 1966, when
 [a paper](https://dl.acm.org/doi/10.1145/365230.365252) on programs sharing one

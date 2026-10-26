@@ -5,10 +5,8 @@ between peers. A vulnerability in its wire path or session state machine can
 affect every product built on top of it, so security reports take precedence
 over other work here.
 
-glowcap has had no independent security review. It is 0.1.0 alpha software that
-has not been hardened or run in production. The conformance and
-interoperability checks test protocol behavior and say nothing about
-hardening.
+glowcap is 0.1.0 alpha software and has had no independent security review.
+The conformance and interoperability checks test protocol behavior.
 
 The core bounds inbound frames, nesting, and partner-driven session tables.
 The [threat model](docs/threat-model.md) names each untrusted input with the

@@ -273,7 +273,7 @@ pub struct Connection<'a> {
 mod blocking;
 
 #[cfg(feature = "async")]
-/// A driver-loop onion listener yielding ordinary high-level [`Session`]s.
+/// A driver-loop onion listener yielding ordinary high-level [`crate::Session`]s.
 ///
 /// The generic driver owns Tor execution, admission, and accepted-session
 /// pumping. This type exposes only the driver's canonical locator and the
@@ -312,7 +312,7 @@ impl Server {
 		&self.service_key
 	}
 
-	/// Accept the next partner as a ready high-level [`Session`].
+	/// Accept the next partner as a ready high-level [`crate::Session`].
 	/// Await the next accepted session. It delivers its partner's inbound only
 	/// once served: publish what it should answer, then `session.serve()`.
 	pub async fn accept(&self) -> Result<crate::Session> {

@@ -21,9 +21,10 @@ A sturdyref is offline authority: a locator saying _where_ the hosting peer
 lives plus a swiss number saying _which_ object to fetch there. It carries no
 live session state, so the token survives restarts. Whether it still redeems
 after the hosting peer restarts depends on that host re-registering the swiss
-number under the same identity. glowcap keeps no registry across processes,
-so a glowcap host republishes the name from its saved entropy
-(see [boundaries](../boundaries.md)).
+number under the same identity. A plain Host republishes from saved entropy
+([limits](../boundaries.md#runtime-and-scale)).
+[Loam publications](../loam/publications.md) store names on disk and serve
+them after reopening.
 
 ```mermaid
 flowchart TD

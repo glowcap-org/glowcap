@@ -1,16 +1,16 @@
 ---
 .title = "The Rooms protocol",
-.description = "Rooms has no API of its own. Everything a client does is a call on an object it holds, carried by glowcap over OCapN, starting from one published name. Here is every object, how you get it, and what it answers.",
+.description = "The Rooms application protocol over OCapN: its objects, how you obtain them, and the methods they answer.",
 .date = .date("2026-09-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Rooms has no HTTP API and no message format of its own. Everything a client
-does is a call on an object it holds, carried by glowcap over
-[OCapN](https://github.com/ocapn/ocapn)'s CapTP. The server publishes
-one object by name, `directory`. Every other reference a client ever
-uses was handed back by that object, or by an object it led to.
+Rooms defines methods and values for rooms, membership, and messages over
+[OCapN](https://github.com/ocapn/ocapn)'s CapTP. A client calls an object it
+holds. It starts by fetching the public `directory` object, which hands back
+rooms and other members' inboxes. Optional operator and diagnostic objects
+are published separately under secret names.
 
 If OCapN is new to you, [Why OCapN]($link.page('why')) explains references,
 promises, and introductions from the ground up, and
@@ -29,7 +29,7 @@ you to use or pass on, and the inbox is the one you make yourself.
 <div class="objects-row">
 <article class="object" data-tone="cool">
 <p class="object-name">directory</p>
-<p class="object-from">Fetch it by name. The one published object.</p>
+<p class="object-from">Fetch it by name. The public entry point.</p>
 <p class="object-calls"><code>open</code> <code>openPrivateLink</code> <code>openManaged</code> <code>enter</code> <code>list</code> <code>watch</code> <code>register</code> <code>introduce</code> <code>offerInbox</code> <code>link</code> <code>listPublications</code> <code>namedPublications</code> <code>watchPublications</code> <code>enterPublication</code> <code>linkPublication</code> <code>unwatchPublications</code></p>
 <p class="object-back">Hands back a <b>room</b>, a <b>name</b>, another member's <b>inbox</b>, or a room link. The publication calls list the server's published rooms and links. <code>listPublications</code> answers one page at a time, with a cursor to pass back for the next page.</p>
 </article>

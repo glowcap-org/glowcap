@@ -114,11 +114,11 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
   alone. Providers that cannot host refuse listener start.
 - **Callers can choose an infinite wait.** Zig requires a handshake and settle
   budget, and `.unbounded` is allowed.
-- **A durable sturdyref survives a restart only if you keep its entropy.** The
-  library keeps no registry across processes. A durable name depends only on
+- **A plain Host's durable publication needs saved entropy.** A durable name depends only on
   the <!-- value ../src/ocapn/session/references/bootstrap.zig durable_swiss_entropy_len -->16<!-- /value --> entropy bytes you pass to `publishDurable`. Republish with the same
   bytes at startup and old sturdyrefs reach the new actor. Lose them and the
-  name is gone.
+  name is gone. [Loam publications](loam/publications.md) instead store names
+  on disk and answer lookups after reopening.
 - **Some binding pumps copy outbound frames.** TypeScript, Python, and Racket
   copy bytes before an asynchronous write, and Rust retains the frame.
 - **Only Zig can register a new codec.** The C ABI and the bindings select the
@@ -275,6 +275,11 @@ assets are not published.
 specification gaps.
 
 ## Browser reachability
+
+- **A browser's iroh gateway is trusted.** The browser's `relayUrl` path
+  lets the gateway read traffic and vouch for the peer's key.
+  [The relay guide](https://glowcap.org/relay/) explains that trust and the
+  sealed `noise-relay` alternative.
 
 - **A browser opens no listening socket.** Cold dial reaches it through a
   relay that holds an inbound socket under the browser's key, or over WebRTC,

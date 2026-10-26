@@ -30,6 +30,7 @@ from GitHub organization membership.
 | PyPI | `glowcap` | Build and test the wheel with the hosted C archives. The Python import is also `glowcap`. |
 | JSR | `@glowcap/*` | Create the `glowcap` scope and connect its packages to the corporate repository. |
 | npm | `@glowcap/*` | Register the `glowcap` organization separately. Direct npm packages need their own tested packaging. |
+| Racket catalog | `glowcap` | Register the verified source package, which installs the `glowcap` collection. |
 | GHCR | `glowcap-org/glowcap/devcontainer`, `glowcap-org/glowcap-rooms` | Confirm organization package permissions for the image workflows. |
 
 These are intended identities, not a record of completed registrations. Local
@@ -62,9 +63,41 @@ library from an unintended directory. Packaging targets Linux and macOS, so
 Windows needs `GLOWCAP_LIB_DIR` or an in-tree build until its runtime and
 release path exist.
 
-Rust resolves its static libraries at build time. TypeScript, Python, and
+Rust resolves its libraries at build time. TypeScript, Python, and
 Racket resolve shared libraries when they load. iroh is a separate
 library in both cases.
+
+Rust's optional `iroh` and `webrtc` features link shared libraries. An
+application using them must ship those libraries and configure its runtime
+loader, through its own executable's rpath or the platform library path.
+For local runs, set `LD_LIBRARY_PATH` on Linux or `DYLD_LIBRARY_PATH` on macOS
+to the SDK's `lib` directory. `GLOWCAP_LIB_DIR` selects build-time libraries
+but does not configure the operating system's loader for an application.
+
+## Rehearsing language packages
+
+```sh
+zig build bindings-package-check
+```
+
+This builds a Python source distribution and its wheel, packages the Rust
+crate and Racket collection, and exercises installed consumers outside the
+checkout. It also builds Rust API docs without C libraries and checks
+all nine TypeScript packages with `deno publish --dry-run`. Nothing is uploaded.
+Run this locally before a release. Hosted CI does not run this rehearsal.
+
+The C-library checks use the locally built SDK. Before publishing a
+language package, complete the [hosted archive checks](#publishing-c-archives)
+and repeat its consumer install against those assets with a cold cache.
+Keep the Rust publication guard until that succeeds. Rust documentation on
+docs.rs uses all features and skips C-library resolution, following
+[docs.rs's build contract](https://docs.rs/about/builds).
+
+JSR is the TypeScript publication path. Its npm compatibility is separate
+from publishing packages directly to npm. The browser Wasm artifact remains
+an explicit application build input, as the [browser guide](ts/web/README.md)
+describes. Racket installs as the `glowcap` collection, with imports such as
+`(require glowcap/glowcap glowcap/glowcap-tcp)`.
 
 ### Download behavior
 

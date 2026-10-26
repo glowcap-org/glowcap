@@ -29,6 +29,9 @@ identity and scale stop.
   `tcp`, `keyed-tcp`, and `keyed-relay` they read and can alter every frame,
   and the signed hello proves only that a session key signed the location,
   which an observer can replay.
+  A browser using an iroh gateway trusts that gateway with plaintext and the
+  peer's identity. QUIC terminates there, as
+  [browser reachability](boundaries.md#browser-reachability) explains.
 - **A peer that speaks CapTP.** Holds a real session and sends any message the
   protocol allows, in any order, at any rate, with any value. Its goal is a
   reference it was never given, a table that grows without bound, or a process

@@ -5,6 +5,7 @@ sources:
   - resource: /apps/rooms/rust/application/src/content/session/
   - resource: /apps/rooms/rust/runtime/src/session/
   - resource: /apps/rooms/rust/browser/src/
+  - resource: /apps/rooms/rust/platform/src/storage/session.rs
 ---
 
 # Rooms session ownership and recovery
@@ -29,7 +30,7 @@ Paths in this table are relative to `apps/rooms/`.
 | --- | --- | --- |
 | Declarations | `rust/application/src/content/session/` | Workspace, held-storage and effect codecs. Permission requirements, presets and generated browser metadata. |
 | Runtime | `rust/runtime/src/session/managed/` | Source admission, atomic storage acquisition and receipts, supervised workers and bounded readers. |
-| Process | `rust/services/src/session/`, `rust/product/src/bin/rooms-session/` | SQLite bootstrap, stable independent use/control publications and typed local-control operations. |
+| Process | `rust/platform/src/storage/session.rs`, `rust/services/src/session/`, `rust/product/src/bin/rooms-session/` | SQLite bootstrap, stable independent use/control publications and typed local-control operations. |
 | Browser | `rust/browser/src/attached/managed/`, `rust/browser/src/storage/` | Per-tab IndexedDB bootstrap, exact saved fields and retained Wasm handles. |
 | Clients | `rust/glowcap/src/client/workspace/`, `rust/glowcap/src/client/access/` | Local and remote workspace calls, retained requests and independent management. |
 | Page | `web/ui/session/managed/`, `web/ui/main.tsx` | Projection of requests and activity, drafts, navigation, history, files and explicit recovery. |

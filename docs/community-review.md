@@ -6,10 +6,13 @@ sources: []
 
 # Community review
 
-glowcap pins the OCapN suite and Goblins source. The workflow schedules both
-through [`ci/gates.sh`](../ci/gates.sh) on `main` and `dev` pushes. A successful
-run establishes results for that commit. glowcap has not
-asked to be listed as an OCapN implementation. Because the work is AI-assisted,
+glowcap pins the OCapN suite and Goblins source. Full CI validation schedules
+both through [`ci/gates.sh`](../ci/gates.sh). Development runs select jobs by
+changed files, as the [CI guide](../CONTRIBUTING.md#continuous-integration)
+explains. A successful run establishes results only for the checks it ran on
+that commit.
+
+glowcap has not asked to be listed as an OCapN implementation. Because the work is AI-assisted,
 it sends no unsolicited patches, issues, or comments to projects whose policies
 forbid them. The policy is in [`PROVENANCE.md`](../PROVENANCE.md).
 
@@ -84,8 +87,8 @@ The [conformance manifest](ocapn-conformance.md) lists every section of the
 pinned CapTP draft with the profile that implements it and the check below
 that proves it.
 
-A **yes** in the CI column means the step appears in `ci/gates.sh`, scheduled
-after a push to `main` or `dev`. It does not establish that the step passed.
+A **yes** in the CI column means the step appears in the full `ci/gates.sh`
+sequence. It does not establish that a development run selected it or that it passed.
 The [checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
 must succeed for the commit under review. `zig build source-check`
 derives this column from the script, so a removed step cannot remain marked as

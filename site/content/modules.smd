@@ -43,7 +43,7 @@ you can test it without a host runtime.
   [Codecs]($link.page('codecs')) compares them.
 - **session** owns the import, export, and answer tables and decides what is
   valid. A codec never decides whether a reference is allowed.
-- **engine** is the `Peer` above. It only dispatches.
+- **engine** advances the protocol state machine and produces events and outbound frames.
 
 # Above the core
 
@@ -58,7 +58,7 @@ you can test it without a host runtime.
   [onion]($link.page('transports/onion')), and the cleartext `tcp`,
   `keyed-tcp`, and `inproc`, among others
   ([Transports]($link.page('transports'))).
-- **loam** stores objects, and the capabilities they hold, across restarts.
+- **loam** is optional storage for objects and the capabilities they hold.
   Its core does no I/O. An optional SQLite or LMDB module supplies the disk.
   [Loam]($link.page('loam')) explains records, sleepy actors, and durable
   names.

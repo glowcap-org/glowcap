@@ -30,7 +30,8 @@ the judgment the check cannot make.
 
 ## Tighten
 
-Read the doc as its reader would, one section at a time.
+Read the doc as its reader would, one section at a time. For a site page,
+start with its rendered opening, including text supplied by the layout.
 
 1. **Purpose.** The opening says what the doc is for and what the reader can
    do with it. A sentence about the page itself goes.

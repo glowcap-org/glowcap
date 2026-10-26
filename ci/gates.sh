@@ -25,12 +25,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # unchanged inside both. The cold `check-build` takes about 30 minutes on a
 # two-CPU runner, and BUILD_TIMEOUT gives it twice that.
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-${GATE_TIMEOUT:-60m}}"
-GATE_TIMEOUT="${GATE_TIMEOUT:-20m}"
 # A `long` line names a gate that serializes many process proofs, each under
 # its own deadline, so its healthy duration on a two-CPU runner is itself
 # tens of minutes. It gets LONG_TIMEOUT, twice its measured hosted-runner
 # time, so the wedge detector still fires while a healthy run keeps headroom.
 LONG_TIMEOUT="${LONG_TIMEOUT:-${GATE_TIMEOUT:-40m}}"
+# Resolve specialized defaults before assigning the ordinary default.
+GATE_TIMEOUT="${GATE_TIMEOUT:-20m}"
 
 # Whether an exit code means "the deadline killed it" rather than "it failed".
 # A function so it can be exercised directly: a grep for the two literals

@@ -12,8 +12,8 @@ import { ffi } from "../internal/ffi/runtime.ts";
  * FFI call borrows is not touched again until that call has completed, so
  * a fresh descriptor per write was two allocations buying nothing. */
 export class FrameDescriptorScratch {
-	readonly bytes = new Uint8Array(FRAME_SIZE);
-	readonly view = new DataView(this.bytes.buffer);
+	readonly bytes: Uint8Array<ArrayBuffer> = new Uint8Array(FRAME_SIZE);
+	readonly view: DataView<ArrayBuffer> = new DataView(this.bytes.buffer);
 }
 
 /** One frame owned for an asynchronous FFI write. Construction is the

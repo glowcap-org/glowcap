@@ -121,7 +121,7 @@ The core imports neither hosting nor Rooms. It does no I/O, never blocks,
 takes explicit allocators, and keeps its state bounded. It checks the tree,
 evaluates scope, combines policies, changes grants, keeps receipts, and
 prepares and completes permission transactions. When a record is not in
-memory, it returns a bounded storage request that your program runs before
+memory, it returns a bounded storage request that the embedding or binding runs before
 resuming the core with results checked against the revision.
 
 Hosting connects that model to the Host and actor APIs. It identifies a call
@@ -281,7 +281,7 @@ A protected change follows one path:
 3. Managed access prepares the permission changes, and the application
    prepares the content changes, in one recoverable transaction. No
    capability or content change is visible before the commit.
-4. Your program runs the storage work. Loam takes the result and applies each
+4. The embedding or binding runs the storage work. Loam takes the result and applies each
    participant's changes, managed access included. An unknown write stops the
    owner until recovery. Conflicting changes cannot overtake a pending
    transaction and invalidate its check.

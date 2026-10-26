@@ -1,12 +1,9 @@
 #lang info
 
-;; Packaging metadata for the Racket binding tree. The dogfood uses relative
-;; requires; this file names what a catalog package of this tree must
-;; ship so the ADR-0023 resolve contract (`private/c-abi-resolve.json`) stays
-;; loadable via define-runtime-path. Collection packages ship every file under
-;; the tree that is not listed in compile-omit-paths / conditional-omit-paths;
-;; keep that contract path out of those omit lists.
-(define collection 'multi)
+;; Source package for the glowcap collection. Keep private/c-abi-resolve.json
+;; in the archive: loaders locate it with define-runtime-path. source-omit-files
+;; controls archive contents; compile-omit-paths controls setup compilation.
+(define collection "glowcap")
 (define version "0.1.0")
 (define license 'Apache-2.0)
 (define deps '("base" "rfc6455"))

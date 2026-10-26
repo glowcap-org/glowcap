@@ -1,6 +1,6 @@
 ---
 type: static
-description: How to host managed use and control endpoints on a Loam Host, and what each hosted method allows.
+description: How to host managed use and control endpoints on an existing glowcap Host, and what each hosted method allows.
 audience: human
 sources:
   - resource: /src/loam/access/hosting/
@@ -31,8 +31,8 @@ in a Store batch. Load the committed grant before opening that batch.
 
 - A use endpoint keeps its use grant and ties one resource to one content
   record. A control endpoint keeps only its control grant.
-- That tie is your program's decision, so make sure the right resource goes
-  with the right content. Method arguments cannot change it.
+- The application chooses which resource authorizes access to that content.
+  Method arguments cannot change this binding.
 - Deriving a share updates the endpoint's receipts and keeps its access and
   its content.
 

@@ -1,6 +1,6 @@
 ---
 .title = "The relay",
-.description = "A relay carries a browser peer's keyed CapTP session over a WebSocket to a peer that has a socket. Only bytes cross it. It holds no capability of yours.",
+.description = "A WebSocket relay carries CapTP bytes between peers. Noise can keep the session encrypted through it.",
 .date = .date("2026-07-21T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -9,14 +9,12 @@
 A browser cannot listen on or dial a raw TCP or QUIC connection. The relay is
 a small WebSocket service that carries a browser's
 [CapTP]($link.page('concepts')) bytes to a peer that can open a socket.
-The session's keys stay at the two ends
-([ADR-0033](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0033-byte-transparent-relays.md)).
 
 # The relay only moves bytes
 
 The CapTP handshake (`op:start-session`) and every message after it run
-between the browser and the far peer. The relay never parses a frame and never
-holds a capability. On a cleartext path it can still read every byte, so use
+between the browser and the far peer. The relay forwards bytes without
+interpreting CapTP messages. On a cleartext path it can read or alter them, so use
 `noise-relay` when the relay must see only ciphertext. The Zig provider, the
 other language providers, and the browser connector all support `noise-relay`.
 
@@ -31,6 +29,12 @@ The browser names a target and the relay dials it. The Deno reference relay read
 the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
 `?locator=<ocapn-uri>` opens an iroh channel. The relay then pipes the
 WebSocket to whatever it dialed. Rooms runs the same forwarding behind its own `/relay` route.
+
+On the iroh path, the gateway terminates QUIC and can read the CapTP bytes.
+The browser trusts it to dial the named node and report the verified key.
+WSS protects the browser-to-gateway leg. It does not hide traffic from the
+gateway. Use `noise-relay` to a peer registered under that transport when
+the gateway must not read or alter the session.
 
 [The browser names the peer it wants. The relay dials it over tcp or iroh and pipes the two together. The keyed session runs end to end, and the relay only moves bytes.]($image.siteAsset('diagram-relay-dial.svg'))
 

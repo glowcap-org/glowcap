@@ -1,6 +1,6 @@
 ---
 type: static
-description: How a Loam Store turns reads and writes into requests that your storage worker runs against an engine.
+description: How a Loam Store prepares reads and writes for a storage worker and handles their outcomes.
 audience: human
 sources:
   - resource: /src/loam/core/
@@ -13,14 +13,14 @@ A Store keeps validated records in memory and prepares storage work for your
 executor. [SQLite operations](sqlite.md) and [LMDB operations](lmdb.md) cover
 the disk engines that hold its records between runs.
 
-Every operation follows one pattern. Loam's `core.Store` decides what to read
-or write and hands your code a request. Your storage worker runs it against an
-engine and hands the result back. The Store touches no disk, starts no thread,
-and never waits.
+Loam's `core.Store` emits read requests and write batches. A worker runs them
+against an engine and reports the result. The Store touches no disk and
+starts no thread. The [integration guide](../loam.md#choosing-an-integration)
+explains how an embedding, binding, or application runtime drives that worker.
 
 ```mermaid
 flowchart LR
-    Store["core.Store<br/>decides, keeps the cache"] -->|"a read request or a write batch"| Worker["your storage worker"]
+    Store["core.Store<br/>decides, keeps the cache"] -->|"a read request or a write batch"| Worker["storage worker"]
     Worker -->|"runs it"| Backend[("a storage engine")]
     Worker -->|"completeRead or completeWrite"| Store
 ```

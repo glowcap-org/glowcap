@@ -15,7 +15,7 @@
 		<div class="hero-copy">
 			<p class="hero-eyebrow">Capability networking and durable state in Zig</p>
 			<h1>glowcap</h1>
-			<p class="hero-tagline">Exchange capabilities across a network. Keep application state in Loam, with transactions and actors that wake on demand. Own the memory, I/O, and scheduling.</p>
+			<p class="hero-tagline">Share objects between programs, with access that can be passed on or narrowed. glowcap carries the calls across the network, and Loam keeps object state across restarts.</p>
 			<p class="hero-kicker">0.1.0 alpha · Apache-2.0</p>
 			<div class="hero-actions">
 				<a class="btn btn-primary" href="$site.page('start').link()">Start building <svg class="btn-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></a>
@@ -34,7 +34,7 @@
 		</a>
 		<a class="card" href="$site.page('cli').link()">
 			<h2>Talk to a live peer from your shell</h2>
-			<p>Build the binary, then run <code>glowcap apps rooms session</code> for an encrypted conversation over iroh.</p>
+			<p>Call a capability or join a Rooms conversation from your terminal.</p>
 		</a>
 		<a class="card" href="$site.page('start').link()">
 			<h2>Start building</h2>

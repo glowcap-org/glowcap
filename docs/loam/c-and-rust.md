@@ -24,8 +24,9 @@ explains the terms.
   durable name to reach the content again, with nothing loaded at startup.
 
 Loam's Zig code decides who may do what, the order of transactions, and what a
-retried request returns. Your C or Rust code supplies the content's behavior
-and runs the storage work, as
+retried request returns. Your code supplies the content's behavior and startup
+configuration. The Rust binding schedules storage work on your executor. A C
+embedding drives the work handles directly, as
 [ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
 records. The content behind one resource can span a bounded graph of pages.
 Creating, sharing, and moving resources inside a tree
@@ -51,8 +52,8 @@ a Tokio `LocalSet` and engine jobs on a blocking executor. The
 [browser guide](browser.md) uses the same resource model with IndexedDB, where
 those steps are asynchronous.
 
-Each piece of storage work runs as its own task on the `LocalSet`, so the Host goes on
-sending and receiving while it runs, and no caller's future holds it. When the
+The Rust binding runs each piece of storage work as its own task on the
+`LocalSet`, so the Host goes on sending and receiving while it runs, and no caller's future holds it. When the
 work finishes, its task drives the Host again. A failure that the finished
 work cannot hand to an operation becomes the Host's background failure.
 Closing the Host or an attachment waits for the storage work in flight and

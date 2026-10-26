@@ -6,15 +6,15 @@
 .draft = false,
 ---
 
-Pick a binding to use glowcap from your language. Each one exposes the same
-operations over the C ABI. The Rust, Python, TypeScript, and Racket bindings
+Pick a binding to use glowcap from your language. The Rust, Python,
+TypeScript, and Racket bindings wrap the C ABI in their language's conventions. They
 load glowcap's compiled libraries, then add transport libraries as needed. The
-browser package runs the same code as WebAssembly. [Choose an API]($link.page('surfaces'))
+browser package calls the core compiled to WebAssembly. [Choose an API]($link.page('surfaces'))
 compares these bindings with the Zig package, C ABI, CLI, and browser package,
 and [Concepts]($link.page('concepts')) explains the capability model behind
 them.
 
-[Every binding wraps the same C ABI, so the session operations and transport choices are the same in each language.]($image.siteAsset('diagram-bindings.svg'))
+[Rust, TypeScript, Python, and Racket wrap the shared C ABI with their own values and lifetimes.]($image.siteAsset('diagram-bindings.svg'))
 
 # One contract, each language's idioms
 
@@ -35,14 +35,13 @@ an argument and the access moves with it.
 `Runtime.open(...)` installs transports once. `runtime.connect(locator)`
 returns a session whose handshake is complete.
 
-In the browser, `@glowcap/web` compiles the same `Session` API to WebAssembly.
+In the browser, `@glowcap/web` provides the Session API over the WebAssembly core.
 A page cannot listen on a socket, so it accepts peers over WebRTC or through a
 relay instead. See
 [In the browser]($link.page('bindings/browser')).
 
-You can use synchronous calls, the language's own async sockets, or the
-Goblins-style actor layer on top, with near calls that run at once and
-eventual sends that queue and return a promise
+Each language page lists its runtime and transport support. Near calls run
+within the Host, while eventual sends queue a call and return a promise
 ([modules]($link.page('modules'))).
 
 # Use a binding from a checkout

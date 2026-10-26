@@ -4,7 +4,7 @@ First-party applications live here. They use the same public
 `connect`/`publish`/`fetch`/`send`/`serve` API as the language bindings and
 call no private `libglowcap_*` functions.
 
-- [`rooms/`](rooms/): capability-secure chat. A server hands clients room and
+- [`rooms/`](rooms/): chat over CapTP. A server hands clients room and
   inbox capabilities. The browser UI (`zig build rooms-web`) runs over
   encrypted iroh. `zig build demo-rooms` puts Zig and Deno clients in one room
   without a browser, plus Rust, Python, and Racket clients when those runtimes

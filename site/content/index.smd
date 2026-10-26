@@ -79,15 +79,9 @@ in your program. Peers can meet over encrypted discovery
 ([onion]($link.page('transports/onion'))), among other paths.
 [Choosing a transport]($link.page('transports/choosing')) is the decision table.
 
-Objects can also outlive their process. [Loam]($link.page('loam')), the
-storage layer, keeps objects and the capabilities they hold on disk. An actor
-nobody is calling can sleep there, and a saved link to it still works
-after a restart. Loam's full API is in Zig. C and Rust get a narrower
-subset, and Rust's also runs in the browser on IndexedDB.
-
 Use the library as a Zig package, a plain C ABI, or a binding (Rust,
-TypeScript, Python, Racket). The TypeScript binding also compiles to
-WebAssembly, so the same session runs in the browser. The [CapTP
-CLI]($link.page('cli')) exposes the same operations from a shell. `zig build`
+TypeScript, Python, Racket). In the browser, the TypeScript binding calls the
+core compiled to WebAssembly. The [CapTP
+CLI]($link.page('cli')) provides shell commands, a REPL, and MCP tools. `zig build`
 puts the `glowcap` binary in `zig-out/bin`. [Choose an
 API]($link.page('surfaces')) compares all of these entry points.

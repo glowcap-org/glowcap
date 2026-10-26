@@ -25,14 +25,12 @@ are new to you, [the introduction](docs/capabilities.md) explains the model.
 <br clear="left" />
 
 glowcap is built with AI coding assistants. The maintainer directs the work
-and is answerable for what lands. [`PROVENANCE.md`](PROVENANCE.md) records
-how, and why glowcap sends no generated reports or patches to projects that
-refuse them.
+and is answerable for what lands. [How glowcap is built](PROVENANCE.md)
+explains the assistance, verification, and upstream policies.
+[Contributions](CONTRIBUTING.md) are welcome with or without AI tools.
 
-You link glowcap into your program and own its memory, and the Zig API names
-each place a frame is copied, allocated, or borrowed. The protocol
-core is synchronous and does no I/O, so sockets, scheduling, and encryption
-live in the transport adapters. Sessions speak
+The Zig API distinguishes owned frames from borrowed views and takes explicit
+allocators. The protocol core is synchronous and does no I/O. Sessions speak
 [CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
 OCapN's session protocol, and encode it in [Syrup](https://github.com/ocapn/syrup), OCapN's canonical
 format.
@@ -44,19 +42,31 @@ the key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor oni
 lists the rest. Plain `tcp` is a testing transport, cleartext with no identity
 proof.
 
-Loam keeps application state in atomic records backed by SQLite, LMDB, or
-memory. Its storage core requests work from a caller-owned worker, without
-starting threads or an event loop. Durable actors can sleep outside memory,
+Applications can opt into Loam to keep state in atomic records backed by
+SQLite, LMDB, or memory. Durable actors can sleep outside memory,
 and transactions save their state before a reply is sent. Loam also models
 access, delegation, and revocation.
 
-The architecture is designed for low overhead: explicit ownership, borrowed
-views, bounded state, and allocation and copy budgets checked by the build.
+Build checks hold selected allocation, copy, and state-size budgets.
 [Performance measurements](https://glowcap.org/performance/) report protocol,
 transport, binding, and Loam costs with their workloads and methods.
-Pin a commit while evaluating the alpha.
 
 ## Quick start
+
+### Try a local conversation
+
+From a [working checkout](CONTRIBUTING.md#get-a-working-checkout), run:
+
+```sh
+zig build examples --summary all
+```
+
+The examples start their own peers. Chapter 01 publishes a greeter, connects
+over encrypted TCP, and checks its reply. Chapter 02 adds an introduction
+between three peers. The build summary shows which examples passed.
+[The example guide](examples/README.md) links each program.
+
+### Use glowcap in your program
 
 ```sh
 zig fetch --save git+https://github.com/glowcap-org/glowcap#COMMIT_SHA
@@ -138,18 +148,18 @@ The Rust, TypeScript, Python, and Racket bindings live in
 
 ## Conformance
 
-The checks for `main` and `dev` pushes include the upstream
+The interoperability checks use the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and live sessions
 with [Spritely Goblins](https://spritely.institute/goblins/) over TCP.
-Additional iroh and Tor checks run on demand. Check the successful run for the
-commit you intend to use. The baseline is CapTP 1.0 encoded in Syrup:
+The baseline is CapTP 1.0 encoded in Syrup:
 
 ```sh
 zig build ocapn-conformance  # the upstream OCapN test suite, against a glowcap peer
 ```
 
-[Community review](docs/community-review.md) lists every live check, what
-each proves, and what each needs to run.
+[Community review](docs/community-review.md) lists outside-peer checks, what
+each proves, and what each needs to run. [Stability](docs/stability.md) explains
+which checks run in CI.
 
 <p align="center">
   <img src="site/assets/glowcap-goblin-512.png" alt="a purple goblin studying the glowcap mark" width="320" />

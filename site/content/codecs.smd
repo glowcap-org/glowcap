@@ -40,10 +40,10 @@ Cap'n Proto lays messages out in 8-byte words with fixed field offsets. That
 makes partial reads and random access cheap, but padding and pointer words make
 small messages larger.
 
-It works only between two glowcap peers, since Goblins does not speak it. Codec
+Goblins does not speak this encoding, so use Syrup for Goblins interoperability. Codec
 and CapTP version are separate choices. glowcap's own profile pairs Cap'n
-Proto with `glowcap-next` (glowcap's own experimental CapTP version), and Cap'n Proto can also carry CapTP 1.0 between
-glowcap peers. Set
+Proto with `glowcap-next`, which tracks newer draft operations. Cap'n Proto
+can also carry CapTP 1.0 between glowcap peers. Set
 `codec = .capnp` and the version you need in Zig `SessionOptions`, or use the
 matching Host or binding preference.
 

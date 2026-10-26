@@ -64,7 +64,7 @@ pub fn checkBrowserFfiResolver(
         return;
     };
     defer gpa.free(contents);
-    if (std.mem.indexOf(u8, contents, "../runtime/internal/ffi/surface.ts") == null or
+    if (std.mem.indexOf(u8, contents, "@glowcap/runtime/adapter") == null or
         std.mem.indexOf(u8, contents, "return stem;") == null)
     {
         try appendViolation(gpa, violations, "{s}: must pair the shared FFI surface with a stem-only wasm resolver", .{path});

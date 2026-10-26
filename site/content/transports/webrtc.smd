@@ -1,14 +1,15 @@
 ---
 .title = "WebRTC: peer-to-peer for the browser",
-.description = "WebRTC carries a glowcap session over an encrypted DataChannel, with direct browser-to-browser channels after signaling.",
+.description = "WebRTC carries a glowcap session over an encrypted DataChannel, using a direct route or a TURN relay after signaling.",
 .date = .date("2026-07-22T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Browsers can talk to each other directly over a
-[WebRTC](https://www.w3.org/TR/webrtc/) DataChannel, encrypted with DTLS, with
-no server on the byte path. A WebRTC peer has no address to dial, so both ends set up the connection by exchanging messages through a capability they can already reach. That exchange is called signaling.
+Browsers can exchange CapTP over a [WebRTC](https://www.w3.org/TR/webrtc/)
+DataChannel, encrypted with DTLS. ICE selects a direct route or a configured
+TURN relay. The peers set up the connection by exchanging messages through a
+capability they can already reach. That exchange is called signaling.
 
 # Dial
 
@@ -149,7 +150,7 @@ reached on). glowcap carries that exchange over an ordinary OCapN capability,
 such as a [Rooms]($link.page('rooms')) room both peers have joined. That object moves opaque strings. It
 parses no SDP and holds no session.
 
-[The two peers trade an offer, an answer, and ICE candidates through a signaling capability. They then open a direct DataChannel and run the keyed session over it, with the signaling host out of the byte path.]($image.siteAsset('diagram-webrtc-signaling.svg'))
+[The two peers trade an offer, an answer, and ICE candidates through a signaling capability. They then run the keyed session over a DataChannel, with the signaling host out of the message path.]($image.siteAsset('diagram-webrtc-signaling.svg'))
 
 A bare `webrtc` locator does not dial on its own: without a signaling reference
 there is nowhere to send an offer, so the dial refuses. TypeScript configures
@@ -202,8 +203,8 @@ adds no servers unless the application configures some.
   a STUN or TURN server to cross a NAT, and without one it connects on
   loopback or a LAN.
 
-A TURN relay carries bytes only when ICE finds no direct path. Even then it
-sits under DTLS, so it sees timing and volume but never the session contents.
+When ICE selects a TURN route, the relay forwards DTLS-encrypted traffic.
+It can observe timing and volume.
 
 # Three-party handoff over WebRTC
 

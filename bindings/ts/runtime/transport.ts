@@ -1,3 +1,5 @@
+export type { Timer } from "./timer.ts";
+
 import type { DriverLoop } from "./driver_loop.ts";
 import type { Host } from "./host.ts";
 import type { Locator } from "./locator.ts";

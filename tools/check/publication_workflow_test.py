@@ -22,6 +22,7 @@ import tomllib
 import unittest
 from unittest import mock
 
+from ci_runtime_test import RuntimeTest
 from ci_image_test import ImageTest
 from ci_plan_test import PLAN, PlanTest  # unittest collects the coverage-selection contracts.
 
@@ -637,8 +638,7 @@ else:
 if __name__ == "__main__":
     output = io.StringIO()
     result = unittest.TextTestRunner(stream=output).run(
-        unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case)
-                           for case in (PublicationWorkflow, PlanTest, ImageTest)))
+        unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]))
     if not result.wasSuccessful():
         sys.stderr.write(output.getvalue())
     sys.exit(0 if result.wasSuccessful() else 1)

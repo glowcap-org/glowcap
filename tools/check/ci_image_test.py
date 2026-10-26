@@ -78,6 +78,10 @@ class ImageTest(unittest.TestCase):
 
     def test_lookup_distinguishes_miss_permissions_and_outage(self):
         for message, readonly, allowed in [('manifest unknown', False, True),
+                                          ('ghcr.io/glowcap-org/glowcap/devcontainer:test: not found', False, True),
+                                          ('unexpected status from HEAD request: 404 Not Found', False, True),
+                                          ('lookup ghcr.io: host not found', True, False),
+                                          ('exec: docker-credential-secretservice: executable file not found in $PATH', True, False),
                                           ('403 denied', True, True),
                                           ('403 denied', False, False),
                                           ('connection timed out', True, False)]:

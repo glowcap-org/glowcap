@@ -4,7 +4,7 @@
   width="720"
   height="320"
   role="img"
-  aria-label="glowcap is one library held three ways: a Zig package that imports the core directly, a C ABI that C and FFI hosts call, and four bindings that wrap that same C ABI, all sharing one Zig core, so the surface you choose never changes what a session puts on the wire."
+  aria-label="The Zig package imports the protocol core directly. C and FFI hosts call the C ABI. Rust, TypeScript, Python, and Racket wrap that ABI in their language's conventions. All use the same Zig protocol core."
 >
   <defs>
     <marker
@@ -74,7 +74,7 @@
     y="92"
     text-anchor="middle"
     class="sub"
-  >call glowcap_ocapn.h</text>
+  >call the C ABI</text>
 
   <rect
     x="500"
@@ -144,5 +144,5 @@
     y="300"
     text-anchor="middle"
     class="sub"
-  >one Zig core &#183; same wire on every surface</text>
+  >shared protocol engine</text>
 </svg>

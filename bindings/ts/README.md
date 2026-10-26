@@ -1,10 +1,14 @@
 # TypeScript binding
 
 These packages let TypeScript and JavaScript connect to OCapN peers, call their
-objects, and host objects of their own. One API runs on Deno and Bun, with a
-WebAssembly entry for browsers. The packages are not published, so use a
-checkout of the repository: run `zig build`, then import the packages from the
-tree.
+objects, and host objects of their own. Deno supports the full session API,
+with a WebAssembly entry for browsers. Bun supports synchronous Host and locator
+calls and byte-fed clients, but cannot run the driver loop or blocking transports. The packages are
+not published.
+
+Run `zig build` in a checkout, then import them from the tree.
+The checkout's `deno.json` maps the package names below to local sources.
+Save your client in the repository root and run `deno run --allow-all client.ts`.
 
 ```ts
 import { Runtime } from "@glowcap/runtime";

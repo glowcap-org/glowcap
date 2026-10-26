@@ -223,7 +223,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
     .{
         .where = .{ .file = "bindings/ts/runtime/host/state.ts" },
         .kind = .require,
-        .needles = &.{"_sessionRetirements = new Set<Promise<void>>()"},
+        .needles = &.{"_sessionRetirements: Set<Promise<void>> = new Set()"},
         .check = "nonfatal-release-paths",
         .why = "the Host state owns every physical session-retirement barrier",
     },

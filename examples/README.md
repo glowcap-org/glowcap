@@ -5,11 +5,15 @@ object, and another fetches it and calls it over encrypted TCP. Chapter 02
 adds a third peer and an introduction. The later chapters stay in one process
 to show actors, the protocol engine, and storage up close.
 
-Every chapter builds and runs with one command:
+From a [working checkout](../CONTRIBUTING.md#get-a-working-checkout), build
+and run the examples:
 
 ```sh
-zig build examples
+zig build examples --summary all
 ```
+
+The network examples start their own peers on loopback. The summary reports
+each run's result.
 
 ## Complete applications
 

@@ -6,42 +6,47 @@ sources:
   - resource: /src/loam/core/
   - resource: /src/loam/hosting/
   - resource: /src/loam/engines/
+  - resource: /bindings/rust/src/loam/
+  - resource: /apps/rooms/rust/runtime/src/session/managed/
 ---
 
 # Loam storage and durable actors
 
-Loam is glowcap's storage layer for objects that must outlive their process.
-The [Loam page](https://glowcap.org/loam/) on the website has
-diagrams. This guide is for Zig. Programs in C or Rust, including Rust in a
-browser, use a smaller part of Loam, covered in the
-[C/Rust guide](loam/c-and-rust.md) and the [browser guide](loam/browser.md).
+Loam is glowcap's optional storage module. It stores objects, their state,
+and the references they hold, and restores them after a restart. The
+[Loam page](https://glowcap.org/loam/) explains the model with a task board
+and diagrams. This guide covers the Zig integration.
 
-## What Loam is for
+## Choosing an integration
 
-Picture a task board shared over CapTP, the protocol glowcap peers use to call
-each other's objects. Your program hosts the board, its columns, and its cards
-as live objects. Bob holds a reference to one column, and Carol keeps a
-sturdyref, a saved reference she can use to reach the board again later. When your program restarts, every
-one of those objects is gone, and so is everything Bob and Carol were
-holding.
+A program needs a local store only for data it owns. Calling a durable object
+on another peer uses ordinary glowcap capabilities. Opening a Host does not
+open a store or make its actors durable.
 
-Saving the cards' text does not fix that, because a capability is a live
-connection to an object, not a value you can write down. Loam saves the
-objects, the references between them, and the durable names peers use to reach
-them. After a restart, peers can use those names to restore the same objects. An object
-nobody is calling sleeps on disk, so the stored graph can be far larger than
-memory.
+| Use | Who sets up storage | Who drives storage work |
+| --- | --- | --- |
+| Calling a remote durable object | The peer hosting it | That peer's runtime |
+| Running Rooms | The [session runtime](rooms/session.md#storage-and-startup) opens SQLite on the server or IndexedDB in the browser | Rooms uses the Rust binding |
+| Writing a [Rust application](loam/c-and-rust.md#setting-up) | Your startup code opens a Store, registers content, and attaches it to a Host | The binding schedules work on your Tokio executor |
+| Embedding [Zig](#a-first-durable-actor) or [C](loam/c-and-rust.md#driving-storage-from-c) | Your integration code opens a Store and attaches it to a Host when hosting actors | Your executor runs the supplied Worker or C work handles |
+| Using [local records](loam/store.md) | Your code opens a Store with schemas and limits, without a Host | Your executor runs engine operations |
+
+Stores, schemas, and attachments are initialized once for their owning
+lifetime. Object behaviors handle calls through that integration. C and Rust
+expose a smaller resource API, described in the [C/Rust guide](loam/c-and-rust.md)
+and its [browser counterpart](loam/browser.md).
 
 ## The pieces
 
-Loam sits between the Host you already run and a storage engine:
+For durable actors, an attachment connects the Host to a Store and its storage
+engine. The embedding or binding drives the work:
 
 ```mermaid
 flowchart TB
-    Peers["Peers: Bob, Carol"] -->|CapTP| Host["Host and Vat<br/>sessions, turns, promises"]
+    Peers["Remote peers"] -->|CapTP| Host["Host and Vat<br/>sessions, turns, promises"]
     Host --> Attachment["Loam attachment<br/>wakes actors, saves state before replying,<br/>serves durable names"]
     Attachment --> Store["core.Store<br/>records, transactions, bounded cache"]
-    Store -->|"read requests, write batches"| Worker["Your storage worker<br/>your threads, your executor"]
+    Store -->|"read requests, write batches"| Worker["Storage worker<br/>driven by the embedding or binding"]
     Worker --> Engine[("SQLite, LMDB, in-memory Volatile,<br/>or IndexedDB from Rust in a browser")]
 ```
 
@@ -57,9 +62,9 @@ transaction saves both changes or neither. Each change names the version of
 the record it started from, so an edit prepared from stale data is refused
 instead of overwriting a newer change.
 
-**Your code does the I/O.** Loam hands your storage worker read requests and
-write batches, and the worker reports back. Loam starts no thread and no event
-loop.
+**Storage execution.** The core emits read requests and write batches. Loam's
+engines perform the I/O, and the embedding or binding schedules it. The Zig
+core starts no thread or event loop.
 
 **Durable actors.** A [durable actor](#durable-actors), also called a sleepy
 actor, keeps its state in a record and runs on the Host and Vat you already
@@ -93,9 +98,11 @@ lets the owner pause, resume, or revoke that access. See the
 
 ## A first durable actor
 
-[Example 07](../examples/zig/07_durable_card.zig) stores one card in SQLite,
+[Example 07](../examples/zig/07_durable_card.zig) shows the Zig embedding
+interface. It stores one card in SQLite,
 moves it, shuts everything down, opens the same directory in a fresh Host,
-and finds the move still there.
+and finds the move still there. Its setup and work loop belong to the storage
+integration, while the card's behavior describes the application operation.
 
 **A schema and a behavior.** The card's payload is one integer, how many
 times it has moved. Its behavior reads the saved record and proposes new
@@ -133,8 +140,8 @@ store to the Host and registers the behavior. `attachment.restore` turns the
 record back into an ordinary Host capability that can be called locally or
 handed to a peer.
 
-**A call, with its storage work.** The program sends `move` and runs the loop
-every embedding runs: drive the Vat, call `attachment.advance()`, and let a
+**A call, with its storage work.** This Zig example sends `move` and drives
+the integration loop: drive the Vat, call `attachment.advance()`, and let a
 `hosting.Worker` carry out each item from `attachment.nextWork()`. The read
 wakes the card, the write saves its new state, and the reply is released after
 the write commits.
@@ -176,7 +183,7 @@ restart. Run the example with `zig build examples`.
 
 The decision records behind these guides start at
 [ADR-0048](decisions/adr/ADR-0048-loam-persistence-foundation.md) for
-records and LMDB and
+records and storage integration and
 [ADR-0049](decisions/adr/ADR-0049-record-backed-hosting.md) for
 sleepy actors.
 

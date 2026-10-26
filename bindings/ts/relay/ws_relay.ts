@@ -9,7 +9,7 @@
 // ADR-0034) can be the far side of another socket's relay.
 
 import { type ByteSink, type ByteSource, relayBytes, type RelayChannel, type RelayConfig } from "./relay.ts";
-import type { Timer } from "../runtime/timer.ts";
+import type { Timer } from "@glowcap/runtime/transport";
 import {
 	type WebSocketByteChannel,
 	webSocketChannel as byteWebSocketChannel,
@@ -38,8 +38,8 @@ export class RelayDialFailed extends Error {
  * embedders that host `webSocketRelay` cannot drift apart in wording. */
 export function relayFailureLogger(
 	log: (line: string) => void = (line) => console.error(line),
-	initialWindowMs = 30_000,
-	maximumWindowMs = initialWindowMs * 20,
+	initialWindowMs: number = 30_000,
+	maximumWindowMs: number = initialWindowMs * 20,
 ): (err: unknown) => void {
 	if (
 		!Number.isSafeInteger(initialWindowMs) || initialWindowMs < 1 ||

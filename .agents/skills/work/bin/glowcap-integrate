@@ -122,7 +122,12 @@ for attempt in {1..16}; do
 	refuse_duplicate_adr_ids
 	own=$(git rev-list --count --right-only --cherry-pick "${main_tip}...${head}" "^${dev_tip}")
 	[[ ${own} -gt 0 ]] || refuse_publication "${branch} has no commits of its own beyond dev"
-	base=$(git rev-parse "${head}~${own}")
+	# A merge contributes commits on both arms, but ~ walks only first parents.
+	# Find the shared boundary on that same path instead of using the total.
+	depth=$(git rev-list --first-parent --count "${head}" "^${main_tip}" "^${dev_tip}")
+	base=$(git rev-parse "${head}~${depth}")
+	git merge-base --is-ancestor "${dev_tip}" "${base}" ||
+		refuse_publication "squash parent would replace existing dev history"
 	if [[ $(git rev-list --count --right-only --cherry-pick "${main_tip}...${base}" "^${dev_tip}") -ne 0 ]]; then
 		refuse_publication "${branch} interleaves its own commits with main's; rebase them on top and retry"
 	fi

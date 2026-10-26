@@ -111,14 +111,14 @@ function profileLocator(transport: string, designator: string, relayUrl: string)
 }
 
 /** The identity-addressed cleartext relay profile. */
-export const keyed = {
+export const keyed: { locator(designator: string, relayUrl: string): Locator } = {
 	locator(designator: string, relayUrl: string): Locator {
 		return profileLocator(TRANSPORT_KEYED_RELAY, designator, relayUrl);
 	},
 };
 
 /** The Noise_XK-sealed relay profile. */
-export const noise = {
+export const noise: { locator(designator: string, relayUrl: string): Locator } = {
 	locator(designator: string, relayUrl: string): Locator {
 		return profileLocator(TRANSPORT_NOISE_RELAY, designator, relayUrl);
 	},

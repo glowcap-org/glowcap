@@ -7,9 +7,9 @@ sources: []
 # Vision
 
 glowcap should be the library programs use to share access across a network.
-One program hands another a reference. The other can call it, pass it on, and
-keep using it after either program restarts. That works in Zig, C, or any
-language with a binding.
+One program hands another a reference. The other can call it or pass it on.
+A durable reference lets it find the object again after a restart. That should
+work in Zig, C, or any language with a binding.
 
 ## The goal
 
@@ -44,14 +44,13 @@ explains.
 
 ## Scale
 
-The goal is 500,000 live CapTP sessions on one node, however an application
-runs glowcap.
+The goal is 500,000 live CapTP sessions on one node.
 
-Per-session memory checks and allocation budgets hold the design to that
-target, and the [performance report](https://glowcap.org/performance/#live-sessions) records
-measured runs and their scope. Serving that many connections is the job of
-the event loop and the operating system. The core's job is to stay small: no oversized session state,
-hidden allocation, or unnecessary copies.
+Per-session memory and allocation budgets constrain the cost of the core.
+Capacity also depends on the transport, event loop, operating system, and
+application workload. The [performance report](https://glowcap.org/performance/#live-sessions)
+records measured configurations, rather than a capacity guarantee for every
+application.
 
 ## What applications see
 

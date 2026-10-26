@@ -12,8 +12,8 @@ explains why that matters, and [modules]($link.page('modules')) shows where
 
 # A capability is a reference
 
-Code that holds a reference to an object can call it. Code that was never
-handed one cannot, and there is no way to manufacture one from bytes.
+Code that holds a reference to an object can call it. A session checks that
+the peer was granted the reference before allowing a call.
 [CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/) is the protocol that keeps
 this true between two programs on a network.
 [OCapN](https://github.com/ocapn/ocapn) is its standardization.
@@ -59,10 +59,9 @@ A **sturdyref** is a locator with a **swiss number** on the end, and it names
 one object. It is a reference you can write down, for example in a config
 file. Redeeming a sturdyref means dialing the peer and fetching that object.
 
-The name you fetch is the swiss number. Anyone who can reach the peer and
-knows the name can fetch the object, so a name is only as private as it is
-hard to guess. The examples use short names like `"greeter"` for readability.
-Give anything private a long random name.
+The name you fetch is the swiss number. Treat it as a bearer secret wherever
+the peer has made it fetchable. The examples use short names like `"greeter"`
+for readability. Give anything private a long random name.
 
 A name can be published for one partner or for everyone. A `Session`
 publication answers only the partner on that session. A Host-wide publication
@@ -83,10 +82,6 @@ names on disk, and restores an object when a peer fetches its name.
 | live reference | A reference you hold in a session and can call. |
 
 [Everything left of the hints is an address, and none of it grants access. Only the swiss number names something you can be given.]($image.siteAsset('diagram-locator.svg'))
-
-> **Swiss number**: holding the string *is* the permission. There is no
-> permission list and no login. The name comes from the numbered Swiss bank
-> account, where the number alone is the access.
 
 The
 [sturdyref diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
@@ -154,10 +149,9 @@ of writing the same message down. Session logic never changes with the codec.
 
 With a Goblins peer, the choice is CapTP 1.0 over Syrup, the shared baseline
 for interop. If glowcap and Goblins disagree there, glowcap treats it as a
-glowcap bug. Two glowcap peers can negotiate up to `glowcap-next`, an
-experimental CapTP version of glowcap's own, usually with Cap'n Proto.
-[What a CapTP 1.0 peer sees]($link.page('protocol')) lists the one place
-application code can tell them apart.
+glowcap bug. Two glowcap peers can negotiate up to `glowcap-next`, a
+profile tracking newer draft operations, usually with Cap'n Proto.
+[The protocol guide]($link.page('protocol')) lists the profile differences.
 
 [A friendly goblin sizing up the glowcap mark. glowcap tests its wire behavior against a real Goblins peer, so both sides have to understand the same conversation.]($image.siteAsset('glowcap-goblin-512.png'))
 

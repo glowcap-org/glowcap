@@ -451,22 +451,19 @@ the hosting release cannot. No benchmark runs during the hold.
 The design removes duplicated infrastructure structurally, but measured
 cost and contention decide the supported deployment limits.
 
-### Settle ownership before public contribution
+### Accept shared hosting before offering it
 
-Complete account-free shared hosting before opening the project for public
-contribution. The reason is specific: membership selection, session lifetime
-and publication ownership are boundaries contributors would otherwise build
-on while this work replaces them. Public source alone does not promise API
-stability, but a coherent implementation avoids unnecessary contributor churn.
-This milestone is not a claim of stable release or arbitrary hosting scale.
+Opening the repository does not depend on implementing shared hosting.
+The [roadmap](../roadmap.md#opening-the-repository) owns publication criteria.
+Contributions can improve the existing product while this plan remains open.
+Changes to membership, session lifetime or publication ownership need to
+account for this design before they land.
 
-| Before opening contribution | After the hosting milestone |
-| --- | --- |
-| Capability-selected registrations and memberships, with shipped clients updated | Optional account custody, OIDC and device recovery |
-| One session model across browser, standalone and pooled execution | Conversation reorganization and broader recursive-resource UI |
-| Shared storage, recording execution, source selection and lifetime ownership | Additional worker deployment and placement automation |
-| Durable creation, bounded activation, admission and cleanup | Automatic failover or individual-session relocation, each requiring its own design |
-| Measured single-session and pooled costs, restart and backup proofs | Wider capacity claims after representative measurement |
+Complete the account-free hosting milestone before advertising pooled
+sessions. It includes capability-selected membership, shared infrastructure,
+bounded creation and cleanup, measured costs, and restart and backup proofs.
+Optional account custody, OIDC and device recovery follow separately.
+Broader content reorganization and fleet orchestration are independent work.
 
 The initial supported host runs one worker with one partition. The two-Store
 proof establishes routing and lifetime separation without requiring a
@@ -497,25 +494,25 @@ must refuse explicitly, never silently reset or acquire broader authority.
 Any reset remains an operator action after preserving a backup.
 Reopening supported state must preserve identity, exact grants and receipts.
 
-Before publication, record evidence for every hosting acceptance row above
-that does not concern accounts. Exercise the supported setup through shipped
+Before offering pooled hosting, record evidence for every hosting acceptance
+row above that does not concern accounts. Exercise the supported setup through shipped
 clients, including a browser-owned session and two pooled sessions. Keep
 normal recording, file transfer, sharing and revocation usable. Measure
 single-session regressions as well as pooled savings. Passing doc checks or
-the small architecture proof alone does not satisfy this release boundary.
+the small architecture proof alone does not satisfy hosting acceptance.
 
 Stop architectural refinement when these ownership contracts and acceptance
 conditions have no known contradiction. Implementation must then supply the
 missing evidence. If the first integrated proof fails a contract, fix that
 owner or revise the design before expanding the service. Do not move a failed
-acceptance condition out of scope merely to reach publication.
+acceptance condition out of scope merely to ship pooled hosting.
 
 ## Steps
 
 Implementation starts after maintainer review. Each numbered step is a
 separately reviewable commit with a focused proof. Keep the existing product
 working between steps, and revise a step before starting if it cannot meet
-that bar. The prepublication hosting milestone ends at step 11.
+that bar. The account-free hosting milestone ends at step 11.
 Steps 12 through 15 add optional account recovery.
 
 1. **Record the authority contract.** Add an ADR for session, infrastructure
@@ -561,7 +558,7 @@ Steps 12 through 15 add optional account recovery.
    owners. Prove saturation, storage refusal, cancellation and reserved
    cleanup progress without changing protocol send order. Compare both pooled
    density and single-session costs against the preserved baseline.
-11. **Complete the publication prerequisite.** Exercise the supported host,
+11. **Accept the account-free host.** Exercise the supported host,
     process loss, graceful shutdown and stopped backup restoration. Prove
     writer exclusion, supported-state reopen and unsupported-state refusal.
     Document setup, capability-based creation and sharing, measured limits and

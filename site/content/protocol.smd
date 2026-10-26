@@ -14,7 +14,7 @@ draw the flows.
 
 The operation and descriptor names below are checked against the Syrup codec.
 In the tables, *1.0* means CapTP 1.0, the version Goblins speaks, and *Next*
-means `glowcap-next`, glowcap's own experimental version.
+means `glowcap-next`, the profile tracking newer draft operations.
 
 # Operations
 
@@ -23,11 +23,11 @@ session, makes a call, settles a promise, or tears the whole thing down.
 
 | Message | What it does |
 | --- | --- |
-| `op:start-session` | Opens a session. Each side announces its location and the keys that bind the connection. |
-| `op:deliver` | Calls a method on a reference. Next requires a resolver and listen mode. The optional answer position enables pipelining. On 1.0, omitting both answer and resolver makes a one-way send. |
+| `op:start-session` | Opens a session. Each side announces its location and session public key, with a signature over the location. |
+| `op:deliver` | Calls a method on a reference. Next has separate resolver and listen-mode operands. The optional answer position enables pipelining. On 1.0, omitting both answer and resolver makes a one-way send. |
 | `op:deliver-only` | Next sends a message without requesting a result. |
 | `op:resolve` | Settles an answer to its value or a break. glowcap never sends it to a live peer: CapTP 1.0 settles through the resolver below, and `glowcap-next` through its inline subscription or `op:listen`. The codec reads and writes it for the reference fixtures. |
-| `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
+| `op:listen` | Requests a notification when a promise resolves. |
 | `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
 | `op:get` | On 1.0, reads a named field of an answer without waiting for the whole result. |
 | `op:index` | On 1.0, reads one item of an answer by position. |

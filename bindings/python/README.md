@@ -9,6 +9,13 @@ platform. Terms such as
 locator, vat, and sturdyref are defined in the
 [glossary](../../docs/capabilities.md#glossary).
 
+From the repository root, make the local package importable before running
+your client:
+
+```sh
+export PYTHONPATH="$PWD/bindings/python${PYTHONPATH:+:$PYTHONPATH}"
+```
+
 ```python
 import asyncio
 

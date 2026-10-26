@@ -177,6 +177,26 @@ git -C "${tree}" verify-commit "${squash}" 2>/dev/null
 [[ -z $(git -C "${tree}" status --porcelain) ]]
 feature_tip=${squash}
 
+# A merge of draft branches is one change, not extra first-parent history.
+# Counting both arms must never squash an existing dev commit.
+git -C "${repo}" reset --hard -q dev
+before_dev=$(git -C "${tree}" rev-parse dev)
+git -C "${tree}" branch parallel-draft
+printf 'left\n' >"${tree}/left"
+git -C "${tree}" add left
+git -C "${tree}" commit -qm left
+git -C "${tree}" switch -q parallel-draft
+printf 'right\n' >"${tree}/right"
+git -C "${tree}" add right
+git -C "${tree}" commit -qm right
+git -C "${tree}" switch -q feature-work
+git -C "${tree}" merge -q --no-ff -m "Combine drafts" parallel-draft
+merged_tree=$(git -C "${tree}" rev-parse 'HEAD^{tree}')
+(cd "${tree}" && "${integrate}" -m "Land both drafts" >/dev/null)
+[[ $(git -C "${tree}" rev-parse 'dev^') == "${before_dev}" ]]
+[[ $(git -C "${tree}" rev-parse 'dev^{tree}') == "${merged_tree}" ]]
+git -C "${tree}" verify-commit dev 2>/dev/null
+
 # A single commit publishes as written, so a subject has nothing to name. Its
 # author stays the author, and the integrator is the committer who signed.
 printf 'single\n' >"${tree}/single"

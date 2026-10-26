@@ -3,11 +3,11 @@
 //! `GlowcapDriverLoop`.
 //!
 //! The driver archive composes transport providers and owns sockets and
-//! pumping, so this package's whole job is choreography. [`DriverLoop`] is the
+//! pumping, so this package's whole job is choreography. `DriverLoop` is the
 //! step-shaped floor (create
 //! the loop, register separately linked transports, dial and listen, step,
 //! drain events in owned
-//! form). [`LoopShared`] is the Tokio state aggregate, while `progress.rs`
+//! form). `LoopShared` is the Tokio state aggregate, while `progress.rs`
 //! dispatches events, `sessions.rs` transfers session handles, and
 //! `provider.rs` owns transport installation. The loop parks the `LocalSet`
 //! on the loop's one readiness descriptor with an `AsyncFd`, steps with a
@@ -19,8 +19,8 @@
 //!
 //! One thread drives one loop from `open` to drop. `wake` is the family's
 //! one cross-thread call, and `detach_thread` the sequential handover.
-//! Completions arrive as [`LoopEvent::Completion`] carrying the generated
-//! [`HostAction`] decode, the byte-fed drain's own SETTLE/FAIL shapes, so
+//! Completions arrive as `LoopEvent::Completion` carrying the generated
+//! `HostAction` decode, the byte-fed drain's own SETTLE/FAIL shapes, so
 //! loop events route vow outcomes with the same vocabulary the pump uses.
 
 use core::future::Future;

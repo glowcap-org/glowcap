@@ -10,7 +10,7 @@ sources:
 # Loam record, transaction, and hosting API
 
 The code below is sketch notation. The
-[Loam guide](../loam.md) has the real type and method names, and the
+[Loam guide](../loam.md) covers integration and working Zig examples, and the
 [managed access model](access-api.md) covers resource management.
 
 ## How an application uses it
@@ -221,11 +221,10 @@ once.
 
 ## Storage work and failure
 
-The Store asks your storage worker for three kinds of work, each with bounded input and one owner
-for its completion: read, commit, and recover. In Zig, your worker runs the
-blocking engine calls on your own executor. In the browser, the worker runs
-each prepared batch inside one IndexedDB transaction and reports the result
-back the same way.
+The Store emits bounded read, commit, and recover work. In Zig and C, the
+embedding submits and completes work through the supplied helpers. The Rust
+binding schedules SQLite and LMDB work on the application's blocking executor.
+In the browser, it runs each prepared batch in one IndexedDB transaction.
 
 | Outcome | Meaning |
 | --- | --- |

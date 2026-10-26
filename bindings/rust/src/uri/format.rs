@@ -196,7 +196,7 @@ pub fn format_locator_uri(locator: &Locator) -> Result<String> {
 
 /// Split a bare designator as `host:port` through the core grammar
 /// (`glowcap_designator_host_port`). Prefer this over minting a peer URI
-/// just to call [`parse_locator`].
+/// just to call [`crate::parse_locator`].
 pub fn designator_host_port(designator: &str) -> Result<(String, u16)> {
 	let mut host_ptr: *const c_uchar = core::ptr::null();
 	let mut host_len: usize = 0;

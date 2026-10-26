@@ -1,7 +1,7 @@
 # Plans
 
 A plan here says how one roadmap item gets built: what it's for, the steps,
-how agents split the work, and the questions for the maintainer. The
+how the work is divided, and the decisions it needs. The
 [roadmap](../roadmap.md) is the list of work and links each plan.
 [Plan to plan](plan-to-plan.md) says how an idea becomes a plan and when a
 plan is done.

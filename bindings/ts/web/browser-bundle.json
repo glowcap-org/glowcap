@@ -3,6 +3,7 @@
 	"imports": {
 		"@glowcap/web": "./mod.ts",
 		"@glowcap/runtime": "../runtime/mod.ts",
+		"@glowcap/runtime/adapter": "../runtime/adapter.ts",
 		"@glowcap/runtime/websocket": "../runtime/websocket.ts",
 		"@glowcap/runtime/ffi": "./browser_ffi.ts",
 		"@glowcap/runtime/transport": "../runtime/transport.ts",

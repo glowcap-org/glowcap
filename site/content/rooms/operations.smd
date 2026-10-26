@@ -44,7 +44,7 @@ The room server's transport decides how sessions reach it:
 
 | Transport | Use it when |
 | --- | --- |
-| iroh | The default. Encrypted, the peer proves who it is, and it finds a path through most NATs. |
+| iroh | The default. Its channel authenticates the node key, with discovery and relays to help peers connect across NATs. |
 | onion | You want a Tor onion service. The service key lives in the data directory, so the address survives a restart. |
 | TCP | You are developing on your own machine. It is unencrypted and proves nothing about who answered. |
 
@@ -55,10 +55,11 @@ of quietly making a new one.
 
 # Make sessions reachable
 
-The web server carries bytes between a session on the page and the room
-server over a WebSocket on the page's own address. The same relay lets another
-peer reach that session, and Noise encrypts that connection end to end, so
-the relay sees only ciphertext.
+The page reaches the room server through the web server's WebSocket gateway.
+On an iroh route, that gateway verifies the room server's key and can read
+the traffic. Incoming connections to a browser session use `noise-relay`,
+which encrypts between the peers. The [relay guide]($link.page('relay'))
+explains both paths.
 
 Direct messages over [WebRTC]($link.page('transports/webrtc')) need ICE
 servers, which help two peers find a network path. STUN helps them find a

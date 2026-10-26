@@ -50,6 +50,7 @@
     "@glowcap/runtime": "../../bindings/ts/runtime/mod.ts",
     "@glowcap/runtime/ffi": "../../bindings/ts/web/browser_ffi.ts",
     "@glowcap/runtime/transport": "../../bindings/ts/runtime/transport.ts",
+    "@glowcap/runtime/adapter": "../../bindings/ts/runtime/adapter.ts",
     "@glowcap/runtime/websocket": "../../bindings/ts/runtime/websocket.ts",
     "@glowcap/inproc": "../../bindings/ts/inproc/mod.ts",
     "@glowcap/tcp/transport": "../../bindings/ts/web/browser_tcp_stub.ts",

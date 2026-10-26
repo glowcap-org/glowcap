@@ -5,7 +5,7 @@
 // subpath to this file at build time; the FFI archive resolver therefore
 // stays out of the browser module graph instead of arriving behind Node stubs.
 
-export * from "../runtime/internal/ffi/surface.ts";
+export * from "@glowcap/runtime/adapter";
 
 /** The wasm adapter ignores paths and resolves this archive stem directly. */
 export function libPath(stem: string): string {

@@ -6,6 +6,9 @@ a checkout of the repository: run `zig build`, then `require` the modules from
 the tree. Terms such as locator and sturdyref are defined in the
 [glossary](../../docs/capabilities.md#glossary).
 
+The example below belongs in `bindings/racket/`, beside the modules it
+requires. From another directory, adjust those relative module paths.
+
 ```racket
 (require "glowcap.rkt"
          "glowcap-tcp.rkt")

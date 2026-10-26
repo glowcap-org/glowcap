@@ -143,7 +143,17 @@ for (const [i, width] of widths.entries()) {
 			page.on("pageerror", onPageError);
 		}
 		try {
-			await page.goto(base + p, { waitUntil: "networkidle", timeout: 20_000 });
+			const response = await page.goto(base + p, { waitUntil: "networkidle", timeout: 20_000 });
+			if (!response?.ok()) throw new Error(`HTTP ${response?.status() ?? "no response"}`);
+			if (i === 0 && p === "/reference/api/") {
+				// Loading the viewer shell alone does not prove its Wasm index works.
+				await page.locator("#search").fill("Session");
+				const result = page.locator("#listSearchResults a").first();
+				await result.waitFor({ state: "visible", timeout: 10_000 });
+				await result.click();
+				await page.locator("#hdrName").waitFor({ state: "visible", timeout: 10_000 });
+				await page.goto(base + p, { waitUntil: "networkidle", timeout: 20_000 });
+			}
 			const overflow = await page.evaluate(() =>
 				document.documentElement.scrollWidth - document.documentElement.clientWidth
 			);

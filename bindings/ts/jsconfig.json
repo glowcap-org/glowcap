@@ -14,6 +14,7 @@
 			"@glowcap/inproc": ["./inproc/mod.ts"],
 			"@glowcap/onion": ["./onion/mod.ts"],
 			"@glowcap/relay": ["./relay/mod.ts"],
+			"@glowcap/runtime/adapter": ["./runtime/adapter.ts"],
 			"@glowcap/runtime/ffi": ["./runtime/ffi.ts"],
 			"@glowcap/iroh": ["./iroh/mod.ts"],
 			"@glowcap/iroh/internal": ["./iroh/internal.ts"],

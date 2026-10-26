@@ -5,11 +5,31 @@ Open a pull request against `dev`. For a substantial design change, open an
 issue first to agree on the approach. Glowcap LLC maintains the project.
 Reviews are best-effort.
 
+Use the editor and development tools you prefer. Building, testing, and
+contributing require no AI service or account. Contributions written with or
+without assistance receive the same review for correctness, clarity, tests,
+and fit with the project.
+
 The [bug report form](.github/ISSUE_TEMPLATE/bug_report.md) lists what a report
 needs, and a fix is optional. Send suspected vulnerabilities through
 [the security policy](SECURITY.md).
 [Issues](https://github.com/glowcap-org/glowcap/issues) and
-[the roadmap](docs/roadmap.md) show the work under discussion.
+[the roadmap](docs/roadmap.md) show the work under discussion. An open plan
+describes proposed work, not a shipped API or an instruction to implement it
+without agreeing on scope.
+Before changing a contract covered by a plan, discuss the approach in an
+issue. Focused fixes to the existing product need not wait for that plan.
+
+## Find a starting point
+
+A useful contribution can point out a confusing instruction, reproduce a bug,
+add a missing failure case to a test, or fix a focused problem. You do not need to
+understand the whole protocol to report what happened and what you expected.
+
+For code, start with a runnable [example](examples/README.md) in your language,
+then follow it into the implementation. For Rooms, start with
+[Developing Rooms](apps/rooms/developing.md). The roadmap includes substantial
+design work, so discuss scope before taking on an entire item.
 
 ## Get a working checkout
 
@@ -132,14 +152,19 @@ follow-up changes on the same branch so the discussion and checks stay together.
 An accepted change lands on `dev` as one commit signed by the maintainer that
 keeps you as its author, and the pull request closes naming that commit.
 
-AI assistance is welcome on the terms the maintainer works under: the person
-who submits a change can explain every line of it, answers for it in review,
-and says in the pull request what an assistant did. A change its submitter
-cannot explain is not ready. The maintainer signs each commit on `dev` at
-integration, so the signature on a landed commit names who vouched for it.
-[PROVENANCE.md](PROVENANCE.md) records how the project itself is built and
-lists upstream projects whose policies restrict AI-assisted work.
-Participation follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+## Tools and responsibility
+
+The submitting contributor explains the change and its design decisions,
+reports validation and remaining uncertainty, and answers review questions.
+These expectations apply regardless of the tools used.
+
+If you used AI assistance, briefly describe what it did and how you verified
+the result in the pull request.
+[PROVENANCE.md](PROVENANCE.md) describes the project's own use of assistants
+and the upstream policies that restrict assisted work. Participation follows
+the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Repository instructions for coding agents live in [AGENTS.md](AGENTS.md).
 
 ## Continuous integration
 
@@ -166,7 +191,8 @@ Selection uses the complete push diff or the pull request's merge result.
 Main pushes, pull requests targeting main, nightly runs, and manual
 `suite=check` runs always execute the complete [`ci/gates.sh`](ci/gates.sh)
 sequence. Full validation includes bounded mutation fuzzing. Nightly runs also
-search deeper with the fuzzer, as does a manual `suite=fuzz` run.
+search deeper with the fuzzer, as does a manual `suite=fuzz` run. A fuzzer
+finding is retained as a downloadable artifact for reproduction.
 
 Development runs report `dev-gates`. Only complete validation reports `gates`,
 which the main ruleset requires. Before promotion, run full validation on the

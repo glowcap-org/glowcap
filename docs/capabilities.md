@@ -8,10 +8,9 @@ sources:
 
 # Capabilities, CapTP, and OCapN
 
-Start here if object-capability security is new to you and you want a short
-glossary. For the guided explanation with diagrams, read [Why
-OCapN](https://glowcap.org/why/). If the terms already feel
-familiar, go to the [quick start](../README.md#quick-start).
+A capability lets one program give another access to an object.
+[Why OCapN](https://glowcap.org/why/) illustrates the idea, and the
+[quick start](../README.md#quick-start) shows the first call.
 
 ## A capability is a reference with authority
 
@@ -24,6 +23,10 @@ them, but at the object boundary permission arrives as a reference.
 This avoids *ambient authority*, where a program and every library it loads can
 draw from one shared pool of permissions. In a capability design, permission
 arrives one reference at a time from someone who chose to grant it.
+
+For example, a file object might offer reading and writing. A wrapper that
+exposes only reading lets another program read that file without getting
+write access or access to the rest of the filesystem.
 
 Three common patterns follow:
 
@@ -104,12 +107,12 @@ wire.
 | answer position | The sender-chosen CapTP session slot (`desc:answer`) used to pipeline sends against a promise. | <!-- status-allow: runtime state or operation ordering -->
 | promise pipelining | Calling through a promise before it settles so dependent calls share a flight. |
 | bootstrap object | The one well-known capability available when a session opens. |
-| swiss number | A long random secret name registered under the bootstrap object, so the object can be fetched later. |
+| swiss number | The name a peer presents to the bootstrap object to fetch a published object. |
 | sturdyref | Durable data containing a peer locator and swiss number. Redemption still depends on that peer continuing to answer at the locator and honor the registration. |
 | locator | An `ocapn://` URI identifying an OCapN peer, and optionally one of its objects, for the selected netlayer to reach. |
-| designator | The part of a locator that names the peer: a public key, an onion service id, an iroh node id, or a cleartext TCP `host:port`. Most designators prove who answers, but a TCP `host:port` does not. Hints help reach the peer and are never identity. |
+| designator | The part of a locator that names the peer, such as a public key or `host:port`. The transport determines how that name is authenticated. Hints carry routing advice. |
 | handoff | A signed three-party introduction that moves a capability without keeping the introducer as proxy. |
 | give | The signed introduction presented to the exporting peer during handoff. |
-| netlayer | OCapN's word for a transport: how a locator's bytes reach the peer. [Known limitations](boundaries.md) says what each one proves. |
+| netlayer | OCapN's word for a transport carrying CapTP messages. [Known limitations](boundaries.md) says what each one proves. |
 | codec | A wire encoding for the message model. glowcap ships Syrup and Cap'n Proto. |
 | Syrup | The S-expression-shaped binary encoding used by OCapN and Goblins. |

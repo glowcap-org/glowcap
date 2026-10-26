@@ -239,8 +239,9 @@ export function ensureRuntimeReady(): Promise<RuntimeAdapter> {
 	adoptInjectedAdapter();
 	if (selected) return Promise.resolve(selected);
 	readying ??= (async () => {
-		const file = `./adapters/${detectRuntime()}.ts`;
-		const adapter = (await import(file)).adapter as RuntimeAdapter;
+		const adapter = detectRuntime() === "deno"
+			? (await import("./adapters/deno.ts")).adapter
+			: (await import("./adapters/bun.ts")).adapter;
 		selected = adapter;
 		setActiveLayout(adapter.layout ?? layout64);
 		return adapter;

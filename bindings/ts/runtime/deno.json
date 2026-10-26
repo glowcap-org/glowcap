@@ -1,16 +1,14 @@
 {
 	"name": "@glowcap/runtime",
 	"license": "Apache-2.0",
-	"compilerOptions": {
-		"lib": ["deno.window", "esnext"]
-	},
 	"version": "0.1.0",
 	"exports": {
 		".": "./mod.ts",
 		"./cleanup": "./cleanup.ts",
 		"./transport": "./transport.ts",
 		"./websocket": "./websocket.ts",
-		"./ffi": "./ffi.ts"
+		"./ffi": "./ffi.ts",
+		"./adapter": "./adapter.ts"
 	},
 	"publish": {
 		"include": [
@@ -23,6 +21,6 @@
 		]
 	},
 	"tasks": {
-		"check": "deno check mod.ts cleanup.ts runtime.ts transport.ts websocket.ts ffi.ts driver_loop.ts internal/server.ts test/runtime_test.ts"
+		"check": "deno check adapter.ts mod.ts cleanup.ts runtime.ts transport.ts websocket.ts ffi.ts driver_loop.ts internal/server.ts test/runtime_test.ts"
 	}
 }

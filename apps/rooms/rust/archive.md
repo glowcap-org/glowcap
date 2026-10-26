@@ -11,9 +11,8 @@ sources:
 
 # The member archive
 
-A member's history belongs to the member. The room server keeps a room's
-lines because the room belongs to the server. A direct line's history is kept
-by its reader, because only the reader's browser ever sees its plaintext.
+Room history is kept by the room server when enabled. A member's archive
+stores the direct messages and room lines they choose to keep.
 
 So Rooms gives each member one ordinary OCapN object for what they kept. One
 Rust design implements it in three places:

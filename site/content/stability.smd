@@ -11,12 +11,14 @@ move. None of the checks below is a compatibility or security promise.
 
 Three kinds of checks sit behind a claim:
 
-- Checks in the repository (`zig build check`) show glowcap agrees with itself:
-  scenarios, fixtures, budgets, and public examples.
+- `zig build check` runs in-process scenarios, committed wire fixtures,
+  budgets, and public examples.
 - Recurring live checks talk to the upstream OCapN suite and to a
   [Spritely Goblins](https://spritely.institute/goblins/) peer. A Chromium browser
   running the WebAssembly build also connects over a local secure WebSocket.
-  They run on pushes to `main` and `dev` and on pull requests that target `main`.
+  Full CI validation runs them. `dev` pushes and development pull requests
+  select checks by changed files, as the [CI guide](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#continuous-integration)
+  explains.
 - On-demand checks cover Tor, the full Goblins session over iroh, and browser-to-browser
   WebRTC. No check covers iroh across two separate NATs or a public
   certificate.

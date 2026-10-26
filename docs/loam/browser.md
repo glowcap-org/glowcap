@@ -38,8 +38,9 @@ for a saved identity, or creates it if it is missing. Once your program knows
 the store holds its application root, use `Store::open` with `create=false`
 so a missing store is an error. Both hold an exclusive Web Lock.
 
-Run Host work on the browser-driven Tokio `LocalSet`, with `Host`, `Ref`, and
-`Session`. Storage callbacks run on the browser's main thread and queue the
+Your application opens the Store and attaches its content to a Host. The Rust
+binding drives IndexedDB work on the browser-driven Tokio `LocalSet`, alongside
+`Host`, `Ref`, and `Session`. Storage callbacks run on the browser's main thread and queue the
 next IndexedDB requests while the current request event is still active. No
 transaction stays open across a network or user wait.
 

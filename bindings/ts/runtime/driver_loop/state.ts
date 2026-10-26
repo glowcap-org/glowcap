@@ -106,33 +106,33 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	// OPENED/ACCEPTED handles cross one event-to-wrapper ownership window. A
 	// true value records SESSION_CLOSED arriving before adoption; the pointer
 	// remains valid until the wrapper claims or the binding releases it.
-	protected readonly _unclaimedSessions = new Map<
+	protected readonly _unclaimedSessions: Map<
 		Ptr,
 		| { readonly kind: "open" }
 		| { readonly kind: "closed"; readonly error: GlowcapError | null }
-	>();
-	protected readonly _sessionCloses = new Map<Ptr, {
+	> = new Map();
+	protected readonly _sessionCloses: Map<Ptr, {
 		readonly promise: Promise<void>;
 		readonly resolve: () => void;
 		readonly reject: (error: GlowcapError) => void;
-	}>();
-	protected readonly _pendingDials = new Map<bigint, DialWaiter>();
-	protected readonly _pendingListeners = new Map<bigint, ListenerWaiter>();
-	protected readonly _accepts = new Map<bigint, Ptr[]>();
-	protected readonly _acceptWaiters = new Map<
+	}> = new Map();
+	protected readonly _pendingDials: Map<bigint, DialWaiter> = new Map();
+	protected readonly _pendingListeners: Map<bigint, ListenerWaiter> = new Map();
+	protected readonly _accepts: Map<bigint, Ptr[]> = new Map();
+	protected readonly _acceptWaiters: Map<
 		bigint,
 		Array<{
 			readonly resolve: (session: Ptr | null) => void;
 			readonly reject: (error: GlowcapError) => void;
 		}>
-	>();
-	protected readonly _listeners = new Set<bigint>();
-	protected readonly _closingListeners = new Map<bigint, GlowcapError>();
-	protected readonly _listenerCloses = new Map<bigint, {
+	> = new Map();
+	protected readonly _listeners: Set<bigint> = new Set();
+	protected readonly _closingListeners: Map<bigint, GlowcapError> = new Map();
+	protected readonly _listenerCloses: Map<bigint, {
 		readonly promise: Promise<void>;
 		readonly resolve: () => void;
 		readonly reject: (error: GlowcapError) => void;
-	}>();
+	}> = new Map();
 	// A loop step may deliver for any session. The step carrier supplies the
 	// wrapper Host; each callback turn supplies its actual ingress session.
 	protected constructor(handle: Ptr, wrapper: Host) {

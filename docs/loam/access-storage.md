@@ -41,7 +41,7 @@ Managed access decides which resources and grants exist, who may act, and
 what a commit or recovery means for access. Loam decides which records stay
 in memory and commits them atomically, and its Host attachment wakes actors
 and runs durable work. The synchronous cores ask for storage work as explicit
-requests, and your program's storage worker does the I/O on its own executor.
+requests. The embedding or binding runs them on the application's executor.
 [Loam's architecture](architecture.md#who-owns-what) draws that line, and the
 [actor guide](actors.md) covers waking actors and putting them to sleep. A new
 kind of storage engine needs measurements against the existing ones.

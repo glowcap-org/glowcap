@@ -6,24 +6,23 @@
 .draft = false,
 ---
 
-Picture a task board shared over CapTP, the protocol peers use to call each
-other's objects. Your program hosts the board, its columns, and its cards as
-live objects. Bob holds a reference to the "to do" column. Carol keeps a
-sturdyref to the board, a saved reference that fetches it by name.
+Loam is glowcap's storage module for objects and the references they hold.
+It runs inside your program, saving their state across restarts and loading
+objects as they are used. The stored graph can be larger than memory.
 
-When your program restarts, all of those references break.
+Consider a shared task board. Bob holds a reference to its "to do" column.
+Carol keeps a sturdyref to the board, a saved reference that fetches it by
+name. Restoring the board means recovering its cards and columns together
+with the access those references gave.
 
-Saving the cards' text is easy. Saving the references is harder: which column
-holds which card, and which object Bob was holding. A live reference exists
-only in the running program, so it cannot simply be written to disk.
+Live network references end when the server stops. Peers use saved names to
+reconnect to the restored objects.
 
-Loam saves the objects together with the references between them. After a
-restart the same objects come back and the same references reach them. Objects
-nobody is calling stay on disk, so the board can be far bigger than memory.
-
-Loam is a library inside your program, not a database server. Its full API is
-in Zig, under `glowcap.loam`, and C and Rust get a narrower subset
-([limits]($link.ref('limits'))).
+Programs that host durable objects configure a store during startup. Rooms
+already handles that in its session runtime. Peers calling those objects use
+ordinary glowcap references and need no local store. The
+[integration guide](https://github.com/glowcap-org/glowcap/blob/main/docs/loam.md#choosing-an-integration)
+covers the setup owned by each API.
 [Concepts]($link.page('concepts')) covers references and sturdyrefs if they
 are new to you.
 
@@ -43,9 +42,9 @@ Everything else is garbage once the running program stops holding it, even two
 records that point at each other.
 **Collection** deletes it in small batches you schedule.
 
-Changes are **transactions**. Moving a card touches two columns, and both
-change or neither does, so a crash never leaves the card in both or in
-neither. Saving a transaction is called **committing** it.
+Changes are **transactions**. Moving a card touches two columns, and a
+transaction saves both changes or neither. Saving a transaction is called
+**committing** it.
 
 # Objects sleep until called
 
@@ -54,36 +53,28 @@ Most cards on a big board go untouched for months, so Loam lets them
 working. A call wakes the card, runs it, saves the result, and only then
 replies.
 
-[A call to a sleeping card: the Host accepts it, Loam asks your worker for the record, the card's code proposes new state, your worker saves it, and only then does the reply go back.]($image.siteAsset('diagram-loam-wake.svg'))
+[A call to a sleeping card: the Host accepts it, Loam requests its record, the card's behavior proposes new state, and a storage worker saves it before the reply goes back.]($image.siteAsset('diagram-loam-wake.svg'))
 
 The reply waits for the save so nobody is told about a change a crash could
 undo. A crash can still land between the save and the reply, so the change
 is kept but the caller never hears back. If the caller retries, the change
-happens twice. Write methods that are safe to repeat, or use managed access
+can happen twice. Write methods that are safe to repeat, or use managed access
 (described below), which keeps receipts for its changes.
 
-Loam decides what to read and write but never touches the disk itself, the
-same way glowcap's protocol core never opens a socket. Your worker does the
-I/O, on threads you choose, against SQLite or LMDB on disk, or an in-memory
-store for tests.
+Loam's core decides which reads and writes are needed. Its SQLite and LMDB
+engines do the disk work, while the surrounding application or binding
+schedules it.
 
-[Six layers from top to bottom. Peers call your Host and Vat over CapTP. The Loam attachment wakes actors and saves their state before replying. The Store keeps records, transactions and a bounded cache, and decides every read and write. Your storage worker runs that work on your threads against SQLite or LMDB, IndexedDB or memory.]($image.siteAsset('diagram-loam-layers.svg'))
+[Six layers from top to bottom. Peers call the Host and Vat over CapTP. The Loam attachment wakes actors and saves their state before replying. The Store keeps records, transactions and a bounded cache. A storage worker runs reads and writes, scheduled by the application or binding.]($image.siteAsset('diagram-loam-layers.svg'))
 
-Calls travel down from peers to the disk, and replies travel back up. The two
-Loam layers decide what happens. The two below them are yours and do the
-work. The **attachment** is the piece that joins a store to the Host you
-already run, the object that serves your program's objects to peers.
+The **attachment** joins a store to the Host that serves your program's
+objects to peers.
 
-A card's code is a plain function from its saved record and a call to a
-reply. It can propose new state, and it does no I/O, because a proposal that
-fails to save is thrown away and an email already sent could not be:
+A card's behavior receives its saved state and a call, then proposes a reply
+and new state. It does no I/O. A failed save can discard the proposal, but
+cannot unsend an email.
 
-```zig
-fn invoke(call: *hosting.Call, state: core.RecordView,
-    verb: []const u8, args: []const driver.Value) !driver.Value
-```
-
-# References survive a restart
+# Restoring access after a restart
 
 To keep Carol's sturdyref working, the board gets a **publication**: a durable
 secret name, the swiss number at the end of her sturdyref, saved in an index
@@ -93,7 +84,8 @@ on disk.
 
 After a restart nothing loads until somebody asks. Carol's fetch finds the
 name and wakes the board alone, and the column she asks for next wakes after
-it. Your program only has to come back with the same identity key.
+it. Reopen the same store, register its schemas and behaviors, and serve it
+under the same reachable peer identity.
 
 References inside a record work the same way. A reference to an object on
 another machine can be saved only if you already hold a sturdyref for it.
@@ -122,7 +114,7 @@ not use it.
 # [Limits]($section.id('limits'))
 
 - Timers, unresolved promises, subscriptions, and handles to outside
-  resources can't be saved.
+  resources can't be saved. An interrupted call does not resume after restart.
 - [Performance]($link.page('performance').ref('persistent-actors-in-loam'))
   charts call latency, memory and restart time from one machine.
 - Recovery is tested by killing the process mid-write, not by cutting power.
@@ -132,8 +124,8 @@ not use it.
   `libglowcap_loam` and Rust's `loam` feature: create a resource, share it
   with separate controls, edit it and the references it holds, restart, and
   fetch the same durable name again. Compiled for the browser, the same Rust
-  feature stores to IndexedDB. TypeScript, Python, and Racket have no Loam
-  API.
+  feature stores to IndexedDB. TypeScript, Python, and Racket have no direct
+  Loam storage API. They can call objects hosted through Loam over CapTP.
 
 [What ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md#resource-models)
 tracks what is built.

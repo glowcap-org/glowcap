@@ -9,20 +9,9 @@
 In 1993 *The New Yorker* ran a cartoon of a dog at a computer telling another
 dog, ["On the Internet, nobody knows you're a dog."](https://www.newyorker.com/magazine/1993/07/05)
 
-# Summary
-
-- An AI agent is a program that acts for you. It reads your email, books a
-  trip, writes code, or buys something.
-- Many agents use your own logins, so whatever the agent does looks like you
-  did it.
-- Agents can be fooled. A stranger can hide an instruction in an email or a
-  web page, and the agent may follow it with everything you are allowed to
-  do. Agents also make plain mistakes.
-- A limited key reduces the damage. A key here is a permission, not a
-  password. Like a car's valet key, it opens only what it must, and unlike a
-  valet key, it can be switched off.
-- Keys cannot tell a person from a bot. That takes a sign-in, a payment, or
-  someone who vouches for you, checked once when you first ask for access.
+An agent using your login can act with the permissions you gave it. A
+capability can limit that access to a particular object and set of operations.
+It does not establish who controls the agent.
 
 # Agents with borrowed power
 
@@ -45,42 +34,12 @@ often run with all your permissions, held back only by approval pop-ups.
 - **October 2026.** Researchers asked an agent on Amazon's agent cloud, in
   plain words, to
   [hand over its own access keys](https://labs.zenity.io/post/agentcorruption-initial-imds-access),
-  and it did. Their permissions also reached other agents in the same region. Amazon
-  called this "documented and expected."
+  and it did. That role also reached other agents in the same AWS account and
+  region. AWS says access to an agent's own role credentials is expected.
 
 The first two were ordinary bugs. In the last two, a stranger's words steered
 an agent that already held real power. Narrower keys would have limited the
 reach.
-
-# What you can do
-
-- Never type a password into an AI tool. Use the service's own "connect" or
-  "allow access" button, and read what it asks for.
-- Choose the smallest permission offered. "See your calendar" is very
-  different from "read, send, and delete your email." If the only choice is
-  everything, use a separate account, or a card with a low spending limit.
-- Never let one agent read your private data, read strangers' messages, and
-  send things out. An agent that can do all three can be talked into leaking
-  your data or spending your money. A helper that answers customer email
-  should not also see your invoices or bank.
-- Install few plugins and add-ons. Each one often runs with the agent's full
-  power.
-- Check connected apps a few times a year. In your Google, Apple, or
-  Microsoft account settings, search for "connected apps" and remove what you
-  do not recognize.
-- If something goes wrong, remove the app's access, change the password, and
-  call the number on the back of your bank card if money moved.
-
-If you build agents or websites:
-
-- Give each agent its own narrow key for each task, one that expires and can
-  be switched off. Deciding how narrow is the hard part.
-- Keep keys out of prompts and logs, where the model, or anyone reading the
-  logs, can copy them.
-- Make the agent ask before it spends, sends, or deletes, and keep that
-  setting out of its reach.
-- Record who holds which key, and check identity where a stranger first asks
-  for one.
 
 # The confused deputy
 
@@ -126,21 +85,20 @@ builds a key that keeps a log and can be switched off.
 
 # What limited keys fix
 
-Give every person and agent its own key, and a service can answer three of
-these four questions.
+A service that records a separate grant for each holder can answer:
 
 | Question | With limited keys |
 | --- | --- |
-| Who is responsible for this request? | Whoever was given the key it came with. |
+| Who is responsible for this request? | The holder recorded for that grant. |
 | How do I stop it? | Switch off that one key. Nobody else is locked out. |
 | How much harm can it do? | Only what that key opens. |
 | Is this one person, or ten thousand bots? | Keys cannot tell. |
 
 Keys have limits of their own.
 
-- A stolen key works for the thief. Guard keys like cash. Short lives, narrow
+- A stolen key works for the thief. Short lives, narrow
   reach, and an off switch limit the loss.
-- A key names who is responsible, not who acted. If Bob lends his key to
+- The grant record names its holder, not who acted. If Bob lends his key to
   Mallory, the record still says Bob.
   [*Horton's "Who Done It?"*](https://www.usenix.org/legacy/event/hotsec07/tech/full_papers/miller/miller.pdf)
   (2007) shows one way to follow responsibility through many hands.
@@ -296,17 +254,14 @@ lets a site admit only the bots it recognizes, which favors large operators
 and can shut out small tools, including assistive agents some disabled people
 rely on.
 
-A capability system builds narrow passes, spending caps, and records of who
-acted for whom into the key itself, as
+Applications can use capabilities for narrow passes, spending caps, and
+records of who granted access. Signed tokens can carry restrictions too, as
 [Macaroons](https://www.ndss-symposium.org/ndss2014/programme/macaroons-cookies-contextual-caveats-decentralized-authorization-cloud/)
 (2014) did for web passes. It helps only where both sides speak it.
 
 # glowcap and OCapN
 
-glowcap covers the keys on this page and none of the identity checks.
-
-- An encrypted connection checks that the computer that answered holds the
-  key you dialed.
+- Noise and iroh authenticate the peer's key.
 - A server caps how many connections can be opening at once.
   [Known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md)
   lists where these protections stop.

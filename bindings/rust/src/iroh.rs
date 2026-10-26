@@ -193,7 +193,7 @@ impl Netlayer {
 	}
 
 	/// Bind an iroh endpoint whose Ed25519 identity is reconstructed from
-	/// `seed`: the same durable identity a [`Host`](crate::Host) must use so
+	/// `seed`: the same durable identity a [`Host`] must use so
 	/// designator and endpoint id stay one value (ADR-0028). CapTP session
 	/// signing keys still come from the Host's fresh session-key root
 	/// (ADR-0028).

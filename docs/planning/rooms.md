@@ -94,7 +94,7 @@ numbers the proofs replace anyway.
 ## Hosting prerequisites
 
 The [shared hosting plan](rooms-hosting.md) executes the authority subset
-needed before public contribution. This plan remains the owner of resource
+needed for pooled sessions. This plan remains the owner of resource
 semantics. Both plans use one implementation of grants, membership and
 registration. Do not run overlapping consumer sweeps independently.
 

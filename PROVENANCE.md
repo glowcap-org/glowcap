@@ -6,7 +6,9 @@ result.
 
 Each commit is a development checkpoint rather than every intermediate edit.
 Commits carry no per-tool trailers, because tools differ in what they emit
-and some emit none. This account covers every commit instead.
+and some emit none. This disclosure describes maintainer-led development.
+Contributions may be written with or without AI assistance. Pull requests
+record assistance under the [contribution policy](CONTRIBUTING.md#tools-and-responsibility).
 
 The illustration in `site/assets/glowcap-goblin-512.png` was generated with an
 AI image tool for this project and refined by the maintainer in Pixelmator

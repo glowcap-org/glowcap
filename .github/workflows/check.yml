@@ -139,8 +139,15 @@ jobs:
           FREE_FLOOR_GB: 20
         run: |
           stores=(~/.cache/glowcap/tool/zig ~/.cache/glowcap/ci/zig-local ~/.cache/glowcap/ci/cargo-build ~/.cache/glowcap/tool/deno/gen ~/.cache/glowcap/tool/deno/check_cache_v2 ~/.cache/glowcap/tool/deno/dep_analysis_cache_v2 ~/.cache/glowcap/tool/deno/v8_code_cache_v2)
-          du -sh "${stores[@]}" 2>/dev/null || true
-          size=$(du -s --block-size=1G "${stores[@]}" 2>/dev/null | awk '{ total += $1 } END { print total + 0 }')
+          present=()
+          for store in "${stores[@]}"; do
+            if [ -e "$store" ]; then present+=("$store"); fi
+          done
+          size=0
+          if [ "${#present[@]}" -gt 0 ]; then
+            du -sh "${present[@]}"
+            size=$(du -s --block-size=1G "${present[@]}" | awk '{ total += $1 } END { print total + 0 }')
+          fi
           free=$(df --output=avail --block-size=1G / | tail -1 | tr -d ' ')
           echo "Restored build state: ${size} GB of ${LIMIT_GB} GB, ${free} GB free"
           if [ "$size" -gt "$LIMIT_GB" ] || [ "$free" -lt "$FREE_FLOOR_GB" ]; then
@@ -329,6 +336,14 @@ jobs:
 
       - name: Deep mutation fuzzing
         run: zig build fuzz -Dfuzz-runs=250K --summary all
+
+      - name: Keep a fuzzer finding
+        if: ${{ !cancelled() && hashFiles('zig-out/fuzz-finding.bin') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-finding-${{ github.sha }}-nightly-${{ github.run_attempt }}
+          path: zig-out/fuzz-finding.bin
+          if-no-files-found: error
 
   macos-runtime:
     if: >-

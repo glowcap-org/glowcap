@@ -11,8 +11,12 @@ has reached.
 
 ## Start Here
 
-Rules load automatically by file path, and skills load by task. Match depth to
-the task. Run every gate through
+For contribution work, read [CONTRIBUTING.md](CONTRIBUTING.md) for scope,
+review, and responsibility. Work within the contributor's authorization.
+
+Load rules for the files you touch and skills for the task. If your harness
+does not load scoped rules, read them from the [index](.agents/README.md).
+Run every gate through
 [`.agents/skills/work/bin/glowcap-dev`](.agents/skills/work/bin/glowcap-dev)
 ([cli rule](.agents/rules/cli.md)).
 

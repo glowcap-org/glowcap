@@ -1,9 +1,10 @@
 # @glowcap/runtime
 
-`@glowcap/runtime` is the core JavaScript and TypeScript package for glowcap. It runs a full OCapN
-node on Deno and Bun, in the browser through [`@glowcap/web`](../web/README.md), and provides values,
-capabilities, actors, locator URIs, and the async `Session` and `Host` API. The API does not depend
-on any transport, so you also install a transport package.
+`@glowcap/runtime` is the core JavaScript and TypeScript package for glowcap. It provides values,
+capabilities, actors, locator URIs, and the async `Session` and `Host` API on Deno and in the
+browser through [`@glowcap/web`](../web/README.md). Bun supports the synchronous Host and locator
+API and byte-fed clients, but cannot run the driver loop or blocking transports. The API does not depend on any
+transport, so you also install a transport package.
 
 ## How it is built
 

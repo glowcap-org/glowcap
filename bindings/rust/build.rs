@@ -34,6 +34,12 @@ fn load_contract() -> Contract {
 }
 
 fn main() {
+	println!("cargo:rerun-if-env-changed=DOCS_RS");
+	// Rustdoc needs declarations, not native libraries. docs.rs has no SDK
+	// and forbids network access, so it must not enter archive resolution.
+	if std::env::var_os("DOCS_RS").is_some() {
+		return;
+	}
 	let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
 	println!("cargo:rerun-if-env-changed=GLOWCAP_LIB_DIR");
 	println!("cargo:rerun-if-env-changed=GLOWCAP_DOWNLOAD");

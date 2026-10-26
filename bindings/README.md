@@ -249,10 +249,11 @@ the devcontainer includes. Each language README lists focused build steps.
 
 ## Loam resources
 
-Rust's optional `loam` feature manages persistent Loam resources through
-`libglowcap_loam` and its LMDB companion, using the same Host and capabilities
-as the rest of the binding. The [lifecycle
+Rust's optional `loam` feature provides a storage API through
+`libglowcap_loam` and a SQLite, LMDB, or in-memory engine, using the same Host
+and capabilities as the rest of the binding. The [lifecycle
 guide](../docs/loam/c-and-rust.md) covers the API and its tests. Compiled for
 `wasm32-unknown-unknown`, the same feature stores to IndexedDB, as the [browser
 guide](../docs/loam/browser.md) describes. TypeScript, Python, and Racket have
-no Loam API.
+no direct Loam storage API. They can call objects hosted through Loam over
+ordinary CapTP sessions.

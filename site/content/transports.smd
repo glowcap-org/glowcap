@@ -8,8 +8,8 @@
 
 A transport, or *netlayer*, is the byte path under a
 [CapTP]($link.page('concepts')) session, the connection that carries calls
-between two peers. Fetch, call, promises, and handoffs behave the same on
-every transport.
+between two peers. CapTP handles calls, promises, and handoffs above that
+byte path.
 The transport decides how you name a peer and how the bytes get there: encrypted
 QUIC, a sealed TCP stream, a Tor circuit, a browser DataChannel, or a
 cleartext testing socket.
@@ -50,8 +50,7 @@ these proves possession of it.
 
 # Picking one
 
-CapTP works the same on every netlayer, but on a cleartext one anyone who can
-see the path can read and alter every frame.
+On a cleartext transport, anyone on the path can read and alter the frames.
 [Choosing a transport]($link.page('transports/choosing')) is the decision
 table. A browser that cannot open a raw socket uses the
 [relay]($link.page('relay')).

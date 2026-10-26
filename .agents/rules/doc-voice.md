@@ -12,8 +12,9 @@ paths:
 # glowcap — Documentation Voice
 
 Human docs explain the system to a person; agent scaffolding instructs an
-executor. Keep the voices apart. [Doc-drift](doc-drift.md) keeps claims true;
-this rule keeps them readable aloud.
+executor. Explain project-specific behavior and requirements without coaching
+the reader's general development or AI workflow. Keep the voices apart.
+[Doc-drift](doc-drift.md) keeps claims true; this rule keeps them readable aloud.
 
 Every doc's audience is human, agent, or shared, and
 [doc-drift](doc-drift.md) says how to tell.
@@ -63,7 +64,9 @@ A tight doc gives the reader nothing to skip and leaves nothing out.
 
 - Each section answers the question its heading asks. Cut a sentence that
   restates the heading, the sentence before it, or a name the code already
-  says.
+  says. Keep an example or extra explanation when it makes the model easier
+  to understand. Judge length by what the reader needs, not a preferred voice
+  or word count.
 - A guide explains the model, the ordinary path, and the rules a caller must
   keep. A function's contract lives in its doc comment, and the guide links
   the source instead of walking every call.

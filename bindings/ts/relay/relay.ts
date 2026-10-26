@@ -14,7 +14,7 @@
 // backpressure and must be bounded some other way.
 
 import { retainSecondaryFailure } from "@glowcap/runtime/transport";
-import type { Timer } from "../runtime/timer.ts";
+import type { Timer } from "@glowcap/runtime/transport";
 
 /** A byte source: yields chunks to relay. `read` resolves null on EOF. */
 export interface ByteSource {

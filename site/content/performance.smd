@@ -6,8 +6,7 @@
 .draft = false,
 ---
 
-The build holds the costs it can count exactly
-(allocations, copies, and the size of core state) and fails when one drifts.
+Build checks hold selected allocation, copy, and core-state size budgets.
 The reports are dated measurements on one machine. Each snapshot names its source and environment.
 [Beside other systems]($link.page('performance/compared')) holds the same
 calls timed in Cap'n Proto RPC and in Spritely Goblins.

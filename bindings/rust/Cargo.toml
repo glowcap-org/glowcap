@@ -11,6 +11,10 @@ edition = "2024"
 license = "Apache-2.0"
 publish = false
 
+[package.metadata.docs.rs]
+all-features = true
+targets = []
+
 [lib]
 path = "src/lib.rs"
 

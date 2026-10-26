@@ -132,8 +132,8 @@ core in one module, so both behave the same way.
 | [`demos/`](demos/), [`test/`](test/) | The scripted scenarios and the checks |
 
 The Rooms protocol is a set of
-[OCapN](https://glowcap.org/concepts/) objects. The server publishes one object by name, `directory`, and every other reference is handed
-back from it. The web server's HTTP routes only serve the page and help
+[OCapN](https://glowcap.org/concepts/) objects. Clients start by fetching
+`directory`, which hands out room and member references. The web server's HTTP routes serve the page and help
 peers connect, such as the relay, ICE servers, and link previews.
 [The Rooms protocol](https://glowcap.org/rooms/protocol/)
 lists each object. [Developing Rooms](developing.md) covers the build steps,

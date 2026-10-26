@@ -29,9 +29,9 @@ import type {
 	RuntimeNet,
 	SymbolDef,
 	Symbols,
-} from "../runtime/internal/ffi/runtime.ts";
-import { type AbiLayout, layoutFromWasmDescriptor } from "../runtime/internal/layout.ts";
-import { webSocketChannel } from "../runtime/websocket.ts";
+} from "@glowcap/runtime/adapter";
+import { type AbiLayout, layoutFromWasmDescriptor } from "@glowcap/runtime/adapter";
+import { webSocketChannel } from "@glowcap/runtime/websocket";
 import { INVALID_ARGUMENT } from "@glowcap/abi";
 
 /** The wasm exports the adapter itself drives; every `glowcap_*` symbol the

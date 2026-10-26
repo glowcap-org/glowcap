@@ -4,6 +4,8 @@
     "@glowcap/runtime/cleanup": "./bindings/ts/runtime/cleanup.ts",
     "@glowcap/runtime": "./bindings/ts/runtime/mod.ts",
     "@glowcap/runtime/ffi": "./bindings/ts/runtime/ffi.ts",
+    "@glowcap/runtime/adapter": "./bindings/ts/runtime/adapter.ts",
+    "@glowcap/runtime/websocket": "./bindings/ts/runtime/websocket.ts",
     "@glowcap/runtime/transport": "./bindings/ts/runtime/transport.ts",
     "@glowcap/inproc": "./bindings/ts/inproc/mod.ts",
     "@glowcap/onion": "./bindings/ts/onion/mod.ts",
@@ -57,6 +59,7 @@
   // remains available to that test graph even though the browser has its own
   // Deno scope.
   "compilerOptions": {
+    "lib": ["deno.window", "dom", "dom.iterable"],
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "jsxImportSourceTypes": "npm:@types/react@19.3.0"

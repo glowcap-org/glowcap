@@ -10,8 +10,9 @@ The TypeScript binding runs on Deno, Bun, and the browser from one source tree.
 `@glowcap/runtime`
 ([`mod.ts`](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/runtime/mod.ts))
 gives Deno the `Session` and `Host` API over the glowcap C ABI. Bun's synchronous FFI
-cannot host the C driver loop, so under Bun the binding covers the synchronous
-Host and locator calls but not dial or listen.
+cannot host the C driver loop. Bun supports synchronous Host and locator calls
+and clients whose JavaScript supplies the bytes. Driver-based dialing and
+listening refuse.
 `Runtime.open` installs the transport providers and connectors once, and
 `runtime.connect` picks the one that matches the locator.
 
@@ -22,8 +23,9 @@ Host and locator calls but not dial or listen.
 - `@glowcap/inproc` moves raw frames. It has no provider to install into a
   Runtime, so the Session API cannot use it.
 
-The same source also compiles to WebAssembly as `@glowcap/web`, so the same
-`Session` runs in the browser, dialing rather than listening.
+The browser package, `@glowcap/web`, uses the same Session API over the core
+compiled to WebAssembly. A page can dial and accept peers through WebRTC
+or a registered relay route, without opening a listening socket.
 [In the browser]($link.page('bindings/browser')) covers how a page reaches its
 peers.
 

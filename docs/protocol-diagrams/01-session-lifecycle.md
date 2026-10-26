@@ -87,7 +87,7 @@ sequenceDiagram
 
 ## SL-5: Per-state message admission
 
-What a session admits depends only on its state. While negotiating, only the
+Session state controls which messages can reach validation. While negotiating, only the
 handshake itself (`op:start-session`) and `op:abort` get through. Authority-
 bearing traffic (`op:deliver`, gc ops, `op:listen`, `op:get`,
 `op:index`, handoffs) requires Open.
@@ -98,7 +98,7 @@ flowchart TD
     S -->|Negotiating| N{"op:start-session or op:abort?"}
     N -->|yes| OK1["admit"]
     N -->|no| RF1["refuse - lifecycle violation"]
-    S -->|Open| OK2["admit all traffic"]
+    S -->|Open| OK2["validate operation and references"]
     S -->|Closed| RF3["refuse everything"]
 ```
 

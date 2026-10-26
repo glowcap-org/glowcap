@@ -5,7 +5,15 @@ is not published, so use a checkout of the repository: run `zig build`, then add
 path. Terms such as locator, Host, and sturdyref are defined in the
 [glossary](../../docs/capabilities.md#glossary).
 
-Enable the `async` feature for the application session API:
+Add the checkout path to your application's `Cargo.toml`, with the `async`
+feature for the session API:
+
+```toml
+[dependencies]
+glowcap = { path = "/path/to/glowcap/bindings/rust", features = ["async"] }
+```
+
+The calling side of a session looks like this:
 
 ```rust
 use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
@@ -344,10 +352,10 @@ glowcap's storage layer for durable shared resources. On desktop and server targ
 links Loam and its SQLite, LMDB, and in-memory storage backends, and reuses `Host`, `Ref`, and
 Session.
 
-- Opening, creation, and privileged restoration are blocking startup
-  operations.
-- Host progress runs on a Tokio `LocalSet`. Each storage work is its own
-  task there and runs its I/O on the blocking executor.
+- Your startup code opens a Store and attaches its content to a Host. Opening,
+  creation, and privileged restoration are blocking startup operations.
+- Host progress runs on a Tokio `LocalSet`. The binding schedules each storage
+  job there and runs its I/O on the blocking executor.
 - Contexts survive until detach succeeds, and a cancelled observer retains its
   work until physical retirement.
 - Host close retires quiescent attachments. Close the Store after its borrows

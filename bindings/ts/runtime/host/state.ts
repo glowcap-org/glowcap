@@ -118,13 +118,13 @@ export abstract class HostState {
 	// routes to the transport that owns the bytes, a dialed exporter stays
 	// reachable for teardown, and `exporterFor` maps a redeemed reply's route
 	// (a GlowcapHostSession pointer) back to its `Session` wrapper.
-	protected readonly _sessions = new Map<Ptr, Session>();
+	protected readonly _sessions: Map<Ptr, Session> = new Map();
 	// Physical channel closes can outlive the FFI Session pointer that
 	// initiated them. Keep their promises at the Host barrier after the wrapper
 	// unregisters, so Host close cannot lose a late transport refusal.
-	protected readonly _sessionRetirements = new Set<Promise<void>>();
+	protected readonly _sessionRetirements: Set<Promise<void>> = new Set();
 	// The vow table the drain's SETTLE/FAIL arms settle.
-	protected readonly _vows = new Map<bigint, VowRow>();
+	protected readonly _vows: Map<bigint, VowRow> = new Map();
 	// A loop drive failure outlives table teardown so promises observed after
 	// the loop failed receive the original cause rather than a generic close.
 	protected _terminalVowFailure: GlowcapError | null = null;
@@ -137,17 +137,17 @@ export abstract class HostState {
 	// DIAL actions are asynchronous after the C queue has consumed them. Retain
 	// their executors until they report a terminal result; otherwise a detached
 	// promise can disappear while its ticket and half-open channel remain live.
-	protected readonly _dialTasks = new Map<string, {
+	protected readonly _dialTasks: Map<string, {
 		readonly controller: AbortController;
 		readonly promise: Promise<void>;
-	}>();
+	}> = new Map();
 	// Action drains may await transport I/O after popping FFI actions. Keep
 	// every admitted drain under Host teardown so none can resume after FFI
 	// Host storage is released.
-	protected readonly _actionDrains = new Set<Promise<void>>();
+	protected readonly _actionDrains: Set<Promise<void>> = new Set();
 	// Explicit embedder-owned byte-channel authority, retained by transport so
 	// a later handoff redeem uses the same application-selected integration.
-	protected readonly _connectors = new Map<string, Connector>();
+	protected readonly _connectors: Map<string, Connector> = new Map();
 	// Releases the C tier refused inside a behavior callback park here
 	// (`glowcap_host_session_release` / `glowcap_host_release` are refused
 	// mid-turn); the drain runs them once the enclosing feed unwinds, so a
@@ -157,7 +157,7 @@ export abstract class HostState {
 	// FFI actor retirement drops their strong behavior ownership; Host release
 	// is the final catch-all. Keyed by name so `Session.publishedRef` can find the
 	// ctx.
-	protected readonly _publications = new Map<string, bigint>();
+	protected readonly _publications: Map<string, bigint> = new Map();
 	// Every Session.spawn/publish trampoline on this Host. Actors live in the
 	// Host Vat and remain callable through sibling Ports after the Port that
 	// first projected them closes.
@@ -165,7 +165,7 @@ export abstract class HostState {
 	// Strong ownership behind the weak process-global trampoline lookup. This
 	// may contain a behavior that captures this Host; that cycle is local and
 	// therefore collectable.
-	protected readonly _behaviorEntries = new Map<bigint, BehaviorEntry>();
+	protected readonly _behaviorEntries: Map<bigint, BehaviorEntry> = new Map();
 	// The driver loop that owns this Host's handle, when this wrapper was
 	// adopted over a loop's host (ADR-0024). In that mode the C loop is the
 	// action drain: the kick verbs nudge a loop step instead of running the

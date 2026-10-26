@@ -9,8 +9,9 @@ sources:
 
 # Architecture
 
-glowcap's layers, from the protocol core up to the C ABI. These names come up
-throughout:
+A Host owns a peer identity, its actors, and its live sessions. The runtime
+connects it to the network. Inside that runtime, the protocol core advances
+only when called and performs no I/O.
 
 | Name | Meaning |
 | --- | --- |
@@ -112,9 +113,10 @@ and each session Port supplies its ingress identity but owns no queue
 
 ## Resource models
 
-[Loam](loam.md) provides immutable collections, record storage,
-transactions, and bounded residency through `glowcap.loam`. It does its disk
-I/O through the application's executor and adds no Host or scheduler.
+[Loam](loam.md) provides optional record storage, transactions, bounded
+residency, and immutable collections through `glowcap.loam`. Opening a Host
+creates no Store. An application or runtime connects them through an attachment,
+as the [integration guide](loam.md#choosing-an-integration) describes.
 
 ### Loam's modules
 

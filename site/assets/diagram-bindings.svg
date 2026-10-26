@@ -121,5 +121,5 @@
     class="name"
     fill="var(--accent-deep, #a4560c)"
   >Racket</text>
-  <text x="595" y="201" text-anchor="middle" class="sub">Goblins-faithful</text>
+  <text x="595" y="201" text-anchor="middle" class="sub">actor vocabulary</text>
 </svg>

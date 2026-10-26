@@ -9,7 +9,7 @@
 glowcap has one protocol implementation and several APIs. Choose the one that
 matches your language and runtime.
 
-[One core under every API, so the entry point you choose does not change what a session puts on the wire.]($image.siteAsset('diagram-surfaces.svg'))
+[The Zig package, C ABI, and language bindings share one protocol implementation.]($image.siteAsset('diagram-surfaces.svg'))
 
 | API | You write | Reach for it when |
 | --- | --- | --- |
@@ -23,7 +23,6 @@ WebAssembly ([In the browser]($link.page('bindings/browser'))).
 
 # One engine
 
-A Zig peer, a C consumer, and any binding hold the same OCapN conversation byte
-for byte. The codec and CapTP version come from negotiation with
-the partner
-([Concepts]($link.page('concepts'))).
+These APIs use the same protocol engine. The peers negotiate their CapTP
+version and codec ([Concepts]($link.page('concepts'))). The API you choose
+determines how your program supplies I/O and manages lifetimes.

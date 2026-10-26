@@ -1,5 +1,3 @@
-/// <reference lib="dom" />
-
 // A browser WebRTC peer: an RTCPeerConnection and its single reliable, ordered
 // `ocapn` DataChannel, the browser counterpart of the WebRTC C library's peer
 // (ADR-0035). It drives the signaling exchange (offer, answer, ICE) and, once

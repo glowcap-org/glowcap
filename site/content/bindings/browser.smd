@@ -12,10 +12,13 @@ JavaScript supplies the byte channel and scheduling.
 
 # Dial
 
-A page cannot bind a socket, so every path below is a dial:
+The paths below open outbound sessions. A page can also accept sessions
+through WebRTC or a registered relay route, as described under
+[Accept peers]($link.ref('accept-peers')).
 
 - `iroh` reaches an iroh node id through the [relay]($link.page('relay'))
   that `init`'s `relayUrl` option names, over `wss://`.
+  The gateway can read traffic and vouches for the peer's identity.
 - `webrtc` reaches a peer over a WebRTC DataChannel. It needs the
   `@glowcap/webrtc` connector installed.
 - `noise-relay` reaches a peer registered at the relay. The
@@ -142,14 +145,20 @@ to the relay's URL, and `relayUrl` does the same for a locator only a
 non-browser peer can serve, such as iroh. The keyed handshake still runs end
 to end between the two peers.
 
-To reach **another browser**, open a direct
-[WebRTC]($link.page('transports/webrtc')) DataChannel. Once the channel is up, no
-server sits on the byte path. A page that registers at a relay can also be
-dialed there by its key, through the `@glowcap/relay` connector.
+To reach **another browser**, open a
+[WebRTC]($link.page('transports/webrtc')) DataChannel. A browser registered at
+a relay can also be dialed there by its key.
+
+# [Accept peers]($section.id('accept-peers'))
+
+Use the [WebRTC listener](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/webrtc/README.md#dial-and-listen-in-a-browser)
+to answer offers from your signaling service. The
+[browser runtime](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/runtime/rendezvous.ts)
+exports `serveRendezvous` to accept sessions through a relay. Choose
+`noise-relay` to keep those sessions encrypted through it.
 
 # Next
 
-The [TypeScript page]($link.page('bindings/ts')) covers the full API, except
-`listen`, which needs a socket. The
+The [TypeScript page]($link.page('bindings/ts')) covers the shared Session API. The
 [`@glowcap/web` README](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/web/README.md)
 covers installing the package and serving the wasm.

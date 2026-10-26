@@ -240,6 +240,11 @@ pub fn register(
     bindings_step.dependOn(site_reg.python_examples_check);
     bindings_step.dependOn(site_reg.rust_examples_check);
     bindings_step.dependOn(site_reg.racket_examples_check);
+    const package_check = addRootedSystemCommand(b, .build_tool, &.{ "python3", "tools/check/binding_packages.py" });
+    package_check.step.dependOn(b.getInstallStep());
+    package_check.has_side_effects = true;
+    const package_step = b.step("bindings-package-check", "Build and exercise detached Rust, Python and Racket packages and dry-run JSR publication (needs cargo, uv, racket and deno)");
+    package_step.dependOn(&package_check.step);
     const bindings_onion_step = b.step("bindings-onion", "Run the onion provider proof in every language binding (needs cargo + deno + python3 + racket)");
 
     // Glowcap-only three-party handoff: glowcap is exporter, gifter, and
