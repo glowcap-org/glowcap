@@ -379,7 +379,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
         /// line ends the setup either way, clearing it before return.
         fn consumeLine(backend: *Backend, setup: *Setup, line: []const u8) void {
             setup.lines_seen += 1;
-            if (setup.lines_seen > 64) return fail(backend, error.ControlReplyTooLong);
+            if (setup.lines_seen > onion_session.max_reply_lines) return fail(backend, error.ControlReplyTooLong);
             const reply = onion_control.parseLine(line) catch
                 return fail(backend, error.ControlProtocolViolation);
             if (!reply.isOk()) return fail(backend, error.ControlRefused);

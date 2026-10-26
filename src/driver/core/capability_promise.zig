@@ -36,6 +36,10 @@ pub fn liftInlineGive(
     session: *HostSession,
     give: model.view.HandoffGive,
 ) !Host.CapabilityLift {
+    const pending = self.pending_inline_gives.get(session.peer_handle) orelse 0;
+    if (pending >= session.served.port.peer.session_state.limits.max_pending_withdraws)
+        return error.PendingWithdrawCapExceeded;
+    try self.pending_inline_gives.ensureUnusedCapacity(self.allocator, 1);
     var projected = try engine.handoff_recipient.projectGiveForRedeem(self.allocator, give);
     defer projected.deinit(self.allocator);
 
@@ -64,7 +68,19 @@ pub fn liftInlineGive(
     );
     self.capability_promise_ids.commit(@backingInt(id));
     ref_live = false;
+    const seat = self.pending_inline_gives.getOrPutAssumeCapacity(session.peer_handle);
+    if (!seat.found_existing) seat.value_ptr.* = 0;
+    seat.value_ptr.* += 1;
     return .{ .ref = ref, .claimed_wire_retain = false };
+}
+
+/// A redemption settled, so its introducing session holds one fewer pending
+/// inline give. Every pending row was counted when it was lifted, so the
+/// entry is there, and the last settlement removes it.
+fn settledPending(self: *Host, row: *const Row) void {
+    const count = self.pending_inline_gives.getPtr(row.introducing_peer).?;
+    count.* -= 1;
+    if (count.* == 0) std.debug.assert(self.pending_inline_gives.remove(row.introducing_peer));
 }
 
 /// Resolve the Node's routed capability into the ordinary Host capability the
@@ -83,6 +99,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
                 .{ .routed = .{ .id = route_id } },
             );
             row.state = .{ .settling = lifted };
+            settledPending(self, row);
             self.commitCapabilityLift(lifted);
             break :blk lifted;
         },
@@ -295,6 +312,7 @@ fn breakPromiseImpl(
         .settling => |lifted| if (terminal) lifted.ref else return .done,
         .fulfilled, .broken => return .done,
     };
+    const was_pending = row.state == .pending;
     while (nextOwedProjection(self, row)) |owed| {
         const projection = owed.projection;
         const recipient = owed.recipient;
@@ -323,6 +341,7 @@ fn breakPromiseImpl(
     }
     const failure = Row.Failure.init(reason);
     row.state = .{ .broken = failure };
+    if (was_pending) settledPending(self, row);
     row.projections.deinit(self.allocator);
     row.projections = .empty;
     var operations = row.operations;
@@ -529,6 +548,8 @@ pub fn sessionReleased(self: *Host, peer_handle: engine.PeerHandle, reason: []co
         std.debug.assert((breakPromiseImpl(self, id, reason, true) catch unreachable) == .done);
     }
 
+    std.debug.assert(!self.pending_inline_gives.contains(peer_handle));
+
     promise_projection.forgetSession(self, peer_handle);
 
     // A listener may enqueue more Host work and rehash the promise map. Detach
@@ -589,6 +610,8 @@ pub fn deinit(self: *Host) void {
     }
     self.capability_promises.deinit(self.allocator);
     self.capability_promises = .empty;
+    self.pending_inline_gives.deinit(self.allocator);
+    self.pending_inline_gives = .empty;
 }
 
 /// Terminal callers detach the operation before entering this boundary:

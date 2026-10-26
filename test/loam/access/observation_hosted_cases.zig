@@ -167,7 +167,7 @@ pub fn fanout(store: *h.loam.core.Store, backend: anytype) !void {
     server.host.vat.queue_limits.max_pending_bytes = 4 * 1024 * 1024;
     // Session scheduling may settle a whole ready burst during one attachment
     // advance. Budget one maximum-sized reply per parked receiver.
-    try server.host.setSessionLimits(null, null, capacity * 4096, null);
+    try server.host.setSessionLimits(null, null, capacity * 4096, null, null);
     defer server.deinit();
     var client: f.Client = .{ .host = undefined, .pair = undefined, .parent = undefined };
     try client.init(&server);

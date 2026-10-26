@@ -1,5 +1,6 @@
 //! The imported-promise rows: promise shortening rewrites through chains,
-//! refuses a cycle, and spends only the retains its stable edges own.
+//! refuses a cycle and a chain past `max_resolution_chain`, and spends only
+//! the retains its stable edges own.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -104,4 +105,37 @@ test "a release naming no shortening source allocates nothing on either profile"
         try s.recordSend(.{ .gc_export = release });
         try std.testing.expect(!s.holdsImport(.from(5)));
     }
+}
+
+test "a shortening chain is refused past max_resolution_chain and every walk stops within it" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    s.limits.max_resolution_chain = 2;
+    for ([_]u64{ 5, 6, 7, 8 }) |position| try s.registerImport(.from(position));
+
+    // Built from the tail, so each admitted edge sits above a chain the
+    // limit still allows: 7 -> 8, then 6 -> 7.
+    const tail = (try s.nominateShorteningResolver(.from(7))).?;
+    try s.validateShorteningCompletion(tail.resolver_export, model.FarRef.promise(8));
+    s.completeShortening(tail.resolver_export, model.FarRef.promise(8), true);
+    const middle = (try s.nominateShorteningResolver(.from(6))).?;
+    try s.validateShorteningCompletion(middle.resolver_export, model.FarRef.promise(7));
+    s.completeShortening(middle.resolver_export, model.FarRef.promise(7), true);
+
+    // A third edge would make a chain of three hops.
+    const head = (try s.nominateShorteningResolver(.from(5))).?;
+    try std.testing.expectError(
+        session.Error.ShorteningChainTooLong,
+        s.validateShorteningCompletion(head.resolver_export, model.FarRef.promise(6)),
+    );
+
+    // The admitted chain still rewrites end to end.
+    var message: model.Message = .{ .deliver = .{
+        .target = .{ .far = model.FarRef.promise(6) },
+        .args = &.{},
+    } };
+    s.rewriteShortenedMessage(&message, .none);
+    try std.testing.expectEqual(model.FarRef.promise(8), message.deliver.target.far);
+    try std.testing.expectEqual(model.ImportPosition.from(8), s.shortenedPromiseTarget(.from(6)));
 }

@@ -419,17 +419,19 @@
                    (host-ptr m) (pin-immobile bs) (bytes-length bs))))))
 
 ;; Selective limits copied into peers minted after this call. Zero leaves a
-;; field unchanged; durable sent answers stay separate from transient flow.
+;; field unchanged; durable sent answers stay separate from transient flow,
+;; and max-sessions is the Host-wide cap on live sessions.
 (define (host-set-session-limits! m
                                   #:max-frame-bytes [max-frame-bytes 0]
                                   #:queue-cap [queue-cap 0]
                                   #:outbound-high-water-bytes [outbound-high-water-bytes 0]
-                                  #:max-retained-sent-answer-bytes [max-retained-sent-answer-bytes 0])
+                                  #:max-retained-sent-answer-bytes [max-retained-sent-answer-bytes 0]
+                                  #:max-sessions [max-sessions 0])
   (define size-max (sub1 (expt 2 (* 8 (ctype-sizeof _size)))))
   (for ([name (in-list '(max-frame-bytes queue-cap outbound-high-water-bytes
-                                      max-retained-sent-answer-bytes))]
+                                      max-retained-sent-answer-bytes max-sessions))]
         [value (in-list (list max-frame-bytes queue-cap outbound-high-water-bytes
-                              max-retained-sent-answer-bytes))])
+                              max-retained-sent-answer-bytes max-sessions))])
     (unless (and (exact-nonnegative-integer? value) (<= value size-max))
       (raise-glowcap 'host-set-session-limits! ERR-INVALID-ARGUMENT
                      (format "#:~a exceeds this target's supported range" name))))
@@ -441,7 +443,7 @@
      SESSION-LIMIT-OPTIONS-ABI-VERSION
      (ctype-sizeof _GlowcapSessionLimitOptions)
      max-frame-bytes queue-cap outbound-high-water-bytes
-     max-retained-sent-answer-bytes))
+     max-retained-sent-answer-bytes max-sessions))
   (call-with-host m
     (lambda ()
       (check/host (glowcap_host_set_session_limits (host-ptr m) options)))))

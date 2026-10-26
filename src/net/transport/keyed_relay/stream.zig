@@ -39,7 +39,7 @@ pub const CloseProgress = connection.CloseProgress;
 /// CapTP-facing steady state is the caller's `Buffers`, not this.
 const inner_buf_bytes = 2048;
 /// Frames one `tryReadSome` consumes before it hands the turn back.
-const max_frames_per_read: usize = 64;
+pub const max_frames_per_read: usize = 64;
 const staged_control_bytes = max_header_len + max_control_payload;
 const max_staged_application_bytes = inner_buf_bytes - max_header_len - staged_control_bytes;
 

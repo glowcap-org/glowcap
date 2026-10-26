@@ -14,10 +14,15 @@ const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 pub const OpenAdmission = struct {
     runtime: *runtime.HostRuntime,
     pending_work: ?driver_core.Host.PendingWorkLease,
+    authority: lifecycle.OpenAdmissionAuthority,
 
     pub fn release(self: *OpenAdmission) void {
         std.debug.assert(self.runtime.open_admissions != 0);
         self.runtime.open_admissions -= 1;
+        if (self.authority == .pending_dial) {
+            std.debug.assert(self.runtime.redeem_dial_admissions != 0);
+            self.runtime.redeem_dial_admissions -= 1;
+        }
         if (self.pending_work) |*lease| lease.complete();
         self.* = undefined;
     }

@@ -260,6 +260,7 @@ comptime {
         _ = @import("driver/core_host/give/projection_callback_test.zig");
         _ = @import("driver/core_host/give/cancel_pump_test.zig");
         _ = @import("driver/core_host/give/id_exhaustion_test.zig");
+        _ = @import("driver/core_host/give/pending_cap_test.zig");
         _ = @import("driver/core_host/failure_taxonomy_test.zig");
         _ = @import("driver/core_host/capability_projection_test.zig");
         _ = @import("driver/core_host/routing_depth_test.zig");
@@ -293,6 +294,7 @@ comptime {
         _ = @import("driver/core_host/vow_test.zig");
         _ = @import("driver/core_host/vow/allocation_test.zig");
         _ = @import("driver/core_host/admission_test.zig");
+        _ = @import("driver/core_host/session_cap_test.zig");
         _ = @import("driver/core_host/range_test.zig");
         _ = @import("driver/core_host/identity_test.zig");
         _ = @import("driver/core_host/identity/provenance_test.zig");
@@ -337,6 +339,7 @@ comptime {
         _ = @import("net/netlayer_test.zig");
         _ = @import("net/operation_owner_test.zig");
         _ = @import("net/onion_control_test.zig");
+        _ = @import("net/onion_control_session_test.zig");
         _ = @import("net/onion_completion_test.zig");
         _ = @import("net/onion_resident_test.zig");
         _ = @import("net/onion_socks5_test.zig");
@@ -358,6 +361,9 @@ comptime {
         _ = @import("net/keyed_relay/close_test.zig");
         _ = @import("net/keyed_relay/registration_test.zig");
         _ = @import("net/keyed_relay_completion_test.zig");
+        _ = @import("net/keyed_relay_completion_bounds_test.zig");
+        _ = @import("net/keyed_relay_bounds_test.zig");
+        _ = @import("net/keyed_relay_registration_bounds_test.zig");
         _ = @import("net/keyed_relay_completion_dns_test.zig");
         _ = @import("net/keyed_relay_completion_tls_test.zig");
         _ = @import("net/keyed_relay_completion_wire_test.zig");

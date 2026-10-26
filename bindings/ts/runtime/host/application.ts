@@ -51,6 +51,8 @@ export interface SessionLimitOptions {
 	readonly queueCap?: bigint | number;
 	readonly outboundHighWaterBytes?: bigint | number;
 	readonly maxRetainedSentAnswerBytes?: bigint | number;
+	/** Host-wide cap on live sessions. */
+	readonly maxSessions?: bigint | number;
 }
 
 export abstract class HostApplication extends HostLifecycle implements FfiBehaviorOwner {
@@ -171,6 +173,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 			options.maxRetainedSentAnswerBytes,
 			0xffff_ffffn,
 		);
+		const maxSessions = sessionLimit("maxSessions", options.maxSessions);
 		const raw = new Uint8Array(L.SESSION_LIMIT_OPTIONS_SIZE);
 		const view = new DataView(raw.buffer);
 		view.setUint32(
@@ -191,6 +194,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 			L.SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF,
 			maxRetainedSentAnswerBytes,
 		);
+		L.setUsize(view, L.SESSION_LIMIT_OPTIONS_MAX_SESSIONS_OFF, maxSessions);
 		checkHost(hostS.glowcap_host_set_session_limits(
 			this._raw,
 			ab(raw),

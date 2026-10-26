@@ -45,6 +45,7 @@ pub fn init(
 ) !HostRuntime {
     if (opts.frame_cap == 0 or opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0)
         return Error.InvalidBufferConfiguration;
+    const max_pending_redeem_dials = try opts.redeemDialShare();
     if (opts.busy_poll_ns > HostRuntime.max_busy_poll_ns) return Error.BusyPollWindowTooLong;
     const seed: [foundation.crypto.seed_bytes]u8 = switch (identity) {
         .keyed => |keyed| keyed.secret.seed(),
@@ -66,7 +67,14 @@ pub fn init(
     };
     core_opts.limits.max_frame_bytes = opts.frame_cap;
     core.* = try driver_core.Host.init(allocator, seed, session_root, core_opts);
-    var result = HostRuntime{ .allocator = allocator, .io = io, .core = core, .opts = opts, .drive = .blocking };
+    var result = HostRuntime{
+        .allocator = allocator,
+        .io = io,
+        .core = core,
+        .opts = opts,
+        .max_pending_redeem_dials = max_pending_redeem_dials,
+        .drive = .blocking,
+    };
     errdefer result.deinit();
     // The drive is chosen inside the teardown's scope: a stepped face that
     // cannot open its readiness set fails construction whole.
@@ -86,6 +94,7 @@ pub fn initWithCore(
         .frame_cap = core.opts.limits.max_frame_bytes,
         .wire_buffer_bytes = adoption.wire_buffer_bytes,
         .max_pending_opens = adoption.max_pending_opens,
+        .max_pending_redeem_dials = adoption.max_pending_redeem_dials,
         .codec = core.opts.codec,
         .captp_version = core.opts.captp_version,
         .features = core.opts.features,
@@ -97,6 +106,7 @@ pub fn initWithCore(
     };
     if (opts.frame_cap == 0 or opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0)
         return Error.InvalidBufferConfiguration;
+    const max_pending_redeem_dials = try opts.redeemDialShare();
     if (opts.busy_poll_ns > HostRuntime.max_busy_poll_ns) return Error.BusyPollWindowTooLong;
     try core.checkRuntimeAdoption();
     var result = HostRuntime{
@@ -104,6 +114,7 @@ pub fn initWithCore(
         .io = io,
         .core = core,
         .opts = opts,
+        .max_pending_redeem_dials = max_pending_redeem_dials,
         .drive = .blocking,
         .owns_core = false,
     };

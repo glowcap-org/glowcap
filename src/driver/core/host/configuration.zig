@@ -20,7 +20,11 @@ const Host = host_mod.Host;
 /// Construction refusals happen before a Host is published. Embedders decide
 /// whether they are process-fatal. The core never makes that policy choice with
 /// a panic.
-pub const InitError = error{InvalidHostWorkQuantum};
+pub const InitError = error{ InvalidHostWorkQuantum, InvalidSessionLimit };
+
+/// Live sessions a Host holds by default. A shell lives from mint to close,
+/// so this bounds the memory partners can hold open together.
+pub const default_max_sessions: usize = 1024;
 
 pub const Options = struct {
     /// Full CapTP session limits applied to every minted peer (ADR-0030).
@@ -61,6 +65,11 @@ pub const Options = struct {
     /// is not the Host scheduler quantum. `null` turns the cap off, which is
     /// safe only when every partner is trusted.
     local_turn_budget: ?usize = served.default_loop_local_turn_budget,
+    /// Host-wide cap on live session shells, dialed and accepted alike. A mint
+    /// at the cap is refused `SessionLimitReached` and nothing is reserved.
+    /// Zero is refused at construction. `null` turns the cap off, which is
+    /// safe only when every partner is trusted.
+    max_sessions: ?usize = default_max_sessions,
     /// Host-wide release-on-drop setting (ADR-0025): whether a far capability
     /// a binding projects to its application releases its Host retain when
     /// the language's scope end for that value is observed. The core stores
@@ -120,15 +129,21 @@ pub fn setReleaseOnDrop(self: *Host, enabled: bool) error{ ReenteredHost, WrongT
 
 /// Override selective session limits before minting peers (ADR-0008). `null`
 /// leaves that field unchanged. Already-open sessions keep the limits they
-/// were minted with.
+/// were minted with. `max_sessions` is the Host-wide cap and takes effect at
+/// the next mint.
 pub fn setSessionLimits(
     self: *Host,
     max_frame_bytes: ?usize,
     queue_cap: ?usize,
     outbound_high_water_bytes: ?usize,
     max_retained_sent_answer_bytes: ?u32,
-) error{ ReenteredHost, WrongThread, HostClosing }!void {
+    max_sessions: ?usize,
+) error{ ReenteredHost, WrongThread, HostClosing, InvalidSessionLimit }!void {
     try admission.admitConfigurationMutation(self);
+    if (max_sessions) |cap| {
+        if (cap == 0) return error.InvalidSessionLimit;
+        self.opts.max_sessions = cap;
+    }
     if (max_frame_bytes) |value| self.opts.limits.max_frame_bytes = value;
     if (queue_cap) |value| self.opts.limits.queue_cap = value;
     if (outbound_high_water_bytes) |value| self.opts.outbound_high_water_bytes = value;

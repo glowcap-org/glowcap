@@ -102,9 +102,11 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
   stepping verbs still work.
 - **Connections that are opening are capped.** `max_pending_opens` (default
   `GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS`) caps them per driver Host,
-  across dials, accepts, external adoption, and redeems. A stream accept over
-  the limit waits in the kernel backlog. A multiplexed accept over the limit
-  is closed without a session.
+  across dials, accepts, external adoption, and redeems. Redeem dials a
+  partner's handoffs induce hold at most `max_pending_redeem_dials` of them,
+  a quarter of the pool unless the Zig caller names a share. A stream accept
+  over the limit waits in the kernel backlog. A multiplexed accept over the
+  limit is closed without a session.
 - **A driver loop allows one listener per transport.** Closing the
   selected listener leaves no acceptable route until you select another. The
   relay package dials both `keyed-relay` and `noise-relay` but hosts only one

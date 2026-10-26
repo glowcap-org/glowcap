@@ -27,6 +27,7 @@ pub const tight: session.SessionLimits = .{
     .max_inbound_answers = 8,
     .queue_cap = 4,
     .max_queued_call_bytes = 4096,
+    .max_retained_sent_answer_bytes = 4096,
     .max_listeners_per_target = 4,
     .max_nesting_depth = 4,
 };
@@ -41,6 +42,7 @@ pub fn checkDeclared(state: *const session.Session) !void {
     try std.testing.expect(session.inspect.importCount(state) <= caps.max_imports);
     try std.testing.expect(session.inspect.inboundAnswerCount(state) <= caps.max_inbound_answers);
     try std.testing.expect(state.queued_call_bytes <= caps.max_queued_call_bytes);
+    try std.testing.expect(state.retained_sent_answer_bytes <= caps.max_retained_sent_answer_bytes);
 
     // Not the outbound answer count. Those positions are ones we allocate for
     // our own sends, and `installOutboundAnswer` holds them to no cap; only

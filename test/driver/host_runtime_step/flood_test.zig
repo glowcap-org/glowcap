@@ -2,6 +2,8 @@
 //! runtime whose open slots are all held by handshakes that never finish
 //! refuses the next arrival without growing past the admitted shells.
 //! Once the handshake deadline frees the slots, an honest session opens and calls.
+//! Redeem dials a partner's handoffs induce hold at most their share of that
+//! pool, so accepts and the application's own dials still admit beside them.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -104,4 +106,104 @@ test "host runtime: a flood of half-open signed handshakes is refused at max_pen
     }
     try serve_future.await(io);
     served = true;
+}
+
+/// Step until every open admission has settled. The handshake deadline is the
+/// only thing that frees a slot a silent partner holds.
+fn stepUntilNoOpens(runtime: *driver.HostRuntime) !void {
+    var rounds: usize = 0;
+    while (runtime.open_admissions != 0 and rounds < 1_000) : (rounds += 1) _ = try runtime.stepAny(10);
+    try std.testing.expectEqual(@as(usize, 0), runtime.open_admissions);
+    try std.testing.expectEqual(@as(usize, 0), runtime.redeem_dial_admissions);
+}
+
+test "host runtime: redeem dials hold at most their share of the open pool while accepts and application dials still admit" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Never stepped, as above: a dial to one holds its open slot until the
+    // handshake deadline, and each dial needs its own partner.
+    var silent: [slots]*driver.Server = undefined;
+    var silent_bufs: [slots][64]u8 = undefined;
+    var silent_designators: [slots][tcp.designator_buf_len]u8 = undefined;
+    var silent_locators: [slots]model.PeerLocator = undefined;
+    var opened: usize = 0;
+    defer for (silent[0..opened]) |server| server.deinit();
+    for (&silent, &silent_bufs, &silent_designators, &silent_locators) |*server, *buf, *designator, *locator| {
+        server.* = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+        opened += 1;
+        const address = try tcp.parseDesignator(try server.*.localDesignator(buf));
+        locator.* = tcp.locatorFromAddress(designator, address);
+    }
+
+    var bounded = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
+        .frame_cap = frame_cap,
+        .max_pending_opens = slots,
+        .max_pending_redeem_dials = 1,
+        .handshake = .{ .ms = 2_000 },
+        .settle = .{ .ms = 2_000 },
+    });
+    defer bounded.deinit();
+    var bounded_buf: [64]u8 = undefined;
+    const bounded_address = try tcp.parseDesignator(try bounded.localDesignator(&bounded_buf));
+    const runtime = bounded.runtime;
+
+    // A sturdyref at a peer this host has never dialed parks under a pending
+    // dial ticket, the same staged redeem dial a partner's give induces.
+    const first = try runtime.core.enlivenCapability(allocator, .{ .peer = silent_locators[0], .swissnum = "treasure" });
+    defer first.deinit();
+    const second = try runtime.core.enlivenCapability(allocator, .{ .peer = silent_locators[1], .swissnum = "treasure" });
+    defer second.deinit();
+    _ = try runtime.stepAny(0);
+
+    // One redeem dial holds the share. The other is refused at admission with
+    // three pool slots free, so the share refused it and not the pool.
+    try std.testing.expectEqual(@as(usize, 1), runtime.redeem_dial_admissions);
+    try std.testing.expectEqual(@as(usize, 1), runtime.open_admissions);
+    const first_refused = first.result() == .failed;
+    try std.testing.expect(first_refused != (second.result() == .failed));
+    const refused = if (first_refused) first else second;
+    const held = if (first_refused) second else first;
+    try std.testing.expect(refused.result().failed.kind == .broken);
+    try std.testing.expectEqualStrings(@errorName(driver.Error.PendingOpenLimitReached), refused.result().failed.message);
+
+    // The application's own dial is not held to the share.
+    var recorder = DialRecorder{};
+    try runtime.startDial(silent_locators[2], .inherit, 2, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+    try std.testing.expectEqual(@as(usize, 2), runtime.open_admissions);
+    try std.testing.expectEqual(@as(usize, 1), runtime.redeem_dial_admissions);
+
+    // Nor is an accept: an honest partner opens while the share is held.
+    var stop = std.atomic.Value(bool).init(false);
+    var client = try io.concurrent(harness.connectAndHold, .{ allocator, io, bounded_address, &stop });
+    defer {
+        stop.store(true, .release);
+        // tolerant: the client is torn down after the assertions, and its close is not the subject.
+        client.await(io) catch {};
+    }
+    var acceptable = false;
+    var rounds: usize = 0;
+    while (!acceptable and rounds < 500) : (rounds += 1) acceptable = try bounded.waitAcceptable(10);
+    try std.testing.expect(acceptable);
+    const accepted = try bounded.accept();
+    defer accepted.deinit();
+    try std.testing.expectEqual(@as(usize, 1), runtime.redeem_dial_admissions);
+
+    // The handshake deadline settles the held dials, and the share comes back.
+    try stepUntilNoOpens(runtime);
+    try std.testing.expect(held.result() == .failed);
+    try std.testing.expect(recorder.opened_session == null and recorder.failed_err != null);
+
+    const again = try runtime.core.enlivenCapability(allocator, .{ .peer = silent_locators[3], .swissnum = "treasure" });
+    defer again.deinit();
+    _ = try runtime.stepAny(0);
+    try std.testing.expectEqual(@as(usize, 1), runtime.redeem_dial_admissions);
+    try std.testing.expect(again.result() == .pending);
+    try stepUntilNoOpens(runtime);
 }

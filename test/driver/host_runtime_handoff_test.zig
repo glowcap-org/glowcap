@@ -42,7 +42,7 @@ const opts: driver.SessionOptions = .{
 
 const Treasure = support_actors.StaticReplyValueActor("greet", "hello from the exporter");
 
-test "HostRuntime refuses zero frame, wire, and pending-open bounds" {
+test "HostRuntime refuses zero frame, wire, pending-open, and redeem-dial bounds" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -68,6 +68,23 @@ test "HostRuntime refuses zero frame, wire, and pending-open bounds" {
         driver.Error.InvalidBufferConfiguration,
         driver.HostRuntime.init(allocator, io, .{}, .ephemeral, .{
             .max_pending_opens = 0,
+            .handshake = .{ .ms = 1 },
+            .settle = .{ .ms = 1 },
+        }),
+    );
+    try std.testing.expectError(
+        driver.Error.InvalidBufferConfiguration,
+        driver.HostRuntime.init(allocator, io, .{}, .ephemeral, .{
+            .max_pending_redeem_dials = 0,
+            .handshake = .{ .ms = 1 },
+            .settle = .{ .ms = 1 },
+        }),
+    );
+    try std.testing.expectError(
+        driver.Error.InvalidBufferConfiguration,
+        driver.HostRuntime.init(allocator, io, .{}, .ephemeral, .{
+            .max_pending_opens = 4,
+            .max_pending_redeem_dials = 5,
             .handshake = .{ .ms = 1 },
             .settle = .{ .ms = 1 },
         }),

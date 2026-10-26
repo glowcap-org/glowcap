@@ -266,7 +266,7 @@ pub fn deinitAdmissionBackend(backend: *AdmissionBackend) void {
     var completions: [16]net.completion.Completion = undefined;
     var turns: usize = 0;
     while (backend.conns.count() != 0) : (turns += 1) {
-        std.debug.assert(turns < 64);
+        std.debug.assert(turns < 256);
         var keys = backend.conns.keyIterator();
         const id = (keys.next() orelse unreachable).*;
         const conn = backend.conns.get(id) orelse unreachable;

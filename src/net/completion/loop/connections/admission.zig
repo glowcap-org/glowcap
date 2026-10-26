@@ -106,11 +106,17 @@ pub fn Machine(
             // `run`), the accepted fd must still be closed, not leaked.
             errdefer if (accepted) |fd| self.backend.closeFd(fd);
             try ensureAccepting(self);
-            // Re-arming preserves readiness if the owner elects to drive the
-            // loop again, but it does not erase the completed operation's
-            // failure. There is no connection peer to carry an accept error,
-            // so the loop owner is its only diagnostic surface.
-            const fd = accepted orelse return failure_projection.primary(comp, error.AcceptFailed);
+            // An arrival that failed on its own (reset before accept took it,
+            // a refused socket option) leaves the next one unaffected, and the
+            // re-arm above already waits for it. A refusal that would complete
+            // again for every arrival (descriptor quota, memory, a dead
+            // listener) has no connection peer to carry it, so the loop owner
+            // is its only diagnostic surface and `run` returns it.
+            const fd = accepted orelse {
+                const err = failure_projection.primary(comp, error.AcceptFailed);
+                if (failure_projection.acceptRefusalPersists(err)) return err;
+                return;
+            };
 
             const slot = Lifecycle.freeSlot(self, .ordinary) orelse {
                 self.backend.closeFd(fd);

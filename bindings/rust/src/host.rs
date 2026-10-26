@@ -543,6 +543,7 @@ impl HostShared {
 			outbound_high_water_bytes: options.outbound_high_water_bytes,
 			max_retained_sent_answer_bytes: usize::try_from(options.max_retained_sent_answer_bytes)
 				.expect("u32 always fits usize on supported targets"),
+			max_sessions: options.max_sessions,
 		};
 		// SAFETY: as `set_advertised_locator` above for the handle; `raw` is a local `GlowcapSessionLimitOptions`
 		// borrowed for the call.

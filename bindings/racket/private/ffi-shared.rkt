@@ -335,7 +335,8 @@
   ([abi-version _uint32] [struct-size _size]
    [max-frame-bytes _size] [queue-cap _size]
    [outbound-high-water-bytes _size]
-   [max-retained-sent-answer-bytes _size])
+   [max-retained-sent-answer-bytes _size]
+   [max-sessions _size])
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_GlowcapSessionLimitOptions _GlowcapSessionLimitOptions
              GLOWCAP-SESSION-LIMIT-OPTIONS-SIZE

@@ -11,6 +11,9 @@ const webrtc = @import("webrtc");
 pub var freed_peers: usize = 0;
 pub var next_connection_id: usize = 2;
 pub var candidate_bytes_to_emit: usize = 0;
+/// Answer ok with the full emit length even past the buffer offered, writing
+/// only the bytes that fit: a library breaking the result contract.
+pub var candidate_ok_past_cap: bool = false;
 pub var candidate_reads: usize = 0;
 pub var candidate_sent_bytes: usize = 0;
 pub var create_offer_result: i32 = -2;
@@ -89,8 +92,8 @@ export fn glowcap_webrtc_sidecar_peer_next_local_candidate(_: *anyopaque, out: [
     candidate_reads += 1;
     if (candidate_bytes_to_emit != 0) {
         out_len.* = candidate_bytes_to_emit;
-        if (candidate_bytes_to_emit > cap) return -3;
-        @memset(out[0..candidate_bytes_to_emit], 'c');
+        if (candidate_bytes_to_emit > cap and !candidate_ok_past_cap) return -3;
+        @memset(out[0..@min(cap, candidate_bytes_to_emit)], 'c');
         candidate_bytes_to_emit = 0;
         return 0;
     }

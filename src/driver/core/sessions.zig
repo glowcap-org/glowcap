@@ -402,6 +402,7 @@ pub const RoleSpec = union(enum) {
 /// which is how a peer-owning loop with fixed inline slots puts its sessions
 /// under one host.
 pub fn mint(self: *Host, source: PeerSource, spec: RoleSpec, transport: []const u8) !*HostSession {
+    if (self.opts.max_sessions) |cap| if (self.sessions.count() >= cap) return error.SessionLimitReached;
     try self.pending_flush.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
     try self.held_releases.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
     // The session being minted owes a flush and a close of its own.
@@ -498,6 +499,8 @@ pub fn mintShell(self: *Host, peer: *engine.Peer, peer_handle: engine.PeerHandle
 
 fn resolveTransportDesignator(ctx: ?*anyopaque, transport: []const u8) ?model.transport.DesignatorScheme {
     const self: *Host = @ptrCast(@alignCast(ctx.?));
+    // tolerant: a transport the Host does not speak has no designator
+    // scheme, which the engine reads as an unverifiable claim.
     return self.designatorScheme(transport) catch null;
 }
 

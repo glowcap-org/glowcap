@@ -255,12 +255,12 @@ pub fn register(ctx: Context) Registered {
     common.addSiteZigExampleCompile(b, target, optimize, "site-dial-webrtc", "site/examples/dial/webrtc.zig", &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "webrtc", .module = webrtc_resident_mod } }, ctx.site_zig_examples_check);
 
     // Internal owner evidence imports the leaves directly: cross-file `pub`
-    // is not a reason to widen the supported `webrtc` facade. All three files
-    // link the scripted sidecar in `test/net/webrtc_sidecar_stub.zig`, so
+    // is not a reason to widen the supported `webrtc` facade. Every file here
+    // links the scripted sidecar in `test/net/webrtc_sidecar_stub.zig`, so
     // they run without cargo.
     const webrtc_internal_test_step = b.step("webrtc-internal-test", "Run WebRTC resident ownership, bounded-signaling, managed-dial, and managed-accept tests against a scripted sidecar");
     const webrtc_abi_mod = abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod);
-    for ([_][]const u8{ "test/net/webrtc_internal_test.zig", "test/net/webrtc_provider_dial_test.zig", "test/net/webrtc_provider_accept_test.zig" }, [_][]const u8{ "webrtc-internal-test", "webrtc-provider-dial-test", "webrtc-provider-accept-test" }) |source, name| {
+    for ([_][]const u8{ "test/net/webrtc_internal_test.zig", "test/net/webrtc_signal_contract_test.zig", "test/net/webrtc_provider_dial_test.zig", "test/net/webrtc_provider_accept_test.zig" }, [_][]const u8{ "webrtc-internal-test", "webrtc-signal-contract-test", "webrtc-provider-dial-test", "webrtc-provider-accept-test" }) |source, name| {
         const test_mod = b.createModule(.{
             .root_source_file = b.path(source),
             .target = target,

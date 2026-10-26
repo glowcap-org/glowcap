@@ -103,9 +103,11 @@ pub const OperationFailure = struct {
             error.InvalidBufferConfiguration,
             error.BusyPollWindowTooLong,
             error.InvalidHostWorkQuantum,
+            error.InvalidSessionLimit,
             => .invalid_argument,
 
             error.PendingOpenLimitReached,
+            error.SessionLimitReached,
             error.WouldBlock,
             error.SessionOperationLimitReached,
             => .would_block,

@@ -181,13 +181,15 @@ fn resolve(job: *Job) void {
         job.result = .{ .failed = .init(.resolve, err) };
         return;
     };
+    const io = job.runtime.io;
     var queue_storage: [max_addresses]Io.net.HostName.LookupResult = undefined;
     var queue: Io.Queue(Io.net.HostName.LookupResult) = .init(&queue_storage);
-    // `resolve` already runs inside the one owned resolver task. The standard
-    // lookup contract cannot block on a queue with at least 16 seats, so 32
-    // seats let it finish directly and keep cancellation under OperationOwner
-    // rather than creating a second future with a second retirement edge.
-    Io.net.HostName.lookup(host, job.runtime.io, &queue, .{ .port = job.port }) catch |err| {
+    // The standard lookup seats every answer it finds and parks on a full
+    // queue, so the queue is drained while the lookup runs and an answer past
+    // `max_addresses` is counted instead of seated. `concurrent` refuses when
+    // no unit of concurrency is free, where `async` may run the lookup inline
+    // and park this task on its own queue.
+    var lookup = io.concurrent(Io.net.HostName.lookup, .{ host, io, &queue, .{ .port = job.port } }) catch |err| {
         job.result = .{ .failed = .init(.resolve, err) };
         return;
     };
@@ -195,7 +197,7 @@ fn resolve(job: *Job) void {
     var values: [max_addresses]IpAddress = undefined;
     var len: u8 = 0;
     var overflow = false;
-    while (queue.getOneUncancelable(job.runtime.io)) |item| switch (item) {
+    while (queue.getOne(io)) |item| switch (item) {
         .canonical_name => {},
         .address => |address| {
             if (len < max_addresses) {
@@ -204,8 +206,19 @@ fn resolve(job: *Job) void {
             } else overflow = true;
         },
     } else |queue_error| switch (queue_error) {
+        error.Canceled => {
+            // The owner's targeted cancel reached this task. The lookup is
+            // joined so its borrow of `queue` ends before this frame does.
+            lookup.cancel(io) catch {}; // tolerant: cancellation is the terminal fact
+            job.result = .{ .failed = .init(.resolve, error.Canceled) };
+            return;
+        },
         error.Closed => {},
     }
+    lookup.await(io) catch |err| {
+        job.result = .{ .failed = .init(.resolve, err) };
+        return;
+    };
     if (job.canceled.load(.acquire)) {
         job.result = .{ .failed = .init(.resolve, error.Canceled) };
     } else if (overflow) {

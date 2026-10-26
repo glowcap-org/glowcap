@@ -571,3 +571,66 @@ test "completion buffer pool refuses zero-sized buffers at its ownership boundar
         completion.BufferPool.init(std.testing.allocator, 1, 0),
     );
 }
+
+const AcceptWatch = struct {
+    var report: ?completion.CloseReport = null;
+
+    fn onClose(_: ?*anyopaque, _: usize, _: ?*anyopaque, close_report: completion.CloseReport) void {
+        report = close_report;
+    }
+};
+
+test "completion loop: an accept that failed on its own arrival leaves the listener serving" {
+    // Both failures belong to the arrival (reset before accept took it, a refused
+    // socket option). The re-arm before the classification delivers the next
+    // arrival, and that arrival is the only connection the script holds, so a
+    // close report proves it was admitted after the failure.
+    inline for (.{ error.ConnectionAborted, error.SocketConfigurationFailed }) |arrival_failure| {
+        FakeBackend.chunks = &.{};
+        FakeBackend.first_accept_failure = arrival_failure;
+        defer FakeBackend.first_accept_failure = null;
+        AcceptWatch.report = null;
+
+        var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(
+            std.testing.allocator,
+            makeServerPeer,
+            null,
+            .{ .max_conns = 1, .listen = 0, .on_close = AcceptWatch.onClose },
+        );
+        defer loop.deinit();
+
+        try loop.run(.{ .after_closed = 1 });
+
+        try std.testing.expect(loop.backend.accepted);
+        const report = AcceptWatch.report orelse return error.MissingCloseReport;
+        try std.testing.expect(report.opened);
+        // The re-armed accept after the admitted connection is still pending.
+        try std.testing.expect(loop.accept_armed);
+    }
+}
+
+test "completion loop: an accept refusal that would repeat for every arrival returns from run" {
+    // Descriptor quota is what the backend reports for EMFILE and ENFILE
+    // (src/net/completion/contract.zig:438-439). Every later arrival would
+    // complete the same way, so the loop owner receives it, the accept stays
+    // re-armed for a caller that resumes, and no connection was admitted.
+    inline for (.{ error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded }) |persistent_failure| {
+        FakeBackend.chunks = &.{};
+        FakeBackend.first_accept_failure = persistent_failure;
+        defer FakeBackend.first_accept_failure = null;
+        AcceptWatch.report = null;
+
+        var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(
+            std.testing.allocator,
+            makeServerPeer,
+            null,
+            .{ .max_conns = 1, .listen = 0, .on_close = AcceptWatch.onClose },
+        );
+        defer loop.deinit();
+
+        try std.testing.expectError(persistent_failure, loop.run(.{ .after_closed = 1 }));
+
+        try std.testing.expect(loop.accept_armed);
+        try std.testing.expect(AcceptWatch.report == null);
+    }
+}

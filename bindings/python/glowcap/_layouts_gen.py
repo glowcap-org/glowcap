@@ -163,13 +163,14 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("complete", 32, 8),
         ("dial", 40, 8),
     )),
-    "GLOWCAP_SESSION_LIMIT_OPTIONS": (48, (
+    "GLOWCAP_SESSION_LIMIT_OPTIONS": (56, (
         ("abi_version", 0, 4),
         ("struct_size", 8, 8),
         ("max_frame_bytes", 16, 8),
         ("queue_cap", 24, 8),
         ("outbound_high_water_bytes", 32, 8),
         ("max_retained_sent_answer_bytes", 40, 8),
+        ("max_sessions", 48, 8),
     )),
     "GLOWCAP_PARTNER_IDENTITY": (56, (
         ("session_key", 0, 8),

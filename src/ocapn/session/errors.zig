@@ -76,6 +76,12 @@ pub const Error = error{
     /// the bound against a partner flooding `withdraw-gift`s whose deposits
     /// never arrive (each parks until its gift is deposited, ADR-0039).
     PendingWithdrawCapExceeded,
+    /// A shortening callback would extend a promise chain past
+    /// `SessionLimits.max_resolution_chain`. Every chain walk (rewriting a
+    /// mention, validating a callback) is bounded by that admission, so a
+    /// partner cannot make one message cost a walk over its whole import
+    /// table. Projects to `resource_exhausted`.
+    ShorteningChainTooLong,
     /// An inbound argument tree nested deeper than
     /// `SessionLimits.max_nesting_depth`. The recursive validate / install walk
     /// is bounded so a deeply nested frame fails loud instead of

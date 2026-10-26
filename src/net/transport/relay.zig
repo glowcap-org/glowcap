@@ -16,7 +16,9 @@ const profile = @import("keyed_relay/profile.zig");
 const provider = @import("keyed_relay/provider.zig");
 const route = @import("keyed_relay/route.zig");
 const resident = @import("keyed_relay/resident.zig");
+const stream = @import("keyed_relay/stream.zig");
 const completion = @import("keyed_relay/completion.zig");
+const completion_options = @import("keyed_relay/completion/options.zig");
 const configuration = @import("keyed_relay/configuration.zig");
 
 pub const transport_name = resident.transport_name;
@@ -55,6 +57,9 @@ pub const Configuration = configuration.Options;
 
 pub const white_box = if (builtin.is_test) struct {
     pub const FailureLedger = address_race.FailureLedger;
+    pub const max_resolved_addresses = address_race.max_resolved_addresses;
+    pub const max_frames_per_read = stream.max_frames_per_read;
+    pub const max_unaccepted_registrations = completion_options.max_unaccepted_registrations;
     pub const drainAfterLocalClose = close_machine.drainAfterLocalClose;
     pub const pollable_address_race = endpoint_race.white_box;
 } else struct {};

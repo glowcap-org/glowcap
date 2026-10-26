@@ -1,10 +1,13 @@
-//! Async relay DNS and pre-admission dial-lifecycle evidence.
+//! Async relay DNS and pre-admission dial-lifecycle evidence, including the
+//! cap on how many addresses one answer may seat.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
 const admission = @import("../support/keyed_relay_admission.zig");
+const crowded_lookup = @import("../support/crowded_lookup.zig");
 
 const net = glowcap.net;
+const address_cap = net.relay.white_box.max_resolved_addresses;
 
 test "completion relay retries refused loser close admission without parking" {
     var backend = try admission.admissionBackend(std.testing.allocator);
@@ -122,4 +125,70 @@ test "completion relay resolves a hostname off-loop and cancellation joins it" {
     }
     backend.closeFd(fd);
     try std.testing.expectEqual(@as(usize, 0), backend.pending_dials.count());
+}
+
+/// Dial through a lookup that answers `answer_len` loopback addresses. An
+/// answer within the cap reaches a relay leg on the platform. One past it
+/// fails the dial at the resolve phase and retires the pending row.
+fn expectCrowdedDial(comptime answer_len: usize, seed: u8, expect_too_many: bool) !void {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var crowded = crowded_lookup.Lookup(answer_len).init(threaded.io());
+    var backend = try admission.AdmissionBackend.initWithRelay(
+        std.testing.allocator,
+        8,
+        1,
+        64,
+        .{
+            .url = "ws://relay.test:9/relay",
+            .entropy_seed = @as([std.Random.DefaultCsprng.secret_seed_length]u8, @splat(seed)),
+            .resolver_io = crowded.io(),
+            .send_staging_bytes = admission.frame_cap,
+        },
+    );
+    defer admission.deinitAdmissionBackend(&backend);
+    // The platform has one recv seat, so the resolver's wake is left unarmed
+    // and its completions are collected on each poll instead.
+    backend.platform.fail_recv = true;
+
+    const designator = @as([64]u8, @splat('a'));
+    _ = try backend.startDial(12, .{ .keyed_relay = .{
+        .designator = &designator,
+        .relay = null,
+    } });
+
+    var batch: [4]net.completion.Completion = undefined;
+    var failed: ?net.completion.Completion = null;
+    var turns: usize = 0;
+    while (backend.conns.count() == 0 and failed == null) : (turns += 1) {
+        try std.testing.expect(turns < 1_000);
+        // A spinning poll starves the resolver's task of the shared locks
+        // the test allocator and the thread pool take.
+        std.Io.sleep(threaded.io(), std.Io.Duration.fromMilliseconds(1), .real) catch unreachable;
+        const n = try backend.poll(&batch, 50);
+        for (batch[0..n]) |result| {
+            try std.testing.expectEqual(@as(u64, 12), result.user_data);
+            failed = result;
+        }
+    }
+    backend.platform.fail_recv = false;
+    if (failed) |result| {
+        try std.testing.expect(expect_too_many);
+        try std.testing.expect(result.result < 0);
+        const failure = result.borrowed.carrierFailureValue() orelse return error.MissingResolverFailure;
+        try std.testing.expectEqualStrings("TooManyAddresses", failure.chain.primaryName());
+        try std.testing.expectEqual(net.carrier_failure.Phase.resolve, failure.phase);
+        backend.recycleBorrowed(result);
+    } else {
+        try std.testing.expect(!expect_too_many);
+    }
+    try std.testing.expectEqual(@as(usize, 0), backend.pending_dials.count());
+}
+
+test "completion relay admits a DNS answer of exactly the address cap" {
+    try expectCrowdedDial(address_cap, 0x73, false);
+}
+
+test "completion relay refuses a DNS answer one address past the cap" {
+    try expectCrowdedDial(address_cap + 1, 0x74, true);
 }

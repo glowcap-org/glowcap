@@ -115,7 +115,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
         };
         const TryIo = completion.HintedTryIo(Self, TryIoOps);
 
-        const max_accept_stash = policy.accept_queue_bound;
+        /// Accepted connections held for the Loop before the next arrival is released.
+        pub const max_accept_stash = policy.accept_queue_bound;
         /// One pointer per admitted accept seat, reserved once per endpoint so
         /// readiness consumption remains allocation-free. On 64-bit targets
         /// this is a named 1 KiB heap cost, never a per-connection allocation.

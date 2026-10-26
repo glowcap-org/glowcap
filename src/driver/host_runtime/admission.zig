@@ -26,12 +26,15 @@ pub fn acquireOpenAdmission(self: *HostRuntime, authority: OpenAdmissionAuthorit
         .pending_dial => if (self.terminal_failure != null) return error.ProviderContract,
     }
     if (!pendingOpenSlotAvailable(self)) return Error.PendingOpenLimitReached;
+    if (authority == .pending_dial and self.redeem_dial_admissions >= self.max_pending_redeem_dials)
+        return Error.PendingOpenLimitReached;
     const pending_work = switch (authority) {
         .application => try self.core.admitPendingWork(),
         .pending_dial => null,
     };
     self.open_admissions += 1;
-    return .{ .runtime = self, .pending_work = pending_work };
+    if (authority == .pending_dial) self.redeem_dial_admissions += 1;
+    return .{ .runtime = self, .pending_work = pending_work, .authority = authority };
 }
 
 /// Refuse new application work after either retirement or Host close.

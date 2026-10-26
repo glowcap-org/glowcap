@@ -68,6 +68,7 @@ pub struct GlowcapSessionLimitOptions {
 	pub queue_cap: usize,
 	pub outbound_high_water_bytes: usize,
 	pub max_retained_sent_answer_bytes: usize,
+	pub max_sessions: usize,
 }
 
 const _: () = {
@@ -87,6 +88,7 @@ const _: () = {
 		offset_of!(GlowcapSessionLimitOptions, max_retained_sent_answer_bytes)
 			== GLOWCAP_SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF
 	);
+	assert!(offset_of!(GlowcapSessionLimitOptions, max_sessions) == GLOWCAP_SESSION_LIMIT_OPTIONS_MAX_SESSIONS_OFF);
 };
 
 /// The current turn, passed to a behavior callback so it can forward, spawn,

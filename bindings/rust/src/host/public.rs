@@ -93,6 +93,8 @@ pub struct SessionLimitOptions {
 	pub queue_cap: usize,
 	pub outbound_high_water_bytes: usize,
 	pub max_retained_sent_answer_bytes: u32,
+	/// Host-wide cap on live sessions.
+	pub max_sessions: usize,
 }
 
 impl Host {

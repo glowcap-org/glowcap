@@ -93,7 +93,7 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 - Read by: `stream_framing.parsePrefix`, through `net.recvOuterPrefix` and `Host.feedBytes`
 - Bounded by: `max_frame_bytes`, default <!-- value ../src/ocapn/session/limits.zig default_max_frame_bytes bytes -->1 MiB<!-- /value -->, checked on the length prefix before the body is read
 - Searched by: `engine/fuzz_test.zig`, `driver/fuzz_test.zig`, and `net/fuzz_test.zig` for a frame that spills past the read buffer
-- Refusal proved by: `driver/core_host/redeem_test.zig` (an outer length over the cap is refused before its body), `engine/completion_seam_test.zig` (both codecs, the exact cap, and a declared length over the cap refused before its body)
+- Refusal proved by: `driver/core_host/redeem_test.zig` (an outer length over `max_frame_bytes` is refused before its body), `engine/completion_seam_test.zig` (both codecs, the exact cap, and a declared length over the cap refused before its body)
 
 **A Syrup frame**
 
@@ -111,11 +111,14 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 
 **A message against live session state: deliver, resolve, listen, release, GC, abort**
 
-- Read by: `session.validate`, then the engine's dispatch into the tables
+- Read by: `session.validate`, one arm per operation (`op:deliver`, `op:resolve`, `op:listen`, `op:get`, `op:index`, `op:untag`, `op:gc-export`, `op:gc-answer`, `op:abort`), then the engine's dispatch into the tables. The three projection operations hold their receiver to the same rule as a deliver's target and share the listener cap
 - Bounded by: `max_imports`, `max_inbound_answers`, `queue_cap`, `max_listeners_per_target`, `max_resolution_chain`, `max_local_deliveries`, `max_retained_sent_answer_bytes`, `max_queued_call_bytes`, `max_compare_visits`. A release also runs the local promise collector, whose trace walks every retained value, so it traces once per interval of releases and the interval grows with that walk (`local_promise_gc.zig`): a flood of one-line GC messages cannot buy a scan per message
-- Searched by: `engine/fuzz_test.zig` and `driver/fuzz_test.zig`, which drive a program to build live tables and then hold `max_imports`, `max_inbound_answers`, `queue_cap`, `max_listeners_per_target`, the nesting depth, and the frame cap after each step (`support/session_bounds.zig`). The other four bounds are not searched. The second `engine/fuzz_test.zig` target runs the same program between two conforming peers and, once the wire settles, holds the two sessions to each other (`support/session_agreement.zig`): every import is a mention the partner made that many times and every open question an answer the partner still owes
+- Searched by: `engine/fuzz_test.zig` and `driver/fuzz_test.zig`, which drive a program to build live tables and then hold `max_imports`, `max_inbound_answers`, `queue_cap`, `max_queued_call_bytes`, `max_retained_sent_answer_bytes`, and `max_listeners_per_target` after each step (`support/session_bounds.zig`), under a frame cap and a nesting depth small enough for a short program to cross. `max_resolution_chain`, `max_local_deliveries`, and `max_compare_visits` are budgets one operation spends with no table to hold, so only their refusals below are proved. The second `engine/fuzz_test.zig` target runs the same program between two conforming peers and, once the wire settles, holds the two sessions to each other (`support/session_agreement.zig`): every import is a mention the partner made that many times and every open question an answer the partner still owes
 - Refusal proved by:
-  - `max_resolution_chain`: `engine/projection_test.zig` (a distinct chain past the bound breaks the answer with the bound named)
+  - `max_imports`: `session/grant_test.zig` (the registration past the cap is refused)
+  - `max_inbound_answers`: `session/answer_test.zig` (the question past the cap is refused)
+  - `queue_cap` and `max_listeners_per_target`: `session/resolver_test.zig` (the pipelined call and the listener past their caps fail loud), `engine/projection_test.zig` (the `op:get` past the shared cap is refused loud)
+  - `max_resolution_chain`: `engine/projection_test.zig` (a distinct chain past the bound breaks the answer with the bound named), `session/imported_promise_test.zig` (a shortening edge that would make a chain longer than the bound is refused `ShorteningChainTooLong`, and every rewrite walks at most that far)
   - `max_local_deliveries`: `engine/peer/pipeline/fail_closed_test.zig` and `engine/resolve_window_test.zig` (`LocalDeliveryCapExceeded` closes the session with an abort)
   - `max_retained_sent_answer_bytes`: `engine/node/answer_settlement_test.zig` (`RetainedAnswerCapExceeded`)
   - `max_queued_call_bytes`: `session/resolver_test.zig` (`QueuedCallBytesExceeded` refuses the call that would carry the session's queued pipelined calls past the budget, and draining an answer's queue returns its charge)
@@ -136,16 +139,16 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 **A locator or sturdyref as text, in a hello, a handoff, or from a program**
 
 - Read by: the `ocapn://` parser in `model/`
-- Bounded by: `max_route_list_count` and `max_route_list_bytes` in `model/route_bundle.zig`, and `max_count` hints
+- Bounded by: `max_route_list_count` and `max_route_list_bytes` in `model/route_bundle.zig`, and `max_count` hints. A sturdyref a partner resolves is enlivened once and remembered, and `max_sturdyref_cache_entries` bounds that memory by evicting the oldest, since a miss costs one fetch and no correctness
 - Searched by: `model/fuzz_test.zig`
-- Refusal proved by: `model/uri_test.zig`, `net/keyed_tcp_test.zig` and `net/noise_tcp_test.zig` (a designator of the wrong kind is refused before any I/O)
+- Refusal proved by: `model/uri_test.zig`, `net/keyed_tcp_test.zig` and `net/noise_tcp_test.zig` (a designator of the wrong kind is refused before any I/O), `engine/sturdyref_test.zig` (`max_sturdyref_cache_entries` evicts the oldest entry past the cap)
 
 **A third-party handoff: a give, a receive, a withdrawal**
 
 - Read by: `validateInboundHandoffArgument`, then the gift registry and signatures under `engine/bootstrap/`
-- Bounded by: `max_deposited_gifts`, `max_deposited_gift_bytes`, `max_pending_withdraws`, and a handoff count that never repeats
+- Bounded by: `max_deposited_gifts`, `max_deposited_gift_bytes`, `max_pending_withdraws`, and a handoff count that never repeats. A give the Host redeems inline holds a promise row until the exporter answers, and those rows count against the giving session's `max_pending_withdraws` beside its parked withdraws
 - Searched by: `driver/fuzz_test.zig` (the receive a recipient really sent, fed to the exporter verbatim, with bytes of the certificate flipped, or with bytes of one signature flipped, each under a fresh answer)
-- Refusal proved by: `engine/cross_peer/authority_test.zig` (a give signed by the wrong key, a replayed count, a withdrawal whose signature fails), `engine/gift_registry_test.zig`
+- Refusal proved by: `engine/cross_peer/authority_test.zig` (a give signed by the wrong key, a replayed count, a withdrawal whose signature fails), `engine/gift_registry_test.zig` (`max_deposited_gifts`), `engine/gift_registry_budget_test.zig` (`max_deposited_gift_bytes` saturates on a whole new row, and a replacement that would grow past it leaves the row it would replace in place), `engine/cross_peer/parked_admission_test.zig` (a second early withdraw past `max_pending_withdraws` refuses loud and projects `resource_exhausted`), `driver/core_host/give/pending_cap_test.zig` (an inline give past the same bound is refused before it retains a capability or stores a row, and a settled redemption frees its seat)
 
 **A sturdyref fetch, by swissnum**
 
@@ -170,7 +173,7 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 
 **Allocation failure while a frame is applied**
 
-- Read by: every allocating door of `Peer`, which are `recvBorrowed`, `feedOwned`, `step`, and the sends
+- Read by: every allocating door of `Peer`, which are `recvBorrowed`, `feedOwned`, `step`, and the sends (`recvPacket` and `stepToIdle` are the first and third called in a loop, and the Host's `feed` verbs reach the same doors)
 - Bounded by: the allocator alone. The contract is two states and no third. The borrowed door commits nothing, and the Host offers the same bytes again. The owned door and the dispatch close the session, recording `OutOfMemory`. A send or a step leaves its message queued for a retry. No path applies half a frame or forgets one
 - Searched by: `engine/allocation_failure_test.zig` (a program between two conforming peers run once per allocation site with that one allocation refused, and once per site with every allocation from it on refused, under both profiles). Each run ends with the pair agreeing about every row or with the refused peer closed for memory, and with every byte it took returned
 - Refusal proved by: the same test, and `driver/sealed_channel_test.zig` (an allocation failure mid-record)
@@ -185,16 +188,62 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 **Half-open handshakes in bulk**
 
 - Read by: `HostRuntime` accepting connections, behind the completion resident's listener
-- Bounded by: `max_pending_opens`, default <!-- value ../src/driver/host_runtime.zig default_max_pending_opens -->256<!-- /value -->, and the handshake deadline, default <!-- value ../src/driver/core/vocab.zig default_handshake_timeout_ms milliseconds -->10 seconds<!-- /value -->. A listener holds at most `max_unclaimed_accepts` accepted sockets the runtime has not claimed and stops accepting past that, so arrivals wait in the kernel's listen backlog. A frame that arrives before the handshake completes is held to the same `max_frame_bytes` as every other, so `max_pending_opens` times that cap is the most a flood of half-open peers can make the host hold. An accept the kernel refuses for descriptor quota is not retried against the same quota: the resident hands the refusal to the runtime, which closes that listener and reports it to the embedder
+- Bounded by: `max_pending_opens`, default <!-- value ../src/driver/host_runtime.zig default_max_pending_opens -->256<!-- /value -->, and the handshake deadline, which a Zig `HostRuntime` caller names and the C driver defaults to <!-- value ../src/driver/core/vocab.zig default_handshake_timeout_ms milliseconds -->10 seconds<!-- /value -->. The deadline is stamped once when an open starts and covers its transport connect and CapTP handshake, and sessions that finished opening are held to `max_sessions`, default <!-- value ../src/driver/core/host/configuration.zig default_max_sessions -->1,024<!-- /value --> per Host, refused `SessionLimitReached` at mint with nothing reserved. Redeem dials a partner's handoffs induce hold at most `max_pending_redeem_dials` of the pool, a quarter of it unless the caller says otherwise, so gives naming silent exporters leave accepts and the application's own dials room. A listener holds at most `max_unclaimed_accepts` accepted sockets the runtime has not claimed and stops accepting past that, so arrivals wait in the kernel's listen backlog. A frame that arrives before the handshake completes is held to the same `max_frame_bytes` as every other, so `max_pending_opens` times that cap is the most a flood of half-open peers can make the host hold. An accept the kernel refuses for descriptor quota is not retried against the same quota: the resident hands the refusal to the runtime, which closes that listener and reports it to the embedder, and the completion loop returns it from `run`. An accept that failed on its own arrival (a reset before accept took it, a refused socket option) is dropped and the listener keeps serving
 - Searched by: none (the input is not bytes)
-- Refusal proved by: `net/completion_resident_test.zig` (a listener stops accepting at the unclaimed bound and resumes on a claim, and an accept refused for descriptor quota reaches the claim as a failure and does not re-arm), `driver/host_runtime_step/flood_test.zig` (the slots all held by handshakes that never finish, the next arrival refused, the accepted count held, and an honest session opening once the deadline frees them) and `driver/host_runtime_step/serve_test.zig` (an arrival while a slot is held closes with no session)
+- Refusal proved by:
+  - `net/completion_resident_test.zig` (a listener stops accepting at the unclaimed bound and resumes on a claim, and an accept refused for descriptor quota reaches the claim as a failure and does not re-arm)
+  - `net/completion_loop_backpressure_test.zig` (an arrival-local accept failure leaves the loop serving and the next arrival is admitted, and a descriptor-quota failure returns from `run`)
+  - `driver/host_runtime_step/flood_test.zig` (the slots all held by handshakes that never finish, the next arrival refused, the accepted count held, and an honest session opening once the deadline frees them). The same file holds redeem dials to their share while an accept and an application dial still admit
+  - `driver/host_runtime_handoff_test.zig` (a zero share or one above the pool is refused at construction)
+  - `driver/host_runtime_step/serve_test.zig` (an arrival while a slot is held closes with no session)
+  - `driver/core_host/session_cap_test.zig` (the mint at the cap refused, a release freeing the seat, the setter moving the cap, zero refused at construction)
+
+**A WebSocket frame or relay upgrade response**
+
+- Read by: `parseHeaderBytes` and `UpgradeResponseValidator` in `net/websocket/client_protocol.zig`, through the keyed-relay blocking reader (`keyed_relay/blocking_frame.zig`, `keyed_relay/upgrade.zig`), the stream reader (`keyed_relay/stream.zig`), and `consumeUpgrade` in `keyed_relay/completion/dispatch.zig`. The relay URL and the `rendezvous-relay` hint are read by `RelayUrl.parse` and `relayHint` in `keyed_relay/route.zig`
+- Bounded by:
+  - The upgrade and the relay's address: `max_upgrade_response_bytes` caps the HTTP response, refused `UpgradeResponseTooLarge` by the completion reader and `UpgradeRefused` by the blocking one. A relay hostname's answer seats at most `max_resolved_addresses` addresses, and one more fails the dial `TooManyAddresses` at the resolve phase. Both carriers drain the answer while the lookup runs, so a long answer cannot park the resolver, and a lookup with no free unit of concurrency is refused instead of run inline
+  - Frames: a header with a reserved bit, a mask, a text or unknown opcode, or a length not minimally encoded is refused `ProtocolViolation`, and so is a control frame past `max_control_payload` or split across fragments. A data payload is streamed and never sized from its header. `RelayInputOverflow` refuses raw bytes past `raw_in_limit`, the read buffer plus `steady_raw_in_bytes`. `max_frames_per_read` hands the turn back after that many frames in one read, so empty data frames and unsolicited pongs cannot hold the loop
+  - Registration and the hint: `max_unaccepted_registrations` pauses registration at a full backlog instead of growing it. A hint is one string of at most `max_rendezvous_relay_hint_bytes` that parses as a relay URL, and a second hint is refused `InvalidRelayHint`
+- Searched by: the `frameHeader`, `closePayload`, and `upgrade` targets in `net/fuzz/websocket_client.zig`, run from `net/fuzz_test.zig`, which reach upgrade responses up to `max_upgrade_response_bytes` and not the refusal past it. The relay URL and hint parsers are not searched
+- Refusal proved by:
+  - Frame headers, close payloads, and the upgrade response grammar: `net/keyed_relay_frame_test.zig` (every malformed header shape, status codes and UTF-8 in a close reason, a response missing a required field or carrying an extension or subprotocol)
+  - Frames after the upgrade: `net/keyed_relay_completion_wire_test.zig` (an invalid close payload from the relay, and a fragment out of order)
+  - `max_upgrade_response_bytes`: `net/keyed_relay_completion_test.zig` proves the admitted side, where the cap counts HTTP bytes alone and a coalesced frame past it is kept. `net/keyed_relay_completion_bounds_test.zig` proves the refusal one byte past the cap, and `net/keyed_relay_bounds_test.zig` proves `UpgradeRefused` on the blocking carrier at the cap plus one
+  - `RelayInputOverflow`: `net/keyed_relay_completion_bounds_test.zig` (the retained-input limit at its last byte and one past it, for a lent read and for a later read)
+  - `max_frames_per_read`: `net/keyed_relay_bounds_test.zig` (the turn hands back once the budget is spent, and the buffered frames arrive on the next turn with no byte lost)
+  - `max_resolved_addresses`: `net/keyed_relay_bounds_test.zig` on the blocking carrier and `net/keyed_relay_completion_dns_test.zig` on the completion carrier (an answer of exactly the cap dials, and one more fails at the resolve phase)
+  - `max_unaccepted_registrations`: `net/keyed_relay_registration_bounds_test.zig`
+  - Relay URL and hint: `net/keyed_relay_url_test.zig` (unsupported or ambiguous endpoints and the route corpus), `net/keyed_relay/rendezvous_test.zig` (a hint of the wrong kind, a fragment, an oversized hint, and a duplicate are refused before any I/O)
+
+**A TLS record**
+
+- Read by: the TLS engine in `net/tls/mbedtls.zig`, fed through `Transform.ciphertextDestination` and `Transform.commitCiphertext` in `net/tls/transform.zig`. `net/tls/pollable_stream.zig` and `keyed_relay/completion/tls.zig` both drive that transform
+- Bounded by: `record_bytes`, the TLS 1.3 maximum record plus expansion, fixes each channel's ciphertext window, and neither carrier grows it with partner bytes. The window reclaims its consumed prefix first, and `TlsCiphertextLimit` refuses a record that still does not fit, surfacing as `TlsFailed`. mbedTLS holds one record's plaintext to `MBEDTLS_SSL_IN_CONTENT_LEN` in `net/tls/glowcap_mbedtls_config.h`. An engine that claims to have consumed more than it was offered is refused `EngineContractViolation`
+- Searched by: the `window` target in `net/fuzz/tls_transform.zig`, a drawn engine against every commit geometry
+- Refusal proved by:
+  - `TlsCiphertextLimit`: `net/tls_transform_test.zig` (a window filled to its last byte admits, and the next record byte is refused), `net/tls_pollable_stream_test.zig` (a handshake whose full window the engine cannot parse fails through the carrier)
+  - The window before the limit: `net/tls_pollable_stream_test.zig` (a stream one byte past `record_bytes` reads through because the consumed prefix is reclaimed before the window grows)
+  - `EngineContractViolation`: `net/tls_engine_test.zig` (an engine that reports consuming more ciphertext than it was given), `net/tls_transform_test.zig` (the exact engine failure stays primary through transport cleanup)
+
+**A result from the Rust library behind iroh or WebRTC**
+
+- Read by: the imported verbs and the `Resident` and `Peer` wrappers in `net/transport/iroh/sidecar.zig` and `net/transport/webrtc/sidecar.zig`, then `TryIoOps.tryRead`, `TryIoOps.tryWrite`, `harvestSidecar`, and `stashAccepts` in `net/transport/iroh/backend.zig`. The library is first-party code the process links, so the Zig side checks its results as a contract and not as peer input
+- Bounded by: `drainReady` and `drainDriverReady` on the WebRTC `Resident` refuse a count past the buffer with `ReadinessFailed`, as does the iroh `MultiplexedAdapter.drainReady`, while `harvestSidecar` refuses it `SidecarDrainFailed` and an iroh read or write count past its buffer fails the connection `IrohSidecarContract`. `max_signal_bytes` and `max_ice_candidate_bytes` bound signaling text. An inbound SDP or candidate past them is refused `SignalTooLarge` before the library sees it. `createOffer`, `createAnswer`, and `nextLocalCandidate` offer the library at most that many bytes, and a length reported past the buffer offered is refused `SignalFailed`. The iroh backend keeps at most `max_accept_stash` accepted connections, taken from `accept_queue_bound`, and frees arrivals past it, while the WebRTC backend refuses the same overflow `AcceptBacklogFull`. `max_direct_address_bytes` bounds the iroh direct-address list, refused `AddressListTooLarge`
+- Searched by: none (the input is a call result, not bytes)
+- Refusal proved by:
+  - Signaling text: `net/webrtc_internal_test.zig` (an SDP or candidate one byte over `max_signal_bytes` never reaches the library, a generated signal over the cap is not a retryable buffer miss, an offer the library refuses closes its peer, and an ok result whose length passes the buffer offered is refused for every signal verb)
+  - WebRTC accept stash: `net/webrtc_internal_test.zig` (`AcceptBacklogFull` at a full stash retires the adopted peer)
+  - Direct addresses: `net/iroh_resident_internal_test.zig` (`AddressListTooLarge` past `max_direct_address_bytes`)
+  - Readiness batch: `net/iroh_resident_internal_test.zig` (one turn drains one bounded batch and leaves the rest with the endpoint)
+  - `ReadinessFailed`, `SidecarDrainFailed`, `IrohSidecarContract`, and the iroh accept stash: `net/iroh_resident_internal_test.zig`
 
 **Tor control and SOCKS replies, text from a daemon the operator runs**
 
 - Read by: `parseLine` in `net/transport/onion/control.zig` and the SOCKS5 reader
-- Bounded by: one bounded line per reply, and a request that does not fit its buffer is refused rather than truncated
+- Bounded by: one line of at most `max_line_bytes` per reply line, at most `max_reply_lines` lines per reply, and at most `service_key_cap` bytes in a returned service key. A request that does not fit its buffer is refused rather than truncated
 - Searched by: `net/fuzz_test.zig` (every reply line up to `max_line_bytes` and every SOCKS5 head the parsers can be handed, so the over-long line refusal is out of its reach)
-- Refusal proved by: `net/onion_control_test.zig` (a request too long for its buffer is refused with `LineTooLong`, a unit test of the control request writer only), `net/onion_socks5_test.zig` (malformed heads and service ids), and no SOCKS5 over-long test
+- Refusal proved by: `net/onion_control_test.zig` (a request too long for its buffer is refused with `LineTooLong`, a unit test of the control request writer only), `net/onion_control_session_test.zig` (a reply of `max_reply_lines` lines, a key of `service_key_cap` bytes, and a line of `max_line_bytes` bytes are admitted, and one more of each is refused `ReplyTooLong`), `net/onion_completion_test.zig` (the same three bounds on the completion listener, refused `ControlReplyTooLong`), `net/onion_socks5_test.zig` (malformed heads and service ids), and no SOCKS5 over-long test
 
 **Values a program passes into a call or a settle**
 
@@ -247,7 +296,8 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
   retryable refusal from a missing name, and so it learns which one it was.
 - **Where a peer tells it to dial.** A relay hint in a hello and the exporter
   locator in a handoff name an address, and the host dials it on the
-  transports it negotiated, at most `max_pending_opens` at a time. Whether a
+  transports it negotiated, at most `max_pending_redeem_dials` at a time for
+  handoffs and `max_pending_opens` across every open. Whether a
   program should reach that address is the program's to decide, above the
   host.
 - **How much a peer with a grant may store.** Loam derives from a grant until

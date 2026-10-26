@@ -29,18 +29,7 @@ fn idOf(user_data: u64) usize {
     return @intCast(user_data & ((@as(u64, 1) << 56) - 1));
 }
 
-/// Whether an accept refusal outlives the arrival it was reported for. The
-/// arrival itself failing (reset before accept took it, or refusing a socket
-/// option) leaves the next one unaffected, so the listener accepts again.
-/// Every other refusal (descriptor quota, memory, a dead listener) would
-/// complete again for as long as the arrival waits, so the unknown case is
-/// the persistent one.
-pub fn acceptRefusalPersists(err: anyerror) bool {
-    return switch (err) {
-        error.ConnectionAborted, error.SocketConfigurationFailed => false,
-        else => true,
-    };
-}
+pub const acceptRefusalPersists = failure_projection.acceptRefusalPersists;
 
 pub fn Machine(comptime Self: type) type {
     return struct {

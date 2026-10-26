@@ -133,6 +133,7 @@ pub fn classify(err: anyerror) Classification {
         error.ImportCapExceeded,
         error.DepositedGiftCapExceeded,
         error.PendingWithdrawCapExceeded,
+        error.ShorteningChainTooLong,
         error.NestingTooDeep,
         error.CompareBudgetExhausted,
         error.ExportRangeExhausted,

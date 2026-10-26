@@ -126,16 +126,21 @@ pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, 
         .none, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
     };
     if (!incarnationIsCurrent(self, source)) return;
+    // The edge would put `source` one hop above `target`'s chain, so the
+    // chain below `target` may hold one hop fewer than the limit. Every
+    // admitted edge keeps that bound, so `rewriteReference` and
+    // `shortenedTarget` can stop after `max_resolution_chain` hops.
     var current = target.import_position;
-    var remaining = self.imported_promises.count() + 1;
-    while (remaining != 0) : (remaining -= 1) {
+    var hops: usize = 0;
+    while (true) {
         if (current == source.position) return error.UnexpectedMessage;
         const entry = self.imported_promises.get(current) orelse return;
         const next = entry.shortening_target;
         if (next == current) return;
+        hops += 1;
+        if (hops >= self.limits.max_resolution_chain) return error.ShorteningChainTooLong;
         current = next;
     }
-    return error.UnexpectedMessage;
 }
 
 /// Commit a validated callback. Both rows already exist, so this is
@@ -360,7 +365,8 @@ fn rewriteReference(self: *Session, reference: model.Reference) model.Reference 
     if (reference != .far or reference.far.kind != .promise) return reference;
     const source = reference.far.import_position;
     var current = source;
-    var remaining = self.imported_promises.count() + 1;
+    // `validateCompletion` admits no chain longer than this.
+    var remaining = self.limits.max_resolution_chain;
     while (remaining != 0) : (remaining -= 1) {
         const next = (self.findImportedPromise(current) orelse break).shortening_target;
         if (next == current) break;

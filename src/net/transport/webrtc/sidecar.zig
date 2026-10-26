@@ -228,7 +228,8 @@ pub const Peer = struct {
     pub fn createOffer(self: *Peer, out: []u8, out_len: *usize) SignalError![]const u8 {
         const capped = out[0..@min(out.len, max_signal_bytes)];
         return switch (glowcap_webrtc_sidecar_peer_create_offer(self.peer, capped.ptr, capped.len, out_len)) {
-            rc_ok => out[0..out_len.*],
+            // A length past the buffer offered is the sidecar breaking its contract.
+            rc_ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
             rc_signal_too_large => error.SignalTooLarge,
             rc_buffer_too_small => if (out_len.* > max_signal_bytes) error.SignalTooLarge else error.BufferTooSmall,
             else => error.SignalFailed,
@@ -241,7 +242,8 @@ pub const Peer = struct {
     pub fn createAnswer(self: *Peer, out: []u8, out_len: *usize) SignalError![]const u8 {
         const capped = out[0..@min(out.len, max_signal_bytes)];
         return switch (glowcap_webrtc_sidecar_peer_create_answer(self.peer, capped.ptr, capped.len, out_len)) {
-            rc_ok => out[0..out_len.*],
+            // A length past the buffer offered is the sidecar breaking its contract.
+            rc_ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
             rc_signal_too_large => error.SignalTooLarge,
             rc_buffer_too_small => if (out_len.* > max_signal_bytes) error.SignalTooLarge else error.BufferTooSmall,
             else => error.SignalFailed,
@@ -275,7 +277,8 @@ pub const Peer = struct {
     pub fn nextLocalCandidate(self: *Peer, out: []u8, out_len: *usize) SignalError!?[]const u8 {
         const capped = out[0..@min(out.len, max_ice_candidate_bytes)];
         return switch (glowcap_webrtc_sidecar_peer_next_local_candidate(self.peer, capped.ptr, capped.len, out_len)) {
-            rc_ok => out[0..out_len.*],
+            // A length past the buffer offered is the sidecar breaking its contract.
+            rc_ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
             rc_would_block => null,
             rc_signal_too_large => error.SignalTooLarge,
             rc_buffer_too_small => if (out_len.* > max_ice_candidate_bytes) error.SignalTooLarge else error.BufferTooSmall,

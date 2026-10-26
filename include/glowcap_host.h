@@ -238,6 +238,8 @@ typedef struct GlowcapSessionLimitOptions {
     size_t outbound_high_water_bytes;
     /* Durable sent-answer bytes retained after transient flow accounting; zero leaves the current value unchanged and values above UINT32_MAX are refused. */
     size_t max_retained_sent_answer_bytes;
+    /* Host-wide cap on live sessions; zero leaves the current value unchanged. */
+    size_t max_sessions;
 } GlowcapSessionLimitOptions;
 
 /* One embedder effect popped from glowcap_host_next_action. kind selects the

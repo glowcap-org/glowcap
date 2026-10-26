@@ -22,13 +22,14 @@ pub fn findImportedPromise(self: *Session, import_position: model.ImportPosition
 
 pub fn shortenedTarget(self: *Session, source: model.ImportPosition) model.ImportPosition {
     var current = source;
-    var remaining = self.imported_promises.count() + 1;
+    // `shortening.validateCompletion` admits no chain longer than this.
+    var remaining = self.limits.max_resolution_chain;
     while (remaining != 0) : (remaining -= 1) {
         const entry = findImportedPromise(self, current) orelse return current;
         if (entry.shortening_target == current) return current;
         current = entry.shortening_target;
     }
-    return source;
+    return current;
 }
 
 pub const SettlingMovePlan = settling.SettlingMovePlan;

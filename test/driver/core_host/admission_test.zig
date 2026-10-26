@@ -50,12 +50,12 @@ const TaggedRow = harness.TaggedRow;
 const PublicationProbe = harness.PublicationProbe;
 
 test "Host aggregate footprint and supported verb shapes stay within their budgets" {
-    try std.testing.expect(Host.InitError == error{InvalidHostWorkQuantum});
+    try std.testing.expect(Host.InitError == error{ InvalidHostWorkQuantum, InvalidSessionLimit });
     try std.testing.expect(Host.RuntimeAdoptionError == error{ ReenteredHost, HostClosing, HostNotQuiescent });
     try std.testing.expectEqual(@as(usize, 4), @typeInfo(Host.LifecyclePhase).@"enum".field_names.len);
-    try std.testing.expectEqual(@as(usize, 10), @typeInfo(Host.Options).@"struct".field_names.len);
+    try std.testing.expectEqual(@as(usize, 11), @typeInfo(Host.Options).@"struct".field_names.len);
 
-    const set_session_limits: *const fn (*Host, ?usize, ?usize, ?usize, ?u32) error{ ReenteredHost, WrongThread, HostClosing }!void = &Host.setSessionLimits;
+    const set_session_limits: *const fn (*Host, ?usize, ?usize, ?usize, ?u32, ?usize) error{ ReenteredHost, WrongThread, HostClosing, InvalidSessionLimit }!void = &Host.setSessionLimits;
     const flush_session: *const fn (*Host, *HostSession) anyerror!void = &Host.flushSession;
     const fetch: *const fn (*Host, *HostSession, []const u8) anyerror!u64 = &Host.fetch;
     const queue_fetch: *const fn (*Host, *HostSession, []const u8) anyerror!u64 = &Host.queueFetch;
@@ -117,8 +117,10 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // ingress tables are handle tables (ADR-0038): each is an array list
     // header with a free chain head and two counts in place of a hash map
     // header and a handle counter, 64 bytes across the three. The Node's
-    // three keyed promise-proxy tables add one multiplier word each.
-    try std.testing.expectEqual(@as(usize, 2744), @sizeOf(Host));
+    // three keyed promise-proxy tables add one multiplier word each. The
+    // count of pending inline gives per introducing session is one
+    // Host-wide map (24 bytes), so a session shell holds no counter.
+    try std.testing.expectEqual(@as(usize, 2784), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expectEqual(@as(usize, 88), @sizeOf(driver.core.HostAction));
 }

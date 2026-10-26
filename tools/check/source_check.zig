@@ -24,6 +24,7 @@ const docs_links = @import("source_check/docs/links.zig");
 const docs_site = @import("source_check/docs/site.zig");
 const docs_maps = @import("source_check/docs/maps.zig");
 const docs_inventories = @import("source_check/docs/inventories.zig");
+const docs_threat_model = @import("source_check/docs/threat_model.zig");
 const docs_claim_parity = @import("source_check/docs/claim_parity.zig");
 const docs_snippets = @import("source_check/docs/snippets.zig");
 const docs_kinds = @import("source_check/docs/kinds.zig");
@@ -339,6 +340,7 @@ pub fn check(
     try docs_voice.checkProseSentenceLength(io, gpa, root, &violations);
     try docs_voice.checkParagraphLength(io, gpa, root, &violations);
     try docs_inventories.checkFuzzCorpusSeeds(io, gpa, root, &violations);
+    try docs_threat_model.checkThreatModelCoverage(io, gpa, root, &violations);
     try docs_site.checkSiteSvgAscii(io, gpa, root, &violations);
     try docs_site.checkSiteMotionReducedGuard(io, gpa, root, &violations);
     try docs_site.checkSiteDiagramTokens(io, gpa, root, &violations);
@@ -434,5 +436,6 @@ test {
     _ = signing_domain;
     _ = util;
     _ = @import("source_check/docs/reader_voice.zig");
+    _ = @import("source_check/docs/threat_model.zig");
     _ = @import("source_check/rooms_ui/text_voice.zig");
 }

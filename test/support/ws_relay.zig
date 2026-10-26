@@ -49,6 +49,14 @@ pub const Leg = struct {
 /// correct `Sec-WebSocket-Accept`, and record the request target (path plus
 /// query) on the leg for routing.
 pub fn serveUpgrade(leg: *Leg) !void {
+    try serveUpgradeSized(leg, null);
+}
+
+/// The same upgrade, with the 101 response padded by one `X-Pad` header to
+/// exactly `response_bytes` bytes through its terminator. Bounds on the
+/// client's response reader are proven one byte either side of the cap.
+/// `null` sends the unpadded response.
+pub fn serveUpgradeSized(leg: *Leg, response_bytes: ?usize) !void {
     const r = &leg.reader.interface;
     var line: [512]u8 = undefined;
     var line_len: usize = 0;
@@ -91,13 +99,20 @@ pub fn serveUpgrade(leg: *Leg) !void {
     var accept: [28]u8 = undefined;
     keyed_relay.acceptKey(&accept, key[0..key_len]);
     const w = &leg.writer.interface;
-    try w.print(
-        "HTTP/1.1 101 Switching Protocols\r\n" ++
-            "Upgrade: websocket\r\n" ++
-            "Connection: Upgrade\r\n" ++
-            "Sec-WebSocket-Accept: {s}\r\n\r\n",
-        .{accept[0..]},
-    );
+    const head_fmt = "HTTP/1.1 101 Switching Protocols\r\n" ++
+        "Upgrade: websocket\r\n" ++
+        "Connection: Upgrade\r\n" ++
+        "Sec-WebSocket-Accept: {s}\r\n";
+    try w.print(head_fmt, .{accept[0..]});
+    if (response_bytes) |total| {
+        // "X-Pad: " and its line ending cost nine bytes around the filler.
+        const used = std.fmt.count(head_fmt, .{accept[0..]}) + "\r\n".len;
+        if (total < used + "X-Pad: \r\n".len) return error.ResponseTooSmallToPad;
+        try w.writeAll("X-Pad: ");
+        try w.splatByteAll('a', total - used - "X-Pad: \r\n".len);
+        try w.writeAll("\r\n");
+    }
+    try w.writeAll("\r\n");
     try w.flush();
 }
 

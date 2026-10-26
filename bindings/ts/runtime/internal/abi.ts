@@ -193,13 +193,14 @@ export const CLOSE_OPTIONS_GRACE_MODE_OFF = 20;
 export const CLOSE_OPTIONS_GRACE_MS_OFF = 24;
 
 // GlowcapSessionLimitOptions (libglowcap_host)
-export const SESSION_LIMIT_OPTIONS_SIZE = 48;
+export const SESSION_LIMIT_OPTIONS_SIZE = 56;
 export const SESSION_LIMIT_OPTIONS_ABI_VERSION_OFF = 0;
 export const SESSION_LIMIT_OPTIONS_STRUCT_SIZE_OFF = 8;
 export const SESSION_LIMIT_OPTIONS_MAX_FRAME_BYTES_OFF = 16;
 export const SESSION_LIMIT_OPTIONS_QUEUE_CAP_OFF = 24;
 export const SESSION_LIMIT_OPTIONS_OUTBOUND_HIGH_WATER_BYTES_OFF = 32;
 export const SESSION_LIMIT_OPTIONS_MAX_RETAINED_SENT_ANSWER_BYTES_OFF = 40;
+export const SESSION_LIMIT_OPTIONS_MAX_SESSIONS_OFF = 48;
 
 // GlowcapDriverEvent (libglowcap_driver, glowcap_driver_next_event)
 export const DRIVER_EVENT_SIZE = 216;

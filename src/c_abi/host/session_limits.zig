@@ -51,6 +51,7 @@ pub fn glowcap_host_set_session_limits(
             @intCast(opts.max_retained_sent_answer_bytes)
         else
             null,
+        if (opts.max_sessions != 0) opts.max_sessions else null,
     ) catch |err| return common.errToCode(err);
     return shared.GLOWCAP_OK;
 }

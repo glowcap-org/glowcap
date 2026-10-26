@@ -204,6 +204,7 @@ pub const GlowcapSessionLimitOptions = extern struct {
     queue_cap: usize,
     outbound_high_water_bytes: usize,
     max_retained_sent_answer_bytes: usize,
+    max_sessions: usize,
 };
 pub const GLOWCAP_PENDING_CANCEL = shared.GLOWCAP_PENDING_CANCEL;
 pub const GLOWCAP_PENDING_FINISH = shared.GLOWCAP_PENDING_FINISH;

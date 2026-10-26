@@ -130,15 +130,14 @@ pub fn stagedWithdrawn(self: *Node, peer_handle: PeerHandle, batch: passable.Bat
 
 /// Retire batches charged to a recipient while that exact Peer is alive.
 pub fn retireRecipient(self: *Node, peer_handle: PeerHandle) void {
-    while (true) {
-        var found: ?passable.BatchId = null;
-        var it = self.inline_passable_batches.rows.iterator();
-        while (it.next()) |entry| if (entry.value_ptr.recipient_peer == peer_handle) {
-            found = entry.key_ptr.*;
-            break;
-        };
-        const batch_id = found orelse break;
-        var batch = (self.inline_passable_batches.rows.fetchRemove(batch_id) orelse unreachable).value;
+    // One pass: removing the iterator's current row cannot move or allocate
+    // the backing, and nothing below stages a batch row.
+    var it = self.inline_passable_batches.rows.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.recipient_peer != peer_handle) continue;
+        const batch_id = entry.key_ptr.*;
+        var batch = entry.value_ptr.*;
+        self.inline_passable_batches.rows.removeByPtr(entry.key_ptr);
         gift_tickets.cancelBatch(self, batch_id);
         if (self.peer(peer_handle)) |recipient| {
             // tolerant: a closed session may already have discarded the row,
@@ -153,22 +152,20 @@ pub fn retireRecipient(self: *Node, peer_handle: PeerHandle) void {
 
 /// Fail batches whose projection home is closing while route rows still live.
 pub fn failForHome(self: *Node, peer_handle: PeerHandle) void {
-    while (true) {
-        var found: ?passable.BatchId = null;
-        var it = self.inline_passable_batches.rows.iterator();
-        while (it.next()) |entry| {
-            for (entry.value_ptr.gifts) |gift| if (gift.home == peer_handle) {
-                found = entry.key_ptr.*;
-                break;
-            };
-            if (found == null) for (entry.value_ptr.promises) |promise| if (promise.home == peer_handle) {
-                found = entry.key_ptr.*;
-                break;
-            };
-            if (found != null) break;
-        }
-        fail(self, found orelse break, error.RouteNotLowerable);
+    // One pass: `fail` removes exactly the iterator's current row, which
+    // cannot move or allocate the backing, and queues actions instead of
+    // staging a batch row.
+    var it = self.inline_passable_batches.rows.iterator();
+    while (it.next()) |entry| {
+        if (!homesPeer(entry.value_ptr, peer_handle)) continue;
+        fail(self, entry.key_ptr.*, error.RouteNotLowerable);
     }
+}
+
+fn homesPeer(batch: *const Batch, peer_handle: PeerHandle) bool {
+    for (batch.gifts) |gift| if (gift.home == peer_handle) return true;
+    for (batch.promises) |promise| if (promise.home == peer_handle) return true;
+    return false;
 }
 
 /// Terminal Host cancellation keeps queued entropy actions as stale no-ops.

@@ -115,6 +115,12 @@ pub const Host = struct {
     /// Inline handoff promises. Rows exist only while redemption is pending or
     /// while their opaque capability identity remains live.
     capability_promises: std.AutoHashMapUnmanaged(capability.PromiseId, capability_promise_row.Row) = .empty,
+    /// Rows above whose redemption has not settled, counted by the session
+    /// that delivered the give. Each session is held to its
+    /// `max_pending_withdraws`, the bound its parked withdraws answer to,
+    /// because both are handoffs the partner induced that the Host holds
+    /// until an exporter answers. A session with none has no entry.
+    pending_inline_gives: foundation.identity_hash.Map(engine.PeerHandle, u32) = .empty,
     capability_promise_ids: foundation.id_issuer.IdIssuer = .{},
     /// Incarnation stamp for remote import rows first lifted into Host space.
     /// Monotonic for the Host lifetime. Zero is never issued.
@@ -310,6 +316,7 @@ pub const Host = struct {
     pub const lifecyclePhase = host_close.lifecyclePhase;
 
     pub const setSessionLimits = host_configuration.setSessionLimits;
+    pub const default_max_sessions = host_configuration.default_max_sessions;
     pub const setIngressLimits = host_configuration.setIngressLimits;
     pub const releaseOnDrop = host_configuration.releaseOnDrop;
     pub const setReleaseOnDrop = host_configuration.setReleaseOnDrop;

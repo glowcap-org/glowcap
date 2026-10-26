@@ -297,3 +297,46 @@ test "pollable TLS reclaims consumed prefix before a fragmented record grows" {
     try std.testing.expectEqual(@as(u8, 'x'), try stream.reader.interface.takeByte());
     try std.testing.expectEqual(@as(?tls.Failure, null), stream.deinitOutcome());
 }
+
+test "pollable TLS fails a handshake whose full ciphertext window the engine cannot parse" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    // A window one byte short still has room for the engine's next read and
+    // only times out. A full window has none and fails with the exact cause.
+    for ([_]usize{ record_bytes - 1, record_bytes }) |sent| {
+        const pair = try glowcap.net.wake_channel.WakeChannel.open();
+        const raw: std.Io.net.Stream = .{ .socket = .{
+            .handle = pair.read,
+            .address = undefined,
+        } };
+        const peer: std.Io.net.Stream = .{ .socket = .{
+            .handle = pair.write,
+            .address = undefined,
+        } };
+        defer peer.close(io);
+        try setSocketBuffer(pair.read, std.c.SO.RCVBUF, 4 * record_bytes);
+        try setSocketBuffer(pair.write, std.c.SO.SNDBUF, 4 * record_bytes);
+        const ciphertext = @as([record_bytes]u8, @splat('x'));
+        try writeAllNonblocking(io, pair.write, ciphertext[0..sent]);
+
+        // The engine waits for more and never consumes a byte.
+        var fake = WaitingHandshakeEngine{};
+        const stream = try PollableStream.create(allocator, io, raw, fake.client());
+        const wait_ms: i64 = if (sent == record_bytes) 1_000 else 50;
+        const established = stream.establish(glowcap.net.clock.nowMs(io) + wait_ms, null);
+        const failure = stream.takeFailure();
+        try std.testing.expectEqual(@as(?tls.Failure, null), stream.deinitOutcome());
+        try std.testing.expectEqual(@as(usize, 1), fake.deinit_count);
+
+        if (sent == record_bytes) {
+            try std.testing.expectError(error.TlsFailed, established);
+            const exact = failure orelse return error.MissingTlsFailure;
+            try std.testing.expectEqual(tls.Phase.handshake, exact.phase);
+            try std.testing.expectEqualStrings("TlsCiphertextLimit", exact.chain.primaryName());
+        } else {
+            try std.testing.expectError(error.TimedOut, established);
+            try std.testing.expectEqual(@as(?tls.Failure, null), failure);
+        }
+    }
+}

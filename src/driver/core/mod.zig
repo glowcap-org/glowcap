@@ -60,6 +60,7 @@ pub const BeforeServeError = served.BeforeServeError;
 pub const Publish = served.Publish;
 pub const PendingSend = pending_send.PendingSend;
 pub const default_loop_local_turn_budget = served.default_loop_local_turn_budget;
+pub const default_max_sessions = Host.default_max_sessions;
 
 // The byte-fed multi-session CapTP host core (ADR-0022): the node's decisions
 // executed with no socket (see `host.zig`). `driver.HostRuntime` and

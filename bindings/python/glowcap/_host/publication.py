@@ -154,17 +154,20 @@ class _PublicationMixin(HostMixinBase):
         queue_cap: int = 0,
         outbound_high_water_bytes: int = 0,
         max_retained_sent_answer_bytes: int = 0,
+        max_sessions: int = 0,
     ) -> None:
         """Apply selective limits to peers minted after this call.
 
         Zero leaves that field unchanged. The durable sent-answer budget is
-        separate from transient outbound flow pressure.
+        separate from transient outbound flow pressure. ``max_sessions`` is
+        the Host-wide cap on live sessions.
         """
         values = (
             max_frame_bytes,
             queue_cap,
             outbound_high_water_bytes,
             max_retained_sent_answer_bytes,
+            max_sessions,
         )
         if any(
             isinstance(value, bool) or not isinstance(value, int) or value < 0

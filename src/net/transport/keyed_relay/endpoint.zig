@@ -31,6 +31,7 @@ fn failure(phase: carrier_failure.Phase, err: anyerror) DialFailure {
         => error.NetworkUnreachable,
         error.Timeout => error.TimedOut,
         error.SystemResources,
+        error.ConcurrencyUnavailable,
         error.OptionUnsupported,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
@@ -67,7 +68,10 @@ pub fn connect(io: std.Io, relay: route.RelayUrl) ConnectOutcome {
 fn connectHost(io: std.Io, host: std.Io.net.HostName, port: u16) ConnectOutcome {
     var lookup_buffer: [address_race.max_resolved_addresses]std.Io.net.HostName.LookupResult = undefined;
     var resolved: std.Io.Queue(std.Io.net.HostName.LookupResult) = .init(&lookup_buffer);
-    var lookup = io.async(std.Io.net.HostName.lookup, .{ host, io, &resolved, .{ .port = port } });
+    // `async` may run the lookup inline, where an answer past the queue's
+    // seats would park this thread on its own queue. `concurrent` refuses.
+    var lookup = io.concurrent(std.Io.net.HostName.lookup, .{ host, io, &resolved, .{ .port = port } }) catch |err|
+        return .{ .failed = failure(.resolve, err) };
 
     var addresses: [address_race.max_resolved_addresses]std.Io.net.IpAddress = undefined;
     var address_count: usize = 0;

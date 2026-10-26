@@ -342,6 +342,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Maximum queued calls per pending answer; zero leaves the current value unchanged.",
         "Transient outbound byte waterline; zero leaves the current value unchanged.",
         "Durable sent-answer bytes retained after transient flow accounting; zero leaves the current value unchanged and values above UINT32_MAX are refused.",
+        "Host-wide cap on live sessions; zero leaves the current value unchanged.",
     });
     try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,

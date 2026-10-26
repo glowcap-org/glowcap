@@ -27,6 +27,7 @@ pub fn sessionLimitOptions(
         .queue_cap = queue_cap,
         .outbound_high_water_bytes = outbound_high_water_bytes,
         .max_retained_sent_answer_bytes = max_retained_sent_answer_bytes,
+        .max_sessions = 0,
     };
 }
 const keyed_relay = glowcap.net.relay;

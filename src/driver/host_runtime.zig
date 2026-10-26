@@ -206,6 +206,12 @@ pub const HostRuntime = struct {
     /// One authority for every transport connect and CapTP handshake not yet status-allow: pending state or quoted runtime label
     /// open, including synchronous constructors that pump pending actions.
     open_admissions: usize = 0,
+    /// The redeem dials among `open_admissions`, held to
+    /// `max_pending_redeem_dials`.
+    redeem_dial_admissions: usize = 0,
+    /// The share of `opts.max_pending_opens` redeem dials may hold, resolved
+    /// once from the options (`Options.redeemDialShare`).
+    max_pending_redeem_dials: usize,
     /// Whether `deinit` tears the core down. False for a host adopted over an
     /// embedding owner's core (`initWithCore`), whose owner frees it.
     owns_core: bool = true,

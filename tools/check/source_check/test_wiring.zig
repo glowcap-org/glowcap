@@ -25,6 +25,7 @@ const separately_registered = [_]Separate{
     .{ .test_path = "net/iroh_sidecar_internal_test.zig", .owner_path = "tools/build/iroh.zig" },
     .{ .test_path = "net/mbedtls_engine_test.zig", .owner_path = "tools/build/mbedtls.zig" },
     .{ .test_path = "net/webrtc_internal_test.zig", .owner_path = "tools/build/webrtc.zig" },
+    .{ .test_path = "net/webrtc_signal_contract_test.zig", .owner_path = "tools/build/webrtc.zig" },
     .{ .test_path = "net/webrtc_provider_dial_test.zig", .owner_path = "tools/build/webrtc.zig" },
     .{ .test_path = "net/webrtc_provider_accept_test.zig", .owner_path = "tools/build/webrtc.zig" },
 };

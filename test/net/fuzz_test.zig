@@ -21,7 +21,7 @@
 //! is the kind of property that stays true until one refactor makes it false
 //! and nothing says so.
 //!
-//! Eight targets live here. The first, `readOne`, is the blocking frame read
+//! Nine targets live here. The first, `readOne`, is the blocking frame read
 //! above. The second, `lifecycle_drive`, runs the completion loop against a
 //! fuzzer-driven backend and compares its derived counts against a walk of the
 //! slots after the schedule drains. The third, `stream_plan`, feeds known
@@ -38,7 +38,9 @@
 //! search found within its first few runs. They cannot reach a control line
 //! past `max_line_bytes`, because the buffer is that size, a reply that
 //! spans several lines, which the driver assembles, or the SOCKS5 reader's
-//! socket reads, which the parsers never see.
+//! socket reads, which the parsers never see. The ninth, in
+//! `fuzz/tls_transform.zig`, scripts a TLS engine from drawn bytes and holds
+//! the transform's ciphertext window to its bounds.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -399,4 +401,13 @@ test "fuzz: arbitrary close payloads never crash the WebSocket close validator" 
 
 test "fuzz: arbitrary upgrade responses are judged the same by both WebSocket validators" {
     try std.testing.fuzz({}, ws_client.upgrade, .{ .corpus = (ws_client.upgrade_seeds ++ ws_upgrade_regression_seeds)[0..] });
+}
+
+const tls_window = @import("fuzz/tls_transform.zig");
+
+/// Engine scripts the fuzzer found here, replayed by the ordinary suite.
+const tls_window_regression_seeds = [_][]const u8{};
+
+test "fuzz: arbitrary engine answers and commit geometry keep the TLS ciphertext window honest" {
+    try std.testing.fuzz({}, tls_window.window, .{ .corpus = (tls_window.corpus ++ tls_window_regression_seeds)[0..] });
 }

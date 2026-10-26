@@ -87,6 +87,11 @@ pub const Error = error{
     /// This host already has `Options.max_pending_opens` transport connects or
     /// CapTP handshakes in flight. Let one settle before admitting another.
     PendingOpenLimitReached,
+    /// This host already holds `Options.max_sessions` live sessions. Close one
+    /// before minting another.
+    SessionLimitReached,
+    /// `Options.max_sessions` was zero. The cap is positive or off.
+    InvalidSessionLimit,
     /// A listener for this canonical transport profile is pending or active.
     /// Close or cancel that listener before starting another on the profile.
     ListenerProfileInUse,

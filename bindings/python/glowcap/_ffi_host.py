@@ -67,6 +67,7 @@ class _SessionLimitOptions(ctypes.Structure):
         ("queue_cap", ctypes.c_size_t),
         ("outbound_high_water_bytes", ctypes.c_size_t),
         ("max_retained_sent_answer_bytes", ctypes.c_size_t),
+        ("max_sessions", ctypes.c_size_t),
     ]
 
 

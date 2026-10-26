@@ -63,13 +63,20 @@ pub fn Vocabulary(
             /// Shared bound for transport connects and CapTP handshakes that
             /// have been admitted but have not yet opened. status-allow: pending state or quoted runtime label
             max_pending_opens: usize = default_max_pending_opens,
+            /// The share of `max_pending_opens` that redeem dials a partner's
+            /// handoffs induce may hold, so gives naming silent exporters
+            /// leave accepts and the application's own dials room. Null is a
+            /// quarter of the pool, at least one. Zero or a value above the
+            /// pool is refused.
+            max_pending_redeem_dials: ?usize = null,
             codec: model.CodecId = model.Preference.default_offer.codec,
             /// Offered CapTP profile. Version and codec negotiate as separate
             /// axes, so callers normally set both but neither implies the other.
             captp_version: model.CaptpVersion = model.Preference.default_offer.captp_version,
             /// Optional CapTP vocabulary negotiated independently per session.
             features: model.FeatureSet = model.Preference.default_offer.features,
-            /// Per-read deadline during the keyed handshake and redeem dial.
+            /// Deadline for a dial's transport connect and CapTP handshake,
+            /// stamped once when the open starts. Redeem dials share it.
             handshake: Budget,
             /// Wall-clock deadline for externally paced listener construction.
             listener_setup: Budget = .{ .ms = default_listener_setup_ms },
@@ -100,6 +107,14 @@ pub fn Vocabulary(
             /// the window too, and a window past `max_busy_poll_ns` is
             /// refused at adoption.
             busy_poll_ns: u64 = 0,
+
+            /// The redeem-dial share the runtime holds: the caller's value when
+            /// it fits the pool, else a quarter of the pool with a floor of one.
+            pub fn redeemDialShare(self: Options) error{InvalidBufferConfiguration}!usize {
+                const share = self.max_pending_redeem_dials orelse return @max(1, self.max_pending_opens / 4);
+                if (share == 0 or share > self.max_pending_opens) return error.InvalidBufferConfiguration;
+                return share;
+            }
         };
 
         /// The longest busy-poll window a runtime accepts: a cross-thread
@@ -112,6 +127,8 @@ pub fn Vocabulary(
         pub const AdoptionOptions = struct {
             wire_buffer_bytes: usize = default_wire_buffer_bytes,
             max_pending_opens: usize = default_max_pending_opens,
+            /// As `Options.max_pending_redeem_dials`.
+            max_pending_redeem_dials: ?usize = null,
             handshake: Budget,
             listener_setup: Budget = .{ .ms = default_listener_setup_ms },
             settle: Budget,
