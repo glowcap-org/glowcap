@@ -26,6 +26,17 @@ pub fn ReaderOf(comptime which: u8) type {
         pub var promise_id: ?u64 = null;
         pub var keep: bool = false;
         pub var kept: ?driver.Capability = null;
+        /// Hears the listen vow from inside the receiving turn, before any
+        /// pump can settle it, for a promise that arrives already settled.
+        pub var listen_into: ?*capture.CapturedString = null;
+        /// The string a read carried instead of a capability: a promise that
+        /// settled to data before it was passed arrives as that data.
+        pub var text_buf: [32]u8 = undefined;
+        pub var text_len: usize = 0;
+
+        pub fn text() []const u8 {
+            return text_buf[0..text_len];
+        }
 
         pub fn reset() void {
             ran = 0;
@@ -35,11 +46,18 @@ pub fn ReaderOf(comptime which: u8) type {
             promise_id = null;
             keep = false;
             kept = null;
+            listen_into = null;
+            text_len = 0;
         }
 
         pub fn handle(_: *@This(), ht: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
             ran += 1;
-            const cap = try args.capability(0);
+            const cap = args.capability(0) catch |err| {
+                const string = args.string(0) catch return err;
+                text_len = @min(string.len, text_buf.len);
+                @memcpy(text_buf[0..text_len], string[0..text_len]);
+                return .{ .void = {} };
+            };
             promise_id = switch (ht.host.capabilities.resolve(cap).?) {
                 .deferred => |id| @backingInt(id),
                 .local, .remote => null,
@@ -52,6 +70,7 @@ pub fn ReaderOf(comptime which: u8) type {
                 .pending => |vow| vow,
                 .resolved => 0,
             };
+            if (listen_into) |captured| try listenOn(ht.host, listen_vow, captured);
             if (keep) kept = cap else ht.releaseValues(&.{.{ .capability = cap }});
             return .{ .void = {} };
         }

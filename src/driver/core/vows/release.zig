@@ -7,6 +7,7 @@ const actors = @import("actors");
 const host_mod = @import("../host.zig");
 const host_pump = @import("../host/pump.zig");
 const settlement = @import("settlement.zig");
+const capability_promise = @import("../capability_promise.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -101,6 +102,9 @@ pub fn release(self: *Host, vow_id: u64) !void {
     // application, so a second release finds nothing, as with a retired row.
     if (row.handle_released) return;
     if (row.inner != null) return error.AlreadyListening;
+    // A row settled by its fire has a completion queued for the drain, or
+    // drained already. A row this release cancels has neither.
+    const fired = row.settled;
     if (row.owner == .owning) {
         if (row.owner.owning.destination != .public) return error.SessionlessVow;
         @import("../host/local_completion.zig").releasePending(self, row);
@@ -108,12 +112,12 @@ pub fn release(self: *Host, vow_id: u64) !void {
     }
     const peer_handle = row.peer() orelse {
         std.debug.assert(row.settled);
-        settlement.retireRow(self, row);
+        retireReleased(self, row, fired);
         return;
     };
     const session = self.sessions.get(peer_handle) orelse {
         std.debug.assert(row.settled);
-        settlement.retireRow(self, row);
+        retireReleased(self, row, fired);
         return;
     };
     const hold = self.callback_latch.hold();
@@ -139,14 +143,14 @@ pub fn release(self: *Host, vow_id: u64) !void {
         } else {
             owned.func(self, row.id, owned.owner);
         }
-        settlement.retireRow(self, row);
+        retireReleased(self, row, fired);
         return;
     }
     if (wire_dead) {
         if (!row.settled) cancelPendingTerminal(self, row, session);
         settlement.cancelObserverRelease(row, session);
         settlement.retireAnswerInSession(row, session);
-        settlement.retireRow(self, row);
+        retireReleased(self, row, fired);
         return;
     }
     try self.checkSession(session);
@@ -167,6 +171,18 @@ pub fn release(self: *Host, vow_id: u64) !void {
 
     if (!row.settled) try cancelPending(self, row, session);
     if (row.answer_release == .session_private) settlement.retireAnswerInSession(row, session);
+    retireReleased(self, row, fired);
+}
+
+/// Retire a released row, unless it fired and a promise asked for since
+/// still waits on the drain for its staging (ADR-0068): then the handle goes
+/// and the row stays for the drain, which stages the promise and retires the
+/// row. A row this release cancelled has no drain coming and retires here.
+fn retireReleased(self: *Host, row: *VowRow, fired: bool) void {
+    if (fired and row.completion == .none) if (row.watcher) |watcher| if (capability_promise.vowPromiseAwaitsStaging(self, watcher)) {
+        row.handle_released = true;
+        return;
+    };
     settlement.retireRow(self, row);
 }
 

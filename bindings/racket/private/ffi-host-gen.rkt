@@ -38,6 +38,7 @@
                      glowcap_host_session_listen*
                      glowcap_host_session_send*
                      glowcap_host_vow_send*
+                     glowcap_host_vow_capability*
                      glowcap_host_vow_index*
                      glowcap_host_vow_untag*
                      glowcap_host_vow_get*
@@ -191,6 +192,11 @@
 (define glowcap_host_vow_send (wrap-out1 glowcap_host_vow_send* _uint64 0))
 (define-host glowcap_host_vow_tell (_fun _pointer _uint64 _pointer _size _pointer _size -> _int32))
 (define-host glowcap_host_vow_release (_fun _pointer _uint64 -> _int32))
+(define-host glowcap_host_vow_capability*
+  (_fun _pointer _uint64 (_or-null _GlowcapReference-pointer) -> _int32)
+  #:c-id glowcap_host_vow_capability)
+(define glowcap_host_vow_capability
+  (wrap-out1 glowcap_host_vow_capability* _GlowcapReference (make-GlowcapReference 0)))
 (define-host glowcap_host_vow_index*
   (_fun _pointer _uint64 _uint64 _pointer -> _int32)
   #:c-id glowcap_host_vow_index)

@@ -19,8 +19,9 @@ from . import _constants as _abi
 from ._abi_value import _args_to_c, _ref_to_c
 from ._errors import FetchFailed, GlowcapError, _check_host, _retain_cleanup_failure
 from ._ffi_host import _host
-from ._ffi_ocapn import _byte_buf
-from ._value import Ref
+from ._ffi_ocapn import _Reference, _byte_buf
+from ._gc import release_ref
+from ._value import Ref, _ref_from_id
 
 _ERR_UNSUPPORTED_VALUE = _abi.ERR_UNSUPPORTED_VALUE
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
@@ -378,6 +379,74 @@ def _listen_far(session, target) -> RemotePromise:
     return _promise_for(session, vow, pipelineable=False)
 
 
+def _lower_promise(session, promise: "RemotePromise", minted: list[Ref]) -> Ref:
+    """What a far promise passes as (ADR-0068): the capability its Host mints
+    for the vow, in whatever state the vow is in while this handle lives, one
+    application retain pushed on ``minted`` for the caller to give back. The
+    Host carries a pending answer as the open promise and a settled one as its
+    value."""
+    vow = promise.far_vow(session.host)
+    out = _Reference()
+    _check_host(_host.glowcap_host_vow_capability(session.host.raw, vow, ctypes.byref(out)))
+    ref = _ref_from_id(out.id)
+    minted.append(ref)
+    return ref
+
+
+class _FarArguments:
+    """Far send or tell arguments encoded for the FFI, with each promise among
+    them lowered to the capability its Host mints (ADR-0068). The Host's queue holds its own retain once the call is
+    admitted, so leaving the block gives every minted retain back right after
+    the FFI call, admitted or refused. A promise another Host returned, an
+    await-only one, and a plain Future are refused before any frame moves."""
+
+    def __init__(self, session, args: list):
+        self._session = session
+        self._args = args
+        self._keepalive: list = []
+        self._minted: list[Ref] = []
+
+    def __enter__(self):
+        try:
+            return _args_to_c(self._args, self._keepalive, self._lower)
+        except BaseException as failure:
+            try:
+                self._release()
+            except BaseException as cleanup:
+                _retain_cleanup_failure(failure, cleanup)
+            raise
+
+    def __exit__(self, _kind, failure, _trace) -> None:
+        try:
+            self._release()
+        except BaseException as cleanup:
+            if failure is not None:
+                _retain_cleanup_failure(failure, cleanup)
+                return
+            # The call was admitted and its effect stands, so a retain the
+            # Host could not take back is the Host's to report, not the
+            # send's.
+            self._session.host._record_callerless_failure("promise argument release", cleanup)
+
+    def _lower(self, promise: asyncio.Future) -> Ref:
+        if not isinstance(promise, RemotePromise):
+            raise GlowcapError(
+                _ERR_UNSUPPORTED_VALUE,
+                "only the promise a send returned is passable as a capability",
+            )
+        return _lower_promise(self._session, promise, self._minted)
+
+    def _release(self) -> None:
+        failure: Optional[BaseException] = None
+        while self._minted:
+            try:
+                release_ref(self._session.host.raw, self._minted.pop())
+            except BaseException as cleanup:
+                failure = cleanup if failure is None else _retain_cleanup_failure(failure, cleanup)
+        if failure is not None:
+            raise failure
+
+
 def _send_far(session, target, verb: str, args: list) -> RemotePromise:
     # Far-send mint→RemotePromise: encode args, mint the host vow
     # (glowcap_host_session_send / glowcap_host_vow_send), register it, and
@@ -385,36 +454,35 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
     # Local-hosted targets stay in Session (trampoline _send_local).
     verb_bytes = verb.encode()
     vbuf, vptr = _byte_buf(verb_bytes)
-    keepalive: list = []
-    arr, count = _args_to_c(args, keepalive)
     out = ctypes.c_uint64()
-    if isinstance(target, RemotePromise):
-        # Promise pipelining: eventual-send to the unresolved answer. A
-        # local send's promise has no wire answer to pipeline against.
-        source_vow = target.far_vow(session.host)
-        _check_host(
-            _host.glowcap_host_vow_send(
-                session.host.raw,
-                source_vow,
-                vptr,
-                len(verb_bytes),
-                arr,
-                count,
-                ctypes.byref(out),
+    with _FarArguments(session, args) as (arr, count):
+        if isinstance(target, RemotePromise):
+            # Promise pipelining: eventual-send to the unresolved answer. A
+            # local send's promise has no wire answer to pipeline against.
+            source_vow = target.far_vow(session.host)
+            _check_host(
+                _host.glowcap_host_vow_send(
+                    session.host.raw,
+                    source_vow,
+                    vptr,
+                    len(verb_bytes),
+                    arr,
+                    count,
+                    ctypes.byref(out),
+                )
             )
-        )
-    else:
-        ref = _ref_to_c(target._live())
-        _check_host(
-            _host.glowcap_host_session_send(
-                session.raw,
-                ctypes.byref(ref),
-                vptr,
-                len(verb_bytes),
-                arr,
-                count,
-                ctypes.byref(out),
+        else:
+            ref = _ref_to_c(target._live())
+            _check_host(
+                _host.glowcap_host_session_send(
+                    session.raw,
+                    ctypes.byref(ref),
+                    vptr,
+                    len(verb_bytes),
+                    arr,
+                    count,
+                    ctypes.byref(out),
+                )
             )
-        )
     vow = out.value
     return _promise_for(session, vow)

@@ -158,6 +158,7 @@ export abstract class SessionLifecycle {
 			vowMinted: (vow, trackGc = false) => s.#host.vowMinted(vow, trackGc && s.#gcEnabled),
 			trackVow: (handle, vow) => s.#host.trackVow(handle, vow),
 			scheduleProgress: () => s.#host.scheduleKick(),
+			recordBackgroundFailure: (failure) => s.#host.recordBackgroundFailure(failure),
 			get hostRaw() {
 				return s.#host.raw;
 			},

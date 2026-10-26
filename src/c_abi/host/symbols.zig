@@ -267,6 +267,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "glowcap_host_vow_send", .out_params = &.{6} },
     .{ .name = "glowcap_host_vow_tell", .out_params = &.{} },
     .{ .name = "glowcap_host_vow_release", .out_params = &.{} },
+    .{ .name = "glowcap_host_vow_capability", .out_params = &.{2} },
     .{ .name = "glowcap_host_vow_index", .out_params = &.{3} },
     .{ .name = "glowcap_host_vow_untag", .out_params = &.{4} },
     .{ .name = "glowcap_host_vow_get", .out_params = &.{4} },

@@ -306,6 +306,24 @@ pub fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) callconv(.c) i32 
     return GLOWCAP_OK;
 }
 
+/// The pending answer of a public Host vow as a capability (ADR-0068): one
+/// application retain in `*out_reference`, released with
+/// `glowcap_host_ref_release`. Passed as a send argument it travels on the
+/// vow's own session as the open answer, and elsewhere as a promise this Host
+/// settles when the vow does, in any state the vow is in until its handle is
+/// released: a settled vow's promise settles to the completion the Host kept,
+/// and breaks when that completion names a capability released since.
+/// The same vow asked twice is one capability retained once more. A local vow
+/// with no session is refused `GLOWCAP_ERR_INVALID_ARGUMENT` (SessionlessVow).
+pub fn glowcap_host_vow_capability(host: ?*GlowcapHost, vow: u64, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_reference orelse return GLOWCAP_ERR_NULL_POINTER;
+    const reference = inst.core.vowCapability(vow) catch |err| return errToCode(err);
+    slot.* = .{ .id = reference.raw() };
+    return GLOWCAP_OK;
+}
+
 /// Pipeline an `op:index` projection against a far host vow, minting a new
 /// vow for the projected element. Same local-vow and unknown-vow refusals as
 /// `glowcap_host_vow_send`. An index above INT64_MAX is refused

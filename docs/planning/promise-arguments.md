@@ -42,7 +42,11 @@ In the other direction a Host verb turns a public vow into a capability. On
 the question's own session it lowers as the answer reference, and on another
 session it is a local promise projection the Host settles when the vow fires,
 to data, to a capability, or broken. A partner may pass the projection back,
-send to it, and listen on it. The C ABI and the bindings have no verb for it.
+send to it, and listen on it. The C ABI exposes the verb, and every binding's
+send and tell accept a promise as an argument, bare or nested, with a scenario
+per binding. Each binding lowers a promise to the Host's capability in any
+state, since the vow row keeps its drained completion and the Host carries a
+settled promise as its value.
 
 Every other row the conformance manifest does not mark adopted is owned by
 the handshake plan or is an explicit coverage limit in the upstream suite
@@ -83,10 +87,6 @@ argument by calling it.
 
 Each step is one commit with its own test.
 
-6. **C ABI and bindings.** One C verb for the projection, and every binding's
-   send accepts its promise type as an argument. Received promises already
-   arrive as capability handles. Test per binding: pass a pending promise,
-   receive one, send to it, await it.
 7. **Outside evidence.** Goblins passes an answer reference to a glowcap
    object and glowcap passes one to Goblins, in the live interop step.
    Conformance rows cite the evidence. Test: `goblins-interop` and
@@ -97,7 +97,7 @@ Each step is one commit with its own test.
 
 ## Parallel work
 
-Step 6 is one lane. Steps 7 and 8 follow in one lane.
+Steps 7 and 8 follow in one lane.
 One owner holds the shipped inventory and the limitation list. The decision is [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md).
 
 ## Questions for you

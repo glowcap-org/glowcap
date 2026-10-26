@@ -108,7 +108,7 @@ mod action;
 // RemotePromise + send-target plumbing.
 mod promise;
 #[cfg(feature = "async")]
-pub use promise::{AsSendTarget, RemotePromise};
+pub use promise::{AsSendTarget, PromiseArgument, RemotePromise};
 // Distributed GC (ADR-0025) CapabilityGuard + drain.
 #[cfg(feature = "async")]
 mod gc;
@@ -243,7 +243,11 @@ mod value;
 pub(crate) use value::owned_from_view;
 pub use value::{Argument, Ref};
 #[cfg(feature = "async")]
-pub(crate) use value::{SendArena, arg_from_sys, args_from_sys};
+pub(crate) use value::{arg_from_sys, args_from_sys};
+#[cfg(feature = "async")]
+mod send_arena;
+#[cfg(feature = "async")]
+pub(crate) use send_arena::SendArena;
 mod profile;
 pub use profile::{CaptpVersion, Codec, FeatureSet, HostProfile, SessionProfile};
 #[cfg(test)]

@@ -149,6 +149,7 @@ def driver_sigs(
         "glowcap_host_vow_send": ([P, u64, P, size, ctypes.POINTER(_Argument), size, u64_p], i32),
         "glowcap_host_vow_tell": ([P, u64, P, size, ctypes.POINTER(_Argument), size], i32),
         "glowcap_host_vow_release": ([P, u64], i32),
+        "glowcap_host_vow_capability": ([P, u64, ctypes.POINTER(_Reference)], i32),
         "glowcap_host_vow_index": ([P, u64, u64, u64_p], i32),
         "glowcap_host_vow_untag": ([P, u64, P, size, u64_p], i32),
         "glowcap_host_vow_get": ([P, u64, P, size, u64_p], i32),

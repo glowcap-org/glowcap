@@ -186,14 +186,142 @@ test "a released vow handle lives for its promise and leaves with the settlement
     try t.expectClean();
 }
 
-test "a settled vow refuses to become a capability" {
+test "a settled vow passes as a promise that settles to the completion its row kept" {
     var t: Trio = undefined;
     try t.init();
     defer t.deinit();
 
     const vow = try t.ask();
     try t.fulfill("hello");
-    try std.testing.expectError(error.AlreadySettled, t.a.vowCapability(vow));
+    try std.testing.expect(t.a.vows.get(vow).?.completion == .fulfilled);
+    const cap = try t.a.vowCapability(vow);
+    // On the vow's own session the answer is already settled when it
+    // arrives, so `b` reads the promise's settled data rather than listening.
+    ReaderB.keep = true;
+    try t.passToB(cap);
+    try expectSettledString(&t.b, ReaderB.promise_id orelse return error.NoPromise, "hello");
+    // Across sessions a promise settled to data is passed as that data.
+    try t.passToC(cap);
+    try std.testing.expectEqualStrings("hello", ReaderC.text());
+    try t.expectState(cap, .fulfilled_data);
+
+    try t.b.releaseCapability(ReaderB.kept.?, 1);
+    try t.a.releaseCapability(cap, 1);
+    try t.a.vowRelease(vow);
+    try t.expectClean();
+}
+
+/// The string a capability promise on `host` settled to.
+fn expectSettledString(host: *driver.core.Host, promise_id: u64, expected: []const u8) !void {
+    const row = host.capability_promises.get(@fromBackingInt(@intCast(promise_id))) orelse return error.NoPromiseRow;
+    switch (row.state) {
+        .fulfilled_data => |data| try std.testing.expectEqualStrings(expected, data.value.string),
+        else => return error.PromiseNotSettledToData,
+    }
+}
+
+test "a vow asked for between its answer's arrival and its drain settles its promise from the drain" {
+    var t: Trio = undefined;
+    try t.init();
+    defer t.deinit();
+
+    const vow = try t.ask();
+    try t.b.resolverFulfill(GreeterB.resolver, .{ .string = "hello" });
+    // Carry the answer to `a` without draining its actions: the row is
+    // settled and its completion is still queued.
+    var rounds: usize = 0;
+    while (try harness.shuttleAll(t.pairs())) : (rounds += 1) {
+        if (rounds == 16) return error.ShuttleDidNotSettle;
+    }
+    const row = t.a.vows.get(vow).?;
+    try std.testing.expect(row.settled and row.completion == .none);
+    const cap = try t.a.vowCapability(vow);
+    try t.expectState(cap, .pending);
+
+    var c_listened: capture.CapturedString = .{};
+    ReaderC.listen_into = &c_listened;
+    try t.passToC(cap);
+    try std.testing.expectEqualStrings("hello", c_listened.text());
+    try t.expectState(cap, .fulfilled_data);
+
+    try t.a.releaseCapability(cap, 1);
+    try t.a.vowRelease(vow);
+    try t.expectClean();
+}
+
+test "a vow released while its promise waits on the drain still settles the promise" {
+    var t: Trio = undefined;
+    try t.init();
+    defer t.deinit();
+
+    const vow = try t.ask();
+    try t.b.resolverFulfill(GreeterB.resolver, .{ .string = "hello" });
+    var rounds: usize = 0;
+    while (try harness.shuttleAll(t.pairs())) : (rounds += 1) {
+        if (rounds == 16) return error.ShuttleDidNotSettle;
+    }
+    const cap = try t.a.vowCapability(vow);
+    try t.a.vowRelease(vow);
+    try std.testing.expectError(error.NoSuchVow, t.a.vowCapability(vow));
+
+    // The release let the answer go toward `b`, so on that session the
+    // promise travels as a projection, not as the answer.
+    var b_listened: capture.CapturedString = .{};
+    ReaderB.listen_into = &b_listened;
+    try t.passToB(cap);
+    try std.testing.expectEqualStrings("hello", b_listened.text());
+    // That pass drained the completion, which staged and settled the
+    // promise, so toward `c` it is its data.
+    try t.passToC(cap);
+    try std.testing.expectEqualStrings("hello", ReaderC.text());
+    try t.expectState(cap, .fulfilled_data);
+    try std.testing.expect(t.a.vows.get(vow) == null);
+
+    try t.a.releaseCapability(cap, 1);
+    try t.expectClean();
+}
+
+test "a vow that broke before it was asked for becomes a broken promise, which no send carries" {
+    var t: Trio = undefined;
+    try t.init();
+    defer t.deinit();
+
+    const vow = try t.ask();
+    try t.b.resolverBreak(GreeterB.resolver, "no greeting");
+    try t.pump();
+    try std.testing.expect(t.a.vows.get(vow).?.completion == .failed);
+    const cap = try t.a.vowCapability(vow);
+    try std.testing.expectError(error.PromiseBroken, t.passToC(cap));
+    try t.pump();
+    try t.expectState(cap, .broken);
+
+    try t.a.releaseCapability(cap, 1);
+    try t.a.vowRelease(vow);
+    try t.expectClean();
+}
+
+test "a settled vow whose capability the application let go becomes a broken promise, which no send carries" {
+    var t: Trio = undefined;
+    try t.init();
+    defer t.deinit();
+    const target = try t.b.spawn(t.ab.b, driver.core.Hosting(Target), .{ .inner = .{} });
+    defer t.b.releaseCapabilityTerminal(target, null);
+
+    const vow = try t.ask();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try t.b.resolverFulfillValue(GreeterB.resolver, .{ .capability = target }, arena.allocator());
+    // The drain hands the capability to the application, which keeps no
+    // retain of it here, so the row names a capability that is gone.
+    try t.pump();
+    const held = t.a.vows.get(vow).?.completion.fulfilled.value.capability;
+    try std.testing.expect(t.a.capabilities.resolve(held) == null);
+    const cap = try t.a.vowCapability(vow);
+    try std.testing.expectError(error.PromiseBroken, t.passToC(cap));
+    try t.pump();
+    try t.expectState(cap, .broken);
+
+    try t.a.releaseCapability(cap, 1);
     try t.a.vowRelease(vow);
     try t.expectClean();
 }
@@ -346,6 +474,8 @@ test "a vow fulfilled with the partner's pending question settles the promise to
 
     for (fillers) |filler| try t.a.releaseCapability(filler, 1);
     try t.a.releaseCapability(cap, 1);
+    // The row keeps the question it settled to until its handle goes.
+    try t.a.vowRelease(vow);
     try t.b.releaseCapability(question_cap, 1);
     try t.b.vowRelease(question);
     try t.b.releaseCapability(greeter_a, 1);

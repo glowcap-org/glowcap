@@ -338,6 +338,65 @@
         (adopt-minted-vow! m c id (session-gc-enabled? c) #f))))
   (flush-minted-operation! c result))
 
+;; The far vow a pipelined send or a promise argument addresses in Host `m`.
+;; A handle whose own operation never left carries that first failure
+;; forward, for the reason projection does.
+(define (far-vow-home m v who)
+  (when (unissued-vow? v) (raise (cdr (session-vow-state v))))
+  (unless (session-vow-pipeline-target? v)
+    (raise-glowcap who ERR-INVALID-ARGUMENT
+                   "this vow is await-only and has no remote pipeline target"))
+  (define home (session-vow-session v))
+  (unless (and home (eq? (session-host home) m))
+    (raise-glowcap who ERR-INVALID-ARGUMENT "this vow belongs to another Host"))
+  home)
+
+;; What a far vow passes as (ADR-0068): the capability Host `m` mints for it,
+;; in whatever state the vow is in while this handle lives, one application
+;; retain pushed on `minted` for the caller to give back. The Host carries a
+;; pending answer as the open promise and a settled one as its value.
+(define (lower-vow m v minted)
+  (far-vow-home m v 'session-send)
+  (define-values (rc capability)
+    (glowcap_host_vow_capability (host-ptr m) (session-vow-id v)))
+  (check/host rc)
+  (define ref (make-ref/internal (GlowcapReference-id capability)))
+  (set-box! minted (cons ref (unbox minted)))
+  ref)
+
+;; Run `thunk` with the promises among `args` lowered, then give every minted
+;; retain back. The Host's queue holds its own retain once the call is
+;; admitted. Beside a refusal, a release failure rides it as a secondary. After
+;; an admitted call, whose effect stands, a release failure is the Host's to
+;; report. Breaks wait so a minted retain is never stranded mid-release.
+(define (call-with-far-args m args keep thunk)
+  (define minted (box '()))
+  (define (lower a)
+    (and (session-vow? a) (lower-vow m a minted)))
+  (define (release!)
+    (define refs (unbox minted))
+    (set-box! minted '())
+    (define failure
+      (for/fold ([failure #f]) ([ref (in-list refs)])
+        (with-handlers ([exn:fail? (lambda (cleanup)
+                                     (if failure (retain-cleanup-failure failure cleanup) cleanup))])
+          (check/host (glowcap_host_ref_release (host-ptr m) (ref->c ref) 1))
+          failure)))
+    (when failure (raise failure)))
+  (parameterize-break #f
+    (define result
+      (with-handlers ([(lambda (raised) #t)
+                       (lambda (primary)
+                         (with-handlers ([exn:fail? (lambda (cleanup)
+                                                      (raise (retain-cleanup-failure primary cleanup)))])
+                           (release!))
+                         (raise primary))])
+        (define-values (aptr acnt) (args->c args keep lower))
+        (thunk aptr acnt)))
+    (with-handlers ([exn:fail? (lambda (cleanup) (record-host-runtime-failure! m cleanup))])
+      (release!))
+    result))
+
 (define (session-far-send c target verb args answer?)
   (guard-open 'session-send c)
   (define m (session-host c))
@@ -348,47 +407,39 @@
     (call-with-host m
       (lambda ()
         (define keep (box '()))
-        (define-values (aptr acnt) (args->c args keep))
         ;; The FFI retains its own arguments for the call, but the string and
         ;; item buffers inside `aptr` are reachable only through `keep`, whose
         ;; raw addresses the collector cannot see. The sink below keeps them
         ;; live past every mint in this dispatch.
         (define minted
-          (cond
-          [(session-vow? target)
-           ;; Sending at a handle whose own operation never left carries that
-           ;; first failure forward, for the reason projection does.
-           (when (unissued-vow? target) (raise (cdr (session-vow-state target))))
-           (unless (session-vow-pipeline-target? target)
-             (raise-glowcap 'session-send ERR-INVALID-ARGUMENT
-                            "this vow is await-only and has no remote pipeline target"))
-           (define home (session-vow-session target))
-           (unless (and home (eq? (session-host home) m))
-             (raise-glowcap 'session-send ERR-INVALID-ARGUMENT
-                            "this vow belongs to another Host"))
-           (if answer?
-               (let-values ([(rc id)
-                             (glowcap_host_vow_send
-                              (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt)])
-                 (check/host rc)
-                 (adopt-minted-vow! m home id (session-gc-enabled? home) #t))
-               (begin
-                 (check/host
-                  (glowcap_host_vow_tell
-                   (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt))
-                 (void)))]
-          [(ref? target)
-           (cond
-             [answer?
-              (define-values (rc id)
-                (glowcap_host_session_send (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
-              (check/host rc)
-              (adopt-minted-vow! m c id (session-gc-enabled? c) #t)]
-             [else
-              (check/host (glowcap_host_session_tell (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
-              (void)])]
-          [else
-           (raise-glowcap 'session-send ERR-INVALID-ARGUMENT "not a sendable reference: ~a" target)]))
+          (call-with-far-args m args keep
+            (lambda (aptr acnt)
+              (cond
+                [(session-vow? target)
+                 (define home (far-vow-home m target 'session-send))
+                 (if answer?
+                     (let-values ([(rc id)
+                                   (glowcap_host_vow_send
+                                    (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt)])
+                       (check/host rc)
+                       (adopt-minted-vow! m home id (session-gc-enabled? home) #t))
+                     (begin
+                       (check/host
+                        (glowcap_host_vow_tell
+                         (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt))
+                       (void)))]
+                [(ref? target)
+                 (cond
+                   [answer?
+                    (define-values (rc id)
+                      (glowcap_host_session_send (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
+                    (check/host rc)
+                    (adopt-minted-vow! m c id (session-gc-enabled? c) #t)]
+                   [else
+                    (check/host (glowcap_host_session_tell (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
+                    (void)])]
+                [else
+                 (raise-glowcap 'session-send ERR-INVALID-ARGUMENT "not a sendable reference: ~a" target)]))))
         (void/reference-sink keep)
         minted)))
   (flush-minted-operation! c result))

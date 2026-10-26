@@ -185,6 +185,25 @@ pub fn caretakerBehavior(
     return c.GLOWCAP_ERR_INVALID_ARGUMENT;
 }
 
+/// `relay(target)`: forward `poke` to the capability the caller passed, so a
+/// promise passed as a capability is exercised by the receiving side.
+pub fn relayBehavior(
+    ctx: ?*anyopaque,
+    turn: ?*cd.GlowcapHostTurn,
+    verb: [*]const u8,
+    verb_len: usize,
+    args: ?[*]const c.GlowcapArgument,
+    args_len: usize,
+    out_reply: *c.GlowcapArgument,
+) callconv(.c) i32 {
+    _ = ctx;
+    if (!std.mem.eql(u8, verb[0..verb_len], "relay") or args_len != 1) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const values = args orelse return c.GLOWCAP_ERR_NULL_POINTER;
+    if (values[0].kind != c.GLOWCAP_ARG_REFERENCE) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const target = values[0].reference;
+    return cd.glowcap_host_turn_forward(turn, &target, "poke", 4, null, 0, out_reply);
+}
+
 pub const FactoryCtx = struct {
     counter: *Counter,
     expected_session: ?*cd.GlowcapHostSession,

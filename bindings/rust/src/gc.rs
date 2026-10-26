@@ -188,7 +188,8 @@ pub(crate) fn track_owned_argument(host: &Rc<HostShared>, argument: &mut Argumen
 		| Argument::Keyword(_)
 		| Argument::Void
 		| Argument::BigInteger { .. }
-		| Argument::Integers(_) => {}
+		| Argument::Integers(_)
+		| Argument::Promise(_) => {}
 	}
 }
 

@@ -276,6 +276,84 @@
 
 (printf "racket zig-smoke OK: public vows remain pipeline targets and colliding ids stay Host-scoped\n")
 
+;; ── A promise is a send argument (ADR-0068) ──────────────────────────────────
+;; The unawaited `make` answer crosses as a capability for the pending answer,
+;; the same vow crosses settled as its value nested in a list, the board hands
+;; each capability back, and greeting through it proves both reached the
+;; greeter. A vow another Host returned is refused before any frame moves.
+(define (^greeter bcom)
+  (methods
+   [(greet) "hello from the greeter"]))
+
+(define pa-server (listen "127.0.0.1" 0))
+(define pa-ready (make-semaphore 0))
+(define pa-ch (make-channel))
+(define pa-host
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pa-ch e))])
+       (define hsession (accept pa-server))
+       (session-publish hsession "root"
+                        (lambda (bcom)
+                          (methods
+                           [(make) (session-spawn hsession ^greeter)]
+                           [(use target) target]
+                           [(use-first items) (car items)])))
+       (semaphore-post pa-ready)
+       (session-serve hsession)
+       (channel-put pa-ch 'served)))))
+(define pa-session (open-test-session (tcp-locator "127.0.0.1" (server-port pa-server))))
+(semaphore-wait pa-ready)
+(define pa-root (session-fetch pa-session "root"))
+(define pa-greeter (session-send-promise pa-session pa-root 'make))
+(define pa-used (session-send pa-session pa-root 'use pa-greeter))
+;; Observed settled, the vow passes as its value.
+(expect (ref? (session-await pa-session pa-greeter)) "promise argument: make answered with the greeter")
+(define pa-used-first (session-send pa-session pa-root 'use-first (list pa-greeter)))
+(expect (and (ref? pa-used) (ref? pa-used-first))
+        "promise argument: a passed promise returns as a capability")
+(expect (equal? "hello from the greeter" (session-send pa-session pa-used 'greet))
+        "promise argument: the bare promise reached the greeter")
+(expect (equal? "hello from the greeter" (session-send pa-session pa-used-first 'greet))
+        "promise argument: the nested promise reached the greeter")
+
+(define pa2-server (listen "127.0.0.1" 0))
+(define pa2-ready (make-semaphore 0))
+(define pa2-ch (make-channel))
+(define pa2-host
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pa2-ch e))])
+       (define hsession (accept pa2-server))
+       (session-publish hsession "root" (lambda (bcom) (methods [(make) (session-spawn hsession ^greeter)])))
+       (semaphore-post pa2-ready)
+       (session-serve hsession)
+       (channel-put pa2-ch 'served)))))
+(define pa2-session (open-test-session (tcp-locator "127.0.0.1" (server-port pa2-server))))
+(semaphore-wait pa2-ready)
+(define pa2-root (session-fetch pa2-session "root"))
+(define pa2-greeter (session-send-promise pa2-session pa2-root 'make))
+(define foreign-argument-error
+  (with-handlers ([exn:fail:glowcap? values])
+    (session-send pa-session pa-root 'use pa2-greeter)
+    'no-error))
+(expect (and (exn:fail:glowcap? foreign-argument-error)
+             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code foreign-argument-error)))
+        "promise argument: a vow from another Host is refused before FFI")
+(expect (equal? "hello from the greeter" (session-send pa2-session pa2-greeter 'greet))
+        "promise argument: the refused send left the foreign vow usable")
+(session-close! pa2-session)
+(define pa2-host-result (channel-get pa2-ch))
+(when (exn? pa2-host-result) (raise pa2-host-result))
+(server-close! pa2-server)
+(session-close! pa-session)
+(define pa-host-result (channel-get pa-ch))
+(when (exn? pa-host-result) (raise pa-host-result))
+(expect (eq? 'served pa-host-result) "promise argument: host served to a clean close")
+(server-close! pa-server)
+
+(printf "racket zig-smoke OK: a pending promise passes as a capability, bare and nested, and a foreign vow is refused\n")
+
 ;; ── Promise-pipeline saturation stays typed and terminal ─────────────────────
 ;; A queue cap of one admits the first call aimed at an unresolved answer and
 ;; refuses the second. Both calls travel in the same feed batch, before the

@@ -130,6 +130,7 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     // remain after the Vats are gone.
     var vow_it = self.vows.valueIterator();
     while (vow_it.next()) |row| {
+        std.debug.assert(row.*.completion == .none);
         if (row.*.owner == .owning) row.*.owner.owning.release();
         if (row.*.forwarded == .owning) row.*.forwarded.owning.producer.release();
         self.allocator.destroy(row.*);

@@ -357,6 +357,8 @@ unsafe extern "C" {
 		args_len: usize,
 	) -> c_int;
 	pub fn glowcap_host_vow_release(host: *mut GlowcapHost, vow: u64) -> c_int;
+	pub fn glowcap_host_vow_capability(host: *mut GlowcapHost, vow: u64, out_reference: *mut GlowcapReference)
+	-> c_int;
 	pub fn glowcap_host_vow_index(host: *mut GlowcapHost, vow: u64, index: u64, out_vow: *mut u64) -> c_int;
 	pub fn glowcap_host_vow_untag(
 		host: *mut GlowcapHost,

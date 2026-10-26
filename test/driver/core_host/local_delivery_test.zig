@@ -521,8 +521,10 @@ test "core host owning local warmed custody allocates only its producer and vow 
         const Row = @TypeOf(host.vows.get(0).?.*);
         const Producer = @TypeOf(host.vows.get(0).?.owner.owning.*);
         if (@sizeOf(usize) == 8) {
-            // The row's watching promise (ADR-0068) is an optional id.
-            try std.testing.expectEqual(@as(usize, 176), @sizeOf(Row));
+            // The row's watching promise (ADR-0068) is an optional id, and
+            // its held completion is a value with its arena state or a
+            // failure with its message, under one tag.
+            try std.testing.expectEqual(@as(usize, 240), @sizeOf(Row));
             try std.testing.expectEqual(@as(usize, 312), @sizeOf(Producer));
         }
         try std.testing.expectEqual(@as(usize, 2), counted.allocs);

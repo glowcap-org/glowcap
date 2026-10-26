@@ -121,6 +121,12 @@ pub enum Argument {
 	/// An OCapN Struct: unordered, uniquely named String fields. The vector
 	/// preserves received order for inspection. OCapN equality ignores it.
 	Struct(Vec<(String, Argument)>),
+	/// A [`RemotePromise`](crate::RemotePromise) this Host returned, passed to
+	/// a Session or Host send in any state (ADR-0068): build it with
+	/// `Argument::from(&promise)`. The Host carries it as a capability for its
+	/// answer, and it never arrives.
+	#[cfg(feature = "async")]
+	Promise(crate::PromiseArgument),
 }
 
 impl Argument {
@@ -241,125 +247,6 @@ impl From<Vec<Argument>> for Argument {
 	fn from(items: Vec<Argument>) -> Argument {
 		Argument::List(items)
 	}
-}
-
-/// Owns nested C argument arrays for the duration of one send call. The leaf
-/// byte pointers borrow the source [`Argument`]'s own heap payloads (a
-/// `String`/`Vec` buffer is address-stable when the enum value moves), so the
-/// marshalled tree stays valid as long as the source value and this arena both
-/// live.
-#[cfg(feature = "async")]
-#[derive(Default)]
-pub(crate) struct SendArena {
-	boxes: Vec<Box<[sys::GlowcapArgument]>>,
-}
-
-#[cfg(feature = "async")]
-impl SendArena {
-	pub(crate) fn build(&mut self, args: &[Argument]) -> Result<(*const sys::GlowcapArgument, usize)> {
-		if args.is_empty() {
-			return Ok((core::ptr::null(), 0));
-		}
-		let mut out = Vec::with_capacity(args.len());
-		for a in args {
-			out.push(self.one(a)?);
-		}
-		let boxed = out.into_boxed_slice();
-		let ptr = boxed.as_ptr();
-		let len = boxed.len();
-		self.boxes.push(boxed);
-		Ok((ptr, len))
-	}
-
-	pub(crate) fn one(&mut self, a: &Argument) -> Result<sys::GlowcapArgument> {
-		// SAFETY: `GlowcapArgument` is a plain C struct of integers, a float, null-able pointers, and a
-		// `GlowcapReference` holding one integer; all-zero is a valid value (null views, zero lengths), and the arms
-		// below set the kind and the fields it uses before the value is returned.
-		let mut c: sys::GlowcapArgument = unsafe { core::mem::zeroed() };
-		match a {
-			Argument::Integer(v) => {
-				c.kind = sys::ARG_INTEGER;
-				c.integer = *v;
-			}
-			Argument::Float(v) => {
-				c.kind = sys::ARG_FLOAT64;
-				c.float64 = *v;
-			}
-			Argument::Boolean(v) => {
-				c.kind = sys::ARG_BOOLEAN;
-				c.boolean = u32::from(*v);
-			}
-			Argument::Bytes(b) => set_bytes(&mut c, sys::ARG_BYTES, b),
-			Argument::String(s) => set_bytes(&mut c, sys::ARG_STRING, s.as_bytes()),
-			Argument::Symbol(s) => set_bytes(&mut c, sys::ARG_SYMBOL, s.as_bytes()),
-			Argument::Error(message) => set_bytes(&mut c, sys::ARG_ERROR, message.as_bytes()),
-			Argument::Void => c.kind = sys::ARG_VOID,
-			Argument::Reference(r) => {
-				c.kind = sys::ARG_REFERENCE;
-				c.reference = r.to_sys()?;
-			}
-			Argument::List(items) => {
-				c.kind = sys::ARG_LIST;
-				let (ptr, len) = self.build(items)?;
-				c.items = ptr;
-				c.items_len = len;
-			}
-			Argument::Set(items) => {
-				c.kind = sys::ARG_SET;
-				let (ptr, len) = self.build(items)?;
-				c.items = ptr;
-				c.items_len = len;
-			}
-			Argument::Tagged { tag, value } => {
-				c.kind = sys::ARG_TAGGED;
-				c.bytes = tag.as_ptr();
-				c.bytes_len = tag.len();
-				let (ptr, len) = self.build(value)?;
-				c.items = ptr;
-				c.items_len = len;
-			}
-			Argument::Keyword(s) => set_bytes(&mut c, sys::ARG_KEYWORD, s.as_bytes()),
-			Argument::BigInteger { negative, digits } => {
-				set_bytes(&mut c, sys::ARG_BIG_INTEGER, digits.as_bytes());
-				c.boolean = u32::from(*negative);
-			}
-			Argument::Integers(words) => {
-				c.kind = sys::ARG_INTEGERS;
-				if !words.is_empty() {
-					c.bytes = words.as_ptr().cast::<u8>();
-					c.bytes_len = core::mem::size_of_val(words.as_slice());
-				}
-			}
-			Argument::Struct(entries) => {
-				c.kind = sys::ARG_STRUCT;
-				let mut flat = Vec::with_capacity(entries.len() * 2);
-				for (key, value) in entries {
-					// SAFETY: as the `GlowcapArgument` zeroed in `one` above; `set_bytes` fills the String kind and
-					// byte view on the next line before the value is read.
-					let mut key_arg: sys::GlowcapArgument = unsafe { core::mem::zeroed() };
-					set_bytes(&mut key_arg, sys::ARG_STRING, key.as_bytes());
-					flat.push(key_arg);
-					flat.push(self.one(value)?);
-				}
-				let boxed = flat.into_boxed_slice();
-				c.items = boxed.as_ptr();
-				c.items_len = boxed.len();
-				self.boxes.push(boxed);
-			}
-		}
-		Ok(c)
-	}
-}
-
-// A Rust slice's pointer is non-null even at length zero (`NonNull`'s dangling
-// stand-in), so a zero-length byte view, a methodless positional verb, an
-// empty payload, marshals as the non-NULL `ptr + 0` the host requires, with
-// no special case here.
-#[cfg(feature = "async")]
-fn set_bytes(c: &mut sys::GlowcapArgument, kind: u32, b: &[u8]) {
-	c.kind = kind;
-	c.bytes = b.as_ptr();
-	c.bytes_len = b.len();
 }
 
 /// Project a received C argument tree into owned Rust values.
@@ -519,6 +406,7 @@ pub(crate) unsafe fn args_from_sys(ptr: *const sys::GlowcapArgument, len: usize)
 #[cfg(all(test, feature = "async"))]
 mod tests {
 	use super::*;
+	use crate::SendArena;
 
 	#[test]
 	fn released_occurrences_cannot_marshal_even_when_the_identity_has_another_retain() {

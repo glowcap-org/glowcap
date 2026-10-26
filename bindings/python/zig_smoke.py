@@ -563,6 +563,11 @@ def main() -> int:
         "python zig-smoke OK: promise pipelining drives one batch and refuses a colliding vow from another Host"
     )
 
+    runtime.run_managed(pipeline.passes_a_pending_promise())
+    print(
+        "python zig-smoke OK: a pending promise passes as a capability, bare and nested, and a plain Future is refused"
+    )
+
     runtime.run_managed(verbs._turn_spawn_survives_originating_port_close())
     print(
         "python zig-smoke OK: turn-time spawn uses the Host after the originating Port closes"

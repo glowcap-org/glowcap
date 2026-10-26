@@ -120,6 +120,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_vow_send: { parameters: [P, U64, B, U, B, U, B], result: I, outBuffers: [6] },
 	glowcap_host_vow_tell: { parameters: [P, U64, B, U, B, U], result: I, outBuffers: [] },
 	glowcap_host_vow_release: { parameters: [P, U64], result: I },
+	glowcap_host_vow_capability: { parameters: [P, U64, B], result: I, outBuffers: [2] },
 	glowcap_host_vow_index: { parameters: [P, U64, U64, B], result: I, outBuffers: [3] },
 	glowcap_host_vow_untag: { parameters: [P, U64, B, U, B], result: I, outBuffers: [4] },
 	glowcap_host_vow_get: { parameters: [P, U64, B, U, B], result: I, outBuffers: [4] },

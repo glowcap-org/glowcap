@@ -12,7 +12,9 @@ and every protocol decision. Re-exported value types come from :mod:`glowcap`.
 from __future__ import annotations
 
 import array
+import asyncio
 import ctypes
+from typing import Callable, Optional
 
 from . import _constants as _abi
 from ._errors import GlowcapError
@@ -143,7 +145,15 @@ def _ref_to_c(ref: Ref) -> _Reference:
     return _Reference(ref._live().id)
 
 
-def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
+# The capability a promise among send arguments travels as (ADR-0068). Only
+# the far send and tell paths supply one; everywhere else a promise is an
+# unsupported argument value.
+_PromiseLowering = Callable[[asyncio.Future], Ref]
+
+
+def _arg_to_c(
+    value: Argument, keepalive: list, lower: Optional[_PromiseLowering] = None
+) -> _Argument:
     a = _Argument()
     if isinstance(value, array.array) and value.typecode == "q":
         # Export the buffer before reading its address: retaining the array
@@ -184,18 +194,25 @@ def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
         a.kind = _ARG_VOID
     elif isinstance(value, Ref):
         a.kind, a.reference = _ARG_REFERENCE, _ref_to_c(value)
+    elif isinstance(value, asyncio.Future):
+        if lower is None:
+            raise GlowcapError(
+                _ERR_UNSUPPORTED_VALUE,
+                "a promise is passable only as a send or tell argument",
+            )
+        a.kind, a.reference = _ARG_REFERENCE, _ref_to_c(lower(value))
     elif isinstance(value, Tagged):
         _set_bytes(a, _ARG_TAGGED, value.tag.encode(), keepalive)
-        a.items, a.items_len = _args_to_c(list(value.value), keepalive)
+        a.items, a.items_len = _args_to_c(list(value.value), keepalive, lower)
     elif isinstance(value, Struct):
         a.kind = _ARG_STRUCT
-        a.items, a.items_len = _struct_entries_to_c(value.entries, keepalive)
+        a.items, a.items_len = _struct_entries_to_c(value.entries, keepalive, lower)
     elif isinstance(value, Set):  # before list
         a.kind = _ARG_SET
-        a.items, a.items_len = _args_to_c(list(value), keepalive)
+        a.items, a.items_len = _args_to_c(list(value), keepalive, lower)
     elif isinstance(value, list):
         a.kind = _ARG_LIST
-        a.items, a.items_len = _args_to_c(value, keepalive)
+        a.items, a.items_len = _args_to_c(value, keepalive, lower)
     else:
         raise GlowcapError(_ERR_UNSUPPORTED_VALUE, "unsupported argument value")
     return a
@@ -209,18 +226,22 @@ def _set_bytes(a: _Argument, kind: int, data: bytes, keepalive: list) -> None:
     a.bytes_len = len(data)
 
 
-def _args_to_c(args: list, keepalive: list):
+def _args_to_c(args: list, keepalive: list, lower: Optional[_PromiseLowering] = None):
     n = len(args)
     if n == 0:
         return (None, 0)
     arr = (_Argument * n)()
     for i, value in enumerate(args):
-        arr[i] = _arg_to_c(value, keepalive)
+        arr[i] = _arg_to_c(value, keepalive, lower)
     keepalive.append(arr)
     return (arr, n)
 
 
-def _struct_entries_to_c(entries: list[tuple[str, Argument]], keepalive: list):
+def _struct_entries_to_c(
+    entries: list[tuple[str, Argument]],
+    keepalive: list,
+    lower: Optional[_PromiseLowering] = None,
+):
     n = len(entries) * 2
     if n == 0:
         return (None, 0)
@@ -231,7 +252,7 @@ def _struct_entries_to_c(entries: list[tuple[str, Argument]], keepalive: list):
         key_arg = _Argument()
         _set_bytes(key_arg, _ARG_STRING, key.encode(), keepalive)
         arr[i * 2] = key_arg
-        arr[i * 2 + 1] = _arg_to_c(value, keepalive)
+        arr[i * 2 + 1] = _arg_to_c(value, keepalive, lower)
     keepalive.append(arr)
     return (arr, n)
 

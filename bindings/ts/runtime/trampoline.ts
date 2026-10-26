@@ -26,7 +26,7 @@ import { FORWARD_CYCLE_MESSAGE } from "./internal/constants.ts";
 import { checkHost, GlowcapError, hostLastError, VowBroken } from "./errors.ts";
 import { type Argument, type Behavior, Forward, liveRefId, Ref, refFromId } from "./value.ts";
 import { encodeArgs, readArgArray, refStruct } from "./abi_value.ts";
-import { type PromiseFactoryHandle, RemotePromise, sendFar } from "./promise.ts";
+import { type PromiseFactoryHandle, RemotePromise, sendFar, withFarArgs } from "./promise.ts";
 import { type BehaviorEntry, entryFor, releaseFfiBehavior } from "./behavior_registry.ts";
 
 export {
@@ -200,27 +200,27 @@ export async function tellFar(
 	args: Argument[],
 ): Promise<void> {
 	const verbBytes = utf8Encoder.encode(verb);
-	const keep: Uint8Array[] = [];
-	const argsBuf = encodeArgs(args, keep);
-	if (target instanceof RemotePromise) {
-		checkHost(hostS.glowcap_host_vow_tell(
-			h.hostRaw,
-			target.farVow(h.hostOwner),
-			ab(verbBytes),
-			BigInt(verbBytes.length),
-			ab(argsBuf),
-			BigInt(args.length),
-		));
-	} else {
-		checkHost(hostS.glowcap_host_session_tell(
-			h.ptr,
-			ab(refStruct(target)),
-			ab(verbBytes),
-			BigInt(verbBytes.length),
-			ab(argsBuf),
-			BigInt(args.length),
-		));
-	}
+	withFarArgs(h, args, (argsBuf) => {
+		if (target instanceof RemotePromise) {
+			checkHost(hostS.glowcap_host_vow_tell(
+				h.hostRaw,
+				target.farVow(h.hostOwner),
+				ab(verbBytes),
+				BigInt(verbBytes.length),
+				ab(argsBuf),
+				BigInt(args.length),
+			));
+		} else {
+			checkHost(hostS.glowcap_host_session_tell(
+				h.ptr,
+				ab(refStruct(target)),
+				ab(verbBytes),
+				BigInt(verbBytes.length),
+				ab(argsBuf),
+				BigInt(args.length),
+			));
+		}
+	});
 	await h.kickActions();
 }
 

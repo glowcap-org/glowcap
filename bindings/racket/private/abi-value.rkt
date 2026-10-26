@@ -110,7 +110,11 @@
   (make-GlowcapReference (ref-live-id ref)))
 
 ;; Returns (values cpointer count), keeping backing buffers alive via `keep`.
-(define (args->c args keep)
+;; `lower` is what a promise among send arguments travels as (ADR-0068): a
+;; procedure answering the capability for a promise and #f for any other
+;; value. Only the far send and tell paths supply one; everywhere else a
+;; promise is an unsupported argument value.
+(define (args->c args keep [lower #f])
   (define n (length args))
   (cond
     [(zero? n) (values #f 0)]
@@ -118,10 +122,11 @@
      (define arr (malloc (* n (ctype-sizeof _GlowcapArgument)) 'atomic-interior))
      (set-box! keep (cons arr (unbox keep)))
      (for ([a (in-list args)] [i (in-naturals)])
-       (ptr-set! arr _GlowcapArgument i (arg->c a keep)))
+       (ptr-set! arr _GlowcapArgument i (arg->c a keep lower)))
      (values arr n)]))
 
-(define (arg->c a keep)
+(define (arg->c a0 keep [lower #f])
+  (define a (or (and lower (lower a0)) a0))
   (define c (make-GlowcapArgument ARG-VOID 0 0 0.0 #f 0 (make-GlowcapReference 0) #f 0))
   (cond
     [(boolean? a) (set-GlowcapArgument-kind! c ARG-BOOLEAN) (set-GlowcapArgument-boolean! c (if a 1 0))]
@@ -150,22 +155,22 @@
     [(s64vector? a) (set-integers-field! c a keep)]
     [(error-arg? a) (set-bytes-field! c ARG-ERROR (string->bytes/utf-8 (error-arg-message a)) keep)]
     [(tagged-arg? a) (set-bytes-field! c ARG-TAGGED (string->bytes/utf-8 (tagged-arg-tag a)) keep)
-                     (define-values (ptr cnt) (args->c (tagged-arg-value a) keep))
+                     (define-values (ptr cnt) (args->c (tagged-arg-value a) keep lower))
                      (set-GlowcapArgument-items! c ptr) (set-GlowcapArgument-items-len! c cnt)]
     [(struct-arg? a) (set-GlowcapArgument-kind! c ARG-STRUCT)
-                     (define-values (ptr cnt) (struct-entries->c (struct-arg-entries a) keep))
+                     (define-values (ptr cnt) (struct-entries->c (struct-arg-entries a) keep lower))
                      (set-GlowcapArgument-items! c ptr) (set-GlowcapArgument-items-len! c cnt)]
     [(pset? a) (set-GlowcapArgument-kind! c ARG-SET)
-               (define-values (ptr cnt) (args->c (pset-items a) keep))
+               (define-values (ptr cnt) (args->c (pset-items a) keep lower))
                (set-GlowcapArgument-items! c ptr) (set-GlowcapArgument-items-len! c cnt)]
     [(list? a) (set-GlowcapArgument-kind! c ARG-LIST)
-               (define-values (ptr cnt) (args->c a keep))
+               (define-values (ptr cnt) (args->c a keep lower))
                (set-GlowcapArgument-items! c ptr) (set-GlowcapArgument-items-len! c cnt)]
     [else (raise-glowcap 'arg->c ERR-UNSUPPORTED-VALUE
                          "unsupported argument type: ~a" a)])
   c)
 
-(define (struct-entries->c entries keep)
+(define (struct-entries->c entries keep [lower #f])
   (define n (* 2 (length entries)))
   (cond
     [(zero? n) (values #f 0)]
@@ -177,7 +182,7 @@
          (raise-glowcap 'arg->c ERR-UNSUPPORTED-VALUE
                         "Struct entries must be String/value pairs: ~a" entry))
        (ptr-set! arr _GlowcapArgument (* i 2) (arg->c (car entry) keep))
-       (ptr-set! arr _GlowcapArgument (add1 (* i 2)) (arg->c (cdr entry) keep)))
+       (ptr-set! arr _GlowcapArgument (add1 (* i 2)) (arg->c (cdr entry) keep lower)))
      (values arr n)]))
 
 (define (set-bytes-field! c kind bs keep)

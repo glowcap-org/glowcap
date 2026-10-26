@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from glowcap import FEATURE_FULL, FEATURE_MULTI_LOCATION, Host, GlowcapError, Tagged, enable_trace, tcp
-from glowcap._constants import ERR_INVALID_ARGUMENT
+from glowcap import FEATURE_FULL, FEATURE_MULTI_LOCATION, Host, GlowcapError, Ref, Tagged, enable_trace, tcp
+from glowcap._constants import ERR_INVALID_ARGUMENT, ERR_UNSUPPORTED_VALUE
 
 from smoke.runtime import tcp_connect
 
@@ -224,3 +224,60 @@ async def projections_reach_a_field() -> None:
             if serve_task is not None:
                 serve_task.cancel()
                 await asyncio.gather(serve_task, return_exceptions=True)
+
+
+async def passes_a_pending_promise() -> None:
+    """A promise is a send argument (ADR-0068): the unawaited ``make`` answer
+    crosses as a capability for the pending answer, the same promise crosses
+    settled as its value nested in a list, the board hands each capability
+    back, and greeting through it proves both reached the greeter."""
+    server = await tcp.listen("127.0.0.1", 0)
+    published = asyncio.Event()
+    try:
+
+        async def serve_one() -> None:
+            async for session in server:
+
+                def root(verb, args):
+                    if verb == "make":
+
+                        def greeter(greeter_verb, _greeter_args):
+                            if greeter_verb == "greet":
+                                return "hello from the greeter"
+                            raise ValueError(f"no such method: {greeter_verb}")
+
+                        return session.spawn(greeter)
+                    if verb == "use":
+                        return args[0]
+                    if verb == "use_first":
+                        return args[0][0]
+                    raise ValueError(f"no such method: {verb}")
+
+                session.publish("root", root)
+                published.set()
+                await session.serve()
+                break
+
+        serve_task = asyncio.ensure_future(serve_one())
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
+        session.serve()
+        await asyncio.wait_for(published.wait(), timeout=5)
+        root_ref = await session.fetch("root")
+        greeter = session.send(root_ref, "make", [])
+        used = await session.send(root_ref, "use", [greeter])
+        # Observed settled, the promise passes as its value.
+        assert isinstance(await greeter, Ref)
+        used_first = await session.send(root_ref, "use_first", [[greeter]])
+        assert isinstance(used, Ref) and isinstance(used_first, Ref), (used, used_first)
+        assert await session.send(used, "greet", []) == "hello from the greeter"
+        assert await session.send(used_first, "greet", []) == "hello from the greeter"
+        loop = asyncio.get_running_loop()
+        try:
+            await session.send(root_ref, "use", [loop.create_future()])
+            raise AssertionError("a plain Future must be refused before any frame moves")
+        except GlowcapError as error:
+            assert error.code == ERR_UNSUPPORTED_VALUE, error
+        await session.close()
+        await asyncio.wait_for(serve_task, timeout=5)
+    finally:
+        await server.close()

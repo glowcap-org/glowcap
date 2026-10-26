@@ -21,6 +21,7 @@ const capability_lower = @import("../host/capabilities/lower.zig");
 const identity = @import("../host/capabilities/identity.zig");
 const capability_promise = @import("../capability_promise.zig");
 const operations = @import("operations.zig");
+const promise_values = @import("values.zig");
 const promise_row = @import("row.zig");
 const host_mod = @import("../host.zig");
 const host_pump = @import("../host/pump.zig");
@@ -296,6 +297,19 @@ pub fn ownData(self: *Host, session: *HostSession, argument: model.Argument) !Ro
     errdefer arena.deinit();
     const value = try capability_lift.ownValue(self, session, arena.allocator(), argument);
     return .{ .arena = arena, .value = value };
+}
+
+/// Own a clone of `value` for a promise: a Host retain per capability inside
+/// it, and one arena for the rest. The vow origin stages a completion its row
+/// kept through this (ADR-0068), since the row keeps its own copy for a later
+/// ask.
+pub fn cloneData(self: *Host, value: value_mod.Value) !Row.SettledData {
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    errdefer arena.deinit();
+    var retained: std.ArrayListUnmanaged(capability.Ref) = .empty;
+    errdefer promise_values.rollbackRetains(self, retained.items);
+    const cloned = try promise_values.cloneValues(self, arena.allocator(), &.{value}, &retained);
+    return .{ .arena = arena, .value = cloned[0] };
 }
 
 /// Give back what settled data owns: a Host retain per capability inside it

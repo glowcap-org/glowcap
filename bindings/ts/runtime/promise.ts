@@ -10,10 +10,11 @@
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64 } from "./internal/seam.ts";
-import { INVALID_ARGUMENT } from "@glowcap/abi";
+import { INVALID_ARGUMENT, UNSUPPORTED_VALUE } from "@glowcap/abi";
 import { checkHost, FetchFailed, GlowcapError, retainSecondaryFailure } from "./errors.ts";
 import { encodeArgs, refStruct } from "./abi_value.ts";
-import { type Argument, isReference, Ref } from "./value.ts";
+import { releaseRef } from "./gc.ts";
+import { type Argument, isReference, promiseArgument, Ref, refFromId } from "./value.ts";
 
 /** The Session callbacks every vow wait needs, named here so this module stays
  * off the Session type itself (a direct dependency would form a promise ↔
@@ -42,6 +43,7 @@ export interface PromiseFactoryHandle extends VowWaitHandle {
 	readonly hostOwner: object;
 	trackVow(handle: object, vow: bigint): void;
 	scheduleProgress(): void;
+	recordBackgroundFailure(failure: unknown): void;
 }
 
 const utf8Encoder = new TextEncoder();
@@ -187,6 +189,93 @@ export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
 	return promiseFor(h, vow, false);
 }
 
+/** What a far promise passes as (ADR-0068): the capability its Host mints
+ * for the vow, in whatever state the vow is in while this handle lives, one
+ * application retain pushed on `minted` for the caller to give back. The
+ * Host carries a pending answer as the open promise and a settled one as its
+ * value. */
+function lowerPromise(h: PromiseFactoryHandle, promise: RemotePromise, minted: Ref[]): Ref {
+	const vow = promise.farVow(h.hostOwner);
+	const out = new Uint8Array(8);
+	checkHost(hostS.glowcap_host_vow_capability(h.hostRaw, vow, ab(out)));
+	const ref = refFromId(outU64(out));
+	minted.push(ref);
+	return ref;
+}
+
+/** Far send or tell arguments encoded for the FFI, with each promise among
+ * them lowered to the capability its Host mints (ADR-0068). The Host's queue holds its own retain once the call is
+ * admitted, so `release` gives every minted retain back right after the FFI
+ * call, admitted or refused. A promise another Host returned, an await-only
+ * one, and a plain Promise are refused before any frame moves. */
+function encodeFarArgs(
+	h: PromiseFactoryHandle,
+	args: Argument[],
+	keep: Uint8Array[],
+): { readonly buf: Uint8Array; release(): void } {
+	const minted: Ref[] = [];
+	const release = () => {
+		let failure: unknown;
+		for (const ref of minted.splice(0)) {
+			try {
+				releaseRef(h.hostRaw, ref);
+			} catch (error) {
+				failure = failure === undefined ? error : retainSecondaryFailure(failure, error);
+			}
+		}
+		if (failure !== undefined) throw failure;
+	};
+	try {
+		const buf = encodeArgs(args, keep, (promise) => {
+			if (!(promise instanceof RemotePromise)) {
+				throw new GlowcapError(
+					UNSUPPORTED_VALUE,
+					"only the promise a send returned is passable as a capability",
+				);
+			}
+			return lowerPromise(h, promise, minted);
+		});
+		return { buf, release };
+	} catch (failure) {
+		try {
+			release();
+		} catch (cleanup) {
+			retainSecondaryFailure(failure, cleanup);
+		}
+		throw failure;
+	}
+}
+
+/** Run one FFI call over far arguments and give their minted retains back on
+ * every exit. Beside a refusal, a release failure rides it as a secondary.
+ * After an admitted call, whose effect stands, a release failure is the
+ * Host's to report. */
+export function withFarArgs<T>(
+	h: PromiseFactoryHandle,
+	args: Argument[],
+	call: (argsBuf: Uint8Array) => T,
+): T {
+	const keep: Uint8Array[] = [];
+	const encoded = encodeFarArgs(h, args, keep);
+	let result: T;
+	try {
+		result = call(encoded.buf);
+	} catch (failure) {
+		try {
+			encoded.release();
+		} catch (cleanup) {
+			retainSecondaryFailure(failure, cleanup);
+		}
+		throw failure;
+	}
+	try {
+		encoded.release();
+	} catch (cleanup) {
+		h.recordBackgroundFailure(cleanup);
+	}
+	return result;
+}
+
 /** Far-send mint→`RemotePromise`: encode args, mint the host vow
  * (`glowcap_host_session_send` / `glowcap_host_vow_send`), register it, and
  * hand back `promiseFor`.
@@ -198,33 +287,33 @@ export function sendFar(
 	args: Argument[],
 ): RemotePromise {
 	const verbBytes = utf8Encoder.encode(verb);
-	const keep: Uint8Array[] = [];
-	const argsBuf = encodeArgs(args, keep);
 	const out = new Uint8Array(8);
-	if (target instanceof RemotePromise) {
-		// Promise pipelining: eventual-send to the unresolved answer. A local
-		// send's promise has no wire answer to pipeline against.
-		const sourceVow = target.farVow(h.hostOwner);
-		checkHost(hostS.glowcap_host_vow_send(
-			h.hostRaw,
-			sourceVow,
-			ab(verbBytes),
-			BigInt(verbBytes.length),
-			ab(argsBuf),
-			BigInt(args.length),
-			ab(out),
-		));
-	} else {
-		checkHost(hostS.glowcap_host_session_send(
-			h.ptr,
-			ab(refStruct(target)),
-			ab(verbBytes),
-			BigInt(verbBytes.length),
-			ab(argsBuf),
-			BigInt(args.length),
-			ab(out),
-		));
-	}
+	withFarArgs(h, args, (argsBuf) => {
+		if (target instanceof RemotePromise) {
+			// Promise pipelining: eventual-send to the unresolved answer. A local
+			// send's promise has no wire answer to pipeline against.
+			const sourceVow = target.farVow(h.hostOwner);
+			checkHost(hostS.glowcap_host_vow_send(
+				h.hostRaw,
+				sourceVow,
+				ab(verbBytes),
+				BigInt(verbBytes.length),
+				ab(argsBuf),
+				BigInt(args.length),
+				ab(out),
+			));
+		} else {
+			checkHost(hostS.glowcap_host_session_send(
+				h.ptr,
+				ab(refStruct(target)),
+				ab(verbBytes),
+				BigInt(verbBytes.length),
+				ab(argsBuf),
+				BigInt(args.length),
+				ab(out),
+			));
+		}
+	});
 	const vow = outU64(out);
 	return promiseFor(h, vow);
 }
@@ -271,6 +360,8 @@ export type PromiseState =
 	| { readonly tag: "failed"; readonly error: unknown };
 
 export class RemotePromise extends Promise<Argument> {
+	/** A promise is a passable send argument in any state (ADR-0068). */
+	readonly [promiseArgument]: true = true;
 	readonly #state: PromiseState;
 	readonly #begin: () => Promise<Argument>;
 	#started = false;

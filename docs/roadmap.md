@@ -45,11 +45,11 @@ for an earlier one to start, not to finish. A plan marked as waiting for
 review needs that review before its first step.
 
 1. **Promise arguments.** The Host lifts a promise a peer passes as an
-   argument to a capability and passes an application's pending vow as one,
-   and pipelining already works. The C ABI and the bindings have no verb for
-   the vow, and the live Goblins evidence is owed in both directions. This is
-   the one protocol-semantics gap on the list, so it leads. The
-   [promise arguments plan](planning/promise-arguments.md) closes it.
+   argument to a capability and passes an application's vow as one in any
+   state, from the C ABI and every binding. The live Goblins evidence is owed
+   in both directions. This is the one protocol-semantics gap on the list, so
+   it leads. The [promise arguments plan](planning/promise-arguments.md)
+   closes it.
 2. **Interop coverage.** Extend live binding checks to automatic capability
    finalization, and live Goblins relay checks to Python, Rust and Racket.
    Keep the exact role and transport coverage in community review. Work that

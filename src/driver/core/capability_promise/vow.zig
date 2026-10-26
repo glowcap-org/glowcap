@@ -21,6 +21,7 @@ const host_pump = @import("../host/pump.zig");
 const promise_answer = @import("answer.zig");
 const promise_row = @import("row.zig");
 const vow_completion = @import("../vows/completion.zig");
+const vow_settlement = @import("../vows/settlement.zig");
 const vow_release = @import("../vows/release.zig");
 const vows = @import("../vows.zig");
 
@@ -28,14 +29,15 @@ const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const Row = promise_row.Row;
 
-/// The capability promise for a public vow this Host asked over a session.
-/// The same vow asked twice is one promise, retained once more. A settled
-/// vow refuses `AlreadySettled`, since the application holds its value, and
-/// a vow with no session refuses `SessionlessVow`.
+/// The capability promise for a public vow this Host asked over a session,
+/// in any state the vow is in until its handle is released. The same vow
+/// asked twice is one promise, retained once more. A settled vow's promise
+/// is staged from the completion its row kept, or from the drain when the
+/// completion is still queued. A vow with no session refuses
+/// `SessionlessVow`.
 pub fn vowCapability(self: *Host, vow_id: u64) !capability.Ref {
     const resolved = try vows.resolveVowSession(self, vow_id);
     const row = resolved.row;
-    if (row.settled) return error.AlreadySettled;
     if (row.watcher) |id| return (try capability_promise.retainShared(self, id)).ref;
     const id: capability.PromiseId = @fromBackingInt(self.capability_promise_ids.peek() orelse
         return error.CapabilitySpaceExhausted);
@@ -49,6 +51,7 @@ pub fn vowCapability(self: *Host, vow_id: u64) !capability.Ref {
     } } });
     self.capability_promise_ids.commit(@backingInt(id));
     row.watcher = id;
+    if (row.completion != .none) stageHeld(self, id, row);
     return ref;
 }
 
@@ -69,11 +72,57 @@ pub fn stage(self: *Host, id: capability.PromiseId, session: *HostSession, resol
         .broken => |reason| .{ .breaking = Row.Failure.init(reason) },
         .give => .{ .breaking = Row.Failure.init(vow_completion.give_reason) },
     };
+    publishStaged(self, id, state);
+}
+
+/// Stage the settlement a vow row kept after its drain (ADR-0068). The row
+/// keeps its completion for a later ask, so a capability is retained for the
+/// promise and data is cloned under the promise's own arena. Nothing may
+/// refuse here either, so a clone the Host cannot own becomes the promise's
+/// break, as does a capability the application released since the drain.
+pub fn stageHeld(self: *Host, id: capability.PromiseId, row: *const vow_settlement.VowRow) void {
+    const state: Row.State = switch (row.completion) {
+        .none => unreachable,
+        .failed => |failed| .{ .breaking = Row.Failure.init(failed.message.bytes()) },
+        .fulfilled => |fulfilled| switch (fulfilled.value) {
+            .capability => |ref| retainedState(self, id, ref),
+            else => if (promise_answer.cloneData(self, fulfilled.value)) |data|
+                .{ .settling_data = data }
+            else |err|
+                .{ .breaking = Row.Failure.init(@errorName(err)) },
+        },
+    };
+    publishStaged(self, id, state);
+}
+
+/// Whether the promise still waits for its vow's settlement to be staged: a
+/// promise asked for after the fire, whose completion is still queued for
+/// the drain.
+pub fn awaitsStaging(self: *const Host, id: capability.PromiseId) bool {
+    const row = self.capability_promises.get(id) orelse return false;
+    return row.state == .pending and !row.origin.vow.published;
+}
+
+fn publishStaged(self: *Host, id: capability.PromiseId, state: Row.State) void {
     const row = self.capability_promises.getPtr(id) orelse unreachable;
     std.debug.assert(row.state == .pending and !row.origin.vow.published);
     row.state = state;
     row.origin.vow.published = true;
     self.node.publishPromiseSettled(@backingInt(id));
+}
+
+/// The capability a held completion names, retained for the promise. The
+/// row holds no retain of its own, so one the application released is gone
+/// and breaks the promise. A reference to the promise's own projection
+/// breaks as a resolution cycle does.
+fn retainedState(self: *Host, id: capability.PromiseId, ref: capability.Ref) Row.State {
+    const target = self.capabilities.resolve(ref) orelse
+        return .{ .breaking = Row.Failure.init(@errorName(error.UnknownCapability)) };
+    if (target == .deferred and target.deferred == id)
+        return .{ .breaking = Row.Failure.init(engine.resolution_chain.cycle_message) };
+    const retained = self.capabilities.retain(self.allocator, target) catch |err|
+        return .{ .breaking = Row.Failure.init(@errorName(err)) };
+    return .{ .settling = .{ .ref = retained, .claimed_wire_retain = false } };
 }
 
 /// The capability a vow settled to, held until the pump finishes the
@@ -144,8 +193,9 @@ pub fn moved(self: *Host, id: capability.PromiseId, peer_handle: engine.PeerHand
 
 /// The reference a pending vow promise lowers to on the vow's own session:
 /// the open answer itself, which the partner shortens on arrival. Null on
-/// another session, or once the vow row is gone, where a projection stands
-/// in for it.
+/// another session, once the vow row is gone, or once a settled row's handle
+/// was released, which let its answer go toward the partner while the row
+/// waits for the drain. A projection stands in for it in each case.
 pub fn answerReference(self: *Host, row: *const Row, session: *const HostSession) ?model.Reference {
     const vow = switch (row.origin) {
         .vow => |vow| vow,
@@ -153,6 +203,7 @@ pub fn answerReference(self: *Host, row: *const Row, session: *const HostSession
     };
     if (vow.peer_handle != session.peer_handle) return null;
     const vow_row = self.vows.get(vow.vow_id) orelse return null;
+    if (vow_row.settled and vow_row.handle_released) return null;
     const answer = vows.pipelineAnswer(vow_row) catch return null;
     return .{ .promise = .{ .answer_position = answer.position } };
 }

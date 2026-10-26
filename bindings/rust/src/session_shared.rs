@@ -482,15 +482,15 @@ impl SessionShared {
 		let _arrival = DeliverGuard::enter(self);
 		self.attend_inbound()?;
 		let wire = target.to_sys()?;
-		let mut arena = SendArena::default();
+		let mut arena = SendArena::for_host(&self.host);
 		let (args_ptr, args_len) = arena.build(args)?;
 		// SAFETY: `self.ptr` is this `SessionShared`'s live session handle (guarded open above); `wire` is a local
 		// `GlowcapReference` borrowed for the call, `verb` is a `&str` borrowed for the call, and `args_ptr`/`args_len`
 		// come from `arena`, a live local `SendArena` that outlives the call; the header says the host copies what it
 		// queues.
-		check_host(unsafe {
+		arena.finish(check_host(unsafe {
 			ffi::glowcap_host_session_tell(self.ptr.get(), &wire, verb.as_ptr(), verb.len(), args_ptr, args_len)
-		})?;
+		}))?;
 		self.host.schedule_kick()
 	}
 

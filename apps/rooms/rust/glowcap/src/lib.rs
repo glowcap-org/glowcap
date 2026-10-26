@@ -100,7 +100,7 @@ impl ArgumentView for Value<'_> {
 	}
 	fn contains_capability(&self) -> bool {
 		match self.0 {
-			Argument::Reference(_) => true,
+			Argument::Reference(_) | Argument::Promise(_) => true,
 			Argument::List(items) | Argument::Set(items) | Argument::Tagged { value: items, .. } => {
 				values(items).any(|v| v.contains_capability())
 			}

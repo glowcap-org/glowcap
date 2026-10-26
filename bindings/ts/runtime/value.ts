@@ -66,7 +66,12 @@ export class PStruct<T = Argument> {
 // An argument is a plain JS value or a wrapper:
 //   bigint (integer), number (float64), boolean, Uint8Array (bytes), BigInt64Array (list of integers), string,
 //   Sym (symbol), Kw (keyword), Error (OCapN Error value), null (void), Ref, Argument[] (list),
-//   PSet (set), Tagged, or PStruct.
+//   PSet (set), Tagged, or PStruct. A RemotePromise this Host returned is
+//   passable to `send`/`tell` in any state (ADR-0068): the Host carries it as
+//   a capability for its answer, and it never arrives; an object this side
+//   hosts receives the promise itself. It enters the grammar
+//   through the `PromiseArgument` brand rather than as a Promise type, which
+//   would make the value grammar refer to itself through `then`.
 export type Argument =
 	| bigint
 	| number
@@ -82,7 +87,14 @@ export type Argument =
 	| Argument[]
 	| PSet
 	| Tagged
-	| PStruct;
+	| PStruct
+	| PromiseArgument;
+
+/** The brand a `RemotePromise` carries as a passable send argument. */
+export const promiseArgument: unique symbol = Symbol("glowcap.promiseArgument");
+export interface PromiseArgument {
+	readonly [promiseArgument]: true;
+}
 
 /** The wire grammar a CapTP session speaks: OCapN Syrup (the default) or
  * Cap'n Proto. A `Host` advertises its preference in signed locator hints and

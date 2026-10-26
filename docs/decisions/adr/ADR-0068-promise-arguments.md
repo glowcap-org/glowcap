@@ -63,7 +63,14 @@ Outbound, a public Host vow is passable as a capability argument. Within the
 vow's own session it lowers to `desc:answer`. Across sessions it lowers
 through the local promise projection ADR-0003 already names. One Host verb
 and one C verb perform that projection, and each binding's send accepts its
-promise type where it accepts a capability.
+promise type where it accepts a capability. A vow passes in any state until
+its handle is released. The vow row keeps the completion the embedder drained,
+so a vow asked for after it settled projects as a promise settled to that
+completion: its data, the capability it named, or its break. The row names a
+capability without retaining it, so the application's own release still
+reaches the wire at once, and a promise asked for after that release breaks.
+A promise asked for between the fire and the drain is staged by the drain. A
+broken promise has no value to pass, so a send that names one is refused.
 
 ## Alternatives and consequences
 

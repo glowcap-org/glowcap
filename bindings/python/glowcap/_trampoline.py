@@ -35,7 +35,7 @@ from ._abi_value import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
 from ._errors import _check_host, _host_last_error, GlowcapError, VowBroken
 from ._ffi_host import _host, _HostBehavior
 from ._ffi_ocapn import _Argument, _byte_buf, _Reference
-from ._promise import RemotePromise, _send_far
+from ._promise import RemotePromise, _FarArguments, _send_far
 from ._value import Forward, Ref, _ref_from_id
 
 _OK = _abi.OK
@@ -389,32 +389,31 @@ async def _tell_far(session, target: Ref | RemotePromise, verb: str, args: list)
     # targets stay behind _dispatch_tell / _tell_local.
     verb_bytes = verb.encode()
     vbuf, vptr = _byte_buf(verb_bytes)
-    keepalive: list = []
-    arr, count = _args_to_c(args, keepalive)
-    if isinstance(target, RemotePromise):
-        source_vow = target.far_vow(session.host)
-        _check_host(
-            _host.glowcap_host_vow_tell(
-                session.host.raw,
-                source_vow,
-                vptr,
-                len(verb_bytes),
-                arr,
-                count,
+    with _FarArguments(session, args) as (arr, count):
+        if isinstance(target, RemotePromise):
+            source_vow = target.far_vow(session.host)
+            _check_host(
+                _host.glowcap_host_vow_tell(
+                    session.host.raw,
+                    source_vow,
+                    vptr,
+                    len(verb_bytes),
+                    arr,
+                    count,
+                )
             )
-        )
-    else:
-        ref = _ref_to_c(target)
-        _check_host(
-            _host.glowcap_host_session_tell(
-                session.raw,
-                ctypes.byref(ref),
-                vptr,
-                len(verb_bytes),
-                arr,
-                count,
+        else:
+            ref = _ref_to_c(target)
+            _check_host(
+                _host.glowcap_host_session_tell(
+                    session.raw,
+                    ctypes.byref(ref),
+                    vptr,
+                    len(verb_bytes),
+                    arr,
+                    count,
+                )
             )
-        )
     await session.host.kick_actions()
 
 

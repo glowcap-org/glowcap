@@ -124,19 +124,27 @@ pub(crate) fn send_promise(
 	if let Err(error) = shared.drain_gc() {
 		return failed(error, shared);
 	}
-	let mut arena = SendArena::default();
+	// The target is checked before any promise argument is minted, so a refused
+	// target leaves nothing to give back.
+	let addressed = match &target.0 {
+		CmdTargetKind::Ref(reference) => match reference.to_sys() {
+			Ok(wire) => Addressed::Wire(wire),
+			Err(error) => return failed(error, shared),
+		},
+		CmdTargetKind::Pipeline(promise) => match promise.far_vow(&shared.host) {
+			Ok(source) => Addressed::Vow(source),
+			Err(error) => return failed(error, shared),
+		},
+	};
+	let mut arena = SendArena::for_host(&shared.host);
 	let (args_ptr, args_len) = match arena.build(args) {
 		Ok(built) => built,
 		Err(error) => return failed(error, shared),
 	};
 	let mut vow: u64 = 0;
 	let _arrival = DeliverGuard::enter(shared);
-	let rc = match &target.0 {
-		CmdTargetKind::Ref(reference) => {
-			let wire = match reference.to_sys() {
-				Ok(wire) => wire,
-				Err(error) => return failed(error, shared),
-			};
+	let rc = match addressed {
+		Addressed::Wire(wire) => {
 			// SAFETY: `shared.ptr.get()` is this `SessionShared`'s session handle, still live because `guard_open`
 			// above found it unreleased; `wire` is a local `GlowcapReference` from `reference.to_sys()`, `verb` borrows
 			// the caller's `&str`, and `args_ptr` and `args_len` come from the local `arena`, which borrows `args` and
@@ -154,36 +162,14 @@ pub(crate) fn send_promise(
 			}
 		}
 		// Promise pipelining: the Host admits addressable remote answers.
-		CmdTargetKind::Pipeline { vow: None, .. } => {
-			return failed(
-				Error::with_detail(
-					sys::ERR_INVALID_ARGUMENT,
-					"this promise is await-only or refused and has no pipeline target".to_string(),
-				),
-				shared,
-			);
-		}
-		CmdTargetKind::Pipeline {
-			vow: Some(source),
-			host,
-		} => {
-			if !Rc::ptr_eq(host, &shared.host) {
-				return failed(
-					Error::with_detail(
-						sys::ERR_INVALID_ARGUMENT,
-						"this promise belongs to another Host".to_string(),
-					),
-					shared,
-				);
-			}
-			// SAFETY: `shared.host.raw()` is the live Host handle of `shared.host`, which the `Rc::ptr_eq` check above
-			// shows minted `source`; `verb` borrows the caller's `&str`, and `args_ptr` and `args_len` come from the
-			// local `arena`, which borrows `args` and outlives the call; `vow` is a local out-parameter the callee
-			// writes.
+		Addressed::Vow(source) => {
+			// SAFETY: `shared.host.raw()` is the live Host handle of `shared.host`, which `far_vow` showed minted
+			// `source`; `verb` borrows the caller's `&str`, and `args_ptr` and `args_len` come from the local `arena`,
+			// which borrows `args` and outlives the call; `vow` is a local out-parameter the callee writes.
 			unsafe {
 				ffi::glowcap_host_vow_send(
 					shared.host.raw(),
-					*source,
+					source,
 					verb.as_ptr(),
 					verb.len(),
 					args_ptr,
@@ -193,7 +179,7 @@ pub(crate) fn send_promise(
 			}
 		}
 	};
-	if let Err(error) = check_host(rc) {
+	if let Err(error) = arena.finish(check_host(rc)) {
 		return failed(error, shared);
 	}
 	shared.host.vow_minted(vow, Some(shared));
@@ -206,53 +192,40 @@ pub(crate) fn send_promise(
 	RemotePromise::admitted(vow, Rc::clone(shared))
 }
 
+/// A send target the Host accepts: a capability's wire identity, or the vow
+/// whose answer the send pipelines onto.
+enum Addressed {
+	Wire(sys::GlowcapReference),
+	Vow(u64),
+}
+
 /// Fire-and-forget eventual-send to a concrete capability or an unresolved
 /// answer. The Host routes concrete capabilities and vow identities.
 pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &str, args: &[Argument]) -> Result<()> {
 	let _arrival = DeliverGuard::enter(shared);
 	match &target.0 {
 		CmdTargetKind::Ref(reference) => shared.tell(reference, verb, args),
-		CmdTargetKind::Pipeline { vow: None, .. } => Err(Error::with_detail(
-			sys::ERR_INVALID_ARGUMENT,
-			"this promise is await-only or refused and has no pipeline target".to_string(),
-		)),
-		CmdTargetKind::Pipeline {
-			vow: Some(source),
-			host,
-		} => {
+		CmdTargetKind::Pipeline(promise) => {
+			let source = promise.far_vow(&shared.host)?;
 			shared.guard_open()?;
 			shared.attend_inbound()?;
 			shared.drain_gc()?;
-			if !Rc::ptr_eq(host, &shared.host) {
-				return Err(Error::with_detail(
-					sys::ERR_INVALID_ARGUMENT,
-					"this promise belongs to another Host".to_string(),
-				));
-			}
-			let mut arena = SendArena::default();
+			let mut arena = SendArena::for_host(&shared.host);
 			let (args_ptr, args_len) = arena.build(args)?;
-			// SAFETY: `shared.host.raw()` is the live Host handle of `shared.host`, which the `Rc::ptr_eq` check above
-			// shows minted `source`; `verb` borrows the caller's `&str`, and `args_ptr` and `args_len` come from the
+			// SAFETY: `shared.host.raw()` is the live Host handle of `shared.host`, which `far_vow` showed minted
+			// `source`; `verb` borrows the caller's `&str`, and `args_ptr` and `args_len` come from the
 			// local `arena`, which borrows `args` and outlives the call.
-			check_host(unsafe {
-				ffi::glowcap_host_vow_tell(
-					shared.host.raw(),
-					*source,
-					verb.as_ptr(),
-					verb.len(),
-					args_ptr,
-					args_len,
-				)
-			})?;
+			arena.finish(check_host(unsafe {
+				ffi::glowcap_host_vow_tell(shared.host.raw(), source, verb.as_ptr(), verb.len(), args_ptr, args_len)
+			}))?;
 			shared.host.schedule_kick()
 		}
 	}
 }
 
 /// Where a `send` is addressed. A `Ref` names a capability (a near export or a
-/// far token) as usual. A `Pipeline` names the still-pending answer of an
-/// earlier send by its Host vow. `None` denotes an await-only observer or a status-allow: event or source ordering
-/// refused operation. Neither has a pipeline target.
+/// far token) as usual. A `Pipeline` names the answer of a send this side
+/// made, by the same [`PromiseArgument`] a promise passes as.
 /// Public only because it appears in the [`AsSendTarget`] trait's plumbing.
 /// Hidden from docs and not meant to be named by applications.
 #[doc(hidden)]
@@ -260,10 +233,7 @@ pub struct CmdTarget(CmdTargetKind);
 
 enum CmdTargetKind {
 	Ref(Ref),
-	Pipeline {
-		vow: Option<u64>,
-		host: Rc<crate::host::HostShared>,
-	},
+	Pipeline(PromiseArgument),
 }
 
 impl CmdTarget {
@@ -282,10 +252,7 @@ pub trait AsSendTarget {
 
 impl AsSendTarget for &RemotePromise {
 	fn as_send_target(&self) -> CmdTarget {
-		CmdTarget(CmdTargetKind::Pipeline {
-			vow: self.vow(),
-			host: Rc::clone(&self.session.host),
-		})
+		CmdTarget(CmdTargetKind::Pipeline(PromiseArgument::from(*self)))
 	}
 }
 
@@ -341,7 +308,80 @@ pub struct RemotePromise {
 	release: Option<crate::gc::VowGuard>,
 }
 
+/// A [`RemotePromise`] addressed by its Host answer: the
+/// [`Argument::Promise`] payload `Argument::from(&promise)` builds, and the
+/// address a pipelined send targets. A send through it reaches the answer,
+/// pending or settled. A promise whose send never left carries that first failure forward, an
+/// await-only promise has no answer to address, and a promise another Host
+/// returned is refused, each at the send with `InvalidArgument` before any
+/// frame moves. Equality is the same answer of the same Host.
+#[derive(Clone)]
+pub struct PromiseArgument {
+	vow: Result<u64>,
+	host: Rc<crate::host::HostShared>,
+}
+
+impl PromiseArgument {
+	/// The far vow a send through `host` addresses, or the refusal the send
+	/// reports.
+	pub(crate) fn far_vow(&self, host: &Rc<crate::host::HostShared>) -> Result<u64> {
+		let vow = self.vow.clone()?;
+		if !Rc::ptr_eq(&self.host, host) {
+			return Err(Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"this promise belongs to another Host".to_string(),
+			));
+		}
+		Ok(vow)
+	}
+}
+
+impl PartialEq for PromiseArgument {
+	fn eq(&self, other: &Self) -> bool {
+		self.vow == other.vow && Rc::ptr_eq(&self.host, &other.host)
+	}
+}
+
+impl std::fmt::Debug for PromiseArgument {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("PromiseArgument")
+			.field("vow", &self.vow)
+			.finish_non_exhaustive()
+	}
+}
+
+impl From<&RemotePromise> for PromiseArgument {
+	fn from(promise: &RemotePromise) -> PromiseArgument {
+		PromiseArgument {
+			vow: match &promise.state {
+				PromiseState::Call(vow) => Ok(*vow),
+				PromiseState::Observer(_) => Err(Error::with_detail(
+					sys::ERR_INVALID_ARGUMENT,
+					"this promise is await-only and has no pipeline target".to_string(),
+				)),
+				PromiseState::Failed(error) => Err(error.clone()),
+			},
+			host: Rc::clone(&promise.session.host),
+		}
+	}
+}
+
+impl From<&RemotePromise> for Argument {
+	fn from(promise: &RemotePromise) -> Argument {
+		Argument::Promise(PromiseArgument::from(promise))
+	}
+}
+
 impl RemotePromise {
+	// The addressable answer, or None for observer vows and refused calls.
+	#[cfg(all(test, feature = "tcp"))]
+	pub(crate) fn vow(&self) -> Option<u64> {
+		match self.state {
+			PromiseState::Call(vow) => Some(vow),
+			_ => None,
+		}
+	}
+
 	/// Return an eagerly refused operation before publishing dependent state.
 	/// Success means admission succeeded. The remote outcome still requires
 	/// awaiting this promise. This consumes the same operation without polling,
@@ -379,12 +419,6 @@ impl RemotePromise {
 	}
 
 	// The addressable answer, or None for observer vows and refused calls.
-	pub(crate) fn vow(&self) -> Option<u64> {
-		match self.state {
-			PromiseState::Call(vow) => Some(vow),
-			_ => None,
-		}
-	}
 
 	// Issue a projection at this promise's answer and return a new pipelinable
 	// promise for the projected value. By `&self`, so a handle can be projected

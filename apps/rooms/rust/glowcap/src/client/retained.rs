@@ -21,6 +21,11 @@ fn heap(value: &Argument) -> usize {
 			values.capacity() * size_of::<(String, Argument)>(),
 			|total, (key, value)| total.saturating_add(key.capacity()).saturating_add(heap(value)),
 		),
-		Argument::Integer(_) | Argument::Float(_) | Argument::Boolean(_) | Argument::Void | Argument::Reference(_) => 0,
+		Argument::Integer(_)
+		| Argument::Float(_)
+		| Argument::Boolean(_)
+		| Argument::Void
+		| Argument::Reference(_)
+		| Argument::Promise(_) => 0,
 	}
 }

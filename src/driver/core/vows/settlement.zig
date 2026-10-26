@@ -16,6 +16,8 @@ const host_mod = @import("../host.zig");
 const host_pump = @import("../host/pump.zig");
 const capability_promise = @import("../capability_promise.zig");
 const completion = @import("completion.zig");
+const host_action = @import("../host/action.zig");
+const value_mod = @import("../value.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -58,8 +60,13 @@ pub const VowRow = struct {
     /// resolution, and the promise clears the watch when it is done.
     watcher: ?capability.PromiseId = null,
     /// The application released its handle while a promise still watched
-    /// the vow. The row lives on for the fire and releases itself there.
+    /// the vow. The row lives on for the fire, or for the drain of the
+    /// completion the fire queued, and retires itself there.
     handle_released: bool = false,
+    /// The completion the embedder drained, kept with the row until release:
+    /// what the vow passes as once it settled (ADR-0068). `.none` while the
+    /// completion is still queued for the drain, and for every local row.
+    completion: Completion = .none,
     /// The actual deferred reply destination, independent of the resolver
     /// row's sessionless storage. Owning results never pass through model refs.
     forwarded: union(enum) {
@@ -88,6 +95,14 @@ pub const VowRow = struct {
         const row: *VowRow = @ptrCast(@alignCast(ctx.?));
         settleRow(row.host, row, resolution);
     }
+};
+
+/// A drained completion a session row keeps. Its storage is the action's,
+/// moved rather than copied, and the row frees it when it retires.
+pub const Completion = union(enum) {
+    none,
+    fulfilled: struct { value: value_mod.Value, storage: std.heap.ArenaAllocator.State },
+    failed: struct { failure: host_action.VowFailure, message: host_action.RetainedFailureMessage },
 };
 
 pub const AnswerRelease = enum {
@@ -151,6 +166,7 @@ pub fn markRowSettled(self: *Host, row: *VowRow) void {
 /// waits on.
 pub fn retireRow(self: *Host, row: *VowRow) void {
     std.debug.assert(row.settled);
+    completion.freeHeld(self, row);
     const removed = self.vows.fetchRemove(row.id) orelse unreachable;
     std.debug.assert(removed.value == row);
     self.allocator.destroy(row);

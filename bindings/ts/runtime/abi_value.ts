@@ -49,13 +49,18 @@ export function refStruct(ref: Ref): Uint8Array {
 	return buf;
 }
 
+/** The capability a promise among send arguments travels as (ADR-0068).
+ * Only the far send and tell paths supply one; everywhere else a promise is
+ * an unsupported argument value. */
+export type PromiseLowering = (promise: Promise<unknown>) => Ref;
+
 // Encodes args into one contiguous Uint8Array of ARG_SIZE structs, pushing any
 // backing byte/child buffers onto `keep` so they outlive the FFI call.
-export function encodeArgs(args: Argument[], keep: Uint8Array[]): Uint8Array {
+export function encodeArgs(args: Argument[], keep: Uint8Array[], lower?: PromiseLowering): Uint8Array {
 	if (args.length === 0) return EMPTY_ARGS;
 	const buf = new Uint8Array(L.ARG_SIZE * args.length);
 	const dv = new DataView(buf.buffer);
-	args.forEach((arg, i) => encodeArg(dv, i * L.ARG_SIZE, arg, keep));
+	args.forEach((arg, i) => encodeArg(dv, i * L.ARG_SIZE, arg, keep, lower));
 	keep.push(buf);
 	return buf;
 }
@@ -65,6 +70,7 @@ function encodeArg(
 	off: number,
 	arg: Argument,
 	keep: Uint8Array[],
+	lower: PromiseLowering | undefined,
 ): void {
 	const setBytes = (kind: number, bytes: Uint8Array) => {
 		keep.push(bytes);
@@ -112,6 +118,12 @@ function encodeArg(
 	} else if (isReference(arg)) {
 		dv.setUint32(off + L.ARG_KIND_OFF, ARG_REFERENCE, true);
 		writeReference(dv, off + L.ARG_REFERENCE_OFF, arg);
+	} else if (arg instanceof Promise) {
+		if (lower === undefined) {
+			throw new GlowcapError(UNSUPPORTED_VALUE, "a promise is passable only as a send or tell argument");
+		}
+		dv.setUint32(off + L.ARG_KIND_OFF, ARG_REFERENCE, true);
+		writeReference(dv, off + L.ARG_REFERENCE_OFF, lower(arg));
 	} else if (Array.isArray(arg)) {
 		writeItems(ARG_LIST, arg);
 	} else if (arg instanceof PSet) {
@@ -121,7 +133,7 @@ function encodeArg(
 		writeItems(ARG_TAGGED, arg.value);
 	} else if (arg instanceof PStruct) {
 		dv.setUint32(off + L.ARG_KIND_OFF, ARG_STRUCT, true);
-		const child = encodeStructEntries(arg.entries, keep);
+		const child = encodeStructEntries(arg.entries, keep, lower);
 		L.setPtr(dv, off + L.ARG_ITEMS_OFF, ffi.pointerOf(child));
 		L.setUsize(dv, off + L.ARG_ITEMS_LEN_OFF, arg.entries.length * 2);
 	} else {
@@ -130,7 +142,7 @@ function encodeArg(
 
 	function writeItems(kind: number, items: Argument[]): void {
 		dv.setUint32(off + L.ARG_KIND_OFF, kind, true);
-		const child = encodeArgs(items, keep);
+		const child = encodeArgs(items, keep, lower);
 		L.setPtr(dv, off + L.ARG_ITEMS_OFF, ffi.pointerOf(child));
 		L.setUsize(dv, off + L.ARG_ITEMS_LEN_OFF, items.length);
 	}
@@ -139,6 +151,7 @@ function encodeArg(
 function encodeStructEntries(
 	entries: Array<readonly [string, Argument]>,
 	keep: Uint8Array[],
+	lower: PromiseLowering | undefined,
 ): Uint8Array {
 	if (entries.length === 0) return EMPTY_ARGS;
 	const buf = new Uint8Array(L.ARG_SIZE * entries.length * 2);
@@ -147,8 +160,8 @@ function encodeStructEntries(
 		if (typeof key !== "string") {
 			throw new GlowcapError(UNSUPPORTED_VALUE, "Struct entries must be String/value pairs");
 		}
-		encodeArg(dv, i * 2 * L.ARG_SIZE, key, keep);
-		encodeArg(dv, (i * 2 + 1) * L.ARG_SIZE, value, keep);
+		encodeArg(dv, i * 2 * L.ARG_SIZE, key, keep, undefined);
+		encodeArg(dv, (i * 2 + 1) * L.ARG_SIZE, value, keep, lower);
 	});
 	keep.push(buf);
 	return buf;

@@ -13,6 +13,7 @@ const host_mod = @import("../host.zig");
 const host_pump = @import("pump.zig");
 const pump_schedule = @import("pump/schedule.zig");
 const sessions_mod = @import("../sessions.zig");
+const vow_completion = @import("../vows/completion.zig");
 
 const Host = host_mod.Host;
 const HostError = host_mod.HostError;
@@ -120,8 +121,15 @@ pub const HostAction = union(enum) {
     resume_work,
 };
 
-/// Release live capability custody before reclaiming its Value storage.
+/// A drained completion moves to its session row, which keeps it for the
+/// vow's remaining life (ADR-0068). Every other payload is discarded.
 pub fn freePayload(self: *Host, action: HostAction) void {
+    if (vow_completion.holdDrained(self, action)) return;
+    discardPayload(self, action);
+}
+
+/// Release live capability custody before reclaiming its Value storage.
+fn discardPayload(self: *Host, action: HostAction) void {
     if (action == .settled)
         lower.releaseValueCapabilitiesTerminalAt(self, &.{action.settled.value}, null);
     freeStorage(self.allocator, action);

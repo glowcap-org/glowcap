@@ -2,7 +2,8 @@
 //! shuttle: turn_forward, turn_send, and turn_tell behind a caretaker,
 //! turn_spawn minting a capability mid-turn, turn_break carrying the
 //! refusal's own words, and vow_send/index/untag/get against answers that
-//! do not exist yet, with the baseline peer's outbound-untag refusal. status-allow: pending state or quoted runtime label
+//! are still open, a pending vow passed as a capability, and the baseline
+//! peer's outbound-untag refusal. status-allow: pending state or quoted runtime label
 
 const std = @import("std");
 const c = @import("c_abi");
@@ -60,6 +61,7 @@ const kitchen_pair_items = behaviors.kitchen_pair_items;
 const kitchen_boxed_items = behaviors.kitchen_boxed_items;
 const KitchenCtx = behaviors.KitchenCtx;
 const kitchenBehavior = behaviors.kitchenBehavior;
+const relayBehavior = behaviors.relayBehavior;
 
 test "libglowcap_host: a spawned object behind a caretaker — turn_forward, turn_send, turn_tell" {
     const client = try newHost(0x31);
@@ -259,6 +261,84 @@ test "libglowcap_host: promise pipelining — vow_send, vow_index, vow_untag, vo
     var refused_vow: u64 = 0;
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_vow_index(server, local_vow, 0, &refused_vow));
     try expectOk(cd.glowcap_host_vow_release(server, local_vow));
+}
+
+test "libglowcap_host: a pending vow passes as a capability — vow_capability relayed before its answer exists" {
+    const client = try newHost(0x51);
+    defer _ = cd.glowcap_host_release(client);
+    const server = try newHost(0x52);
+    defer _ = cd.glowcap_host_release(server);
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.GlowcapHost{ client, server };
+    const pair = try openPair(&hosts, client, server, "127.0.0.1:7001", &dials, &watches);
+
+    var counter = Counter{};
+    var widget_local_ref: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_session_spawn(pair.b, widgetBehavior, &counter, null, &widget_local_ref));
+    var kitchen_ctx = KitchenCtx{ .widget_local_ref = widget_local_ref };
+    var kitchen_local_ref: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_session_publish(pair.b, "kitchen", 7, kitchenBehavior, &kitchen_ctx, null, &kitchen_local_ref));
+    var relay_local_ref: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_session_publish(pair.b, "relay", 5, relayBehavior, null, null, &relay_local_ref));
+
+    var fetched_kitchen = CapturedSettle{};
+    var kitchen_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_fetch(pair.a, "kitchen", 7, &kitchen_vow));
+    watches.add(client, kitchen_vow, &fetched_kitchen);
+    var fetched_relay = CapturedSettle{};
+    var relay_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_fetch(pair.a, "relay", 5, &relay_vow));
+    watches.add(client, relay_vow, &fetched_relay);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    const kitchen_ref = try fetched_kitchen.requireRef();
+    const relay_ref = try fetched_relay.requireRef();
+
+    // The pending `make` answer becomes a capability, one identity however
+    // often it is asked, and rides the `relay` send before any frame moves.
+    var make_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_send(pair.a, &kitchen_ref, "make", 4, null, 0, &make_vow));
+    var promise_ref: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_vow_capability(client, make_vow, &promise_ref));
+    var again_ref: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_vow_capability(client, make_vow, &again_ref));
+    try std.testing.expectEqual(promise_ref.id, again_ref.id);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_vow_capability(client, make_vow, null));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_vow_capability(null, make_vow, &again_ref));
+
+    const relay_args = [_]c.GlowcapArgument{argRef(promise_ref)};
+    var relayed_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_send(pair.a, &relay_ref, "relay", 5, &relay_args, 1, &relayed_vow));
+    var relayed = CapturedSettle{};
+    watches.add(client, relayed_vow, &relayed);
+    // The queued send owns its own retain, so both application retains can go
+    // before the answer exists.
+    try expectOk(cd.glowcap_host_ref_release(client, &promise_ref, 2));
+
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(relayed.fired);
+    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, relayed.kind);
+    try std.testing.expectEqualStrings("poked over the C surface", relayed.text[0..relayed.text_len]);
+    try std.testing.expectEqual(@as(u32, 1), counter.pokes);
+
+    // A settled vow still passes: the Host kept its drained completion with
+    // the row. A released one is gone.
+    var late_ref: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_vow_capability(client, make_vow, &late_ref));
+    const late_args = [_]c.GlowcapArgument{argRef(late_ref)};
+    var late_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_send(pair.a, &relay_ref, "relay", 5, &late_args, 1, &late_vow));
+    var late = CapturedSettle{};
+    watches.add(client, late_vow, &late);
+    try expectOk(cd.glowcap_host_ref_release(client, &late_ref, 1));
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(late.fired);
+    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, late.kind);
+    try std.testing.expectEqual(@as(u32, 2), counter.pokes);
+    try expectOk(cd.glowcap_host_vow_release(client, make_vow));
+    var gone_ref: c.GlowcapReference = .{ .id = 0 };
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_vow_capability(client, make_vow, &gone_ref));
+    try std.testing.expectEqual(@as(u64, 0), gone_ref.id);
 }
 
 test "libglowcap_host: a baseline peer refuses outbound untag before minting its projected vow" {

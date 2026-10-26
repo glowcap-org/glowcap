@@ -537,6 +537,7 @@ pub const glowcap_host_session_tell = session.glowcap_host_session_tell;
 pub const glowcap_host_vow_send = session.glowcap_host_vow_send;
 pub const glowcap_host_vow_tell = session.glowcap_host_vow_tell;
 pub const glowcap_host_vow_release = session.glowcap_host_vow_release;
+pub const glowcap_host_vow_capability = session.glowcap_host_vow_capability;
 pub const glowcap_host_vow_index = session.glowcap_host_vow_index;
 pub const glowcap_host_vow_untag = session.glowcap_host_vow_untag;
 pub const glowcap_host_vow_get = session.glowcap_host_vow_get;

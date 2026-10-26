@@ -152,3 +152,10 @@ at each declaration, and this inventory names Host runtime and custody costs.
   - A promise that settles to data owns the data in one arena on the row
     (`Row.SettledData`), lifted once under the origin session, held while the
     application holds the capability, and freed with the row.
+  - A session vow row keeps the completion the embedder drained
+    (`VowRow.completion`): the action's own value and arena moved, not
+    copied, holding no capability retain, and freed when the handle is
+    released. A vow asked for as a capability after it settled stages from
+    it, retaining a reference for the promise or cloning data once into the
+    promise's arena (`promise_answer.cloneData`), because the row keeps its
+    copy for a later ask.

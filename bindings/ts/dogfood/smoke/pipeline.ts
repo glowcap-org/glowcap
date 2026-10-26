@@ -182,6 +182,69 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("promise pipelining drives create->assign->complete->status as one batch");
 	}
 
+	// A promise is a send argument (ADR-0068): the unawaited `make` answer
+	// crosses as a capability for the pending answer, the same promise crosses
+	// settled as its value nested in a list, and the board hands each
+	// capability back. Greeting through the returned handles proves both
+	// reached the greeter.
+	{
+		const server = await tcp.listen("127.0.0.1", 0);
+		const port = server.port;
+		let markPublished!: () => void;
+		const published = new Promise<void>((resolve) => (markPublished = resolve));
+
+		async function host(): Promise<void> {
+			for await (const session of server) {
+				session.publish("root", (verb, args) => {
+					if (verb === "make") {
+						return session.spawn((greeterVerb) => {
+							if (greeterVerb === "greet") return "hello from the greeter";
+							throw new Error(`no such method: ${greeterVerb}`);
+						});
+					}
+					if (verb === "use") return args[0];
+					if (verb === "use-first") {
+						const [items] = args;
+						if (!Array.isArray(items)) throw new Error("use-first needs a list");
+						return items[0];
+					}
+					throw new Error(`no such method: ${verb}`);
+				});
+				session.serve().catch(() => {});
+				markPublished();
+				break;
+			}
+		}
+		const hosted = host();
+
+		async function client(): Promise<void> {
+			const session = await managed.connect(tcp.locator("127.0.0.1", port));
+			session.serve().catch(() => {});
+			await published;
+			const root = await session.fetch("root");
+			const greeter = session.send(root, "make", []);
+			const used = await session.send(root, "use", [greeter]);
+			// Observed settled, the promise passes as its value.
+			// `make` answered before `use` on one session, so the promise is
+			// settled when it passes again: the Host carries it as its value.
+			assert((await greeter) instanceof Ref, "make answered with the greeter");
+			const usedFirst = await session.send(root, "use-first", [[greeter]]);
+			assert(used instanceof Ref && usedFirst instanceof Ref, "a passed promise returns as a capability");
+			assert(
+				await session.send(used, "greet", []) === "hello from the greeter",
+				"the bare promise reached the greeter",
+			);
+			assert(
+				await session.send(usedFirst, "greet", []) === "hello from the greeter",
+				"the nested promise reached the greeter",
+			);
+			await session.close();
+		}
+
+		await Promise.all([client(), hosted]);
+		ok("a pending promise passes as a capability, bare and nested in a list");
+	}
+
 	// A RemotePromise is namespaced by its owning Host, not merely its FFI vow
 	// number. Two Hosts collide their ids; crossing the handles must
 	// be refused before FFI while the destination's own promise remains exact.
