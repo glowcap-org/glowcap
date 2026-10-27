@@ -154,10 +154,11 @@ declaration under `src/`.
   ownership. Local replay reverses descriptor perspective in its owned tree
   before encoding the event, without another value-tree allocation or clone.
 - **Stored resolution import holds**: `ImportRelease.prepareForValue` and
-  `ImportRelease.prepare`. One cold outbox per session, then one batch with
-  two exact position/delta arrays per stored resolution naming a far import
-  (its hold on those rows) and per capability-bearing forwarded result (the
-  retains the reply introduced, chained to the hold). The shared GC model
+  `ImportRelease.prepareForIntroduced`. One cold outbox per session, then one
+  batch with two exact position/delta arrays per stored resolution naming a
+  far import (its hold on those rows) and per capability-bearing forwarded
+  result (the same hold, with the retains the reply introduced parked behind
+  it, chained to the value's batch). The shared GC model
   requires both arrays. Values naming no far import allocate none of these.
   Final release of the answer payload links the batch into the outbox
   without allocation, and the drain settles the hold before encoding. A

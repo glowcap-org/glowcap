@@ -1,8 +1,8 @@
 //! Listener installation and settlement drain for the CapTP pipeline seam.
 //!
-//! Answer, imported-promise, and live-export listeners share one transactional
-//! publication path: reserve, record wire accounting, then infallibly publish a
-//! stamped store reference. No listener is detached without a terminal owner.
+//! Answer and live-export listeners share one transactional publication path:
+//! reserve, record wire accounting, then infallibly publish a stamped store
+//! reference. No listener is detached without a terminal owner.
 
 const std = @import("std");
 
@@ -96,7 +96,7 @@ fn fireLiveObjectExportListener(peer: *Peer, export_position: model.ExportPositi
     } };
     switch (classifyTerminalListenerDrain(peer, listener_entry, resolution)) {
         .fire => |position| try enqueueFire(peer, position, .{ .near_object = export_position }, resolution),
-        .discard => peer.session_state.releaseSessionImportRetain(listener_entry.listener.import_position),
+        .discard => |position| try enqueueDiscard(peer, position),
     }
     retain_live = false;
 }
@@ -141,7 +141,7 @@ fn applyStoredListener(
         },
         .fire => |fire| switch (classifyTerminalListenerDrain(peer, entry, fire.resolution)) {
             .fire => |position| try enqueueFire(peer, position, fire.target, fire.resolution),
-            .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
+            .discard => |position| try enqueueDiscard(peer, position),
         },
     }
 }
@@ -198,7 +198,10 @@ pub const PreparedListenerDrain = struct {
                         .target = fire.target,
                     } });
                 },
-                .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
+                .discard => |position| peer.pushPendingAssume(self.reservation.?, .{ .listener_fire = .{
+                    .listener_position = position,
+                    .target = .discarded,
+                } }),
             },
         }
         peer.allocator.free(self.listeners);
@@ -212,14 +215,14 @@ pub const PreparedListenerDrain = struct {
 fn retainFireTarget(peer: *Peer, target: engine.FireTarget) !void {
     switch (target) {
         .store => |store| try peer.session_state.retainAnswerPayload(store.payload),
-        .near_object, .static_break => {},
+        .near_object, .static_break, .discarded => {},
     }
 }
 
 fn releaseFireTarget(peer: *Peer, target: engine.FireTarget) void {
     switch (target) {
         .store => |store| peer.session_state.releaseAnswerPayload(store.payload),
-        .near_object, .static_break => {},
+        .near_object, .static_break, .discarded => {},
     }
 }
 
@@ -240,37 +243,43 @@ fn prepareListenerDrainPlan(
         },
         .fire => |fire| fire,
     };
-    var fire_count: usize = 0;
+    // Every listener leaves as one carrier: a fire with its callback, or a
+    // discard that only releases the listener's import.
+    var fires: usize = 0;
     for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, fire.resolution)) {
         .fire => {
             try peer.session_state.validateListenerFireTarget(entry.listener);
-            fire_count += 1;
+            fires += 1;
         },
         .discard => {},
     };
-    if (fire_count == 0) return prepared;
     // Only a stored tree carries mentions to inventory and exports to reserve.
-    if (fire.target == .store) {
+    if (fires != 0 and fire.target == .store) {
         prepared.inventory = try peer.inventoryResolution(fire.resolution);
         try peer.session_state.ensureSentResolutionExportCapacity(fire.resolution, prepared.inventory);
     }
-    var batch = try peer.beginPendingBatch(fire_count);
-    for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, fire.resolution)) {
-        .fire => |position| {
-            try retainFireTarget(peer, fire.target);
-            prepared.target_retains += 1;
-            const reservation = try batch.reserve(.{ .listener_fire = .{
+    var batch = try peer.beginPendingBatch(prepared.listeners.len);
+    for (prepared.listeners) |entry| {
+        const reservation = switch (classifyTerminalListenerDrain(peer, entry, fire.resolution)) {
+            .fire => |position| blk: {
+                try retainFireTarget(peer, fire.target);
+                prepared.target_retains += 1;
+                break :blk try batch.reserve(.{ .listener_fire = .{
+                    .listener_position = position,
+                    .target = fire.target,
+                } });
+            },
+            .discard => |position| try batch.reserve(.{ .listener_fire = .{
                 .listener_position = position,
-                .target = fire.target,
-            } });
-            if (prepared.reservation) |first_reservation|
-                std.debug.assert(first_reservation.charge == reservation.charge)
-            else
-                prepared.reservation = reservation;
-            prepared.reserved += 1;
-        },
-        .discard => {},
-    };
+                .target = .discarded,
+            } }),
+        };
+        if (prepared.reservation) |first_reservation|
+            std.debug.assert(first_reservation.charge == reservation.charge)
+        else
+            prepared.reservation = reservation;
+        prepared.reserved += 1;
+    }
     return prepared;
 }
 
@@ -286,6 +295,20 @@ fn listenerDrainPlan(outcome: resolution_chain.Outcome) ListenerDrainPlan {
             .resolution = terminalBreak(message),
         } },
     };
+}
+
+/// Queue the carrier that releases a discarded listener's import on the wire
+/// (`FireTarget.discarded`). Nothing records at queue time: the release
+/// records when its frame leaves, as for a fire whose callback fell moot.
+fn enqueueDiscard(peer: *Peer, listener_position: u64) !void {
+    const reservation = try peer.reservePending(.{ .listener_fire = .{
+        .listener_position = listener_position,
+        .target = .discarded,
+    } });
+    peer.pushPendingAssume(reservation, .{ .listener_fire = .{
+        .listener_position = listener_position,
+        .target = .discarded,
+    } });
 }
 
 fn enqueueFire(

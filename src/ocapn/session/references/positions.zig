@@ -185,9 +185,10 @@ pub fn releaseImportRetain(self: *Session, id: model.ImportPosition) void {
 }
 
 /// Release one of the session's own retains on `id` without a wire message:
-/// a listener discarded before it fired, a queued fire torn down with its
-/// peer, or an install rolled back. A retain that reaches the wire leaves
-/// through `recordSessionImportRelease` instead.
+/// a queued carrier torn down with its closed peer, or a listener install
+/// rolled back by the refusal that follows. Every other session retain, a
+/// discarded listener's included, leaves through
+/// `recordSessionImportRelease`.
 pub fn releaseSessionImportRetain(self: *Session, id: model.ImportPosition) void {
     if (id.int() == bootstrap_position) return;
     self.imports.releaseSessionHeld(id, 1);

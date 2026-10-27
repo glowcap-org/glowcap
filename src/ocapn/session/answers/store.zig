@@ -40,20 +40,17 @@ pub fn answerSlot(position: model.AnswerPosition, status: AnswerStatus) slot.Slo
 /// `op:deliver`'s target). The field mirrors the wire name so it is not
 /// confused with `op:listen`'s `target` (the promise being listened on, which
 /// the cap `max_listeners_per_target` counts). `mode` says whether shortening,
-/// settling, or either transition concludes the subscription. The type is a bare `FarRef`, not a full
-/// `Reference`: the installs only ever anchor a positional far target
-/// (`pipeline.installAnswerListener` and the imported-promise install both
-/// build `FarRef.object`), so an entry is POD, no heap, nothing to free.
+/// settling, or either transition concludes the subscription. The type is a
+/// bare `FarRef`, not a full `Reference`: every install anchors a positional
+/// far target (`FarRef.object`), so an entry is POD, no heap, nothing to free.
 pub const ListenerEntry = struct {
     listener: model.FarRef,
     mode: model.ListenMode,
 };
 
 /// A row's `op:listen` subscribers, the parties to notify when the row's
-/// promise resolves. An inbound answer's pipelining payload and a third-party
-/// imported promise (ADR-0039) hold listeners the same way: accumulate POD
-/// entries until resolve, then hand the whole batch off. This type is that one
-/// shared mechanic, so the two substrates cannot drift apart.
+/// promise resolves. An inbound answer's payload accumulates POD entries until
+/// the resolve, then hands the whole batch to the listener drain.
 ///
 /// The fan-out bound (`max_listeners_per_target`, ADR-0008) is the length of
 /// this whole list: it caps how many listeners one *listened-on promise*

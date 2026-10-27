@@ -80,16 +80,13 @@ pub const Outbound = union(enum) {
     /// The payload pointer and `AnswerTarget` preserve the accepted resolver or
     /// listener obligation independently of the live name.
     settled_answer: SettledAnswer,
-    /// One `op:listen` fire. The `target` names which payload `step` borrows at
-    /// encode: an inbound answer payload, a handoff-imported
-    /// third-party promise (ADR-0039), or a live object export's POD
-    /// `fulfill(near)` (`FireTarget.near_object`). Store-backed targets carry
-    /// exact store identity inside their arm, stamped at queue time.
-    /// `near_object` encodes from the export position when the row is still
-    /// live. Queue-time accounting already ran (`enqueueFire` in
-    /// `pipeline_listeners.zig`). Answer targets retain their payload through
-    /// name reuse. Imported targets drop only when their stamped row is gone or
-    /// replaced.
+    /// One `op:listen` fire. The `target` names what `step` encodes: an inbound
+    /// answer payload borrowed under its exact store identity, stamped at
+    /// queue time and retained through name reuse, a live object export's POD
+    /// `fulfill(near)` (`FireTarget.near_object`), a static break, or nothing
+    /// for a listener a transition it did not request concluded
+    /// (`FireTarget.discarded`). Queue-time accounting already ran
+    /// (`enqueueFire` in `pipeline_listeners.zig`).
     listener_fire: listener_fire.Carrier,
     /// The position of a carrier the Node is still staging (its gift ids have
     /// not arrived). A step stops here, so later carriers keep their order
@@ -409,12 +406,7 @@ fn enqueueAnswerTargetResolutionAdmitted(
 /// Queue the carrier of one deferred projection settlement. True when a
 /// carrier was queued; `OutboundBackpressure` leaves the row deferred.
 pub fn retryDeferredSettlement(self: *Peer) !bool {
-    if (self.deferred_settlements == 0) return false;
-    const projection = self.session_state.deferredLocalPromiseSettlement() orelse {
-        // tolerant: a closed session retired its rows ahead of this count.
-        self.deferred_settlements = 0;
-        return false;
-    };
+    const projection = self.session_state.deferredLocalPromiseSettlement() orelse return false;
     const payload = self.session_state.answerPayloadForTarget(projection.answer_target) orelse unreachable;
     const item: Outbound = .{ .settled_answer = .{
         .target = projection.answer_target,
@@ -429,7 +421,6 @@ pub fn retryDeferredSettlement(self: *Peer) !bool {
         return err;
     };
     self.session_state.clearDeferredLocalPromiseSettlement(projection.export_position);
-    self.deferred_settlements -= 1;
     self.pushPendingAssume(reservation, item);
     return true;
 }
@@ -551,7 +542,6 @@ fn deferAnswerSettlement(
         inventory,
     );
     self.session_state.deferLocalPromiseSettlement(settlement.target);
-    self.deferred_settlements += 1;
 }
 
 const AnswerSettlementAdmission = union(enum) {

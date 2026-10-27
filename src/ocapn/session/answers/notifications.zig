@@ -195,6 +195,12 @@ pub fn validateSettlement(
     try self.validateSentResolutionValue(resolution_value, inventory);
 }
 
+/// Give back one payload retain and the charges its final release returns.
+/// This is the verb for a retain whose transaction never queued or drained a
+/// carrier: a refused reservation, an abandoned fire target, a Node stage that
+/// took the settlement another way. A carrier that left the wire releases
+/// through `releaseCarrier`, which also retires the rows its notification
+/// completed.
 pub fn releasePayload(self: *Session, answer_payload: *answers.AnswerPayload) void {
     self.returnReleasedCharges(answers.releaseAnswerPayload(self.allocator, answer_payload));
 }

@@ -155,8 +155,9 @@ test "a bootstrap listener fires without import accounting or wire release" {
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .integer = 7 } },
     } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    // The discarded resolver listener's carrier releases nothing on the
+    // bootstrap position and the fired one's callback is the only frame.
+    while ((try peer.step()) != .idle) {}
 
     var callback = peer.takeOutbound() orelse return error.MissingListenerCallback;
     defer callback.deinit();

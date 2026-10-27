@@ -139,3 +139,21 @@ test "a stored value naming one import twice holds it twice and releases it once
     s.imports.releaseSessionHeld(position(9), 1);
     try std.testing.expect(!s.holdsImport(position(9)));
 }
+
+test "a Host handle lifted from a parked introduced mention takes the parked retain back" {
+    var s = session.Session.init(std.testing.allocator);
+    defer s.deinit();
+    try s.registerImport(position(9));
+    s.imports.holdForResolution(position(9));
+    s.imports.parkForResolution(position(9));
+    try std.testing.expectEqual(@as(u64, 0), s.importReleasable(position(9)));
+    try std.testing.expectEqual(@as(u64, 1), s.imports.sessionHeld(position(9)));
+
+    try s.noteHostCapability(position(9), 7);
+    try std.testing.expectEqual(@as(u64, 1), s.importReleasable(position(9)));
+    try std.testing.expectEqual(@as(u64, 0), s.imports.sessionHeld(position(9)));
+    // The hold owes nothing: the handle's release is a caller's again.
+    try std.testing.expectEqual(@as(u64, 0), s.imports.releaseResolutionHold(position(9)));
+    try s.imports.decrement(position(9), 1);
+    try std.testing.expect(!s.holdsImport(position(9)));
+}

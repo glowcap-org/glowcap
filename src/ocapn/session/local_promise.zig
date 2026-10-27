@@ -26,6 +26,10 @@ pub const CollectionState = enum { active, deferred };
 pub const Registry = struct {
     state: CollectionState = .active,
     projections: std.ArrayListUnmanaged(model.ExportPosition) = .empty,
+    /// Projections whose stored settlement still owes its carrier
+    /// (`settlement_deferred`). Nonzero makes the Peer's step retry one, and
+    /// zero lets `deferredSettlement` answer without a scan.
+    deferred: u32 = 0,
     /// Collections since the last trace, the pacing the collector reads.
     collects_since_trace: u32 = 0,
 };
@@ -108,7 +112,8 @@ pub fn projectionExport(self: *Session, answer_name: model.AnswerName) ?model.Ex
 /// the row it minted through `allocate` in the same record, so it is present.
 pub fn abandon(self: *Session, export_position: model.ExportPosition) void {
     const answer_name = answerForExport(self, export_position) orelse unreachable;
-    std.debug.assert(self.exports.clearPurpose(export_position) != null);
+    const purpose = self.exports.clearPurpose(export_position) orelse unreachable;
+    std.debug.assert(!purpose.local_promise_answer.settlement_deferred);
     self.abandonUnsharedInboundAnswerNamed(answer_name);
     self.releaseUnsharedExport(export_position);
     const registry = self.local_promises.?;
@@ -121,18 +126,22 @@ pub fn abandon(self: *Session, export_position: model.ExportPosition) void {
 }
 
 /// Mark the projection behind `target` as holding a stored settlement whose
-/// carrier outbound pressure refused. The Peer counts deferred settlements
-/// and retries from `deferredSettlement`.
+/// carrier outbound pressure refused. The Peer retries it from
+/// `deferredSettlement`.
 pub fn deferSettlement(self: *Session, target: answers.AnswerTarget) void {
     const export_position = projectionExport(self, target.name) orelse unreachable;
     const purpose = self.exports.purposePtr(export_position) orelse unreachable;
     std.debug.assert(!purpose.local_promise_answer.settlement_deferred);
     purpose.local_promise_answer.settlement_deferred = true;
+    self.local_promises.?.deferred += 1;
 }
 
-/// One projection whose settlement carrier is still owed, or null.
+/// One projection whose settlement carrier is still owed, or null. A deferred
+/// projection is never collected (`local_promise_gc`), so the count is exact
+/// and the scan runs only while one is owed.
 pub fn deferredSettlement(self: *Session) ?Projection {
     const registry = self.local_promises orelse return null;
+    if (registry.deferred == 0) return null;
     for (registry.projections.items) |position| {
         const purpose = self.exports.purposePtr(position) orelse unreachable;
         if (!purpose.local_promise_answer.settlement_deferred) continue;
@@ -143,7 +152,7 @@ pub fn deferredSettlement(self: *Session) ?Projection {
             .answer_target = self.answerTargetNamed(answer_name) orelse unreachable,
         };
     }
-    return null;
+    unreachable;
 }
 
 /// The owed carrier for `export_position` is queued.
@@ -151,6 +160,9 @@ pub fn clearDeferredSettlement(self: *Session, export_position: model.ExportPosi
     const purpose = self.exports.purposePtr(export_position) orelse unreachable;
     std.debug.assert(purpose.local_promise_answer.settlement_deferred);
     purpose.local_promise_answer.settlement_deferred = false;
+    const registry = self.local_promises.?;
+    std.debug.assert(registry.deferred != 0);
+    registry.deferred -= 1;
 }
 
 pub fn destroyRegistry(self: *Session) void {

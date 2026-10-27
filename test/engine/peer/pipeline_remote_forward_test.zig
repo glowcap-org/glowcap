@@ -287,20 +287,20 @@ test "a forwarded reply naming the partner's own question breaks the original an
     );
 }
 
-fn prepareOwnedResult(allocator: std.mem.Allocator) !void {
+fn prepareIntroducedResult(allocator: std.mem.Allocator) !void {
     var state = session.Session.init(allocator);
     defer state.deinit();
     try state.registerImport(.from(88));
     try state.registerImport(.from(88));
     const releases = session.ImportRelease;
-    const batch = (try releases.prepare(&state, &.{ .from(88), .from(88) })).?;
+    const batch = (try releases.prepareForIntroduced(&state, &.{ .from(88), .from(88) })).?;
     batch.take(&state);
     batch.ready();
     try std.testing.expectEqual(@as(u64, 0), state.importReleasable(.from(88)));
 }
 
 test "stored forwarding import release preparation is leak free at every allocation refusal" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, prepareOwnedResult, .{});
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, prepareIntroducedResult, .{});
 }
 
 test "stored forwarding import release retries allocator refusal without spending its ownership" {
@@ -311,7 +311,7 @@ test "stored forwarding import release retries allocator refusal without spendin
     try peer.session_state.registerImport(.from(88));
     try peer.session_state.registerImport(.from(88));
     const releases = session.ImportRelease;
-    const batch = (try releases.prepare(&peer.session_state, &.{ .from(88), .from(88) })).?;
+    const batch = (try releases.prepareForIntroduced(&peer.session_state, &.{ .from(88), .from(88) })).?;
     batch.take(&peer.session_state);
     batch.ready();
     const charge = peer.session_state.retained_sent_answer_bytes;
@@ -327,9 +327,10 @@ test "stored forwarding import release retries allocator refusal without spendin
     defer frame.deinit();
     const body = try codec.dispatch.decodeBodyForProfile(peer.session_state.codec, .next, frame.view());
     try std.testing.expect(body == .gc_export);
-    try std.testing.expectEqual(@as(usize, 2), body.gc_export.positions.len());
+    // Two parked retains on one row leave as one entry with their delta.
+    try std.testing.expectEqual(@as(usize, 1), body.gc_export.positions.len());
     try std.testing.expectEqual(@as(u64, 88), try body.gc_export.positions.at(0));
-    try std.testing.expectEqual(@as(u64, 88), try body.gc_export.positions.at(1));
+    try std.testing.expectEqual(@as(u64, 2), try body.gc_export.deltas.at(0));
     try std.testing.expectEqual(@as(usize, 0), peer.session_state.retained_sent_answer_bytes);
     try std.testing.expectEqual(@as(u64, 0), peer.session_state.importRefcount(.from(88)));
 }
@@ -339,11 +340,11 @@ test "stored forwarding import release shares the retained byte and live answer 
     defer state.deinit();
     const releases = session.ImportRelease;
     state.limits.max_retained_sent_answer_bytes = 0;
-    try std.testing.expectError(error.RetainedAnswerCapExceeded, releases.prepare(&state, &.{.from(88)}));
+    try std.testing.expectError(error.RetainedAnswerCapExceeded, releases.prepareForIntroduced(&state, &.{.from(88)}));
     try std.testing.expect(state.import_release_outbox == null);
     state.limits.max_retained_sent_answer_bytes = 1 << 24;
     state.limits.max_inbound_answers = 0;
-    try std.testing.expectError(error.QueueCapExceeded, releases.prepare(&state, &.{.from(88)}));
+    try std.testing.expectError(error.QueueCapExceeded, releases.prepareForIntroduced(&state, &.{.from(88)}));
     try std.testing.expectEqual(@as(usize, 0), state.retained_sent_answer_bytes);
     try std.testing.expectEqual(@as(usize, 0), state.import_release_outbox.?.active_batches);
 }
@@ -385,7 +386,7 @@ test "ready import releases respect pressure after already admitted work drains"
     try peer.sendBorrowed(.{ .deliver = .{ .target = .{ .far = model.FarRef.object(9) }, .args = &.{.{ .string = "pending" }} } });
     try peer.session_state.registerImport(.from(88));
     const releases = session.ImportRelease;
-    const batch = (try releases.prepare(&peer.session_state, &.{.from(88)})).?;
+    const batch = (try releases.prepareForIntroduced(&peer.session_state, &.{.from(88)})).?;
     batch.take(&peer.session_state);
     batch.ready();
     peer.outbound_budget = 1;
@@ -415,7 +416,7 @@ test "ready import releases flush an otherwise held answer release" {
     peer.publishAnswerRelease(reservation, peer.session_state.outboundAnswerTarget(.from(43)).?);
     try peer.session_state.registerImport(.from(88));
     const releases = session.ImportRelease;
-    const batch = (try releases.prepare(&peer.session_state, &.{.from(88)})).?;
+    const batch = (try releases.prepareForIntroduced(&peer.session_state, &.{.from(88)})).?;
     batch.take(&peer.session_state);
     batch.ready();
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());

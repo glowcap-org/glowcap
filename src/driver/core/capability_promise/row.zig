@@ -55,9 +55,10 @@ pub const Row = struct {
         pub const Vow = struct {
             peer_handle: engine.PeerHandle,
             vow_id: u64,
-            /// Whether the vow has fired and published the `promise_settled`
-            /// action on the seat reserved when the promise was made.
-            published: bool = false,
+            /// The seat reserved when the promise was made is spent: the fire
+            /// published the `promise_settled` action on it, or the promise
+            /// finished or was forgotten without one and gave it back.
+            seat_spent: bool = false,
         };
 
         pub fn peer(self: Origin) engine.PeerHandle {

@@ -171,6 +171,7 @@ comptime {
         _ = @import("engine/peer/abort_test.zig");
         _ = @import("engine/peer/shortening_test.zig");
         _ = @import("engine/peer/settling_test.zig");
+        _ = @import("engine/peer/listener_discard_test.zig");
         _ = @import("engine/peer/listen_failure_test.zig");
         _ = @import("engine/relay_resolution_test.zig");
         _ = @import("engine/listen_on_far_test.zig");

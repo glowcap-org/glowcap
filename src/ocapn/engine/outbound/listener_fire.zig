@@ -24,6 +24,10 @@ pub const FireTarget = union(enum) {
     /// A terminal break synthesized by engine routing rather than retained in a
     /// Session store. The text is static for the carrier's whole lifetime.
     static_break: []const u8,
+    /// A listener concluded by a transition it did not request. No callback
+    /// leaves, and the carrier releases only the listener's import, as a fire
+    /// whose callback fell moot does.
+    discarded,
 };
 
 pub const Carrier = struct {
@@ -44,8 +48,7 @@ pub fn deinitEmitted(carrier: Carrier, peer: *Peer) void {
         .store => |store| {
             peer.session_state.releaseAnswerCarrier(store.target, store.payload);
         },
-        .near_object => {},
-        .static_break => {},
+        .near_object, .static_break, .discarded => {},
     }
 }
 
@@ -70,5 +73,6 @@ pub fn borrowedMessage(peer: *Peer, carrier: Carrier, args: *[2]model.Argument) 
             .{ .@"break" = .{ .message = message } },
             args,
         ),
+        .discarded => null,
     };
 }

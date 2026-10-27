@@ -249,11 +249,6 @@ pub const Peer = struct {
     verify_partner_handshake: bool = false,
     /// A Vat turn's far sends are being held retractable (ADR-0058).
     provisional: bool = false,
-    /// Guaranteed projection settlements stored without their carrier because
-    /// the queue refused it. Nonzero makes `step` retry one row. The
-    /// projection rows are the authority, so session teardown can leave this
-    /// count high and the next scan repairs it.
-    deferred_settlements: u32 = 0,
     /// What this session knows about durable identity at the other end: the
     /// target a dial named and the byte channel's far end a realizer verified.
     /// Both are installed before any partner byte is fed. Both empty is every
@@ -483,6 +478,10 @@ pub const Peer = struct {
 /// capability promise subscribes to (ADR-0068): the session owns the mark on
 /// each payload and the `max_lifted_answers` bound, so it owns the count that
 /// the bound judges, a word once padded.
+/// Eight bytes are the import table's count of rows a stored resolution
+/// holds (ADR-0070): every outbound release asks whether an entry is held
+/// before encoding, and the count answers for the whole frame without a
+/// lookup per entry while nothing is held, the ordinary case.
 /// Every footprint budget is stated under the safe modes, because every gate runs there and `release-pack` names ReleaseSafe as
 /// the mode to ship.
 ///
@@ -493,7 +492,7 @@ pub const Peer = struct {
 /// `wasm32` (the sans-io core under `zig build cross-check`) makes it smaller,
 /// as does a fast build. So no single number is the measurement on every target
 /// and mode, and an equality here would fail the narrow ones.
-pub const peer_session_struct_budget_bytes = 1208;
+pub const peer_session_struct_budget_bytes = 1216;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget. " ++

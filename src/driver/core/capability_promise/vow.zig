@@ -97,14 +97,14 @@ pub fn stageHeld(self: *Host, id: capability.PromiseId, row: *const vow_settleme
 /// the drain.
 pub fn awaitsStaging(self: *const Host, id: capability.PromiseId) bool {
     const row = self.capability_promises.get(id) orelse return false;
-    return row.state == .pending and !row.origin.vow.published;
+    return row.state == .pending and !row.origin.vow.seat_spent;
 }
 
 fn publishStaged(self: *Host, id: capability.PromiseId, state: Row.State) void {
     const row = self.capability_promises.getPtr(id) orelse unreachable;
-    std.debug.assert(row.state == .pending and !row.origin.vow.published);
+    std.debug.assert(row.state == .pending and !row.origin.vow.seat_spent);
     row.state = state;
-    row.origin.vow.published = true;
+    row.origin.vow.seat_spent = true;
     self.node.publishPromiseSettled(@backingInt(id));
 }
 
@@ -176,9 +176,9 @@ pub fn finished(self: *Host, id: capability.PromiseId, vow: *Row.Origin.Vow) voi
 pub const forget = releaseSeat;
 
 fn releaseSeat(self: *Host, vow: *Row.Origin.Vow) void {
-    if (vow.published) return;
+    if (vow.seat_spent) return;
     self.node.releasePromiseSettlement();
-    vow.published = true;
+    vow.seat_spent = true;
 }
 
 /// The vow moved to the session that owns its real send, so the promise

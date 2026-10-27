@@ -72,15 +72,15 @@ test "a guaranteed settlement under outbound pressure stores the value and queue
         "first",
         projection_support.resolution(&peer.session_state, projection.export_position).?.fulfill.bytes,
     );
-    try std.testing.expectEqual(@as(u32, 1), peer.deferred_settlements);
+    try std.testing.expectEqual(@as(u32, 1), peer.session_state.local_promises.?.deferred);
     try std.testing.expect(peer.takeOutbound() == null);
     // The deferred carrier meets the same pressure at the next step.
     try std.testing.expectError(error.OutboundBackpressure, peer.step());
-    try std.testing.expectEqual(@as(u32, 1), peer.deferred_settlements);
+    try std.testing.expectEqual(@as(u32, 1), peer.session_state.local_promises.?.deferred);
 
     peer.outbound_budget = std.math.maxInt(usize);
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    try std.testing.expectEqual(@as(u32, 0), peer.deferred_settlements);
+    try std.testing.expectEqual(@as(u32, 0), peer.session_state.local_promises.?.deferred);
     while ((try peer.step()) != .idle) {}
     try expectListenerFire(&peer, 9, "first");
     try expectListenerRelease(&peer, 9);
@@ -100,10 +100,12 @@ test "projection listener modes fire only their requested transition" {
     try settle(&peer, projection.answer_target, .{ .fulfill = .{
         .reference = .{ .far = model.FarRef.promise(12) },
     } });
-    // The settlement's carrier drains, firing only the shortening listener,
-    // whose one-shot mention is then released.
+    // The settlement's carrier drains. The settling listener is discarded, so
+    // only its mention is released, and the shortening listener fires with its
+    // one-shot mention released after the callback.
     while ((try peer.step()) != .idle) {}
     try std.testing.expect(!peer.session_state.hasImport(.from(9)));
+    try expectListenerRelease(&peer, 9);
 
     var callback = peer.takeOutbound().?;
     defer callback.deinit();

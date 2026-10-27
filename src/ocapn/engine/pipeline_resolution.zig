@@ -54,9 +54,8 @@ pub fn rewriteDeliverTarget(
 /// exactly that for `test_op_listen_to_promise_and_break`, and Goblins'
 /// unmarshaller rejects unknown records, so an `<error>` payload would kill
 /// the break on a live Goblins partner. The listener target is rebuilt as
-/// `FarRef.object(listener_position)`. Listener entries are only ever built
-/// that shape (`pipeline.installAnswerListener` / the imported-promise
-/// install), so a bare position loses nothing.
+/// `FarRef.object(listener_position)`. Every listener entry is built that
+/// shape, so a bare position loses nothing.
 pub fn borrowedListenerFire(
     listener_position: u64,
     resolution: model.Resolution,
@@ -90,8 +89,10 @@ pub const ListenerDrainAction = union(enum) {
     /// Fire the listener once with the resolution and drop the entry. The
     /// payload is the far export position the fire targets.
     fire: u64,
-    /// The promise made a transition this subscription did not request.
-    discard,
+    /// The promise made a transition this subscription did not request. The
+    /// payload is the listener's import position, which a carrier releases
+    /// on the wire without a callback (`FireTarget.discarded`).
+    discard: u64,
 };
 
 /// Decide how `entry` drains against a settled `resolution` (ADR-0003).
@@ -121,10 +122,10 @@ pub fn classifyListenerDrain(
     {
         return switch (profile) {
             .v1_0 => .{ .fire = fire_position },
-            .next => if (entry.mode.wantsShortening()) .{ .fire = fire_position } else .discard,
+            .next => if (entry.mode.wantsShortening()) .{ .fire = fire_position } else .{ .discard = fire_position },
         };
     }
-    return if (entry.mode.wantsSettling()) .{ .fire = fire_position } else .discard;
+    return if (entry.mode.wantsSettling()) .{ .fire = fire_position } else .{ .discard = fire_position };
 }
 
 /// Compute an `op:get` / `op:index` / `op:untag` projection over a settled

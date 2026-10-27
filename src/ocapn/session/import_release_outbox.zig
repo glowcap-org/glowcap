@@ -1,6 +1,5 @@
-//! A stored resolution's hold on the imports it names, the retains a
-//! forwarded reply introduced for it, and the bounded, preallocated release
-//! that leaves when the resolution does.
+//! A stored resolution's hold on the imports it names and the bounded,
+//! preallocated release that leaves when the resolution does.
 const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
@@ -26,18 +25,19 @@ pub const Outbox = struct {
     }
 };
 
-/// What one stored resolution keeps on the import table until it leaves.
-/// `holds` is the far imports the value names, one
-/// `ImportTable.holdForResolution` each, taken at the store and settled at
-/// the drain into the retains callers released meanwhile. `owned` is the
-/// retains a forwarded reply introduced with no caller to release them, one
-/// `ImportTable.adoptForSession` each, released as they are. A payload's
-/// `holds` batch chains its `owned` one, so one slot readies both.
+/// What one stored resolution keeps on the import table until it leaves: one
+/// `ImportTable.holdForResolution` per far import it names, taken at the
+/// store and settled at the drain into the retains released meanwhile. The
+/// batch for the mentions a forwarded reply introduced also parks the
+/// session's retain on each behind that hold (`ImportTable.parkForResolution`):
+/// no caller releases them, so they leave with the resolution. A payload's
+/// value batch chains its introduced one, so one slot readies both.
 pub const Batch = struct {
     outbox: *Outbox,
     next: ?*Batch = null,
     chained: ?*Batch = null,
-    kind: Kind,
+    /// Whether `take` also parks the session's own retain on each position.
+    parks: bool,
     /// One position per mention, then after `settle` the wire release:
     /// `live` entries with a nonzero delta each.
     positions: []u64,
@@ -45,8 +45,6 @@ pub const Batch = struct {
     live: usize,
     settled: bool = false,
     charge: usize,
-
-    pub const Kind = enum { holds, owned };
 
     /// Final payload retirement queues an effect without allocating or calling
     /// an engine. The heap outbox remains stable if its Session value moves.
@@ -65,7 +63,7 @@ pub const Batch = struct {
     pub fn prepareForValue(owner: *session.Session, value: model.Argument) !?*Batch {
         var mentions: usize = 0;
         _ = model.anyReference(&.{value}, &mentions, countFarMention);
-        const batch = (try allocate(owner, .holds, mentions)) orelse return null;
+        const batch = (try allocate(owner, false, mentions)) orelse return null;
         var fill: Fill = .{ .owner = owner, .positions = batch.positions };
         if (model.anyReference(&.{value}, &fill, fillFarMention)) {
             batch.destroy(owner);
@@ -75,10 +73,11 @@ pub const Batch = struct {
         return batch;
     }
 
-    /// The owned retains of one forwarded reply, or null for one introducing
-    /// none. `mentions` repeats a position once per retain.
-    pub fn prepare(owner: *session.Session, mentions: []const model.ImportPosition) !?*Batch {
-        const batch = (try allocate(owner, .owned, mentions.len)) orelse return null;
+    /// The hold and parked retains for the mentions one forwarded reply
+    /// introduced, or null for one introducing none. `mentions` repeats a
+    /// position once per retain.
+    pub fn prepareForIntroduced(owner: *session.Session, mentions: []const model.ImportPosition) !?*Batch {
+        const batch = (try allocate(owner, true, mentions.len)) orelse return null;
         for (mentions, batch.positions, batch.deltas) |mention, *position, *delta| {
             position.* = mention.int();
             delta.* = 1;
@@ -86,7 +85,7 @@ pub const Batch = struct {
         return batch;
     }
 
-    fn allocate(owner: *session.Session, kind: Kind, mentions: usize) !?*Batch {
+    fn allocate(owner: *session.Session, parks: bool, mentions: usize) !?*Batch {
         if (mentions == 0) return null;
         const arrays = std.math.mul(usize, mentions, 2 * @sizeOf(u64)) catch return error.RetainedAnswerCapExceeded;
         const charge = std.math.add(usize, @sizeOf(Batch), arrays) catch return error.RetainedAnswerCapExceeded;
@@ -105,7 +104,7 @@ pub const Batch = struct {
         const positions = try owner.allocator.alloc(u64, mentions);
         errdefer owner.allocator.free(positions);
         const deltas = try owner.allocator.alloc(u64, mentions);
-        batch.* = .{ .outbox = outbox, .kind = kind, .positions = positions, .deltas = deltas, .live = mentions, .charge = charge };
+        batch.* = .{ .outbox = outbox, .parks = parks, .positions = positions, .deltas = deltas, .live = mentions, .charge = charge };
         outbox.active_batches += 1;
         owner.retained_sent_answer_bytes = total;
         return batch;
@@ -134,20 +133,19 @@ pub const Batch = struct {
 
     /// Take what the batch keeps: the commit, after every fallible step.
     pub fn take(batch: *Batch, owner: *session.Session) void {
-        for (batch.positions) |position| switch (batch.kind) {
-            .holds => owner.imports.holdForResolution(.from(position)),
-            .owned => owner.imports.adoptForSession(.from(position)),
-        };
+        for (batch.positions) |position| {
+            owner.imports.holdForResolution(.from(position));
+            if (batch.parks) owner.imports.parkForResolution(.from(position));
+        }
     }
 
-    /// Give the holds back and keep what they owed: the retains released
-    /// while the resolution held each row, zero where another hold remains.
-    /// Infallible and idempotent, so a drain refused after it retries the
-    /// wire part alone. An owned batch releases what it took.
+    /// Give the holds back and keep what they owed: the retains released or
+    /// parked while the resolution held each row, zero where another hold
+    /// remains. Infallible and idempotent, so a drain refused after it
+    /// retries the wire part alone.
     pub fn settle(batch: *Batch, owner: *session.Session) void {
         if (batch.settled) return;
         batch.settled = true;
-        if (batch.kind == .owned) return;
         var live: usize = 0;
         for (batch.positions) |position| {
             const owed = owner.imports.releaseResolutionHold(.from(position));

@@ -43,12 +43,12 @@ pub const ForwardedReply = struct {
     }
 
     /// Retire this resolver once the carried result is stored, and give the
-    /// stored resolution the retains the result introduced (`owned`), which
-    /// have no caller: they leave with the resolution, behind its hold on the
-    /// same rows. One Session commit; the engine never mutates answer payload
-    /// ownership.
-    pub fn complete(self: ForwardedReply, owner: *Session, owned: ?*session.ImportRelease) void {
-        if (owned) |batch| {
+    /// stored resolution the batch holding and parking the mentions the
+    /// result introduced (`introduced`): they have no caller, so they leave
+    /// with the resolution. One Session commit; the engine never mutates
+    /// answer payload ownership.
+    pub fn complete(self: ForwardedReply, owner: *Session, introduced: ?*session.ImportRelease) void {
+        if (introduced) |batch| {
             const payload = owner.answerPayloadForTarget(self.target) orelse unreachable;
             if (payload.held_imports) |holds| {
                 std.debug.assert(holds.chained == null);

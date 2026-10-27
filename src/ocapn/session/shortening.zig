@@ -128,8 +128,8 @@ pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, 
     if (!incarnationIsCurrent(self, source)) return;
     // The edge would put `source` one hop above `target`'s chain, so the
     // chain below `target` may hold one hop fewer than the limit. Every
-    // admitted edge keeps that bound, so `rewriteReference` and
-    // `shortenedTarget` can stop after `max_resolution_chain` hops.
+    // admitted edge keeps that bound, so `shortenedTarget` can stop after
+    // `max_resolution_chain` hops.
     var current = target.import_position;
     var hops: usize = 0;
     while (true) {
@@ -370,14 +370,7 @@ fn retainedShorteningTarget(self: *const Session, source: model.ImportPosition) 
 fn rewriteReference(self: *Session, reference: model.Reference) model.Reference {
     if (reference != .far or reference.far.kind != .promise) return reference;
     const source = reference.far.import_position;
-    var current = source;
-    // `validateCompletion` admits no chain longer than this.
-    var remaining = self.limits.max_resolution_chain;
-    while (remaining != 0) : (remaining -= 1) {
-        const next = (self.findImportedPromise(current) orelse break).shortening_target;
-        if (next == current) break;
-        current = next;
-    }
+    const current = self.shortenedPromiseTarget(source);
     if (current == source) return reference;
     // Do not path-compress this chain. Each stable edge also owns the one
     // import retain introduced by its callback; changing 5 -> 6 into 5 -> 7

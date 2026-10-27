@@ -50,9 +50,11 @@ entry a listener fire or resolver release emits all share it. A Host handle
 lifted from a stored value while every retain is held back takes one retain
 back, so its release is a caller's release again (`ImportTable.noteHostRef`).
 
-The hold rides the forwarded-reply batch. A batch has two kinds: the stored
-value's hold on the rows it names, and the retains a forwarded reply
-introduced, which chain onto the hold. The answer payload owns the batch,
+The hold rides the forwarded-reply batch. Every batch holds the rows its
+positions name. The batch for the mentions a forwarded reply introduced also
+parks the session's retain on each behind that hold, because no caller
+releases them, and it chains onto the stored value's batch. The answer
+payload owns the batch,
 final release readies it, and the drain settles the hold before it encodes
 what is owed. A stored resolution that names no far import allocates
 nothing. The batch charges the retained-answer byte cap and counts against

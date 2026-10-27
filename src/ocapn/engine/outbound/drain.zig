@@ -233,41 +233,26 @@ fn emitRecordedPendingMessage(self: *Peer, message: model.Message, accounting: P
 }
 
 /// Encode one pending message onto `outbound`, applying the V1.0
-/// translations that have no wire form under next (`v1_0`, ADR-0006):
-///   - a semantic `Resolve` ships as a resolver-callback `op:deliver` to the
-///     partner's resolver import, or is dropped when only `op:listen`
-///     listeners settle the answer (the listener fire in `drainAnswerConsequencesTarget`
-///     handles notification).
-///   - a projection trails an `op:listen` that carries its new answer's
-///     resolution back, since the projection ops carry no inline resolver
-///     (ADR-0004). The listen must follow the op that opened the
-///     answer on the wire, so it is pushed after the encode.
+/// translation that has no wire form under next (`v1_0`, ADR-0006): a
+/// projection trails an `op:listen` that carries its new answer's resolution
+/// back, since the projection ops carry no inline resolver (ADR-0004). The
+/// listen must follow the op that opened the answer on the wire, so it is
+/// pushed after the encode.
 /// next encodes the message as it stands. Borrows `message`. The pending queue
 /// continues owning it until this returns successfully. An `op:abort` closes
 /// only after its frame is published so the partner can still take it. A
-/// deliver never reaches here: it left as its frame at admission.
+/// deliver never reaches here: it left as its frame at admission. Neither does
+/// a resolve: `enqueueRecorded` routes every one to its settlement path, and
+/// `settled_answer` carries it (`emitSettledAnswer` translates it for a V1.0
+/// partner).
 fn emitPendingMessage(self: *Peer, message: model.Message) !void {
-    std.debug.assert(message != .deliver);
+    std.debug.assert(message != .deliver and message != .resolve);
     if (message == .abort) {
         try self.commitAbortOutbound(message.abort);
         return;
     }
 
-    const needs_v1_0 = self.session_state.needsV1_0Translation();
-
-    if (needs_v1_0 and message == .resolve) {
-        // A V1.0 partner hears a resolution only through the resolver
-        // capability its own deliver carried (`resolve-me-desc`). A deliver
-        // that named an answer but advertised no resolver asked for no
-        // callback: there is nobody to notify, so the resolve emits nothing:
-        // V1.0 has no wire shape to invent for it.
-        if (self.session_state.resolverForInboundAnswer(.fromWire(message.resolve.answer))) |resolver_import| {
-            try v1_0.encodeResolutionAsCallback(self, message.resolve.resolution, resolver_import);
-        }
-        return;
-    }
-
-    if (!needs_v1_0) return self.pushEncodedFromPending(message);
+    if (!self.session_state.needsV1_0Translation()) return self.pushEncodedFromPending(message);
 
     switch (message) {
         .get => |get| try emitV1Projection(self, message, get.answer),

@@ -344,8 +344,8 @@ fn commitForwardingCallback(
     introduced: *IntroducedImports,
 ) !void {
     const stores = !forwarding.discarded and !forwarding.carries_answer;
-    var owned = if (stores) try session.ImportRelease.prepare(&self.session_state, introduced.mentions.items()) else null;
-    defer if (owned) |batch| batch.destroy(&self.session_state);
+    var held = if (stores) try session.ImportRelease.prepareForIntroduced(&self.session_state, introduced.mentions.items()) else null;
+    defer if (held) |batch| batch.destroy(&self.session_state);
     const reply = session.ForwardedReply.find(&self.session_state, forwarding.resolver) orelse unreachable;
     const target = reply.target;
     try self.session_state.applyValidatedInboundDeliverView(body, introduced);
@@ -358,8 +358,8 @@ fn commitForwardingCallback(
     }
     prepared.commitShortening(self);
     try copying.answerTargetView(self, target, forwarding.carried);
-    reply.complete(&self.session_state, owned);
-    owned = null;
+    reply.complete(&self.session_state, held);
+    held = null;
 }
 
 /// Queue the deliver as an event, then apply its authority. Until authority

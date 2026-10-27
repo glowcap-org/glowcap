@@ -206,9 +206,9 @@ pub const Session = struct {
     /// returns each call's exact charge. `u32` like its limit.
     queued_call_bytes: u32 = 0,
     import_release_outbox: ?*@import("import_release_outbox.zig").Outbox = null,
-    /// Promises imported from a third party via handoff (ADR-0039), keyed by
-    /// import position for O(1) lookup. Host designators are interned in
-    /// `key_arena`. Each row owns its listen cell and stored relayed resolution.
+    /// Promises the partner relayed under the next profile (ADR-0039), keyed
+    /// by import position. Each row owns its shortening edge and its settling
+    /// subscription.
     imported_promises: foundation.identity_hash.MapOf(.wire, model.ImportPosition, ImportedPromise),
     /// The secret every table keyed by positions the peer chooses hashes
     /// under (ADR-0037). A Node hands one to each session at registration,
