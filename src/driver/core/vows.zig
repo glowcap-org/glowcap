@@ -397,7 +397,7 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
     return id;
 }
 
-pub fn pipelineAnswer(row: *const VowRow) !engine.OutboundAnswerTarget {
+fn pipelineAnswer(row: *const VowRow) !engine.OutboundAnswerTarget {
     if (row.answer_release != .peer_visible and row.answer_release != .shared_peer_visible) return error.NotPipelineable;
     return switch (row.vow) {
         .far => |answer| answer,

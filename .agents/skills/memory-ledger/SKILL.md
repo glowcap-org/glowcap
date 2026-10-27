@@ -153,18 +153,25 @@ declaration under `src/`.
   GC and frees on refusal. Rewalking rewritten arguments cannot recover that
   ownership. Local replay reverses descriptor perspective in its owned tree
   before encoding the event, without another value-tree allocation or clone.
-- **Forwarded result imports**: `ImportRelease.prepare`. One cold
-  outbox per session, then one batch and two exact position/delta arrays per
-  capability-bearing forwarded result. The shared GC model requires both
-  arrays. Values-only results allocate none of these. The answer payload owns
-  the callback's original import retains, and final release links its prepared
-  batch into the outbox without allocation.
+- **Stored resolution import holds**: `ImportRelease.prepareForValue` and
+  `ImportRelease.prepare`. One cold outbox per session, then one batch with
+  two exact position/delta arrays per stored resolution naming a far import
+  (its hold on those rows) and per capability-bearing forwarded result (the
+  retains the reply introduced, chained to the hold). The shared GC model
+  requires both arrays. Values naming no far import allocate none of these.
+  Final release of the answer payload links the batch into the outbox
+  without allocation, and the drain settles the hold before encoding. A
+  release naming a held row allocates only when it mixes held and unheld
+  entries (`Session.wireRelease`), two arrays the pending queue owns until
+  the frame leaves.
 
-  Live and ready batches together
-  spend the inbound-answer count and retained-answer byte limits. Bytes stay
-  charged through wire publication. Pressure preserves the batch for retry.
-  Emission or teardown frees it. One nullable pointer adds eight bytes to a
-  64-bit safe-mode Peer, four million bytes at 500,000 sessions.
+  Live and ready batches together spend the inbound-answer count and
+  retained-answer byte limits. Bytes stay charged through wire publication.
+  Pressure preserves the batch for retry. Emission or teardown frees it. One
+  nullable pointer adds eight bytes to a 64-bit safe-mode Peer, four million
+  bytes at 500,000 sessions. The hold adds two words to every import row,
+  `ImportRow.held_back` and `ImportRow.resolution_holds`, which the footprint
+  pins carry.
 - **Local promise registry**: `local_promise.Registry`. One cold box per
   session with local promise projections, plus one export position per
   projection, freed with the last projection or at teardown. Collection checks

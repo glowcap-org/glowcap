@@ -409,6 +409,7 @@ comptime {
         _ = @import("session/handoff_test.zig");
         _ = @import("session/resolver_test.zig");
         _ = @import("session/imported_promise_test.zig");
+        _ = @import("session/held_import_test.zig");
         _ = @import("session/slot_test.zig");
         _ = @import("session/answers_slot_test.zig");
         _ = @import("session/position_slab_test.zig");

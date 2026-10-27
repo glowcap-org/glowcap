@@ -7,7 +7,7 @@ decision: "A received answer reference lifts to a Host capability promise that s
 supersedes: []
 superseded_by: []
 amends: [ADR-0003]
-amended_by: []
+amended_by: [ADR-0070]
 ---
 
 # ADR-0068 Promise arguments
@@ -22,7 +22,7 @@ settles every inbound answer through one funnel
 (`engine/outbound/drain.zig`), whether the application, a forwarder, a
 projection, or a resolution chain settled it. The Host refused the reference
 when lifting arguments into application values, so a hosted object could not
-receive a promise the caller had not yet resolved, although the specification
+receive a promise the caller had not resolved, although the specification
 lets a caller name one of its pending questions there. ADR-0003 made a pending
 answer a send target for the sender. This record makes a received pending
 answer a capability for the receiver.
@@ -64,7 +64,7 @@ Outbound, a public Host vow is passable as a capability argument. On every
 session, the vow's own included, it lowers through the local promise
 projection ADR-0003 already names, which costs one export row and one
 settlement message per session it reaches. An answer position belongs to the
-peer that asked the question, and CapTP has no form for naming the receiver's
+peer that asked the question. CapTP has no form for naming the receiver's
 question back to it (upstream issue 168), so the open answer is never the
 form. The engine holds the same rule: a `desc:answer` in any message names its
 sender's question, and a resolution this side sends carries none. A queued
@@ -78,9 +78,9 @@ A vow passes in any state until its handle is released. The vow
 row keeps the completion the embedder drained, so a vow asked for after it
 settled projects as a promise settled to that completion: its data, the
 capability it named, or its break. When an embedder drained the completion it
-holds the retains, so the row names a capability without retaining it, the
-application's own release reaches the wire at once, and a promise asked
-for after that release breaks. A drive with no embedder, the Zig Session,
+holds the retains, so the row names a capability without retaining it. The
+resolution the projection sent holds any partner object it names until the
+partner releases the answer (ADR-0070). A drive with no embedder, the Zig Session,
 keeps the drained retains on the row until `settle` reads them or the handle
 is released. A reply nobody awaited at the time therefore delivers its
 capability to `settle`. A promise asked for between the fire and the drain is

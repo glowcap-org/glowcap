@@ -283,7 +283,7 @@ fn dataNaming(target: driver.Capability) driver.Value {
     } };
 }
 
-test "a settled answer naming a released partner object lifts as a broken promise" {
+test "a settled answer holds the partner object it names until the answer is released" {
     var f: Fixture = undefined;
     try f.init(.{ .verify_partner = false });
     defer f.deinit();
@@ -294,20 +294,31 @@ test "a settled answer naming a released partner object lifts as a broken promis
     defer arena.deinit();
     try f.acceptor.resolverFulfillValue(Greeter.resolver, dataNaming(target), arena.allocator());
     try f.pump();
-    // The stored resolution holds nothing on the partner object, so this
-    // release reaches the wire and the stored data names a lapsed import.
+    // The stored resolution holds the partner object, so the application's
+    // release stays with the session and the import stays held.
     const held_before = heldImports(f.pair.b.served.port.peer).len;
     try f.acceptor.releaseCapability(target, 1);
     try f.pump();
-    try std.testing.expectEqual(held_before - 1, heldImports(f.pair.b.served.port.peer).len);
+    try std.testing.expectEqual(held_before, heldImports(f.pair.b.served.port.peer).len);
 
-    // The actor receives a broken promise, not a closed session: its send
-    // and listen are refused, and the row leaves with the actor's release.
+    // The actor receives the settled data, with the partner object inside it
+    // lifted again, and the row leaves with the actor's release.
     try f.passPromise(7);
     try std.testing.expectEqual(@as(usize, 1), Reader.ran);
-    try std.testing.expectEqual(@as(anyerror, error.PromiseBroken), Reader.send_refusal orelse return error.SendAccepted);
-    try std.testing.expectEqual(@as(anyerror, error.PromiseBroken), Reader.listen_refusal orelse return error.ListenAccepted);
+    try std.testing.expectEqual(@as(anyerror, error.UncallableTarget), Reader.send_refusal orelse return error.SendAccepted);
+    try std.testing.expect(Reader.listen_vow != 0);
     try std.testing.expectEqual(@as(usize, 0), f.acceptor.capability_promises.count());
+    try f.expectServing();
+
+    // Releasing the answer releases the hold, and the partner object with it.
+    // The listen vow's completion carries the data's capability until the
+    // embedder drains it. The hold alone keeps the import after that.
+    while (try f.acceptor.nextAction()) |_| {}
+    try f.pump();
+    try std.testing.expectEqual(held_before, heldImports(f.pair.b.served.port.peer).len);
+    try f.client().sendBorrowed(.{ .gc_answer = .{ .positions = &.{7} } });
+    try f.pump();
+    try std.testing.expectEqual(held_before - 1, heldImports(f.pair.b.served.port.peer).len);
     try f.expectServing();
 }
 

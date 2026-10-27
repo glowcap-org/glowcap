@@ -270,19 +270,16 @@ assets are not published.
   each with a typed reason (`test/engine/peer/pipeline_remote_forward_test.zig`).
   No known peer writes `desc:answer` outside target position in a call it
   expects forwarded.
-- **A settled answer forwards to the partner's own object only while this
-  side holds it.** A resolution this side sent takes no hold on the
-  partner objects it names, so the application can release such an object
-  while the resolution stays stored. A call, listen, projection, or lift that
-  reaches the answer after the release breaks with the released-target reason
-  instead of forwarding to a position the partner may have retired
-  (`test/engine/peer/pipeline_remote_forward_test.zig`). The
-  check sees whether this side holds the import, so a position the partner
-  has since given to another object is not told apart from the original. The
-  window is the round trip until the partner sees the resolution. Holding the
-  object, or a handle to the promise that settled to it, through that window
-  keeps the forward. Pinning the object for the stored resolution's lifetime
-  closes both gaps and is [planned](roadmap.md#what-starts-next).
+- **A partner object a stored resolution names stays imported until the
+  partner releases the answer.** A resolution this side sent holds every
+  import it names, so a late call, listen, projection, or lift reaches the
+  object even after the application released it. The application's release
+  stays with the session and leaves as one `op:gc-exports` when the partner
+  releases the answer, so the partner decides how long the import lives.
+  The retained-answer byte cap and the inbound-answer count bound what a
+  partner can keep held
+  (`test/engine/peer/pipeline_remote_forward_test.zig`,
+  [ADR-0070](decisions/adr/ADR-0070-stored-resolutions-hold-imports.md)).
 - **A call a partner pipelines onto a promise this Host projects breaks when
   the promise settles to a capability on another session.** The partner's
   listen sees the handoff and redeems it, but the queued call lives on the

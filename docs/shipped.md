@@ -78,7 +78,9 @@ listening, and events, over a Host it has adopted.
   feature.
 - **Promise arguments.** A promise passes as an argument in both directions, pending or settled. A partner's
   `desc:answer` lifts to a capability promise, and an application's vow passes as a capability on any session,
-  from the C ABI and every binding ([ADR-0068](decisions/adr/ADR-0068-promise-arguments.md)).
+  from the C ABI and every binding ([ADR-0068](decisions/adr/ADR-0068-promise-arguments.md)). A resolution
+  this side sends holds the partner objects it names until the partner releases the answer, so a late call
+  reaches them ([ADR-0070](decisions/adr/ADR-0070-stored-resolutions-hold-imports.md)).
 - **Persistent references.** A sturdyref is a durable peer locator plus a swiss number. Enlivening one checks the
   whole peer locator before any traffic and refuses a mismatched peer or an accepted plain-TCP assertion. Repeated
   enlivening on a session shares one import.

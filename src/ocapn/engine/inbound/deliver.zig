@@ -65,6 +65,11 @@ const Route = struct {
         /// The forwarded reply's target is gone, so the deliver releases
         /// what it introduced instead of answering.
         discarded: bool,
+        /// The carried resolution. One naming the partner's own question has
+        /// no form toward it (`remote_forward`), so the original answer
+        /// breaks and the deliver releases what it introduced.
+        carried: model.view.Resolution,
+        carries_answer: bool,
     };
 
     /// Fills `route` in place: this record is close to a kilobyte, so building
@@ -99,9 +104,12 @@ const Route = struct {
             .node_resolver_callback => |resolver| route.callback = .{ .node_resolver = resolver },
             .forwarding_callback => |resolver| {
                 const reply = session.ForwardedReply.find(&self.session_state, resolver) orelse unreachable;
+                const carried = try events.resolutionFromResolverCallback(deliver.args);
                 route.callback = .{ .forwarding = .{
                     .resolver = resolver,
                     .discarded = !session.ForwardedReply.targetIsLive(&self.session_state, reply.target),
+                    .carried = carried,
+                    .carries_answer = try carried.namesAnswer(),
                 } };
             },
             // Queued or redirected against the answer it pipelined on
@@ -123,12 +131,12 @@ const Route = struct {
     }
 
     /// A retired resolver callback, or a forwarding callback whose target is
-    /// gone, releases the imports the deliver introduced instead of
-    /// shortening the promises among them.
+    /// gone or whose result breaks it, releases the imports the deliver
+    /// introduced instead of shortening the promises among them.
     fn releasesIntroduced(self: *const Route) bool {
         return switch (self.callback) {
             .retired_resolver => true,
-            .forwarding => |forwarding| forwarding.discarded,
+            .forwarding => |forwarding| forwarding.discarded or forwarding.carries_answer,
             else => false,
         };
     }
@@ -221,10 +229,7 @@ const Preparation = union(enum) {
         switch (self.*) {
             .pipelined => |*prepared| prepared.abandon(peer),
             .shortening_callback => |*prepared| prepared.abandon(peer),
-            .release => |prepared| if (prepared) |message| {
-                peer.cancelPendingReservation(message.reservation);
-                model.freeMessage(peer.allocator, message.message);
-            },
+            .release => |prepared| if (prepared) |message| shortening.abandonPreparedOutboundMessage(peer, message),
             .shortening => |*prepared| prepared.abandon(peer),
         }
     }
@@ -329,7 +334,8 @@ fn commitUnsurfaced(
 
 /// A forwarding callback answers the forwarded reply's target with the
 /// resolution it carried, or releases what it introduced when that target
-/// is gone.
+/// is gone or the result breaks it. A stored result keeps the retains the
+/// reply introduced, behind its hold on the rows they name.
 fn commitForwardingCallback(
     self: *Peer,
     forwarding: Route.Forwarding,
@@ -337,27 +343,23 @@ fn commitForwardingCallback(
     body: *const model.view.Body,
     introduced: *IntroducedImports,
 ) !void {
-    const releases = session.ImportRelease;
-    var result_imports = if (!forwarding.discarded) try releases.prepare(&self.session_state, introduced.mentions.items()) else null;
-    defer if (result_imports) |batch| batch.destroy(&self.session_state);
+    const stores = !forwarding.discarded and !forwarding.carries_answer;
+    var owned = if (stores) try session.ImportRelease.prepare(&self.session_state, introduced.mentions.items()) else null;
+    defer if (owned) |batch| batch.destroy(&self.session_state);
     const reply = session.ForwardedReply.find(&self.session_state, forwarding.resolver) orelse unreachable;
     const target = reply.target;
-    const carried = try events.resolutionFromResolverCallback(body.deliver.args);
-    // The partner may settle with its own pending question, which has no
-    // form toward it (`remote_forward`), so the original answer breaks.
-    const resolution: model.view.Resolution = if (try carried.namesAnswer())
-        .{ .@"break" = .{ .message = resolution_chain.reply_answer_reference_message } }
-    else
-        carried;
     try self.session_state.applyValidatedInboundDeliverView(body, introduced);
-    if (forwarding.discarded) {
+    if (!stores) {
         prepared.commitRelease(self);
-    } else {
-        prepared.commitShortening(self);
-        try copying.answerTargetView(self, target, resolution);
+        if (forwarding.carries_answer)
+            try copying.answerTargetView(self, target, .{ .@"break" = .{ .message = resolution_chain.reply_answer_reference_message } });
+        reply.complete(&self.session_state, null);
+        return;
     }
-    reply.complete(&self.session_state, result_imports);
-    result_imports = null;
+    prepared.commitShortening(self);
+    try copying.answerTargetView(self, target, forwarding.carried);
+    reply.complete(&self.session_state, owned);
+    owned = null;
 }
 
 /// Queue the deliver as an event, then apply its authority. Until authority

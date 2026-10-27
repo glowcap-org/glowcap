@@ -329,10 +329,7 @@ fn applyProjectionOutcome(
         .pending => |target| try peer.session_state.installProjectionTarget(target, projection),
         .terminal_break => |message| try breakProjection(peer, projection, message),
         .terminal => |terminal| {
-            const projected = projectResolution(terminal.resolution, projection.kind);
-            if (projected == .fulfill and resolution_chain.namesReleasedImport(peer, projected.fulfill))
-                return breakProjection(peer, projection, resolution_chain.released_target_message);
-            try settleProjection(peer, projection, projected);
+            try settleProjection(peer, projection, projectResolution(terminal.resolution, projection.kind));
         },
     }
 }
@@ -402,13 +399,9 @@ fn dispatchTerminalCall(peer: *Peer, queued: session.QueuedCall, resolution: mod
     const reference = maybe_reference orelse
         return propagateBreakToDrainedCall(peer, queued, resolution);
     switch (reference) {
-        .far => |far| if (!peer.session_state.holdsImport(far.import_position))
-            try propagateBreakToDrainedCall(
-                peer,
-                queued,
-                .{ .@"break" = .{ .message = resolution_chain.released_target_message } },
-            )
-        else if (model.argumentSliceNamesAnswer(queued.message.deliver.args))
+        // The stored resolution holds the import it names, so the forward
+        // reaches the partner object this side was told of.
+        .far => |far| if (model.argumentSliceNamesAnswer(queued.message.deliver.args))
             try propagateBreakToDrainedCall(
                 peer,
                 queued,

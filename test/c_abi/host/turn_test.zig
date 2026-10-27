@@ -312,11 +312,10 @@ test "libglowcap_host: a pending vow passes as a capability — vow_capability r
     var relayed = CapturedSettle{};
     watches.add(client, relayed_vow, &relayed);
 
-    // The relay pokes the promise before this side's resolution reaches it,
-    // and the poke forwards to the widget only while this Host still holds
-    // the widget. The promise handles are that hold until the pump finishes.
-    try pump(&hosts, &.{pair}, &dials, &watches);
+    // The queued send owns its own retain, so both application retains can
+    // go before the answer exists.
     try expectOk(cd.glowcap_host_ref_release(client, &promise_ref, 2));
+    try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(relayed.fired);
     try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, relayed.kind);
     try std.testing.expectEqualStrings("poked over the C surface", relayed.text[0..relayed.text_len]);

@@ -197,6 +197,25 @@ pub fn validateInboundResolve(self: *Session, resolve: anytype, introduced: *Int
     }
 }
 
+/// A caller's outbound `op:gc-exports`.
+fn validateSentGcExport(self: *Session, gc_export: model.GcExport) !void {
+    if (!self.features.wire_delta) return error.FeatureNotNegotiated;
+    try session.validateGcExport(gc_export);
+    // Our import 0 is the partner's pinned bootstrap, always reachable
+    // without a table row (`validateReference` with `.held_import`) and outside
+    // wire-delta accounting, so releasing it is releasing an id the
+    // table never holds. Refuse loudly rather than put a bootstrap
+    // release on the wire (a partner that does account it, the way
+    // Goblins does, would tear down its bootstrap export on receipt).
+    for (gc_export.positions) |pos| {
+        if (pos == bootstrap_position) return error.GcUnderflow;
+    }
+    // Outbound `op:gc-exports` releases our refs to the partner's
+    // exports, decrements the import table, never below the retains
+    // the session keeps for releases of its own.
+    try session.checkGcExportDecrement(self.allocator, &self.imports, gc_export, self.wire_hash_multiplier);
+}
+
 pub fn validateSend(self: *Session, message: model.Message, inventory: session.Inventory) !void {
     // State admission is gated at the dispatch head (`admitInState`). The
     // handshake keeps its negotiating-only / no-duplicate rule here; every
@@ -210,23 +229,7 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
             resolve.resolution,
             inventory,
         ),
-        .gc_export => |gc_export| {
-            if (!self.features.wire_delta) return error.FeatureNotNegotiated;
-            try session.validateGcExport(gc_export);
-            // Our import 0 is the partner's pinned bootstrap, always reachable
-            // without a table row (`validateReference` with `.held_import`) and outside
-            // wire-delta accounting, so releasing it is releasing an id the
-            // table never holds. Refuse loudly rather than put a bootstrap
-            // release on the wire (a partner that does account it, the way
-            // Goblins does, would tear down its bootstrap export on receipt).
-            for (gc_export.positions) |pos| {
-                if (pos == bootstrap_position) return error.GcUnderflow;
-            }
-            // Outbound `op:gc-exports` releases our refs to the partner's
-            // exports, decrements the import table, never below the retains
-            // the session keeps for releases of its own.
-            try session.checkGcExportDecrement(self.allocator, &self.imports, gc_export, self.wire_hash_multiplier);
-        },
+        .gc_export => |gc_export| try validateSentGcExport(self, gc_export),
         .gc_answer => |gc_answer| {
             if (!self.features.wire_delta) return error.FeatureNotNegotiated;
             // The deliverer that allocated an answer position sends

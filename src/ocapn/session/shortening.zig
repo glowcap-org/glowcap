@@ -303,7 +303,11 @@ fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_
     var state_it = states.iterator();
     while (state_it.next()) |entry| {
         if (entry.value_ptr.total > (if (session_owned) self.imports.sessionHeld(entry.key_ptr.*) else self.imports.releasable(entry.key_ptr.*))) return error.GcUnderflow;
-        if (entry.value_ptr.total == self.imports.count(entry.key_ptr.*) and retainedShorteningTarget(self, entry.key_ptr.*) != null)
+        // A held source's release stays behind (`Session.wireRelease`), so
+        // its edge keeps what it retained.
+        if (entry.value_ptr.total == self.imports.count(entry.key_ptr.*) and
+            !self.imports.heldByResolution(entry.key_ptr.*) and
+            retainedShorteningTarget(self, entry.key_ptr.*) != null)
             try queue.append(allocator, entry.key_ptr.*);
     }
 
@@ -325,7 +329,9 @@ fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_
         // so the running total cannot pass the row's count.
         const held = self.imports.count(target);
         std.debug.assert(gop.value_ptr.total <= held);
-        if (gop.value_ptr.total == held and retainedShorteningTarget(self, target) != null)
+        if (gop.value_ptr.total == held and
+            !self.imports.heldByResolution(target) and
+            retainedShorteningTarget(self, target) != null)
             try queue.append(allocator, target);
     }
 

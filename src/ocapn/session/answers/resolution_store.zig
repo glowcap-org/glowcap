@@ -22,10 +22,15 @@ pub const ResolutionStorePlan = struct {
     promise_target: ?store.AnswerTarget,
 };
 
-/// A plan whose payload exists, so the commit allocates nothing.
+/// A plan whose payload and import hold exist, so the commit allocates
+/// nothing.
 pub const PreparedResolutionStore = struct {
     plan: ResolutionStorePlan,
     payload: *store.AnswerPayload,
+    /// The hold on the far imports the value names, charged under the
+    /// retained-answer bytes beside the resolution, or null for a value
+    /// naming none.
+    held_imports: ?*session.ImportRelease,
 };
 
 pub fn planResolutionStoreNamed(
@@ -52,9 +57,22 @@ pub fn planResolutionStoreNamed(
     };
 }
 
-pub fn prepareResolutionStore(self: *Session, plan: ResolutionStorePlan) !PreparedResolutionStore {
+pub fn prepareResolutionStore(self: *Session, plan: ResolutionStorePlan, resolution: model.Resolution) !PreparedResolutionStore {
     const payload = plan.payload orelse try store.ensureAnswerPayload(self.allocator, plan.entry.?);
-    return .{ .plan = plan, .payload = payload };
+    const held_imports = switch (resolution) {
+        .fulfill => |value| try session.ImportRelease.prepareForValue(self, value),
+        .@"break" => null,
+    };
+    if (held_imports) |batch| {
+        // The plan bounded the resolution's bytes before the batch took its
+        // own; together they answer to the one cap.
+        const total = std.math.add(usize, plan.next_retained, batch.charge) catch std.math.maxInt(usize);
+        if (total > @as(usize, self.limits.max_retained_sent_answer_bytes)) {
+            batch.destroy(self);
+            return error.RetainedAnswerCapExceeded;
+        }
+    }
+    return .{ .plan = plan, .payload = payload, .held_imports = held_imports };
 }
 
 pub fn commitPreparedResolutionStore(
@@ -64,7 +82,14 @@ pub fn commitPreparedResolutionStore(
 ) void {
     if (prepared.payload.resolution) |prior|
         model.freeResolution(self.allocator, prior.value);
-    self.retained_sent_answer_bytes = prepared.plan.next_retained;
+    // A batch already on the payload, a replaced resolution's hold or the
+    // retains a forwarded reply introduced before its result stored, settles
+    // like a released answer's: what it owes goes under the new hold.
+    if (prepared.payload.held_imports) |prior| prior.ready();
+    prepared.payload.held_imports = prepared.held_imports;
+    if (prepared.held_imports) |batch| batch.take(self);
+    std.debug.assert(self.retained_sent_answer_bytes >= prepared.payload.resolution_charge);
+    self.retained_sent_answer_bytes = self.retained_sent_answer_bytes - prepared.payload.resolution_charge + prepared.plan.charge;
     prepared.payload.resolution = .{
         .value = resolution,
         .promise_target = prepared.plan.promise_target,
@@ -114,7 +139,7 @@ pub fn storeResolutionNamed(self: *Session, answer: model.AnswerName, resolution
         model.freeResolution(self.allocator, resolution);
         return err;
     };
-    const prepared = prepareResolutionStore(self, plan) catch |err| {
+    const prepared = prepareResolutionStore(self, plan, resolution) catch |err| {
         model.freeResolution(self.allocator, resolution);
         return err;
     };

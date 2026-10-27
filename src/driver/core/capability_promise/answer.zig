@@ -37,14 +37,6 @@ const Answer = Row.Origin.Answer;
 /// message to a non-object gets.
 pub const uncallable_reason = @errorName(error.UncallableTarget);
 
-/// Whether a stored terminal names a partner object this side released since
-/// it sent the resolution: the engine's released-target rule applied to the
-/// whole value a lift would own, a bare reference or data with references
-/// inside it.
-fn namesReleasedImport(session: *HostSession, value: model.Argument) bool {
-    return engine.resolution_chain.namesReleasedImport(session.served.port.peer, value);
-}
-
 /// Lift one answer reference inside a value the partner delivered. The answer
 /// is one of this session's own open questions, named by its position.
 pub fn lift(
@@ -111,9 +103,7 @@ fn liftSettled(
     const origin: Row.Origin = .{ .answer = .{ .peer_handle = session.peer_handle, .target = target, .payload = null } };
     switch (outcome) {
         .terminal => |terminal| switch (terminal.resolution) {
-            .fulfill => |argument| if (namesReleasedImport(session, argument))
-                return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.resolution_chain.released_target_message) })
-            else switch (argument) {
+            .fulfill => |argument| switch (argument) {
                 .reference => |reference| switch (reference) {
                     .near, .far, .routed => return identity.liftCapabilityTracked(self, session, reference),
                     // A chain ends at a promise only through a pending outcome.
@@ -191,9 +181,7 @@ pub fn settle(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
     const payload = answer.payload orelse unreachable;
     switch (engine.resolution_chain.followAnswer(peer, answer.target, payload)) {
         .terminal => |terminal| switch (terminal.resolution) {
-            .fulfill => |argument| if (namesReleasedImport(session, argument))
-                return capability_promise.breakPromise(self, id, engine.resolution_chain.released_target_message)
-            else switch (argument) {
+            .fulfill => |argument| switch (argument) {
                 .reference => |reference| switch (reference) {
                     .near, .far, .routed => {
                         const lifted = identity.liftCapabilityTracked(self, session, reference) catch |err| {

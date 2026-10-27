@@ -42,15 +42,21 @@ pub const ForwardedReply = struct {
         owner.releaseUnsharedExport(self.resolver_export);
     }
 
-    /// Consume the prepared result's import ownership after settlement has
-    /// been accepted. Attaching that lifetime and retiring this resolver are
-    /// one Session commit; the engine never mutates answer payload ownership.
-    pub fn complete(self: ForwardedReply, owner: *Session, imports: ?*session.ImportRelease) void {
-        if (imports) |batch| {
+    /// Retire this resolver once the carried result is stored, and give the
+    /// stored resolution the retains the result introduced (`owned`), which
+    /// have no caller: they leave with the resolution, behind its hold on the
+    /// same rows. One Session commit; the engine never mutates answer payload
+    /// ownership.
+    pub fn complete(self: ForwardedReply, owner: *Session, owned: ?*session.ImportRelease) void {
+        if (owned) |batch| {
             const payload = owner.answerPayloadForTarget(self.target) orelse unreachable;
-            std.debug.assert(payload.imported_result == null);
-            batch.adopt(owner);
-            payload.imported_result = batch;
+            if (payload.held_imports) |holds| {
+                std.debug.assert(holds.chained == null);
+                holds.chained = batch;
+            } else {
+                payload.held_imports = batch;
+            }
+            batch.take(owner);
         }
         _ = owner.exports.replacePurpose(self.resolver_export, .{ .retired = .{ .state = .complete } });
         owner.releaseRetiredResolverIfUnmentioned(self.resolver_export);

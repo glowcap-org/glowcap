@@ -12,19 +12,16 @@ const Peer = @import("mod.zig").Peer;
 const maintenance = @import("inbound_shortening.zig");
 
 fn abandonRelease(peer: *Peer, prepared: ?maintenance.PreparedOutboundMessage) void {
-    if (prepared) |release| {
-        peer.cancelPendingReservation(release.reservation);
-        model.freeMessage(peer.allocator, release.message);
-    }
+    if (prepared) |release| maintenance.abandonPreparedOutboundMessage(peer, release);
 }
 
 fn prepareRelease(peer: *Peer, imports: ?[]model.ImportPosition) !?maintenance.PreparedOutboundMessage {
     const mentions = imports orelse return null;
     defer peer.allocator.free(mentions);
-    var message = (try session.ImportRelease.messageForMentions(peer.allocator, mentions)) orelse return null;
-    errdefer model.freeMessage(peer.allocator, message);
-    const closure_len = try peer.session_state.expandShorteningGcExportReleases(peer.allocator, &message.gc_export);
-    return .{ .message = message, .reservation = try peer.reservePending(.{ .message = message }), .closure_len = closure_len };
+    var prepared = (try maintenance.prepareImportRelease(peer, mentions, .shortening)) orelse return null;
+    errdefer maintenance.abandonPreparedOutboundMessage(peer, prepared);
+    if (prepared.wireMessage()) |wire| prepared.reservation = try peer.reservePending(.{ .message = wire });
+    return prepared;
 }
 
 /// Release exact admitted argument mentions when a queued call has no local
@@ -68,18 +65,36 @@ pub fn send(peer: *Peer, message_in: model.Message, target: ?session.AnswerTarge
     if (release) |prepared| maintenance.commitPreparedImportRelease(peer, prepared);
 }
 
-/// Publish one final stored-result import release. Admission/encoding refusal
-/// leaves the original batch intact for retry; accounting commits with frame
-/// publication. The shared GC closure also spends retained shortening edges.
+/// Settle one released resolution's batch and publish what it owed the
+/// wire. Admission/encoding refusal leaves the settled batch intact for
+/// retry; accounting commits with frame publication. The shared GC closure
+/// also spends retained shortening edges. An entry naming a row another
+/// resolution holds by now stays with the table.
 pub fn drainImportRelease(peer: *Peer) !bool {
     if (peer.sessionIsClosed()) return false;
     const outbox = peer.session_state.import_release_outbox orelse return false;
     const batch = outbox.head orelse return false;
+    batch.settle(&peer.session_state);
+    if (batch.live == 0) {
+        outbox.removeHead(&peer.session_state);
+        return true;
+    }
     try peer.checkOutboundWaterline();
-    var message = try model.cloneMessage(peer.allocator, .{ .gc_export = batch.release });
+    var message = try model.cloneMessage(peer.allocator, .{ .gc_export = batch.release() });
     defer model.freeMessage(peer.allocator, message);
     _ = try peer.session_state.expandSessionGcExportReleases(peer.allocator, &message.gc_export);
-    var frame = try peer.encodeOutbound(message);
+    const wire = try peer.session_state.wireRelease(peer.allocator, message.gc_export);
+    defer wire.deinit(peer.allocator);
+    if (wire == .none) {
+        peer.session_state.recordSessionImportRelease(message.gc_export);
+        outbox.removeHead(&peer.session_state);
+        return true;
+    }
+    var frame = try peer.encodeOutbound(switch (wire) {
+        .all => message,
+        .some => |gc_export| .{ .gc_export = gc_export },
+        .none => unreachable,
+    });
     errdefer frame.deinit();
     try peer.admitOutboundProducer(frame.bytes().len);
     try peer.ensureOutboundCapacity(1);

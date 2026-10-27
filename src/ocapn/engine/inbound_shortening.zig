@@ -25,11 +25,47 @@ pub const PreparedShortening = struct {
     }
 };
 
+/// One prepared import release. `message` is the whole release, recorded at
+/// commit, where the import table keeps the entries naming a row a stored
+/// resolution holds. `wire` is the part a frame carries, with its queue seat
+/// when there is one. Nothing stores a resolution between prepare and
+/// commit, so what the wire carries is decided here.
 pub const PreparedOutboundMessage = struct {
     message: model.Message,
-    reservation: engine.Peer.PendingReservation,
+    wire: session.WireRelease,
+    reservation: ?engine.Peer.PendingReservation,
     closure_len: usize = 0,
+
+    /// The frame's message, for a reservation.
+    pub fn wireMessage(self: PreparedOutboundMessage) ?model.Message {
+        return switch (self.wire) {
+            .all => self.message,
+            .none => null,
+            .some => |gc_export| .{ .gc_export = gc_export },
+        };
+    }
 };
+
+/// Whether a prepared release carries the shortening closure. A release of
+/// mentions the table already counts spends the edges it retires. A release
+/// of mentions a deliver introduces is prepared before that deliver installs
+/// them, so a closure computed here would judge the rows by their counts
+/// before the install, and such a release carries none.
+pub const Closure = enum { none, shortening };
+
+/// Build the release of `mentions` and decide what reaches the wire. The
+/// caller reserves the frame's seat with `wireMessage` and fills in
+/// `reservation`.
+pub fn prepareImportRelease(self: *Peer, mentions: []const model.ImportPosition, closure: Closure) !?PreparedOutboundMessage {
+    var message = (try session.ImportRelease.messageForMentions(self.allocator, mentions)) orelse return null;
+    errdefer model.freeMessage(self.allocator, message);
+    const closure_len = switch (closure) {
+        .none => 0,
+        .shortening => try self.session_state.expandShorteningGcExportReleases(self.allocator, &message.gc_export),
+    };
+    const wire = try self.session_state.wireRelease(self.allocator, message.gc_export);
+    return .{ .message = message, .wire = wire, .reservation = null, .closure_len = closure_len };
+}
 
 /// The validated input and exact source state for one private shortening
 /// callback. It carries the facts needed to reserve its complete consequence
@@ -168,8 +204,9 @@ pub const PreparedShorteningCallback = struct {
     }
 };
 
-fn abandonPreparedOutboundMessage(peer: *Peer, prepared: PreparedOutboundMessage) void {
-    peer.cancelPendingReservation(prepared.reservation);
+pub fn abandonPreparedOutboundMessage(peer: *Peer, prepared: PreparedOutboundMessage) void {
+    if (prepared.reservation) |reservation| peer.cancelPendingReservation(reservation);
+    prepared.wire.deinit(peer.allocator);
     model.freeMessage(peer.allocator, prepared.message);
 }
 
@@ -319,12 +356,19 @@ pub fn prepareIntroducedImportReleases(
     pending_batch: *engine.Peer.PendingBatch,
     imports: []const model.ImportPosition,
 ) !?PreparedOutboundMessage {
-    const message = (try session.ImportRelease.messageForMentions(self.allocator, imports)) orelse return null;
-    errdefer model.freeMessage(self.allocator, message);
-    return .{ .message = message, .reservation = try pending_batch.reserve(.{ .message = message }) };
+    var prepared = (try prepareImportRelease(self, imports, .none)) orelse return null;
+    errdefer abandonPreparedOutboundMessage(self, prepared);
+    if (prepared.wireMessage()) |wire| prepared.reservation = try pending_batch.reserve(.{ .message = wire });
+    return prepared;
 }
 
+/// Record the whole release, then publish the part the wire carries. The
+/// message is the queue's once pushed; otherwise it is freed here.
 pub fn commitPreparedImportRelease(self: *Peer, prepared: PreparedOutboundMessage) void {
+    // Nothing stores a resolution between prepare and commit, so the wire
+    // decision still matches the table.
+    std.debug.assert(prepared.wire.heldCount(prepared.message.gc_export.positions.len) ==
+        self.session_state.heldReleaseEntries(prepared.message.gc_export));
     if (prepared.closure_len == 0) {
         self.session_state.recordPreparedSend(prepared.message);
     } else {
@@ -333,5 +377,12 @@ pub fn commitPreparedImportRelease(self: *Peer, prepared: PreparedOutboundMessag
         self.session_state.recordPreparedSend(.{ .gc_export = .{ .positions = gc.positions[0..own], .deltas = gc.deltas[0..own] } });
         self.session_state.recordSessionImportRelease(.{ .positions = gc.positions[own..], .deltas = gc.deltas[own..] });
     }
-    self.pushPendingAssume(prepared.reservation, .{ .message = prepared.message });
+    switch (prepared.wire) {
+        .all => self.pushPendingAssume(prepared.reservation.?, .{ .message = prepared.message }),
+        .none => model.freeMessage(self.allocator, prepared.message),
+        .some => |gc_export| {
+            self.pushPendingAssume(prepared.reservation.?, .{ .message = .{ .gc_export = gc_export } });
+            model.freeMessage(self.allocator, prepared.message);
+        },
+    }
 }

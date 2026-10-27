@@ -226,8 +226,10 @@ pub const AnswerPayload = struct {
     /// it so a succession of published answers cannot hide variable retained
     /// trees behind the fixed answer-row cap.
     resolution_charge: usize = 0,
-    /// Exact callback import retains; final payload release queues their GC.
-    imported_result: ?*@import("../import_release_outbox.zig").Batch = null,
+    /// The stored resolution's hold on the far imports it names, chaining
+    /// the retains a forwarded reply introduced; final payload release
+    /// queues its settlement. Replaced with the resolution.
+    held_imports: ?*@import("../import_release_outbox.zig").Batch = null,
     /// V1.0's independently accepted resolver callback. The BiMap remains the
     /// live answer-name index. This captured import is the detached obligation
     /// that survives removal and legal reuse of that name.
@@ -504,7 +506,7 @@ pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayloa
     payload.refs -= 1;
     if (payload.refs != 0) return .none;
     var released: ReleasedCharges = .{ .resolution = payload.resolution_charge };
-    if (payload.imported_result) |batch| batch.ready();
+    if (payload.held_imports) |batch| batch.ready();
     for (payload.queue.items) |call| {
         released.queued_calls += call.charge;
         call.deinit(allocator);

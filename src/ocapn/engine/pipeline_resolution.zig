@@ -96,9 +96,10 @@ pub const ListenerDrainAction = union(enum) {
 
 /// Decide how `entry` drains against a settled `resolution` (ADR-0003).
 /// The re-anchor case, spec-strict `Fulfill(Promise(_))`, never reaches a
-/// drain site: the chain walk
-/// (`resolution_chain.follow`) re-anchors on a same-peer promise before any
-/// listener is classified, so that case is a precondition here. Settled values
+/// drain site: admission refuses an answer reference in a sent resolution
+/// (`validate/passable.zig`), and the chain walk (`resolution_chain.follow`)
+/// re-anchors on a same-peer promise before any listener is classified, so
+/// that case is a precondition here. Settled values
 /// conclude listeners that requested settling. A far promise is the listener's
 /// own peer's promise. On next it concludes only shortening listeners, because
 /// every next settling listener is paired with a shortening one that reissues

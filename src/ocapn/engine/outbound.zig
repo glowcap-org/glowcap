@@ -232,18 +232,9 @@ pub fn enqueueInventoried(self: *Peer, message_in: model.Message, inventory: ses
         defer freeMessage(self.allocator, message);
         return encoded.admit(self, message, inventory, null);
     }
-    // A release may carry a shortening closure: trailing entries that are the
-    // session's own retains, recorded apart from the caller's below.
-    const closure_len: usize = if (message == .gc_export)
-        self.session_state.expandShorteningGcExportReleases(self.allocator, &message.gc_export) catch |err| {
-            freeMessage(self.allocator, message);
-            return err;
-        }
-    else
-        0;
-
+    if (message == .gc_export) return enqueueRelease(self, message, inventory);
     // The queue row's charge: the message's envelope plus the tree the
-    // inventory measured, after the release closure grew the envelope.
+    // inventory measured.
     const charge = messageCharge(message, inventory) catch |err| {
         freeMessage(self.allocator, message);
         return err;
@@ -258,13 +249,48 @@ pub fn enqueueInventoried(self: *Peer, message_in: model.Message, inventory: ses
     var appended = true;
     errdefer if (appended) self.popPendingBack().?.item.deinit(self);
 
+    try self.session_state.recordSendInventoried(message, inventory);
+    if (message == .start_session) self.settleNegotiatedProfile();
+    appended = false;
+}
+
+/// Queue a caller's import release. It may carry a shortening closure,
+/// trailing entries that are the session's own retains, recorded apart from
+/// the caller's. An entry naming a row a stored resolution holds stays off
+/// the wire and with the table (`Session.wireRelease`); a release naming
+/// only held rows records without a frame. Consumes `message`.
+fn enqueueRelease(self: *Peer, message: model.Message, inventory: session.Inventory) !void {
+    var owned = message;
+    var owned_needs_free = true;
+    errdefer if (owned_needs_free) freeMessage(self.allocator, owned);
+    const closure_len = try self.session_state.expandShorteningGcExportReleases(self.allocator, &owned.gc_export);
+    const wire = try self.session_state.wireRelease(self.allocator, owned.gc_export);
+    var wire_needs_free = true;
+    errdefer if (wire_needs_free) wire.deinit(self.allocator);
+    if (wire != .none) {
+        const frame_message: model.Message = switch (wire) {
+            .all => owned,
+            .some => |gc_export| .{ .gc_export = gc_export },
+            .none => unreachable,
+        };
+        const charge = try messageCharge(frame_message, inventory);
+        const reservation = try self.reservePendingCharged(charge, false);
+        self.pushPendingAssume(reservation, .{ .message = frame_message });
+        wire_needs_free = false;
+        if (wire == .all) owned_needs_free = false;
+    }
+    var appended = wire != .none;
+    errdefer if (appended) {
+        self.popPendingBack().?.item.deinit(self);
+        if (wire == .all) owned_needs_free = false;
+    };
     if (closure_len == 0) {
-        try self.session_state.recordSendInventoried(message, inventory);
+        try self.session_state.recordSendInventoried(owned, inventory);
     } else {
         // The caller's own entries are validated like any send; the closure
         // behind them spends what the session adopted for exactly this
         // release, so it cannot fail once the caller's part committed.
-        const gc_export = message.gc_export;
+        const gc_export = owned.gc_export;
         const own = gc_export.positions.len - closure_len;
         try self.session_state.recordSend(.{ .gc_export = .{
             .positions = gc_export.positions[0..own],
@@ -275,8 +301,9 @@ pub fn enqueueInventoried(self: *Peer, message_in: model.Message, inventory: ses
             .deltas = gc_export.deltas[own..],
         });
     }
-    if (message == .start_session) self.settleNegotiatedProfile();
     appended = false;
+    if (wire != .all) freeMessage(self.allocator, owned);
+    owned_needs_free = false;
 }
 
 /// Inventory an outbound tree with the session's codec metering its values,

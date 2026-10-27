@@ -228,7 +228,7 @@ pub fn dispatchQueuedOperations(self: *Host, id: capability.PromiseId, resolved:
 }
 
 /// A queued operation either went out on the capability's home session and
-/// now awaits that session, or was a listen the Host settled in place, which
+/// awaits that session, or was a listen the Host settled in place, which
 /// consumed its own row entry.
 const Dispatched = enum { dispatched, settled_in_place };
 

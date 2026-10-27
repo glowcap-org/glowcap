@@ -209,6 +209,14 @@ fn emitPendingListenerFire(self: *Peer, fire: listener_fire.Carrier) !void {
 const PreparedAccounting = enum { prepared_send, session_release };
 
 fn emitRecordedPendingMessage(self: *Peer, message: model.Message, accounting: PreparedAccounting) !void {
+    // A release of one row a stored resolution holds records without a
+    // frame (`Session.wireRelease`); the single entry is all or nothing.
+    if (accounting == .session_release and
+        try self.session_state.wireRelease(self.allocator, message.gc_export) == .none)
+    {
+        self.session_state.recordSessionImportRelease(message.gc_export);
+        return;
+    }
     var frame = try codec.dispatch.encodeMessageForProfile(
         self.session_state.codec,
         self.allocator,

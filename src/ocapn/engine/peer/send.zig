@@ -148,6 +148,15 @@ pub fn pushEncodedPairFromPending(
     second: model.Message,
     second_accounting: SecondMessageAccounting,
 ) !void {
+    // A release of one row a stored resolution holds records without a
+    // frame (`Session.wireRelease`); the single entry is all or nothing.
+    if (second_accounting == .session_release_at_commit and
+        try self.session_state.wireRelease(self.allocator, second.gc_export) == .none)
+    {
+        try pushEncodedFromPending(self, first);
+        self.session_state.recordSessionImportRelease(second.gc_export);
+        return;
+    }
     var first_frame = try encodeOutbound(self, first);
     errdefer first_frame.deinit();
     var second_frame = try encodeOutbound(self, second);

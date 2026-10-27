@@ -94,7 +94,8 @@ fn checkForward(profile: model.CaptpVersion, codec_id: model.CodecId, wire_answe
     }
     try std.testing.expectEqual(@as(u64, 2), released_result);
     try std.testing.expectEqual(@as(u64, 0), peer.session_state.importRefcount(.from(88)));
-    try std.testing.expectEqual(@as(usize, 0), peer.session_state.import_release_outbox.?.active_batches);
+    // The one live batch is the stored resolution of 42 holding import 9.
+    try std.testing.expectEqual(@as(usize, 1), peer.session_state.import_release_outbox.?.active_batches);
     try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.outboundAnswer(.from(43)).?.status);
     if (wire_answer and release_first)
         try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.inboundAnswer(.from(43)).?.status);
@@ -151,38 +152,66 @@ test "a forwarded call carrying the partner's answer reference breaks the pipeli
     );
 }
 
-test "a late call to an answer whose partner object this side released breaks instead of forwarding" {
+test "a late call to an answer forwards to the partner object the application released" {
     var peer = try openForwardingPeer();
     defer peer.deinit();
-    try resolveToReleasedImport(&peer, .{ .reference = .{ .far = model.FarRef.object(9) } });
+    try resolveThenRelease(&peer, .{ .reference = .{ .far = model.FarRef.object(9) } });
     try receive(&peer, .{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .args = &.{.{ .string = "ping" }},
         .answer = .from(43),
         .resolve_me_desc = .{ .near = model.NearRef.object(99) },
     } });
+    const forwarded = try drainUntilCall(&peer, 9);
+    defer model.freeMessage(peer.allocator, forwarded);
+    try std.testing.expectEqualStrings("ping", forwarded.deliver.args[0].string);
     try std.testing.expect(peer.sessionIsOpen());
-    try std.testing.expectEqualStrings(
-        engine.resolution_chain.released_target_message,
-        peer.session_state.peekResolution(.from(43)).?.@"break".message,
-    );
+    try releaseAnswerExpectingRelease(&peer, 1);
 }
 
-fn resolveToReleasedImport(peer: *engine.Peer, value: model.Argument) !void {
+/// Resolve 42 to `value`, then release the application's one retain on 9:
+/// the stored resolution holds the row, so the release stays with the
+/// session and no frame leaves.
+fn resolveThenRelease(peer: *engine.Peer, value: model.Argument) !void {
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = value } } });
     try peer.sendBorrowed(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{1} } });
+    try std.testing.expectEqual(@as(u64, 0), try drainReleasesOf(peer, 9));
+    try std.testing.expect(peer.session_state.holdsImport(.from(9)));
+    try std.testing.expectEqual(@as(u64, 0), peer.session_state.importReleasable(.from(9)));
+}
+
+/// Release the partner's question 42, which settles the hold: the retains
+/// released meanwhile leave as one `op:gc-export` and the row retires.
+fn releaseAnswerExpectingRelease(peer: *engine.Peer, expected: u64) !void {
+    try receive(peer, .{ .gc_answer = .{ .positions = &.{42} } });
+    try std.testing.expectEqual(expected, try drainReleasesOf(peer, 9));
+    try std.testing.expect(!peer.session_state.holdsImport(.from(9)));
+    try std.testing.expectEqual(@as(usize, 0), peer.session_state.import_release_outbox.?.active_batches);
+}
+
+/// Step to idle and sum the `op:gc-export` deltas that left for `position`.
+fn drainReleasesOf(peer: *engine.Peer, position: u64) !u64 {
+    var released: u64 = 0;
     while ((try peer.step()) == .progress) {}
     while (peer.takeOutbound()) |out| {
         var frame = out;
-        frame.deinit();
+        defer frame.deinit();
+        const body = try codec.dispatch.decodeBodyForProfile(peer.session_state.codec, peer.session_state.captp_version, frame.view());
+        if (body != .gc_export) continue;
+        var positions = body.gc_export.positions.iterator();
+        var deltas = body.gc_export.deltas.iterator();
+        while (try positions.next()) |released_position| {
+            const delta = (try deltas.next()).?;
+            if (released_position == position) released += delta;
+        }
     }
-    try std.testing.expect(!peer.session_state.holdsImport(.from(9)));
+    return released;
 }
 
-test "a late listen on an answer whose partner object this side released hears the break" {
+test "a late listen on an answer hears the partner object the application released" {
     var peer = try openForwardingPeer();
     defer peer.deinit();
-    try resolveToReleasedImport(&peer, .{ .reference = .{ .far = model.FarRef.object(9) } });
+    try resolveThenRelease(&peer, .{ .reference = .{ .far = model.FarRef.object(9) } });
     try receive(&peer, .{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .listener = .{ .near = model.NearRef.object(7) },
@@ -190,27 +219,46 @@ test "a late listen on an answer whose partner object this side released hears t
     } });
     const fire = try drainUntilCall(&peer, 7);
     defer model.freeMessage(peer.allocator, fire);
-    try std.testing.expectEqualStrings("break", fire.deliver.args[0].symbol);
-    try std.testing.expectEqualStrings(engine.resolution_chain.released_target_message, fire.deliver.args[1].symbol);
+    try std.testing.expectEqualStrings("fulfill", fire.deliver.args[0].symbol);
+    try std.testing.expectEqual(@as(u64, 9), fire.deliver.args[1].reference.near.export_position.int());
     try std.testing.expect(peer.sessionIsOpen());
+    try releaseAnswerExpectingRelease(&peer, 1);
 }
 
-test "a late projection settles beside a released partner object and breaks on it" {
+test "a late projection selects the partner object the application released" {
     // The 1.0 profile carries the projection verbs.
     var peer = try openForwardingPeerWith(.v1_0);
     defer peer.deinit();
-    try resolveToReleasedImport(&peer, .{ .@"struct" = &.{
+    try resolveThenRelease(&peer, .{ .@"struct" = &.{
         .{ .key = "owner", .value = .{ .reference = .{ .far = model.FarRef.object(9) } } },
         .{ .key = "count", .value = .{ .string = "three" } },
     } });
     try receive(&peer, .{ .get = .{ .receiver = .{ .promise = .{ .answer_position = .from(42) } }, .field = "count", .answer = .from(45) } });
     try std.testing.expectEqualStrings("three", peer.session_state.peekResolution(.from(45)).?.fulfill.string);
     try receive(&peer, .{ .get = .{ .receiver = .{ .promise = .{ .answer_position = .from(42) } }, .field = "owner", .answer = .from(46) } });
-    try std.testing.expectEqualStrings(
-        engine.resolution_chain.released_target_message,
-        peer.session_state.peekResolution(.from(46)).?.@"break".message,
-    );
+    try std.testing.expectEqual(@as(u64, 9), peer.session_state.peekResolution(.from(46)).?.fulfill.reference.far.import_position.int());
     try std.testing.expect(peer.sessionIsOpen());
+    // The projection's own answer holds the row too, so the original
+    // answer's release flushes nothing until 46 goes as well.
+    try receive(&peer, .{ .gc_answer = .{ .positions = &.{42} } });
+    try std.testing.expectEqual(@as(u64, 0), try drainReleasesOf(&peer, 9));
+    try std.testing.expect(peer.session_state.holdsImport(.from(9)));
+    try receive(&peer, .{ .gc_answer = .{ .positions = &.{46} } });
+    try std.testing.expectEqual(@as(u64, 1), try drainReleasesOf(&peer, 9));
+    try std.testing.expect(!peer.session_state.holdsImport(.from(9)));
+}
+
+test "a release naming a held row and another sends only the other" {
+    var peer = try openForwardingPeer();
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(11));
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(9) } } } } });
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &.{ 9, 11 }, .deltas = &.{ 1, 1 } } });
+    try std.testing.expectEqual(@as(u64, 1), try drainReleasesOf(&peer, 11));
+    try std.testing.expect(!peer.session_state.holdsImport(.from(11)));
+    try std.testing.expect(peer.session_state.holdsImport(.from(9)));
+    try std.testing.expectEqual(@as(u64, 0), peer.session_state.importReleasable(.from(9)));
+    try releaseAnswerExpectingRelease(&peer, 1);
 }
 
 test "a forwarded reply naming the partner's own question breaks the original answer" {
@@ -246,7 +294,7 @@ fn prepareOwnedResult(allocator: std.mem.Allocator) !void {
     try state.registerImport(.from(88));
     const releases = session.ImportRelease;
     const batch = (try releases.prepare(&state, &.{ .from(88), .from(88) })).?;
-    batch.adopt(&state);
+    batch.take(&state);
     batch.ready();
     try std.testing.expectEqual(@as(u64, 0), state.importReleasable(.from(88)));
 }
@@ -264,7 +312,7 @@ test "stored forwarding import release retries allocator refusal without spendin
     try peer.session_state.registerImport(.from(88));
     const releases = session.ImportRelease;
     const batch = (try releases.prepare(&peer.session_state, &.{ .from(88), .from(88) })).?;
-    batch.adopt(&peer.session_state);
+    batch.take(&peer.session_state);
     batch.ready();
     const charge = peer.session_state.retained_sent_answer_bytes;
     failing.fail_after = failing.allocation_count;
@@ -321,7 +369,8 @@ test "a collected baseline reply still forwards the original call without borrow
         try std.testing.expect(forwarded.deliver.resolve_me_desc == null);
         try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.inboundAnswer(.from(43)).?.status);
         try std.testing.expect(!peer.sessionIsClosed());
-        try std.testing.expect(peer.session_state.import_release_outbox == null);
+        // The one live batch is the stored resolution of 42 holding import 9.
+        try std.testing.expectEqual(@as(usize, 1), peer.session_state.import_release_outbox.?.active_batches);
         while (peer.pollEvent()) |event_in| {
             var event = event_in;
             event.deinit();
@@ -337,7 +386,7 @@ test "ready import releases respect pressure after already admitted work drains"
     try peer.session_state.registerImport(.from(88));
     const releases = session.ImportRelease;
     const batch = (try releases.prepare(&peer.session_state, &.{.from(88)})).?;
-    batch.adopt(&peer.session_state);
+    batch.take(&peer.session_state);
     batch.ready();
     peer.outbound_budget = 1;
     // Completion of an admitted carrier must not wait behind a new producer.
@@ -367,7 +416,7 @@ test "ready import releases flush an otherwise held answer release" {
     try peer.session_state.registerImport(.from(88));
     const releases = session.ImportRelease;
     const batch = (try releases.prepare(&peer.session_state, &.{.from(88)})).?;
-    batch.adopt(&peer.session_state);
+    batch.take(&peer.session_state);
     batch.ready();
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     try std.testing.expect(peer.session_state.outboundAnswer(.from(43)) == null);

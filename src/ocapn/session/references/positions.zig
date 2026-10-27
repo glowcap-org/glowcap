@@ -181,7 +181,7 @@ pub fn releaseUnsharedExport(self: *Session, id: model.ExportPosition) void {
 /// the decrement cannot underflow.
 pub fn releaseImportRetain(self: *Session, id: model.ImportPosition) void {
     if (id.int() == bootstrap_position) return;
-    self.imports.decrement(id, 1) catch unreachable;
+    self.imports.rollbackRetain(id);
 }
 
 /// Release one of the session's own retains on `id` without a wire message:

@@ -22,6 +22,21 @@
 //! address a row the session still has to settle through. The row's presence
 //! at that later release is then an invariant, not a runtime question.
 //!
+//! ## A stored resolution holds what it names
+//!
+//! A resolution this side sent stays stored for the answer's lifetime, and a
+//! late call, listen, or projection forwards to the partner objects it names.
+//! Each stored resolution therefore holds every import it names
+//! (`holdForResolution`), and no release of a held row reaches the wire: the
+//! producer leaves the entry out of its frame (`Session.wireRelease`) and the
+//! table keeps the retains when the release records, a caller's as the
+//! session's (`decrement`) and the session's as held back (`releaseSessionHeld`).
+//! They leave on the wire when the last hold does (`releaseResolutionHold`).
+//! The row cannot retire while held, so the partner cannot reuse the position
+//! under the stored value. A Host handle lifted from the stored value while
+//! every retain is held back takes one back (`noteHostRef`), so its release
+//! is a caller's release again.
+//!
 //! ## A hashed table for the partner's positions
 //!
 //! An untrusted peer can name `import_position = 1 << 63`, and a vector would
@@ -47,9 +62,14 @@ const model = @import("model");
 /// One live import position. `count` is every wire retain the partner's
 /// mentions granted. `session_held` is how many of those the session keeps
 /// for a release it will put on the wire itself, never more than `count`.
+/// `held_back` is the part of `session_held` a stored resolution's hold keeps
+/// for a caller, owed to the wire when the last hold leaves, and
+/// `resolution_holds` counts the stored-resolution mentions holding the row.
 pub const ImportRow = struct {
     count: u64,
     session_held: u64 = 0,
+    held_back: u64 = 0,
+    resolution_holds: u64 = 0,
 };
 
 /// Import rows: wire-delta counts split by holder, plus optional identities.
@@ -174,7 +194,10 @@ pub const ImportTable = struct {
 
     /// Attach `host_ref` to an import the Session has already proved held.
     /// `wire_retains` is one for an introduced import and zero for bootstrap,
-    /// whose authority is permanent for the session and never wire-GCed.
+    /// whose authority is permanent for the session and never wire-GCed. The
+    /// one retain is a caller's: a row whose every retain is held back for a
+    /// stored resolution gives one back to the handle, whose release is then
+    /// held back in turn.
     pub fn noteHostRef(
         self: *ImportTable,
         allocator: std.mem.Allocator,
@@ -185,6 +208,13 @@ pub const ImportTable = struct {
         const map = try self.identityMap(allocator);
         const gop = try map.getOrPut(allocator, position.int());
         if (!gop.found_existing) gop.value_ptr.* = .{};
+        if (wire_retains != 0) {
+            const row = self.liveRow(position);
+            if (row.count == row.session_held and row.held_back != 0) {
+                row.session_held -= 1;
+                row.held_back -= 1;
+            }
+        }
         gop.value_ptr.host_ref = host_ref;
         gop.value_ptr.lifted_retains = wire_retains;
     }
@@ -331,24 +361,82 @@ pub const ImportTable = struct {
         row.session_held += 1;
     }
 
+    /// One more stored-resolution mention holds `position`. The row is live:
+    /// the resolution was validated against this table before it was stored.
+    pub fn holdForResolution(self: *ImportTable, position: Id) void {
+        const row = self.liveRow(position);
+        row.resolution_holds += 1;
+    }
+
+    /// Whether a stored resolution holds `position`. False for a row that
+    /// is not live.
+    pub fn heldByResolution(self: *const ImportTable, position: Id) bool {
+        return self.resolutionHolds(position) != 0;
+    }
+
+    /// One stored-resolution mention of `position` left. Returns the retains
+    /// held back for callers once no hold remains, which the caller releases
+    /// through `releaseSessionHeld` beside the wire message, or zero while
+    /// another hold keeps them.
+    pub fn releaseResolutionHold(self: *ImportTable, position: Id) u64 {
+        const row = self.liveRow(position);
+        std.debug.assert(row.resolution_holds != 0);
+        row.resolution_holds -= 1;
+        if (row.resolution_holds != 0) return 0;
+        const owed = row.held_back;
+        row.held_back = 0;
+        return owed;
+    }
+
+    /// How many stored-resolution mentions hold `position`, or 0 if not live.
+    pub fn resolutionHolds(self: *const ImportTable, position: Id) u64 {
+        const row = self.rows.get(position.int()) orelse return 0;
+        return row.resolution_holds;
+    }
+
     /// A caller's release of `delta` retains, retiring the row at zero. Past
     /// `releasable`, or an unknown position with `delta > 0`, is
-    /// `Error.GcUnderflow`.
+    /// `Error.GcUnderflow`. On a held row the retains stay, as the session's
+    /// and held back, because the producer left this entry off the wire.
     pub fn decrement(self: *ImportTable, position: Id, delta: u64) Error!void {
         const row = self.rows.getPtr(position.int()) orelse {
             if (delta == 0) return;
             return error.GcUnderflow;
         };
         if (delta > row.count - row.session_held) return error.GcUnderflow;
+        if (row.resolution_holds != 0) {
+            row.session_held += delta;
+            row.held_back += delta;
+            return;
+        }
         row.count -= delta;
         if (row.count == 0) self.retire(position);
     }
 
+    /// Undo a retain `registerImport` took in the same dispatch, before any
+    /// store could hold the row. A row that reaches zero retires.
+    pub fn rollbackRetain(self: *ImportTable, position: Id) void {
+        const row = self.liveRow(position);
+        std.debug.assert(row.count > row.session_held);
+        row.count -= 1;
+        if (row.count == 0) {
+            std.debug.assert(row.resolution_holds == 0);
+            self.retire(position);
+        }
+    }
+
     /// The session's release of `delta` of its own retains, retiring the row
-    /// at zero. Infallible: the session adopted what it releases.
+    /// at zero. Infallible: the session adopted what it releases. On a held
+    /// row the retains stay held back, because the producer left this entry
+    /// off the wire.
     pub fn releaseSessionHeld(self: *ImportTable, position: Id, delta: u64) void {
         const row = self.liveRow(position);
         std.debug.assert(delta <= row.session_held);
+        if (row.resolution_holds != 0) {
+            std.debug.assert(delta <= row.session_held - row.held_back);
+            row.held_back += delta;
+            return;
+        }
         row.session_held -= delta;
         row.count -= delta;
         if (row.count == 0) self.retire(position);

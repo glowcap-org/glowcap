@@ -318,7 +318,7 @@ fn commitSentResolution(
     // either authority changes. The inventory already bounded the tree;
     // capacity plus the prepared store make the commit below infallible.
     try self.ensureSentResolutionExportCapacity(resolution, inventory);
-    const prepared_store = try resolution_store.prepareResolutionStore(self, store_plan);
+    const prepared_store = try resolution_store.prepareResolutionStore(self, store_plan, resolution);
     // Establish every fulfilled local export now.
     if (resolution == .fulfill) {
         sent_exports.recordMentions(self, inventory, &resolution.fulfill, has_v1_callback) catch unreachable;

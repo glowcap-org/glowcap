@@ -36,6 +36,7 @@ const pipeline = @import("answers/pipeline.zig");
 const answer_lifecycle = @import("answers/lifecycle.zig");
 const promise_types = @import("promises/types.zig");
 const lifecycle = @import("lifecycle.zig");
+const held_releases = @import("held_releases.zig");
 
 /// Re-exported so a caller that must keep the recv-turn's introduced-import
 /// record alive across validate and apply (`validateInboundDeliverView`'s caller,
@@ -411,6 +412,8 @@ pub const Session = struct {
     pub const adoptImportRetain = positions.adoptImportRetain;
     pub const listenerRetainHeld = positions.listenerRetainHeld;
     pub const importRequiresWireRelease = positions.importRequiresWireRelease;
+    pub const wireRelease = held_releases.wireRelease;
+    pub const heldReleaseEntries = held_releases.heldReleaseEntries;
 
     pub const installInboundAnswer = answer_lifecycle.installInbound;
     pub const installInboundAnswerNamed = apply.installInboundAnswerNamed;
@@ -620,3 +623,4 @@ pub const validateHandoffWellFormed = gc.validateHandoffWellFormed;
 pub const deinitImportedPromise = imported_promise.deinitImportedPromise;
 pub const ForwardedReply = @import("forwarding.zig").ForwardedReply;
 pub const ImportRelease = @import("import_release_outbox.zig").Batch;
+pub const WireRelease = held_releases.WireRelease;
