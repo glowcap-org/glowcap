@@ -154,6 +154,11 @@ FIXTURES = {
     "op_deliver_arg_tagged.bin": op_deliver_arg_tagged,
     "op_deliver_arg_keyword.bin": op_deliver_arg_keyword,
     "op_deliver_arg_set.bin": op_deliver_arg_set,
+    # ADR-0068 answer reference as a send argument
+    "op_deliver_arg_answer.bin": op_deliver_arg_answer,
+    "op_deliver_arg_answer_in_list.bin": op_deliver_arg_answer_in_list,
+    "op_deliver_arg_answer_in_set.bin": op_deliver_arg_answer_in_set,
+    "op_deliver_arg_answer_in_tagged.bin": op_deliver_arg_answer_in_tagged,
     "prim_string_hello.bin": prim_string_hello,
     "prim_integer_pos_42.bin": prim_integer_pos_42,
     "prim_integer_neg_7.bin": prim_integer_neg_7,

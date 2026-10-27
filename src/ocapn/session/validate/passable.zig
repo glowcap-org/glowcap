@@ -147,11 +147,13 @@ pub const IntroducedImports = struct {
 /// positions cannot learn that a reservation exists (ADR-0027).
 pub const Perspective = enum { sent, received };
 
-/// Which message carries the reference. A `desc:answer` names a question in
-/// the asker's table, and the asker is the sender of a call (a deliver,
-/// listen, or projection op) but the receiver of a resolution, so the table a
-/// `promise` is checked against follows the carrier and the perspective
-/// together. On send, the carrier also decides the `near` rule: a call's
+/// Which message carries the reference. A `desc:answer` names a question its
+/// sender asked, in a call and in a resolution alike: the position is the
+/// asker's, and CapTP has no form for the receiving side to name an answer
+/// back (upstream issue 168). A resolution this session sends admits none,
+/// because a pipelined call on the settled answer would need a chain target
+/// stored here while the named question lives at the partner, and a promise
+/// travels as its projection instead. On send, the carrier also decides the `near` rule: a call's
 /// arguments name exports this session already holds, while a resolution's
 /// payload may export an object for the first time (`retainSentExportRef`
 /// mints its row through `validateExportPositionForMarshal`, so the position
@@ -257,23 +259,23 @@ pub fn validateReference(
     };
 }
 
-/// A `desc:answer` names a live question in the asker's table (`Carrier`).
-/// The rule is the same wherever the descriptor appears, as a target or inside
-/// an argument or payload tree, because the position is a promise only while
-/// that row lives (CapTP `desc:answer`), and an unknown one would alias the
-/// next question asked at that position.
+/// A `desc:answer` names a live question its sender asked, wherever the
+/// descriptor sits: as a target or inside an argument or payload tree, a sent
+/// one is in `outbound_answers` and a received one in `inbound_answers`. The
+/// position is a promise only while that row lives (CapTP `desc:answer`), and
+/// an unknown one would alias the next question asked at that position. A
+/// sent resolution admits none (`Carrier`).
 fn validatePromiseReference(
     self: *Session,
     promise: anytype,
     comptime perspective: Perspective,
     comptime carrier: Carrier,
 ) Error!void {
-    // We are the asker of a call we sent and of a resolution we received.
-    const we_asked = (perspective == .sent) == (carrier == .call);
-    const live = if (we_asked)
-        self.outbound_answers.contains(promise.answer_position)
-    else
-        self.inbound_answers.contains(.fromWire(promise.answer_position));
+    if (perspective == .sent and carrier == .resolution) return error.InvalidReference;
+    const live = switch (perspective) {
+        .sent => self.outbound_answers.contains(promise.answer_position),
+        .received => self.inbound_answers.contains(.fromWire(promise.answer_position)),
+    };
     if (!live) return error.InvalidReference;
 }
 

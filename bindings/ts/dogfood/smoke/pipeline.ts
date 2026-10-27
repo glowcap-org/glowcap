@@ -10,6 +10,7 @@ import * as tcp from "@glowcap/tcp";
 import { INVALID_ARGUMENT } from "@glowcap/abi";
 
 import {
+	type Argument,
 	enableTrace,
 	FEATURE_FULL,
 	FEATURE_MULTI_LOCATION,
@@ -182,11 +183,11 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("promise pipelining drives create->assign->complete->status as one batch");
 	}
 
-	// A promise is a send argument (ADR-0068): the unawaited `make` answer
-	// crosses as a capability for the pending answer, the same promise crosses
-	// settled as its value nested in a list, and the board hands each
-	// capability back. Greeting through the returned handles proves both
-	// reached the greeter.
+	// A promise is a send and tell argument (ADR-0068): the unawaited `make`
+	// answer crosses as a capability for the pending answer in a tell the
+	// board keeps and in a send it hands back, and the same promise crosses
+	// settled as its value nested in a list. Greeting through the returned
+	// handles proves all three reached the greeter.
 	{
 		const server = await tcp.listen("127.0.0.1", 0);
 		const port = server.port;
@@ -195,7 +196,13 @@ export async function run(managed: Runtime): Promise<void> {
 
 		async function host(): Promise<void> {
 			for await (const session of server) {
+				let kept: Argument = null;
 				session.publish("root", (verb, args) => {
+					if (verb === "keep") {
+						kept = args[0];
+						return "kept";
+					}
+					if (verb === "kept") return kept;
 					if (verb === "make") {
 						return session.spawn((greeterVerb) => {
 							if (greeterVerb === "greet") return "hello from the greeter";
@@ -223,16 +230,23 @@ export async function run(managed: Runtime): Promise<void> {
 			await published;
 			const root = await session.fetch("root");
 			const greeter = session.send(root, "make", []);
+			await session.tell(root, "keep", [greeter]);
 			const used = await session.send(root, "use", [greeter]);
+			const kept = await session.send(root, "kept", []);
 			// Observed settled, the promise passes as its value.
 			// `make` answered before `use` on one session, so the promise is
 			// settled when it passes again: the Host carries it as its value.
 			assert((await greeter) instanceof Ref, "make answered with the greeter");
 			const usedFirst = await session.send(root, "use-first", [[greeter]]);
 			assert(used instanceof Ref && usedFirst instanceof Ref, "a passed promise returns as a capability");
+			assert(kept instanceof Ref, "a promise told to the board returns as a capability");
 			assert(
 				await session.send(used, "greet", []) === "hello from the greeter",
 				"the bare promise reached the greeter",
+			);
+			assert(
+				await session.send(kept, "greet", []) === "hello from the greeter",
+				"the told promise reached the greeter",
 			);
 			assert(
 				await session.send(usedFirst, "greet", []) === "hello from the greeter",
@@ -242,7 +256,7 @@ export async function run(managed: Runtime): Promise<void> {
 		}
 
 		await Promise.all([client(), hosted]);
-		ok("a pending promise passes as a capability, bare and nested in a list");
+		ok("a pending promise passes as a capability, by send and tell, bare and nested in a list");
 	}
 
 	// A RemotePromise is namespaced by its owning Host, not merely its FFI vow

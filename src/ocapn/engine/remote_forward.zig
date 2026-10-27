@@ -1,4 +1,11 @@
 //! Forward a queued inbound call without borrowing the sender's namespaces.
+//!
+//! An answer reference names the question of the peer that wrote it, and
+//! CapTP has no form for naming the reader's question back to it (upstream
+//! issue 168). A queued call or a reply the partner wrote cannot go back to
+//! the partner with one inside, so the forwarder breaks the question it
+//! would have carried instead of sending a reference that would name a
+//! different question on arrival.
 const model = @import("model");
 const session = @import("session");
 const Peer = @import("mod.zig").Peer;

@@ -75,20 +75,19 @@ pub fn answerForExport(self: *Session, export_position: model.ExportPosition) ?m
     };
 }
 
-/// Capture the exact answer behind either spelling of a same-peer promise.
-/// A local export's live slot and explicit pairing own its meaning; descriptor
-/// kind or numeric coincidence with an answer cannot establish that authority.
+/// Capture the exact answer behind a local promise export named in a
+/// resolution this session sends. The export's live slot and its explicit
+/// pairing own that meaning. An answer reference has no chain target here:
+/// `validate/passable.zig` refuses one in a sent resolution.
 pub fn targetForResolution(self: *Session, resolution: model.Resolution) !?answers.AnswerTarget {
     if (resolution != .fulfill or resolution.fulfill != .reference) return null;
-    const name: model.AnswerName = switch (resolution.fulfill.reference) {
-        .promise => |promise| .fromWire(promise.answer_position),
-        .near => |near| blk: {
-            const cell = self.exportSlot(near.export_position) orelse return null;
-            if (cell != .local_unresolved) return null;
-            break :blk answerForExport(self, near.export_position) orelse return null;
-        },
+    const near = switch (resolution.fulfill.reference) {
+        .near => |near| near,
         else => return null,
     };
+    const cell = self.exportSlot(near.export_position) orelse return null;
+    if (cell != .local_unresolved) return null;
+    const name = answerForExport(self, near.export_position) orelse return null;
     return self.answerTargetNamed(name) orelse error.InvalidReference;
 }
 

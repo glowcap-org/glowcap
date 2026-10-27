@@ -278,9 +278,10 @@
 
 ;; ── A promise is a send argument (ADR-0068) ──────────────────────────────────
 ;; The unawaited `make` answer crosses as a capability for the pending answer,
-;; the same vow crosses settled as its value nested in a list, the board hands
-;; each capability back, and greeting through it proves both reached the
-;; greeter. A vow another Host returned is refused before any frame moves.
+;; in a tell the board keeps and in a send it hands back, the same vow crosses
+;; settled as its value nested in a list, and greeting through each proves all
+;; three reached the greeter. A vow another Host returned is refused before any
+;; frame moves.
 (define (^greeter bcom)
   (methods
    [(greet) "hello from the greeter"]))
@@ -293,9 +294,12 @@
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pa-ch e))])
        (define hsession (accept pa-server))
+       (define kept #f)
        (session-publish hsession "root"
                         (lambda (bcom)
                           (methods
+                           [(keep target) (set! kept target) "kept"]
+                           [(kept) kept]
                            [(make) (session-spawn hsession ^greeter)]
                            [(use target) target]
                            [(use-first items) (car items)])))
@@ -306,14 +310,19 @@
 (semaphore-wait pa-ready)
 (define pa-root (session-fetch pa-session "root"))
 (define pa-greeter (session-send-promise pa-session pa-root 'make))
+(session-tell pa-session pa-root 'keep pa-greeter)
 (define pa-used (session-send pa-session pa-root 'use pa-greeter))
+(define pa-kept (session-send pa-session pa-root 'kept))
 ;; Observed settled, the vow passes as its value.
 (expect (ref? (session-await pa-session pa-greeter)) "promise argument: make answered with the greeter")
 (define pa-used-first (session-send pa-session pa-root 'use-first (list pa-greeter)))
 (expect (and (ref? pa-used) (ref? pa-used-first))
         "promise argument: a passed promise returns as a capability")
+(expect (ref? pa-kept) "promise argument: a promise told to the board returns as a capability")
 (expect (equal? "hello from the greeter" (session-send pa-session pa-used 'greet))
         "promise argument: the bare promise reached the greeter")
+(expect (equal? "hello from the greeter" (session-send pa-session pa-kept 'greet))
+        "promise argument: the told promise reached the greeter")
 (expect (equal? "hello from the greeter" (session-send pa-session pa-used-first 'greet))
         "promise argument: the nested promise reached the greeter")
 
@@ -352,7 +361,7 @@
 (expect (eq? 'served pa-host-result) "promise argument: host served to a clean close")
 (server-close! pa-server)
 
-(printf "racket zig-smoke OK: a pending promise passes as a capability, bare and nested, and a foreign vow is refused\n")
+(printf "racket zig-smoke OK: a pending promise passes as a capability, by send and tell, bare and nested, and a foreign vow is refused\n")
 
 ;; ── Promise-pipeline saturation stays typed and terminal ─────────────────────
 ;; A queue cap of one admits the first call aimed at an unresolved answer and

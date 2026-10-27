@@ -6,6 +6,7 @@ sources:
   - resource: /src/ocapn/engine/pipeline.zig
   - resource: /src/ocapn/engine/pipeline_listeners.zig
   - resource: /src/ocapn/engine/pipeline_resolution.zig
+  - resource: /src/driver/core/capability_promise/answer.zig
 ---
 
 # Promises and pipelining
@@ -136,4 +137,24 @@ sequenceDiagram
     Note over Q,R: a prior mode-1 subscription already concluded
     Note over R: export 5 is a live object, nothing pending
     R->>Q: op:deliver-only (to desc:export 9, ['fulfill, desc:import-object 5])
+```
+
+## PP-8: A promise as an argument
+
+A questioner may name one of its pending answers inside the arguments of
+another call. The answerer lifts that name to a promise for whatever the
+answer settles to, and the target object can send to it, listen on it, or pass
+it along before the answer exists. The lifted promise follows the answer: a
+reference fulfills it to that object, data fulfills it with the data, a break
+breaks it, and another pending answer moves it there.
+
+```mermaid
+sequenceDiagram
+    participant Q as Questioner
+    participant R as Answerer
+    Q->>R: op:deliver (to factory, ['make], answer-pos 3, resolver 8, mode 3)
+    Q->>R: op:deliver (to garage, ['park, desc:answer 3], answer-pos 4, resolver 9, mode 3)
+    Note over R: garage receives a promise lifted from answer 3
+    R->>Q: op:deliver (to resolver 8, ['fulfill, car])
+    Note over R: the lifted promise settles to car
 ```

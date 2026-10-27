@@ -227,18 +227,25 @@ async def projections_reach_a_field() -> None:
 
 
 async def passes_a_pending_promise() -> None:
-    """A promise is a send argument (ADR-0068): the unawaited ``make`` answer
-    crosses as a capability for the pending answer, the same promise crosses
-    settled as its value nested in a list, the board hands each capability
-    back, and greeting through it proves both reached the greeter."""
+    """A promise is a send and tell argument (ADR-0068): the unawaited
+    ``make`` answer crosses as a capability for the pending answer in a tell
+    the board keeps and in a send it hands back, the same promise crosses
+    settled as its value nested in a list, and greeting through each proves
+    all three reached the greeter."""
     server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
     try:
 
         async def serve_one() -> None:
             async for session in server:
+                kept: list[object] = []
 
                 def root(verb, args):
+                    if verb == "keep":
+                        kept[:] = [args[0]]
+                        return "kept"
+                    if verb == "kept":
+                        return kept[0]
                     if verb == "make":
 
                         def greeter(greeter_verb, _greeter_args):
@@ -264,12 +271,16 @@ async def passes_a_pending_promise() -> None:
         await asyncio.wait_for(published.wait(), timeout=5)
         root_ref = await session.fetch("root")
         greeter = session.send(root_ref, "make", [])
+        await session.tell(root_ref, "keep", [greeter])
         used = await session.send(root_ref, "use", [greeter])
+        kept = await session.send(root_ref, "kept", [])
         # Observed settled, the promise passes as its value.
         assert isinstance(await greeter, Ref)
         used_first = await session.send(root_ref, "use_first", [[greeter]])
         assert isinstance(used, Ref) and isinstance(used_first, Ref), (used, used_first)
+        assert isinstance(kept, Ref), kept
         assert await session.send(used, "greet", []) == "hello from the greeter"
+        assert await session.send(kept, "greet", []) == "hello from the greeter"
         assert await session.send(used_first, "greet", []) == "hello from the greeter"
         loop = asyncio.get_running_loop()
         try:

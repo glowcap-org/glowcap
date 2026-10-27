@@ -452,18 +452,18 @@ test "a desc:answer names a live question in the asker's table on every carrier"
         .args = &.{.{ .list = &.{never_asked} }},
     } }));
 
-    // In a received resolution, a `desc:answer` is our question: the partner
-    // may settle 5 with the promise for another question we asked, never with
-    // one of its own or one we never asked.
+    // In a received resolution, a `desc:answer` is still the partner's
+    // question: the partner may settle 5 with its own pending question 41,
+    // never with one we asked or one it never asked.
     try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{}, .answer = .from(6) } });
     try std.testing.expectError(error.InvalidReference, s.recordRecv(.{ .resolve = .{
         .answer = .from(5),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(41) } } } },
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(6) } } } },
     } }));
     try std.testing.expect(s.outboundAnswer(.from(5)).?.status == .pending);
     try s.recordRecv(.{ .resolve = .{
         .answer = .from(5),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(6) } } } },
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(41) } } } },
     } });
 
     // In a sent call, a `desc:answer` is our question.
@@ -475,6 +475,13 @@ test "a desc:answer names a live question in the asker's table on every carrier"
         .target = partner,
         .args = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(6) } } }},
     } });
+    // A sent resolution admits no answer reference: the question it would
+    // name lives at the partner, so nothing here could carry a pipelined call
+    // onto it.
+    try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .resolve = .{
+        .answer = .from(41),
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(6) } } } },
+    } }));
 }
 
 /// A row count of every session table a reference can touch. Equal counts
@@ -575,15 +582,15 @@ test "a dead reference is refused in every nesting shape on every carrier, commi
     try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = unasked } } }));
     try std.testing.expectEqual(before, TableCounts.of(&s));
 
-    // The live rows still answer: the partner's question in a received call,
-    // ours in a received resolution and a sent call, and the partner's in a
-    // sent resolution.
+    // The live rows answer: the partner's question in a received call
+    // and a received resolution, ours in a sent call. A sent resolution never
+    // names the partner's question, even a live one.
     const theirs = model.Argument{ .reference = .{ .promise = .{ .answer_position = .from(41) } } };
     const ours = model.Argument{ .reference = .{ .promise = .{ .answer_position = .from(5) } } };
     try s.recordRecv(.{ .deliver = .{ .target = bootstrap, .args = &.{.{ .list = &.{theirs} }} } });
     try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{.{ .list = &.{ours} }} } });
     try s.recordSend(.{ .deliver = .{ .target = partner, .args = &.{}, .answer = .from(6) } });
-    try s.recordRecv(.{ .resolve = .{ .answer = .from(5), .resolution = .{ .fulfill = .{ .list = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(6) } } }} } } } });
+    try s.recordRecv(.{ .resolve = .{ .answer = .from(5), .resolution = .{ .fulfill = .{ .list = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(41) } } }} } } } });
     try s.recordRecv(.{ .deliver = .{
         .target = bootstrap,
         .args = &.{},
@@ -591,5 +598,5 @@ test "a dead reference is refused in every nesting shape on every carrier, commi
         .resolve_me_desc = .{ .far = model.FarRef.object(8) },
     } });
     const settled = try model.cloneArgument(allocator, .{ .list = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(43) } } }} });
-    try s.recordSend(.{ .resolve = .{ .answer = .from(41), .resolution = .{ .fulfill = settled } } });
+    try std.testing.expectError(error.InvalidReference, s.recordSend(.{ .resolve = .{ .answer = .from(41), .resolution = .{ .fulfill = settled } } }));
 }

@@ -159,26 +159,25 @@ test "a multi-hop pipeline cycle breaks its dependent call without closing the s
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(.from(1)).?.queued_calls);
 
-    // p2 resolves answer 1 to promise(2): the queued call moves onto answer 2.
-    // Resolving answer 1 settles it.
+    // p2 resolves answer 1 to a local promise: the queued call moves onto that
+    // promise's answer. Resolving answer 1 settles it.
+    const hop = try p2.session_state.allocateLocalPromiseProjection();
+    const hop_ref: model.Reference = .{ .near = model.NearRef.promise(hop.export_position.int()) };
     try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(1),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(2) } } } },
+        .resolution = .{ .fulfill = .{ .reference = hop_ref } },
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     {
         var f = p2.takeOutbound().?;
         f.deinit();
     }
-    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(.from(2)).?.queued_calls);
+    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswerNamed(hop.answer_name).?.queued_calls);
 
-    // p2 now resolves answer 2 back to promise(1), closing the cycle. The one
-    // bounded exact-incarnation walk breaks answer 99 rather than bouncing the
-    // call or converting one bad promise graph into a session-wide abort.
-    try p2.sendBorrowed(.{ .resolve = .{
-        .answer = .from(2),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(1) } } } },
-    } });
+    // p2 now resolves that answer back to the promise, closing the cycle. The
+    // one bounded exact-incarnation walk breaks answer 99 rather than bouncing
+    // the call or converting one bad promise graph into a session-wide abort.
+    try p2.sendAnswerResolutionCopying(hop.answer_name, .{ .fulfill = .{ .reference = hop_ref } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     const wire = try peer_fixture.drainOutbound(&p2, allocator);
     defer allocator.free(wire);

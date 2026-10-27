@@ -216,6 +216,14 @@ Limits that belong to the Rooms application are listed in [operating Rooms](../a
 
 - **The public API and ABI are not stable.** There are no release tags or
   compatibility guarantees. Pin a commit.
+- **A turn forwards its answer to an object or to a promise the partner
+  exported, not to a promise this Host holds pending.** A lifted answer, an
+  inline give, or a projected vow that is pending refuses the forward
+  as `PromisePending`. Defer the answer, send to the promise, and settle the
+  resolver from the reply.
+- **A vow with no session has no capability form.** A send to an object this
+  Host serves itself settles locally, so `vowCapability` refuses it as
+  `SessionlessVow`. Await it, or pass the object.
 - **A libc-linked shared archive stays mapped until its process exits.** It
   pins itself when the loader maps it (ADR-0024), so an embedder's close of
   the library (Deno closes every FFI library at teardown) never unmaps code a
@@ -252,6 +260,29 @@ assets are not published.
   physical session. A give keeps its route list only when both sessions
   negotiated it. Otherwise it falls back to the exporter's claimed location.
   New route advice reaches later gives only after one withdrawal succeeds.
+- **A forwarded call or reply cannot carry the partner's own answer
+  reference.** An answer position names a question of the peer that sent the
+  message holding it, so a `desc:answer` the partner wrote means a different
+  question once this side sends it back
+  ([watch](upstream-watch.md#answer-references-outside-target-position)).
+  A pipelined call forwarded to the partner with one in its arguments breaks
+  its question, and a forwarded reply carrying one breaks the original answer,
+  each with a typed reason (`test/engine/peer/pipeline_remote_forward_test.zig`).
+  No known peer writes `desc:answer` outside target position in a call it
+  expects forwarded.
+- **A settled answer forwards to the partner's own object only while this
+  side holds it.** A resolution this side sent takes no hold on the
+  partner objects it names, so the application can release such an object
+  while the resolution stays stored. A call, listen, projection, or lift that
+  reaches the answer after the release breaks with the released-target reason
+  instead of forwarding to a position the partner may have retired
+  (`test/engine/peer/pipeline_remote_forward_test.zig`). The
+  check sees whether this side holds the import, so a position the partner
+  has since given to another object is not told apart from the original. The
+  window is the round trip until the partner sees the resolution. Holding the
+  object, or a handle to the promise that settled to it, through that window
+  keeps the forward. Pinning the object for the stored resolution's lifetime
+  closes both gaps and is [planned](roadmap.md#what-starts-next).
 - **A call a partner pipelines onto a promise this Host projects breaks when
   the promise settles to a capability on another session.** The partner's
   listen sees the handoff and redeems it, but the queued call lives on the
@@ -265,11 +296,6 @@ assets are not published.
   at zero is refused. glowcap keeps reconnects safe inside one Node but cannot
   coordinate separate receivers
   ([upstream watch](upstream-watch.md#handoff-count-across-independent-receiver-sessions)).
-- **Pinned Goblins does not lift an answer reference in argument position.**
-  Goblins 0.18.0 reads `desc:answer` only in target position, so a promise
-  argument glowcap sends reaches the Goblins actor as the descriptor record
-  itself. `zig build goblins-interop` pins that, and glowcap lifts one it
-  receives to a promise (ADR-0068).
 - **Remote equality does not cross unrelated sessions.** Without durable peer
   proof, two sessions' targets stay unrelated even when their locators look
   alike.

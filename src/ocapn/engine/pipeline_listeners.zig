@@ -107,7 +107,8 @@ pub fn prepareAnswerListenerDrain(
     outcome: resolution_chain.Outcome,
 ) !PreparedListenerDrain {
     const listeners = try peer.session_state.takeAnswerPayloadListeners(payload);
-    return prepareListenerDrainPlan(peer, payload, listeners, listenerDrainPlan(outcome));
+    if (listeners.len == 0) return .none(payload);
+    return prepareListenerDrainPlan(peer, payload, listeners, listenerDrainPlan(peer, outcome));
 }
 
 /// What a settled source does with its listeners: re-anchor them on the
@@ -132,7 +133,7 @@ fn applyStoredListener(
     first: resolution_chain.Source,
     entry: session.ListenerEntry,
 ) !void {
-    switch (listenerDrainPlan(resolution_chain.follow(peer, first))) {
+    switch (listenerDrainPlan(peer, resolution_chain.follow(peer, first))) {
         .reinstall => |target| {
             var prepared = try peer.session_state.prepareListenerBatchTarget(target, 1);
             errdefer prepared.abandon(&peer.session_state);
@@ -273,12 +274,19 @@ fn prepareListenerDrainPlan(
     return prepared;
 }
 
-fn listenerDrainPlan(outcome: resolution_chain.Outcome) ListenerDrainPlan {
+fn listenerDrainPlan(peer: *Peer, outcome: resolution_chain.Outcome) ListenerDrainPlan {
     return switch (outcome) {
-        .terminal => |terminal| .{ .fire = .{
-            .target = .{ .store = terminal.target },
-            .resolution = terminal.resolution,
-        } },
+        .terminal => |terminal| if (terminal.resolution == .fulfill and
+            resolution_chain.namesReleasedImport(peer, terminal.resolution.fulfill))
+            .{ .fire = .{
+                .target = .{ .static_break = resolution_chain.released_target_message },
+                .resolution = terminalBreak(resolution_chain.released_target_message),
+            } }
+        else
+            .{ .fire = .{
+                .target = .{ .store = terminal.target },
+                .resolution = terminal.resolution,
+            } },
         .pending => |target| .{ .reinstall = target },
         .terminal_break => |message| .{ .fire = .{
             .target = .{ .static_break = message },

@@ -1,13 +1,10 @@
 //! Promise arguments against live Goblins, in both directions (ADR-0068).
 //!
 //! Toward Goblins, the Zig Session passes a pending reply as a capability
-//! argument, which leaves the wire as `desc:answer` in argument position.
-//! Goblins 0.18.0 reads `desc:answer` only in target position: its argument
-//! unmarshaller has no arm for the descriptor and hands the actor the record
-//! itself. The host's `inspect` actor answers with the record label it was
-//! given, so this bracket pins that boundary. The frame is accepted, the actor
-//! runs, and the label is `desc:answer`. A Goblins release that lifts the
-//! descriptor changes the label, and the conformance row moves with it.
+//! argument, which leaves the wire as a local promise export. The host's
+//! `await` actor replies with that promise's eventual value, so the bracket
+//! proves Goblins lifted the argument as a promise and settled through it
+//! when the reply it names arrived.
 //!
 //! From Goblins, `glowcap-answer-argument.rkt` writes the canonical
 //! `op:deliver` through its netlayer, because Goblins has no application-level
@@ -31,8 +28,8 @@ const frame_cap: usize = 1 << 16;
 /// The wait for the Goblins dialer, matching the sibling brackets.
 const deadline_ms: i32 = 60_000;
 const dialer_script = "conformance/goblins-peer/racket/glowcap-answer-argument.rkt";
-/// The host script publishes `inspect` under this swiss-num beside echo.
-const inspect_swiss = "glowcapInspectSwissnumABCDEF1234";
+/// The host script publishes `await` under this swiss-num beside echo.
+const await_swiss = "glowcapAwaitSwissnumABCDEF123456";
 /// The swiss-num glowcap publishes its answer reader behind.
 const reader_swiss = "glowcapAnswerReaderSwissnum01234";
 /// The value the deferred `make` answer settles to, which `read` relays.
@@ -57,29 +54,23 @@ pub fn passToGoblins(io: std.Io, allocator: std.mem.Allocator, echo_swiss: []con
     const arena = arena_state.allocator();
 
     const echo = try session.fetch(echo_swiss);
-    const inspect = try session.fetch(inspect_swiss);
+    const awaiter = try session.fetch(await_swiss);
 
-    // The echo reply is pending when the inspect call names it, so the wire
-    // carries `desc:answer` in argument position.
+    // The echo reply is pending when the await call names it, so Goblins
+    // receives a promise and settles through it.
     const pending = try session.send(echo, "", &.{.{ .string = "promise-ping" }});
     const as_capability = try pending.capability();
-    const inspected = session.call(inspect, "", &.{.{ .capability = as_capability }}, arena);
+    const awaited = session.call(awaiter, "", &.{.{ .capability = as_capability }}, arena);
     try session.release(as_capability);
-    switch (try inspected) {
-        .fulfilled => |value| switch (value) {
-            .string => |label| if (!std.mem.eql(u8, label, "desc:answer")) {
-                std.debug.print("goblins-interop: goblins handed its actor `{s}` for a desc:answer argument\n", .{label});
-                return error.InspectLabelMoved;
-            },
-            else => return error.InspectWrongPayload,
-        },
-        .broken => |reason| {
-            std.debug.print("goblins-interop: inspect broke: {s}\n", .{reason});
-            return error.InspectBroke;
-        },
-    }
+    try expectEcho(try awaited, "await");
     // Naming the question changed nothing about its own settlement.
-    switch (try pending.settle(arena)) {
+    try expectEcho(try pending.settle(arena), "echo");
+    std.debug.print("goblins-interop: OK, goblins lifted a promise argument and settled through it\n", .{});
+}
+
+/// The echo reply: a one-element list holding the text that was sent.
+fn expectEcho(reply: driver.core.Reply, who: []const u8) !void {
+    switch (reply) {
         .fulfilled => |value| {
             if (value != .list or value.list.len != 1) return error.EchoWrongPayload;
             const text: []const u8 = switch (value.list[0]) {
@@ -89,11 +80,10 @@ pub fn passToGoblins(io: std.Io, allocator: std.mem.Allocator, echo_swiss: []con
             if (!std.mem.eql(u8, text, "promise-ping")) return error.EchoWrongPayload;
         },
         .broken => |reason| {
-            std.debug.print("goblins-interop: echo broke: {s}\n", .{reason});
+            std.debug.print("goblins-interop: {s} broke: {s}\n", .{ who, reason });
             return error.EchoBroke;
         },
     }
-    std.debug.print("goblins-interop: OK, goblins accepted a pending answer in argument position and its actor saw the desc:answer record\n", .{});
 }
 
 /// What the serving thread learns in turns and settles between them. A

@@ -116,6 +116,129 @@ test "remote pipelined replies preserve direction and incarnation in both profil
     }
 }
 
+/// A partner-asked question at 42 that resolves to the partner's own object
+/// at import 9, with a second partner question at 44 to name in a tree.
+fn openForwardingPeer() !engine.Peer {
+    return openForwardingPeerWith(.next);
+}
+
+fn openForwardingPeerWith(profile: model.CaptpVersion) !engine.Peer {
+    var peer = fixture.openPeerWith(std.testing.allocator, .{ .captp_version = profile });
+    errdefer peer.deinit();
+    try peer.session_state.installInboundAnswer(.from(42));
+    try peer.session_state.installInboundAnswer(.from(44));
+    try peer.session_state.registerImport(.from(9));
+    return peer;
+}
+
+test "a forwarded call carrying the partner's answer reference breaks the pipelined question" {
+    var peer = try openForwardingPeer();
+    defer peer.deinit();
+    try receive(&peer, .{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
+        .args = &.{.{ .list = &.{.{ .reference = .{ .promise = .{ .answer_position = .from(44) } } }} }},
+        .answer = .from(43),
+        .resolve_me_desc = .{ .near = model.NearRef.object(99) },
+    } });
+    try peer.sendBorrowed(.{ .resolve = .{
+        .answer = .from(42),
+        .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(9) } } },
+    } });
+    try std.testing.expectError(error.ForwardedCallMissing, drainUntilCall(&peer, 9));
+    try std.testing.expectEqualStrings(
+        engine.resolution_chain.call_answer_reference_message,
+        peer.session_state.peekResolution(.from(43)).?.@"break".message,
+    );
+}
+
+test "a late call to an answer whose partner object this side released breaks instead of forwarding" {
+    var peer = try openForwardingPeer();
+    defer peer.deinit();
+    try resolveToReleasedImport(&peer, .{ .reference = .{ .far = model.FarRef.object(9) } });
+    try receive(&peer, .{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
+        .args = &.{.{ .string = "ping" }},
+        .answer = .from(43),
+        .resolve_me_desc = .{ .near = model.NearRef.object(99) },
+    } });
+    try std.testing.expect(peer.sessionIsOpen());
+    try std.testing.expectEqualStrings(
+        engine.resolution_chain.released_target_message,
+        peer.session_state.peekResolution(.from(43)).?.@"break".message,
+    );
+}
+
+fn resolveToReleasedImport(peer: *engine.Peer, value: model.Argument) !void {
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = value } } });
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{1} } });
+    while ((try peer.step()) == .progress) {}
+    while (peer.takeOutbound()) |out| {
+        var frame = out;
+        frame.deinit();
+    }
+    try std.testing.expect(!peer.session_state.holdsImport(.from(9)));
+}
+
+test "a late listen on an answer whose partner object this side released hears the break" {
+    var peer = try openForwardingPeer();
+    defer peer.deinit();
+    try resolveToReleasedImport(&peer, .{ .reference = .{ .far = model.FarRef.object(9) } });
+    try receive(&peer, .{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
+        .listener = .{ .near = model.NearRef.object(7) },
+        .mode = .settling_only,
+    } });
+    const fire = try drainUntilCall(&peer, 7);
+    defer model.freeMessage(peer.allocator, fire);
+    try std.testing.expectEqualStrings("break", fire.deliver.args[0].symbol);
+    try std.testing.expectEqualStrings(engine.resolution_chain.released_target_message, fire.deliver.args[1].symbol);
+    try std.testing.expect(peer.sessionIsOpen());
+}
+
+test "a late projection settles beside a released partner object and breaks on it" {
+    // The 1.0 profile carries the projection verbs.
+    var peer = try openForwardingPeerWith(.v1_0);
+    defer peer.deinit();
+    try resolveToReleasedImport(&peer, .{ .@"struct" = &.{
+        .{ .key = "owner", .value = .{ .reference = .{ .far = model.FarRef.object(9) } } },
+        .{ .key = "count", .value = .{ .string = "three" } },
+    } });
+    try receive(&peer, .{ .get = .{ .receiver = .{ .promise = .{ .answer_position = .from(42) } }, .field = "count", .answer = .from(45) } });
+    try std.testing.expectEqualStrings("three", peer.session_state.peekResolution(.from(45)).?.fulfill.string);
+    try receive(&peer, .{ .get = .{ .receiver = .{ .promise = .{ .answer_position = .from(42) } }, .field = "owner", .answer = .from(46) } });
+    try std.testing.expectEqualStrings(
+        engine.resolution_chain.released_target_message,
+        peer.session_state.peekResolution(.from(46)).?.@"break".message,
+    );
+    try std.testing.expect(peer.sessionIsOpen());
+}
+
+test "a forwarded reply naming the partner's own question breaks the original answer" {
+    var peer = try openForwardingPeer();
+    defer peer.deinit();
+    try receive(&peer, .{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
+        .args = &.{.{ .string = "ping" }},
+        .answer = .from(43),
+        .resolve_me_desc = .{ .near = model.NearRef.object(99) },
+    } });
+    try peer.sendBorrowed(.{ .resolve = .{
+        .answer = .from(42),
+        .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(9) } } },
+    } });
+    const forwarded = try drainUntilCall(&peer, 9);
+    defer model.freeMessage(peer.allocator, forwarded);
+    const resolver = forwarded.deliver.resolve_me_desc.?.far.import_position.int();
+    try receive(&peer, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(resolver) },
+        .args = &.{ .{ .symbol = "fulfill" }, .{ .reference = .{ .promise = .{ .answer_position = .from(44) } } } },
+    } });
+    try std.testing.expectEqualStrings(
+        engine.resolution_chain.reply_answer_reference_message,
+        peer.session_state.peekResolution(.from(43)).?.@"break".message,
+    );
+}
+
 fn prepareOwnedResult(allocator: std.mem.Allocator) !void {
     var state = session.Session.init(allocator);
     defer state.deinit();

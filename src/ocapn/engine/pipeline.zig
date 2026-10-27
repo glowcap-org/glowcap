@@ -328,13 +328,11 @@ fn applyProjectionOutcome(
     switch (consequence) {
         .pending => |target| try peer.session_state.installProjectionTarget(target, projection),
         .terminal_break => |message| try breakProjection(peer, projection, message),
-        .terminal => |terminal| switch (projectResolution(terminal.resolution, projection.kind)) {
-            .resolved => |projected| try settleProjection(peer, projection, projected),
-            .reanchor => try breakProjection(
-                peer,
-                projection,
-                resolution_chain.missing_target_message,
-            ),
+        .terminal => |terminal| {
+            const projected = projectResolution(terminal.resolution, projection.kind);
+            if (projected == .fulfill and resolution_chain.namesReleasedImport(peer, projected.fulfill))
+                return breakProjection(peer, projection, resolution_chain.released_target_message);
+            try settleProjection(peer, projection, projected);
         },
     }
 }
@@ -404,18 +402,30 @@ fn dispatchTerminalCall(peer: *Peer, queued: session.QueuedCall, resolution: mod
     const reference = maybe_reference orelse
         return propagateBreakToDrainedCall(peer, queued, resolution);
     switch (reference) {
-        .far => |far| try remote_forward.send(
-            peer,
-            rewriteDeliverTarget(peer.allocator, queued.message.deliver, .{ .far = far }),
-            queued.answer,
-            queued.introduced_far_imports,
-        ),
+        .far => |far| if (!peer.session_state.holdsImport(far.import_position))
+            try propagateBreakToDrainedCall(
+                peer,
+                queued,
+                .{ .@"break" = .{ .message = resolution_chain.released_target_message } },
+            )
+        else if (model.argumentSliceNamesAnswer(queued.message.deliver.args))
+            try propagateBreakToDrainedCall(
+                peer,
+                queued,
+                .{ .@"break" = .{ .message = resolution_chain.call_answer_reference_message } },
+            )
+        else
+            try remote_forward.send(
+                peer,
+                rewriteDeliverTarget(peer.allocator, queued.message.deliver, .{ .far = far }),
+                queued.answer,
+                queued.introduced_far_imports,
+            ),
         .near => |near| try deliverDrainedCallLocally(peer, queued, near),
-        .promise => try propagateBreakToDrainedCall(
-            peer,
-            queued,
-            .{ .@"break" = .{ .message = resolution_chain.missing_target_message } },
-        ),
+        // Admission certifies every stored resolution (`validate/passable.zig`)
+        // and admits no answer reference in a sent one, so a terminal is
+        // never a promise.
+        .promise => unreachable,
         .broken => |reason| try propagateBreakToDrainedCall(peer, queued, .{ .@"break" = reason }),
         .routed, .sturdy => try propagateBreakToDrainedCall(
             peer,

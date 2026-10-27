@@ -287,6 +287,21 @@
 (define (op-deliver-arg-set)
   (op-deliver-one-arg (set 1 2 3)))
 
+;; <desc:answer 3> as a send argument (ADR-0068): the sender's own
+;; pending question passed to the receiver, bare and nested in each
+;; container shape the argument walker descends.
+(define (op-deliver-arg-answer)
+  (op-deliver-one-arg (record* 'desc:answer 3)))
+
+(define (op-deliver-arg-answer-in-list)
+  (op-deliver-one-arg (list (record* 'desc:answer 3))))
+
+(define (op-deliver-arg-answer-in-set)
+  (op-deliver-one-arg (set (record* 'desc:answer 3))))
+
+(define (op-deliver-arg-answer-in-tagged)
+  (op-deliver-one-arg (record* 'user-record 'point (list (record* 'desc:answer 3)))))
+
 ;; ── ADR-0039 handoff envelope fixtures ─────────────────────────────
 
 ;; Encode an Ed25519 public key as the OCapN-canonical gcrypt
@@ -513,6 +528,11 @@
         (cons "op_deliver_arg_tagged.bin"                      op-deliver-arg-tagged)
         (cons "op_deliver_arg_keyword.bin"                     op-deliver-arg-keyword)
         (cons "op_deliver_arg_set.bin"                         op-deliver-arg-set)
+        ;; ADR-0068 answer reference as a send argument
+        (cons "op_deliver_arg_answer.bin"                      op-deliver-arg-answer)
+        (cons "op_deliver_arg_answer_in_list.bin"              op-deliver-arg-answer-in-list)
+        (cons "op_deliver_arg_answer_in_set.bin"               op-deliver-arg-answer-in-set)
+        (cons "op_deliver_arg_answer_in_tagged.bin"            op-deliver-arg-answer-in-tagged)
         ;; ADR-0005 arbitrary-precision Integer
         (cons "op_deliver_arg_big_integer.bin"                 op-deliver-arg-big-integer)
         ;; ADR-0003 op:get / op:index field-projection ops

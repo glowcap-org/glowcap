@@ -183,24 +183,26 @@ test "answer listener preparation restores after OOM and retries from the settle
     // Stage bare rows to isolate transfer allocation from deliver subscriptions.
     try peer.session_state.installInboundAnswer(.from(42));
     try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
-    try peer.session_state.installInboundAnswer(.from(43));
+    const relay = try peer.session_state.allocateLocalPromiseProjection();
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
     }
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(43) } },
+        .reference = .{ .near = model.NearRef.promise(relay.export_position.int()) },
     } } } });
 
-    // Detaching the source listener and creating answer 43's lazy payload both
-    // succeed; growing its listener list fails. The preparation token removes
-    // that otherwise-empty payload and the settlement carrier remains retryable.
-    failing.fail_index = failing.alloc_index + 2;
+    // Detaching the source listener succeeds; growing the backing answer's
+    // listener list fails. The preparation token leaves that list empty and
+    // the settlement carrier remains retryable.
+    failing.fail_index = failing.alloc_index + 1;
     try std.testing.expectError(error.OutOfMemory, peer.step());
     try std.testing.expect(peer.takeOutbound() == null);
     failing.fail_index = std.math.maxInt(usize);
-    const target_43 = peer.session_state.answerTargetNamed(.fromWire(.from(43))).?;
-    try std.testing.expect(peer.session_state.answerPayloadForTarget(target_43) == null);
+    const backing = peer.session_state.answerPayloadForTarget(relay.answer_target).?;
+    const moved = try peer.session_state.takeAnswerPayloadListeners(backing);
+    try std.testing.expectEqual(@as(usize, 0), moved.len);
+    peer.session_state.restoreAnswerPayloadListeners(backing, moved);
     const target = peer.session_state.answerTargetNamed(.fromWire(.from(42))).?;
     const payload = peer.session_state.answerPayloadForTarget(target).?;
     const restored = try peer.session_state.takeAnswerPayloadListeners(payload);
@@ -208,11 +210,8 @@ test "answer listener preparation restores after OOM and retries from the settle
     peer.session_state.restoreAnswerPayloadListeners(payload, restored);
 
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    try peer.send(.{ .resolve = .{ .answer = .from(43), .resolution = .{
-        .fulfill = .{ .bytes = try allocator.dupe(u8, "eventual") },
-    } } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try peer.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .bytes = "eventual" } });
+    while ((try peer.step()) == .progress) {}
     var callback = peer.takeOutbound().?;
     defer callback.deinit();
     const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
@@ -231,15 +230,9 @@ test "listener promise chains borrow the terminal answer store" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]7+<18'desc:import-object0+>1+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
-    try peer.send(.{ .resolve = .{ .answer = .from(7), .resolution = .{
-        .fulfill = .{ .bytes = try allocator.dupe(u8, "terminal") },
-    } } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    const relay = try peer.session_state.allocateLocalPromiseProjection();
+    try peer.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .bytes = "terminal" } });
+    while ((try peer.step()) == .progress) {}
 
     try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
     try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
@@ -248,11 +241,10 @@ test "listener promise chains borrow the terminal answer store" {
         event.deinit();
     }
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(7) } },
+        .reference = .{ .near = model.NearRef.promise(relay.export_position.int()) },
     } } } });
 
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    while ((try peer.step()) == .progress) {}
     var callback = peer.takeOutbound().?;
     defer callback.deinit();
     const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
@@ -272,23 +264,19 @@ test "a late listener on a stored promise cycle receives one terminal break" {
     try peer.session_state.registerExport(.from(7));
 
     try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
-    try peer.recvBorrowed(.{
-        .bytes = "<10'op:deliver<11'desc:export7+>[]43+<18'desc:import-object0+>1+>",
-        .shape = .byte,
-    });
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
     }
 
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(43) } },
-    } } } });
+    // Answer 42 resolves to a local promise whose own answer resolves back to
+    // that promise.
+    const relay = try peer.session_state.allocateLocalPromiseProjection();
+    const relay_ref: model.Reference = .{ .near = model.NearRef.promise(relay.export_position.int()) };
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{ .reference = relay_ref } } } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(43), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(42) } },
-    } } } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try peer.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .reference = relay_ref } });
+    while ((try peer.step()) == .progress) {}
 
     // The cycle is already durable when the listener arrives. Holding it on
     // either settled row would leave a callback that can never fire; walking
@@ -316,52 +304,37 @@ test "a late listener on a stored promise cycle receives one terminal break" {
     try std.testing.expect(peer.takeOutbound() == null);
 }
 
-test "a late listener cannot follow a stored promise into a reused answer position" {
+test "a late listener follows a stored local promise to its backing answer" {
     const allocator = std.testing.allocator;
     var peer = preSpecPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // Bare rows leave no earlier subscription pinning the released target. status-allow: event or source ordering
     try peer.session_state.installInboundAnswer(.from(42));
-    try peer.session_state.installInboundAnswer(.from(43));
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
+    const relay = try peer.session_state.allocateLocalPromiseProjection();
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(43) } },
+        .reference = .{ .near = model.NearRef.promise(relay.export_position.int()) },
     } } } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
 
-    try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[43+]>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]43+<18'desc:import-object0+>1+>", .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(43), .resolution = .{
-        .fulfill = .{ .bytes = "replacement" },
-    } } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-
+    // The listener arrives after 42 settled and parks on the backing answer.
     try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
     {
         var event = peer.pollEvent().?;
         event.deinit();
     }
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    while ((try peer.step()) == .progress) {}
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    try peer.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .bytes = "eventual" } });
+    while ((try peer.step()) == .progress) {}
     var callback = peer.takeOutbound().?;
     defer callback.deinit();
     const body = try glowcap.ocapn.codec.syrup.decodeBodyForProfile(
         peer.session_state.captp_version,
         callback.view(),
     );
-    try std.testing.expectEqualStrings(
-        "promise resolution target was released",
-        (try body.deliver.args.at(1)).symbol,
-    );
-    try std.testing.expect(std.mem.indexOf(u8, callback.bytes(), "replacement") == null);
+    try std.testing.expectEqualStrings("eventual", (try body.deliver.args.at(1)).bytes);
     var release = peer.takeOutbound().?;
     defer release.deinit();
     try std.testing.expect(peer.sessionIsOpen());

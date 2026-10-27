@@ -15,6 +15,8 @@ const deliver_route = @import("deliver_route.zig");
 const events = @import("../events.zig");
 const inbound = @import("../inbound.zig");
 const pipeline = @import("../pipeline.zig");
+const remote_forward = @import("../remote_forward.zig");
+const resolution_chain = @import("../resolution_chain.zig");
 const shortening = @import("../inbound_shortening.zig");
 
 const IntroducedImports = session.validate.IntroducedImports;
@@ -340,7 +342,13 @@ fn commitForwardingCallback(
     defer if (result_imports) |batch| batch.destroy(&self.session_state);
     const reply = session.ForwardedReply.find(&self.session_state, forwarding.resolver) orelse unreachable;
     const target = reply.target;
-    const resolution = try events.resolutionFromResolverCallback(body.deliver.args);
+    const carried = try events.resolutionFromResolverCallback(body.deliver.args);
+    // The partner may settle with its own pending question, which has no
+    // form toward it (`remote_forward`), so the original answer breaks.
+    const resolution: model.view.Resolution = if (try carried.namesAnswer())
+        .{ .@"break" = .{ .message = resolution_chain.reply_answer_reference_message } }
+    else
+        carried;
     try self.session_state.applyValidatedInboundDeliverView(body, introduced);
     if (forwarding.discarded) {
         prepared.commitRelease(self);

@@ -34,7 +34,7 @@ directory holds glowcap's wrappers and small Racket programs around its API.
 
 | File                              | Role                                                                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `racket/goblins-host.rkt`         | Echo, Struct, tally, and inspect host glowcap dials as client (NDJSON readiness). `inspect` answers with the record label of its argument, which pins what Goblins hands an actor for a `desc:answer` in argument position. |
+| `racket/goblins-host.rkt`         | Echo, Struct, tally, and await host glowcap dials as client (NDJSON readiness). `await` replies with its promise argument's eventual value, which proves Goblins lifts a promise glowcap passes. |
 | `racket/goblins-iroh-host.rkt`    | The same echo host over iroh: a vat reachable at an `iroh` locator, announcing its endpoint id and direct addresses (`goblins-iroh`). |
 | `racket/glowcap-iroh-caller.rkt`  | Goblins client over iroh: dials a glowcap peer by endpoint id, calls its actor, and prints what its netlayer proved about the partner (`goblins-iroh`). |
 | `racket/goblins-onion-host.rkt`   | The same echo host over upstream Goblins' own onion netlayer, reachable at a Tor onion address (`goblins-onion`). |

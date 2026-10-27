@@ -81,6 +81,11 @@ pub const CapturedRef = struct {
         }
     }
 
+    /// The reason the vow broke with, empty while it has not.
+    pub fn brokenReason(self: *const CapturedRef) []const u8 {
+        return self.reason_buf[0..self.reason_len];
+    }
+
     pub fn require(self: *const CapturedRef) !model.Reference {
         if (self.broken) {
             std.debug.print("vow broke: {s}\n", .{self.reason_buf[0..self.reason_len]});

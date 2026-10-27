@@ -92,23 +92,16 @@
       [(read) n]
       [else (error '^tally "no such method: ~a" verb)])))
 
-;; Swiss-num for the inspect cap. It answers with the record label of its one
-;; argument, so a partner sees what Goblins' unmarshaller handed the actor for
-;; a descriptor it does not lift, such as `desc:answer` in argument position.
-(define INSPECT-SWISS-NUM
-  (string->bytes/latin-1 "glowcapInspectSwissnumABCDEF1234"))
+;; Swiss-num for the await cap. Its one argument is a promise, and its reply
+;; is that promise's eventual value, so a partner that passes a promise as an
+;; argument sees Goblins lift it and settle through it.
+(define AWAIT-SWISS-NUM
+  (string->bytes/latin-1 "glowcapAwaitSwissnumABCDEF123456"))
 
-;; Inspect behavior. A record struct answers with its label ("desc:answer"),
-;; and any other value with its printed form.
-(define (^inspect _bcom)
-  (lambda (x)
-    (cond
-      [(struct? x)
-       (define text (format "~a" (vector-ref (struct->vector x) 0)))
-       (cond
-         [(regexp-match #rx"^struct:(.+)$" text) => cadr]
-         [else text])]
-      [else (format "~a" x)])))
+;; Await behavior. The reply is a promise for the argument's settlement.
+(define (^await _bcom)
+  (lambda (p)
+    (on p (lambda (v) v) #:promise? #t)))
 
 ;; ─── CLI ─────────────────────────────────────────────────────────
 
@@ -186,8 +179,8 @@
      ($ nonce-registry 'register record RECORD-SWISS-NUM)
      (define tally (spawn ^tally))
      ($ nonce-registry 'register tally TALLY-SWISS-NUM)
-     (define inspect (spawn ^inspect))
-     ($ nonce-registry 'register inspect INSPECT-SWISS-NUM)
+     (define await (spawn ^await))
+     ($ nonce-registry 'register await AWAIT-SWISS-NUM)
      (on (<- tcp-netlayer 'our-location)
          (lambda (_location)
            (emit-ndjson
@@ -215,8 +208,8 @@
            (emit-ndjson
             `(("event" . "cap-published")
               ("vat" . ,vat-id)
-              ("name" . "inspect")
-              ("swiss" . ,(bytes->string/latin-1 INSPECT-SWISS-NUM)))))))))
+              ("name" . "await")
+              ("swiss" . ,(bytes->string/latin-1 AWAIT-SWISS-NUM)))))))))
 
 ;; ─── Boot all vats ───────────────────────────────────────────────
 

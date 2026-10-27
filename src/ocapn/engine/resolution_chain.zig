@@ -37,6 +37,10 @@ pub const released_target_message = "promise resolution target was released";
 pub const missing_target_message = "promise resolution target is unavailable";
 pub const cycle_message = "promise resolution cycle";
 pub const chain_limit_message = "promise resolution chain exceeds max_resolution_chain";
+/// The sender rule (ADR-0068): a `desc:answer` names its sender's question,
+/// so a call or reply forwarded to the partner cannot carry the partner's own.
+pub const call_answer_reference_message = "a forwarded call cannot carry the partner's answer reference";
+pub const reply_answer_reference_message = "a forwarded reply cannot carry the partner's answer reference";
 
 const Step = union(enum) {
     terminal: Outcome,
@@ -46,11 +50,11 @@ const Step = union(enum) {
 fn step(peer: *Peer, current: Source) Step {
     const resolution = current.stored.value;
     const target = current.stored.promise_target orelse {
-        // A wire answer must have captured its incarnation at admission. Other
-        // terminal values have no chain target. Local promise exports carry
-        // the same stamp through their Session-owned export/answer pairing.
-        if (resolution.promiseAnswer() != null)
-            return .{ .terminal = .{ .terminal_break = missing_target_message } };
+        // Only a paired local promise export carries a chain target, captured
+        // at admission with the answer's incarnation. Every other stored value
+        // is terminal: admission admits no answer reference in a sent
+        // resolution, so a terminal is never a promise.
+        std.debug.assert(resolution.promiseAnswer() == null);
         return .{ .terminal = .{ .terminal = .{
             .target = current.target,
             .resolution = resolution,
@@ -71,8 +75,25 @@ fn step(peer: *Peer, current: Source) Step {
     } };
 }
 
+/// Whether a stored value about to leave for the partner names a partner
+/// object this session has released. A sent resolution takes no retain on
+/// the imports it names, so the application may release the object while the
+/// resolution stays stored, and a consumer that would send the value after
+/// that breaks with `released_target_message` instead of naming a position
+/// the partner may have retired. Each consumer checks only what it sends: a
+/// call its target, a projection its selected subtree, a listener the whole
+/// value. A local export named the same way keeps its row through the store,
+/// so only imports can lapse. One table lookup per far reference in the value.
+pub fn namesReleasedImport(peer: *Peer, value: model.Argument) bool {
+    return model.anyReference(&.{value}, peer, isReleasedImport);
+}
+
+fn isReleasedImport(peer: *Peer, reference: model.Reference) bool {
+    return reference == .far and !peer.session_state.holdsImport(reference.far.import_position);
+}
+
 fn isPromise(source: Source) bool {
-    return source.stored.promise_target != null or source.stored.value.promiseAnswer() != null;
+    return source.stored.promise_target != null;
 }
 
 fn advanceCycleProbe(peer: *Peer, source: *Source) bool {

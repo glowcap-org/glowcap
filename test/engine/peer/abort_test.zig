@@ -180,13 +180,18 @@ test "a promise cycle breaks dependent work without emitting a session abort" {
     try p2.feedOwned(p1.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
 
-    // p2 resolves answer 42 to itself. The stored-resolution walker terminates
-    // both the listener and dependent answer 43 without treating one promise
-    // graph as a peer-wide protocol failure.
+    // p2 resolves answer 42 to a local promise whose own answer resolves back
+    // to that promise. The stored-resolution walker terminates both the
+    // listener and dependent answer 43 without treating one promise graph as
+    // a peer-wide protocol failure.
+    const loop = try p2.session_state.allocateLocalPromiseProjection();
+    const loop_ref: model.Reference = .{ .near = model.NearRef.promise(loop.export_position.int()) };
     try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(42) } } } },
+        .resolution = .{ .fulfill = .{ .reference = loop_ref } },
     } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    try p2.sendAnswerResolutionCopying(loop.answer_name, .{ .fulfill = .{ .reference = loop_ref } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     const wire = try peer_fixture.drainOutbound(&p2, allocator);
     defer allocator.free(wire);

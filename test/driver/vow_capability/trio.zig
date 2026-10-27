@@ -29,6 +29,8 @@ pub fn ReaderOf(comptime which: u8) type {
         /// Hears the listen vow from inside the receiving turn, before any
         /// pump can settle it, for a promise that arrives already settled.
         pub var listen_into: ?*capture.CapturedString = null;
+        /// Hears the listen vow as `listen_into` does, keeping a break's reason.
+        pub var listen_into_ref: ?*capture.CapturedRef = null;
         /// The string a read carried instead of a capability: a promise that
         /// settled to data before it was passed arrives as that data.
         pub var text_buf: [32]u8 = undefined;
@@ -47,6 +49,7 @@ pub fn ReaderOf(comptime which: u8) type {
             keep = false;
             kept = null;
             listen_into = null;
+            listen_into_ref = null;
             text_len = 0;
         }
 
@@ -71,6 +74,7 @@ pub fn ReaderOf(comptime which: u8) type {
                 .resolved => 0,
             };
             if (listen_into) |captured| try listenOn(ht.host, listen_vow, captured);
+            if (listen_into_ref) |captured| try ht.host.vowOn(listen_vow, .{ .ctx = captured, .func = capture.CapturedRef.record });
             if (keep) kept = cap else ht.releaseValues(&.{.{ .capability = cap }});
             return .{ .void = {} };
         }

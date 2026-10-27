@@ -140,7 +140,8 @@ at each declaration, and this inventory names Host runtime and custody costs.
   gpa map row per inline handoff give under redemption, per partner answer
   lifted from an argument, and per Host vow passed as a capability, with its
   queued operations and per-session projections in two lists that grow on
-  demand and are freed at settlement.
+  demand and are freed at settlement. A broken row passed on afterward owes
+  one more projection until the pump breaks it.
   - A lifted answer holds one retain on the session's answer payload until the
     answer settles, so the stored resolution outlives the partner's GC of the
     position, and one Node action seat reserved at the lift

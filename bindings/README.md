@@ -112,7 +112,8 @@ it.
 A promise is also an argument. Pass it where a capability goes in `send` or
 `tell`, pending or settled, and the receiver gets a promise for the same
 answer, which it can send to, listen on, or pass along. A promise whose reply
-capability you released breaks, and a broken promise cannot be passed.
+capability you released breaks, and a broken promise passed on breaks the
+receiver's promise with the same reason.
 
 ## Closing sessions and hosts
 

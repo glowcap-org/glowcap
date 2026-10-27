@@ -289,27 +289,28 @@ test "a projection follows a resolution that is itself a promise" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // Two pending answers; the projection anchors on 11, which resolves to the
-    // promise for 21, so the projection re-anchors and settles when 21 does.
+    // The projection anchors on 11, which resolves to a local promise, so the
+    // projection re-anchors on that promise's answer and settles when it does.
     try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
 
+    const relay = try peer.session_state.allocateLocalPromiseProjection();
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(21) } },
+        .reference = .{ .near = model.NearRef.promise(relay.export_position.int()) },
     } } } });
     {
         // The drain runs at step (encode) time; step until idle, then the
-        // projection has re-anchored onto 21 without settling 12.
+        // projection has re-anchored onto the promise's answer without
+        // settling 12.
         const first = try peer_fixture.drainOutbound(&peer, allocator);
         allocator.free(first);
     }
-    try std.testing.expectEqual(@as(usize, 1), peer.session_state.inboundAnswer(.from(21)).?.projections);
+    try std.testing.expectEqual(@as(usize, 1), peer.session_state.inboundAnswerNamed(relay.answer_name).?.projections);
     try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.inboundAnswer(.from(12)).?.status);
 
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .@"struct" = &.{
+    try peer.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "name", .value = .{ .string = "tabby" } },
-    } } } } });
+    } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
@@ -375,17 +376,14 @@ test "a cyclic stored-resolution walk reports the cycle" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // Two answers settled into a promise cycle: 11 stored promise(21), 21
-    // stored promise(11). A late get anchoring on 11 walks the stored
-    // resolutions synchronously; the hop bound breaks it instead of spinning.
+    // Answer 11 settles to a local promise whose own answer settles back to
+    // that promise. A late get anchoring on 11 walks the stored resolutions
+    // synchronously; the hop bound breaks it instead of spinning.
     try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(21) } },
-    } } } });
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(11) } },
-    } } } });
+    const relay = try peer.session_state.allocateLocalPromiseProjection();
+    const relay_ref: model.Reference = .{ .near = model.NearRef.promise(relay.export_position.int()) };
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .reference = relay_ref } } } });
+    try peer.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .reference = relay_ref } });
     {
         const settled = try peer_fixture.drainOutbound(&peer, allocator);
         allocator.free(settled);
@@ -405,23 +403,17 @@ test "a distinct stored-resolution chain obeys max_resolution_chain" {
     peer.session_state.limits.max_resolution_chain = 1;
     try peer.session_state.registerExport(.from(7));
 
-    inline for (.{ 11, 21, 31 }) |answer| {
-        var bytes: [64]u8 = undefined;
-        const frame = try std.fmt.bufPrint(
-            &bytes,
-            "<10'op:deliver<11'desc:export7+>[]{}+f>",
-            .{answer},
-        );
-        try peer.recvBorrowed(.{ .bytes = frame, .shape = .byte });
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    // Answer 11 settles to one local promise, whose answer settles to a
+    // second, whose answer stays pending: two hops over a bound of one.
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    const first = try peer.session_state.allocateLocalPromiseProjection();
+    const second = try peer.session_state.allocateLocalPromiseProjection();
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(21) } },
+        .reference = .{ .near = model.NearRef.promise(first.export_position.int()) },
     } } } });
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(31) } },
-    } } } });
+    try peer.sendAnswerResolutionCopying(first.answer_name, .{ .fulfill = .{
+        .reference = .{ .near = model.NearRef.promise(second.export_position.int()) },
+    } });
     {
         const settled = try peer_fixture.drainOutbound(&peer, allocator);
         allocator.free(settled);
@@ -434,49 +426,29 @@ test "a distinct stored-resolution chain obeys max_resolution_chain" {
     try std.testing.expect(std.mem.indexOf(u8, wire, "max_resolution_chain") != null);
 }
 
-test "a late projection cannot follow a stored promise into a reused answer position" {
+test "a late projection follows a stored local promise to its backing answer" {
     const allocator = std.testing.allocator;
     var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]21+f>", .shape = .byte });
-    var original_target: session.AnswerTarget = undefined;
-    {
-        var event = peer.pollEvent().?;
-        original_target = event.deliverAnswerTarget().?;
-        event.deinit();
-    }
+    const relay = try peer.session_state.allocateLocalPromiseProjection();
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(21) } },
+        .reference = .{ .near = model.NearRef.promise(relay.export_position.int()) },
     } } } });
     {
         const sent = try peer_fixture.drainOutbound(&peer, allocator);
         allocator.free(sent);
     }
 
-    try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[21+]>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]21+f>", .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .@"struct" = &.{
-        .{ .key = "name", .value = .{ .string = "replacement" } },
-    } } } } });
-    {
-        const sent = try peer_fixture.drainOutbound(&peer, allocator);
-        allocator.free(sent);
-    }
-
+    // The projection arrives after 11 settled and anchors on the backing
+    // answer, settling only when the application resolves it.
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.inboundAnswer(.from(12)).?.status);
+    try std.testing.expectEqual(@as(usize, 1), peer.session_state.inboundAnswerNamed(relay.answer_name).?.projections);
 
-    // Answer 21's mandatory listener kept its old incarnation detached. The
-    // projection follows that exact row, never the replacement, and settles
-    // only when the application resolves the original target token.
-    try peer.sendAnswerTargetResolutionCopying(original_target, .{ .fulfill = .{ .@"struct" = &.{
+    try peer.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "name", .value = .{ .string = "original" } },
     } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
@@ -486,7 +458,6 @@ test "a late projection cannot follow a stored promise into a reused answer posi
         "original",
         peer.session_state.peekResolution(.from(12)).?.fulfill.string,
     );
-    try std.testing.expect(std.mem.indexOf(u8, wire, "replacement") == null);
     try std.testing.expect(peer.sessionIsOpen());
 }
 

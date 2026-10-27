@@ -457,10 +457,12 @@ test "a pipelined call re-queues when its answer resolves to another promise" {
     try p2.feedOwned(p1.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
 
-    // p2 resolves #42 to promise #50; the queued call re-queues onto #50.
+    // p2 resolves #42 to a local promise; the queued call re-queues onto that
+    // promise's answer.
+    const relay = try p2.session_state.allocateLocalPromiseProjection();
     try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
-        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(50) } } } },
+        .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.promise(relay.export_position.int()) } } },
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     {
@@ -468,17 +470,14 @@ test "a pipelined call re-queues when its answer resolves to another promise" {
         resolve_frame.deinit();
     }
     try std.testing.expect(p2.pollEvent() == null);
-    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(.from(50)).?.queued_calls);
+    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswerNamed(relay.answer_name).?.queued_calls);
 
-    // Resolving #50 to a local export finally drains the re-queued call.
-    try p2.sendBorrowed(.{ .resolve = .{
-        .answer = .from(50),
-        .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
-    } });
+    // Resolving that answer to a local export finally drains the re-queued call.
+    try p2.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    {
-        var resolve_frame = p2.takeOutbound().?;
-        resolve_frame.deinit();
+    while (p2.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
     }
 
     var local_event = p2.pollEvent().?;
@@ -490,51 +489,43 @@ test "a pipelined call re-queues when its answer resolves to another promise" {
     try std.testing.expectEqualStrings("ping", (try view.deliver.args.at(0)).bytes);
 }
 
-test "a late pipelined call cannot follow a stored promise into a reused answer position" {
+test "a late pipelined call follows a stored local promise to its backing answer" {
     const allocator = std.testing.allocator;
     var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
     try peer.session_state.registerExport(.from(9));
 
-    // No subscription keeps the original target alive in this stale-name case.
     try peer.session_state.installInboundAnswer(.from(42));
-    try peer.session_state.installInboundAnswer(.from(50));
+    const relay = try peer.session_state.allocateLocalPromiseProjection();
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
-        .reference = .{ .promise = .{ .answer_position = .from(50) } },
+        .reference = .{ .near = model.NearRef.promise(relay.export_position.int()) },
     } } } });
     {
         const sent = try peer_fixture.drainOutbound(&peer, allocator);
         allocator.free(sent);
     }
 
-    try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[50+]>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]50+<18'desc:import-object0+>1+>", .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
-    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(50), .resolution = .{ .fulfill = .{
-        .reference = .{ .near = model.NearRef.object(9) },
-    } } } });
-    {
-        const sent = try peer_fixture.drainOutbound(&peer, allocator);
-        allocator.free(sent);
-    }
-
+    // The call arrives after 42 settled and queues on the backing answer.
     try peer.recvBorrowed(.{
         .bytes = "<10'op:deliver<11'desc:answer42+>[4\"ping]43+<18'desc:import-object0+>1+>",
         .shape = .byte,
     });
     try std.testing.expect(peer.pollEvent() == null);
-    const sent = try peer_fixture.drainOutbound(&peer, allocator);
-    defer allocator.free(sent);
-    try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(43)).?.status);
-    try std.testing.expectEqualStrings(
-        "promise resolution target was released",
-        peer.session_state.peekResolution(.from(43)).?.@"break".message,
-    );
-    try std.testing.expect(peer.pollEvent() == null);
+    try std.testing.expectEqual(@as(usize, 1), peer.session_state.inboundAnswerNamed(relay.answer_name).?.queued_calls);
+
+    try peer.sendAnswerResolutionCopying(relay.answer_name, .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(9) } } });
+    {
+        const sent = try peer_fixture.drainOutbound(&peer, allocator);
+        allocator.free(sent);
+    }
+    var local_event = peer.pollEvent().?;
+    defer local_event.deinit();
+    const view = local_event.view();
+    try std.testing.expect(view.deliver.target == .near);
+    try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
+    try std.testing.expectEqualStrings("ping", (try view.deliver.args.at(0)).string);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(43)), view.deliver.answer);
     try std.testing.expect(peer.sessionIsOpen());
 }
 

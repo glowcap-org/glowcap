@@ -504,9 +504,12 @@ const CapabilityKindReader = struct {
         if (!std.mem.eql(u8, verb, "read")) return error.NoSuchMethod;
         const cap = try args.capability(0);
         defer ht.releaseValues(&.{.{ .capability = cap }});
-        const kind: []const u8 = switch (ht.host.capabilities.resolve(cap) orelse return error.UnknownCapability) {
-            .deferred => "promise",
-            .local, .remote => "object",
+        const kind: []const u8 = switch (try ht.host.resolveCapability(ht.session.?, cap)) {
+            .pending => "promise",
+            .resolved => |object| blk: {
+                ht.releaseValues(&.{.{ .capability = object }});
+                break :blk "object";
+            },
         };
         return .{ .string = kind };
     }

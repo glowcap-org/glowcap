@@ -30,12 +30,13 @@ test "a pending vow passed on its own session and to a third peer settles once w
     const cap = try t.a.vowCapability(vow);
     try t.expectState(cap, .pending);
 
-    // On the greeter's session the argument is the open answer itself, which
-    // `b` holds as a promise for its own question.
+    // On the greeter's own session the argument is a promise `a` projects,
+    // never the open answer: that position is `a`'s question, and `b` would
+    // read it as one of its own.
     try t.passToB(cap);
     try std.testing.expectEqual(@as(usize, 1), ReaderB.ran);
-    try std.testing.expect(ReaderB.promise_id != null);
-    try std.testing.expectEqual(@as(u32, 1), t.liftedAnswersAtB());
+    try std.testing.expect(ReaderB.promise_id == null);
+    try std.testing.expectEqual(@as(u32, 0), t.liftedAnswersAtB());
     var b_listened: capture.CapturedString = .{};
     try listenOn(&t.b, ReaderB.listen_vow, &b_listened);
     var b_sent: capture.CapturedString = .{};
@@ -195,11 +196,14 @@ test "a settled vow passes as a promise that settles to the completion its row k
     try t.fulfill("hello");
     try std.testing.expect(t.a.vows.get(vow).?.completion == .fulfilled);
     const cap = try t.a.vowCapability(vow);
-    // On the vow's own session the answer is already settled when it
-    // arrives, so `b` reads the promise's settled data rather than listening.
+    // On the vow's own session the promise projects as on any other, already
+    // settled when it arrives, so `b`'s listen settles at once.
     ReaderB.keep = true;
+    var b_listened: capture.CapturedString = .{};
+    ReaderB.listen_into = &b_listened;
     try t.passToB(cap);
-    try expectSettledString(&t.b, ReaderB.promise_id orelse return error.NoPromise, "hello");
+    try std.testing.expect(ReaderB.promise_id == null);
+    try std.testing.expectEqualStrings("hello", b_listened.text());
     // Across sessions a promise settled to data is passed as that data.
     try t.passToC(cap);
     try std.testing.expectEqualStrings("hello", ReaderC.text());
@@ -209,15 +213,6 @@ test "a settled vow passes as a promise that settles to the completion its row k
     try t.a.releaseCapability(cap, 1);
     try t.a.vowRelease(vow);
     try t.expectClean();
-}
-
-/// The string a capability promise on `host` settled to.
-fn expectSettledString(host: *driver.core.Host, promise_id: u64, expected: []const u8) !void {
-    const row = host.capability_promises.get(@fromBackingInt(@intCast(promise_id))) orelse return error.NoPromiseRow;
-    switch (row.state) {
-        .fulfilled_data => |data| try std.testing.expectEqualStrings(expected, data.value.string),
-        else => return error.PromiseNotSettledToData,
-    }
 }
 
 test "a vow asked for between its answer's arrival and its drain settles its promise from the drain" {
@@ -264,8 +259,7 @@ test "a vow released while its promise waits on the drain still settles the prom
     try t.a.vowRelease(vow);
     try std.testing.expectError(error.NoSuchVow, t.a.vowCapability(vow));
 
-    // The release let the answer go toward `b`, so on that session the
-    // promise travels as a projection, not as the answer.
+    // On `b`'s session the promise travels as a projection and settles there.
     var b_listened: capture.CapturedString = .{};
     ReaderB.listen_into = &b_listened;
     try t.passToB(cap);
@@ -281,7 +275,7 @@ test "a vow released while its promise waits on the drain still settles the prom
     try t.expectClean();
 }
 
-test "a vow that broke before it was asked for becomes a broken promise, which no send carries" {
+test "a vow that broke before it was asked for passes as a promise that breaks with its reason" {
     var t: Trio = undefined;
     try t.init();
     defer t.deinit();
@@ -291,8 +285,15 @@ test "a vow that broke before it was asked for becomes a broken promise, which n
     try t.pump();
     try std.testing.expect(t.a.vows.get(vow).?.completion == .failed);
     const cap = try t.a.vowCapability(vow);
-    try std.testing.expectError(error.PromiseBroken, t.passToC(cap));
-    try t.pump();
+    // The break is staged and the pump has not run it, so the pass projects a
+    // breaking promise.
+    try t.expectState(cap, .breaking);
+    var c_listened: capture.CapturedRef = .{};
+    ReaderC.listen_into_ref = &c_listened;
+    try t.passToC(cap);
+    try std.testing.expectEqual(@as(usize, 1), ReaderC.ran);
+    try std.testing.expectEqualStrings("no greeting", c_listened.brokenReason());
+    // The pass settled nothing at `a`: the row keeps its break.
     try t.expectState(cap, .broken);
 
     try t.a.releaseCapability(cap, 1);
@@ -300,7 +301,7 @@ test "a vow that broke before it was asked for becomes a broken promise, which n
     try t.expectClean();
 }
 
-test "a settled vow whose capability the application let go becomes a broken promise, which no send carries" {
+test "a settled vow whose capability the application let go passes as a promise that breaks" {
     var t: Trio = undefined;
     try t.init();
     defer t.deinit();
@@ -317,9 +318,12 @@ test "a settled vow whose capability the application let go becomes a broken pro
     const held = t.a.vows.get(vow).?.completion.fulfilled.value.capability;
     try std.testing.expect(t.a.capabilities.resolve(held) == null);
     const cap = try t.a.vowCapability(vow);
-    try std.testing.expectError(error.PromiseBroken, t.passToC(cap));
     try t.pump();
     try t.expectState(cap, .broken);
+    var c_listened: capture.CapturedRef = .{};
+    ReaderC.listen_into_ref = &c_listened;
+    try t.passToC(cap);
+    try std.testing.expectEqualStrings(@errorName(error.UnknownCapability), c_listened.brokenReason());
 
     try t.a.releaseCapability(cap, 1);
     try t.a.vowRelease(vow);
@@ -465,7 +469,7 @@ test "a vow fulfilled with the partner's pending question settles the promise to
     try t.b.resolverFulfillValue(GreeterB.resolver, .{ .capability = question_cap }, arena.allocator());
     try t.pump();
     try t.expectState(cap, .fulfilled);
-    try std.testing.expectEqual(@as(usize, 7), t.a.capability_promises.count());
+    try std.testing.expectEqual(@as(usize, 6), t.a.capability_promises.count());
     try std.testing.expectEqualStrings("", c_listened.text());
 
     try t.a.resolverFulfill(GreeterA.resolver, .{ .string = "hello" });
@@ -492,8 +496,7 @@ test "a send queued on a pending promise is a vow that passes as a promise and s
 
     const vow = try t.ask();
     const cap = try t.a.vowCapability(vow);
-    // The send has no wire answer until the promise settles, so its promise
-    // reaches `b` as a projection rather than as an open answer.
+    // Its promise reaches `b` as a projection.
     const hit = try t.a.sendValues(t.ab.a, cap, "hit", &.{}, t.arena.allocator());
     const hit_cap = try t.a.vowCapability(hit);
     try t.passToB(hit_cap);
@@ -573,10 +576,10 @@ test "a vow whose send moves sessions takes its promise to the session it settle
     try t.expectState(cap, .fulfilled);
     try t.expectState(hit_cap, .pending);
 
-    // The promise followed: on `b`'s session it is the open answer itself.
+    // The promise followed, and projects on `b`'s session as on any other.
     try t.passToB(hit_cap);
-    try std.testing.expect(ReaderB.promise_id != null);
-    try std.testing.expectEqual(@as(u32, 1), t.liftedAnswersAtB());
+    try std.testing.expect(ReaderB.promise_id == null);
+    try std.testing.expectEqual(@as(u32, 0), t.liftedAnswersAtB());
     var b_listened: capture.CapturedString = .{};
     try listenOn(&t.b, ReaderB.listen_vow, &b_listened);
 

@@ -119,6 +119,47 @@ pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.
     return settled(total);
 }
 
+/// Whether any reference in the trees under `items` satisfies `pred`. The
+/// walk descends lists, sets, tagged values, and structs. Admission bounds
+/// the depth of every owned tree, received or sent, so the recursion is
+/// bounded too.
+pub fn anyReference(
+    items: []const model.Argument,
+    ctx: anytype,
+    comptime pred: fn (@TypeOf(ctx), model.Reference) bool,
+) bool {
+    for (items) |item| if (argumentHasReference(item, ctx, pred)) return true;
+    return false;
+}
+
+fn argumentHasReference(
+    argument: model.Argument,
+    ctx: anytype,
+    comptime pred: fn (@TypeOf(ctx), model.Reference) bool,
+) bool {
+    return switch (argument) {
+        .reference => |reference| pred(ctx, reference),
+        .list, .set => |items| anyReference(items, ctx, pred),
+        .tagged => |tagged| anyReference(tagged.value, ctx, pred),
+        .@"struct" => |entries| for (entries) |entry| {
+            if (argumentHasReference(entry.value, ctx, pred)) break true;
+        } else false,
+        else => false,
+    };
+}
+
+/// Whether any argument in `items` names an answer position. An answer
+/// reference names its writer's question, so a tree received from the
+/// partner cannot leave toward the partner unchanged. The forwarder checks
+/// a queued call's arguments with this before it sends them back.
+pub fn argumentSliceNamesAnswer(items: []const model.Argument) bool {
+    return anyReference(items, {}, isAnswerReference);
+}
+
+fn isAnswerReference(_: void, reference: model.Reference) bool {
+    return reference == .promise;
+}
+
 /// Requested payload bytes an owned `Reference` retains, excluding allocator
 /// metadata and the inline union itself. Long-lived owners use this before
 /// adoption so a bounded row count cannot hide variable-size reference trees.

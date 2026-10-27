@@ -332,6 +332,22 @@ pub const Argument = union(enum) {
         return self.toOwnedDepth(allocator, 0);
     }
 
+    /// Whether this tree names an answer position, the borrowed twin of
+    /// `argumentSliceNamesAnswer`. The receive validator bounded the depth.
+    pub fn namesAnswer(self: Argument) ProjectError!bool {
+        switch (self) {
+            .reference => |reference| return reference == .promise,
+            .list, .set => |items| return argsNameAnswer(items),
+            .tagged => |tagged| return argsNameAnswer(tagged.value),
+            .@"struct" => |entries| {
+                var it = entries.iterator();
+                while (try it.next()) |entry| if (try entry.value.namesAnswer()) return true;
+                return false;
+            },
+            else => return false,
+        }
+    }
+
     pub fn toOwnedDepth(self: *const Argument, allocator: std.mem.Allocator, depth: usize) Error!model.Argument {
         return switch (self.*) {
             .bytes => |bytes| .{ .bytes = try allocator.dupe(u8, bytes) },
@@ -367,10 +383,24 @@ pub const Argument = union(enum) {
     }
 };
 
+fn argsNameAnswer(items: Args) ProjectError!bool {
+    var it = items.iterator();
+    while (try it.next()) |item| if (try item.namesAnswer()) return true;
+    return false;
+}
+
 /// Borrowed mirror of `model.Resolution`.
 pub const Resolution = union(enum) {
     fulfill: Argument,
     @"break": BreakReason,
+
+    /// Whether a fulfillment names an answer position anywhere in its tree.
+    pub fn namesAnswer(self: Resolution) ProjectError!bool {
+        return switch (self) {
+            .fulfill => |arg| arg.namesAnswer(),
+            .@"break" => false,
+        };
+    }
 
     pub fn fromOwned(owned: *const model.Resolution) Resolution {
         return switch (owned.*) {

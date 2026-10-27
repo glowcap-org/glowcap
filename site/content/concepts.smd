@@ -94,7 +94,8 @@ transports under one key.
 A remote call hands back a **promise** before any bytes return, and you can
 call methods on that promise right away. Those calls travel to the peer and
 queue against the pending answer, so they run on the peer as soon as it
-settles, with no extra round trip.
+settles, with no extra round trip. A promise is also an argument: hand it to
+another call, and the receiver gets a promise for the same answer.
 
 Ask a task board for a column, then ask that column for a card, and both
 questions cross the network in one flight. Chapter 06,

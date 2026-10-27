@@ -22,9 +22,10 @@ settles every inbound answer through one funnel
 (`engine/outbound/drain.zig`), whether the application, a forwarder, a
 projection, or a resolution chain settled it. The Host refused the reference
 when lifting arguments into application values, so a hosted object could not
-receive a promise the caller had not yet resolved, while Goblins peers send
-them freely. ADR-0003 made a pending answer a send target for the sender. This
-record makes a received pending answer a capability for the receiver.
+receive a promise the caller had not yet resolved, although the specification
+lets a caller name one of its pending questions there. ADR-0003 made a pending
+answer a send target for the sender. This record makes a received pending
+answer a capability for the receiver.
 
 ## Decision
 
@@ -32,8 +33,8 @@ A received `desc:answer` reference lifts to a Host capability promise, the
 same kind of row an inline give already creates
 (`driver/core/capability_promise.zig`). The row's identity dimension is the
 answer's exact incarnation, `AnswerTarget` (name plus row id), so two
-occurrences of one answer lift to one capability and a reused wire position
-never aliases an older question. The answer payload records which Host promise
+occurrences of one pending answer lift to one capability and a reused wire
+position never aliases an older question. The answer payload records which Host promise
 watches it, and the Host retains the payload so the stored resolution survives
 `op:gc-answer`.
 
@@ -45,8 +46,8 @@ to a terminal outcome: a reference lifts through the ordinary capability lift
 and fulfills the row, data fulfills the row with an owned value whose nested
 capabilities are retained, a break breaks the row, and a chain that lands on
 another pending answer moves the subscription there. An answer already
-settled at lift time takes the same path at once, and a settled reference
-shortens to that capability with no promise row.
+settled at lift time lifts its stored value directly: a reference shortens to
+that capability with no promise row, and data or a break settles a fresh row.
 
 A capability promise therefore has a data settlement. A send or tell to a
 promise that settled to data breaks with the uncallable-target reason, and a
@@ -59,22 +60,32 @@ or row exists. Closing the session that owns the answer breaks every promise
 lifted from it through the same path that breaks its inline gives. Each row
 is a named cost in the memory ledger.
 
-Outbound, a public Host vow is passable as a capability argument. Within the
-vow's own session it lowers to `desc:answer`. Across sessions it lowers
-through the local promise projection ADR-0003 already names. One Host verb
-and one C verb perform that projection, and each binding's send accepts its
-promise type where it accepts a capability. A vow passes in any state until
-its handle is released. The vow row keeps the completion the embedder drained,
-so a vow asked for after it settled projects as a promise settled to that
-completion: its data, the capability it named, or its break. When an embedder
-drained the completion it holds the retains, so the row names a capability
-without retaining it, the application's own release still reaches the wire at
-once, and a promise asked for after that release breaks. A drive with no
-embedder, the Zig Session, keeps the drained retains on the row until the
-promise settles or its handle is released, so a reply nobody awaited at the
-time still delivers its capability to `settle`. A promise asked for between
-the fire and the drain is staged by the drain. A broken promise has no value
-to pass, so a send that names one is refused.
+Outbound, a public Host vow is passable as a capability argument. On every
+session, the vow's own included, it lowers through the local promise
+projection ADR-0003 already names, which costs one export row and one
+settlement message per session it reaches. An answer position belongs to the
+peer that asked the question, and CapTP has no form for naming the receiver's
+question back to it (upstream issue 168), so the open answer is never the
+form. The engine holds the same rule: a `desc:answer` in any message names its
+sender's question, and a resolution this side sends carries none. A queued
+call or reply forwarded back to the partner with one inside breaks its
+question, because the reference would name a different question on arrival.
+One Host verb and one C verb perform the projection, and each
+binding's send and tell accept its promise type where they accept a
+capability.
+
+A vow passes in any state until its handle is released. The vow
+row keeps the completion the embedder drained, so a vow asked for after it
+settled projects as a promise settled to that completion: its data, the
+capability it named, or its break. When an embedder drained the completion it
+holds the retains, so the row names a capability without retaining it, the
+application's own release reaches the wire at once, and a promise asked
+for after that release breaks. A drive with no embedder, the Zig Session,
+keeps the drained retains on the row until `settle` reads them or the handle
+is released. A reply nobody awaited at the time therefore delivers its
+capability to `settle`. A promise asked for between the fire and the drain is
+staged by the drain. A broken promise projects as a promise too, and breaks
+the receiver's with its reason, so a promise passes in every state.
 
 ## Alternatives and consequences
 
@@ -97,4 +108,6 @@ handling if OCapN adds a wire form for third-party promise shortening.
 argument reaches the hosted object as a capability that settles with the
 answer. Driver tests on `capability_promise` cover data settlement and the
 bound. The live Goblins interop step holds the wire evidence in both
-directions, and the OCapN conformance manifest cites it.
+directions: Goblins awaits a promise glowcap passes, and a glowcap actor reads
+a question a hand-built Goblins frame names, because Goblins has no
+application form for an answer in argument position.

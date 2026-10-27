@@ -15,12 +15,20 @@ pub const Prepared = struct {
     created: bool,
 };
 
-/// Project a still-pending Host promise onto one session. The session owns the
-/// paired export/answer rows once a surrounding send commits. `created` gives
-/// that transaction exact rollback authority until then.
+/// Project a Host promise onto one session. A promise awaiting its
+/// settlement owes the projection to that settlement. One that already broke
+/// owes it the break: the first projection owed since the break publishes a
+/// `promise_settled` action on a seat reserved here, the pump runs it after
+/// the surrounding send commits, and a rollback leaves it nothing to break.
+/// The session owns the paired export/answer rows once a surrounding send
+/// commits. `created` gives that transaction exact rollback authority until
+/// then.
 pub fn prepare(self: *Host, id: capability.PromiseId, session: *HostSession) !Prepared {
     const row = self.capability_promises.getPtr(id) orelse return error.UnknownCapability;
-    if (!row.state.isPending()) return error.PromiseNotPending;
+    switch (row.state) {
+        .pending, .settling, .settling_data, .breaking, .broken => {},
+        .fulfilled, .fulfilled_data => return error.PromiseNotPending,
+    }
     for (row.projections.items) |projection| {
         if (projection.peer_handle == session.peer_handle) return .{
             .reference = .{ .near = model.NearRef.promise(projection.export_position.int()) },
@@ -28,7 +36,11 @@ pub fn prepare(self: *Host, id: capability.PromiseId, session: *HostSession) !Pr
         };
     }
     try row.projections.ensureUnusedCapacity(self.allocator, 1);
+    const publishes_break = row.state == .broken and row.projections.items.len == 0;
+    if (publishes_break) try self.node.reservePromiseSettlement();
+    errdefer if (publishes_break) self.node.releasePromiseSettlement();
     const projection = try session.served.port.peer.session_state.allocateLocalPromiseProjection();
+    if (publishes_break) self.node.publishPromiseSettled(@backingInt(id));
     row.projections.appendAssumeCapacity(.{
         .peer_handle = session.peer_handle,
         .export_position = projection.export_position,

@@ -308,12 +308,12 @@ pub fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) callconv(.c) i32 
 
 /// The pending answer of a public Host vow as a capability (ADR-0068): one
 /// application retain in `*out_reference`, released with
-/// `glowcap_host_ref_release`. Passed as a send argument it travels on the
-/// vow's own session as the open answer, and elsewhere as a promise this Host
-/// settles when the vow does, in any state the vow is in until its handle is
-/// released: a settled vow's promise settles to the completion the Host kept,
-/// and breaks when that completion names a capability released since.
-/// The same vow asked twice is one capability retained once more. A local vow
+/// `glowcap_host_ref_release`. Passed as a send argument it travels as a
+/// promise this Host settles when the vow does, in any state the vow is in
+/// until its handle is released: a settled vow's promise settles to the
+/// completion the Host kept, breaks when that completion names a capability
+/// released since, and a broken one breaks the receiver's promise with its
+/// reason. The same vow asked twice is one capability retained once more. A local vow
 /// with no session is refused `GLOWCAP_ERR_INVALID_ARGUMENT` (SessionlessVow).
 pub fn glowcap_host_vow_capability(host: ?*GlowcapHost, vow: u64, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();

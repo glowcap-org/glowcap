@@ -37,6 +37,14 @@ const Answer = Row.Origin.Answer;
 /// message to a non-object gets.
 pub const uncallable_reason = @errorName(error.UncallableTarget);
 
+/// Whether a stored terminal names a partner object this side released since
+/// it sent the resolution: the engine's released-target rule applied to the
+/// whole value a lift would own, a bare reference or data with references
+/// inside it.
+fn namesReleasedImport(session: *HostSession, value: model.Argument) bool {
+    return engine.resolution_chain.namesReleasedImport(session.served.port.peer, value);
+}
+
 /// Lift one answer reference inside a value the partner delivered. The answer
 /// is one of this session's own open questions, named by its position.
 pub fn lift(
@@ -103,7 +111,9 @@ fn liftSettled(
     const origin: Row.Origin = .{ .answer = .{ .peer_handle = session.peer_handle, .target = target, .payload = null } };
     switch (outcome) {
         .terminal => |terminal| switch (terminal.resolution) {
-            .fulfill => |argument| switch (argument) {
+            .fulfill => |argument| if (namesReleasedImport(session, argument))
+                return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.resolution_chain.released_target_message) })
+            else switch (argument) {
                 .reference => |reference| switch (reference) {
                     .near, .far, .routed => return identity.liftCapabilityTracked(self, session, reference),
                     // A chain ends at a promise only through a pending outcome.
@@ -132,13 +142,8 @@ fn liftSettled(
 /// A row that holds its settlement from the start. It subscribes to nothing
 /// and counts against no bound: the application's retains are its lifetime.
 fn settledRow(self: *Host, origin: Row.Origin, state: Row.State) !Host.CapabilityLift {
-    const id: capability.PromiseId = @fromBackingInt(self.capability_promise_ids.peek() orelse
-        return error.CapabilitySpaceExhausted);
-    try self.capability_promises.ensureUnusedCapacity(self.allocator, 1);
-    const ref = try self.capabilities.retain(self.allocator, .{ .deferred = id });
-    self.capability_promises.putAssumeCapacity(id, .{ .origin = origin, .state = state });
-    self.capability_promise_ids.commit(@backingInt(id));
-    return .{ .ref = ref, .claimed_wire_retain = false };
+    const reservation = try capability_promise.reserveRow(self);
+    return reservation.commit(self, .{ .origin = origin, .state = state });
 }
 
 /// Subscribe a new promise to a pending answer: the session's subscription,
@@ -150,21 +155,16 @@ fn liftPending(
     target: engine.AnswerTarget,
 ) capability_lift.LiftError!Host.CapabilityLift {
     const peer = session.served.port.peer;
-    const id: capability.PromiseId = @fromBackingInt(self.capability_promise_ids.peek() orelse
-        return error.CapabilitySpaceExhausted);
-    try self.capability_promises.ensureUnusedCapacity(self.allocator, 1);
-    const payload = try peer.session_state.subscribeHostPromise(target, @backingInt(id));
+    const reservation = try capability_promise.reserveRow(self);
+    const payload = try peer.session_state.subscribeHostPromise(target, @backingInt(reservation.id));
     errdefer peer.session_state.unsubscribeHostPromise(target, payload);
     try self.node.reservePromiseSettlement();
     errdefer self.node.releasePromiseSettlement();
-    const ref = try self.capabilities.retain(self.allocator, .{ .deferred = id });
-    self.capability_promises.putAssumeCapacity(id, .{ .origin = .{ .answer = .{
+    return reservation.commit(self, .{ .origin = .{ .answer = .{
         .peer_handle = session.peer_handle,
         .target = target,
         .payload = payload,
     } } });
-    self.capability_promise_ids.commit(@backingInt(id));
-    return .{ .ref = ref, .claimed_wire_retain = false };
 }
 
 /// The `promise_settled` action: the answer a promise stands for has settled.
@@ -191,7 +191,9 @@ pub fn settle(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
     const payload = answer.payload orelse unreachable;
     switch (engine.resolution_chain.followAnswer(peer, answer.target, payload)) {
         .terminal => |terminal| switch (terminal.resolution) {
-            .fulfill => |argument| switch (argument) {
+            .fulfill => |argument| if (namesReleasedImport(session, argument))
+                return capability_promise.breakPromise(self, id, engine.resolution_chain.released_target_message)
+            else switch (argument) {
                 .reference => |reference| switch (reference) {
                     .near, .far, .routed => {
                         const lifted = identity.liftCapabilityTracked(self, session, reference) catch |err| {

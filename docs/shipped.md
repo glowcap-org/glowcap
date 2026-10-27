@@ -76,7 +76,7 @@ listening, and events, over a Host it has adopted.
   including staged introductions ([ADR-0058](decisions/adr/ADR-0058-transactional-turn-sends.md)).
   glowcap accepts OCapN 1.0 `op:untag` from any peer and sends it only to a partner that advertises the `untag`
   feature.
-- **Promise arguments.** An answer passes as an argument in both directions, pending or settled. A partner's
+- **Promise arguments.** A promise passes as an argument in both directions, pending or settled. A partner's
   `desc:answer` lifts to a capability promise, and an application's vow passes as a capability on any session,
   from the C ABI and every binding ([ADR-0068](decisions/adr/ADR-0068-promise-arguments.md)).
 - **Persistent references.** A sturdyref is a durable peer locator plus a swiss number. Enlivening one checks the

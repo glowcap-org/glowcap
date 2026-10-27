@@ -138,15 +138,17 @@ pub fn routeTurnTarget(
 }
 
 /// Resolve an opaque target for one already-admitted inbound turn. A turn may
-/// reach a local actor or a capability homed on its own ingress session.
-/// Crossing to a sibling session would detach the answer from its causal Port.
+/// reach a local actor or a capability homed on its own ingress session, a
+/// promise the partner exported included: the forward then rides that promise
+/// as a send does. Crossing to a sibling session would detach the answer from
+/// its causal Port.
 pub fn routeTurnCapability(
     self: *Host,
     session: *HostSession,
     target: capability.Ref,
     args: []const model.Argument,
 ) !actors.Ref {
-    const routed = try routeCapability(self, session, target, .object_only);
+    const routed = try routeCapability(self, session, target, .any_target);
     if (routed.session != session) return error.ForeignArgument;
     try validateRoutedArguments(self, session, args);
     return routed.target;

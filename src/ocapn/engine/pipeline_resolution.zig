@@ -126,76 +126,60 @@ pub fn classifyListenerDrain(
     return if (entry.mode.wantsSettling()) .{ .fire = fire_position } else .discard;
 }
 
-/// What `projectResolution` decided for one `op:get` / `op:index`
-/// projection over a settled resolution.
-pub const Projected = union(enum) {
-    /// The projection settled. The payload *borrows* the input resolution.
-    /// The caller's send clones it (the one named boundary copy).
-    resolved: model.Resolution,
-    /// The resolution was itself a promise. Re-anchor the projection on that
-    /// promise's answer.
-    reanchor: model.AnswerPosition,
-};
-
 /// Compute an `op:get` / `op:index` / `op:untag` projection over a settled
 /// resolution (ADR-0004). A field projection requires a Struct fulfillment,
 /// an element projection a List, and an untag projection a Tagged with the
 /// asserted tag. A broken receiver passes its break through (the spec's
-/// inherited rejection). A fulfillment that is itself a promise reference
-/// re-anchors. Every other shape breaks with a typed reason. Pure. The
-/// `.resolved` payload borrows `resolution`.
-pub fn projectResolution(resolution: model.Resolution, kind: session.ProjectionKind) Projected {
+/// inherited rejection). A fulfillment that is itself a promise never reaches
+/// this: the stored-resolution walker follows a paired local promise export
+/// to its answer first. Every other shape breaks with a typed reason. Pure.
+/// The result borrows `resolution`, and the caller's send clones it (the one
+/// named boundary copy).
+pub fn projectResolution(resolution: model.Resolution, kind: session.ProjectionKind) model.Resolution {
     const value = switch (resolution) {
-        .@"break" => |err| return .{ .resolved = .{ .@"break" = err } },
+        .@"break" => return resolution,
         .fulfill => |arg| arg,
     };
-    if (value == .reference and value.reference == .promise) {
-        return .{ .reanchor = value.reference.promise.answer_position };
-    }
     switch (kind) {
         .field => |field| {
-            if (value != .@"struct") return .{ .resolved = .{ .@"break" = .{
+            if (value != .@"struct") return .{ .@"break" = .{
                 .message = "op:get receiver did not resolve to a Struct",
-            } } };
+            } };
             for (value.@"struct") |entry| {
-                if (std.mem.eql(u8, entry.key, field)) {
-                    return .{ .resolved = .{ .fulfill = entry.value } };
-                }
+                if (std.mem.eql(u8, entry.key, field)) return .{ .fulfill = entry.value };
             }
-            return .{ .resolved = .{ .@"break" = .{
-                .message = "op:get field is absent on the Struct",
-            } } };
+            return .{ .@"break" = .{ .message = "op:get field is absent on the Struct" } };
         },
         .index => |index| {
-            if (value != .list) return .{ .resolved = .{ .@"break" = .{
+            if (value != .list) return .{ .@"break" = .{
                 .message = "op:index receiver did not resolve to a List",
-            } } };
+            } };
             const candidate = switch (index) {
                 .candidate => |candidate| candidate,
-                .out_of_bounds => return .{ .resolved = .{ .@"break" = .{
+                .out_of_bounds => return .{ .@"break" = .{
                     .message = "op:index position is out of the List's bounds",
-                } } },
+                } },
             };
-            if (candidate >= value.list.len) return .{ .resolved = .{ .@"break" = .{
+            if (candidate >= value.list.len) return .{ .@"break" = .{
                 .message = "op:index position is out of the List's bounds",
-            } } };
-            return .{ .resolved = .{ .fulfill = value.list[candidate] } };
+            } };
+            return .{ .fulfill = value.list[candidate] };
         },
         .untag => |tag| {
-            if (value != .tagged) return .{ .resolved = .{ .@"break" = .{
+            if (value != .tagged) return .{ .@"break" = .{
                 .message = "op:untag receiver did not resolve to a Tagged",
-            } } };
-            if (!std.mem.eql(u8, value.tagged.tag, tag)) return .{ .resolved = .{ .@"break" = .{
+            } };
+            if (!std.mem.eql(u8, value.tagged.tag, tag)) return .{ .@"break" = .{
                 .message = "op:untag tag does not match the receiver's Tagged tag",
-            } } };
+            } };
             // The spec's Tagged carries a single value; glowcap's model carries
             // the Goblins user-record payload as a slice (ADR-0005). One value
             // unwraps to that value; any other arity unwraps to the payload as
             // the List it is, so nothing is guessed and nothing is dropped.
             if (value.tagged.value.len == 1) {
-                return .{ .resolved = .{ .fulfill = value.tagged.value[0] } };
+                return .{ .fulfill = value.tagged.value[0] };
             }
-            return .{ .resolved = .{ .fulfill = .{ .list = value.tagged.value } } };
+            return .{ .fulfill = .{ .list = value.tagged.value } };
         },
     }
 }

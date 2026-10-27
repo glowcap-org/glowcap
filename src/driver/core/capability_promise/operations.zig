@@ -1,18 +1,24 @@
 //! Operations an application queues against a capability promise before it
 //! settles: eventual sends, tells, and listens. Each is admitted against the
-//! source session, owned by the row until settlement dispatches it, and
-//! cancellable through the Host vow it minted. `capability_promise.zig`
-//! dispatches and retires them.
+//! source session, owned by the row until settlement dispatches it here onto
+//! the capability the promise settled to, and cancellable through the Host
+//! vow it minted. `capability_promise.zig` retires the ones a break leaves.
 
 const std = @import("std");
 
+const actors = @import("actors");
 const engine = @import("engine");
+const model = @import("model");
 const capability = @import("../capability.zig");
+const capability_lower = @import("../host/capabilities/lower.zig");
+const capability_promise = @import("../capability_promise.zig");
+const host_pump = @import("../host/pump.zig");
 const promise_row = @import("row.zig");
 const promise_values = @import("values.zig");
 const host_mod = @import("../host.zig");
 const PendingCancel = @import("../vows/settlement.zig").PendingCancel;
 const value_mod = @import("../value.zig");
+const vows = @import("../vows.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -190,4 +196,132 @@ pub fn releaseRetainedCapabilitiesTerminal(self: *Host, pending: *Row.PendingOpe
         },
         .listen => {},
     }
+}
+
+/// Dispatch every operation queued against the promise while it was
+/// pending. A directly settled listen may run an in-process vow listener, so
+/// the row is refetched after every operation instead of holding a pointer
+/// across code that may release this promise or rehash the Host tables.
+pub fn dispatchQueuedOperations(self: *Host, id: capability.PromiseId, resolved: capability.Ref) !void {
+    while (true) {
+        const current = self.capability_promises.getPtr(id) orelse return;
+        if (current.operation_head >= current.operations.items.len) return;
+        const pending = &current.operations.items[current.operation_head];
+        if (pending.stage == .queued) switch (dispatchQueued(self, current, pending, resolved) catch |err| {
+            if (capability_promise.retriesLater(err)) return err;
+            // The operation cannot reach what the promise settled to, as a
+            // send to the capability itself could not. Its vow hears why.
+            var owned = current.operations.items[current.operation_head];
+            current.operation_head += 1;
+            retireOperationTerminal(self, &owned, @errorName(err), null);
+            continue;
+        }) {
+            .dispatched => {},
+            .settled_in_place => continue,
+        };
+        try releaseRetainedCapabilities(self, pending);
+        if (pending.action == .tell) if (self.sessions.get(pending.source_peer)) |source|
+            self.finishSessionOperation(source);
+        pending.deinit();
+        current.operation_head += 1;
+    }
+}
+
+/// A queued operation either went out on the capability's home session and
+/// now awaits that session, or was a listen the Host settled in place, which
+/// consumed its own row entry.
+const Dispatched = enum { dispatched, settled_in_place };
+
+fn dispatchQueued(self: *Host, current: *Row, pending: *Row.PendingOperation, resolved: capability.Ref) !Dispatched {
+    const source = self.sessions.get(pending.source_peer) orelse return error.UnknownCapability;
+    const routed = try self.routeCapability(source, resolved, .any_target);
+    try self.checkOutboundAdmission(routed.session);
+    switch (pending.action) {
+        .send => |*message| try dispatchQueuedSend(self, routed, message, pending.result_vow.?),
+        .tell => |*message| {
+            var prepared = try self.prepareValues(routed.session, message.arena.allocator(), message.values);
+            defer prepared.deinit();
+            try capability_lower.holdForTurn(self, &prepared);
+            try self.servedTellWithStaging(
+                routed.session,
+                routed.target,
+                .{ .verb = message.verb, .args = prepared.values },
+                &prepared,
+            );
+            _ = prepared.commit();
+        },
+        .listen => {
+            if (routed.target == .local or routed.target.far.kind == .object) {
+                const vow_id = pending.result_vow.?;
+                // The resolution belongs to its home session, just as a
+                // deferred wire listen does after attachDeferredVow.
+                // Moving first keeps completion projection on that
+                // session and avoids manufacturing a foreign route only
+                // to consume it again inside this Host.
+                self.moveDeferredVow(vow_id, routed.session);
+                var prepared = try self.prepareCapability(routed.session, resolved);
+                defer prepared.deinit();
+                pending.deinit();
+                current.operation_head += 1;
+                const reference = prepared.commit();
+                self.fireVow(vow_id, .{ .fulfilled = .{ .reference = reference } });
+                return .settled_in_place;
+            }
+            const wire = switch (routed.target) {
+                .local => return error.InvalidReference,
+                .far => |far| model.Reference{ .far = far },
+            };
+            const listener = try routed.session.served.port.reserveListener(&self.vat, .far);
+            const vow = try routed.session.served.listenTo(wire);
+            self.attachDeferredVow(
+                pending.result_vow.?,
+                routed.session,
+                listener,
+                vow,
+                .session_private,
+                null,
+            );
+        },
+    }
+    self.node.exporterApplicationOwned(routed.session.peer_handle);
+    host_pump.markDirty(self, routed.session.peer_handle);
+    pending.stage = .{ .dispatched = routed.session.peer_handle };
+    return .dispatched;
+}
+
+/// A queued send goes out with its result vow attached to the home session's
+/// listener, and a far target also reserves the observer release the vow's
+/// settlement will send.
+fn dispatchQueuedSend(self: *Host, routed: Host.RoutedSend, message: *Row.PendingOperation.OwnedMessage, result_vow: u64) !void {
+    var prepared = try self.prepareValues(routed.session, message.arena.allocator(), message.values);
+    defer prepared.deinit();
+    try capability_lower.holdForTurn(self, &prepared);
+    const location: actors.VowLocation = switch (routed.target) {
+        .local => .local,
+        .far => .far,
+    };
+    const listener = try routed.session.served.port.reserveListener(&self.vat, location);
+    const observer_release = if (location == .far)
+        try vows.reserveDeferredObserverRelease(self, result_vow, routed.session)
+    else
+        null;
+    var observer_release_live = observer_release != null;
+    errdefer if (observer_release_live)
+        routed.session.served.port.peer.cancelPendingReservation(observer_release.?);
+    const vow = try self.servedSendWithStaging(
+        routed.session,
+        routed.target,
+        .{ .verb = message.verb, .args = prepared.values },
+        &prepared,
+    );
+    self.attachDeferredVow(
+        result_vow,
+        routed.session,
+        listener,
+        vow,
+        if (location == .far) .peer_visible else .none,
+        observer_release,
+    );
+    observer_release_live = false;
+    _ = prepared.commit();
 }

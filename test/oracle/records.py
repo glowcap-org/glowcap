@@ -382,6 +382,32 @@ def op_deliver_arg_set() -> Record:
     return _op_deliver_one_arg({1, 2, 3})
 
 
+def _answer_argument() -> Record:
+    """``<desc:answer 3>``, the sender's own pending question (ADR-0068)."""
+    return Record(Symbol("desc:answer"), (3,))
+
+
+def op_deliver_arg_answer() -> Record:
+    """``op:deliver`` carrying ``<desc:answer 3>`` bare."""
+    return _op_deliver_one_arg(_answer_argument())
+
+
+def op_deliver_arg_answer_in_list() -> Record:
+    """``op:deliver`` carrying ``[<desc:answer 3>]``."""
+    return _op_deliver_one_arg([_answer_argument()])
+
+
+def op_deliver_arg_answer_in_set() -> Record:
+    """``op:deliver`` carrying ``#<desc:answer 3>$``."""
+    return _op_deliver_one_arg({_answer_argument()})
+
+
+def op_deliver_arg_answer_in_tagged() -> Record:
+    """``op:deliver`` carrying ``<'user-record 'point [<desc:answer 3>]>``."""
+    inner = Record(Symbol("user-record"), (Symbol("point"), [_answer_argument()]))
+    return _op_deliver_one_arg(inner)
+
+
 # ── Stage 2 / ADR-0039 handoff envelope fixtures ───────────────────
 
 

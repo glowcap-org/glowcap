@@ -39,14 +39,13 @@ pub const vowCapability = promise_vow.vowCapability;
 pub const stageVowSettlement = promise_vow.stage;
 pub const stageHeldSettlement = promise_vow.stageHeld;
 pub const vowPromiseAwaitsStaging = promise_vow.awaitsStaging;
-pub const vowAnswerReference = promise_vow.answerReference;
 pub const listenData = promise_answer.listenData;
 pub const vowMoved = promise_vow.moved;
 pub const queueSendValues = promise_operations.queueSendValues;
 pub const queueTellValues = promise_operations.queueTellValues;
 pub const queueListen = promise_operations.queueListen;
+const dispatchQueuedOperations = promise_operations.dispatchQueuedOperations;
 const retireOperationTerminal = promise_operations.retireOperationTerminal;
-const releaseRetainedCapabilities = promise_operations.releaseRetainedCapabilities;
 
 /// Turn one inline signed give into an immediately usable Host identity and
 /// start the same Node redemption transaction returned handoffs use. The row
@@ -64,9 +63,9 @@ pub fn liftInlineGive(
     var projected = try engine.handoff_recipient.projectGiveForRedeem(self.allocator, give);
     defer projected.deinit(self.allocator);
 
-    const id: capability.PromiseId = @fromBackingInt(self.capability_promise_ids.peek() orelse
-        return error.CapabilitySpaceExhausted);
-    try self.capability_promises.ensureUnusedCapacity(self.allocator, 1);
+    // The Node's acceptance is fallible and comes after the row exists, so
+    // the id commits by hand once the Node has it.
+    const id = (try reserveRow(self)).id;
     const ref = try self.capabilities.retain(self.allocator, .{ .deferred = id });
     var ref_live = true;
     errdefer if (ref_live) {
@@ -103,12 +102,40 @@ pub fn liftInlineGive(
 /// its origin finishes the row from what it stored.
 pub fn finishSettlement(self: *Host, id: capability.PromiseId) !host_pump.ActionOutcome {
     const row = self.capability_promises.getPtr(id) orelse return .done;
+    if (row.state == .broken) {
+        // A promise passed after it broke owes the new projection its break
+        // (`promise_projection.prepare`). The break rewrites the row's copy,
+        // so the reason leaves it first.
+        const failure = row.state.broken;
+        return breakPromise(self, id, failure.message());
+    }
     return switch (row.origin) {
         .answer => promise_answer.settle(self, id),
         .vow => promise_vow.settle(self, id),
         // An inline give settles through the Node's own `settle` action.
         .inline_give => unreachable,
     };
+}
+
+/// A promise row about to exist. Its id is known and the registry has room,
+/// so an origin's own fallible work can name the id before `commit` publishes
+/// the row with one application retain on it. Nothing is committed until then.
+pub const RowReservation = struct {
+    id: capability.PromiseId,
+
+    pub fn commit(self: RowReservation, host: *Host, row: Row) !Host.CapabilityLift {
+        const ref = try host.capabilities.retain(host.allocator, .{ .deferred = self.id });
+        host.capability_promises.putAssumeCapacity(self.id, row);
+        host.capability_promise_ids.commit(@backingInt(self.id));
+        return .{ .ref = ref, .claimed_wire_retain = false };
+    }
+};
+
+pub fn reserveRow(self: *Host) !RowReservation {
+    const id: capability.PromiseId = @fromBackingInt(self.capability_promise_ids.peek() orelse
+        return error.CapabilitySpaceExhausted);
+    try self.capability_promises.ensureUnusedCapacity(self.allocator, 1);
+    return .{ .id = id };
 }
 
 /// One more application retain on a promise that already exists for its
@@ -296,136 +323,9 @@ pub fn breakProjection(self: *Host, recipient: *HostSession, projection: Row.Pro
     host_pump.markDirty(self, projection.peer_handle);
 }
 
-/// Dispatch every operation queued against the promise while it was
-/// pending. A directly settled listen may run an in-process vow listener, so
-/// the row is refetched after every operation instead of holding a pointer
-/// across code that may release this promise or rehash the Host tables.
-fn dispatchQueuedOperations(self: *Host, id: capability.PromiseId, resolved: capability.Ref) !void {
-    while (true) {
-        const current = self.capability_promises.getPtr(id) orelse return;
-        if (current.operation_head >= current.operations.items.len) return;
-        const pending = &current.operations.items[current.operation_head];
-        if (pending.stage == .queued) switch (dispatchQueued(self, current, pending, resolved) catch |err| {
-            if (retriesLater(err)) return err;
-            // The operation cannot reach what the promise settled to, as a
-            // send to the capability itself could not. Its vow hears why.
-            var owned = current.operations.items[current.operation_head];
-            current.operation_head += 1;
-            retireOperationTerminal(self, &owned, @errorName(err), null);
-            continue;
-        }) {
-            .dispatched => {},
-            .settled_in_place => continue,
-        };
-        try releaseRetainedCapabilities(self, pending);
-        if (pending.action == .tell) if (self.sessions.get(pending.source_peer)) |source|
-            self.finishSessionOperation(source);
-        pending.deinit();
-        current.operation_head += 1;
-    }
-}
-
-/// A queued operation either went out on the capability's home session and
-/// now awaits that session, or was a listen the Host settled in place, which
-/// consumed its own row entry.
-const Dispatched = enum { dispatched, settled_in_place };
-
-fn dispatchQueued(self: *Host, current: *Row, pending: *Row.PendingOperation, resolved: capability.Ref) !Dispatched {
-    const source = self.sessions.get(pending.source_peer) orelse return error.UnknownCapability;
-    const routed = try self.routeCapability(source, resolved, .any_target);
-    try self.checkOutboundAdmission(routed.session);
-    switch (pending.action) {
-        .send => |*message| try dispatchQueuedSend(self, routed, message, pending.result_vow.?),
-        .tell => |*message| {
-            var prepared = try self.prepareValues(routed.session, message.arena.allocator(), message.values);
-            defer prepared.deinit();
-            try capability_lower.holdForTurn(self, &prepared);
-            try self.servedTellWithStaging(
-                routed.session,
-                routed.target,
-                .{ .verb = message.verb, .args = prepared.values },
-                &prepared,
-            );
-            _ = prepared.commit();
-        },
-        .listen => {
-            if (routed.target == .local or routed.target.far.kind == .object) {
-                const vow_id = pending.result_vow.?;
-                // The resolution belongs to its home session, just as a
-                // deferred wire listen does after attachDeferredVow.
-                // Moving first keeps completion projection on that
-                // session and avoids manufacturing a foreign route only
-                // to consume it again inside this Host.
-                self.moveDeferredVow(vow_id, routed.session);
-                var prepared = try self.prepareCapability(routed.session, resolved);
-                defer prepared.deinit();
-                pending.deinit();
-                current.operation_head += 1;
-                const reference = prepared.commit();
-                self.fireVow(vow_id, .{ .fulfilled = .{ .reference = reference } });
-                return .settled_in_place;
-            }
-            const wire = switch (routed.target) {
-                .local => return error.InvalidReference,
-                .far => |far| model.Reference{ .far = far },
-            };
-            const listener = try routed.session.served.port.reserveListener(&self.vat, .far);
-            const vow = try routed.session.served.listenTo(wire);
-            self.attachDeferredVow(
-                pending.result_vow.?,
-                routed.session,
-                listener,
-                vow,
-                .session_private,
-                null,
-            );
-        },
-    }
-    self.node.exporterApplicationOwned(routed.session.peer_handle);
-    host_pump.markDirty(self, routed.session.peer_handle);
-    pending.stage = .{ .dispatched = routed.session.peer_handle };
-    return .dispatched;
-}
-
-/// A queued send goes out with its result vow attached to the home session's
-/// listener, and a far target also reserves the observer release the vow's
-/// settlement will send.
-fn dispatchQueuedSend(self: *Host, routed: Host.RoutedSend, message: *Row.PendingOperation.OwnedMessage, result_vow: u64) !void {
-    var prepared = try self.prepareValues(routed.session, message.arena.allocator(), message.values);
-    defer prepared.deinit();
-    try capability_lower.holdForTurn(self, &prepared);
-    const location: actors.VowLocation = switch (routed.target) {
-        .local => .local,
-        .far => .far,
-    };
-    const listener = try routed.session.served.port.reserveListener(&self.vat, location);
-    const observer_release = if (location == .far)
-        try vows.reserveDeferredObserverRelease(self, result_vow, routed.session)
-    else
-        null;
-    var observer_release_live = observer_release != null;
-    errdefer if (observer_release_live)
-        routed.session.served.port.peer.cancelPendingReservation(observer_release.?);
-    const vow = try self.servedSendWithStaging(
-        routed.session,
-        routed.target,
-        .{ .verb = message.verb, .args = prepared.values },
-        &prepared,
-    );
-    self.attachDeferredVow(
-        result_vow,
-        routed.session,
-        listener,
-        vow,
-        if (location == .far) .peer_visible else .none,
-        observer_release,
-    );
-    observer_release_live = false;
-    _ = prepared.commit();
-}
-
 /// Break the promise toward every projection, parking on a recipient whose
-/// outbound pressure stops it, as `fulfill` does.
+/// outbound pressure stops it, as `fulfill` does. A row that already broke
+/// breaks the projections owed since.
 pub fn breakPromise(self: *Host, id: capability.PromiseId, reason: []const u8) !host_pump.ActionOutcome {
     return breakPromiseImpl(self, id, reason, false);
 }
@@ -440,14 +340,14 @@ fn breakPromiseImpl(
     var settling_ref: ?capability.Ref = null;
     var settling_data: ?Row.SettledData = null;
     switch (row.state) {
-        .pending, .breaking => {},
+        .pending, .breaking, .broken => {},
         .settling => |lifted| if (terminal) {
             settling_ref = lifted.ref;
         } else return .done,
         .settling_data => |data| if (terminal) {
             settling_data = data;
         } else return .done,
-        .fulfilled, .fulfilled_data, .broken => return .done,
+        .fulfilled, .fulfilled_data => return .done,
     }
     const was_pending = row.state == .pending;
     while (nextOwedProjection(self, row)) |owed| {
@@ -529,7 +429,12 @@ pub fn abandon(self: *Host, id: capability.PromiseId) void {
         },
         .fulfilled => |ref| resolved = ref,
         .fulfilled_data => |settled| data = settled,
-        .broken => {},
+        // A broken row still owing a projection its break stays for the
+        // pump, which removes it once the break is delivered.
+        .broken => if (row.projections.items.len != 0) {
+            row.abandoned = true;
+            return;
+        },
     }
     row.projections.deinit(self.allocator);
     row.operations.deinit(self.allocator);

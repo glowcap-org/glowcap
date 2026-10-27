@@ -83,6 +83,19 @@ counter the protocol assigns to separate sessions.
 `zig build goblins-rooms-matrix-iroh` reproduces the rejection, and
 `conformance/ocapn-findings/` holds the source records.
 
+## Answer references outside target position
+
+The draft gives an answer position to the peer that sent the `op:deliver`
+holding it, and it has no descriptor for naming the receiver's question back
+to it. The 2025-05-16 meeting minutes
+(`conformance/ocapn-spec/upstream/meeting-minutes/`) record the rule and
+point at issue 168. So a promise passed as an argument travels as the sender's
+own question or its own promise export. A peer that forwards a received call
+cannot re-send a `desc:answer` it did not write, and glowcap breaks such a
+forward with a typed reason
+([boundaries](boundaries.md#protocol-and-interop)). Goblins 0.18.0 reads
+`desc:answer` in target position only and never writes one elsewhere.
+
 ## Message ordering
 
 OCapN PR 281 would write down an end-to-end reference FIFO order: messages one

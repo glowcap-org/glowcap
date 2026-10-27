@@ -22,6 +22,7 @@ const Reader = struct {
     var send_vow: u64 = 0;
     var send_refusal: ?anyerror = null;
     var listen_vow: u64 = 0;
+    var listen_refusal: ?anyerror = null;
     var promise_id: ?u64 = null;
     var keep: bool = false;
     var kept: ?driver.Capability = null;
@@ -31,6 +32,7 @@ const Reader = struct {
         send_vow = 0;
         send_refusal = null;
         listen_vow = 0;
+        listen_refusal = null;
         promise_id = null;
         keep = false;
         kept = null;
@@ -49,9 +51,13 @@ const Reader = struct {
             send_refusal = err;
             break :blk 0;
         };
-        listen_vow = switch (try ht.host.resolveCapability(ht.session.?, cap)) {
+        // A promise already broken refuses the listen outright.
+        listen_vow = if (ht.host.resolveCapability(ht.session.?, cap)) |resolution| switch (resolution) {
             .pending => |vow| vow,
             .resolved => 0,
+        } else |err| blk: {
+            listen_refusal = err;
+            break :blk 0;
         };
         // The queued send and listen outlive the capability: the actor owns
         // its argument and gives it back before the turn ends.
@@ -259,6 +265,49 @@ test "a lifted answer that settles with a reference shortens to that capability"
     try std.testing.expectEqual(@as(usize, 1), Target.ran);
     try std.testing.expectEqualStrings("from the target", sent.text());
     _ = try listened.require();
+    try f.expectServing();
+}
+
+/// Serve a dialer object and fetch it from the acceptor, so the acceptor
+/// holds a partner object its own resolutions can name.
+fn fetchPartnerTarget(f: *Fixture) !driver.Capability {
+    _ = try f.pair.a.served.publish(&f.dialer.vat, "target", driver.core.Hosting(Target), .{ .inner = .{} });
+    const position = try importOf(&f.acceptor, f.pair.b, "target", f.pair);
+    return f.acceptor.liftCapability(f.pair.b, .{ .far = model.FarRef.object(position) });
+}
+
+fn dataNaming(target: driver.Capability) driver.Value {
+    return .{ .@"struct" = &.{
+        .{ .key = "owner", .value = .{ .capability = target } },
+        .{ .key = "count", .value = .{ .string = "three" } },
+    } };
+}
+
+test "a settled answer naming a released partner object lifts as a broken promise" {
+    var f: Fixture = undefined;
+    try f.init(.{ .verify_partner = false });
+    defer f.deinit();
+    const target = try fetchPartnerTarget(&f);
+
+    try f.ask(7);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try f.acceptor.resolverFulfillValue(Greeter.resolver, dataNaming(target), arena.allocator());
+    try f.pump();
+    // The stored resolution holds nothing on the partner object, so this
+    // release reaches the wire and the stored data names a lapsed import.
+    const held_before = heldImports(f.pair.b.served.port.peer).len;
+    try f.acceptor.releaseCapability(target, 1);
+    try f.pump();
+    try std.testing.expectEqual(held_before - 1, heldImports(f.pair.b.served.port.peer).len);
+
+    // The actor receives a broken promise, not a closed session: its send
+    // and listen are refused, and the row leaves with the actor's release.
+    try f.passPromise(7);
+    try std.testing.expectEqual(@as(usize, 1), Reader.ran);
+    try std.testing.expectEqual(@as(anyerror, error.PromiseBroken), Reader.send_refusal orelse return error.SendAccepted);
+    try std.testing.expectEqual(@as(anyerror, error.PromiseBroken), Reader.listen_refusal orelse return error.ListenAccepted);
+    try std.testing.expectEqual(@as(usize, 0), f.acceptor.capability_promises.count());
     try f.expectServing();
 }
 

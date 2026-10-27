@@ -3,9 +3,10 @@
 //! value. `vowCapability` turns one into a capability promise. The vow row
 //! names the promise as its watcher, the fire stages the settlement on the
 //! promise row, and the pump finishes it on the `promise_settled` seat
-//! reserved when the promise was made. On the vow's own session the promise
-//! lowers as the open answer itself. Elsewhere it lowers through the local
-//! promise projection every pending promise uses.
+//! reserved when the promise was made. The promise lowers through the local
+//! promise projection every pending promise uses, on the vow's own session
+//! too: an answer position belongs to the peer that asked, and the partner
+//! would read the open answer as a question of this Host's.
 
 const std = @import("std");
 
@@ -39,20 +40,16 @@ pub fn vowCapability(self: *Host, vow_id: u64) !capability.Ref {
     const resolved = try vows.resolveVowSession(self, vow_id);
     const row = resolved.row;
     if (row.watcher) |id| return (try capability_promise.retainShared(self, id)).ref;
-    const id: capability.PromiseId = @fromBackingInt(self.capability_promise_ids.peek() orelse
-        return error.CapabilitySpaceExhausted);
-    try self.capability_promises.ensureUnusedCapacity(self.allocator, 1);
+    const reservation = try capability_promise.reserveRow(self);
     try self.node.reservePromiseSettlement();
     errdefer self.node.releasePromiseSettlement();
-    const ref = try self.capabilities.retain(self.allocator, .{ .deferred = id });
-    self.capability_promises.putAssumeCapacity(id, .{ .origin = .{ .vow = .{
+    const lifted = try reservation.commit(self, .{ .origin = .{ .vow = .{
         .peer_handle = resolved.session.peer_handle,
         .vow_id = vow_id,
     } } });
-    self.capability_promise_ids.commit(@backingInt(id));
-    row.watcher = id;
-    if (row.completion != .none) stageHeld(self, id, row);
-    return ref;
+    row.watcher = reservation.id;
+    if (row.completion != .none) stageHeld(self, reservation.id, row);
+    return lifted.ref;
 }
 
 /// Stage the vow's settlement on its promise as the vow fires. Nothing may
@@ -189,21 +186,4 @@ fn releaseSeat(self: *Host, vow: *Row.Origin.Vow) void {
 pub fn moved(self: *Host, id: capability.PromiseId, peer_handle: engine.PeerHandle) void {
     const row = self.capability_promises.getPtr(id) orelse unreachable;
     row.origin.vow.peer_handle = peer_handle;
-}
-
-/// The reference a pending vow promise lowers to on the vow's own session:
-/// the open answer itself, which the partner shortens on arrival. Null on
-/// another session, once the vow row is gone, or once a settled row's handle
-/// was released, which let its answer go toward the partner while the row
-/// waits for the drain. A projection stands in for it in each case.
-pub fn answerReference(self: *Host, row: *const Row, session: *const HostSession) ?model.Reference {
-    const vow = switch (row.origin) {
-        .vow => |vow| vow,
-        .inline_give, .answer => return null,
-    };
-    if (vow.peer_handle != session.peer_handle) return null;
-    const vow_row = self.vows.get(vow.vow_id) orelse return null;
-    if (vow_row.settled and vow_row.handle_released) return null;
-    const answer = vows.pipelineAnswer(vow_row) catch return null;
-    return .{ .promise = .{ .answer_position = answer.position } };
 }
