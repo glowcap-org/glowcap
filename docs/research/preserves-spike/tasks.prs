@@ -1,0 +1,26 @@
+version 1 .
+# Embedded references use the compiler default and stay generic in the output.
+
+Board = @lists BoardLists / @list BoardList .
+BoardLists = [=lists] .
+BoardList = [=list @index int] .
+
+TaskList = @name ListName / @count ListCount / @task ListTask
+         / @add ListAdd / @move ListMove .
+ListName = [=name] .
+ListCount = [=count] .
+ListTask = [=task @index int] .
+ListAdd = [=mutate @sequence int =add @text string] .
+ListMove = [=mutate @sequence int =move @task #:Task @destination #:TaskList] .
+
+Task = [=text] .
+TaskListRef = #:TaskList .
+TaskRef = #:Task .
+CountReply = int .
+NameReply = string .
+TextReply = string .
+
+# Non-Tasks cases exercise recursive copied data and direct invocation.
+Tree = <tree @name string @children [Tree ...]> .
+Greeter = [@name string] .
+AnyMessage = [@arguments any ...] .

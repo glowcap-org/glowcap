@@ -1,0 +1,112 @@
+{
+  "module": "tasks",
+  "types": {
+    "BoardIndex": {
+      "kind": "integer",
+      "min": 0,
+      "max": 15
+    },
+    "TaskIndex": {
+      "kind": "integer",
+      "min": 0,
+      "max": 255
+    },
+    "Count": {
+      "kind": "integer",
+      "min": 0,
+      "max": 256
+    },
+    "Name": {
+      "kind": "string",
+      "min_bytes": 1,
+      "max_bytes": 64
+    },
+    "Text": {
+      "kind": "string",
+      "min_bytes": 1,
+      "max_bytes": 4096
+    }
+  },
+  "interfaces": {
+    "Board": {
+      "lists": {
+        "args": [],
+        "reply": "Count",
+        "receipt": false
+      },
+      "add-list": {
+        "args": [
+          [
+            "name",
+            "Name"
+          ]
+        ],
+        "reply": "TaskList",
+        "receipt": true
+      },
+      "list": {
+        "args": [
+          [
+            "index",
+            "BoardIndex"
+          ]
+        ],
+        "reply": "TaskList",
+        "receipt": false
+      }
+    },
+    "TaskList": {
+      "name": {
+        "args": [],
+        "reply": "Name",
+        "receipt": false
+      },
+      "count": {
+        "args": [],
+        "reply": "Count",
+        "receipt": false
+      },
+      "task": {
+        "args": [
+          [
+            "index",
+            "TaskIndex"
+          ]
+        ],
+        "reply": "Task",
+        "receipt": false
+      },
+      "add": {
+        "args": [
+          [
+            "text",
+            "Text"
+          ]
+        ],
+        "reply": "Task",
+        "receipt": true
+      },
+      "move": {
+        "args": [
+          [
+            "task",
+            "Task"
+          ],
+          [
+            "destination",
+            "TaskList"
+          ]
+        ],
+        "reply": "Count",
+        "receipt": true
+      }
+    },
+    "Task": {
+      "text": {
+        "args": [],
+        "reply": "Text",
+        "receipt": false
+      }
+    }
+  }
+}

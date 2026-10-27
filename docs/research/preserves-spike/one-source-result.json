@@ -1,0 +1,6 @@
+{
+  "annotatedSourceAccepted": true,
+  "sameCompiledSchema": true,
+  "replyAndBoundsRetained": false,
+  "implication": "One file can carry metadata, but the supplied compiler discards it. A glowcap annotation interpreter or changed compiler is required."
+}

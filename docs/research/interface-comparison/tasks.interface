@@ -1,0 +1,32 @@
+module tasks
+
+type BoardIndex = integer(min: 0, max: 15)
+type TaskIndex = integer(min: 0, max: 255)
+type Count = integer(min: 0, max: 256)
+type Name = string(min_bytes: 1, max_bytes: 64)
+type Text = string(min_bytes: 1, max_bytes: 4096)
+
+interface Board {
+  lists() -> Count
+
+  @loam.receipt
+  "add-list"(name: Name) -> TaskList
+
+  list(index: BoardIndex) -> TaskList
+}
+
+interface TaskList {
+  name() -> Name
+  count() -> Count
+  task(index: TaskIndex) -> Task
+
+  @loam.receipt
+  add(text: Text) -> Task
+
+  @loam.receipt
+  move(task: Task, destination: TaskList) -> Count
+}
+
+interface Task {
+  text() -> Text
+}

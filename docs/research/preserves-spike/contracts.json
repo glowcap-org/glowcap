@@ -1,0 +1,10 @@
+{
+  "methods": [
+    {"name": "list", "request": "BoardList", "reply": "TaskListRef", "bounds": {"index": {"min": 0, "max": 15}}},
+    {"name": "name", "request": "ListName", "reply": "NameReply"},
+    {"name": "task", "request": "ListTask", "reply": "TaskRef", "bounds": {"index": {"min": 0, "max": 255}}},
+    {"name": "add", "request": "ListAdd", "reply": "TaskRef", "bounds": {"text": {"minBytes": 1, "maxBytes": 4096}}},
+    {"name": "move", "request": "ListMove", "reply": "CountReply"},
+    {"name": "text", "request": "Task", "reply": "TextReply"}
+  ]
+}

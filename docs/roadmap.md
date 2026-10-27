@@ -107,16 +107,22 @@ review needs that review before its first step.
    resource work, and the [session guide](rooms/session.md) and
    [effect contract](rooms/session-effects.md) describe the session that
    exists.
-9. **Interface definitions.** An interface gets one written form, a Syrup
-   value with a small text language above it, and from that form every
-   language gets a generated client and server scaffold, with an optional
-   way for an object to describe itself. The
-   [interface definitions plan](planning/interface-definitions.md) runs in
-   three phases, each its own plan: [the model](planning/interface-model.md),
-   [the language and generators](planning/interface-language.md), then
-   [discovery](planning/interface-discovery.md). The hand-built Tasks clients, the Rooms
-   grammar table, and the Rooms typed management client are replaced by
-   generated code. Phase one can start beside the Rooms work.
+9. **Interface definitions.** Prove one complete authored contract and useful
+   generated clients and server checks, including capabilities, promises,
+   ownership, and retained mutations. The
+   [interface plan](planning/interface-definitions.md) owns acceptance.
+   [ADR-0069](decisions/adr/ADR-0069-proposed-interface-language.md) recommends
+   one model, canonical Syrup descriptions, and a small authoring language.
+   Generation from Syrup precedes the frontend comparison and cost decision,
+   which must pass before complete Tasks migration.
+   Adoption requires the plan's Rooms-management, TypeScript,
+   and no-Zig consumer proofs before distribution and broader migrations.
+
+   The bounded proof can run beside Rooms work, with protocol correctness
+   retaining priority.
+
+   [Discovery](planning/interface-discovery.md) needs a concrete consumer and
+   separate review. Neither generation nor publication depends on it.
 10. **Hosted access C surface.** Bounded resource-tree operations and the
     owner lifecycle, create, open, retire, are reachable only from Zig. Project
     them through the C ABI over the existing Host, with Zig admission,

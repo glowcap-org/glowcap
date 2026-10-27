@@ -1,0 +1,14 @@
+version 1 .
+
+Atoms = @boolean bool / @integer int / @float double
+      / @text string / @binary bytes / @token symbol .
+Pair = [@first int @second string] .
+Tail = [=message @values any ...] .
+Names = [string ...] .
+Members = #{symbol} .
+Properties = { string: any ...:... } .
+Point = <point @x double @y double> .
+Event = <changed @name string> / <removed @name string> .
+Tree = <tree @name string @children [Tree ...]> .
+Callback = #:tasks.Task .
+Pending = #:any .

@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-26",
+  "kind": "bounded live design experiment, not a supported compiler",
+  "authoring": {
+    "files": 1,
+    "interfaces": 3,
+    "methods": 9,
+    "companion_metadata_files": 0
+  },
+  "source_sha256": "9c1c2f148ca1a9c4d4649f7ac23a9a4e4fd34e1e61ab486f5802f0029664cdbb",
+  "syrup_description_sha256": "20ac3d0f6e9786d3613a78cff80ae13053245712f8301e1bb59db16e57f192de",
+  "syrup_description_bytes": 776,
+  "checks": [
+    "Canonical Syrup round trip through pinned OCapN suite codec.",
+    "Reordering method dictionary leaves serialized description unchanged.",
+    "Generated Rust caller compiled against the existing binding.",
+    "Generated Zig argument checks compiled into the actual Tasks server for this experiment.",
+    "Rust caller reached Zig server over TCP without discovery.",
+    "Capability results support subsequent generated calls.",
+    "Generated caller rejects out-of-range index and oversized UTF-8 text.",
+    "Generated Zig argument check rejects raw extra arguments.",
+    "Identical retained add request submitted twice creates one task.",
+    "Identical retained move request submitted twice returns the same count and moves once.",
+    "Generated reply decoder rejects malformed reply from a local actor."
+  ],
+  "not_proved": [
+    "Production parser and diagnostics.",
+    "Generated Zig client.",
+    "Live pipelining and pending arguments.",
+    "Reverse callback delivery.",
+    "Actual packet loss or remote cancellation.",
+    "Cleanup on every failure edge.",
+    "Full value-model generation and compatibility.",
+    "Production code deletion and packaging costs."
+  ],
+  "production_source": "Temporary server changes restored after the experiment; no product runtime changes remain."
+}

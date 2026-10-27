@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-26",
+  "environment": {
+    "node": "26.12.1",
+    "typescript": "5.9.3",
+    "schema_cli": "1.0.0-rc.2",
+    "schema": "1.0.0-rc.2"
+  },
+  "scope": "Compiler, generated code, interpreter, and captured-call adapter. No live OCapN or real reference ownership proof.",
+  "inputs": {
+    "tasks.prs": "4e52b9ec6025ea9a8586cf9eb9673650f1175bfe4bfed7f09c783ff02074be9f",
+    "coverage.prs": "fb635e3a9592df86256293dfe4845951d7dfb5f710138db0af5c8b27e6ef512b",
+    "contracts.json": "e9d327b6a820f2e4543b7b80232b3293191ec5cb75bd0bced3d62f8d55461132"
+  },
+  "observations": [
+    "upstream schema reader agrees with compiled bundle",
+    "generated exact symbol encoding",
+    "compiled metadata retains reference-interface expectations",
+    "target reply accepted; copied reply refused",
+    "upstream embedded validation does not prove interface",
+    "pending reference preserved without awaiting",
+    "missing and malformed arguments rejected",
+    "upstream accepts trailing arguments; backend refuses them",
+    "bounds distinguish shape from application constraints",
+    "detected generated-validator bigint mismatch against interpreter",
+    "recursive copied data and direct invocation",
+    "compiled coverage schema handles atoms and copied collections",
+    "backend caller encodes mutation envelope and checks replies"
+  ],
+  "known_failures": [
+    "Generated TypeScript int decoder refuses bigint accepted by the interpreter."
+  ],
+  "required_backend_rules": [
+    "Exact declared call arity.",
+    "Integer and UTF-8 byte bounds from profile data.",
+    "Host reference identity, ownership, and admission.",
+    "Promise and error mappings."
+  ]
+}
