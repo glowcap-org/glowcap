@@ -418,12 +418,12 @@ pub fn register(ctx: Context) Registered {
         // public companion surface is the generated glowcap_webrtc_* family.
         webrtc_abi_shared.version_script = ctx.b.path("tools/build/exports/webrtc.map");
     }
-    const webrtc_abi_install = b.addInstallArtifact(webrtc_abi_shared, .{});
-    common.checkArchiveTls(ctx.b, webrtc_abi_shared, &webrtc_abi_install.step);
-    common.checkArchiveResident(ctx.b, webrtc_abi_shared, &webrtc_abi_install.step);
+    const webrtc_abi_install = common.installIfChanged(b, webrtc_abi_shared, common.install_lib_dir);
+    common.checkArchiveTls(ctx.b, webrtc_abi_shared, webrtc_abi_install);
+    common.checkArchiveResident(ctx.b, webrtc_abi_shared, webrtc_abi_install);
     const webrtc_abi_header_install = b.addInstallHeaderFile(b.path("include/glowcap_net_transport_webrtc.h"), "glowcap_net_transport_webrtc.h");
     const webrtc_abi_step = b.step("webrtc-abi", "Build libglowcap_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0035, needs cargo)");
-    webrtc_abi_step.dependOn(&webrtc_abi_install.step);
+    webrtc_abi_step.dependOn(webrtc_abi_install);
     webrtc_abi_step.dependOn(&webrtc_abi_header_install.step);
     if (target.result.ofmt == .elf) {
         const export_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/sidecar-exports.sh" });

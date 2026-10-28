@@ -44,7 +44,7 @@ pub const AbiContext = struct {
 };
 
 pub const AbiRegistration = struct {
-    install: *std.Build.Step.InstallArtifact,
+    install: *std.Build.Step,
     step: *std.Build.Step,
 };
 
@@ -77,15 +77,15 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
         shared.version_script = b.path("tools/build/exports/iroh.map");
     }
 
-    const install = b.addInstallArtifact(shared, .{});
-    common.checkArchiveTls(b, shared, &install.step);
-    common.checkArchiveResident(b, shared, &install.step);
+    const install = common.installIfChanged(b, shared, common.install_lib_dir);
+    common.checkArchiveTls(b, shared, install);
+    common.checkArchiveResident(b, shared, install);
     const header = b.addInstallHeaderFile(
         b.path("include/glowcap_net_transport_iroh.h"),
         "glowcap_net_transport_iroh.h",
     );
     const step = b.step("iroh-abi", "Build libglowcap_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)");
-    step.dependOn(&install.step);
+    step.dependOn(install);
     step.dependOn(&header.step);
 
     if (ctx.target.result.ofmt == .elf) {
@@ -440,7 +440,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         "deno",                                                 "test", "--allow-ffi", "--allow-read", "--allow-env", "--unstable-ffi",
         "bindings/ts/iroh/test/constructor_diagnostic_test.ts",
     });
-    iroh_constructor_diagnostic.step.dependOn(&iroh_abi_install.step);
+    iroh_constructor_diagnostic.step.dependOn(iroh_abi_install);
     iroh_constructor_diagnostic.step.dependOn(b.getInstallStep());
     iroh_constructor_diagnostic.setEnvironmentVariable(
         "GLOWCAP_LIB_DIR",
@@ -451,7 +451,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         "deno",                                          "test", "--allow-ffi", "--allow-read", "--allow-env", "--allow-net", "--unstable-ffi",
         "bindings/ts/iroh/test/driver_listener_test.ts",
     });
-    iroh_driver_listener.step.dependOn(&iroh_abi_install.step);
+    iroh_driver_listener.step.dependOn(iroh_abi_install);
     iroh_driver_listener.step.dependOn(b.getInstallStep());
     iroh_driver_listener.setEnvironmentVariable(
         "GLOWCAP_LIB_DIR",

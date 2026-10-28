@@ -313,10 +313,52 @@ pub fn irohDriverModule(
 /// form they use.
 pub const InstalledArchive = struct {
     static: *std.Build.Step.Compile,
-    static_install: *std.Build.Step.InstallArtifact,
+    static_install: *std.Build.Step,
     dynamic: *std.Build.Step.Compile,
-    dynamic_install: *std.Build.Step.InstallArtifact,
+    dynamic_install: *std.Build.Step,
 };
+
+var install_if_changed: ?*std.Build.Step.Compile = null;
+
+/// The program behind `installIfChanged`, compiled once per graph and shared
+/// with its unit tests.
+pub fn installIfChangedExe(b: *std.Build) *std.Build.Step.Compile {
+    if (install_if_changed) |exe| return exe;
+    const exe = b.addExecutable(.{ .name = "install-if-changed", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/build/install_if_changed.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    }) });
+    install_if_changed = exe;
+    return exe;
+}
+
+/// The install prefix's library directory, where `installIfChanged` puts the
+/// archives host builds link.
+pub const install_lib_dir: std.Build.LazyPath = .{ .relative = .{ .base = .install_lib } };
+
+/// Install a library into `dir` under the install prefix, replacing the file
+/// only when its bytes change (`tools/build/install_if_changed.zig` says why).
+/// A shared library also gets the soname links the stock install step makes.
+pub fn installIfChanged(b: *std.Build, artifact: *std.Build.Step.Compile, dir: std.Build.LazyPath) *std.Build.Step {
+    const run = execution.addArtifact(b, .build_tool, installIfChangedExe(b));
+    run.setName(b.fmt("install {s} ({s})", .{ artifact.name, if (artifact.isDynamicLibrary()) "shared" else "static" }));
+    run.addFileArg(artifact.getEmittedBin());
+    run.addDirectoryArg(dir);
+    const target = artifact.rootModuleTarget();
+    if (artifact.isDynamicLibrary() and std.Build.wantSharedLibSymLinks(target)) {
+        const major = artifact.version.?.major;
+        if (target.os.tag.isDarwin()) {
+            run.addArgs(&.{ b.fmt("lib{s}.{d}.dylib", .{ artifact.name, major }), b.fmt("lib{s}.dylib", .{artifact.name}) });
+        } else {
+            run.addArgs(&.{ b.fmt("lib{s}.so.{d}", .{ artifact.name, major }), b.fmt("lib{s}.so", .{artifact.name}) });
+        }
+    }
+    // The destination is the state this step owns, and only the program can
+    // see whether it already holds the bytes, so it runs on every build.
+    run.has_side_effects = true;
+    return &run.step;
+}
 
 /// ELF export visibility and version scripts require LLVM/lld. The native
 /// x86 backend leaks hidden exports and does not enforce version scripts.
@@ -336,9 +378,9 @@ pub fn installArchive(
     // Foreign linkers do not supply Zig's stack probes and compiler builtins.
     // Each shipped archive owns the runtime its generated code needs.
     static_lib.bundle_compiler_rt = true;
-    const static_install = b.addInstallArtifact(static_lib, .{});
-    checkArchiveSymbols(b, static_lib, &static_install.step, name);
-    b.getInstallStep().dependOn(&static_install.step);
+    const static_install = installIfChanged(b, static_lib, install_lib_dir);
+    checkArchiveSymbols(b, static_lib, static_install, name);
+    b.getInstallStep().dependOn(static_install);
     const shared_lib = b.addLibrary(.{
         .name = name,
         .linkage = .dynamic,
@@ -346,11 +388,11 @@ pub fn installArchive(
         .version = version,
     });
     configureSharedArchive(shared_lib);
-    const dynamic_install = b.addInstallArtifact(shared_lib, .{});
-    checkArchiveTls(b, shared_lib, &dynamic_install.step);
-    checkArchiveResident(b, shared_lib, &dynamic_install.step);
-    checkArchiveSymbols(b, shared_lib, &dynamic_install.step, name);
-    b.getInstallStep().dependOn(&dynamic_install.step);
+    const dynamic_install = installIfChanged(b, shared_lib, install_lib_dir);
+    checkArchiveTls(b, shared_lib, dynamic_install);
+    checkArchiveResident(b, shared_lib, dynamic_install);
+    checkArchiveSymbols(b, shared_lib, dynamic_install, name);
+    b.getInstallStep().dependOn(dynamic_install);
     return .{
         .static = static_lib,
         .static_install = static_install,

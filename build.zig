@@ -566,13 +566,13 @@ pub fn build(b: *std.Build) void {
         .iroh_abi_step = iroh_abi_step,
         .iroh_sidecar_archive = iroh_sidecar_archive,
         .zig_archives = &.{
-            &ocapn_archive.static_install.step,
-            &host_archive.static_install.step,
-            &driver_archive.static_install.step,
-            &tcp_archive.static_install.step,
-            &relay_archive.static_install.step,
-            &inproc_archive.static_install.step,
-            &onion_archive.static_install.step,
+            ocapn_archive.static_install,
+            host_archive.static_install,
+            driver_archive.static_install,
+            tcp_archive.static_install,
+            relay_archive.static_install,
+            inproc_archive.static_install,
+            onion_archive.static_install,
             loam_abi.zig_installs[0],
             loam_abi.zig_installs[1],
             loam_abi.zig_installs[2],
@@ -580,11 +580,11 @@ pub fn build(b: *std.Build) void {
             iroh_abi_step,
             webrtc_reg.abi_step,
         },
-        .ocapn_install = &ocapn_archive.dynamic_install.step,
-        .host_install = &host_archive.dynamic_install.step,
-        .driver_install = &driver_archive.dynamic_install.step,
-        .tcp_install = &tcp_archive.dynamic_install.step,
-        .relay_install = &relay_archive.dynamic_install.step,
+        .ocapn_install = ocapn_archive.dynamic_install,
+        .host_install = host_archive.dynamic_install,
+        .driver_install = driver_archive.dynamic_install,
+        .tcp_install = tcp_archive.dynamic_install,
+        .relay_install = relay_archive.dynamic_install,
         .pin_port = pin_port,
         .attach = attach,
     });
@@ -626,7 +626,7 @@ pub fn build(b: *std.Build) void {
 
     // The formatting and per-scope checks register from
     // tools/build/bindings_steps.zig, over the archives and dogfood runs.
-    bindings_steps_build.registerChecks(b, check_step, &onion_archive.dynamic_install.step, rooms.browser_application, bindings_reg);
+    bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, rooms.browser_application, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
     ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, browser_preflight, rooms_services_install);

@@ -1,11 +1,12 @@
 //! `infrastructure-check` and `timeout-runner-test`: the executable behaviour
 //! of the devcontainer, worktrees, agent hooks, publication workflow, the
-//! evidence record, and the CI deadline wrapper. Static path and pin parity
-//! stay in `source-check`; these steps clone repositories, rewrite temporary
-//! Git histories, and wait on real deadlines, so a focused source edit never
-//! pays for them.
+//! evidence record, the content-stable library install, and the CI deadline
+//! wrapper. Static path and pin parity stay in `source-check`; these steps
+//! clone repositories, rewrite temporary Git histories, and wait on real
+//! deadlines, so a focused source edit never pays for them.
 
 const std = @import("std");
+const common = @import("common.zig");
 const execution = @import("execution.zig");
 
 pub fn register(b: *std.Build) void {
@@ -38,6 +39,8 @@ pub fn register(b: *std.Build) void {
     const evidence_record_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/evidence/record_test.py" });
     evidence_record_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&evidence_record_contracts.step);
+    const install_if_changed_tests = b.addTest(.{ .name = "install-if-changed", .root_module = common.installIfChangedExe(b).root_module });
+    infrastructure_check_step.dependOn(&execution.addZigTest(b, install_if_changed_tests, .unit_test).step);
 
     // The deadline wrapper every CI gate runs under, held by its behaviour
     // rather than by its source text: a check that greps the file for

@@ -6,7 +6,7 @@ scripts live here, and correctness scenarios live in top-level
 
 | Path | Owns |
 |------|------|
-| [`build/`](build/) | Step-registration modules the root `build.zig` composes: shared helpers plus one module per extracted step family |
+| [`build/`](build/) | Step-registration modules the root `build.zig` composes: shared helpers, one module per extracted step family, and the content-stable library installer the install steps run |
 | [`check/`](check/) | Build checks and hygiene (`arch_check`, `source_check`) |
 | [`gen/`](gen/) | Header and binding generators, shared verify/emit harness |
 | [`profile/`](profile/) | The callgrind part reader and report behind the `profile-*` steps: self cost per file and function for each phase a bench marks, and the callers of the leaf functions at the top |

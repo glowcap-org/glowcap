@@ -565,8 +565,7 @@ pub fn register(ctx: Context) Registered {
         .{ "glowcap_loam", wasm_static.loam },
     }) |entry| {
         const archive = b.addLibrary(.{ .name = entry[0], .linkage = .static, .root_module = entry[1] });
-        const install = b.addInstallArtifact(archive, .{ .dest_dir = .{ .override = .{ .custom = "wasm/lib" } } });
-        wasm_archives_step.dependOn(&install.step);
+        wasm_archives_step.dependOn(common.installIfChanged(b, archive, .{ .relative = .{ .base = .install_prefix, .sub_path = "wasm/lib" } }));
     }
 
     // Behavioral proof that the wasm32 Host runs real CapTP from JavaScript: two

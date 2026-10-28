@@ -90,5 +90,5 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     rust_step.dependOn(&common.rustFmtCheck(b, "bindings/rust/Cargo.toml").step);
     gates.runtime_gate.add(rust_step);
     @import("loam_browser.zig").register(b, gates);
-    return .{ .portable = portable, .lmdb = lmdb_abi, .sqlite = sqlite_abi, .volatile_abi = volatile_abi, .zig_installs = .{ &portable_archive.static_install.step, &lmdb_archive.static_install.step, &sqlite_archive.static_install.step, &volatile_archive.static_install.step } };
+    return .{ .portable = portable, .lmdb = lmdb_abi, .sqlite = sqlite_abi, .volatile_abi = volatile_abi, .zig_installs = .{ portable_archive.static_install, lmdb_archive.static_install, sqlite_archive.static_install, volatile_archive.static_install } };
 }
