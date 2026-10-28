@@ -137,6 +137,14 @@ async function phase<T>(name: string, work: () => Promise<T>): Promise<T> {
 					toasts: document.getElementById("toasts")?.textContent,
 					rooms: document.getElementById("roomList")?.textContent,
 					input: (document.getElementById("newRoomInput") as HTMLInputElement | null)?.value,
+					composer: (() => {
+						const line = document.getElementById("line") as HTMLTextAreaElement | null;
+						// The bar's text carries a send refusal and its cooldown.
+						const bar = document.querySelector(".composer")?.textContent?.slice(0, 500);
+						return line == null ? null : { value: line.value, disabled: line.disabled, bar };
+					})(),
+					// The join card carries a refused or still-running join's own words.
+					join: document.getElementById("joinScreen")?.textContent?.slice(0, 1000),
 					log: document.getElementById("log")?.textContent?.slice(-4000),
 				})).catch(() => ({ url: page.url(), unavailable: true }));
 				console.error(`PAGE-STATE ${name}: ${JSON.stringify(state)}`);
