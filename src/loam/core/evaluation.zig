@@ -49,6 +49,14 @@ pub const Evaluation = struct {
                 if (old.store != batch.ticket.store or old.incarnation != batch.ticket.incarnation) return error.StaleWriter;
                 if (old.revision != batch.ticket.revision) return error.RevisionConflict;
                 if (batch.ticket.sequence <= old.last_sequence or (batch.changes.len == 0 and batch.collection == null) or (batch.changes.len != 0 and batch.collection != null)) return error.InvalidBatch;
+                // One pass over the ascending order refuses a repeated record
+                // and lets every later lookup search the batch. A collection
+                // batch carries no changes.
+                if (batch.changes.len != 0) for (batch.changes[0 .. batch.changes.len - 1], batch.changes[1..]) |prior, change| switch (prior.id.order(change.id)) {
+                    .lt => {},
+                    .eq => return error.DuplicateMutation,
+                    .gt => return error.InvalidBatch,
+                };
                 self.next = old;
                 self.next.revision = try std.math.add(u64, old.revision, 1);
                 self.phase = .change;
@@ -61,7 +69,6 @@ pub const Evaluation = struct {
                 }
                 const change = batch.changes[self.index];
                 if (change.id.store != self.next.store) return error.ForeignObject;
-                for (batch.changes[0..self.index]) |prior| if (prior.id.eql(change.id)) return error.DuplicateMutation;
                 self.view = if (change.bytes) |bytes| try records.View.decode(bytes, batch.limits, batch.schemas) else null;
                 self.phase = .previous;
             },
@@ -177,10 +184,10 @@ pub const Evaluation = struct {
 /// removes is dangling. Only an introduced edge fetches and decodes its target.
 fn verifyEdge(self: *Evaluation, kv: anytype, target: records.ObjectId, introduced: bool) !void {
     const batch = self.batch;
-    for (batch.changes) |candidate| if (candidate.id.eql(target)) {
+    if (batch.change(target)) |candidate| {
         if (candidate.bytes == null) return error.DanglingReference;
         return;
-    };
+    }
     if (!introduced) return;
     const bytes = (try kv.get(&target.key())) orelse return error.DanglingReference;
     const view = try records.View.decode(bytes, batch.limits, batch.schemas);

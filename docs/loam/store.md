@@ -182,9 +182,9 @@ memory.
 Batch validation reads each changed record, its committed revision, and the
 targets of the strong edges the change introduces. An edge the committed
 revision already held was verified when it committed and is not fetched
-again. A target inside the batch is found by scanning the batch's own list of
-changes, never the whole store, and a strong edge to a record the batch removes
-refuses the batch.
+again. The batch lists its changes in identity order, so a target inside the
+batch is found by binary search over that list, never by reading the store. A
+strong edge to a record the batch removes refuses the batch.
 
 After a commit, unchanged records in the cache stay valid for the new
 revision. Changed and removed records go stale, and `retainOnCommit` can put

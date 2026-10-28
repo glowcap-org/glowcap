@@ -14,6 +14,12 @@ pub const ObjectId = struct {
         return a.store == b.store and a.incarnation == b.incarnation and a.sequence == b.sequence;
     }
 
+    /// Orders identities by their words: the store, then the incarnation,
+    /// then the sequence. A transaction batch lists its changes in this order.
+    pub fn order(a: ObjectId, b: ObjectId) std.math.Order {
+        return std.mem.order(u64, &a.identityWords(), &b.identityWords());
+    }
+
     /// The words an identity-keyed table hashes and compares: the store in
     /// two, then the incarnation and the sequence.
     pub fn identityWords(self: ObjectId) [4]u64 {

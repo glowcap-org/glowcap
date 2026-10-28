@@ -21,6 +21,10 @@ pub const Store = struct {
     /// so composing onto a staged row reads it back without re-validating the
     /// envelope and its checksum on every lookup.
     staged_views: []records.View,
+    /// Indices into `changes` ascending by object id, so staging finds a
+    /// record it already staged by binary search. Preparing the batch puts
+    /// `changes` itself in this order, the order `transaction.Batch` keeps.
+    order: []usize,
     count: usize = 0,
     staged_bytes: usize = 0,
     /// Advances with every transition of the phase, the ticket, the committed
@@ -75,7 +79,9 @@ pub const Store = struct {
         const changes = try allocator.alloc(transaction.Mutation, limits.max_changes);
         errdefer allocator.free(changes);
         const staged_views = try allocator.alloc(records.View, limits.max_changes);
-        return .{ .allocator = allocator, .metadata = metadata, .sequence = metadata.last_sequence, .cache = cache, .retentions = retentions, .changes = changes, .staged_views = staged_views, .limits = limits };
+        errdefer allocator.free(staged_views);
+        const order = try allocator.alloc(usize, limits.max_changes);
+        return .{ .allocator = allocator, .metadata = metadata, .sequence = metadata.last_sequence, .cache = cache, .retentions = retentions, .changes = changes, .staged_views = staged_views, .order = order, .limits = limits };
     }
 
     /// Refuses while a write, read completion, or lease still owns store memory.
@@ -87,6 +93,7 @@ pub const Store = struct {
         if (self.collector) |*work| work.deinit();
         self.allocator.free(self.changes);
         self.allocator.free(self.staged_views);
+        self.allocator.free(self.order);
         self.* = undefined;
     }
 
@@ -175,7 +182,8 @@ pub const Store = struct {
     pub fn putCopying(self: *Store, record: records.Record, expected: ?u64) !void {
         if (self.phase != .staging) return error.WrongPhase;
         if (record.id.store != self.metadata.store) return error.ForeignObject;
-        if (self.stagedIndex(record.id)) |index| {
+        const at = self.orderPosition(record.id);
+        if (self.stagedAt(at, record.id)) |index| {
             const existing = self.changes[index];
             if (existing.bytes == null or !std.meta.eql(existing.expected, expected)) return error.DuplicateMutation;
             const old_len = existing.bytes.?.len;
@@ -197,7 +205,7 @@ pub const Store = struct {
         if (bytes.len > self.limits.staging_bytes - self.staged_bytes) return error.StagingCapacity;
         self.staged_views[self.count] = try self.decodeStaged(bytes);
         self.changes[self.count] = .{ .id = record.id, .expected = expected, .bytes = bytes };
-        self.count += 1;
+        self.insertOrder(at);
         self.staged_bytes += bytes.len;
         self.state_generation +%= 1;
     }
@@ -216,9 +224,59 @@ pub const Store = struct {
         return records.View.decode(bytes, self.limits.records, self.cache.schemas);
     }
 
-    fn stagedIndex(self: *Store, id: records.ObjectId) ?usize {
-        for (self.changes[0..self.count], 0..) |change, i| if (change.id.eql(id)) return i;
-        return null;
+    fn stagedIndex(self: *const Store, id: records.ObjectId) ?usize {
+        return self.stagedAt(self.orderPosition(id), id);
+    }
+
+    /// Where `id` sits in `order`, or where it would go.
+    fn orderPosition(self: *const Store, id: records.ObjectId) usize {
+        return std.sort.lowerBound(usize, self.order[0..self.count], StagedOrder{ .changes = self.changes, .id = id }, StagedOrder.compare);
+    }
+
+    /// The change index at `position` in `order` when it stages `id`.
+    fn stagedAt(self: *const Store, position: usize, id: records.ObjectId) ?usize {
+        if (position == self.count) return null;
+        const index = self.order[position];
+        return if (self.changes[index].id.eql(id)) index else null;
+    }
+
+    const StagedOrder = struct {
+        changes: []const transaction.Mutation,
+        id: records.ObjectId,
+        fn compare(self: StagedOrder, index: usize) std.math.Order {
+            return self.id.order(self.changes[index].id);
+        }
+    };
+
+    /// Counts the change just written at `changes[count]`, ordered at
+    /// `position`.
+    fn insertOrder(self: *Store, position: usize) void {
+        std.mem.copyBackwards(usize, self.order[position + 1 .. self.count + 1], self.order[position..self.count]);
+        self.order[position] = self.count;
+        self.count += 1;
+    }
+
+    /// Moves each change and its view to its place in `order`, following
+    /// the permutation's cycles in place.
+    fn sortChanges(self: *Store) void {
+        for (0..self.count) |start| {
+            if (self.order[start] == start) continue;
+            const change = self.changes[start];
+            const staged = self.staged_views[start];
+            var at = start;
+            while (true) {
+                const from = self.order[at];
+                self.order[at] = at;
+                if (from == start) {
+                    self.changes[at] = change;
+                    self.staged_views[at] = staged;
+                    break;
+                }
+                self.changes[at] = self.changes[from];
+                self.staged_views[at] = self.staged_views[from];
+                at = from;
+            }
+        }
     }
 
     pub const Proposed = struct { view: records.View, expected: ?u64 };
@@ -237,14 +295,15 @@ pub const Store = struct {
     }
 
     pub fn remove(self: *Store, id: records.ObjectId, expected: u64) !void {
-        try self.admit(id);
+        const at = try self.admit(id);
         self.changes[self.count] = .{ .id = id, .expected = expected, .bytes = null };
-        self.count += 1;
+        self.insertOrder(at);
         self.state_generation +%= 1;
     }
 
     pub fn prepare(self: *Store) !transaction.Ticket {
         if (self.phase != .staging or self.count == 0) return error.WrongPhase;
+        self.sortChanges();
         self.phase = .prepared;
         self.state_generation +%= 1;
         return self.ticket.?;
@@ -299,11 +358,14 @@ pub const Store = struct {
         self.discard();
     }
 
-    fn admit(self: *Store, id: records.ObjectId) !void {
+    /// Where a fresh mutation of `id` goes in `order`.
+    fn admit(self: *Store, id: records.ObjectId) !usize {
         if (self.phase != .staging) return error.WrongPhase;
         if (id.store != self.metadata.store) return error.ForeignObject;
         if (self.count == self.changes.len) return error.ChangeCapacity;
-        for (self.changes[0..self.count]) |change| if (change.id.eql(id)) return error.DuplicateMutation;
+        const at = self.orderPosition(id);
+        if (self.stagedAt(at, id) != null) return error.DuplicateMutation;
+        return at;
     }
 
     fn match(self: *Store, ticket: transaction.Ticket, phase: Phase) !void {

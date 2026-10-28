@@ -77,17 +77,24 @@ pub const Page = struct {
 pub const Snapshot = struct {
     pages: []Page,
 
-    /// Token membership scans the bounded prepared page inventory. Edge
-    /// selection is indexed and never walks preceding fields or restores them.
+    /// Edge selection is indexed and never walks preceding fields or
+    /// restores them.
     pub fn field(self: Snapshot, handle: *const PageHandle, index: usize) !loam.Edge {
         return hosting.references.edgeAt(try self.page(handle), try std.math.add(usize, index, 1));
     }
 
     pub fn page(self: Snapshot, handle: *const PageHandle) !loam.RecordView {
-        // Compare before dereferencing: foreign and retired tokens cannot select
-        // an arbitrary row. A callback borrows these tokens only until return.
-        for (self.pages) |*item| if (item.handle() == handle) return item.view;
-        return error.ForeignPage;
+        return self.pages[try self.indexOf(handle)].view;
+    }
+
+    /// The position of the page a token names. The token's address must be
+    /// one of this inventory's pages, checked before any dereference, so a
+    /// foreign or retired token cannot select an arbitrary row. A callback
+    /// borrows these tokens only until return.
+    pub fn indexOf(self: Snapshot, handle: *const PageHandle) !usize {
+        const offset = std.math.sub(usize, @intFromPtr(handle), @intFromPtr(self.pages.ptr)) catch return error.ForeignPage;
+        if (offset % @sizeOf(Page) != 0 or offset / @sizeOf(Page) >= self.pages.len) return error.ForeignPage;
+        return offset / @sizeOf(Page);
     }
 };
 

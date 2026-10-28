@@ -146,6 +146,30 @@ fn trace(refuse_after: ?usize) !void {
     try std.testing.expectEqual(@as(usize, 10), kv.writes);
 }
 
+test "loam batch refuses a repeated or unordered record before any write" {
+    var kv: Kv = .{};
+    defer kv.deinit();
+    const old: core.Metadata = .{ .store = f.id, .incarnation = 1, .revision = 5 };
+    try kv.put("m", &old.encode());
+    kv.writes = 0;
+    var bytes: [2][]u8 = undefined;
+    for (&bytes, 1..) |*out, sequence| {
+        const record: core.Record = .{ .id = object(sequence), .revision = 6, .schema = 7, .payload = "row" };
+        out.* = try record.encodeAlloc(gpa, f.limits.records, &schemas);
+    }
+    defer for (bytes) |row| gpa.free(row);
+    const cases = [_]struct { changes: [2]core.Mutation, refusal: anyerror }{
+        .{ .changes = .{ .{ .id = object(1), .expected = null, .bytes = bytes[0] }, .{ .id = object(1), .expected = null, .bytes = bytes[0] } }, .refusal = error.DuplicateMutation },
+        .{ .changes = .{ .{ .id = object(2), .expected = null, .bytes = bytes[1] }, .{ .id = object(1), .expected = null, .bytes = bytes[0] } }, .refusal = error.InvalidBatch },
+    };
+    for (&cases) |*case| {
+        const submitted = batch(&case.changes);
+        var cursor = core.Batch.Evaluation.init(&submitted);
+        try std.testing.expectError(case.refusal, advance(&cursor, &kv));
+        try std.testing.expectEqual(@as(usize, 0), kv.writes);
+    }
+}
+
 test "loam batch write suspension is terminal after successful validation" {
     var kv: Kv = .{};
     defer kv.deinit();

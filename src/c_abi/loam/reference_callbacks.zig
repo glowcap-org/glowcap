@@ -23,6 +23,7 @@ fn callSizeBound(restores: usize, saves: usize, uri_bytes: usize) !usize {
     // Append borrows the final slice; it has no toOwnedSlice allocation. Count
     // every intermediate spine in case in-place growth is unavailable.
     try bound.includeArrayGrowth(refs.Request, requests);
+    try bound.includeArrayGrowth(Selection, restores);
     return bound.physicalBytes();
 }
 
@@ -44,7 +45,32 @@ const Declaration = struct {
     graph: ?common.access.hosting.graph.Snapshot = null,
     capacity: usize,
     requests: std.ArrayList(refs.Request) = .empty,
+    /// The fields declared for restoration, ascending, so a repeat refuses
+    /// by binary search.
+    restored: std.ArrayList(Selection) = .empty,
 };
+
+/// A restored field: record zero is the invoked record, and a page is its
+/// position plus one.
+const Selection = struct {
+    record: usize,
+    index: usize,
+    fn compare(self: Selection, other: Selection) std.math.Order {
+        return std.math.order(self.record, other.record).differ() orelse std.math.order(self.index, other.index);
+    }
+};
+
+/// Appends a restoration request unless the declaration already restores
+/// its field. Both lists reserve first, so a refusal changes neither.
+fn declareRestore(declaration: *Declaration, selection: Selection, request: refs.Request) !void {
+    const restored = declaration.restored.items;
+    const at = std.sort.lowerBound(Selection, restored, selection, Selection.compare);
+    if (at != restored.len and selection.compare(restored[at]) == .eq) return error.DuplicateReferenceEdit;
+    try declaration.restored.ensureUnusedCapacity(declaration.arena, 1);
+    try declaration.requests.ensureUnusedCapacity(declaration.arena, 1);
+    declaration.restored.insertAssumeCapacity(at, selection);
+    declaration.requests.appendAssumeCapacity(request);
+}
 
 pub fn declare(ctx: ?*anyopaque, arena: std.mem.Allocator, invocation: common.access.hosting.ContentInvocation) ![]const refs.Request {
     const registration: *callbacks.Content = @ptrCast(@alignCast(ctx.?));
@@ -93,8 +119,7 @@ pub fn restore(raw: ?*c.GlowcapLoamReferences, index: usize) !void {
     if (index >= declaration.field_count) return error.NoSuchEdge;
     if (declaration.requests.items.len >= declaration.capacity) return error.ReferenceCapacity;
     const field = index + 1;
-    for (declaration.requests.items) |request| if (request == .restore and request.restore == field) return error.DuplicateReferenceEdit;
-    try declaration.requests.append(declaration.arena, .{ .restore = field });
+    try declareRestore(declaration, .{ .record = 0, .index = field }, .{ .restore = field });
 }
 
 pub fn restorePage(raw: ?*c.GlowcapLoamReferences, handle: ?*const c.GlowcapLoamPageHandle, index: usize) !void {
@@ -113,14 +138,11 @@ fn declarePage(raw: ?*c.GlowcapLoamReferences, handle: ?*const c.GlowcapLoamPage
     const declaration: *Declaration = @ptrCast(@alignCast(raw orelse return error.NullPointer));
     const snapshot = declaration.graph orelse return error.NotContentGraph;
     const page_handle: *const common.access.hosting.graph.PageHandle = @ptrCast(handle orelse return error.NullPointer);
-    const view = try snapshot.page(page_handle);
+    const page_index = try snapshot.indexOf(page_handle);
+    const view = snapshot.pages[page_index].view;
     const field = try std.math.add(usize, index, 1);
     if (field >= view.edge_count) return error.NoSuchEdge;
     if (declaration.requests.items.len >= declaration.capacity) return error.ReferenceCapacity;
-    const page_index = for (snapshot.pages, 0..) |*page, i| {
-        if (page.handle() == page_handle) break i;
-    } else unreachable;
-    const selection: @FieldType(refs.Request, "restore_record") = .{ .record = page_index + 1, .index = field, .retain_uri = retain_uri, .metadata_only = metadata_only };
-    for (declaration.requests.items) |request| if (request == .restore_record and request.restore_record.record == selection.record and request.restore_record.index == selection.index) return error.DuplicateReferenceEdit;
-    try declaration.requests.append(declaration.arena, .{ .restore_record = selection });
+    const record = page_index + 1;
+    try declareRestore(declaration, .{ .record = record, .index = field }, .{ .restore_record = .{ .record = record, .index = field, .retain_uri = retain_uri, .metadata_only = metadata_only } });
 }

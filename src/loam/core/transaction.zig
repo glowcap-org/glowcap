@@ -90,6 +90,9 @@ pub const Mutation = struct {
 };
 pub const Batch = struct {
     ticket: Ticket,
+    /// One mutation per record, ascending strictly by `ObjectId.order`, so
+    /// evaluation finds a record's change by binary search. Evaluation
+    /// refuses a batch that repeats a record or lists one out of order.
     changes: []const Mutation,
     limits: records.Limits,
     schemas: []const records.Schema,
@@ -102,6 +105,17 @@ pub const Batch = struct {
     pub fn apply(self: Batch, kv: anytype) !Metadata {
         var evaluation = Evaluation.init(&self);
         return evaluation.advance(kv);
+    }
+
+    /// This batch's change to `id`, or null when the batch leaves it alone.
+    /// Meaningful once evaluation has checked the order of `changes`.
+    pub fn change(self: *const Batch, id: records.ObjectId) ?*const Mutation {
+        const index = std.sort.binarySearch(Mutation, self.changes, id, compareChange) orelse return null;
+        return &self.changes[index];
+    }
+
+    fn compareChange(id: records.ObjectId, candidate: Mutation) std.math.Order {
+        return id.order(candidate.id);
     }
 
     pub fn resolve(self: Batch, current: Metadata) !Resolution {

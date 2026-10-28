@@ -236,21 +236,36 @@ pub const Call = struct {
         call: *Call,
         custody: ReplyCustody,
         found: bool = false,
+        /// Where the search for the next capability starts.
+        cursor: usize = 0,
     };
 
+    /// A declared capability is already held, so it needs no retain. The
+    /// declared suffix lists a reply's capabilities in the order they were
+    /// declared, except the newest first, so each search resumes after the
+    /// last match.
     fn retainCapability(context: *ReplyCapabilities, ref: driver.Capability) !void {
         const self = context.call;
         context.found = true;
         if (self.disclosed_from != unrestricted_reply) {
-            var disclosed = false;
-            for (self.held.items[self.disclosed_from..]) |held| if (held.eql(ref)) {
-                disclosed = true;
-                break;
-            };
-            if (!disclosed) return error.UndeclaredDisclosure;
+            if (!findFrom(self.held.items[self.disclosed_from..], ref, &context.cursor)) return error.UndeclaredDisclosure;
+            return;
         }
         if (context.custody == .validate_only) return;
-        for (self.held.items) |held| if (held.eql(ref)) return;
+        if (findFrom(self.held.items, ref, &context.cursor)) return;
         _ = try references.hold(self, ref);
+    }
+
+    /// Whether `items` holds `ref`, searching from `cursor` to the end and
+    /// then from the start. A match moves `cursor` past it.
+    fn findFrom(items: []const driver.Capability, ref: driver.Capability, cursor: *usize) bool {
+        const start = @min(cursor.*, items.len);
+        for ([_][]const driver.Capability{ items[start..], items[0..start] }, [_]usize{ start, 0 }) |part, base| {
+            for (part, base..) |held, index| if (held.eql(ref)) {
+                cursor.* = index + 1;
+                return true;
+            };
+        }
+        return false;
     }
 };

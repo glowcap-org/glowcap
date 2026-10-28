@@ -403,3 +403,42 @@ test "loam every store transition advances the state generation" {
     try std.testing.expect(store.state_generation != settled);
     try store.abort();
 }
+
+test "loam staging in any order submits each change once in identity order" {
+    const a = std.testing.allocator;
+    var fixture = try f.Fixture.init(a);
+    defer fixture.deinit();
+    const store = &fixture.store;
+    const payloads = [_][]const u8{ "zero", "one", "two", "three", "four" };
+    var ids: [payloads.len]core.ObjectId = undefined;
+    try store.begin();
+    for (&ids) |*id| id.* = try store.allocateId();
+    for ([_]usize{ 3, 1, 4, 0, 2 }) |i| try store.putCopying(f.record(ids[i], payloads[i]), null);
+    try f.commit(store, &fixture.backend);
+    const revision = store.metadata.revision;
+    try store.begin();
+    try store.putCopying(f.record(ids[4], "draft"), revision);
+    try store.remove(ids[2], revision);
+    try store.putCopying(f.record(ids[0], "rewritten"), revision);
+    try store.putCopying(f.record(ids[4], "settled"), revision);
+    try std.testing.expectError(error.DuplicateMutation, store.remove(ids[0], revision));
+    try std.testing.expectEqualStrings("settled", (try store.proposed(ids[4])).?.view.payload);
+    try std.testing.expect((try store.proposed(ids[2])) == null);
+    const ticket = try store.prepare();
+    // The batch lists the three records ascending, each staged view with it.
+    const staged = [_]usize{ 0, 2, 4 };
+    try std.testing.expectEqual(staged.len, store.count);
+    for (store.changes[0..store.count], store.staged_views[0..store.count], staged) |change, view, i| {
+        try std.testing.expect(change.id.eql(ids[i]));
+        if (change.bytes != null) try std.testing.expect(view.id.eql(ids[i]));
+    }
+    const outcome = fixture.backend.commit(try store.beginWrite(ticket));
+    try store.completeWrite(ticket, outcome);
+    try std.testing.expect(outcome == .committed);
+    try std.testing.expectError(error.Gone, f.load(store, &fixture.backend, ids[2]));
+    for ([_]usize{ 0, 1, 3, 4 }, [_][]const u8{ "rewritten", "one", "three", "settled" }) |i, expected| {
+        const lease = try f.load(store, &fixture.backend, ids[i]);
+        defer store.release(lease) catch unreachable;
+        try std.testing.expectEqualStrings(expected, (try store.view(lease)).payload);
+    }
+}
