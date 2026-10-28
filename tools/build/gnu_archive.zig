@@ -72,7 +72,8 @@ pub fn layout(arena: Allocator, io: Io, file: Io.File, size: u64) !?[]const Piec
             const full = resolveName(name, long_names) orelse return null;
             const base = std.fs.path.basenamePosix(full);
             if (base.len == 0) return null;
-            try members.append(arena, .{ .name = base, .fields = header[16..].*, .offset = offset, .size = member_size });
+            // An inline name lies in `header`, which the next member reuses.
+            try members.append(arena, .{ .name = try arena.dupe(u8, base), .fields = header[16..].*, .offset = offset, .size = member_size });
         }
         offset = data + member_size + (member_size & 1);
     }
@@ -169,8 +170,10 @@ fn appendPadded(arena: Allocator, pieces: *std.ArrayList(Piece), bytes: []const 
 const testing = std.testing;
 
 /// A GNU archive whose members carry `names` and `contents`, with a symbol
-/// table naming each member in `symbol_members` by its header offset. The
-/// installer's tests build their archives with it too.
+/// table naming each member in `symbol_members` by its header offset. A name
+/// that fits its header field is recorded inline, as `ar` and Zig record it,
+/// and a longer one in the name table. The installer's tests build their
+/// archives with it too.
 pub fn fixture(gpa: Allocator, names: []const []const u8, contents: []const []const u8, symbol_members: []const usize) ![]u8 {
     var long_names: std.ArrayList(u8) = .empty;
     defer long_names.deinit(gpa);
@@ -178,13 +181,18 @@ pub fn fixture(gpa: Allocator, names: []const []const u8, contents: []const []co
     defer gpa.free(fields);
     for (names, fields) |name, *field| {
         @memset(field, ' ');
+        if (name.len <= max_inline_name) {
+            _ = try std.fmt.bufPrint(field, "{s}/", .{name});
+            continue;
+        }
         _ = try std.fmt.bufPrint(field, "/{d}", .{long_names.items.len});
         try long_names.print(gpa, "{s}/\n", .{name});
     }
     const table_len = 4 + 4 * symbol_members.len + 2 * symbol_members.len;
     const offsets = try gpa.alloc(u64, names.len);
     defer gpa.free(offsets);
-    var at: u64 = magic.len + header_len + table_len + (table_len & 1) + header_len + long_names.items.len + (long_names.items.len & 1);
+    var at: u64 = magic.len + header_len + table_len + (table_len & 1);
+    if (long_names.items.len != 0) at += header_len + long_names.items.len + (long_names.items.len & 1);
     for (contents, offsets) |content, *offset| {
         offset.* = at;
         at += header_len + content.len + (content.len & 1);
@@ -202,9 +210,11 @@ pub fn fixture(gpa: Allocator, names: []const []const u8, contents: []const []co
     }
     for (symbol_members) |member| try out.print(gpa, "{c}\x00", .{@as(u8, 'a') + @as(u8, @intCast(member))});
     if (table_len & 1 != 0) try out.append(gpa, '\n');
-    try out.print(gpa, "{s: <16}{s: <32}{d: <10}`\n", .{ "//", "", long_names.items.len });
-    try out.appendSlice(gpa, long_names.items);
-    if (long_names.items.len & 1 != 0) try out.append(gpa, '\n');
+    if (long_names.items.len != 0) {
+        try out.print(gpa, "{s: <16}{s: <32}{d: <10}`\n", .{ "//", "", long_names.items.len });
+        try out.appendSlice(gpa, long_names.items);
+        if (long_names.items.len & 1 != 0) try out.append(gpa, '\n');
+    }
     for (fields, contents) |field, content| {
         try out.print(gpa, "{s}{d: <12}{d: <6}{d: <6}{d: <8}{d: <10}`\n", .{ &field, 0, 0, 0, 644, content.len });
         try out.appendSlice(gpa, content);
@@ -255,6 +265,30 @@ test "members recorded under different cache directories install identically" {
     const symbols = out[magic.len + header_len ..];
     try testing.expectEqual(mdb_at, std.mem.readInt(u32, symbols[4..8], .big));
     try testing.expectEqual(objects_at, std.mem.readInt(u32, symbols[8..12], .big));
+}
+
+test "each member keeps its own name when the archive records names inline" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    // Inline names of different lengths, then a long one, so a name read
+    // from a reused header buffer would show another member's name.
+    const names: []const []const u8 = &.{ "aes.o", "compiler_rt.o", "o/1a/x.o", "/cache/o/2b/psa_crypto_driver.o" };
+    const contents: []const []const u8 = &.{ "one", "two!", "three", "four" };
+    const out = (try installed(arena, tmp.dir, try fixture(arena, names, contents, &.{ 3, 0 }))).?;
+    const table_len = 4 + 2 * 4 + 2 * 2;
+    const names_at = magic.len + header_len + table_len;
+    const long_name = "psa_crypto_driver.o/\n";
+    try testing.expectEqualStrings(long_name, out[names_at + header_len ..][0..long_name.len]);
+    var at = names_at + header_len + long_name.len + (long_name.len & 1);
+    for ([_][]const u8{ "aes.o/", "compiler_rt.o/", "x.o/", "/0" }, contents) |name, content| {
+        try testing.expectEqualStrings(name, std.mem.trimEnd(u8, out[at..][0..16], " "));
+        try testing.expectEqualStrings(content, out[at + header_len ..][0..content.len]);
+        at += header_len + content.len + (content.len & 1);
+    }
+    try testing.expectEqual(out.len, at);
 }
 
 test "other formats and inconsistent archives install unchanged" {
