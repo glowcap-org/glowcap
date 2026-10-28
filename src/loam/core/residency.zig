@@ -171,15 +171,11 @@ pub const Cache = struct {
     /// Leases keep their acquisition revision. Pending reads still complete
     /// against their original snapshot. A sweep with deletions has no explicit
     /// mutation list, so it conservatively leaves every cached slot stale.
-    pub fn install(self: *Cache, previous: tx.Metadata, current: tx.Metadata, changes: []const tx.Mutation, collecting: bool) void {
+    pub fn install(self: *Cache, previous: tx.Metadata, current: tx.Metadata, batch: tx.Batch, collecting: bool) void {
         if (collecting and previous.objects != current.objects) return;
         for (self.slots) |*slot| {
             if (slot.contents != .resident or slot.contents.resident.snapshot != previous.revision) continue;
-            const id = slot.contents.resident.view.id;
-            const changed = for (changes) |change| {
-                if (change.id.eql(id)) break true;
-            } else false;
-            if (!changed) slot.contents.resident.snapshot = current.revision;
+            if (batch.change(slot.contents.resident.view.id) == null) slot.contents.resident.snapshot = current.revision;
         }
     }
 

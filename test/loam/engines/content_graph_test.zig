@@ -85,9 +85,8 @@ test "loam engine graph replacement recovers applied and absent recipe outcomes"
             try host.mutate(host.use, 2, "set", &.{.{ .integer = 71 }}, &changed);
             const batch = try host.untilWrite(&db);
             var recipes: usize = 0;
-            for (batch.changes) |change| if (change.bytes) |bytes| {
-                const view = try h.loam.core.RecordView.decode(bytes, batch.limits, batch.schemas);
-                if (view.schema == refs.schema.id) recipes += 1;
+            for (batch.changes) |change| if (change.staged) |staged| {
+                if (staged.view.schema == refs.schema.id) recipes += 1;
             };
             try std.testing.expectEqual(@as(usize, 1), recipes);
             try std.testing.expect(changed.changed == null and !changed.broken);

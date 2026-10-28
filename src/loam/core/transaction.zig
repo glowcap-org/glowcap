@@ -86,7 +86,17 @@ pub const Mutation = struct {
     expected: ?u64,
     /// Null destroys a non-root record. Incoming references then resolve gone.
     /// This explicit deletion is distinct from tracing garbage collection.
-    bytes: ?[]u8,
+    staged: ?Staged,
+};
+/// An encoded record and its view. Staging decodes the bytes once under the
+/// batch's limits and schemas, and evaluation trusts the view to describe them.
+pub const Staged = struct {
+    bytes: []u8,
+    view: records.View,
+
+    pub fn decode(bytes: []u8, limits: records.Limits, schemas: []const records.Schema) !Staged {
+        return .{ .bytes = bytes, .view = try records.View.decode(bytes, limits, schemas) };
+    }
 };
 pub const Batch = struct {
     ticket: Ticket,

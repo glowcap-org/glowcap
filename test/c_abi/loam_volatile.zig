@@ -143,7 +143,7 @@ test "Loam C in-memory engine serves reads while the Host thread commits" {
             const record: loam.Record = .{ .id = race.id(sequence), .revision = sequence, .schema = 7, .rooted = true, .payload = "payload" };
             const bytes = try record.encodeAlloc(allocator, record_limits, &schemas);
             defer allocator.free(bytes);
-            const change = [_]loam.Mutation{.{ .id = record.id, .expected = null, .bytes = bytes }};
+            const change = [_]loam.Mutation{.{ .id = record.id, .expected = null, .staged = try loam.Staged.decode(bytes, record_limits, &schemas) }};
             const outcome = serialized.commit(.{
                 .ticket = .{ .store = store_id, .incarnation = race.ticket.incarnation, .sequence = sequence, .revision = sequence - 1 },
                 .changes = &change,

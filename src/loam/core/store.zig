@@ -16,11 +16,10 @@ pub const Store = struct {
     retentions: retention.Registry,
     collection_work: ?collection.Request = null,
     collector: ?custody.Custody = null,
+    /// Each staged row keeps the view decoded when it was staged, so composing
+    /// onto it and evaluating the batch never re-validate the envelope and its
+    /// checksum.
     changes: []transaction.Mutation,
-    /// The decoded view of each staged change's bytes, indexed like `changes`,
-    /// so composing onto a staged row reads it back without re-validating the
-    /// envelope and its checksum on every lookup.
-    staged_views: []records.View,
     /// Indices into `changes` ascending by object id, so staging finds a
     /// record it already staged by binary search. Preparing the batch puts
     /// `changes` itself in this order, the order `transaction.Batch` keeps.
@@ -78,10 +77,8 @@ pub const Store = struct {
         errdefer retentions.deinit(allocator) catch unreachable;
         const changes = try allocator.alloc(transaction.Mutation, limits.max_changes);
         errdefer allocator.free(changes);
-        const staged_views = try allocator.alloc(records.View, limits.max_changes);
-        errdefer allocator.free(staged_views);
         const order = try allocator.alloc(usize, limits.max_changes);
-        return .{ .allocator = allocator, .metadata = metadata, .sequence = metadata.last_sequence, .cache = cache, .retentions = retentions, .changes = changes, .staged_views = staged_views, .order = order, .limits = limits };
+        return .{ .allocator = allocator, .metadata = metadata, .sequence = metadata.last_sequence, .cache = cache, .retentions = retentions, .changes = changes, .order = order, .limits = limits };
     }
 
     /// Refuses while a write, read completion, or lease still owns store memory.
@@ -92,7 +89,6 @@ pub const Store = struct {
         try self.retentions.deinit(self.allocator);
         if (self.collector) |*work| work.deinit();
         self.allocator.free(self.changes);
-        self.allocator.free(self.staged_views);
         self.allocator.free(self.order);
         self.* = undefined;
     }
@@ -185,15 +181,15 @@ pub const Store = struct {
         const at = self.orderPosition(record.id);
         if (self.stagedAt(at, record.id)) |index| {
             const existing = self.changes[index];
-            if (existing.bytes == null or !std.meta.eql(existing.expected, expected)) return error.DuplicateMutation;
-            const old_len = existing.bytes.?.len;
+            const old = existing.staged orelse return error.DuplicateMutation;
+            if (!std.meta.eql(existing.expected, expected)) return error.DuplicateMutation;
+            const old_len = old.bytes.len;
             const bytes = try self.encodeProposed(record, old_len);
             errdefer self.allocator.free(bytes);
             if (bytes.len > self.limits.staging_bytes - self.staged_bytes + old_len) return error.StagingCapacity;
-            const staged_view = try self.decodeStaged(bytes);
-            self.allocator.free(existing.bytes.?);
-            self.changes[index] = .{ .id = record.id, .expected = expected, .bytes = bytes };
-            self.staged_views[index] = staged_view;
+            const staged = try self.decodeStaged(bytes);
+            self.allocator.free(old.bytes);
+            self.changes[index] = .{ .id = record.id, .expected = expected, .staged = staged };
             self.staged_bytes = self.staged_bytes - old_len + bytes.len;
             self.state_generation +%= 1;
             return;
@@ -203,8 +199,7 @@ pub const Store = struct {
         const bytes = try self.encodeProposed(record, 0);
         errdefer self.allocator.free(bytes);
         if (bytes.len > self.limits.staging_bytes - self.staged_bytes) return error.StagingCapacity;
-        self.staged_views[self.count] = try self.decodeStaged(bytes);
-        self.changes[self.count] = .{ .id = record.id, .expected = expected, .bytes = bytes };
+        self.changes[self.count] = .{ .id = record.id, .expected = expected, .staged = try self.decodeStaged(bytes) };
         self.insertOrder(at);
         self.staged_bytes += bytes.len;
         self.state_generation +%= 1;
@@ -219,9 +214,10 @@ pub const Store = struct {
     }
 
     /// The encoder just produced `bytes`; decoding them once here is the
-    /// envelope check every later read-back would otherwise repeat.
-    fn decodeStaged(self: *Store, bytes: []const u8) !records.View {
-        return records.View.decode(bytes, self.limits.records, self.cache.schemas);
+    /// envelope check every later read-back and the evaluation would
+    /// otherwise repeat.
+    fn decodeStaged(self: *Store, bytes: []u8) !transaction.Staged {
+        return transaction.Staged.decode(bytes, self.limits.records, self.cache.schemas);
     }
 
     fn stagedIndex(self: *const Store, id: records.ObjectId) ?usize {
@@ -256,24 +252,21 @@ pub const Store = struct {
         self.count += 1;
     }
 
-    /// Moves each change and its view to its place in `order`, following
-    /// the permutation's cycles in place.
+    /// Moves each change to its place in `order`, following the
+    /// permutation's cycles in place.
     fn sortChanges(self: *Store) void {
         for (0..self.count) |start| {
             if (self.order[start] == start) continue;
             const change = self.changes[start];
-            const staged = self.staged_views[start];
             var at = start;
             while (true) {
                 const from = self.order[at];
                 self.order[at] = at;
                 if (from == start) {
                     self.changes[at] = change;
-                    self.staged_views[at] = staged;
                     break;
                 }
                 self.changes[at] = self.changes[from];
-                self.staged_views[at] = self.staged_views[from];
                 at = from;
             }
         }
@@ -289,14 +282,14 @@ pub const Store = struct {
     pub fn proposed(self: *Store, id: records.ObjectId) !?Proposed {
         if (self.phase != .staging) return null;
         const index = self.stagedIndex(id) orelse return null;
-        const change = self.changes[index];
-        if (change.bytes == null) return null;
-        return .{ .view = self.staged_views[index], .expected = change.expected };
+        const change = &self.changes[index];
+        const staged = change.staged orelse return null;
+        return .{ .view = staged.view, .expected = change.expected };
     }
 
     pub fn remove(self: *Store, id: records.ObjectId, expected: u64) !void {
         const at = try self.admit(id);
-        self.changes[self.count] = .{ .id = id, .expected = expected, .bytes = null };
+        self.changes[self.count] = .{ .id = id, .expected = expected, .staged = null };
         self.insertOrder(at);
         self.state_generation +%= 1;
     }
@@ -382,7 +375,7 @@ pub const Store = struct {
         self.state_generation +%= 1;
         const resolution = try self.batch().resolve(meta);
         if (resolution != .committed) return error.RecoveryRequired;
-        self.cache.install(self.metadata, meta, self.changes[0..self.count], self.collection_work != null);
+        self.cache.install(self.metadata, meta, self.batch(), self.collection_work != null);
         self.metadata = meta;
         if (self.collection_work) |work| {
             self.collector.?.acknowledge(work.roots.len);
@@ -392,8 +385,8 @@ pub const Store = struct {
             }
         }
         if (self.retain_committed) for (self.changes[0..self.count]) |*change| {
-            if (change.bytes) |bytes| {
-                if (self.cache.adoptCommitted(meta, change.id, bytes)) change.bytes = null;
+            if (change.staged) |staged| {
+                if (self.cache.adoptCommitted(meta, change.id, staged.bytes)) change.staged = null;
             }
         };
         self.discard();
@@ -401,7 +394,7 @@ pub const Store = struct {
 
     fn discard(self: *Store) void {
         self.collection_work = null;
-        for (self.changes[0..self.count]) |change| if (change.bytes) |bytes| self.allocator.free(bytes);
+        for (self.changes[0..self.count]) |*change| if (change.staged) |staged| self.allocator.free(staged.bytes);
         self.count = 0;
         self.staged_bytes = 0;
         self.state_generation +%= 1;

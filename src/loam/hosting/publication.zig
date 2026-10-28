@@ -85,9 +85,8 @@ fn reserve(attachment: *h.Attachment, record: core.ObjectId, swiss: driver.Host.
     return error.RetirementCapacity;
 }
 
-fn tombstone(batch_change: core.Mutation, owner: *h.Attachment) ?struct { record: core.ObjectId, swiss: driver.Host.DurableSwiss } {
-    const bytes = batch_change.bytes orelse return null;
-    const view = core.RecordView.decode(bytes, owner.store.limits.records, owner.store.cache.schemas) catch return null;
+fn tombstone(batch_change: *const core.Mutation) ?struct { record: core.ObjectId, swiss: driver.Host.DurableSwiss } {
+    const view = (batch_change.staged orelse return null).view;
     if (view.schema != schema.id or view.schema_version != schema.version) return null;
     if (view.rooted or view.payload.len != @sizeOf(Entropy)) return null;
     return .{ .record = batch_change.id, .swiss = driver.Host.DurableSwiss.fromEntropy(entropyOf(view)) };
@@ -98,8 +97,8 @@ fn tombstone(batch_change: core.Mutation, owner: *h.Attachment) ?struct { record
 /// outcomes, which fail closed, and keeps its reserved custody until the
 /// outcome resolves. Stale custody from abandoned staging clears here.
 pub fn fenceRetirements(owner: *h.Attachment, batch: core.Batch) !void {
-    for (batch.changes) |change| {
-        const dead = tombstone(change, owner) orelse continue;
+    for (batch.changes) |*change| {
+        const dead = tombstone(change) orelse continue;
         var receipt = try owner.host.fenceDurableRetirement(dead.swiss);
         for (owner.retirements) |*slot| {
             if (slot.*) |held| {

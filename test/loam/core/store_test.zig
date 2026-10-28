@@ -332,7 +332,7 @@ test "loam committed residency transfers prepared ownership without allocation o
         try store.retainOnCommit();
         const ticket = try store.prepare();
         const batch = try store.beginWrite(ticket);
-        const allocation = batch.changes[0].bytes.?.ptr;
+        const allocation = batch.changes[0].staged.?.bytes.ptr;
         const outcome = fixture.backend.commit(batch);
         try std.testing.expect(outcome == .committed);
         failing.fail_index = failing.alloc_index;
@@ -425,12 +425,12 @@ test "loam staging in any order submits each change once in identity order" {
     try std.testing.expectEqualStrings("settled", (try store.proposed(ids[4])).?.view.payload);
     try std.testing.expect((try store.proposed(ids[2])) == null);
     const ticket = try store.prepare();
-    // The batch lists the three records ascending, each staged view with it.
+    // The batch lists the three records ascending, each with its staged view.
     const staged = [_]usize{ 0, 2, 4 };
     try std.testing.expectEqual(staged.len, store.count);
-    for (store.changes[0..store.count], store.staged_views[0..store.count], staged) |change, view, i| {
+    for (store.changes[0..store.count], staged) |change, i| {
         try std.testing.expect(change.id.eql(ids[i]));
-        if (change.bytes != null) try std.testing.expect(view.id.eql(ids[i]));
+        if (change.staged) |row| try std.testing.expect(row.view.id.eql(ids[i]));
     }
     const outcome = fixture.backend.commit(try store.beginWrite(ticket));
     try store.completeWrite(ticket, outcome);

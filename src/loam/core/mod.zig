@@ -15,6 +15,7 @@ pub const Opening = @import("transaction.zig").Opening;
 pub const Ticket = @import("transaction.zig").Ticket;
 pub const Batch = @import("transaction.zig").Batch;
 pub const Mutation = @import("transaction.zig").Mutation;
+pub const Staged = @import("transaction.zig").Staged;
 pub const Outcome = @import("transaction.zig").Outcome;
 pub const Resolution = @import("transaction.zig").Resolution;
 pub const Read = @import("residency.zig").Read;

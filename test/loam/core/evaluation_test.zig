@@ -86,6 +86,9 @@ fn batch(changes: []const core.Mutation) core.Batch {
     const ticket: core.Ticket = .{ .store = f.id, .incarnation = 1, .revision = 5, .sequence = 1 };
     return .{ .ticket = ticket, .changes = changes, .limits = f.limits.records, .schemas = &schemas };
 }
+fn staged(bytes: []u8) !core.Staged {
+    return .decode(bytes, f.limits.records, &schemas);
+}
 fn advance(cursor: *core.Batch.Evaluation, kv: *Kv) !core.Metadata {
     for (0..128) |_| {
         return cursor.advance(kv) catch |err| {
@@ -122,8 +125,8 @@ fn trace(refuse_after: ?usize) !void {
     const child_bytes = try child.encodeAlloc(gpa, f.limits.records, &schemas);
     defer gpa.free(child_bytes);
     const changes = [_]core.Mutation{
-        .{ .id = root.id, .expected = null, .bytes = root_bytes },
-        .{ .id = child.id, .expected = null, .bytes = child_bytes },
+        .{ .id = root.id, .expected = null, .staged = try staged(root_bytes) },
+        .{ .id = child.id, .expected = null, .staged = try staged(child_bytes) },
     };
     const submitted = batch(&changes);
     var cursor = core.Batch.Evaluation.init(&submitted);
@@ -159,8 +162,8 @@ test "loam batch refuses a repeated or unordered record before any write" {
     }
     defer for (bytes) |row| gpa.free(row);
     const cases = [_]struct { changes: [2]core.Mutation, refusal: anyerror }{
-        .{ .changes = .{ .{ .id = object(1), .expected = null, .bytes = bytes[0] }, .{ .id = object(1), .expected = null, .bytes = bytes[0] } }, .refusal = error.DuplicateMutation },
-        .{ .changes = .{ .{ .id = object(2), .expected = null, .bytes = bytes[1] }, .{ .id = object(1), .expected = null, .bytes = bytes[0] } }, .refusal = error.InvalidBatch },
+        .{ .changes = .{ .{ .id = object(1), .expected = null, .staged = try staged(bytes[0]) }, .{ .id = object(1), .expected = null, .staged = try staged(bytes[0]) } }, .refusal = error.DuplicateMutation },
+        .{ .changes = .{ .{ .id = object(2), .expected = null, .staged = try staged(bytes[1]) }, .{ .id = object(1), .expected = null, .staged = try staged(bytes[0]) } }, .refusal = error.InvalidBatch },
     };
     for (&cases) |*case| {
         const submitted = batch(&case.changes);
@@ -178,7 +181,7 @@ test "loam batch write suspension is terminal after successful validation" {
     const record: core.Record = .{ .id = object(1), .revision = 6, .schema = 7, .payload = "write" };
     const bytes = try record.encodeAlloc(gpa, f.limits.records, &schemas);
     defer gpa.free(bytes);
-    const changes = [_]core.Mutation{.{ .id = record.id, .expected = null, .bytes = bytes }};
+    const changes = [_]core.Mutation{.{ .id = record.id, .expected = null, .staged = try staged(bytes) }};
     const submitted = batch(&changes);
     var cursor = core.Batch.Evaluation.init(&submitted);
     kv.refuse_after = kv.writes;
@@ -210,7 +213,7 @@ test "loam batch fetches only the strong targets a rewrite introduces" {
     const record: core.Record = .{ .id = object(1), .revision = 6, .schema = 7, .payload = "rewritten", .rooted = true, .edges = &.{ .{ .target = object(3) }, .{ .target = object(4) } } };
     const bytes = try record.encodeAlloc(gpa, f.limits.records, &schemas);
     defer gpa.free(bytes);
-    const changes = [_]core.Mutation{.{ .id = object(1), .expected = 5, .bytes = bytes }};
+    const changes = [_]core.Mutation{.{ .id = object(1), .expected = 5, .staged = try staged(bytes) }};
     const submitted = batch(&changes);
     var cursor = core.Batch.Evaluation.init(&submitted);
     kv.reads = 0;
@@ -241,8 +244,8 @@ fn replacement(refuse_remove: bool) !void {
     const bytes = try record.encodeAlloc(gpa, f.limits.records, &schemas);
     defer gpa.free(bytes);
     const changes = [_]core.Mutation{
-        .{ .id = object(1), .expected = 5, .bytes = bytes },
-        .{ .id = object(2), .expected = 5, .bytes = null },
+        .{ .id = object(1), .expected = 5, .staged = try staged(bytes) },
+        .{ .id = object(2), .expected = 5, .staged = null },
     };
     const submitted = batch(&changes);
     var cursor = core.Batch.Evaluation.init(&submitted);

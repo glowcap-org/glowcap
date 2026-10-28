@@ -127,8 +127,8 @@ pub fn main(init: std.process.Init) !void {
     var observation_names: [2]publication.Entropy = undefined;
     if (scenario == .observe) {
         var count: usize = 0;
-        for (batch.changes) |change| if (change.bytes) |bytes| {
-            const view = try core.RecordView.decode(bytes, store.limits.records, &schemas);
+        for (batch.changes) |change| if (change.staged) |staged| {
+            const view = staged.view;
             if (view.schema == publication.schema.id) {
                 if (count == observation_names.len) return error.DuplicateObservation;
                 observation_names[count] = view.payload[0..16].*;

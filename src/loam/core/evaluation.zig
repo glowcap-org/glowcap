@@ -67,13 +67,13 @@ pub const Evaluation = struct {
                     self.phase = .writes;
                     continue;
                 }
-                const change = batch.changes[self.index];
+                const change = &batch.changes[self.index];
                 if (change.id.store != self.next.store) return error.ForeignObject;
-                self.view = if (change.bytes) |bytes| try records.View.decode(bytes, batch.limits, batch.schemas) else null;
+                self.view = if (change.staged) |staged| staged.view else null;
                 self.phase = .previous;
             },
             .previous => {
-                const change = batch.changes[self.index];
+                const change = &batch.changes[self.index];
                 self.introduced = .empty;
                 if (try kv.get(&change.id.key())) |bytes| {
                     const old = try records.View.decode(bytes, batch.limits, batch.schemas);
@@ -82,12 +82,12 @@ pub const Evaluation = struct {
                     if (self.view) |replacement| {
                         if (!std.meta.eql(try names.of(old, batch.schemas), try names.of(replacement, batch.schemas))) return error.NameChanged;
                     }
-                    if (change.bytes == null and old.rooted) return error.Rooted;
+                    if (change.staged == null and old.rooted) return error.Rooted;
                     if (self.view) |replacement| self.introduced = introducedEdges(old, replacement);
                     self.next.record_bytes = std.math.sub(u64, self.next.record_bytes, bytes.len) catch return error.Corrupt;
                     self.next.objects = std.math.sub(u64, self.next.objects, 1) catch return error.Corrupt;
                     self.next.roots = std.math.sub(u64, self.next.roots, @intFromBool(old.rooted)) catch return error.Corrupt;
-                } else if (change.expected != null or change.bytes == null) return error.Gone else if (self.view) |created| {
+                } else if (change.expected != null or change.staged == null) return error.Gone else if (self.view) |created| {
                     self.introduced.setRangeValue(.{ .start = 0, .end = created.edge_count }, true);
                 }
                 if (self.view) |view| {
@@ -113,7 +113,7 @@ pub const Evaluation = struct {
             },
             .account => {
                 if (self.view) |view| {
-                    self.next.record_bytes = try std.math.add(u64, self.next.record_bytes, batch.changes[self.index].bytes.?.len);
+                    self.next.record_bytes = try std.math.add(u64, self.next.record_bytes, batch.changes[self.index].staged.?.bytes.len);
                     self.next.objects = try std.math.add(u64, self.next.objects, 1);
                     self.next.roots = try std.math.add(u64, self.next.roots, @intFromBool(view.rooted));
                 }
@@ -126,9 +126,9 @@ pub const Evaluation = struct {
                     self.phase = .index;
                     continue;
                 }
-                const change = batch.changes[self.index];
+                const change = &batch.changes[self.index];
                 const key = change.id.key();
-                if (change.bytes) |bytes| try kv.put(&key, bytes) else try kv.remove(&key);
+                if (change.staged) |staged| try kv.put(&key, staged.bytes) else try kv.remove(&key);
                 self.index += 1;
             },
             .index => {
@@ -136,7 +136,7 @@ pub const Evaluation = struct {
                     self.phase = .collect;
                     continue;
                 }
-                self.view = if (batch.changes[self.index].bytes) |bytes| try records.View.decode(bytes, batch.limits, batch.schemas) else null;
+                self.view = if (batch.changes[self.index].staged) |staged| staged.view else null;
                 self.phase = .name;
             },
             .name => {
@@ -185,7 +185,7 @@ pub const Evaluation = struct {
 fn verifyEdge(self: *Evaluation, kv: anytype, target: records.ObjectId, introduced: bool) !void {
     const batch = self.batch;
     if (batch.change(target)) |candidate| {
-        if (candidate.bytes == null) return error.DanglingReference;
+        if (candidate.staged == null) return error.DanglingReference;
         return;
     }
     if (!introduced) return;

@@ -104,10 +104,10 @@ and residency.
     (`decodeOwned(self, ...)`): a by-value return or an error-union payload
     copies the inline rows, and a `?Read` or a void union arm beside one
     zero-fills its 20 KiB on every reset. `State.loaded` is the phase flag.
-  - `Store.staged_views` holds one decoded `View` per staged change beside
-    its bytes, so composing onto a staged row reads it back without
-    re-validating the envelope. It is `max_changes` views wide and borrows the
-    change's bytes until commit or abort.
+  - Each staged `Mutation` holds its bytes and the `View` decoded once when
+    it was staged (`Staged`), so composing onto a staged row and evaluating
+    the batch never re-validate the envelope. The view borrows the change's
+    bytes until commit or abort.
   - Preparation restarts reclaim arena space after retiring reads. The portrait
     lease survives through preparation deinit at settlement, including commit and
     reply retries.

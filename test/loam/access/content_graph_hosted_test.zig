@@ -221,15 +221,15 @@ test "loam managed graph row-family bound admits exact capacity and refuses one 
         var managed_rows: [families.len]usize = @splat(0);
         var bytes: usize = 0;
         for (batch.changes) |change| {
-            const view = try h.loam.core.RecordView.decode(change.bytes.?, limits.records, &h.schemas);
+            const view = try h.loam.core.RecordView.decode(change.staged.?.bytes, limits.records, &h.schemas);
             if (view.schema == 7) {
                 application_rows += 1;
             } else {
                 const index = std.mem.indexOfScalar(u64, &families, view.schema) orelse return error.UnexpectedSchema;
                 managed_rows[index] += 1;
             }
-            bytes += change.bytes.?.len;
-            try std.testing.expect(change.bytes.?.len <= limits.records.max_record_bytes);
+            bytes += change.staged.?.bytes.len;
+            try std.testing.expect(change.staged.?.bytes.len <= limits.records.max_record_bytes);
         }
         try std.testing.expectEqual(graph_rows, application_rows);
         for (managed_rows) |count| try std.testing.expectEqual(@as(usize, 1), count);
