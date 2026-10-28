@@ -123,12 +123,14 @@ export async function run(managed: Runtime): Promise<void> {
 		};
 		const gates = {
 			work: makeGate(),
+			capability: makeGate(),
 			fail: makeGate(),
 			unsupported: makeGate(),
 			lateWork: makeGate(),
 			lateFail: makeGate(),
 		};
 		const completions: Promise<Argument>[] = [];
+		let deferredRef: Ref | undefined;
 		workerHost.publish("worker", (verb) => {
 			const completion = (async () => {
 				const gate = gates[verb as keyof typeof gates];
@@ -137,6 +139,10 @@ export async function run(managed: Runtime): Promise<void> {
 				await gate.blocked;
 				if (verb === "fail" || verb === "lateFail") throw new Error("worker gave up");
 				if (verb === "unsupported") return { unsupported: true } as unknown as Argument;
+				if (verb === "capability") {
+					assert(deferredRef instanceof Ref, "accepted session owns deferred capability");
+					return [deferredRef];
+				}
 				return "computed off-turn";
 			})();
 			completions.push(completion);
@@ -147,6 +153,7 @@ export async function run(managed: Runtime): Promise<void> {
 
 		async function host(): Promise<void> {
 			for await (const session of server) {
+				deferredRef = session.spawn(() => "deferred capability alive");
 				await session.serve().catch(() => {});
 				break;
 			}
@@ -165,6 +172,12 @@ export async function run(managed: Runtime): Promise<void> {
 			};
 			const reply = await invoke("work");
 			assert(reply === "computed off-turn", `async behavior reply, got ${String(reply)}`);
+			const nested = await invoke("capability");
+			assert(Array.isArray(nested) && nested[0] instanceof Ref, "async capability survives nested projection");
+			assert(
+				await session.send(nested[0], "probe", []) === "deferred capability alive",
+				"deferred capability works",
+			);
 			let broke = "";
 			try {
 				await invoke("fail");

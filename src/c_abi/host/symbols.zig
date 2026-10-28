@@ -225,9 +225,8 @@ pub const symbols = [_]Symbol{
     .{
         .name = "glowcap_host_resolver_fulfill_value",
         .out_params = &.{},
-        .ts_omit = "automatic Promise completion remains on the plain-data resolver seam; owning-thread capability settlement is currently exposed by Rust",
-        .python_omit = "automatic awaitable completion remains on the plain-data resolver seam; owning-thread capability settlement is currently exposed by Rust",
-        .racket_omit = "the explicit Racket resolver remains plain-data; owning-thread capability settlement is currently exposed by Rust",
+        .python_omit = "automatic awaitable completion in this binding uses the plain-data resolver seam",
+        .racket_omit = "the explicit resolver in this binding uses the plain-data seam",
     },
     .{
         .name = "glowcap_host_resolver_break",

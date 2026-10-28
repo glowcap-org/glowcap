@@ -13,6 +13,7 @@
 const std = @import("std");
 
 const engine = @import("engine");
+const actors = @import("actors");
 const model = @import("model");
 
 const capability = @import("../capability.zig");
@@ -407,25 +408,36 @@ fn projectData(self: *Host, recipient: *HostSession, projection: Row.Projection,
     _ = prepared.commit();
 }
 
-/// Observe a promise that settled to data: the vow is fulfilled with the data
+/// Observe settled data or a break: the vow carries the original outcome
 /// before it is returned, so its completion is already queued for the
 /// embedder. There is nothing left to cancel on it.
-pub fn listenData(self: *Host, id: capability.PromiseId, source: *HostSession) !u64 {
+pub fn listenSettled(self: *Host, id: capability.PromiseId, source: *HostSession) !u64 {
     try self.admitSessionOperation(source);
     try self.checkSession(source);
     const row = self.capability_promises.getPtr(id) orelse return error.UnknownCapability;
-    const value = row.state.fulfilled_data.value;
+    const value = switch (row.state) {
+        .breaking, .broken => |*failure| return settledObservation(self, id, source, .{
+            .broken = failure.message(),
+        }),
+        .fulfilled_data => |data| data.value,
+        else => unreachable,
+    };
     var scratch = std.heap.ArenaAllocator.init(self.allocator);
     defer scratch.deinit();
     var prepared = try self.prepareValues(source, scratch.allocator(), &.{value});
     defer prepared.deinit();
+    const vow_id = try settledObservation(self, id, source, .{ .fulfilled = prepared.values[0] });
+    prepared.finishLocalBorrow();
+    return vow_id;
+}
+
+fn settledObservation(self: *Host, id: capability.PromiseId, source: *HostSession, resolution: actors.Resolution) !u64 {
     const vow_id = try self.mintDeferredVow(source, .{
         .owner = @backingInt(id),
         .func = nothingToCancel,
         .terminal_func = nothingToCancelTerminal,
     });
-    self.fireVow(vow_id, .{ .fulfilled = prepared.values[0] });
-    prepared.finishLocalBorrow();
+    self.fireVow(vow_id, resolution);
     return vow_id;
 }
 

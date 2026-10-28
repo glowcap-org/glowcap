@@ -446,9 +446,9 @@ export abstract class HostState {
 	/** Binding-internal (the trampoline's async-behavior arm): defer `turn`'s
 	 * answer onto a fresh resolver vow and settle it when `pending` does
 	 * (ADR-0014). The settle re-enters on the runtime's microtask queue (the
-	 * top-level re-entry the host requires) and carries plain data only: a
-	 * value the settle refuses (a capability, per the off-turn contract)
-	 * breaks the answer with the refusal's reason instead of stranding it.
+	 * top-level re-entry the host requires). Owning-thread capabilities use
+	 * the Host's application-value projection in the original caller session.
+	 * A refused value breaks the answer rather than stranding it.
 	 * False when the deferral itself refused; the caller breaks the turn. */
 	deferTurnToPromise(turn: Ptr, pending: PromiseLike<Argument | void>): boolean {
 		const resolverOut = new Uint8Array(8);
@@ -471,7 +471,7 @@ export abstract class HostState {
 			this._breakResolver(resolver, error instanceof Error ? error.message : String(error));
 			return;
 		}
-		if (hostS.glowcap_host_resolver_fulfill(this._raw, resolver, ab(buf)) !== OK) {
+		if (hostS.glowcap_host_resolver_fulfill_value(this._raw, resolver, ab(buf)) !== OK) {
 			this._breakResolver(resolver, hostLastError() ?? "deferred settle refused");
 			return;
 		}

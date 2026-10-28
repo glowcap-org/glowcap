@@ -51,6 +51,7 @@ const HeaderGen = struct {
     reflects: ?AbiImport = null,
     /// Extra reflected archives for multi-archive binding mirrors.
     extra_imports: []const AbiImport = &.{},
+    test_step: ?*std.Build.Step = null,
 };
 
 pub const Support = struct {
@@ -143,6 +144,13 @@ fn addHeaderGen(
     gen_mod.addImport("reflect", support.reflect);
     gen_mod.addImport("binding_policy", support.binding_policy);
 
+    if (hg.test_step) |step| {
+        const tests = bb.addTest(.{ .name = step.name, .root_module = gen_mod });
+        const run = execution.addZigTest(bb, tests, .unit_test);
+        step.dependOn(&run.step);
+        check_agg.dependOn(step);
+    }
+
     const check_mod = bb.createModule(.{
         .root_source_file = bb.path("tools/gen/verify.zig"),
         .target = tgt,
@@ -199,6 +207,25 @@ pub fn register(ctx: Context) void {
     const driver_abi_mod = ctx.driver_abi_mod;
     const reflected_archives = ctx.reflected_archives;
     const support = ctx.support;
+
+    addHeaderGen(b, check_step, target, optimize, support, .{
+        .check_step_name = "gen-interface-fixtures-check",
+        .check_desc = "Verify interface qualification projections match the authored Syrup fixtures",
+        .write_step_name = "gen-interface-fixtures",
+        .write_desc = "Generate interface qualification projections from authored Syrup fixtures",
+        .generator = "tools/interface/generate.zig",
+        .test_step = b.step("interface-test", "Test bounded interface descriptions and generation allocation failures"),
+        .extra_imports = &.{
+            .{ .name = "syrup", .module = host_mods[layerIndex("codec")].import_table.get("syrup").? },
+            .{ .name = "contract", .module = b.createModule(.{ .root_source_file = b.path("test/interface/contracts.syrup") }) },
+            .{ .name = "messages", .module = b.createModule(.{ .root_source_file = b.path("test/interface/messages.syrup") }) },
+        },
+    });
+
+    const interface_fixtures = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/check_fixtures.py" });
+    const interface_step = b.step("interface-fixtures-check", "Verify authored interface contract and message fixtures");
+    interface_step.dependOn(&interface_fixtures.step);
+    check_step.dependOn(interface_step);
 
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-binding-loam-layout-check",

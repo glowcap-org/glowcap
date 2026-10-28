@@ -7,6 +7,7 @@
 //! that change anything name a sequence number (`mutate`), so a client that
 //! retries after a lost reply changes the board once.
 const std = @import("std");
+const interface = @import("interface.zig");
 const glowcap = @import("glowcap");
 const core = glowcap.loam.core;
 const access = glowcap.loam.access;
@@ -16,7 +17,7 @@ const driver = glowcap.driver.core;
 pub const max_tasks = 256;
 /// A board holds at most this many lists.
 pub const max_lists = 16;
-pub const max_text_bytes = 4096;
+pub const max_text_bytes = interface.max_text_bytes;
 pub const max_name_bytes = 64;
 
 pub const board_schema = 0x5441534b53424f41;
@@ -44,7 +45,7 @@ pub const contents = [_]access.hosting.ContentBehavior{
 };
 
 const readers = [_][]const u8{ "lists", "list", "name", "count", "task", "text" };
-const writers = [_][]const u8{ "add-list", "add", "move" };
+const writers = [_][]const u8{ "add-list", interface.add_verb, "move" };
 
 fn named(verb: []const u8, set: []const []const u8) bool {
     for (set) |candidate| if (std.mem.eql(u8, verb, candidate)) return true;
@@ -98,7 +99,7 @@ fn invokeBoard(_: ?*anyopaque, call: *access.hosting.ContentCall, input: access.
 }
 
 fn createTask(_: ?*anyopaque, _: std.mem.Allocator, input: access.hosting.ContentInvocation) !?access.hosting.Creation {
-    if (!std.mem.eql(u8, input.verb, "add")) return null;
+    if (!std.mem.eql(u8, input.verb, interface.add_verb)) return null;
     return .{ .kind = kind, .schema = task_schema };
 }
 
@@ -128,8 +129,8 @@ fn invokeList(_: ?*anyopaque, call: *access.hosting.ContentCall, input: access.h
     if (std.mem.eql(u8, input.verb, "name")) return .{ .string = input.content.payload };
     if (std.mem.eql(u8, input.verb, "count")) return count(input.content);
     if (std.mem.eql(u8, input.verb, "task")) return call.discloseDependent(try index(input.args));
-    if (std.mem.eql(u8, input.verb, "add")) {
-        try call.createChild(try text(input.args, max_text_bytes));
+    if (std.mem.eql(u8, input.verb, interface.add_verb)) {
+        try call.createChild(try interface.addArguments(input.args));
         return .void;
     }
     if (std.mem.eql(u8, input.verb, "move")) {

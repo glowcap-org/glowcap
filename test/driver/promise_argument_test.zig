@@ -51,7 +51,7 @@ const Reader = struct {
             send_refusal = err;
             break :blk 0;
         };
-        // A promise already broken refuses the listen outright.
+        // Observation preserves the outcome whether it settled already or later.
         listen_vow = if (ht.host.resolveCapability(ht.session.?, cap)) |resolution| switch (resolution) {
             .pending => |vow| vow,
             .resolved => 0,

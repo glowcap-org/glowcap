@@ -112,6 +112,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	// Off-turn settlement: a behavior atomically defers its answer onto a fresh
 	// resolver vow and the work's completion settles it later, top-level.
 	glowcap_host_resolver_fulfill: { parameters: [P, U64, B], result: I, outBuffers: [] },
+	glowcap_host_resolver_fulfill_value: { parameters: [P, U64, B], result: I, outBuffers: [] },
 	glowcap_host_resolver_abandon: { parameters: [P, U64, B, U], result: I, outBuffers: [] },
 	glowcap_host_session_listen: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	// Send, tell, vows, projections.

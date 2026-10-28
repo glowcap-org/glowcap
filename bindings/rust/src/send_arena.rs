@@ -43,13 +43,7 @@ impl SendArena {
 				"a promise is passable only as a send or tell argument".to_string(),
 			));
 		};
-		let vow = promise.far_vow(host)?;
-		let mut reference = sys::GlowcapReference { id: 0 };
-		// SAFETY: `host.raw()` is the live Host handle that minted `vow`, as `far_vow` checked; `reference` is a local
-		// out-parameter the callee fills.
-		crate::host::check_host(unsafe {
-			crate::sys::host::glowcap_host_vow_capability(host.raw(), vow, &mut reference)
-		})?;
+		let reference = promise.mint(host)?;
 		self.minted.push(reference.id);
 		Ok(reference)
 	}

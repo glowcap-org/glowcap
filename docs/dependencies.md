@@ -157,6 +157,10 @@ From [`bindings/rust/relay/Cargo.toml`](../bindings/rust/relay/Cargo.toml):
 - **tokio-tungstenite**: The relay's WebSocket server.
 - **futures-util**: Sink helpers for the relay's WebSockets.
 
+From [`test/interface/rust/Cargo.toml`](../test/interface/rust/Cargo.toml):
+
+- **tokio**: The async runtime for the Rust interface proof.
+
 From [`transports/iroh/Cargo.toml`](../transports/iroh/Cargo.toml):
 
 - **iroh**: QUIC connections with relay fallback behind the `iroh` transport.

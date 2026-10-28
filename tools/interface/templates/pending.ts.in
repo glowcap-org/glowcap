@@ -1,0 +1,23 @@
+import { type Argument, Ref, type RemotePromise } from "@glowcap/runtime";
+import type { Session } from "@glowcap/runtime";
+
+/** Observation checks a reply without replacing the runtime's pending target. */
+export class Pending<T> {
+	constructor(readonly raw: RemotePromise, private readonly decode: (value: Argument) => T) {}
+	observe(): Promise<T> {
+		return this.raw.then(this.decode);
+	}
+}
+
+function capability(value: Argument): Ref {
+	if (!(value instanceof Ref)) throw new TypeError("expected capability reply");
+	return value;
+}
+function text(value: Argument): string {
+	if (typeof value !== "string") throw new TypeError("expected string reply");
+	return value;
+}
+function nothing(value: Argument): void {
+	// The existing TypeScript binding represents the profile's void value as null.
+	if (value !== null) throw new TypeError("expected void reply");
+}

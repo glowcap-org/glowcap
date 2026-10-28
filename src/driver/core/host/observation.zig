@@ -154,13 +154,12 @@ fn observeCapability(
                 current = resolved;
                 resolved_target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
             },
-            // The vow is settled with the data before it is returned.
-            .fulfilled_data => {
-                const id = try capability_promise.listenData(self, resolved_target.deferred, session);
+            // Late observation preserves the same outcome as a queued listen.
+            .fulfilled_data, .breaking, .broken => {
+                const id = try capability_promise.listenSettled(self, resolved_target.deferred, session);
                 if (drive_now) host_pump.finishCommittedWork(self, session);
                 return .{ .pending = id };
             },
-            .breaking, .broken => return error.PromiseBroken,
         }
     }
     const routed = try self.routeCapability(session, current, .any_target);

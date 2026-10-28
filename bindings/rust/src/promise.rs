@@ -315,6 +315,9 @@ pub struct RemotePromise {
 /// await-only promise has no answer to address, and a promise another Host
 /// returned is refused, each at the send with `InvalidArgument` before any
 /// frame moves. Equality is the same answer of the same Host.
+/// This identity does not own the answer. Keep the original handle alive until
+/// sending, or use [`RemotePromise::retain`] to own a capability across suspension.
+/// Cloning a `PromiseArgument` does not extend the answer's lifetime.
 #[derive(Clone)]
 pub struct PromiseArgument {
 	vow: Result<u64>,
@@ -322,6 +325,16 @@ pub struct PromiseArgument {
 }
 
 impl PromiseArgument {
+	/// Mint one owned capability occurrence through the existing Host vow owner.
+	pub(crate) fn mint(&self, host: &Rc<crate::host::HostShared>) -> Result<sys::GlowcapReference> {
+		let vow = self.far_vow(host)?;
+		let mut reference = sys::GlowcapReference { id: 0 };
+		// SAFETY: far_vow checked that this live Host owns the vow. The callee writes
+		// one owned occurrence to the local out-parameter.
+		check_host(unsafe { ffi::glowcap_host_vow_capability(host.raw(), vow, &mut reference) })?;
+		Ok(reference)
+	}
+
 	/// The far vow a send through `host` addresses, or the refusal the send
 	/// reports.
 	pub(crate) fn far_vow(&self, host: &Rc<crate::host::HostShared>) -> Result<u64> {
@@ -373,6 +386,17 @@ impl From<&RemotePromise> for Argument {
 }
 
 impl RemotePromise {
+	/// Retain this answer as a capability independently of this call handle.
+	/// The returned reference can be held across suspension, passed, or listened
+	/// to after this handle is dropped or awaited. Its final drop releases the
+	/// owned occurrence. Refused calls and await-only observers cannot be retained.
+	pub fn retain(&self) -> Result<Ref> {
+		let raw = PromiseArgument::from(self).mint(&self.session.host)?;
+		let mut reference = Ref::from_sys(&raw);
+		reference.attach_guard(crate::gc::owned_guard(&self.session.host, raw.id));
+		Ok(reference)
+	}
+
 	// The addressable answer, or None for observer vows and refused calls.
 	#[cfg(all(test, feature = "tcp"))]
 	pub(crate) fn vow(&self) -> Option<u64> {

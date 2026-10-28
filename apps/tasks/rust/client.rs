@@ -5,6 +5,7 @@
 //!   cargo run --bin tasks-client -- 127.0.0.1 9099 <board-name> rs-barbara "buy groceries"
 
 mod board;
+pub mod interface;
 
 #[path = "../../_demo/rust/run_local.rs"]
 mod demo_run;

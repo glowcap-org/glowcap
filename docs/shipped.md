@@ -83,6 +83,11 @@ listening, and events, over a Host it has adopted.
   from the C ABI and every binding ([ADR-0068](decisions/adr/ADR-0068-promise-arguments.md)). A resolution
   this side sends holds the partner objects it names until the partner releases the answer, so a late call
   reaches them ([ADR-0070](decisions/adr/ADR-0070-stored-resolutions-hold-imports.md)).
+  Rust's `RemotePromise::retain()` exposes the C API's owned answer capability,
+  so a retained argument survives dropping or awaiting the original handle.
+  Observing a retained broken promise preserves its reason after settlement.
+  TypeScript async handlers can return capabilities through the owning-thread
+  resolver API, including capabilities nested in data.
 - **Persistent references.** A sturdyref is a durable peer locator plus a swiss number. Enlivening one checks the
   whole peer locator before any traffic and refuses a mismatched peer or an accepted plain-TCP assertion. Repeated
   enlivening on a session shares one import.
@@ -241,6 +246,8 @@ so a peer with no listening socket can still reply and take part in a handoff.
 - `zig build` installs the `glowcap` command. It can listen, dial, call, fetch, run an interactive CapTP lab, serve
   an MCP interface, and join a Rooms session ([CLI guide](cli.md)).
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
+  Tasks creation uses Zig argument checks and a Rust retained-request client generated from a Syrup contract.
+  This is the first [interface generation slice](planning/interface-definitions.md), not a general interface compiler.
 - The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions. Members hold rooms
   and direct messages with files over WebRTC, the Noise-sealed relay, iroh, and TCP. A session process started with
   `--dial-transports=webrtc` and a WebRTC member reach each other directly, signaling through a room they share.

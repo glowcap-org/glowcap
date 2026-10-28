@@ -1,8 +1,8 @@
 //! A vow passed outbound as a capability (ADR-0068). An application asks a
-//! question and passes the pending answer along before it settles. On the
-//! question's own session the argument is the open answer, and the partner
-//! treats it as the promise it already holds. On another session it is a
-//! promise this Host projects and settles. Each holder sees one settlement:
+//! question and passes the pending answer along before it settles. On every
+//! session the argument is a promise this Host projects and settles, including
+//! the question's own session (ADR-0068's sender namespace rule).
+//! Each holder sees one settlement:
 //! data, a capability, or a break. The promise outlives a released vow
 //! handle, leaves with its last retain, and breaks with its session.
 const std = @import("std");
@@ -295,6 +295,16 @@ test "a vow that broke before it was asked for passes as a promise that breaks w
     try std.testing.expectEqualStrings("no greeting", c_listened.brokenReason());
     // The pass settled nothing at `a`: the row keeps its break.
     try t.expectState(cap, .broken);
+
+    // Both observation APIs preserve the reason even after settlement.
+    const late = try t.a.listenToCapability(t.ab.a, cap);
+    try t.pump();
+    try std.testing.expectEqualStrings("no greeting", t.a.vows.get(late).?.completion.failed.message.bytes());
+    try t.a.vowRelease(late);
+    const resolved = (try t.a.resolveCapability(t.ab.a, cap)).pending;
+    try t.pump();
+    try std.testing.expectEqualStrings("no greeting", t.a.vows.get(resolved).?.completion.failed.message.bytes());
+    try t.a.vowRelease(resolved);
 
     try t.a.releaseCapability(cap, 1);
     try t.a.vowRelease(vow);

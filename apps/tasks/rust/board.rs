@@ -17,6 +17,7 @@
 //!   watcher.stop().await?;
 //!   board.leave().await?;
 
+use crate::interface;
 use std::rc::Rc;
 
 use glowcap::{Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
@@ -159,8 +160,10 @@ impl Board {
 
 	/// Add a task to "To do" and return the new task.
 	pub async fn add(&self, text: &str) -> Result<Task, String> {
-		let added = self.mutate(&self.todo, vec!["add".into(), text.into()]).await?;
-		capability(&added, "added task").map(Task)
+		interface::add(self.session.clone(), self.todo.clone(), text)
+			.await
+			.map(Task)
+			.map_err(|error| format!("add: {error:?}"))
 	}
 
 	/// Move `task` from "To do" to the end of "Done".

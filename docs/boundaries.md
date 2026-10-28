@@ -75,6 +75,21 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
   binding when a live session means presence. A shorter timeout costs more
   idle traffic.
 
+## Invocation shape
+
+Actor handlers receive a verb and arguments. An inbound leading symbol becomes
+the verb. Both a direct invocation with no arguments and a named invocation
+whose selector is an empty symbol become `verb = ""` with no arguments.
+Sending an empty verb omits the selector. Actor-backed forwarding and generated
+adapters cannot preserve that distinction through this API.
+
+The owners are `Message` and `Delivery` in `src/actors/vat/behavior.zig`,
+`deliveryFor` in `src/actors/vat/serve.zig`, and `verbSpine` in
+`src/actors/vat/port.zig`, followed by driver and binding projections.
+The [interface fixtures](../test/interface/README.md) keep both intended message
+shapes distinct. This limits actor/driver invocation coverage, not the codec's
+ability to encode the two argument lists.
+
 ## Runtime and scale
 
 - **TypeScript on Bun cannot host the driver loop.** Bun runs FFI

@@ -132,3 +132,7 @@ bindings/proofs/loam_browser/rust/Cargo.lock
 
 # Resolved CI-only configuration for the prepared image.
 .devcontainer/.ci/
+
+# Interface qualification consumer build state
+test/interface/rust/target/
+test/interface/rust/Cargo.lock

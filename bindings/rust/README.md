@@ -72,6 +72,9 @@ reference).
 - A send is checked and queued when you call it, and awaiting it gives the
   result. `RemotePromise::into_admitted` reports a refused send at once, before
   the application publishes anything that depends on it.
+- `RemotePromise::retain()` returns an owned `Ref` to the answer. Retain before
+  suspending when an argument must survive dropping or awaiting the original
+  call handle. The reference releases its occurrence on final drop.
 - `caretaker` creates a revocable forwarder. `attenuate` restricts a reference
   to selected methods.
 - Local sends, tells, and proxy forwarding run through the Host, which tracks which actors are

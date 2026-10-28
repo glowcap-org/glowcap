@@ -80,6 +80,7 @@ implementation as the authority in prose.
 - Each layer's `fuzz_regressions/`: fuzzer finds the ordinary suite replays.
   Wire each into its layer's `fuzz_test.zig` replay.
 - `test/support`: shared helpers, including copy utilities.
+- `test/interface`: compiler descriptions and independent application message fixtures.
 - `test/api_surface_test.zig`: references every exported declaration.
 - `bindings/rust`: Rust consumer smoke tests via `zig build rust-dogfood`.
 - `bindings/proofs`: per-binding proof families, every peer glowcap.

@@ -319,9 +319,9 @@ const Seen = struct {
     below: bool,
 
     fn of(value: driver.Value) !Seen {
-        if (value != .tagged or value.tagged.value.len != 5) return error.NotAnObservation;
+        if (value != .tagged or !std.mem.eql(u8, value.tagged.tag, "access:observation") or value.tagged.value.len != 5) return error.NotAnObservation;
         const fields = value.tagged.value;
-        if (fields[0] != .bytes or fields[0].bytes.len != 56 or fields[3] != .boolean or fields[4] != .list) return error.NotAnObservation;
+        if (fields[0] != .bytes or fields[0].bytes.len != 56 or fields[2] != .boolean or fields[3] != .boolean or fields[4] != .list) return error.NotAnObservation;
         var below = false;
         for (fields[4].list) |notice| if (notice == .symbol and std.mem.eql(u8, notice.symbol, "subtree")) {
             below = true;
@@ -351,7 +351,7 @@ test "tasks board watcher catches up on changes made while it was away, across a
         // Watch the whole board. The receiver has its own durable name.
         const sequence = try client.integer(root, "mutation-sequence", &.{});
         const fronts = try client.reply(root, "mutate", &.{ .{ .integer = sequence }, .{ .string = "observe" } });
-        if (fronts != .list or fronts.list.len != 2 or fronts.list[0] != .capability) return error.NotAReceiver;
+        if (fronts != .list or fronts.list.len != 2 or fronts.list[0] != .capability or fronts.list[1] != .capability) return error.NotAReceiver;
         const receiver = fronts.list[0].capability;
         receiver_name = try durableName(&client, receiver, &receiver_name_buf);
         const start = try Seen.of(try client.reply(receiver, "poll", &.{}));
@@ -416,4 +416,41 @@ test "tasks board fills a list to its limit and moves a task between full lists"
     _ = try client.mutate(todo, &.{ .{ .string = "move" }, .{ .capability = first }, .{ .capability = done } });
     try std.testing.expectEqual(@as(i64, board.max_tasks - 1), try client.integer(todo, "count", &.{}));
     try std.testing.expectEqual(@as(i64, board.max_tasks), try client.integer(done, "count", &.{}));
+}
+
+// Independent expectations for test/interface/contracts.syrup. A failure means
+// the authored contract disagrees with the current Tasks server.
+test "tasks interface creation boundaries and public result" {
+    try std.testing.expectEqual(@as(usize, 64), board.max_name_bytes);
+    try std.testing.expectEqual(@as(usize, 4096), board.max_text_bytes);
+    try std.testing.expectEqual(@as(usize, 16), board.max_lists);
+    try std.testing.expectEqual(@as(usize, 256), board.max_tasks);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const path = try tmp.dir.realPathFileAlloc(io, ".", a);
+    defer a.free(path);
+    const terminated = try a.dupeSentinel(u8, path, 0);
+    defer a.free(terminated);
+    var running: Running = undefined;
+    try running.start(terminated);
+    defer running.finish() catch |err| std.debug.panic("closing failed: {s}", .{@errorName(err)});
+    var client = try Client.connect(running.port);
+    defer client.deinit();
+    const root = try client.session.fetch(running.storage.name.slice());
+    const list = try client.facet(root, "list", 0);
+    try client.expectRefused("InvalidArguments", client.mutate(list, &.{ .{ .string = "add" }, .{ .string = "" } }));
+    const text: [4096]u8 = @splat('x');
+    const sequence = try client.integer(list, "mutation-sequence", &.{});
+    const args = [_]driver.Value{ .{ .integer = sequence }, .{ .string = "add" }, .{ .string = &text } };
+    // Assert the public envelope directly, without Client.addAt/mutateAt.
+    const reply = try client.reply(list, "mutate", &args);
+    try std.testing.expect(reply == .capability);
+    try std.testing.expectEqualStrings(&text, try client.textOf(reply.capability));
+    const replay = try client.reply(list, "mutate", &args);
+    try std.testing.expect(replay == .capability);
+    try std.testing.expectEqualStrings(&text, try client.textOf(replay.capability));
+    try std.testing.expectEqual(@as(i64, 1), try client.integer(list, "count", &.{}));
+    const too_long: [4097]u8 = @splat('x');
+    try client.expectRefused("InvalidArguments", client.mutate(list, &.{ .{ .string = "add" }, .{ .string = &too_long } }));
+    try std.testing.expectEqual(@as(i64, 1), try client.integer(list, "count", &.{}));
 }

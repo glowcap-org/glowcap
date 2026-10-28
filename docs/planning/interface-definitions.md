@@ -1,6 +1,6 @@
 # Interface definitions
 
-Status: proposed implementation plan, awaiting maintainer review.
+Status: execution authorized, milestone 2 in progress.
 This file owns the execution order and completion criteria for generation.
 Delete it after milestones 5 and 6 pass. Discovery is not a completion condition.
 
@@ -16,19 +16,27 @@ TypeScript, Python, and Racket, and migrated Tasks, Rooms, and Loam-management
 consumers. Application developers using prebuilt compiler and runtime artifacts
 need no Zig installation. Building the compiler from source requires Zig.
 
-## Where things stand
+## Execution map
 
-Rooms generates protocol tables, while Tasks and management clients contain
-handwritten calls. The [experiment record](../research/interface-design-proof.md)
-reports selected Rust calls and Zig argument checks. Its live results cannot
-be reproduced from the committed files. [ADR-0068](../decisions/adr/ADR-0068-promise-arguments.md)
-owns the runtime's implemented promise-argument path.
+The current work is milestone 2. Complete its conversation and cost evidence
+before comparing authoring frontends. Syrup remains the direct compiler input.
 
-[ADR-0069](../decisions/adr/ADR-0069-proposed-interface-language.md) proposes
-one checked model, canonical Syrup descriptions, and a method-oriented source
-language. Implementation tests that recommendation. Adoption happens at
-milestone 4, after real applications and the non-Zig consumer path have passed.
-Earlier milestones authorize continued development, not adoption or release.
+| Work | State and next action | Owner |
+| --- | --- | --- |
+| Contract and independent messages | Authored and checked | [Fixture contract](../../test/interface/contract.md) |
+| Compiler and first Tasks migration | Bounded reader/model, Zig creation checks, Rust preparation and replay run | [Compiler](../../tools/interface/README.md) |
+| Rust and TypeScript callbacks | Pending admission, callbacks, pipelines, wrong replies and independent observation pass | [Proof suite](../../test/interface/README.md) |
+| Binding prerequisites | Rust retention and TypeScript owning-thread capability fulfillment are implemented using existing Host operations | `bindings/rust`, `bindings/ts` |
+| Prepared pending arguments | Next: retain before sequence acquisition, drop or observe the original, submit and replay, then prove release | Milestone 2 ownership case |
+| Remaining conversation coverage | Qualify breaks, cancellation, export failure, supported handoff and Goblins in both directions | Milestone 2 runtime cases |
+| Invocation shape | Blocked on preserving empty-symbol versus direct invocation | [Runtime boundary](../boundaries.md#invocation-shape) |
+| Cost and authoring decision | Measure generation first, then compare text and Cap'n Proto adapters | Milestone 2 decision |
+
+The [earlier experiment](../research/interface-design-proof.md) is background
+research. Its live results are not reproducible from the retained sources.
+The proof suite above is the executable evidence for this implementation.
+[ADR-0069](../decisions/adr/ADR-0069-proposed-interface-language.md) remains a
+proposal until the adoption decision at milestone 4.
 
 ## Fixed scope
 
@@ -62,8 +70,9 @@ They affect specific qualification cases, not all compiler work:
 
 | Dependency | Owner | Work that waits |
 | --- | --- | --- |
-| Stored resolutions retaining partner objects | First item on the [roadmap](../roadmap.md#what-starts-next) | Qualifying calls forwarded after application release |
-| Independently owned pending arguments | Host and binding API under ADR-0068 | Qualifying prepared requests after the original call handle is dropped or observed |
+| Stored resolutions retaining partner objects | [ADR-0070](../decisions/adr/ADR-0070-stored-resolutions-hold-imports.md) | Implemented in `25ae1ce6`, with generated-path qualification still required |
+| Direct invocation versus an empty-symbol method | Actor `Message`/`Delivery`, then driver and binding APIs | Exact preservation of both invocation shapes |
+| Independently owned pending arguments | Host and binding API under ADR-0068 | Rust `RemotePromise::retain()` projects the existing C operation, with prepared-request qualification still required |
 | Forwarded answer references and remote pipelines across sessions | Protocol boundary and its recorded supported behavior | Claims beyond that behavior |
 
 Descriptions, copied-value checks, and ordinary calls can be developed while a
@@ -84,6 +93,12 @@ and never substitute a generated proxy for an owning runtime fix.
 | 6. Remaining migrations | 4, plus each consumer's qualified emitter | Remaining Rooms and management wire code replaced and tested |
 
 ### 1. Establish the contract
+
+The [fixture contract](../../test/interface/contract.md) owns the versioned Syrup
+input, independent expected messages, target mappings, and API sketches.
+The cost budget below owns the measurement criteria. `interface-fixtures-check` checks fixture integrity and
+`tasks-app-test` checks the raw application behavior. Compiler, frontend,
+ownership, and cost qualification remain milestone-2 work.
 
 Write Tasks' complete declarations, shared Loam definitions, and a small
 factory/callback fixture. Include watchers, receipt sequences, and actual
@@ -136,10 +151,15 @@ independent raw observer's outcome. Bound input, graph size, validation work,
 depth, and output, with allocation-failure tests and fuzz seeds.
 
 Use a fixture whose raw contract accepts pending references. Prepare a request
-containing a pending argument, then drop or observe the
-original call handle before submitting and replaying. Release all retained
-state afterward and verify cleanup. A missing ownership operation is binding
-or Host work that blocks this exit, not a generator-owned promise registry.
+containing a pending argument. Validate ownership and retain it before issuing
+the sequence request, then drop or observe the original handle before submitting
+and replaying. Cover data, capability, and broken outcomes, including observation
+after settlement. Failed preparation and cancellation must release their retains
+without submitting a mutation. Release the prepared request and prove its final
+retain is gone while the session remains usable.
+
+A missing ownership operation is binding or Host work that blocks this exit,
+not a generator-owned promise registry.
 
 Generate a narrow TypeScript projection of the same conversation. Verify
 immediate sending, pipelining, passable pending arguments, invalid fulfillment,
@@ -284,16 +304,62 @@ The roadmap owns project priority. Protocol correctness comes first. Bounded
 compiler work can run beside Rooms, and a Rooms operation being redesigned
 blocks only its own migration.
 
-## Where the code is
+## Deletion boundary and cost budget
 
-| Concern | Where |
+Baseline at `25ae1ce6`: Tasks' Zig board is 147 lines, Zig client 140, Rust board
+215, and TypeScript board 82. These whole-file counts include policy and workflow, so
+they are an upper bound on removable code, not promised savings. The existing
+Rooms generator and its seven emitter files total 1,461 lines, including 22
+lines of embedded tests. Tasks' server tests were 419 lines and are 456 with
+this leg's cases.
+
+These counts include blank lines and comments. The compiler
+ceilings below count nonblank lines. Generated output never offsets compiler
+maintenance cost.
+
+The raw creation
+exchange is one sequence query followed by one mutation submission. An exact
+replay sends only the retained mutation. No compiler dependency is added by
+this leg: the fixture check uses the already-pinned Python conformance reader.
+
+The contract has nine content method layouts, six shared protocol layouts,
+five receipt lowerings, four static size/count bounds, and the observation
+record shape. Migration must remove each duplicated decision from its client
+or adapter owner. A count of method strings alone misses reply interpretation,
+arity, bounds, and sequence handling.
+
+| Remove when generated | Retain at current owner |
 | --- | --- |
-| Proposed compiler and emitters | `tools/interface/` |
-| Generation and stale-output harness | `tools/gen/emit.zig`, `tools/gen/verify.zig` |
-| Existing protocol emitters | `tools/gen/rooms_protocol.zig`, `tools/gen/rooms_protocol/` |
-| Tasks | `apps/tasks/` |
-| Rooms control client | `apps/rooms/rust/glowcap/src/client/access/` |
-| Receipt, admission, and commit owners | `src/loam/access/hosting/` |
-| Bindings and promise ownership | `bindings/` |
-| Canonical description encoding | `src/ocapn/codec/syrup/canonical.zig` |
-| External promise evidence | `interop/goblins_interop/promise_argument.zig` |
+| Rust capability/integer/text reply helpers, call packing, watcher record decoding, receipt envelope packing | Board workflow, connection setup, cursor lifecycle, user error presentation |
+| Zig content selector/argument projection, generated shape and bounds checks | Storage schemas, authorization, transactions, child materialization, participant admission, membership, capacity policy |
+| Client copies of method names and return shapes | Session ownership, persistence, retry decisions, cancellation policy |
+
+Move `max_name_bytes`, `max_text_bytes`, `max_lists`, and `max_tasks` to the
+shared generated owner when their consumers migrate. `max_text_bytes` now comes from the generated creation projection. The other
+three constants remain in `board.zig` until their consumers migrate. Fixture
+limits remain independently checked expectations.
+Do not introduce a second production constants table during this leg.
+
+Initial ceilings, fixed before compiler implementation:
+
+| Cost | Milestone 2 ceiling and reason |
+| --- | --- |
+| Shared description reader, validator, checked graph | 3,000 nonblank source lines, reuse Syrup primitives, no new general parser framework |
+| Zig and Rust emitters together | 3,000 nonblank source lines, one reusable helper per named type, not per method |
+| Narrow TypeScript promise probe | 750 nonblank source lines, qualify async shape before full emitter investment |
+| Additional authoring frontend | 1,200 nonblank source lines each, adapter scope is the comparison corpus only |
+| Handwritten tests | Report separately, review above twice implementation size rather than omit semantic coverage |
+| New production dependencies | Zero for direct Syrup and proposed text, account for Cap'n Proto toolchain separately |
+| Ordinary generated call | Zero added messages and zero persistent schema state compared with equivalent raw call |
+| Prepared mutation | Same sequence query plus submission as raw, one retained snapshot, no second full snapshot or automatic resend |
+| Generation | Under 1 second warm for this corpus, at most 64 MiB peak resident memory |
+
+These are stop-and-review ceilings, not measurements of software that does not
+exist yet. Full-target completion needs a revised measured budget at the
+milestone-2 decision. Multiplying a tiny prototype's line count is not evidence.
+
+Measure raw and generated build time, allocations, copied bytes, and latency
+in the same pinned environment and harness. The existing Tasks test exercises
+behavior, not a calibrated call benchmark. Its wall time must not be presented
+as call latency. Establish that paired benchmark before accepting generation's
+cost result. No performance improvement is claimed by this leg.
