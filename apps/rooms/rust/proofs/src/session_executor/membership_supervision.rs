@@ -526,7 +526,7 @@ pub(super) async fn run() {
 						}
 					}
 					assert!(host.send(&callback, "notify", &[]).await.is_err());
-					assert_eq!(joins.get(), if options == 3 { 9 } else { 1 });
+					assert_eq!(joins.get(), if options == 3 { 10 } else { 1 });
 					owner.close().await.unwrap();
 					attachment.close().await.unwrap();
 					host.close(PendingWork::Cancel).await.unwrap();

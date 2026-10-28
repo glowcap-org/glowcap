@@ -130,7 +130,7 @@ impl Origin {
 		})
 	}
 	fn directory(row: &workspace::Directory) -> Option<Self> {
-		if row.nick.text().as_str()?.is_empty() {
+		if !row.registers() {
 			return None;
 		}
 		Some(Self::Directory {
@@ -318,6 +318,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 				&& row.requests_membership()
 				&& row.source.is_some()
 				&& let Some(directory) = workspace::RoomNickname::directory(intent, &row.directory)
+				&& workspace::RoomNickname::settled(directory)
 				&& let Some(id) = row.id.text().as_str()
 			{
 				desired.insert((Kind::Room, id), Desired::Room(row, directory));

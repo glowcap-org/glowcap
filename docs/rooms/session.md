@@ -119,7 +119,9 @@ created it, and a worker restores that endpoint and the row's targets when it
 starts. Installing a row, registering or subscribing, and saving a returned
 capability each commit the actual callback with its selection. Replacing an
 inbox, source, entrance or registration fences off that callback and retires
-its worker.
+its worker. A room whose directory registers a nickname joins only after that
+registration lands, because the registration would fence a seat taken before
+it.
 
 `Memberships::reconcile` leaves sibling workers and shared fields alone. One
 `WorkspaceActivity` observation drives all of them:

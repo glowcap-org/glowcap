@@ -26,6 +26,11 @@ impl RoomNickname {
 			registration: row.name,
 		}
 	}
+	/// A registering directory has no assignment for a room to follow until its
+	/// registration lands, so a seat taken before then is fenced when it does.
+	pub fn settled(row: &Directory) -> bool {
+		row.name.is_some() || !row.registers()
+	}
 	pub fn matches(&self, intent: &Intent, directory: &Id) -> bool {
 		Self::directory(intent, directory).is_some_and(|row| self.matches_directory(row))
 	}

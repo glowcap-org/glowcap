@@ -103,6 +103,13 @@ pub struct Room {
 	pub draft: Field,
 }
 
+impl Directory {
+	/// A requested nickname held through an initiating source is registered by
+	/// this session's directory membership.
+	pub fn registers(&self) -> bool {
+		self.source.is_some() && self.nick.text().as_str().is_some_and(|nick| !nick.is_empty())
+	}
+}
 impl Room {
 	/// Keep an independently held seat. Otherwise join only by explicit intent.
 	/// Room visibility is learned from the upstream policy, never this choice.

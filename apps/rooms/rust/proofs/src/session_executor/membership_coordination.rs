@@ -170,6 +170,74 @@ pub(super) async fn run(
 	memberships.close().await.unwrap();
 	assert!(host.send(&callbacks[1], "notify", &[]).await.is_err());
 	assert_eq!(joins.get(), prior + 6);
+	registration_precedes_seat(owner, &workspace, joins, registration).await;
+}
+
+/// A reconnecting directory clears its registration before it registers again.
+/// A room that joined in that interval would be fenced the moment the new
+/// registration landed, so it waits for the name it will carry.
+async fn registration_precedes_seat(
+	owner: &managed::Session<Platform>,
+	workspace: &Workspace<Platform>,
+	joins: &Cell<usize>,
+	registration: custody::Coordinate,
+) {
+	let original = workspace.snapshot().await.unwrap().intent;
+	let mut registering = original.clone();
+	let directory = &mut registering.directories.as_mut_slice()[0];
+	directory.source = Some(custody::FieldKey::new(
+		NonZeroU64::new(7).unwrap(),
+		NonZeroU64::new(1).unwrap(),
+	));
+	directory.name = None;
+	assert!(directory.registers());
+	owner.replace_workspace(&registering).await.unwrap();
+	let prior = joins.get();
+	let mut rooms = managed::Memberships::with_kinds(managed::MembershipKinds {
+		discovery: false,
+		directories: false,
+		rooms: true,
+		directs: false,
+	});
+	let mut entropy = realization::Entropy::seeded(300);
+	for _ in 0..2 {
+		let report = rooms
+			.reconcile(owner, &registering, "ocapn://member.id", &mut entropy, |_| {
+				panic!("a room cannot take a seat before its directory registers")
+			})
+			.await;
+		assert!(
+			report.failures.is_empty(),
+			"unregistered directory: {:?}",
+			report.failures
+		);
+		assert_eq!(report.ready, 0);
+		assert_eq!(joins.get(), prior);
+	}
+	let mut registered = workspace.snapshot().await.unwrap().intent;
+	registered.directories.as_mut_slice()[0].name = Some(custody::FieldKey::new(
+		registration.key.slot(),
+		registration.key.generation(),
+	));
+	owner.replace_workspace(&registered).await.unwrap();
+	let report = rooms
+		.reconcile(owner, &registered, "ocapn://member.id", &mut entropy, |_| {
+			Box::new(|_| Ok(Argument::Void))
+		})
+		.await;
+	assert!(
+		report.failures.is_empty(),
+		"registered directory: {:?}",
+		report.failures
+	);
+	assert_eq!(report.ready, 1);
+	assert_eq!(joins.get(), prior + 1, "the room joins once, under the registration");
+	rooms.close().await.unwrap();
+	let mut restored = workspace.snapshot().await.unwrap().intent;
+	let directory = &mut restored.directories.as_mut_slice()[0];
+	directory.source = original.directories.as_slice()[0].source;
+	directory.name = original.directories.as_slice()[0].name;
+	owner.replace_workspace(&restored).await.unwrap();
 }
 
 async fn room_callbacks(owner: &managed::Session<Platform>, intent: &Intent) -> Vec<Ref> {
