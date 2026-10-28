@@ -276,11 +276,15 @@ fn fetchPartnerTarget(f: *Fixture) !driver.Capability {
     return f.acceptor.liftCapability(f.pair.b, .{ .far = model.FarRef.object(position) });
 }
 
-fn dataNaming(target: driver.Capability) driver.Value {
-    return .{ .@"struct" = &.{
+/// Data naming `target`, built in the caller's `entries` so the value
+/// outlives this call. An array literal holding a runtime value is a
+/// temporary of this frame, and a slice of it would dangle.
+fn dataNaming(entries: *[2]driver.Value.StructEntry, target: driver.Capability) driver.Value {
+    entries.* = .{
         .{ .key = "owner", .value = .{ .capability = target } },
         .{ .key = "count", .value = .{ .string = "three" } },
-    } };
+    };
+    return .{ .@"struct" = entries };
 }
 
 test "a settled answer holds the partner object it names until the answer is released" {
@@ -292,7 +296,8 @@ test "a settled answer holds the partner object it names until the answer is rel
     try f.ask(7);
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try f.acceptor.resolverFulfillValue(Greeter.resolver, dataNaming(target), arena.allocator());
+    var entries: [2]driver.Value.StructEntry = undefined;
+    try f.acceptor.resolverFulfillValue(Greeter.resolver, dataNaming(&entries, target), arena.allocator());
     try f.pump();
     // The stored resolution holds the partner object, so the application's
     // release stays with the session and the import stays held.
@@ -336,7 +341,8 @@ test "a lifted stored import survives either order of answer and Host capability
         try f.ask(7);
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
-        try f.acceptor.resolverFulfillValue(Greeter.resolver, dataNaming(original), arena.allocator());
+        var entries: [2]driver.Value.StructEntry = undefined;
+        try f.acceptor.resolverFulfillValue(Greeter.resolver, dataNaming(&entries, original), arena.allocator());
         try f.pump();
         try f.acceptor.releaseCapability(original, 1);
         try f.pump();
