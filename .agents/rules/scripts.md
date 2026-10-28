@@ -59,6 +59,9 @@ arrays, process groups, or Bash-specific facilities make the implementation
 clearer. Use Python or TypeScript when structured data or domain logic has
 outgrown shell, and route the interpreter through the pinned toolchain. Do not
 add a dependency for convenience that the target environment does not own.
+A script whose tests `infrastructure-check` runs also meets the macOS host
+(`macos-runtime`), so it keeps to bash 3.2 and to options GNU and BSD tools
+share.
 
 Quote paths and values, reject malformed arguments before effects, and avoid
 ambient working-directory assumptions. When a caller owns the working
