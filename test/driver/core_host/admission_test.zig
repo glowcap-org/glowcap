@@ -121,7 +121,9 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // count of pending inline gives per introducing session is one
     // Host-wide map (24 bytes), so a session shell holds no counter. The
     // Node's seat count for `promise_settled` actions is one word (ADR-0068).
-    try std.testing.expectEqual(@as(usize, 2792), @sizeOf(Host));
+    // The publication bearer table counts its removals in one word, so it
+    // can rebuild before tombstones fill every free slot.
+    try std.testing.expectEqual(@as(usize, 2800), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expectEqual(@as(usize, 88), @sizeOf(driver.core.HostAction));
 }

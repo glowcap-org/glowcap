@@ -60,6 +60,15 @@ const key_tweak: u64 = 0x5bd1e9955bd1e995;
 /// one word and passes it to every verb, which hands the standard map's
 /// context-taking form a `Context` built from it, so a session with three
 /// name tables pays for the word once.
+///
+/// A removal leaves a tombstone, and an insert never turns one back into a
+/// free slot. A bearer name is fresh every time (a new swissnum, a new gift
+/// id), so a table that keeps evicting old names runs out of free slots, and
+/// then every miss and every insert walks all of them. The table counts its
+/// removals and rebuilds in place once they reach half the slots its live
+/// names leave free, an amortized constant per removal. The rebuild moves
+/// rows, so it runs only in the verbs that may already move them by growing:
+/// `getOrPut`, `putNoClobber` and `ensureUnusedCapacity`.
 pub fn Table(comptime V: type) type {
     return struct {
         const Self = @This();
@@ -71,6 +80,8 @@ pub fn Table(comptime V: type) type {
         pub const GetOrPutResult = Inner.GetOrPutResult;
 
         inner: Inner,
+        /// Removals since the last rebuild, an upper bound on tombstones.
+        removed: u32 = 0,
 
         pub const empty: Self = .{ .inner = .empty };
 
@@ -107,10 +118,12 @@ pub fn Table(comptime V: type) type {
         }
 
         pub fn getOrPut(self: *Self, secret: u64, allocator: std.mem.Allocator, key: []const u8) std.mem.Allocator.Error!GetOrPutResult {
+            self.reclaim(secret);
             return self.inner.getOrPutContext(allocator, key, .keyed(secret));
         }
 
         pub fn putNoClobber(self: *Self, secret: u64, allocator: std.mem.Allocator, key: []const u8, value: V) std.mem.Allocator.Error!void {
+            self.reclaim(secret);
             return self.inner.putNoClobberContext(allocator, key, value, .keyed(secret));
         }
 
@@ -119,15 +132,33 @@ pub fn Table(comptime V: type) type {
         }
 
         pub fn ensureUnusedCapacity(self: *Self, secret: u64, allocator: std.mem.Allocator, additional: u32) std.mem.Allocator.Error!void {
+            self.reclaim(secret);
             return self.inner.ensureUnusedCapacityContext(allocator, additional, .keyed(secret));
         }
 
         pub fn remove(self: *Self, secret: u64, key: []const u8) bool {
-            return self.inner.removeContext(key, .keyed(secret));
+            const removed = self.inner.removeContext(key, .keyed(secret));
+            self.removed += @intFromBool(removed);
+            return removed;
         }
 
         pub fn fetchRemove(self: *Self, secret: u64, key: []const u8) ?KV {
-            return self.inner.fetchRemoveContext(key, .keyed(secret));
+            const removed = self.inner.fetchRemoveContext(key, .keyed(secret));
+            self.removed += @intFromBool(removed != null);
+            return removed;
+        }
+
+        /// The slots no live name occupies, free or tombstoned.
+        pub fn spareSlots(self: *const Self) usize {
+            return self.inner.capacity() - self.inner.count();
+        }
+
+        /// Rebuilds in place once removals reach half the spare slots. A
+        /// removal implies a nonempty table, so the rebuild has storage.
+        fn reclaim(self: *Self, secret: u64) void {
+            if (self.removed == 0 or self.removed < self.spareSlots() / 2) return;
+            self.inner.rehash(Context.keyed(secret));
+            self.removed = 0;
         }
     };
 }

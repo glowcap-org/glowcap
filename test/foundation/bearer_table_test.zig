@@ -42,7 +42,31 @@ test "two secrets hash the same name to different values" {
     try std.testing.expectEqual(a.hash("swissnum"), bearer_table.Context.keyed(1).hash("swissnum"));
 }
 
-test "a table adds no word to its owner" {
-    // The owner holds the secret once; the table is the standard map alone.
-    try std.testing.expectEqual(@sizeOf(bearer_table.Table(u32).Inner), @sizeOf(bearer_table.Table(u32)));
+test "a table adds only its removal count to the standard map" {
+    // The owner holds the secret once. The table keeps the standard map and
+    // the count that tells it when tombstones need a rebuild.
+    try std.testing.expectEqual(@sizeOf(bearer_table.Table(u32).Inner) + @sizeOf(u64), @sizeOf(bearer_table.Table(u32)));
+}
+
+test "a bearer table that keeps evicting fresh names keeps free slots" {
+    // A cache evicts its oldest name for every fresh one. Each removal
+    // leaves a tombstone, and without a rebuild the free slots run out and
+    // every miss walks the whole table.
+    const allocator = std.testing.allocator;
+    var table: bearer_table.Table(u32) = .empty;
+    defer table.deinit(allocator);
+    const live = 256;
+    var names: [live][8]u8 = undefined;
+    var next: u32 = 0;
+    while (next < 20 * live) : (next += 1) {
+        const slot = &names[next % live];
+        if (next >= live) try std.testing.expect(table.remove(secret, slot));
+        try table.ensureUnusedCapacity(secret, allocator, 1);
+        std.mem.writeInt(u64, slot, next, .little);
+        table.putAssumeCapacity(secret, slot, next);
+    }
+    try std.testing.expectEqual(@as(usize, live), table.count());
+    var free: usize = 0;
+    for (table.inner.metadata.?[0..table.inner.capacity()]) |metadata| free += @intFromBool(metadata.isFree());
+    try std.testing.expect(free >= table.spareSlots() / 2);
 }
