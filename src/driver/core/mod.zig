@@ -26,11 +26,13 @@ const close = @import("close.zig");
 /// Narrow support for white-box core tests. Empty in production builds so
 /// pump mechanics and direct GC emission never become embedder API.
 pub const testing = if (builtin.is_test) struct {
+    pub const StatelessCollection = gc.Collection;
     pub const queueUniqueSessionAction = host_pump.testing.queueUniqueSessionAction;
     pub const startAbnormalTermination = @import("host/close.zig").testing.startAbnormalTermination;
 
     pub fn emitStatelessAfter(peer: *@import("engine").Peer, event: *@import("engine").Event) !void {
-        try gc.emitStatelessAfter(peer, event);
+        const collection = try gc.Collection.prepare(peer, event);
+        try collection.finish();
     }
 
     pub fn condemn(core_host: *host.Host, session: *host.HostSession, kind: @import("model").AbortKind, message: []const u8) !void {

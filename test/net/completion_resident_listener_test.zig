@@ -72,6 +72,44 @@ fn Tests(comptime Backend: type) type {
             }
         }
 
+        test "accept queue allocation refusal reaches the claim without rearming" {
+            var server = try open();
+            defer retire(&server);
+            const ops = server.resident().vtable.listen.?;
+            // Build the row after the backend's accept has completed, so a
+            // mistaken re-arm is observable without duplicating a kernel seat.
+            const row = try server.allocator.create(Resident.Listener);
+            row.* = .{ .token = 1, .route = 12, .fd = try server.backend.openListener(0), .identity = null, .accept_armed = true };
+            try server.listeners.put(server.allocator, row.token, row);
+            const listener: *anyopaque = row;
+            // Inject a successful accept carrying an owned descriptor. Only
+            // the queue allocation fails; the ready record already has room.
+            try server.records.ensureUnusedCapacity(server.allocator, 1);
+            const fd = try server.backend.openListener(0);
+            var failing = std.testing.FailingAllocator.init(server.allocator, .{ .fail_index = 0 });
+            const allocator = server.allocator;
+            server.allocator = failing.allocator();
+            Resident.Completions.dispatch(&server, .{
+                .user_data = net.completion_resident.userData(.accept, row.token),
+                .result = 0,
+                .accepted_fd = fd,
+            });
+            server.allocator = allocator;
+            try std.testing.expect(failing.has_induced_failure);
+            try std.testing.expect(!row.accept_armed);
+            switch (ops.finish_accept(&server, listener)) {
+                .failed => |failure| {
+                    try std.testing.expectEqual(error.AcceptRefused, failure.classification);
+                    try std.testing.expectEqual(error.OutOfMemory, failure.chain.cause);
+                },
+                .connection => return error.LostAcceptRefusal,
+            }
+            switch (ops.finish_accept(&server, listener)) {
+                .connection => |id| try std.testing.expectEqual(@as(?usize, null), id),
+                .failed => return error.RefusalReportedTwice,
+            }
+        }
+
         test "an accept refusal persists unless the arrival itself failed" {
             const persists = net.completion_resident.acceptRefusalPersists;
             // The arrival reset or refused a socket option: the next one is
@@ -85,6 +123,32 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expect(persists(error.OutOfMemory));
             try std.testing.expect(persists(error.InvalidFileDescriptor));
             try std.testing.expect(persists(error.AcceptFailed));
+        }
+
+        test "claiming an earlier accept does not rearm a refused listener" {
+            var server = try open();
+            defer retire(&server);
+            const row = try server.allocator.create(Resident.Listener);
+            row.* = .{ .token = 1, .route = 12, .fd = try server.backend.openListener(0), .identity = null, .accept_armed = true };
+            try server.listeners.put(server.allocator, row.token, row);
+            // The completion machine owns these descriptors. A claim can
+            // adopt the queued one before surfacing the terminal refusal.
+            try row.accepted.append(server.allocator, try server.backend.openListener(0));
+            Resident.Completions.dispatch(&server, .{
+                .user_data = net.completion_resident.userData(.accept, row.token),
+                .result = -1,
+                .failure = error.ProcessFdQuotaExceeded,
+            });
+            const ops = server.resident().vtable.listen.?;
+            switch (ops.finish_accept(&server, row)) {
+                .connection => |id| try std.testing.expect(id != null),
+                .failed => return error.LostEarlierAccept,
+            }
+            try std.testing.expect(!row.accept_armed);
+            switch (ops.finish_accept(&server, row)) {
+                .failed => |failure| try std.testing.expectEqual(error.ProcessFdQuotaExceeded, failure.chain.cause),
+                .connection => return error.LostAcceptRefusal,
+            }
         }
 
         test "a listener stops accepting at the unclaimed bound and resumes on a claim" {

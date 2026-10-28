@@ -120,7 +120,7 @@ const State = struct {
 
     /// Delivery installs this before committing the operation that can settle.
     fn observe(self: *State, session: *host_mod.HostSession, row: *settlement.VowRow) !void {
-        if (row.answer_release == .peer_visible)
+        if (row.answer_release == .owned)
             row.observer_release = try session.served.port.peer.reserveAnswerRelease();
         const observer = self.listener();
         row.inner = observer;

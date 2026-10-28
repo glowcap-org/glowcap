@@ -69,6 +69,7 @@ const surfaces = [_]Surface{
         "syrup",
     } },
     .{ .path = "src/ocapn/session/mod.zig", .modules = &.{
+        "audit",
         "id_route",
         "inspect",
         "inventory",

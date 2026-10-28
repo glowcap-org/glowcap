@@ -78,6 +78,9 @@ pub fn publishAnswerRelease(
     answer: session.OutboundAnswerTarget,
 ) void {
     if (self.session_state.outbound_answers.live(answer)) |_| {
+        // A listen record's position never went on the wire, so a release
+        // naming it would be refused by the partner.
+        std.debug.assert(self.session_state.outbound_answers.isQuestion(answer.position));
         claimQueuedRelease(self, answer);
     } else {
         std.debug.assert(self.session_state.outbound_answers.reservedStamp(answer.position) == answer.row_id);
@@ -172,6 +175,16 @@ pub fn canObserveAnswer(self: *Peer, answer: session.OutboundAnswerTarget) bool 
         else => {},
     };
     return false;
+}
+
+/// Whether this exact answer is a wire question. A staged send owns its
+/// reserved question before Session installs the row; a listen record never
+/// does, even though both can be observed through the same answer API.
+pub fn isWireAnswer(self: *Peer, answer: session.OutboundAnswerTarget) bool {
+    if (self.session_state.outbound_answers.live(answer)) |_| {
+        return self.session_state.outbound_answers.isQuestion(answer.position);
+    }
+    return self.canObserveAnswer(answer);
 }
 
 fn stagedRowIndex(self: *Peer, batch: BatchId) ?usize {

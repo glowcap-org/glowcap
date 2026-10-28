@@ -244,7 +244,7 @@ test "loam fenced publication retirement restores discovery when recovery proves
         .write => try fixture.attached.completeWrite(ticket, .unknown),
     };
     try std.testing.expectError(error.UnknownPublication, fixture.host.removeDurable(swiss.slice()));
-    // A cold recipe defers its re-publish to the read lane.
+    // Recovery restores its hidden row even when the recipe is cold.
     _ = try fixture.data.store.evictObject(publication);
     const pending = try fixture.attached.recoveryBatch();
     try fixture.attached.resolve(ticket, try fixture.data.backend.recover(pending));
@@ -252,7 +252,7 @@ test "loam fenced publication retirement restores discovery when recovery proves
     _ = try fixture.host.removeDurable(swiss.slice());
 }
 
-test "loam known absent recovery retains retry custody under publication allocation refusal" {
+test "loam known absent recovery restores exact publication without allocation or residency" {
     for ([_]bool{ false, true }) |cold| {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         var fixture: f.Fixture = undefined;
@@ -263,44 +263,28 @@ test "loam known absent recovery retains retry custody under publication allocat
         try records.commit(&fixture.data.store, &fixture.data.backend);
         const lease = try records.load(&fixture.data.store, &fixture.data.backend, publication);
         const swiss = try f.hosting.publication.restore(fixture.attached, lease);
+        const actor = fixture.host.publications.get(fixture.host.publication_secret, swiss.slice()).?.actor;
         try fixture.data.store.begin();
         try f.hosting.publication.stageRetirement(fixture.attached, lease);
         try fixture.data.store.release(lease);
         const ticket = try fixture.attached.submit();
         const batch = (try fixture.attached.nextWork()).?.write;
         try fixture.attached.completeWrite(ticket, .unknown);
+        const hidden = fixture.host.publications.get(fixture.host.publication_secret, swiss.slice()).?;
+        try std.testing.expect(!hidden.active);
+        try std.testing.expectEqual(actor, hidden.actor);
         if (cold) _ = try fixture.data.store.evictObject(publication);
         const resolution = try fixture.data.backend.recover(batch);
-        if (!cold) failing.fail_index = failing.alloc_index;
+        failing.fail_index = failing.alloc_index;
         defer failing.fail_index = std.math.maxInt(usize);
         try fixture.attached.resolve(ticket, resolution);
         try std.testing.expect(fixture.attached.writing == null);
         try std.testing.expect(fixture.data.store.phase == .idle);
-        try std.testing.expect(fixture.attached.hasPendingWork());
-        if (cold) {
-            try fixture.attached.advance();
-            const read = (try fixture.attached.nextWork()).?.read;
-            try fixture.attached.completeRead(read.ticket, fixture.data.backend.read(read));
-            failing.fail_index = failing.alloc_index;
-        }
-        // Restoration can refuse; the completed write must stay completed.
-        try std.testing.expectError(error.OutOfMemory, fixture.attached.advance());
-        failing.fail_index = std.math.maxInt(usize);
-        // A later unrelated write cannot discard this restoration owner.
-        try fixture.data.store.begin();
-        const unrelated = try fixture.data.store.allocateId();
-        try fixture.data.store.putCopying(records.record(unrelated, "unrelated"), null);
-        const later = try fixture.attached.submit();
-        const later_batch = (try fixture.attached.nextWork()).?.write;
-        _ = fixture.data.backend.commit(later_batch);
-        try fixture.attached.completeWrite(later, .unknown);
-        // Pending publication work must not prevent a later write's recovery.
-        try fixture.attached.advance();
-        const recovery = try fixture.attached.recoveryBatch();
-        try fixture.attached.resolve(later, try fixture.data.backend.recover(recovery));
-        try std.testing.expect(fixture.attached.hasPendingWork());
-        try fixture.drain();
         try std.testing.expect(!fixture.attached.hasPendingWork());
+        const restored = fixture.host.publications.get(fixture.host.publication_secret, swiss.slice()).?;
+        try std.testing.expect(restored.active);
+        try std.testing.expectEqual(actor, restored.actor);
+        try std.testing.expect(!failing.has_induced_failure);
         _ = try fixture.host.removeDurable(swiss.slice());
     }
 }
@@ -328,4 +312,73 @@ test "loam publication retirement custody is bounded duplicate-safe and droppabl
     try f.hosting.publication.stageRetirement(fixture.attached, second_lease);
     try f.hosting.publication.dropRetirement(fixture.attached, second);
     try fixture.data.store.abort();
+}
+
+test "loam publication retirement staging refusal releases custody for retry" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var fixture: f.Fixture = undefined;
+    try fixture.initAllocator(failing.allocator(), .{ .max_retirements = 1 });
+    defer fixture.deinit();
+    try fixture.data.store.begin();
+    const publication = try f.hosting.publication.stage(fixture.attached, @splat(0x36), fixture.root);
+    try records.commit(&fixture.data.store, &fixture.data.backend);
+    const lease = try records.load(&fixture.data.store, &fixture.data.backend, publication);
+    defer fixture.data.store.release(lease) catch unreachable;
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        if (fixture.attached.retirements[0] != null) f.hosting.publication.dropRetirement(fixture.attached, publication) catch unreachable;
+        if (fixture.data.store.phase == .staging) fixture.data.store.abort() catch unreachable;
+    }
+
+    try std.testing.expectError(error.WrongPhase, f.hosting.publication.stageRetirement(fixture.attached, lease));
+    try std.testing.expect(fixture.attached.retirements[0] == null);
+    try fixture.data.store.begin();
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, f.hosting.publication.stageRetirement(fixture.attached, lease));
+    try std.testing.expect(fixture.attached.retirements[0] == null);
+    failing.fail_index = std.math.maxInt(usize);
+    try f.hosting.publication.stageRetirement(fixture.attached, lease);
+    _ = try fixture.attached.submit();
+    try fixture.drain();
+    try std.testing.expect(fixture.attached.retirements[0] == null);
+}
+
+test "loam publication retirement completion survives host close admission" {
+    for ([_]bool{ false, true }) |cancel| for ([_]bool{ false, true }) |absent| {
+        var fixture: f.Fixture = undefined;
+        try fixture.init(.{});
+        defer fixture.deinit();
+        try fixture.data.store.begin();
+        const publication = try f.hosting.publication.stage(fixture.attached, @splat(0x37), fixture.root);
+        try records.commit(&fixture.data.store, &fixture.data.backend);
+        const lease = try records.load(&fixture.data.store, &fixture.data.backend, publication);
+        const swiss = try f.hosting.publication.restore(fixture.attached, lease);
+        try fixture.data.store.begin();
+        try f.hosting.publication.stageRetirement(fixture.attached, lease);
+        try fixture.data.store.release(lease);
+        _ = try fixture.attached.submit();
+        var slots: [1]f.hosting.Worker.Slot = undefined;
+        var worker: f.hosting.Worker = .init(&slots, fixture.data.backend.readerCapacity());
+        const slot = (try worker.next(fixture.attached, .when_uncertain)).?;
+        if (absent) slot.result = .{ .write = .unknown } else try f.hosting.Worker.run(slot, &fixture.data.backend);
+        defer {
+            // Keep a failed assertion from hiding the original completion error
+            // behind fixture teardown's busy guard.
+            fixture.host.lifecycle = .active;
+            if (fixture.attached.writing != null) fixture.attached.completeWrite(slot.request.write.ticket, slot.result.?.write) catch unreachable;
+            if (slot.active and slot.completed) worker.release(slot) catch unreachable;
+            if (fixture.attached.hasPendingWork()) fixture.drain() catch unreachable;
+        }
+        fixture.host.beginClose(if (cancel) .cancel else .{ .finish = .unbounded }, 0);
+        try std.testing.expectError(error.HostClosing, fixture.host.removeDurable(swiss.slice()));
+        try worker.complete(slot, fixture.attached);
+        if (absent) {
+            const pending = try fixture.attached.recoveryBatch();
+            try fixture.attached.resolve(pending.ticket, try fixture.data.backend.recover(pending));
+            try fixture.attached.advance();
+        }
+        try std.testing.expectEqual(f.loam.core.Store.Phase.idle, fixture.data.store.phase);
+        try std.testing.expectEqual(absent and !cancel, fixture.host.publications.contains(fixture.host.publication_secret, swiss.slice()));
+        try std.testing.expect(!fixture.attached.hasPendingWork());
+    };
 }

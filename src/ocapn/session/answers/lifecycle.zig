@@ -22,8 +22,9 @@ pub fn installInbound(self: *Session, id: model.AnswerPosition) !void {
 
 /// Transfer a live outbound answer's sole application-release responsibility
 /// out of the stateless serve policy. Returns false when a delayed send has not
-/// published its answer row yet. The claimant must eventually send the exact status-allow: pending state or quoted runtime label
-/// `op:gc-answers` decrement or let session teardown retire the row.
+/// published its answer row yet. The claimant releases a wire question through status-allow: pending state or quoted runtime label
+/// `op:gc-answers` and a local listen record through `releaseOutbound`, unless
+/// session teardown retires the row first.
 pub fn claimOutboundRelease(self: *Session, target: session.OutboundAnswerTarget) bool {
     const entry = self.outbound_answers.live(target) orelse return false;
     std.debug.assert(!entry.application_release_claimed);
@@ -103,15 +104,10 @@ pub fn releaseOutbound(self: *Session, id: model.AnswerPosition) session.Error!v
     const resolver_export = entry.resolverExport();
     const released = store.deinitAnswerCell(self.allocator, entry);
     std.debug.assert(released.resolution == 0 and released.queued_calls == 0);
-    // Under V1.0 the partner's `op:resolve` names our position, and one for a
-    // question we released early may still be in flight: the position stays
-    // out of circulation. The next profile resolves through the resolver
-    // export, so the position frees at once.
-    if (retired_state == .pending and self.captp_version == .v1_0) {
-        self.outbound_answers.withhold(id);
-    } else {
-        self.outbound_answers.remove(id);
-    }
+    // Both profiles settle through resolver exports. Retiring that export
+    // below consumes a callback already in flight without naming this slot,
+    // so the answer position can be reused immediately.
+    self.outbound_answers.remove(id);
     if (resolver_export) |position| self.retireApplicationResolver(position, retired_state, settling_source);
 }
 

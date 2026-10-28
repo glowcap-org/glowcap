@@ -183,10 +183,7 @@ test "malformed V1.0 deliver cannot install its advertised resolver" {
     );
 
     try std.testing.expect(!peer.session_state.hasImport(.from(99)));
-    try std.testing.expectEqual(
-        @as(?model.AnswerName, null),
-        peer.session_state.answerForResolverImport(.from(99)),
-    );
+    try std.testing.expectEqual(@as(usize, 0), peer.session_state.v1_0_inbound_resolver_link.count());
 }
 
 test "next refuses the V1.0 inline resolver field" {

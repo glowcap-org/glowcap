@@ -253,8 +253,12 @@ pub const Served = struct {
         else
             false;
         if (!skip_serve) {
+            const collection = if (self.serve_options.gc_stateless)
+                try gc.Collection.prepare(self.port.peer, event)
+            else
+                null;
             _ = try self.port.serve(vat, event);
-            if (self.serve_options.gc_stateless) try gc.emitStatelessAfter(self.port.peer, event);
+            if (collection) |prepared| try prepared.finish();
         }
     }
 
@@ -330,7 +334,10 @@ pub const Served = struct {
     /// once it first marshals onto the wire, or after an explicit grant
     /// through `peer.exportObject` (ADR-0027).
     pub fn spawn(self: *Served, vat: *actors.Vat, comptime Behavior: type, initial: Behavior) !Exported {
-        const position = try self.port.peer.exportNextObject();
+        const position = self.port.peer.exportNextObject() catch |err| {
+            vat.discardInitial(Behavior, initial);
+            return err;
+        };
         errdefer self.port.peer.session_state.releaseUnsharedExport(.from(position));
         const ref = try vat.spawn(Behavior, initial);
         errdefer vat.discardFreshActor(ref);
@@ -350,7 +357,9 @@ pub const Served = struct {
             fn spawn(s: @This(), v: *actors.Vat) !actors.Ref {
                 return v.spawn(Behavior, s.initial);
             }
-            fn abandon(_: @This()) void {}
+            fn abandon(s: @This(), v: *actors.Vat) void {
+                v.discardInitial(Behavior, s.initial);
+            }
         }{ .initial = initial });
     }
 
@@ -365,7 +374,7 @@ pub const Served = struct {
             }
             /// A hosted object never handed to the Vat is freed here, on the
             /// contract `spawnHosted` keeps once it has it.
-            fn abandon(s: @This()) void {
+            fn abandon(s: @This(), _: *actors.Vat) void {
                 if (s.hosted.free) |free| free(s.hosted.ctx);
             }
         }{ .hosted = hosted });
@@ -377,7 +386,7 @@ pub const Served = struct {
     fn publishSpawned(self: *Served, vat: *actors.Vat, name: []const u8, spawner: anytype) !Exported {
         const prior = self.port.peer.session_state.bootstrapLookup(name);
         const position = self.port.peer.registerBootstrapCap(name) catch |err| {
-            spawner.abandon();
+            spawner.abandon(vat);
             return err;
         };
         errdefer {
@@ -547,7 +556,8 @@ pub const Served = struct {
         const arena = pending.msg_arena.allocator();
         pending.verb = try arena.dupe(u8, msg.verb);
         pending.args = try model.cloneArgumentSlice(arena, msg.args);
+        const listener = try self.port.reserveListener(vat, .far);
         const vow = try self.sendBootstrapFetch(vat, name);
-        try self.port.on(vat, vow, .{ .ctx = pending, .func = pending_send.PendingSend.onFetch });
+        self.port.onReserved(vat, listener, vow, .{ .ctx = pending, .func = pending_send.PendingSend.onFetch });
     }
 };

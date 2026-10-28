@@ -8,6 +8,54 @@ const peer_fixture = @import("../../support/peer_fixture.zig");
 
 const codec = glowcap.ocapn.codec;
 const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
+
+test "V1.0 canceled listens reuse answer slots without accepting old callbacks" {
+    var peer = peer_fixture.openPeerWith(std.testing.allocator, .{ .captp_version = .v1_0 });
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+    for (0..16) |_| {
+        const old = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.object(5) });
+        const resolver = peer.session_state.resolverExportForAnswer(old.position).?;
+        const wire = try peer_fixture.drainOutbound(&peer, std.testing.allocator);
+        std.testing.allocator.free(wire);
+        try peer.session_state.releaseOutboundAnswer(old.position);
+
+        const replacement = try peer.session_state.nominateResolverExport();
+        try std.testing.expectEqual(old.position, replacement.answer);
+        try std.testing.expect(!peer.session_state.hasLiveOutboundAnswer(old));
+        var callback = try codec.syrup.encodeMessageForProfile(std.testing.allocator, .v1_0, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(resolver.int()) },
+            .args = &.{ .{ .symbol = "fulfill" }, .{ .void = {} } },
+        } });
+        defer callback.deinit();
+        try peer.recvBorrowed(callback.view());
+        try std.testing.expect(peer.pollEvent() == null);
+        try std.testing.expectEqual(.pending, peer.session_state.outbound_answers.get(replacement.answer).?.status());
+        try std.testing.expectEqual(.complete, peer.session_state.retiredResolverState(resolver).?);
+        try peer.session_state.releaseOutboundAnswer(replacement.answer);
+    }
+    try std.testing.expectEqual(@as(usize, 1), peer.session_state.outbound_answers.rows.slots.items.len);
+}
+
+test "wire answer visibility follows the exact row across listen position reuse" {
+    var peer = peer_fixture.openPeer(std.testing.allocator);
+    defer peer.deinit();
+    const nomination = try peer.session_state.nominateResolverExport();
+    const local = peer.session_state.outboundAnswerTarget(nomination.answer).?;
+    try std.testing.expect(peer.canObserveAnswer(local));
+    try std.testing.expect(!peer.isWireAnswer(local));
+    try peer.session_state.releaseOutboundAnswer(local.position);
+
+    const question = try peer.allocateAnswer();
+    try std.testing.expectEqual(local.position, question.position);
+    try std.testing.expect(question.row_id != local.row_id);
+    try peer.session_state.installOutboundAnswer(question.position);
+    try std.testing.expect(peer.isWireAnswer(question));
+    try std.testing.expect(!peer.isWireAnswer(local));
+    try peer.session_state.releaseOutboundAnswer(question.position);
+    try std.testing.expect(!peer.isWireAnswer(question));
+}
 
 /// Send one call on import 1 with `answer`, encoded and taken off the wire
 /// with the listener the next profile pairs with it.

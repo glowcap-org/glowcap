@@ -350,8 +350,15 @@ pub fn Machine(comptime Self: type) type {
                     };
                     listener.accept_armed = false;
                     if (comp.result >= 0) {
-                        listener.accepted.append(self.allocator, acceptedFd(comp)) catch
+                        listener.accepted.append(self.allocator, acceptedFd(comp)) catch |err| {
                             self.backend.closeFd(acceptedFd(comp));
+                            // Queue pressure has the same claimable refusal
+                            // as backend pressure. Do not silently drop the
+                            // arrival and keep accepting against that limit.
+                            if (listener.accept_failure == null) listener.accept_failure = err;
+                            record(self, listener.route, resident_mod.ev_accept);
+                            return;
+                        };
                         record(self, listener.route, resident_mod.ev_accept);
                     } else {
                         const err = failure_projection.primary(comp, error.AcceptFailed);

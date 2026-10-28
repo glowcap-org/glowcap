@@ -248,6 +248,19 @@ A signed inner record has one post-cutover representation and is never
 translated between old and new forms. Unsigned outer framing may still be
 projected by the codec carrying the message.
 
+Adopt the receive-side replay rule with the certificate format. The current
+draft requires each `handoff-count` to be unused in the Exporter-Receiver
+session. It does not require increasing counts. Glowcap currently follows
+Goblins by rejecting every count at or below the largest accepted count.
+Keep that behavior until this adoption, then admit an unseen lower count
+while refusing a repeated one. Bound the retained replay state and reserve
+its storage before accepting a withdrawal, including one awaiting a deposit.
+
+Prove the difference with counts `2`, `1`, then `2`: the first two withdrawals
+must succeed and the third must be refused. The conformance manifest keeps
+the receive certificate deferred until this behavior and its wire format
+are adopted together.
+
 This step is complete when the gifter, receiver, and exporter roles work in all
 existing profile combinations, verify the original signatures, and call the
 exact exported object.
@@ -366,3 +379,9 @@ format to a live Goblins peer.
 
 - Shared files: lane 1 alone edits fixtures and the generated corpus. Lane 2
   regenerates headers and binding mirrors after a sync.
+
+## Replay-rule references
+
+- [CapTP draft, Checking the handoff-count](<../../conformance/ocapn-spec/upstream/draft-specifications/CapTP Specification.md#checking-the-handoff-count>) requires an unused count in the receiving session.
+- [Pinned Goblins CapTP](../../conformance/spritely-goblins/upstream/goblins/ocapn/captp.rkt) compares the received count against its stored counter in `withdraw-gift`.
+- [Gift registry](../../src/ocapn/engine/bootstrap/gifts.zig) owns glowcap's receive-side replay check and accepted count.

@@ -113,7 +113,7 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
             }
             // A retained index can name a collected descriptor. Discovery
             // owns this expected miss; no storage failure escapes its lane.
-            if (err == error.Gone and (publication.forgetMissingRepublish(owner, id) or discovered or live_missing)) return;
+            if (err == error.Gone and (discovered or live_missing)) return;
         }
         return err;
     }
@@ -170,7 +170,7 @@ pub fn resolve(owner: *h.Attachment, ticket: core.Ticket, resolution: core.Resol
         publication.releaseRetirements(owner, .release_fenced);
         finish(owner, null);
     } else {
-        publication.deferRepublish(owner);
+        publication.restoreRetirements(owner);
         finish(owner, error.WriteNotCommitted);
     }
 }

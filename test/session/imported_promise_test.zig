@@ -1,6 +1,6 @@
 //! The imported-promise rows: promise shortening rewrites through chains,
-//! refuses a cycle and a chain past `max_resolution_chain`, and spends only
-//! the retains its stable edges own.
+//! refuses cycles and bounds each walk by `max_resolution_chain`, and spends
+//! only the retains its stable edges own.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -107,7 +107,7 @@ test "a release naming no shortening source allocates nothing on either profile"
     }
 }
 
-test "a shortening chain is refused past max_resolution_chain and every walk stops within it" {
+test "a shortening callback refuses a target path past its walk budget" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
@@ -138,4 +138,37 @@ test "a shortening chain is refused past max_resolution_chain and every walk sto
     s.rewriteShortenedMessage(&message, .none);
     try std.testing.expectEqual(model.FarRef.promise(8), message.deliver.target.far);
     try std.testing.expectEqual(model.ImportPosition.from(8), s.shortenedPromiseTarget(.from(6)));
+}
+
+test "head-first shortening bounds routing while releasing the whole retained chain" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    s.limits.max_resolution_chain = 2;
+    for ([_]u64{ 5, 6, 7, 8 }) |position| try s.registerImport(.from(position));
+
+    // Callbacks may extend an admitted path. Each callback
+    // here sees a self-root target and spends only its own bounded walk.
+    for ([_]u64{ 5, 6, 7 }) |source| {
+        const resolver = (try s.nominateShorteningResolver(.from(source))).?;
+        const target = model.FarRef.promise(source + 1);
+        try s.validateShorteningCompletion(resolver.resolver_export, target);
+        s.completeShortening(resolver.resolver_export, target, true);
+    }
+    // The rewrite may stop at 7: it remains valid promise authority and its
+    // edge still owns 8. Releasing 5 must nevertheless drain every edge.
+    try std.testing.expectEqual(model.ImportPosition.from(7), s.shortenedPromiseTarget(.from(5)));
+
+    var release: model.GcExport = .{
+        .positions = try allocator.dupe(u64, &.{5}),
+        .deltas = try allocator.dupe(u64, &.{1}),
+    };
+    defer allocator.free(release.positions);
+    defer allocator.free(release.deltas);
+    try std.testing.expectEqual(@as(usize, 3), try s.expandShorteningGcExportReleases(allocator, &release));
+    try std.testing.expectEqualSlices(u64, &.{ 5, 6, 7, 8 }, release.positions);
+    try std.testing.expectEqualSlices(u64, &.{ 1, 1, 1, 1 }, release.deltas);
+    try s.recordSend(.{ .gc_export = .{ .positions = release.positions[0..1], .deltas = release.deltas[0..1] } });
+    s.recordSessionImportRelease(.{ .positions = release.positions[1..], .deltas = release.deltas[1..] });
+    for ([_]u64{ 5, 6, 7, 8 }) |position| try std.testing.expect(!s.holdsImport(.from(position)));
 }

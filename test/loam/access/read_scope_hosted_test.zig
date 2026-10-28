@@ -91,7 +91,10 @@ test "loam read scope settlement retry rechecks volatile source admission withou
     defer peer.releaseCapabilityTerminal(reader, null);
     const pending = try peer.callCapability(h.a, pair.b, reader, "target", &.{}, 4096);
     defer pending.deinit();
-    try peers.pumpToQuiescence(&.{pair});
+    // The call still awaits the Host action drain below. Moving available
+    // frames cannot declare that pending send quiescent; after the action
+    // drain, every loop pump must reach checked agreement.
+    try std.testing.expectError(error.PairNotAtRest, peers.pumpToQuiescence(&.{pair}));
     for (0..64) |_| {
         while (try peer.nextAction()) |_| {}
         while (try host.host.nextAction()) |_| {}

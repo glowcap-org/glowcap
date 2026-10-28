@@ -29,7 +29,10 @@ pub fn publish(
     comptime Behavior: type,
     initial: Behavior,
 ) !capability.Ref {
-    const reservation = try prepareLocalCapability(self, session);
+    const reservation = prepareLocalCapability(self, session) catch |err| {
+        self.vat.discardInitial(Behavior, initial);
+        return err;
+    };
 
     const exported = try session.served.publish(&self.vat, name, Behavior, initial);
     return self.retainReservedLocalCapability(reservation, exported.ref);
@@ -63,7 +66,10 @@ pub fn spawn(
     comptime Behavior: type,
     initial: Behavior,
 ) !capability.Ref {
-    const reservation = try prepareLocalCapability(self, session);
+    const reservation = prepareLocalCapability(self, session) catch |err| {
+        self.vat.discardInitial(Behavior, initial);
+        return err;
+    };
 
     const actor = try self.vat.spawn(Behavior, initial);
     errdefer self.vat.discardFreshActor(actor);

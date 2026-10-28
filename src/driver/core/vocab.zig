@@ -371,9 +371,12 @@ pub const Exported = struct {
 /// actor that should have no wire position at all is spawned with `Vat.spawn`,
 /// which mints no export.
 pub fn spawnAt(turn: *actors.Turn, comptime Behavior: type, initial: Behavior) !Exported {
+    var initial_pending = true;
+    defer if (initial_pending) turn.vat.discardInitial(Behavior, initial);
     const port = turn.port() orelse return actors.Error.NotConnected;
     const position = try port.peer.exportNextObject();
     errdefer port.peer.session_state.releaseUnsharedExport(.from(position));
+    initial_pending = false;
     const ref = try turn.vat.spawn(Behavior, initial);
     errdefer turn.vat.discardFreshActor(ref);
     try port.bindExport(turn.vat, ref, position);

@@ -24,6 +24,8 @@ pub const SessionLimits = struct {
     max_listeners_per_target: usize = 64,
     /// Max exact-incarnation hops through stored promise resolutions before a
     /// dependent call, projection, or listener receives a terminal break.
+    /// Also bounds shortening validation and rewriting; a rewrite may stop
+    /// at an intermediate promise without changing the call's authority.
     max_resolution_chain: usize = 64,
     /// Max local deliveries surfaced from one resolution drain (engine-enforced).
     max_local_deliveries: usize = 4096,

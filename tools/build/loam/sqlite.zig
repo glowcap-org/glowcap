@@ -14,6 +14,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     tests.addImport("loam_core", core);
     tests.addImport("glowcap", b.modules.get("glowcap").?);
     tests.addImport("loam_sqlite", tested);
+    tests.addImport("oracle", gates.oracle);
     const engine_fixture = b.createModule(.{ .root_source_file = b.path("test/loam/sqlite/fixture.zig"), .target = target, .optimize = optimize, .link_libc = true });
     engine_fixture.addImport("loam_core", core);
     engine_fixture.addImport("loam_sqlite", tested);

@@ -161,6 +161,7 @@ comptime {
         _ = @import("engine/peer/v1_translation/gc_test.zig");
         _ = @import("engine/peer/v1_translation/oom_test.zig");
         _ = @import("engine/peer/v1_translation/resolver_test.zig");
+        _ = @import("engine/peer/v1_translation/shared_resolver_test.zig");
         _ = @import("engine/peer/pipeline_test.zig");
         _ = @import("engine/peer/pipeline_undeliverable_test.zig");
         _ = @import("engine/peer/pipeline_reply_identity_test.zig");
@@ -405,10 +406,11 @@ comptime {
         _ = @import("session/answer_notification_test.zig");
         _ = @import("session/gc_test.zig");
         _ = @import("session/gc_prepared_test.zig");
-        _ = @import("session/bimap_test.zig");
+        _ = @import("session/resolver_link_test.zig");
         _ = @import("session/grant_test.zig");
         _ = @import("session/handoff_test.zig");
         _ = @import("session/resolver_test.zig");
+        _ = @import("session/listen_record_test.zig");
         _ = @import("session/imported_promise_test.zig");
         _ = @import("session/held_import_test.zig");
         _ = @import("session/slot_test.zig");

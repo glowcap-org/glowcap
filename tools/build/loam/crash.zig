@@ -26,6 +26,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         target: std.Build.ResolvedTarget,
         optimize: std.builtin.OptimizeMode,
         core: *std.Build.Module,
+        oracle: *std.Build.Module,
         engines: []const Engine,
 
         fn add(self: @This(), step: *std.Build.Step, name: []const u8, probe: Probe) void {
@@ -33,6 +34,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
                 const root = self.b.createModule(.{ .root_source_file = self.b.path(probe.source), .target = self.target, .optimize = self.optimize, .link_libc = true });
                 root.addImport("loam_core", self.core);
                 root.addImport("glowcap", self.b.modules.get("glowcap").?);
+                root.addImport("oracle", self.oracle);
                 root.addImport("engine_fixture", engine.fixture);
                 const executable = self.b.addExecutable(.{ .name = self.b.fmt("loam-{s}-crash-probe-{s}", .{ name, engine.name }), .root_module = root });
                 const run = execution.addSystemCommand(self.b, .{ .deterministic = probe.deadline }, &.{"python3"});
@@ -44,7 +46,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
             }
         }
     };
-    const runs: Run = .{ .b = b, .target = target, .optimize = optimize, .core = core, .engines = engines };
+    const runs: Run = .{ .b = b, .target = target, .optimize = optimize, .core = core, .oracle = gates.oracle, .engines = engines };
 
     const storage_step = b.step("loam-storage-crash-test", "Kill Loam writers before commit and after commit before local installation, on every disk engine (needs python3)");
     runs.add(storage_step, "storage", .{ .source = "test/loam_storage_crash.zig", .deadline = 20 });

@@ -65,23 +65,22 @@ Retiring only stops new fetches. References peers already hold keep working,
 and a rooted record keeps its target alive across a restart. A bare object
 ID keeps nothing alive.
 
-If the retirement's outcome is unknown, the name stays retired unless
-recovery shows the retirement never committed. Loam records that outcome
-before restoring the name can allocate anything.
+While an outcome is unknown, Loam hides the name's existing Host entry and
+keeps its actor alive. Recovery either removes that entry or makes the same
+entry answer again. This needs no allocation or disk read, even when the
+publication record has left the cache. A name that was not in memory stays
+on demand. Each lookup checks the current record, so a stale lookup cannot
+bring a retired name back.
 
-When a name that was in memory starts answering again, it waits in a queue
-until an ordinary `advance` restores it. Reads from disk go through the read
-queue, and a failed allocation or a full table keeps the retry queued. Later
-transactions and recovery can neither drop nor block it. Retries run while
-the Store is idle, once ordinary calls release their leases. A name that was
-not in memory stays on demand and takes no memory. Each lookup checks the
-current record, so a stale lookup cannot bring a retired name back.
+Host shutdown finishes these storage outcomes too. Finishing restores a name
+whose retirement never committed. Cancellation removes its in-memory entry
+and leaves the unchanged durable record available after a restart.
 
 ## Destroying the attachment
 
 Finish waiting calls and storage work before `attachment.destroy()`, which
 returns `Busy` while any call, read, write, reference save, effect
-continuation, or queued name restore remains.
+continuation, or unresolved publication retirement remains.
 Destroying the attachment closes it to new calls. Capabilities peers still
 hold keep a little routing data until the Host releases them, answer
 `AttachmentClosed`, and never touch the Store again.

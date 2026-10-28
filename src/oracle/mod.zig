@@ -20,6 +20,7 @@ const engine = @import("engine");
 const appendTraceLine = @import("trace.zig").appendLine;
 const scenario_support = @import("scenario/support.zig");
 
+pub const agreement = @import("agreement.zig");
 pub const handoff = @import("scenario/handoff.zig");
 
 pub fn runStage0Abort(allocator: std.mem.Allocator) ![]u8 {
@@ -150,6 +151,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     }
     try out.appendSlice(allocator, "\n");
 
+    try scenario_support.expectAgreement(&pair.p1, &pair.p2);
     return out.toOwnedSlice(allocator);
 }
 
@@ -166,7 +168,8 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
 
     try pair.p1.session_state.registerImport(.from(7));
     try pair.p2.session_state.registerExport(.from(7));
-    try pair.p1.session_state.registerExport(.from(9));
+    // The listener crosses the wire in the listen, so it is reserved, not granted.
+    try pair.p1.session_state.reserveExport(.from(9));
 
     try pair.p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
@@ -208,6 +211,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
     }
     try out.appendSlice(allocator, "\n");
 
+    try scenario_support.expectAgreement(&pair.p1, &pair.p2);
     return out.toOwnedSlice(allocator);
 }
 
@@ -278,6 +282,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
     }
     try out.appendSlice(allocator, "\n");
 
+    try scenario_support.expectAgreement(&pair.p1, &pair.p2);
     return out.toOwnedSlice(allocator);
 }
 
@@ -348,6 +353,7 @@ pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) 
     }
     try out.appendSlice(allocator, "\n");
 
+    try scenario_support.expectAgreement(&pair.p1, &pair.p2);
     return out.toOwnedSlice(allocator);
 }
 
@@ -398,6 +404,7 @@ pub fn runDrivenGcPair(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8
 
     try out.appendSlice(allocator, "\n");
 
+    try scenario_support.expectAgreement(&pair.p1, &pair.p2);
     return out.toOwnedSlice(allocator);
 }
 

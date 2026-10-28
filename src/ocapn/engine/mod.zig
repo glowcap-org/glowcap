@@ -316,6 +316,7 @@ pub const Peer = struct {
     pub const popPendingBack = peer_outbound.popPendingBack;
     pub const reserveStagedRow = peer_outbound.reserveStagedRow;
     pub const canObserveAnswer = peer_outbound.canObserveAnswer;
+    pub const isWireAnswer = peer_outbound.isWireAnswer;
     pub const fillStagedRow = peer_outbound.fillStagedRow;
     pub const removeStagedRow = peer_outbound.removeStagedRow;
     pub const blockedOnStaging = peer_outbound.blockedOnStaging;

@@ -32,8 +32,6 @@ pub fn PositionSlab(comptime Row: type) type {
             free: Link,
             /// Minted and not yet installed, holding the stamp its row carries. status-allow: pending state or quoted runtime label
             reserved: u64,
-            /// Retired while the partner may still name it. Never minted again.
-            withheld,
             live: Row,
         };
 
@@ -102,7 +100,7 @@ pub fn PositionSlab(comptime Row: type) type {
             if (index >= self.slots.items.len) return true;
             return switch (self.slots.items[index]) {
                 .free, .reserved => true,
-                .withheld, .live => false,
+                .live => false,
             };
         }
 
@@ -177,7 +175,7 @@ pub fn PositionSlab(comptime Row: type) type {
             switch (self.slots.items[index]) {
                 .free => self.unlinkFree(index),
                 .reserved => {},
-                .withheld, .live => unreachable,
+                .live => unreachable,
             }
             self.slots.items[index] = .{ .live = row };
             self.live_count += 1;
@@ -199,13 +197,6 @@ pub fn PositionSlab(comptime Row: type) type {
             std.debug.assert(self.slots.items[index] == .live);
             self.live_count -= 1;
             self.pushFree(index);
-        }
-
-        /// Retire a live row and keep its position out of circulation.
-        pub fn withhold(self: *Self, index: u32) void {
-            std.debug.assert(self.slots.items[index] == .live);
-            self.live_count -= 1;
-            self.slots.items[index] = .withheld;
         }
 
         fn pushFree(self: *Self, index: u32) void {

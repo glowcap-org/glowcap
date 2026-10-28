@@ -451,9 +451,12 @@ pub const Vat = struct {
         self.settle_arena.deinit();
     }
 
+    /// Adopt initial state on every outcome, reclaiming it on refusal.
     pub fn spawn(self: *Vat, comptime Behavior: type, initial: Behavior) Error!Ref {
         return self.registerBox(try boxed.makeBox(self, Behavior, initial));
     }
+
+    pub const discardInitial = boxed.discardInitial;
 
     /// Enroll a freshly minted `box` as the next actor and return its local ref.
     /// The one registration tail `spawn` and `spawnHosted` share. It adopts the

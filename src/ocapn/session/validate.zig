@@ -42,6 +42,7 @@ pub fn validateRecvView(self: *Session, body: *const model.view.Body, introduced
         .deliver => |*deliver| try validateInboundDeliverAny(self, deliver, introduced),
         .resolve => |resolve| {
             if (self.needsV1_0Translation()) return error.UnexpectedMessage;
+            if (!self.outbound_answers.isQuestion(resolve.answer)) return error.InvalidReference;
             try validateInboundResolve(self, resolve, introduced);
         },
         .listen => |listen| try validateInboundListen(self, listen),
@@ -170,8 +171,9 @@ pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void
     try passable.validateListenListener(self, listen.listener, .received);
 }
 
-/// Validate an inbound `op:resolve`. The answer must be one we allocated
-/// (an outbound call awaiting its reply), and, symmetrically with a
+/// Validate a settlement of an outbound question or local listen record.
+/// Only the wire entry point requires a question; resolver callbacks may
+/// settle listen records. Symmetrically with a
 /// deliver's args, the fulfill payload's references are validated and
 /// depth-bounded: a `near` must name one of our exports, a `far` is a fresh
 /// introduction, and the payload tree may not nest past `max_nesting_depth`.

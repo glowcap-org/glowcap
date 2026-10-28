@@ -28,11 +28,10 @@ const host_admission = @import("../host/admission.zig");
 /// One live public host-vow handle. The row holds the vow's single Vat
 /// listener slot from mint (`fire`). Settlement records the outcome and ends
 /// the pending session operation, but an embedder-owned handle remains live
-/// until explicit release. Only a `peer_visible` answer is remotely
-/// addressable and owns an `op:gc-answer`. A listen notification owns a
-/// `session_private` answer that can be awaited but never sent to or released
-/// on the wire. `inner` receives the resolution as a bounded borrow. Without
-/// one, settlement queues an owned completion for the embedder.
+/// until explicit release. The row owns an answer or shares its producer's
+/// custody; the Session decides whether that answer is a wire question or a
+/// local listen record. `inner` receives the resolution as a bounded borrow.
+/// Without one, settlement queues an owned completion for the embedder.
 pub const VowRow = struct {
     host: *Host,
     owner: union(enum) {
@@ -110,11 +109,11 @@ pub const Completion = union(enum) {
     failed: struct { failure: host_action.VowFailure, message: host_action.RetainedFailureMessage },
 };
 
+/// Custody of an answer, independent of whether Session puts it on the wire.
 pub const AnswerRelease = enum {
     none,
-    session_private,
-    peer_visible,
-    shared_peer_visible,
+    owned,
+    shared,
 };
 
 /// How explicit release cancels a producer that has not settled yet. Fallible status-allow: pending state or quoted runtime label
@@ -177,9 +176,10 @@ pub fn retireRow(self: *Host, row: *VowRow) void {
     self.allocator.destroy(row);
 }
 
-/// Claim the wire answer a peer-visible row will eventually release.
-pub fn claimPeerVisibleAnswer(row: *const VowRow, session: *HostSession) bool {
-    if (row.answer_release != .peer_visible) return true;
+/// Claim the exact answer this Host row owns, whether a wire question or a
+/// local listen record. Stateless serving must leave both to their owner.
+pub fn claimOwnedAnswer(row: *const VowRow, session: *HostSession) bool {
+    if (row.answer_release != .owned) return true;
     const answer = switch (row.vow) {
         .far => |value| value,
         .local => unreachable,
@@ -187,6 +187,16 @@ pub fn claimPeerVisibleAnswer(row: *const VowRow, session: *HostSession) bool {
     const state = &session.served.port.peer.session_state;
     if (state.outboundAnswerReleaseClaimed(answer)) return true;
     return state.claimOutboundAnswerRelease(answer);
+}
+
+/// Host custody determines who releases; the Session determines whether the
+/// release crosses the wire. Staged sends retain their question identity.
+pub fn ownsWireAnswer(row: *const VowRow, session: *HostSession) bool {
+    if (row.answer_release != .owned) return false;
+    return switch (row.vow) {
+        .far => |answer| session.served.port.peer.isWireAnswer(answer),
+        .local => false,
+    };
 }
 
 /// Settle a vow by id. A row already retired with its session has no recipient.
@@ -205,7 +215,7 @@ pub fn cancelObserverRelease(row: *VowRow, session: *HostSession) void {
 
 /// Retire the answer position a private or explicitly released row owns.
 pub fn retireAnswerInSession(row: *const VowRow, session: *HostSession) void {
-    if (row.answer_release == .none or row.answer_release == .shared_peer_visible) return;
+    if (row.answer_release == .none or row.answer_release == .shared) return;
     const answer = switch (row.vow) {
         .far => |value| value,
         .local => unreachable,
@@ -240,7 +250,7 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
             // Inline capability projection may publish the answer after this
             // Host row. A missing answer now means that send failed or the
             // session retired, so no wire release remains.
-            if (!claimPeerVisibleAnswer(row, session)) {
+            if (!claimOwnedAnswer(row, session)) {
                 cancelObserverRelease(row, session);
                 row.answer_release = .none;
             }
@@ -283,20 +293,23 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
 pub fn settleObservedAnswer(self: *Host, row: *VowRow, session: *HostSession) void {
     switch (row.answer_release) {
         .none => {},
-        .shared_peer_visible => {
+        .shared => {
             const owned = row.pending_cancel.shared_answer;
             owned.func(self, row.id, owned.owner);
         },
-        .session_private => retireAnswerInSession(row, session),
-        .peer_visible => {
-            const reservation = row.observer_release orelse unreachable;
+        .owned => {
             const answer = switch (row.vow) {
                 .far => |value| value,
                 .local => unreachable,
             };
             const peer = session.served.port.peer;
-            const answer_live = peer.session_state.hasLiveOutboundAnswer(answer) or peer.canObserveAnswer(answer);
-            if (answer_live and session.wireLive()) {
+            if (!peer.isWireAnswer(answer)) {
+                cancelObserverRelease(row, session);
+                if (peer.session_state.hasLiveOutboundAnswer(answer)) retireAnswerInSession(row, session);
+                return;
+            }
+            const reservation = row.observer_release orelse unreachable;
+            if (session.wireLive()) {
                 session.served.port.peer.publishAnswerRelease(reservation, answer);
                 host_pump.markDirty(self, session.peer_handle);
             } else {

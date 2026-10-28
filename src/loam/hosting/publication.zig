@@ -7,7 +7,6 @@ const driver = @import("driver_core");
 pub const Entropy = driver.Host.DurableSwiss.Entropy;
 pub const LookupOptions = @import("discovery.zig").Options;
 const discovery = @import("discovery.zig");
-const storage = @import("storage.zig");
 
 /// Enable bounded on-demand restoration for this Host's durable namespace.
 /// Call once after opening the Store. No publication or actor scan is needed.
@@ -71,6 +70,7 @@ pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
     try validate(view);
     if (!view.rooted) return error.RetiredPublication;
     try reserve(attachment, view.id, driver.Host.DurableSwiss.fromEntropy(entropyOf(view)));
+    errdefer dropRetirement(attachment, view.id) catch unreachable;
     try attachment.store.putCopying(.{ .id = view.id, .revision = 0, .schema = schema.id, .rooted = false, .payload = view.payload }, view.revision);
 }
 
@@ -79,7 +79,7 @@ pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
 fn reserve(attachment: *h.Attachment, record: core.ObjectId, swiss: driver.Host.DurableSwiss) !void {
     for (attachment.retirements) |slot| if (slot) |held| if (held.record.eql(record)) return error.RetirementPending;
     for (attachment.retirements) |*slot| if (slot.* == null) {
-        slot.* = .{ .record = record, .swiss = swiss, .registered = attachment.host.publications.contains(attachment.host.publication_secret, swiss.slice()) };
+        slot.* = .{ .record = record, .swiss = swiss };
         return;
     };
     return error.RetirementCapacity;
@@ -93,13 +93,6 @@ fn tombstone(batch_change: core.Mutation, owner: *h.Attachment) ?struct { record
     return .{ .record = batch_change.id, .swiss = driver.Host.DurableSwiss.fromEntropy(entropyOf(view)) };
 }
 
-fn removeFromRegistry(owner: *h.Attachment, swiss: driver.Host.DurableSwiss) !void {
-    owner.host.removeDurable(swiss.slice()) catch |err| switch (err) {
-        error.UnknownPublication => {},
-        else => return err,
-    };
-}
-
 /// The commit-to-registry fence for one terminal batch. Every tombstoned
 /// publication record in the batch loses discovery now, including unknown
 /// outcomes, which fail closed, and keeps its reserved custody until the
@@ -107,15 +100,20 @@ fn removeFromRegistry(owner: *h.Attachment, swiss: driver.Host.DurableSwiss) !vo
 pub fn fenceRetirements(owner: *h.Attachment, batch: core.Batch) !void {
     for (batch.changes) |change| {
         const dead = tombstone(change, owner) orelse continue;
-        try removeFromRegistry(owner, dead.swiss);
+        var receipt = try owner.host.fenceDurableRetirement(dead.swiss);
         for (owner.retirements) |*slot| {
             if (slot.*) |held| {
                 if (held.record.eql(dead.record)) {
                     slot.*.?.fenced = true;
+                    slot.*.?.receipt = receipt;
+                    receipt = null;
                     break;
                 }
             }
         }
+        // Direct tombstone staging without reserved custody only removes the
+        // live name, as it has no owner to reconcile an unchanged outcome.
+        if (receipt) |*unowned| unowned.finish(true);
     }
 }
 
@@ -136,68 +134,24 @@ pub fn dropRetirement(owner: *h.Attachment, record: core.ObjectId) !void {
 /// outcome.
 pub const Fenced = enum { keep_fenced, release_fenced };
 
-/// Drop custody. Deferred restoration survives every later transaction.
+/// Drop staging custody and commit any fenced registry removal.
 pub fn releaseRetirements(owner: *h.Attachment, fenced: Fenced) void {
     for (owner.retirements) |*slot| {
-        const held = slot.* orelse continue;
-        if (held.republish or (fenced == .keep_fenced and held.fenced)) continue;
+        const held = if (slot.*) |*value| value else continue;
+        if (fenced == .keep_fenced and held.fenced) continue;
+        if (held.receipt) |*receipt| receipt.finish(true);
         slot.* = null;
     }
 }
 
-/// Record the known-absent outcome without performing fallible restoration.
-/// Existing bounded retirement slots own retry custody until the name is back
-/// in Host or a later committed retirement makes restoration unnecessary.
-pub fn deferRepublish(owner: *h.Attachment) void {
-    releaseRetirements(owner, .keep_fenced);
-    for (owner.retirements) |*slot| if (slot.*) |*held| if (held.fenced and !held.republish) {
-        if (held.registered) held.republish = true else slot.* = null;
-    };
-}
-
-/// Retry through the ordinary top-level advance and read lane. A refusal
-/// leaves the slot intact. Successful reads only install cache residency, so
-/// neither write recovery nor read completion has to perform Host allocation.
-pub fn advanceRepublish(owner: *h.Attachment) !bool {
-    if (owner.store.phase != .idle) return false;
-    var progressed = false;
-    for (owner.retirements) |*slot| if (slot.*) |held| if (held.republish) {
-        const acquired = owner.store.acquire(held.record) catch |err| switch (err) {
-            error.PendingRead => continue,
-            else => return err,
-        };
-        switch (acquired) {
-            .ready => |lease| {
-                defer owner.store.release(lease) catch unreachable;
-                _ = restore(owner, lease) catch |err| switch (err) {
-                    error.RetiredPublication => {
-                        slot.* = null;
-                        progressed = true;
-                        continue;
-                    },
-                    else => return err,
-                };
-                slot.* = null;
-                progressed = true;
-            },
-            .read => |read| {
-                storage.retainRead(owner, read, .store);
-                progressed = true;
-            },
-        }
-    };
-    return progressed;
-}
-
-/// Collection can retire a recipe while its restoration read is in flight.
-/// Such a miss terminates only that recipe's deferred registry custody.
-pub fn forgetMissingRepublish(owner: *h.Attachment, record: core.ObjectId) bool {
-    for (owner.retirements) |*slot| if (slot.*) |held| {
-        if (!held.republish or !held.record.eql(record)) continue;
+/// Reconcile confirmed absence by restoring the exact hidden registry row.
+/// Cancellation consumes the receipt without restoring discovery.
+pub fn restoreRetirements(owner: *h.Attachment) void {
+    for (owner.retirements) |*slot| {
+        const held = if (slot.*) |*value| value else continue;
+        if (held.receipt) |*receipt| receipt.finish(false);
         slot.* = null;
-        return true;
-    };
-    return false;
+    }
 }
 
 fn validate(view: core.RecordView) !void {

@@ -191,6 +191,38 @@ test "a fresh ingress has an infallible transaction rollback" {
     try std.testing.expectError(actors.Error.UnknownIngress, vat.closeIngress(ingress));
 }
 
+test "an ingress cannot close while a sibling turn holds staged work" {
+    const Stager = struct {
+        ingress: actors.IngressId,
+        target: actors.Ref,
+
+        pub fn handle(self: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
+            try turn.vat.tellFromIngress(self.ingress, self.target, .{ .verb = "increment" });
+            try std.testing.expectError(error.IngressBusy, turn.vat.closeIngress(self.ingress));
+            try std.testing.expectError(error.IngressBusy, turn.vat.cancelIngress(self.ingress, "cancel"));
+            if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
+            return .{ .void = {} };
+        }
+    };
+    for ([_]bool{ false, true }) |fail| {
+        var vat = actors.Vat.init(std.testing.allocator);
+        defer vat.deinit();
+        const ingress = try vat.openIngress();
+        const counter = try vat.spawn(Counter, .{ .n = 0 });
+        const stager = try vat.spawn(Stager, .{ .ingress = ingress, .target = counter });
+        if (fail) {
+            try std.testing.expectError(error.Refused, vat.near(stager, .{ .verb = "fail" }));
+        } else {
+            _ = try vat.near(stager, .{ .verb = "commit" });
+            try std.testing.expectError(error.IngressBusy, vat.closeIngress(ingress));
+        }
+        try vat.drive();
+        try std.testing.expectEqual(@as(i64, if (fail) 0 else 1), (try vat.near(counter, .{ .verb = "get" })).integer);
+        try vat.closeIngress(ingress);
+        try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
+    }
+}
+
 const CloseDuringTurn = struct {
     ingress: actors.IngressId,
     saw_busy: bool = false,

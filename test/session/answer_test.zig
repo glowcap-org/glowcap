@@ -399,7 +399,7 @@ test "a settled question's position is asked again under a new identity" {
     try std.testing.expectEqual(second, s.outboundAnswerTarget(first.position).?);
 }
 
-test "CapTP 1.0 withholds a pending question's position the partner may still resolve" {
+test "CapTP 1.0 reuses a released pending question with a fresh identity" {
     var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = .v1_0 });
     defer s.deinit();
 
@@ -410,10 +410,11 @@ test "CapTP 1.0 withholds a pending question's position the partner may still re
     try std.testing.expect(s.outboundAnswerTarget(first.position) == null);
     try std.testing.expect(!s.outbound_answers.contains(first.position));
 
-    // The partner's resolve still names this position, so the next question
-    // takes the one after it.
+    // Resolver callbacks carry separate export authority, so the next
+    // question reuses the slot with a new identity.
     const second = try s.allocateOutboundAnswer();
-    try std.testing.expectEqual(first.position.int() + 1, second.position.int());
+    try std.testing.expectEqual(first.position, second.position);
+    try std.testing.expect(first.row_id != second.row_id);
     try std.testing.expectEqual(@as(u64, 0), s.outbound_answers.count(first.position));
 }
 

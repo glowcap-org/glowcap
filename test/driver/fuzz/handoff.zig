@@ -226,7 +226,10 @@ pub const Trio = struct {
     }
 
     fn checkBounds(self: *Trio) !void {
-        for (self.sessions()) |session| try bounds.checkDeclared(&session.served.port.peer.session_state);
+        for (self.sessions()) |session| {
+            try bounds.checkDeclared(&session.served.port.peer.session_state);
+            try glowcap.ocapn.session.audit.check(&session.served.port.peer.session_state);
+        }
         const peer = self.g_to_e.b.served.port.peer;
         try std.testing.expect(peer.giftRegistry().retainedBytes() <= peer.limits().max_deposited_gift_bytes);
         // The gift is deposited before the first feed, so nothing this

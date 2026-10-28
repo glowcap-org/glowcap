@@ -120,11 +120,13 @@ const Counter = support_actors.Counter;
 /// Collect everything the embedder owes a release on. A host that is never
 /// drained reports as a leak, which would be this harness's bug and not the
 /// code's.
-/// Every bound the session declares, after any read. A sealed session also
+/// The session's declared bounds and local accounting relations
+/// (`session.audit`), after any read. A sealed session also
 /// never stages more than one record's worth of wire, whatever length a
 /// damaged header claims.
 fn checkSession(session: *HostSession) !void {
     try bounds.checkDeclared(&session.served.port.peer.session_state);
+    try glowcap.ocapn.session.audit.check(&session.served.port.peer.session_state);
     if (session.sealed) |channel| {
         try std.testing.expect(channel.staged.len <= max_sealed_unit_bytes);
     }

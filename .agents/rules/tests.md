@@ -55,6 +55,8 @@ implementation as the authority in prose.
   values from a loader that is proven to have the data, and fail on an empty
   expectation instead of comparing with it.
 - Tests that dial name a finite budget ([captp-waits](captp-waits.md)).
+- A pair harness holds every pair at rest to `oracle.agreement` (ADR-0071).
+  A fixture that installs a row by hand installs its partner's counterpart.
 - Before deleting a test file with its subject, read every scenario in it and
   move each one that exercises a surviving surface: a file's name does not list
   everything it proves.

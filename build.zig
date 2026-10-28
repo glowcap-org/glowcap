@@ -76,7 +76,7 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "loam_access_records", .prefix = "loam/access/records/", .imports = &.{ "loam_access_core", "loam_records", "syrup" }, .core = true },
     .{ .name = "loam_access_storage", .prefix = "loam/access/storage/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_core" }, .core = true },
     .{ .name = "net", .prefix = "net/", .imports = &.{ "foundation", "model", "codec", "engine" }, .core = false },
-    .{ .name = "oracle", .prefix = "oracle/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
+    .{ .name = "oracle", .prefix = "oracle/", .imports = &.{ "foundation", "model", "session", "engine" }, .core = false },
     .{ .name = "driver_core", .prefix = "driver/core/", .imports = &.{ "foundation", "model", "engine", "actors" }, .core = true },
     .{ .name = "loam_hosting", .prefix = "loam/hosting/", .imports = &.{ "foundation", "loam_core", "actors", "driver_core", "model" }, .core = true },
     .{ .name = "loam_access_hosting", .prefix = "loam/access/hosting/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_access_storage", "loam_core", "loam_hosting", "driver_core" }, .core = true },

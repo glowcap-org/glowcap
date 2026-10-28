@@ -203,7 +203,9 @@ test "core host: a malformed id give cannot retain route advice" {
         .{ exporter_key[0..], exporter_key[0..] },
     );
     defer allocator.free(id_locator);
+    // Model the pending introducing question on both ends of the session.
     try introducing_pair.a.served.port.peer.session_state.installOutboundAnswer(.from(46));
+    try introducing_pair.b.served.port.peer.session_state.installInboundAnswer(.from(46));
     try client.acceptGive(introducing_pair.a, 46, "give-id", id_locator);
     const action = (try client.nextAction()).?;
     try std.testing.expect(action == .dial);

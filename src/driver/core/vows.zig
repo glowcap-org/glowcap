@@ -81,7 +81,7 @@ pub const VowReservation = struct {
         row_value.vow = vow;
         const installed: actors.Listener = .{ .ctx = row_value, .func = VowRow.fire };
         row_value.pending_cancel = .{ .row_listener = installed };
-        _ = settlement.claimPeerVisibleAnswer(row_value, self.session);
+        _ = settlement.claimOwnedAnswer(row_value, self.session);
         self.session.served.port.onReserved(&host.vat, transferred.listener, vow, installed);
         publishRow(host, row_value);
         host.beginSessionOperation(self.session);
@@ -100,7 +100,7 @@ pub fn vowOn(self: *Host, vow_id: u64, listener: actors.Listener) !void {
     const resolved = try resolveVowSession(self, vow_id);
     if (resolved.row.settled) return error.AlreadySettled;
     if (resolved.row.inner != null) return error.AlreadyListening;
-    if (resolved.row.answer_release == .peer_visible)
+    if (settlement.ownsWireAnswer(resolved.row, resolved.session))
         resolved.row.observer_release = try resolved.session.served.port.peer.reserveAnswerRelease();
     resolved.row.inner = listener;
 }
@@ -193,7 +193,7 @@ pub fn vowTellValues(
     defer prepared.deinit();
     try resolved.session.served.tellToAnswer(
         &self.vat,
-        .{ .far = try pipelineAnswer(resolved.row) },
+        .{ .far = try pipelineAnswer(resolved.row, resolved.session) },
         .{ .verb = verb, .args = prepared.values },
     );
     _ = prepared.commit();
@@ -228,8 +228,8 @@ fn commitVowSend(
     msg: actors.Message,
     drive_now: bool,
 ) !u64 {
-    const source = try pipelineAnswer(resolved.row);
-    var reservation = try reserveVow(self, resolved.session, .far, .plain, .peer_visible);
+    const source = try pipelineAnswer(resolved.row, resolved.session);
+    var reservation = try reserveVow(self, resolved.session, .far, .plain, .owned);
     defer reservation.deinit();
     const vow = try resolved.session.served.sendToAnswer(&self.vat, .{ .far = source }, msg);
     const id = reservation.commit(vow);
@@ -336,12 +336,12 @@ pub fn attachDeferredVow(
     const row = self.vows.get(vow_id) orelse unreachable;
     row.vow = vow;
     row.answer_release = answer_release;
-    std.debug.assert(observer_release == null or answer_release == .peer_visible);
+    std.debug.assert(observer_release == null or answer_release == .owned);
     std.debug.assert(observer_release == null or row.inner != null);
     row.observer_release = observer_release;
     const installed: actors.Listener = .{ .ctx = row, .func = VowRow.fire };
     row.pending_cancel = .{ .row_listener = installed };
-    _ = settlement.claimPeerVisibleAnswer(row, target);
+    _ = settlement.claimOwnedAnswer(row, target);
     target.served.port.onReserved(&self.vat, listener, vow, installed);
 }
 
@@ -376,9 +376,9 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
     try self.admitApplicationOperation();
     const resolved = try resolveVowSession(self, vow_id);
     try self.admitSessionOperation(resolved.session);
-    const source = try pipelineAnswer(resolved.row);
+    const source = try pipelineAnswer(resolved.row, resolved.session);
     try self.checkOutboundAdmission(resolved.session);
-    var reservation = try reserveVow(self, resolved.session, .far, .plain, .peer_visible);
+    var reservation = try reserveVow(self, resolved.session, .far, .plain, .owned);
     defer reservation.deinit();
     const peer = resolved.session.served.port.peer;
     const answer = try peer.allocateAnswer();
@@ -397,12 +397,14 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
     return id;
 }
 
-fn pipelineAnswer(row: *const VowRow) !engine.OutboundAnswerTarget {
-    if (row.answer_release != .peer_visible and row.answer_release != .shared_peer_visible) return error.NotPipelineable;
-    return switch (row.vow) {
+fn pipelineAnswer(row: *const VowRow, session: *HostSession) !engine.OutboundAnswerTarget {
+    if (row.answer_release == .none) return error.NotPipelineable;
+    const answer = switch (row.vow) {
         .far => |answer| answer,
         .local => return error.NotPipelineable,
     };
+    if (!session.served.port.peer.isWireAnswer(answer)) return error.NotPipelineable;
+    return answer;
 }
 
 /// The live session and row a latch-legal vow verb operates on: assert the

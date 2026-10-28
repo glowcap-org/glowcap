@@ -246,10 +246,8 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
     const Wired = Glue(Behavior);
     const block = self.allocator.create(Block) catch |e| {
         // `initial` was never moved into heap state, but the contract still
-        // promises its resources are reclaimed. `initial` is a by-value
-        // parameter, so take a mutable local to reach its `deinit`.
-        var orphan = initial;
-        if (@hasDecl(Behavior, "deinit")) orphan.deinit(self.allocator);
+        // promises its resources are reclaimed.
+        discardInitial(self, Behavior, initial);
         return e;
     };
     block.state = initial;
@@ -264,6 +262,13 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
         .persistent = behaviorIsPersistent(Behavior),
     };
     return &block.box;
+}
+
+/// Reclaim transferred actor state when admission refuses before a box owns
+/// it. Spawn wrappers use the same destructor and allocator as the Vat.
+pub fn discardInitial(self: *Vat, comptime Behavior: type, initial: Behavior) void {
+    var orphan = initial;
+    if (@hasDecl(Behavior, "deinit")) orphan.deinit(self.allocator);
 }
 
 pub fn makeHostedBox(self: *Vat, hosted: HostedActor) Error!*StateBox {

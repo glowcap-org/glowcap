@@ -46,7 +46,7 @@ pub const Scope = struct {
     const Cache = struct {
         target: driver.Capability = undefined,
         role: usize = 0,
-        front: ?driver.Capability = null,
+        actor: ?actors.Ref = null,
         occupied: bool = false,
     };
 
@@ -124,8 +124,9 @@ pub const Scope = struct {
         if (role >= self.interfaces.len) return error.InvalidReadInterface;
         defer self.backing.working.deinit();
         for (self.cache) |entry| if (entry.occupied and entry.role == role and entry.target.eql(target)) {
-            const retained = try self.owner.host.retainValueCapabilities(self.backing.working.allocator(), &.{.{ .capability = entry.front.? }});
-            return retained[0];
+            // The façade can outlive its last Host capability through a wire
+            // export or publication. Its actor identity remains the weak key.
+            return self.owner.host.retainLocalCapability(entry.actor.?);
         };
         const index = for (self.cache, 0..) |entry, index| {
             if (!entry.occupied) break index;
@@ -137,8 +138,8 @@ pub const Scope = struct {
         // reserved weak entry and releases the independent target/scope retains.
         const actor = try self.owner.host.vat.spawn(driver.Hosting(Endpoint), .{ .inner = .{ .scope = self, .index = index } });
         errdefer self.owner.host.vat.discardFreshActor(actor);
+        self.cache[index].actor = actor;
         const front = try self.owner.host.liftLocalActor(actor);
-        self.cache[index].front = front;
         return front;
     }
 

@@ -37,11 +37,13 @@
 //! process hold memory it should not, and a table that grows past its declared
 //! cap does exactly that without ever crashing, a "no crash" fuzzer will run
 //! past it forever. `test/support/session_bounds.zig` owns both the caps and
-//! the check, and this reads the counts back after every step.
+//! the check, and this reads the counts back after every step. Each step also
+//! checks the session's local accounting relations (`session.audit`), so
+//! a counter that disagrees with its rows is found at the step that moved it.
 //!
 //! The second target runs the same legitimate operations alone, between two
 //! peers that both keep the protocol, and after the wire settles holds the two
-//! sessions to each other (`test/support/session_agreement.zig`): every import
+//! sessions to each other (`oracle.agreement`): every import
 //! is a mention the partner made that many times, and every open question is an
 //! answer the partner still owes. That is the class the bounds check is blind
 //! to. A row one side keeps and the other has dropped never crashes and never
@@ -52,6 +54,11 @@
 //! disagreement is a finding on its own. The program also never closes the
 //! session, because a frame one side refuses is one the other should not have
 //! sent, so a closed session is reported with its abort instead of skipped.
+//!
+//! The stored-resolution target releases every answer and application owner
+//! of a far import while the session stays open. Its zero-retain endpoint
+//! catches a lost release even when both peers agree on the retained count
+//! (`fuzz/held_resolution.zig`).
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -83,7 +90,10 @@ const drainApplication = program.drainApplication;
 const stepBounded = program.stepBounded;
 const heldImport = program.heldImport;
 /// The cross-peer relation the agreement target holds.
-const agreement = @import("../support/session_agreement.zig");
+const agreement = @import("oracle").agreement;
+const audit = glowcap.ocapn.session.audit;
+
+const held_resolution = @import("fuzz/held_resolution.zig");
 
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it
@@ -339,6 +349,8 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
         // holds the memory.
         try bounds.checkDeclared(&pair.p1.session_state);
         try bounds.checkDeclared(&pair.p2.session_state);
+        try audit.check(&pair.p1.session_state);
+        try audit.check(&pair.p2.session_state);
     }
 
     shuttle(&pair.p1, &pair.p2);
@@ -469,6 +481,8 @@ fn agreementProgramOne(_: void, smith: *std.testing.Smith) anyerror!void {
         try program.legitimateOp(smith, actor, partner);
         try bounds.checkDeclared(&pair.p1.session_state);
         try bounds.checkDeclared(&pair.p2.session_state);
+        try audit.check(&pair.p1.session_state);
+        try audit.check(&pair.p2.session_state);
         if (smith.valueRangeAtMost(u8, 0, compare_every - 1) == 0) try settleAndCompare(&pair);
     }
     try settleAndCompare(&pair);
@@ -510,4 +524,16 @@ const seed_bytes = 256;
 
 test "fuzz: no legitimate program leaves the two peers disagreeing about a row" {
     try std.testing.fuzz({}, agreementProgramOne, .{ .corpus = (agreement_seeds ++ regression_seeds)[0..] });
+}
+
+test "fuzz: stored resolutions release every hold before session teardown" {
+    const zero: [40]u8 = @splat(0);
+    const one_byte: [40]u8 = @splat(1);
+    const full: [40]u8 = @splat(255);
+    const held_seeds = [_][]const u8{ &zero, &one_byte, &full };
+    try std.testing.fuzz({}, held_resolution.one, .{ .corpus = (held_seeds ++ regression_seeds)[0..] });
+}
+
+test "stored resolution owners release their last wire retain in every order" {
+    try held_resolution.everyOrder();
 }

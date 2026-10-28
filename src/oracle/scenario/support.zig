@@ -5,6 +5,18 @@ const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const appendTraceLine = @import("../trace.zig").appendLine;
+const agreement = @import("../agreement.zig");
+
+/// Hold one session of a scenario to `agreement` once its trace is written.
+/// The traffic the trace leaves queued, such as the releases a settlement
+/// produces, is shuttled first and stays out of the trace. A scenario that
+/// closed the session has nothing left to agree about.
+pub fn expectAgreement(p1: *engine.Peer, p2: *engine.Peer) !void {
+    if (!p1.sessionIsOpen() or !p2.sessionIsOpen()) return;
+    if (try engine.pairing.shuttleUntilQuiescent(p1, p2) != .quiescent) return error.ScenarioDidNotQuiesce;
+    if (!agreement.atRest(p1) or !agreement.atRest(p2)) return error.ScenarioNotAtRest;
+    try agreement.check(p1, p2);
+}
 
 /// A negotiating peer fixed to the interop-floor profile with real handshake
 /// verification enabled.

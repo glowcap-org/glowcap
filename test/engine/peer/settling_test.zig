@@ -294,12 +294,9 @@ test "converged settling callback promotes or removes a released local answer" {
 
         const released = if (release_primary) answer_six else answer_five;
         const survivor = if (release_primary) answer_five else answer_six;
-        try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &.{released.int()} } });
+        try peer.session_state.releaseOutboundAnswer(released);
         while ((try peer.step()) != .idle) {}
-        while (peer.takeOutbound()) |frame_in| {
-            var frame = frame_in;
-            frame.deinit();
-        }
+        try std.testing.expect(peer.takeOutbound() == null);
         try std.testing.expect(peer.session_state.outboundAnswer(released) == null);
         try std.testing.expectEqual(resolver_six, peer.session_state.resolverExportForAnswer(survivor).?);
 
@@ -337,12 +334,9 @@ test "a settling callback racing answer release is consumed and its imports are 
         frame.deinit();
     }
 
-    try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &.{answer.int()} } });
+    try peer.session_state.releaseOutboundAnswer(answer);
     while ((try peer.step()) != .idle) {}
-    while (peer.takeOutbound()) |frame_in| {
-        var frame = frame_in;
-        frame.deinit();
-    }
+    try std.testing.expect(peer.takeOutbound() == null);
     try std.testing.expectEqual(session.RetiredResolverState.pending, peer.session_state.retiredResolverState(resolver).?);
 
     var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
@@ -550,12 +544,9 @@ test "shortening does not rearm a settling listener after its answer is released
         frame.deinit();
     }
 
-    try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &.{answer.int()} } });
+    try peer.session_state.releaseOutboundAnswer(answer);
     while ((try peer.step()) != .idle) {}
-    while (peer.takeOutbound()) |frame_in| {
-        var frame = frame_in;
-        frame.deinit();
-    }
+    try std.testing.expect(peer.takeOutbound() == null);
     try std.testing.expectEqual(session.RetiredResolverState.pending, peer.session_state.retiredResolverState(settling_resolver).?);
 
     var shortening = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{

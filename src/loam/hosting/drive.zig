@@ -41,9 +41,6 @@ pub fn advanceProgress(owner: *h.Attachment) !bool {
     progressed = (if (owner.discovery) |discovery| try discovery.advanceProgress() else false) or progressed;
     if (owner.options.live_scope) |scope| progressed = (try scope.advanceProgress()) or progressed;
     progressed = (try advanceOperations(owner)) or progressed;
-    // Settlement releases leases before deferred publication tries to acquire
-    // them. Host publication runs outside the retained-operation callback guard.
-    progressed = (try publication.advanceRepublish(owner)) or progressed;
     // Preparation can emit a fetch or dial while its operation stays waiting.
     // The embedder must drain that Host work before parking for its reply.
     return progressed or owner.host.hasRunnableWork();

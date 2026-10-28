@@ -7,7 +7,7 @@ const std = @import("std");
 const model = @import("model");
 
 const answers = @import("../answers/store.zig");
-const bimap = @import("../bimap.zig");
+const foundation = @import("foundation");
 
 pub const PromiseIncarnation = struct {
     position: model.ImportPosition,
@@ -112,12 +112,10 @@ comptime {
 /// actor and bootstrap exports, and collision is impossible because the
 /// session is the single minter.
 ///
-/// The link is a bijection held in a `BiMap` so each direction stays in
-/// lockstep by construction rather than by comment: an answer-pos to the
-/// partner's resolver import (`resolverForInboundAnswer` forward,
-/// `answerForResolverImport` reverse). Both sides are the partner's words,
-/// so both hash under the session secret.
-pub const InboundResolverLink = bimap.BiMap(model.AnswerName, model.ImportPosition, .wire, .wire);
+/// Each answer owns one partner resolver mention. Multiple answers may
+/// notify the same capability, so only answer names index this map. The
+/// partner chooses those names, which hash under the session secret.
+pub const InboundResolverLink = foundation.identity_hash.MapOf(.wire, model.AnswerName, model.ImportPosition);
 
 /// Session metadata for one imported promise under the next profile: its
 /// shortening edge and its settling subscription.

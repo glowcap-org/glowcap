@@ -22,7 +22,8 @@ pub fn findImportedPromise(self: *Session, import_position: model.ImportPosition
 
 pub fn shortenedTarget(self: *Session, source: model.ImportPosition) model.ImportPosition {
     var current = source;
-    // `shortening.validateCompletion` admits no chain longer than this.
+    // Later callbacks can extend an admitted path. Stop at a still-valid
+    // intermediate promise when this rewrite spends its hop budget.
     var remaining = self.limits.max_resolution_chain;
     while (remaining != 0) : (remaining -= 1) {
         const entry = findImportedPromise(self, current) orelse return current;

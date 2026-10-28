@@ -2,9 +2,9 @@
 //!
 //! A host that does not retain imports introduced by an inbound deliver should
 //! release them immediately via `op:gc-exports`. Likewise, once an outbound
-//! answer is resolved the host may GC the answer position via `op:gc-answers`.
-//! This is adapter policy, the session tables own the counts. These helpers
-//! only enqueue the wire messages after a surfaced event has been handled.
+//! answer is resolved the host may collect its wire question or local listen
+//! record. This is adapter policy; the session tables own identity and counts.
+//! Collection prepares before serving and releases after callbacks return.
 //!
 //! One exception to "the vat did not retain it, so nobody did": an event the
 //! before-serve hook *claimed* never reaches the vat, and the node may have
@@ -136,64 +136,63 @@ fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEn
     while (try it.next()) |entry| try addIntroducedFars(batch, entry.value, depth, max_depth);
 }
 
-/// After a semantic resolve event, emit `op:gc-answers` for the settled answer position.
+/// Collect the event's exact answer identities with bounded stack storage.
+/// A long alias list emits more batches instead of allocating a temporary
+/// vector. A send refusal propagates after any preceding batches committed;
+/// the consumed event's serving boundary owns terminal failure.
 fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
-    if (event.kind() != .resolve) return;
-    // The policy collects the question the event settled, by identity. A
-    // question the session no longer holds cannot be collected, because its status-allow: lifecycle transition
-    // position may already name a new question, and it reports the same
-    // underflow a gc-answers for a missing row reports.
-    const answer = event.resolveTarget();
-    const aliases = event.resolveAliases();
-    if (aliases.len == 0) {
-        if (try releaseClaimed(peer, answer)) return;
-        const positions = [_]u64{answer.position.int()};
-        try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &positions } });
-        return;
-    }
-
-    const positions = peer.allocator.alloc(u64, aliases.len + 1) catch {
-        if (!try releaseClaimed(peer, answer)) {
-            const primary = [_]u64{answer.position.int()};
-            try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &primary } });
-        }
-        for (aliases) |alias| {
-            if (try releaseClaimed(peer, alias)) continue;
-            const one = [_]u64{alias.position.int()};
-            try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &one } });
-        }
-        return;
-    };
-    defer peer.allocator.free(positions);
+    var positions: [32]u64 = undefined;
     var count: usize = 0;
-    if (!try releaseClaimed(peer, answer)) {
+    const aliases = event.resolveAliases();
+    for (0..aliases.len + 1) |index| {
+        const answer = if (index == 0) event.resolveTarget() else aliases[index - 1];
+        if (try releaseWithoutWire(peer, answer)) continue;
         positions[count] = answer.position.int();
         count += 1;
-    }
-    for (aliases) |alias| {
-        if (try releaseClaimed(peer, alias)) continue;
-        positions[count] = alias.position.int();
-        count += 1;
+        if (count == positions.len) {
+            try peer.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..count] } });
+            count = 0;
+        }
     }
     if (count != 0)
         try peer.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..count] } });
 }
 
-/// Whether an application release already owns `answer`'s collection.
-fn releaseClaimed(peer: *engine.Peer, answer: engine.OutboundAnswerTarget) error{GcUnderflow}!bool {
-    const row = peer.session_state.outbound_answers.live(answer) orelse return error.GcUnderflow;
-    return row.application_release_claimed;
+/// Leave application-owned answers to their owner; retire unclaimed local
+/// listen records here. Only an unclaimed wire question needs a GC frame.
+fn releaseWithoutWire(peer: *engine.Peer, answer: engine.OutboundAnswerTarget) !bool {
+    // Preparation proved the identity before serving. A callback may have
+    // retired it or reused its position; neither gives GC a new obligation.
+    const row = peer.session_state.outbound_answers.live(answer) orelse return true;
+    if (row.application_release_claimed) return true;
+    if (peer.session_state.outbound_answers.isQuestion(answer.position)) return false;
+    try peer.session_state.releaseOutboundAnswer(answer.position);
+    return true;
 }
 
-/// The stateless-GC policy after one served event: a deliver gc-collects the
-/// argument exports it introduced, a resolve gc-collects its settled answer.
-/// The single
-/// home for which event kind triggers which emit: every `Served` session calls
-/// this, so the policy cannot drift between drivers.
-pub fn emitStatelessAfter(peer: *engine.Peer, event: *engine.Event) !void {
-    switch (event.kind()) {
-        .deliver => try emitExportsForDeliver(peer, event),
-        .resolve => try emitAnswerForResolve(peer, event),
-        else => {},
+/// A collection turn borrows the event across serving. Resolve identities
+/// must be live before callbacks run; afterwards an owner may have retired
+/// them synchronously. Keeping that distinction here rejects stale input
+/// without collecting an answer twice or touching a reused position.
+pub const Collection = struct {
+    peer: *engine.Peer,
+    event: *engine.Event,
+
+    pub fn prepare(peer: *engine.Peer, event: *engine.Event) error{GcUnderflow}!Collection {
+        if (event.kind() == .resolve) {
+            if (!peer.session_state.hasLiveOutboundAnswer(event.resolveTarget())) return error.GcUnderflow;
+            for (event.resolveAliases()) |alias| {
+                if (!peer.session_state.hasLiveOutboundAnswer(alias)) return error.GcUnderflow;
+            }
+        }
+        return .{ .peer = peer, .event = event };
     }
-}
+
+    pub fn finish(self: Collection) !void {
+        switch (self.event.kind()) {
+            .deliver => try emitExportsForDeliver(self.peer, self.event),
+            .resolve => try emitAnswerForResolve(self.peer, self.event),
+            else => {},
+        }
+    }
+};

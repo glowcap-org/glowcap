@@ -148,13 +148,16 @@ test "core host: staged outbound pressure refuses before the shared high-water i
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
     const pair = try openPair(allocator, &client, &host, "127.0.0.1:7094", &dials);
-    try pair.b.served.port.peer.session_state.registerImport(.from(7));
+    // The fixture grants the flood target out of band on both peers.
+    const flood_target = try pair.a.served.port.peer.exportNextObject();
+    try pair.a.served.port.peer.exportObject(flood_target);
+    try pair.b.served.port.peer.importObject(flood_target);
 
     var refused = false;
     _ = try pair.b.served.publish(&host.vat, "pressure", PendingPressure, .{
         .host = &host,
         .session = pair.b,
-        .target = .{ .far = model.FarRef.object(7) },
+        .target = .{ .far = model.FarRef.object(flood_target) },
         .refused = &refused,
     });
     var fetched = promise_capture.CapturedRef{};
@@ -309,11 +312,15 @@ test "core host: feedBytes retains only the unapplied suffix after mid-chunk pre
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
     const pair = try openPair(allocator, &client, &host, "127.0.0.1:7095", &dials);
-    try pair.b.served.port.peer.session_state.registerImport(.from(7));
+    // The fixture grants the flood target out of band on both peers.
+    const flood_target = try pair.a.served.port.peer.exportNextObject();
+    try pair.a.served.port.peer.exportObject(flood_target);
+    try pair.b.served.port.peer.importObject(flood_target);
 
     var hits: usize = 0;
     _ = try pair.b.served.publish(&host.vat, "pressure", FeedPressure, .{
         .session = pair.b,
+        .target = .{ .far = model.FarRef.object(flood_target) },
         .hits = &hits,
     });
     var fetched = promise_capture.CapturedRef{};
@@ -404,6 +411,7 @@ const PendingPressure = struct {
 
 const FeedPressure = struct {
     session: *HostSession,
+    target: model.Reference,
     hits: *usize,
 
     pub fn handle(self: *FeedPressure, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
@@ -412,7 +420,7 @@ const FeedPressure = struct {
         self.hits.* += 1;
         while (true) {
             self.session.served.port.peer.sendBorrowed(.{ .deliver = .{
-                .target = .{ .far = model.FarRef.object(7) },
+                .target = self.target,
                 .args = &.{},
                 .answer = null,
             } }) catch |err| {

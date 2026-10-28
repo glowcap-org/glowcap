@@ -149,7 +149,7 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             const fd = listener.accepted.orderedRemove(0);
             // A listener that stopped at the unclaimed bound accepts again
             // once a claim makes room.
-            if (!listener.accept_armed and listener.setup == .ready)
+            if (!listener.accept_armed and listener.accept_failure == null and listener.setup == .ready)
                 self.armAccept(listener) catch |err| self.latch(err);
             const id = self.adopt(fd) catch |err| {
                 self.backend.closeFd(fd);

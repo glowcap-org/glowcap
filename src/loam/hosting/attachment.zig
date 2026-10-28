@@ -66,18 +66,14 @@ pub const Loading = struct { request: core.Read, submitted: bool = false, reader
 /// later demand read.
 pub const Reader = union(enum) { store, ahead, operation: usize };
 pub const Writing = struct { batch: core.Batch, operation: ?usize, submitted: bool = false, uncertain: bool = false };
-/// One staged publication tombstone this attachment owns the registry
-/// transition for. Reserved when the tombstone stages. Fenced (discovery
-/// removed) when its batch reaches an unknown outcome. Cleared at every
-/// confirmed retirement. Known-absent recovery retains bounded retry custody
-/// while advance restores the still-rooted recipe through the ordinary read
-/// and Host publication paths. Later write outcomes cannot discard that work.
+/// One staged publication tombstone and custody of its hidden Host row.
+/// Unknown outcomes preserve the exact row until recovery restores visibility
+/// or confirms removal, without allocation or loading the recipe again.
 pub const Retirement = struct {
     record: core.ObjectId,
     swiss: driver.Host.DurableSwiss,
     fenced: bool = false,
-    republish: bool = false,
-    registered: bool = false,
+    receipt: ?driver.Host.DurableRetirement = null,
 };
 
 pub const Attachment = struct {

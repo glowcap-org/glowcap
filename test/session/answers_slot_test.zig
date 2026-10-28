@@ -66,7 +66,11 @@ test "AnswerCell carries status independently of wire position" {
 test "InboundAnswerTable stores wire and virtual names independently" {
     const allocator = std.testing.allocator;
     var table: answers.InboundAnswerTable = .keyed(glowcap.foundation.identity_hash.default_multiplier);
-    defer table.deinit(allocator);
+    // The rows hold no payload, so teardown gives no charge back.
+    defer {
+        const released = table.deinit(allocator);
+        std.debug.assert(released.resolution == 0 and released.queued_calls == 0);
+    }
 
     const wire = model.AnswerName.fromWire(.from(11));
     const virtual = model.AnswerName.fromVirtual(.from(11));

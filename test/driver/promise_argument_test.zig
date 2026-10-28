@@ -322,6 +322,55 @@ test "a settled answer holds the partner object it names until the answer is rel
     try f.expectServing();
 }
 
+test "a lifted stored import survives either order of answer and Host capability release" {
+    for ([_]bool{ false, true }) |answer_first| {
+        var f: Fixture = undefined;
+        try f.init(.{ .verify_partner = false });
+        defer f.deinit();
+        const original = try fetchPartnerTarget(&f);
+        const far = f.acceptor.capabilities.resolve(original).?.remote.far;
+        const position = far.import_position;
+        const holder = &f.pair.b.served.port.peer.session_state;
+        const granter = &f.client().session_state;
+
+        try f.ask(7);
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        try f.acceptor.resolverFulfillValue(Greeter.resolver, dataNaming(original), arena.allocator());
+        try f.pump();
+        try f.acceptor.releaseCapability(original, 1);
+        try f.pump();
+        try std.testing.expectEqual(@as(u64, 1), holder.imports.resolutionHolds(position));
+        try std.testing.expectEqual(@as(u64, 1), holder.imports.rows.get(position.int()).?.held_back);
+
+        // Lifting a stored reference takes the parked retain back from the
+        // session. Its Host handle must survive retirement of the answer.
+        const lifted = try f.acceptor.liftCapability(f.pair.b, .{ .far = far });
+        try std.testing.expectEqual(@as(u64, 0), holder.imports.rows.get(position.int()).?.held_back);
+        if (answer_first) {
+            try f.client().sendBorrowed(.{ .gc_answer = .{ .positions = &.{7} } });
+        } else {
+            try f.acceptor.releaseCapability(lifted, 1);
+        }
+        try f.pump();
+        try std.testing.expectEqual(@as(u64, 1), holder.importRefcount(position));
+        try std.testing.expectEqual(@as(u64, 1), granter.exports.wireHeld(.from(position.int())));
+        try std.testing.expectEqual(@as(u64, if (answer_first) 0 else 1), holder.imports.resolutionHolds(position));
+
+        if (answer_first) {
+            try f.acceptor.releaseCapability(lifted, 1);
+        } else {
+            try f.client().sendBorrowed(.{ .gc_answer = .{ .positions = &.{7} } });
+        }
+        try f.pump();
+        try std.testing.expectEqual(@as(u64, 0), holder.importRefcount(position));
+        try std.testing.expectEqual(@as(u64, 0), holder.imports.resolutionHolds(position));
+        try std.testing.expectEqual(@as(u64, 0), granter.exports.wireHeld(.from(position.int())));
+        try std.testing.expectEqual(@as(usize, 0), holder.import_release_outbox.?.active_batches);
+        try f.expectServing();
+    }
+}
+
 test "a lifted answer that breaks breaks what was queued on it" {
     var f: Fixture = undefined;
     try f.init(.{ .verify_partner = false });

@@ -131,12 +131,12 @@ pub fn release(self: *Host, vow_id: u64) !void {
     // to wait for, and the session's close breaks the promise.
     if (row.watcher != null and !row.settled and !wire_dead) {
         try self.checkSession(session);
-        if (row.answer_release == .peer_visible)
+        if (settlement.ownsWireAnswer(row, session))
             row.observer_release = try session.served.port.peer.reserveAnswerRelease();
         row.handle_released = true;
         return;
     }
-    if (row.answer_release == .shared_peer_visible) {
+    if (row.answer_release == .shared) {
         const owned = row.pending_cancel.shared_answer;
         if (!row.settled) {
             cancelPendingTerminal(self, row, session);
@@ -158,7 +158,8 @@ pub fn release(self: *Host, vow_id: u64) !void {
     if (!row.settled and row.pending_cancel == .fallible_no_answer)
         try cancelPending(self, row, session);
 
-    if (row.answer_release == .peer_visible) {
+    const wire_answer = settlement.ownsWireAnswer(row, session);
+    if (wire_answer) {
         const answer = switch (row.vow) {
             .far => |answer| answer,
             .local => unreachable,
@@ -170,7 +171,7 @@ pub fn release(self: *Host, vow_id: u64) !void {
     }
 
     if (!row.settled) try cancelPending(self, row, session);
-    if (row.answer_release == .session_private) settlement.retireAnswerInSession(row, session);
+    if (row.answer_release == .owned and !wire_answer) settlement.retireAnswerInSession(row, session);
     retireReleased(self, row, fired);
 }
 
@@ -239,7 +240,7 @@ pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) v
             settlement.cancelObserverRelease(row, session);
             if (!row.settled) {
                 cancelPendingTerminal(self, row, session);
-            } else if (row.answer_release == .shared_peer_visible) {
+            } else if (row.answer_release == .shared) {
                 const owned = row.pending_cancel.shared_answer;
                 owned.func(self, row.id, owned.owner);
             }

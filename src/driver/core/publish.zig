@@ -75,8 +75,11 @@ pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
 /// Replacement changes discovery only. Existing capabilities keep reaching
 /// the displaced actor until Host teardown.
 pub fn publish(self: *Host, name: []const u8, comptime Behavior: type, initial: Behavior) !actors.Ref {
+    var initial_pending = true;
+    defer if (initial_pending) self.vat.discardInitial(Behavior, initial);
     try self.refuseReentry();
     try self.admitApplicationOperation();
+    initial_pending = false;
     const actor = try self.vat.spawn(Behavior, initial);
     errdefer self.vat.discardFreshActor(actor);
     try bindPublication(self, name, actor);
@@ -181,8 +184,11 @@ pub fn publishDurable(
     comptime Behavior: type,
     initial: Behavior,
 ) !DurableSwiss {
+    var initial_pending = true;
+    defer if (initial_pending) self.vat.discardInitial(Behavior, initial);
     try self.refuseReentry();
     try self.admitApplicationOperation();
+    initial_pending = false;
     const actor = try self.vat.spawn(Behavior, initial);
     errdefer self.vat.discardFreshActor(actor);
     return bindDurable(self, entropy, actor);
@@ -283,6 +289,44 @@ pub fn removeDurable(
 ) error{ ReenteredHost, WrongThread, HostClosing, UnknownPublication, NotDurableName }!void {
     try self.refuseReentry();
     try self.admitApplicationOperation();
+    try removeDurableRow(self, swiss);
+}
+
+/// Linear custody of one existing publication hidden during an uncertain
+/// retirement. The row retains its exact actor and allocation until this
+/// receipt either restores visibility or commits removal. Move, never copy.
+pub const DurableRetirement = struct {
+    host: ?*Host,
+    swiss: DurableSwiss,
+
+    pub fn finish(self: *DurableRetirement, committed: bool) void {
+        const host = self.host orelse return;
+        host.assertOwner();
+        const row = host.publications.getPtr(host.publication_secret, self.swiss.slice()).?;
+        std.debug.assert(!row.active);
+        if (!committed and host.lifecyclePhase().serving()) {
+            row.active = true;
+        } else {
+            const removed = host.publications.fetchRemove(host.publication_secret, self.swiss.slice()).?;
+            host.allocator.free(removed.value.name);
+            host.vat.releaseActor(removed.value.actor.local);
+        }
+        self.host = null;
+    }
+};
+
+/// Hide existing discovery for an already-submitted durable retirement.
+/// Cleanup remains legal after close. The receipt can only restore this exact
+/// row; it cannot mint a name or acquire authority from a supplied capability.
+pub fn fenceDurableRetirement(self: *Host, swiss: DurableSwiss) error{ ReenteredHost, WrongThread }!?DurableRetirement {
+    try self.refuseReentry();
+    const row = self.publications.getPtr(self.publication_secret, swiss.slice()) orelse return null;
+    if (!row.active) return null;
+    row.active = false;
+    return .{ .host = self, .swiss = swiss };
+}
+
+fn removeDurableRow(self: *Host, swiss: []const u8) error{ UnknownPublication, NotDurableName }!void {
     if (!engine.isDurableSwiss(swiss)) return error.NotDurableName;
     if (self.publications.get(self.publication_secret, swiss)) |row| if (!row.active) return error.UnknownPublication;
     const removed = self.publications.fetchRemove(self.publication_secret, swiss) orelse return error.UnknownPublication;

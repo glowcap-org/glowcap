@@ -113,7 +113,8 @@ pub fn sourceForResolver(self: *const Session, resolver: model.ExportPosition) ?
 
 /// Validate a proposed link without mutating the forest. Following self-roots
 /// includes pending targets and detects a partner-proposed cycle in bounded
-/// time. Every existing non-self link was admitted by this same check.
+/// time. Later callbacks may extend an admitted path, so this bounds the
+/// current validation walk rather than the depth of the whole forest.
 /// The deliver route classifier reaches here only after
 /// `sourceForShorteningResolver` saw this resolver's pending purpose in the
 /// same dispatch, so the read below can assert presence and a shortening
@@ -126,10 +127,9 @@ pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, 
         .none, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
     };
     if (!incarnationIsCurrent(self, source)) return;
-    // The edge would put `source` one hop above `target`'s chain, so the
-    // chain below `target` may hold one hop fewer than the limit. Every
-    // admitted edge keeps that bound, so `shortenedTarget` can stop after
-    // `max_resolution_chain` hops.
+    // Charge the proposed edge plus the current target path. Rewriting uses
+    // the same hop budget and may safely stop at an intermediate promise if
+    // later callbacks extend this path.
     var current = target.import_position;
     var hops: usize = 0;
     while (true) {

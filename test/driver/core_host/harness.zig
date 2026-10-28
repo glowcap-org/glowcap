@@ -175,7 +175,9 @@ pub fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *
     return did_work;
 }
 
-/// Pump shuttles and action drains until the whole network is quiescent.
+/// Pump shuttles and action drains until the whole network is quiescent,
+/// then hold every live pair to `oracle.agreement`
+/// (`host_pair.expectAgreement`).
 pub fn pumpToQuiescence(
     allocator: std.mem.Allocator,
     hosts: []const *Host,
@@ -186,7 +188,13 @@ pub fn pumpToQuiescence(
     while (rounds < 64) : (rounds += 1) {
         const moved = try shuttleAll(pairs);
         const acted = try drainActions(allocator, hosts, dials);
-        if (!moved and !acted) return;
+        if (!moved and !acted) {
+            // Closed pairs have no live wire relation. Every open pair must pass.
+            for (pairs) |pair| {
+                if (pair.a.wireLive() and pair.b.wireLive()) try host_pair.expectAgreement(pair);
+            }
+            return;
+        }
     }
     return error.PumpDidNotQuiesce;
 }

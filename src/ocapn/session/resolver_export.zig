@@ -38,9 +38,10 @@ pub const ResolverNomination = struct {
 };
 
 /// Reserve a fresh object export bound to a fresh outbound answer, and install
-/// that answer. The answer is installed here rather than by the caller after
-/// its send because a notification naming an answer we do not hold is refused
-/// by `validateInboundResolve`, and that refusal aborts the session.
+/// that answer as a listen record (`AnswerCell.listen_record`). The answer is
+/// installed here rather than by the caller after its send because a
+/// notification naming an answer we do not hold is refused by
+/// `validateInboundResolve`, and that refusal aborts the session.
 /// All-or-none, so a failure leaves no export row, no purpose, and no answer.
 ///
 /// `v1_0.mintOutboundResolver` binds an answer its own caller already owns, so
@@ -49,6 +50,8 @@ pub fn nominateResolverExport(self: *Session) !ResolverNomination {
     const answer = (try self.allocateOutboundAnswer()).position;
     errdefer self.abandonOutboundAnswer(answer);
     try self.installOutboundAnswer(answer);
+    const row = self.outbound_answers.getPtr(answer) orelse unreachable;
+    row.listen_record = true;
     const resolver_export = try bindFreshResolverExport(self, answer, .object, 0);
     return .{ .resolver_export = resolver_export, .answer = answer };
 }

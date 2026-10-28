@@ -190,12 +190,9 @@ fn runMixedSettlingConvergence(
     const target_incarnation = home_peer.session_state.shorteningIncarnationForImport(.from(target)).?;
     const target_listener = home_peer.session_state.promiseSettlingListenerExport(target_incarnation).?.int();
     if (release_application_before_settlement) {
-        try home_peer.sendBorrowed(.{ .gc_answer = .{ .positions = &.{application_answer.int()} } });
+        try home_peer.session_state.releaseOutboundAnswer(application_answer);
         while ((try home_peer.step()) != .idle) {}
-        while (home_peer.takeOutbound()) |frame_in| {
-            var frame = frame_in;
-            frame.deinit();
-        }
+        try std.testing.expect(home_peer.takeOutbound() == null);
         try std.testing.expect(home_peer.session_state.outboundAnswer(application_answer) == null);
         try std.testing.expect(home_peer.session_state.resolverPurpose(.from(target_listener)).? == .node_settling);
     }

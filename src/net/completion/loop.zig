@@ -290,6 +290,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // expose a socket that accepts strangers under its identity.
             const listen_fd: ?Fd = if (options.listen) |listen_port| blk: {
                 const fd = try backend_mut.openListener(Backend.loopListenTarget(listen_port));
+                errdefer backend_mut.closeFd(fd);
                 // A backend whose listener setup finishes later reports it
                 // pending. The loop's contract is a live listener at init, so
                 // the init caller drives the backend's own poll until the

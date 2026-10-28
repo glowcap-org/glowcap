@@ -134,7 +134,7 @@ pub fn commitFinalGc(self: *Session, name: model.AnswerName) void {
     const row = self.inbound_answers.getPtr(name) orelse unreachable;
     std.debug.assert(row.count == 1);
     row.count = 0;
-    _ = self.v1_0_inbound_resolver_link.removeByKey(name);
+    _ = self.v1_0_inbound_resolver_link.remove(name); // idempotent: an answer need not carry a resolver.
     if (row.payload) |answer_payload| {
         if (answer_payload.hasConsequences()) {
             const target: answers.AnswerTarget = .{ .name = name, .row_id = row.row_id };
@@ -301,7 +301,7 @@ pub fn clearResolver(self: *Session, target: answers.AnswerTarget, answer_payloa
     answer_payload.resolver_import = null;
     if (self.inbound_answers.getPtr(target.name)) |row| {
         if (row.row_id == target.row_id)
-            _ = self.v1_0_inbound_resolver_link.removeByKey(target.name);
+            _ = self.v1_0_inbound_resolver_link.remove(target.name); // idempotent: the callback may already have cleared its link.
     }
 }
 
@@ -347,16 +347,20 @@ pub fn retireVirtual(self: *Session, target: answers.AnswerTarget) void {
     if (self.local_promises != null and answer_payload.refs > 2) return;
     lifecycle.releaseInboundCell(self, row);
     self.inbound_answers.remove(target.name);
-    _ = self.v1_0_inbound_resolver_link.removeByKey(target.name);
+    _ = self.v1_0_inbound_resolver_link.remove(target.name); // idempotent: the callback may already have cleared its link.
 }
 
-pub fn deinitDetached(self: *Session) void {
-    const store = self.detached_inbound_answers orelse return;
+/// Free the detached store at teardown, returning the charges its payloads'
+/// final releases gave back for the session to subtract.
+pub fn deinitDetached(self: *Session) answers.ReleasedCharges {
+    const store = self.detached_inbound_answers orelse return .none;
+    var released: answers.ReleasedCharges = .none;
     var rows = store.rows.valueIterator();
-    while (rows.next()) |row| _ = answers.releaseAnswerPayload(self.allocator, row.payload);
+    while (rows.next()) |row| released.add(answers.releaseAnswerPayload(self.allocator, row.payload));
     store.rows.deinit(self.allocator);
     self.allocator.destroy(store);
     self.detached_inbound_answers = null;
+    return released;
 }
 
 /// Retire a settled answer's carrier once its notification has left: the

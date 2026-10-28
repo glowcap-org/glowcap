@@ -1,8 +1,8 @@
 //! Export/answer pairing for a Host-local promise projected onto one session.
 //!
 //! The export is the partner-visible promise reference. The virtual inbound
-//! answer is its settlement and pipelining cell. Their explicit BiMap link is
-//! the authority because CapTP allocates those namespaces independently.
+//! answer is its settlement and pipelining cell. The answer row and export
+//! purpose link their identities because CapTP allocates the namespaces independently.
 
 const std = @import("std");
 const model = @import("model");

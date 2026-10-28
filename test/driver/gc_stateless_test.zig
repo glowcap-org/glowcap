@@ -225,6 +225,39 @@ test "stateless GC releases every answer sharing a resolve callback" {
     try std.testing.expectEqual(@as(u64, 7), try body.gc_answer.positions.at(2));
 }
 
+test "stateless GC retires listen records locally alongside wire questions" {
+    for ([_]bool{ false, true }) |with_question| {
+        var peer = engine.Peer.initWithSession(std.testing.allocator, session.Session.initWith(std.testing.allocator, .{
+            .captp_version = .next,
+        }));
+        defer peer.deinit();
+        const nomination = try peer.session_state.nominateResolverExport();
+        const local = peer.session_state.outboundAnswerTarget(nomination.answer).?;
+        try peer.session_state.recordResolverCallbackResolve(.{
+            .answer = nomination.answer,
+            .resolution = .{ .fulfill = .{ .void = {} } },
+        });
+        var event = try resolverCallbackEvent(std.testing.allocator, local);
+        defer event.deinit();
+        if (with_question) {
+            try peer.session_state.installOutboundAnswer(.from(42));
+            try event.resolve_aliases.append(std.testing.allocator, peer.session_state.outboundAnswerTarget(.from(42)).?);
+        }
+        try driver.core.testing.emitStatelessAfter(&peer, &event);
+        try std.testing.expect(!peer.session_state.hasLiveOutboundAnswer(local));
+        if (with_question) {
+            try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+            var frame = peer.takeOutbound().?;
+            defer frame.deinit();
+            const body = try codec.syrup.decodeBodyForProfile(.next, frame.view());
+            try std.testing.expectEqual(@as(usize, 1), try body.gc_answer.positions.len());
+            try std.testing.expectEqual(@as(u64, 42), try body.gc_answer.positions.at(0));
+        }
+        try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+        try std.testing.expect(peer.takeOutbound() == null);
+    }
+}
+
 test "stateless GC reports an enqueue allocation failure" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var peer = engine.Peer.init(failing.allocator());
@@ -264,4 +297,98 @@ test "stateless GC refuses a resolve for a question already released" {
     try std.testing.expectError(error.GcUnderflow, driver.core.testing.emitStatelessAfter(&peer, &event));
     try std.testing.expect(peer.session_state.outboundAnswer(.from(5)) != null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+}
+
+test "stateless collection preserves callback replacements and batches mixed ownership" {
+    var peer = engine.Peer.initWithSession(std.testing.allocator, session.Session.initWith(std.testing.allocator, .{
+        .captp_version = .next,
+    }));
+    defer peer.deinit();
+    for (0..68) |i| try peer.session_state.installOutboundAnswer(.from(i));
+    var event = try resolverCallbackEvent(std.testing.allocator, peer.session_state.outboundAnswerTarget(.from(0)).?);
+    defer event.deinit();
+    for (1..68) |i| try event.resolve_aliases.append(std.testing.allocator, peer.session_state.outboundAnswerTarget(.from(i)).?);
+    const local = try peer.session_state.nominateResolverExport();
+    try event.resolve_aliases.append(std.testing.allocator, peer.session_state.outboundAnswerTarget(local.answer).?);
+    const claimed = peer.session_state.outboundAnswerTarget(.from(67)).?;
+    try std.testing.expect(peer.session_state.claimOutboundAnswerRelease(claimed));
+    const collection = try driver.core.testing.StatelessCollection.prepare(&peer, &event);
+
+    // A synchronous observer retires one answer and immediately reuses its
+    // position. Collection owns only the incarnation admitted before serving.
+    try peer.session_state.releaseOutboundAnswer(.from(66));
+    try peer.session_state.installOutboundAnswer(.from(66));
+    const replacement = peer.session_state.outboundAnswerTarget(.from(66)).?;
+    try collection.finish();
+    try std.testing.expect(peer.session_state.hasLiveOutboundAnswer(replacement));
+    try std.testing.expect(peer.session_state.hasLiveOutboundAnswer(claimed));
+    try std.testing.expect(!peer.session_state.outbound_answers.contains(local.answer));
+
+    var released: u64 = 0;
+    var batches: usize = 0;
+    while (try peer.step() == .progress) {
+        while (peer.takeOutbound()) |taken| {
+            var frame = taken;
+            defer frame.deinit();
+            const body = try codec.syrup.decodeBodyForProfile(.next, frame.view());
+            const count = try body.gc_answer.positions.len();
+            try std.testing.expect(count <= 32);
+            for (0..count) |i| {
+                try std.testing.expectEqual(released, try body.gc_answer.positions.at(i));
+                released += 1;
+            }
+            batches += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(u64, 66), released);
+    try std.testing.expectEqual(@as(usize, 3), batches);
+}
+
+test "stateless local alias collection requires no allocation" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = engine.Peer.init(failing.allocator());
+    defer peer.deinit();
+    const first = try peer.session_state.nominateResolverExport();
+    var event = try resolverCallbackEvent(std.testing.allocator, peer.session_state.outboundAnswerTarget(first.answer).?);
+    defer event.deinit();
+    for (0..40) |_| {
+        const local = try peer.session_state.nominateResolverExport();
+        try event.resolve_aliases.append(std.testing.allocator, peer.session_state.outboundAnswerTarget(local.answer).?);
+    }
+    failing.fail_index = failing.alloc_index;
+    try driver.core.testing.emitStatelessAfter(&peer, &event);
+    try std.testing.expect(!failing.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 0), peer.session_state.outbound_answers.len());
+    try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+    try std.testing.expect(peer.takeOutbound() == null);
+}
+
+test "stateless answer batching reports refusal after a committed prefix" {
+    var saw_prefix_refusal = false;
+    var saw_complete = false;
+    for (0..32) |offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.Peer.initWithSession(failing.allocator(), session.Session.initWith(failing.allocator(), .{
+            .captp_version = .next,
+        }));
+        defer peer.deinit();
+        for (0..65) |i| try peer.session_state.installOutboundAnswer(.from(i));
+        var event = try resolverCallbackEvent(std.testing.allocator, peer.session_state.outboundAnswerTarget(.from(0)).?);
+        defer event.deinit();
+        for (1..65) |i| try event.resolve_aliases.append(std.testing.allocator, peer.session_state.outboundAnswerTarget(.from(i)).?);
+        failing.fail_index = failing.alloc_index + offset;
+        const collected = driver.core.testing.emitStatelessAfter(&peer, &event);
+        failing.fail_index = std.math.maxInt(usize);
+        if (collected) |_| {
+            saw_complete = true;
+            try std.testing.expectEqual(@as(usize, 0), peer.session_state.outbound_answers.len());
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            const remaining = peer.session_state.outbound_answers.len();
+            try std.testing.expect(remaining == 65 or remaining == 33 or remaining == 1);
+            if (remaining != 65) saw_prefix_refusal = true;
+        }
+    }
+    try std.testing.expect(saw_prefix_refusal);
+    try std.testing.expect(saw_complete);
 }

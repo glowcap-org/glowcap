@@ -2,7 +2,7 @@
 //! Stamps preserve answer identity; they do not retain an internally chained
 //! projection. This allocation-free mark/sweep supplies that lifetime without
 //! strong reference cycles. Scratch lives in the existing resolver-purpose
-//! union and never participates in its BiMap identity.
+//! union and never changes the identity of its answer.
 //!
 //! A trace walks every projection, every inbound answer row, and every value
 //! those rows retain, and the partner drives every site that collects: a GC
@@ -183,7 +183,7 @@ fn trace(owner: *session.Session, registry: *local_promise.Registry) void {
     }
     marks.drain();
 
-    // The registry, not either table, drives the sweep, so removing a BiMap or
+    // The registry, not either table, drives the sweep, so removing an export or
     // answer row cannot invalidate the walk.
     var kept: usize = 0;
     for (registry.projections.items) |position| {

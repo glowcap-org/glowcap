@@ -129,6 +129,14 @@ test "listen: a host vow settles on the partner's notification, and is spent onc
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
     const held = try made.require();
 
+    // A public listen owns its local answer until explicit release, even
+    // when the session collects unclaimed actor answers automatically.
+    pair.a.served.serve_options.gc_stateless = true;
+    const public_listen = try client.listenTo(pair.a, held);
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try client.vowRelease(public_listen);
+    try client.vowRelease(public_listen);
+
     // Listening on it asks the partner how it settles. CapTP answers a listen
     // on an already-settled capability at once, so the notification comes back
     // naming the same object, proof the round trip ran, not that a promise

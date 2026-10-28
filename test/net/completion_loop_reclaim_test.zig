@@ -43,6 +43,9 @@ const DeadPeerBackend = struct {
     const read_error: i64 = -104;
 
     accepts: usize = 0,
+    refused_accept_closes: usize = 0,
+    setup_failure: bool = false,
+    close_counter: ?*usize = null,
     pool_free: usize = 0,
     ready: [16]completion.Completion = undefined,
     ready_len: usize = 0,
@@ -62,10 +65,10 @@ const DeadPeerBackend = struct {
         return port;
     }
 
-    /// A scripted listener binds at `openListener`; nothing pends here; a
-    /// wrapped adapter's pending setup reports through the adapter itself.
-    pub fn listenerPending(_: *@This(), _: Fd) bool {
-        return false;
+    /// A scripted listener normally binds at `openListener`. The failure
+    /// mode exercises an adapter that refuses while finishing setup.
+    pub fn listenerPending(self: *@This(), _: Fd) bool {
+        return self.setup_failure;
     }
 
     pub fn openListener(self: *@This(), port: u16) !Fd {
@@ -81,8 +84,8 @@ const DeadPeerBackend = struct {
         return address;
     }
     pub fn closeFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
+        if (fd == ok_fd) self.refused_accept_closes += 1;
+        if (self.close_counter) |count| count.* += 1;
     }
     pub const ConnectTarget = void;
     pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
@@ -143,6 +146,7 @@ const DeadPeerBackend = struct {
 
     pub fn poll(self: *DeadPeerBackend, out: []completion.Completion, timeout_ms: i32) !usize {
         _ = timeout_ms;
+        if (self.setup_failure) return error.ListenerSetupRefused;
         if (self.ready_len == 0) return error.FakeBackendStalled;
         const n = @min(out.len, self.ready_len);
         @memcpy(out[0..n], self.ready[0..n]);
@@ -166,6 +170,31 @@ fn watchClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: comp
     CloseWatch.fired += 1;
     CloseWatch.opened = report.opened;
     CloseWatch.failure_name = if (report.failure) |failure| failure.error_name else null;
+}
+
+test "completion loop closes its listener when pending setup fails" {
+    var closes: usize = 0;
+    try std.testing.expectError(error.ListenerSetupRefused, completion.Loop(DeadPeerBackend, no_dial.Unsupported).initWithBackend(std.testing.allocator, .{
+        .setup_failure = true,
+        .close_counter = &closes,
+    }, makeServerPeer, null, .{ .max_conns = 1, .listen = 0 }));
+    try std.testing.expectEqual(@as(usize, 1), closes);
+}
+
+test "completion loop closes an accepted descriptor once when peer construction refuses" {
+    const Refusing = struct {
+        fn make(_: ?*anyopaque, _: std.mem.Allocator) !engine.Peer {
+            return error.OutOfMemory;
+        }
+    };
+    var loop = try completion.Loop(DeadPeerBackend, no_dial.Unsupported).init(std.testing.allocator, Refusing.make, null, .{
+        .max_conns = 1,
+        .listen = 0,
+    });
+    defer loop.deinit();
+    try std.testing.expectError(error.OutOfMemory, loop.run(.{ .after_closed = 1 }));
+    try std.testing.expectEqual(@as(usize, 1), loop.backend.refused_accept_closes);
+    try std.testing.expectEqual(@as(usize, 0), loop.closed_count);
 }
 
 test "completion loop: a dead peer's read error reclaims the slot and fires on_close under run (ADR-0030)" {

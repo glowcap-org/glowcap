@@ -300,6 +300,8 @@ test "core host: local listen release retires answer and resolver ownership" {
     const baseline_exports = state.exports.len();
 
     const pending = try client.queueListenTo(opened.pair.a, opened.widget);
+    try std.testing.expectError(error.NotPipelineable, client.vowSend(pending, .{ .verb = "poke", .args = &.{} }));
+    try std.testing.expectError(error.NotPipelineable, client.vowIndex(pending, 0));
     const pending_answer = client.vows.get(pending).?.vow.far;
     const pending_resolver = state.resolverExportForAnswer(pending_answer.position).?;
     try std.testing.expectEqual(baseline_answers + 1, state.outbound_answers.len());
@@ -318,6 +320,7 @@ test "core host: local listen release retires answer and resolver ownership" {
     const settled_answer = client.vows.get(settled).?.vow.far;
     const settled_resolver = state.resolverExportForAnswer(settled_answer.position).?;
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{opened.pair}, &dials);
+    try std.testing.expectError(error.NotPipelineable, client.vowSend(settled, .{ .verb = "poke", .args = &.{} }));
     try std.testing.expectEqual(baseline_answers + 1, state.outbound_answers.len());
     try std.testing.expectEqual(@as(u64, 0), state.exports.wireHeld(settled_resolver));
     try client.vowRelease(settled);

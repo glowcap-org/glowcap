@@ -124,7 +124,6 @@ pub fn Machine(
             };
             const peer = self.make_peer(self.make_ctx, self.allocator) catch |err| {
                 Lifecycle.pushFreeSlot(self, slot);
-                self.backend.closeFd(fd);
                 return err;
             };
             const adopted = Lifecycle.adoptSlot(self, slot, fd, peer, true, .ordinary);

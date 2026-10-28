@@ -111,6 +111,9 @@ pub fn checkGcAnswerDecrement(
             .fromWire(.from(pos))
         else
             .from(pos);
+        if (comptime Id == model.AnswerPosition) {
+            if (!table.isQuestion(id)) return error.GcUnderflow;
+        }
         if (total > table.count(id)) return error.GcUnderflow;
     }
 }

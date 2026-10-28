@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
+const agreement = @import("oracle").agreement;
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
@@ -56,13 +57,37 @@ pub fn shuttleAll(pairs: []const Pair) !bool {
 }
 
 /// Pump shuttles until the whole network is quiescent, bounded so a
-/// ping-pong bug fails loud instead of spinning forever.
+/// ping-pong bug fails loud instead of spinning forever. At rest every pair
+/// whose wire is live both ways is held to `oracle.agreement`: each import a
+/// mention its partner made, each question an answer its partner owes, and
+/// each settled answer drained.
 pub fn pumpToQuiescence(pairs: []const Pair) !void {
     var rounds: usize = 0;
     while (rounds < 64) : (rounds += 1) {
-        if (!try shuttleAll(pairs)) return;
+        if (!try shuttleAll(pairs)) {
+            // Closed pairs have no live wire relation. Every open pair must
+            // be checked; queued Host work is not quiescence.
+            for (pairs) |pair| {
+                if (pair.a.wireLive() and pair.b.wireLive()) try expectAgreement(pair);
+            }
+            return;
+        }
     }
     return error.PumpDidNotQuiesce;
+}
+
+/// Require a live pair at rest and hold it to `oracle.agreement`. A send
+/// waiting on a Host action drain fails as `PairNotAtRest`; callers must
+/// drain that action before claiming the pair reached quiescence.
+pub fn expectAgreement(pair: Pair) !void {
+    if (!pair.a.wireLive() or !pair.b.wireLive()) return error.PairNotOpen;
+    const a = pair.a.served.port.peer;
+    const b = pair.b.served.port.peer;
+    if (!agreement.atRest(a) or !agreement.atRest(b)) return error.PairNotAtRest;
+    agreement.check(a, b) catch |err| {
+        if (agreement.find(a, b)) |finding| std.debug.print("disagreement: {any}\n", .{finding});
+        return err;
+    };
 }
 
 pub fn tcpLocator(designator: []const u8) model.PeerLocator {

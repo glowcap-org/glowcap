@@ -278,7 +278,7 @@ fn dispatchQueued(self: *Host, current: *Row, pending: *Row.PendingOperation, re
                 routed.session,
                 listener,
                 vow,
-                .session_private,
+                .owned,
                 null,
             );
         },
@@ -319,7 +319,7 @@ fn dispatchQueuedSend(self: *Host, routed: Host.RoutedSend, message: *Row.Pendin
         routed.session,
         listener,
         vow,
-        if (location == .far) .peer_visible else .none,
+        if (location == .far) .owned else .none,
         observer_release,
     );
     observer_release_live = false;

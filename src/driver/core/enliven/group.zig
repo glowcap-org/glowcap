@@ -90,7 +90,7 @@ pub fn reserve(host: *Host, session: *HostSession, id: u64, recipient: observati
     errdefer host.allocator.destroy(spare);
     const member = try host.allocator.create(Member);
     errdefer host.allocator.destroy(member);
-    var vow = try vows.reserveVowAt(host, session, .far, .plain, .shared_peer_visible, id);
+    var vow = try vows.reserveVowAt(host, session, .far, .plain, .shared, id);
     errdefer vow.deinit();
     const release = try session.served.port.peer.reserveAnswerRelease();
     errdefer session.served.port.peer.cancelPendingReservation(release);

@@ -2,12 +2,9 @@
 //!
 //! The table is dense over position (`position_slab.zig`), and a position
 //! whose row retires is the next one minted. The partner's `op:gc-answers`
-//! grammar grants that reuse. Under V1.0 the partner still names our
-//! position in its `op:resolve`, so a row released before its resolution
-//! arrived withholds its position for the rest of the session rather than
-//! letting a late resolve land on a new question. Under the next profile the
-//! resolution reaches us through the resolver export we minted, which has its
-//! own retirement, so the position frees at once.
+//! grammar grants that reuse. Both profiles settle through resolver exports;
+//! their tombstones consume callbacks that race an answer's release without
+//! addressing the new question at its reused position.
 //!
 //! Every row carries the session's store stamp. `OutboundAnswerTarget` pairs
 //! a position with that stamp, and `live` is the lookup for a holder that
@@ -48,12 +45,16 @@ pub const OutboundAnswerTable = struct {
         return std.math.cast(u32, position.int());
     }
 
-    pub fn deinit(self: *OutboundAnswerTable, allocator: std.mem.Allocator) void {
+    /// Free every row, returning the charges its payloads' final releases
+    /// gave back for the session to subtract.
+    pub fn deinit(self: *OutboundAnswerTable, allocator: std.mem.Allocator) store.ReleasedCharges {
+        var released: store.ReleasedCharges = .none;
         for (self.rows.slots.items) |*slot| switch (slot.*) {
-            .live => |*cell| _ = store.deinitAnswerCell(allocator, cell),
+            .live => |*cell| released.add(store.deinitAnswerCell(allocator, cell)),
             else => {},
         };
         self.rows.deinit(allocator);
+        return released;
     }
 
     pub fn iterator(self: *const OutboundAnswerTable) Iterator {
@@ -86,6 +87,12 @@ pub const OutboundAnswerTable = struct {
     pub fn contains(self: *const OutboundAnswerTable, position: Id) bool {
         const index = indexOf(position) orelse return false;
         return self.rows.contains(index);
+    }
+
+    /// A question the partner holds, rather than a local listen record.
+    pub fn isQuestion(self: *const OutboundAnswerTable, position: Id) bool {
+        const row = self.get(position) orelse return false;
+        return !row.listen_record;
     }
 
     pub fn count(self: *const OutboundAnswerTable, position: Id) u64 {
@@ -159,10 +166,5 @@ pub const OutboundAnswerTable = struct {
     /// and may see reused.
     pub fn remove(self: *OutboundAnswerTable, position: Id) void {
         self.rows.remove(indexOf(position).?);
-    }
-
-    /// Retire a row the partner may still resolve by position.
-    pub fn withhold(self: *OutboundAnswerTable, position: Id) void {
-        self.rows.withhold(indexOf(position).?);
     }
 };

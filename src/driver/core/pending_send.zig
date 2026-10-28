@@ -70,8 +70,9 @@ pub const PendingSend = struct {
                 // fire removed this entry first, and a disconnect's
                 // `breakFarVows` re-checks for registrations made during
                 // the break, so the chained vow can never strand.
+                const listener = self.served.port.reserveListener(self.vat, .far) catch |err| return self.fireBroken(@errorName(err));
                 const vow = self.served.send(self.vat, target, msg) catch |err| return self.fireBroken(@errorName(err));
-                self.served.on(self.vat, vow, .{ .ctx = self, .func = onTerminal }) catch |err| return self.fireBroken(@errorName(err));
+                self.served.port.onReserved(self.vat, listener, vow, .{ .ctx = self, .func = onTerminal });
             },
             .tell => {
                 self.served.tell(self.vat, target, msg) catch |err| return self.fireBroken(@errorName(err));

@@ -164,7 +164,7 @@ pub fn shuttle(from: *engine.Peer, to: *engine.Peer) void {
 /// One legitimate operation, chosen by the fuzzer. These are what build the
 /// tables the injected bytes then meet.
 pub fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine.Peer) !void {
-    switch (smith.valueRangeAtMost(u8, 0, 7)) {
+    switch (smith.valueRangeAtMost(u8, 0, 8)) {
         // Call the partner's bootstrap, which mints an answer on both sides.
         0 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
@@ -239,10 +239,20 @@ pub fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *en
         // Release a question this peer asked, while whatever the engine
         // queued against its answer may still be pending: the same shape as
         // the import release above, one table over.
-        else => {
+        7 => {
             const answer = heldOutboundAnswer(actor) orelse return;
             const positions = [_]u64{answer};
             actor.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..] } }) catch {};
+        },
+        // A stored resolution naming a partner object keeps that import
+        // alive across the application's release, until the answer leaves.
+        else => {
+            const answer = smith.valueRangeAtMost(u8, 1, 40);
+            const position = heldImport(actor, true, .lowest) orelse return;
+            actor.sendBorrowed(.{ .resolve = .{
+                .answer = model.AnswerPosition.from(answer),
+                .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(position) } } },
+            } }) catch {};
         },
     }
     try drainApplication(actor);

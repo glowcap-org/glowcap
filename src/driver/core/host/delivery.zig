@@ -298,14 +298,14 @@ fn commitRoutedSend(
     };
     const answer_release: vow_settlement.AnswerRelease = switch (location) {
         .local => .none,
-        .far => .peer_visible,
+        .far => .owned,
     };
     var reservation = try vows.reserveVow(self, routed.session, location, .plain, answer_release);
     defer reservation.deinit();
     if (observer) |recipient| switch (recipient) {
         .call => |owned| try @import("owned_call.zig").observe(owned, routed.session, reservation.getRow()),
         .listener => |listener| {
-            if (answer_release == .peer_visible)
+            if (answer_release == .owned)
                 reservation.getRow().observer_release = try routed.session.served.port.peer.reserveAnswerRelease();
             reservation.getRow().inner = listener;
         },

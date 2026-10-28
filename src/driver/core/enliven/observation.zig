@@ -150,7 +150,7 @@ pub const Recipient = union(enum) {
 
     pub fn observe(self: Recipient, host: *Host, session: *HostSession, row: *settlement.VowRow, provenance: host_mod.PeerProvenance) !void {
         if (self == .action) return;
-        if (row.answer_release == .peer_visible)
+        if (row.answer_release == .owned)
             row.observer_release = try session.served.port.peer.reserveAnswerRelease();
         // A pending dial can resume in another Zig archive's code image.
         // Retain the installed listener rather than reconstructing its address

@@ -33,8 +33,9 @@ const Peer = engine.Peer;
 /// export, the outbound answer, and the resolver link binding them. Outbound
 /// answers carry no cap because the session mints them itself. The bound is the
 /// application's own outstanding listens, the same bound an unanswered call
-/// has. The rows are dropped when the answer is released (`op:gc-answers`) and
-/// otherwise at session teardown. A failed send rolls all three back. The send
+/// has. The answer is a listen record (`AnswerCell.listen_record`) that never
+/// crosses the wire, so no `op:gc-answers` names it. The rows leave when the
+/// listen settles or at session teardown. A failed send rolls all three back. The send
 /// itself adds no per-message heap: the listen's two references are
 /// position-only and move through `send`.
 pub fn listenOnFar(peer: *Peer, target: model.Reference) !session.OutboundAnswerTarget {

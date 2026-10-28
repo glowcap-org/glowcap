@@ -123,6 +123,8 @@ pub const PreparedPipelinedCallQueue = pipeline.PreparedCallQueue;
 pub const InboundAnswerTable = answers.InboundAnswerTable;
 pub const OutboundAnswerTable = answers.OutboundAnswerTable;
 
+/// Each counter the session keeps beside its rows, checked against them.
+pub const audit = @import("audit.zig");
 pub const inspect = @import("inspect.zig");
 pub const ExportView = inspect.ExportView;
 pub const ImportView = inspect.ImportView;
@@ -259,11 +261,9 @@ pub const Session = struct {
     /// (ADR-0039). Empty until the partner's handshake half arrives with raw
     /// bytes (owned-message apply has none). Lives in `key_arena`.
     partner_acceptable_location_raw: []const u8 = &.{},
-    /// V1.0 inbound resolver link (ADR-0006): an answer-pos bound to the
-    /// resolver import position we target when we send our resolution
-    /// (`resolverForInboundAnswer` forward, `answerForResolverImport` reverse).
-    /// One `BiMap`, pruned whole when the answer is fully released by
-    /// `op:gc-answers`.
+    /// V1.0 answer names index their callback resolver imports (ADR-0006).
+    /// Each answer owns one retain even when several name the same resolver.
+    /// GC moves an outstanding callback into its detached answer payload.
     v1_0_inbound_resolver_link: InboundResolverLink,
     /// Resolved sturdyref enlivenments, mapping a swissnum to its `(import, kind)`
     /// (ADR-0007 dedup).
@@ -352,7 +352,6 @@ pub const Session = struct {
     pub const installInboundResolver = v1_0.installInboundResolver;
     pub const prepareInboundResolver = v1_0.prepareInboundResolver;
     pub const resolverForInboundAnswer = v1_0.resolverForInboundAnswer;
-    pub const answerForResolverImport = v1_0.answerForResolverImport;
     pub const prepareDeliveryResolver = deliver_resolver.prepare;
     pub const allocateInboundAnswer = deliver_resolver.allocateInboundAnswer;
     pub const answerTargetNamed = answer_notifications.answerTargetNamed;

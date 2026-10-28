@@ -245,13 +245,14 @@ pub fn openIngress(self: *Vat) Error!IngressId {
     return state.id;
 }
 
-/// Release an empty, inactive non-local ingress. Pending or running work is
+/// Release an empty, inactive non-local ingress. Staged, queued, or running work is
 /// authority: closing it early would erase accounting and reorder turns.
 pub fn closeIngress(self: *Vat, ingress: IngressId) Error!void {
     try self.admitMutation();
     if (ingress == .local) return error.IngressBusy;
     const state = self.ingresses.get(ingress) orelse return error.UnknownIngress;
-    if (state.pending_turns != 0 or state.active_turns != 0 or state.runnable) return error.IngressBusy;
+    if (state.pending_turns != 0 or state.active_turns != 0 or state.runnable or findStaged(self, state) != null)
+        return error.IngressBusy;
     std.debug.assert(state.first == null and state.last == null);
     std.debug.assert(self.ingresses.remove(ingress));
     self.allocator.destroy(state);
@@ -268,6 +269,7 @@ pub fn discardFreshIngress(self: *Vat, ingress: IngressId) void {
     const state = self.ingresses.fetchRemove(ingress) orelse unreachable;
     std.debug.assert(state.pending_turns == 0);
     std.debug.assert(state.active_turns == 0);
+    std.debug.assert(findStaged(self, state) == null);
     std.debug.assert(!state.runnable);
     std.debug.assert(state.runnable_next == null);
     std.debug.assert(state.first == null and state.last == null);

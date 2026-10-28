@@ -52,6 +52,25 @@ fn scope(fixture: *f.Fixture, declaration: []const Scope.Interface) !*Scope {
     return Scope.createCopying(&call, .{ .verb = "history", .args = &.{.{ .string = "original-conversation" }} }, declaration);
 }
 
+test "loam read scope weak cache survives local capability release while publication retains actor" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{ .max_continuation_targets = 1 });
+    defer fixture.deinit();
+    defer fixture.drain() catch unreachable;
+    const owner = try scope(&fixture, &interfaces);
+    defer owner.release();
+    const front = try owner.project(fixture.root, 0);
+    const actor = fixture.host.localActorFor(front).?;
+    const swiss = try fixture.host.publishDurableCapability(@splat(0x91), front);
+    defer fixture.host.removeDurable(swiss.slice()) catch unreachable;
+    try fixture.host.releaseCapability(front, 1);
+    try std.testing.expect(fixture.host.localActorFor(front) == null);
+    try std.testing.expect(fixture.host.vat.hasActor(actor.local));
+    const repeated = try owner.project(fixture.root, 0);
+    defer fixture.host.releaseCapabilityTerminal(repeated, null);
+    try std.testing.expectEqual(actor, fixture.host.localActorFor(repeated).?);
+}
+
 test "loam read scope recursively preserves exact identity and refuses undeclared verbs and results" {
     var fixture: f.Fixture = undefined;
     try fixture.init(.{});

@@ -227,7 +227,7 @@ pub const AnswerPayload = struct {
     /// the retains a forwarded reply introduced; final payload release
     /// queues its settlement. Replaced with the resolution.
     held_imports: ?*@import("../import_release_outbox.zig").Batch = null,
-    /// V1.0's independently accepted resolver callback. The BiMap remains the
+    /// V1.0's independently accepted resolver callback. The map remains the
     /// live answer-name index. This captured import is the detached obligation
     /// that survives removal and legal reuse of that name.
     resolver_import: ?model.ImportPosition = null,
@@ -290,6 +290,10 @@ pub const AnswerCell = struct {
     /// settlement can precede notification, so answer_status cannot own this
     /// guard. Meaningless on inbound rows. Retired rows need no marker.
     application_notification_consumed: bool = false,
+    /// The row records what a listen learns (`ResolverNomination`), and its
+    /// position never went on the wire: the partner holds no answer for it,
+    /// so no `op:gc-answers` may name it. Meaningless on inbound rows.
+    listen_record: bool = false,
     payload: ?*AnswerPayload = null,
     /// Next-profile local settling fan-out. The target import owns the ordered
     /// answer list. This back-link makes `op:gc-answers` removal O(1) without a
@@ -387,10 +391,14 @@ pub const InboundAnswerTable = struct {
         self.rows.keyWire(multiplier);
     }
 
-    pub fn deinit(self: *InboundAnswerTable, allocator: std.mem.Allocator) void {
+    /// Free every row, returning the charges its payloads' final releases
+    /// gave back for the session to subtract.
+    pub fn deinit(self: *InboundAnswerTable, allocator: std.mem.Allocator) ReleasedCharges {
+        var released: ReleasedCharges = .none;
         var it = self.rows.valueIterator();
-        while (it.next()) |cell| _ = deinitAnswerCell(allocator, cell);
+        while (it.next()) |cell| released.add(deinitAnswerCell(allocator, cell));
         self.rows.deinit(allocator);
+        return released;
     }
 
     pub fn getPtr(self: *const InboundAnswerTable, position: Id) ?*AnswerCell {
@@ -494,6 +502,11 @@ pub const ReleasedCharges = struct {
     queued_calls: usize = 0,
 
     pub const none: ReleasedCharges = .{};
+
+    pub fn add(self: *ReleasedCharges, other: ReleasedCharges) void {
+        self.resolution += other.resolution;
+        self.queued_calls += other.queued_calls;
+    }
 };
 
 /// Release one owner of a stable answer payload. Returns the exact retained

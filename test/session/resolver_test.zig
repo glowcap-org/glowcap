@@ -72,11 +72,9 @@ test "v1.0 session records and queries resolver-callback links" {
     try s.installInboundResolver(.fromWire(.from(99)), .from(3));
     try std.testing.expectEqual(@as(?model.ImportPosition, .from(3)), s.resolverForInboundAnswer(.fromWire(.from(99))));
     try std.testing.expectEqual(@as(?model.ImportPosition, null), s.resolverForInboundAnswer(.fromWire(.from(100))));
-    // The inverse link is queryable too, keyed by the resolver import.
-    try std.testing.expectEqual(@as(?model.AnswerName, .fromWire(.from(99))), s.answerForResolverImport(.from(3)));
 }
 
-test "v1.0 inbound resolver links never evict accepted authority" {
+test "v1.0 inbound resolver links share imports without replacing answers" {
     var s = session.Session.initWith(std.testing.allocator, .{
         .captp_version = .v1_0,
         .features = model.FeatureSet.full(),
@@ -90,17 +88,14 @@ test "v1.0 inbound resolver links never evict accepted authority" {
         session.Error.UnexpectedMessage,
         s.installInboundResolver(first_answer, .from(8)),
     );
-    try std.testing.expectError(
-        session.Error.UnexpectedMessage,
-        s.installInboundResolver(.fromWire(.from(42)), .from(7)),
-    );
+    try s.installInboundResolver(.fromWire(.from(42)), .from(7));
+    try std.testing.expectEqual(@as(?model.ImportPosition, .from(7)), s.resolverForInboundAnswer(.fromWire(.from(42))));
 
     try std.testing.expectEqual(
         @as(?model.ImportPosition, .from(7)),
         s.resolverForInboundAnswer(first_answer),
     );
-    try std.testing.expectEqual(@as(?model.AnswerName, first_answer), s.answerForResolverImport(.from(7)));
-    try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(7)));
+    try std.testing.expectEqual(@as(u64, 2), s.importRefcount(.from(7)));
     try std.testing.expect(!s.hasImport(.from(8)));
 }
 
@@ -145,7 +140,7 @@ test "nominateResolverExport installs the answer it hands back, so no caller can
     try std.testing.expect(s.outbound_answers.contains(second.answer));
 }
 
-test "v1.0 gc-answers drops both directions of the inbound resolver link" {
+test "v1.0 gc-answers moves the resolver obligation off the wire name" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .captp_version = model.CaptpVersion.v1_0,
@@ -154,7 +149,7 @@ test "v1.0 gc-answers drops both directions of the inbound resolver link" {
     defer s.deinit();
 
     // The partner delivers to our export 1, opening inbound answer 99, and we
-    // record resolver import 3 as its resolve-me target (both link directions).
+    // record resolver import 3 as its resolve-me target.
     try s.registerExport(.from(1));
     try s.recordRecv(.{ .deliver = .{
         .target = .{ .near = .{ .export_position = .from(1) } },
@@ -163,13 +158,11 @@ test "v1.0 gc-answers drops both directions of the inbound resolver link" {
     } });
     try s.installInboundResolver(.fromWire(.from(99)), .from(3));
     try std.testing.expectEqual(@as(?model.ImportPosition, .from(3)), s.resolverForInboundAnswer(.fromWire(.from(99))));
-    try std.testing.expectEqual(@as(?model.AnswerName, .fromWire(.from(99))), s.answerForResolverImport(.from(3)));
 
-    // The partner GCs the answer: the forward map and its inverse drop together,
-    // so a long-lived session never accumulates orphaned reverse-link rows.
+    // The partner GCs the answer: the name leaves the index while its
+    // accepted callback remains on the detached payload.
     try s.recordRecv(.{ .gc_answer = .{ .positions = &.{99} } });
     try std.testing.expectEqual(@as(?model.ImportPosition, null), s.resolverForInboundAnswer(.fromWire(.from(99))));
-    try std.testing.expectEqual(@as(?model.AnswerName, null), s.answerForResolverImport(.from(3)));
 }
 
 test "v1.0 borrowed inbound raw resolve is rejected" {

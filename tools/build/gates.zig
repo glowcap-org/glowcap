@@ -45,6 +45,9 @@ pub const Registered = struct {
     /// reads the on-disk artifact it writes.
     wasm_install: *std.Build.Step,
     wasm_archives: *std.Build.Step,
+    /// The scenario and agreement layer, for a test root outside the main
+    /// suite whose pair harness holds pairs to the agreement.
+    oracle: *std.Build.Module,
 };
 
 /// The full `src/root.zig` module graph for an arbitrary target, used by the
@@ -317,6 +320,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = .Debug,
     });
     memcheck_mod.addImport("glowcap", memcheck_mods[layerIndex("glowcap")]);
+    memcheck_mod.addImport("oracle", memcheck_mods[layerIndex("oracle")]);
     frame_identity.addFixtures(b, memcheck_mod, memcheck_target, .Debug);
     memcheck_mod.addImport("syrup", memcheck_mods[layerIndex("syrup")]);
     const memcheck_layers = b.addOptions();
@@ -334,16 +338,16 @@ pub fn register(ctx: Context) Registered {
     b.step("test-memcheck", "Run the protocol core and actors tests under valgrind, built for the baseline CPU (-Dtest-filter narrows it)").dependOn(&run_memcheck.step);
     b.step("test-memcheck-build", "Compile the test-memcheck suite without running it").dependOn(&memcheck_tests.step);
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
-    // Outside `check`: a search with no natural end does not
-    // belong in a gate that has to finish. What `check` does carry is the
-    // replay of everything the fuzzer has already found, which is the part
-    // that must never regress.
+    // Search stays outside `check`. The finite gate compiles this separate
+    // root as well as replaying the corpus through the ordinary suite: that
+    // suite cannot prove the standalone fuzz module has all its imports.
     const fuzz_mod = b.createModule(.{
         .root_source_file = b.path("test/fuzz_check.zig"),
         .target = target,
         .optimize = optimize,
     });
     fuzz_mod.addImport("glowcap", lib_mod);
+    fuzz_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
     // The immutable collections use the same direct leaf import as the suite;
     // their fuzz target needs neither graph storage nor an LMDB backend, and
     // its fuzz target drives it against a plain map to see where they disagree.
@@ -360,6 +364,7 @@ pub fn register(ctx: Context) Registered {
     });
     const fuzz_run_step = b.step("fuzz-run", "Fuzz worker: `zig build fuzz` drives this, or add --fuzz yourself for Zig's coverage UI");
     fuzz_run_step.dependOn(&execution.addZigTest(b, fuzz_tests, .search).step);
+    check_step.dependOn(&fuzz_tests.step);
 
     const fuzz_budget = b.option([]const u8, "fuzz-runs", "How long `zig build fuzz` searches each target (default 500K; accepts K, M, G suffixes)") orelse "500K";
     const fuzz_driver_exe = b.addExecutable(.{
@@ -621,5 +626,6 @@ pub fn register(ctx: Context) Registered {
         .test_filter = test_filter,
         .wasm_install = &wasm_driver_install.step,
         .wasm_archives = wasm_archives_step,
+        .oracle = host_mods[layerIndex("oracle")],
     };
 }

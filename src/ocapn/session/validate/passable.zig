@@ -273,7 +273,7 @@ fn validatePromiseReference(
 ) Error!void {
     if (perspective == .sent and carrier == .resolution) return error.InvalidReference;
     const live = switch (perspective) {
-        .sent => self.outbound_answers.contains(promise.answer_position),
+        .sent => self.outbound_answers.isQuestion(promise.answer_position),
         .received => self.inbound_answers.contains(.fromWire(promise.answer_position)),
     };
     if (!live) return error.InvalidReference;

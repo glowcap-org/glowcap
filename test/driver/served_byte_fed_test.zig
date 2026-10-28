@@ -17,6 +17,93 @@ const support_actors = @import("../support/actors.zig");
 /// The published actor: answers `greet(name)` with a static greeting.
 const Greeter = support_actors.StaticReplyActor("greet", "hello from the hosting vat");
 
+test "actor initial ownership survives refusal before the Vat spawn" {
+    const Initial = struct {
+        drops: *usize,
+        pub fn handle(_: *@This(), _: *actors.Turn, _: actors.Delivery) !model.Argument {
+            return .{ .void = {} };
+        }
+        pub fn deinit(self: *@This(), _: std.mem.Allocator) void {
+            self.drops.* += 1;
+        }
+    };
+    for ([_]bool{ false, true }) |publish| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.Peer.init(failing.allocator());
+        defer peer.deinit();
+        var vat = actors.Vat.init(std.testing.allocator);
+        defer vat.deinit();
+        var served = driver.Served.over(std.testing.allocator, &peer);
+        defer served.deinit(&vat);
+        var drops: usize = 0;
+        failing.fail_index = failing.alloc_index;
+        if (publish) {
+            try std.testing.expectError(error.OutOfMemory, served.publish(&vat, "actor", Initial, .{ .drops = &drops }));
+        } else {
+            try std.testing.expectError(error.OutOfMemory, served.spawn(&vat, Initial, .{ .drops = &drops }));
+        }
+        try std.testing.expectEqual(@as(usize, 1), drops);
+        try std.testing.expectEqual(@as(usize, 0), vat.actors.count());
+    }
+    for (0..3) |operation| {
+        var host = @import("../support/core_host.zig").init(std.testing.allocator, @splat(0x41), .{});
+        defer host.deinit();
+        host.beginClose(.{ .finish = .unbounded }, 0);
+        var drops: usize = 0;
+        switch (operation) {
+            0 => try std.testing.expectError(error.HostClosing, host.spawn(null, Initial, .{ .drops = &drops })),
+            1 => try std.testing.expectError(error.HostClosing, host.publish("actor", Initial, .{ .drops = &drops })),
+            2 => try std.testing.expectError(error.HostClosing, host.publishDurable(@splat(0x42), Initial, .{ .drops = &drops })),
+            else => unreachable,
+        }
+        try std.testing.expectEqual(@as(usize, 1), drops);
+        try std.testing.expectEqual(@as(usize, 0), host.vat.actors.count());
+    }
+}
+
+test "named send refuses listener allocation before publishing either leg" {
+    for ([_]bool{ false, true }) |delivery| {
+        var pair = try engine.pairing.paired(std.testing.allocator);
+        defer pair.deinit();
+        var vat = actors.Vat.init(std.testing.allocator);
+        defer vat.deinit();
+        // Only the Port listener allocator fails: wire admission remains able
+        // to publish effects, so ordering is observable independently of OOM.
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var client = driver.Served.over(failing.allocator(), &pair.p1);
+        defer client.deinit(&vat);
+        var flag = driver.SettleFlag{ .inner = .{ .ctx = null, .func = struct {
+            fn fire(_: ?*anyopaque, _: actors.Resolution) void {}
+        }.fire } };
+        const listener: actors.Listener = .{ .ctx = &flag, .func = driver.SettleFlag.fire };
+        var pending: driver.PendingSend = undefined;
+        if (delivery) {
+            try pair.p2.exportObject(7);
+            try pair.p1.importObject(7);
+            pending = .{
+                .served = &client,
+                .vat = &vat,
+                .msg_arena = std.heap.ArenaAllocator.init(std.testing.allocator),
+                .verb = "invoke",
+                .terminal = listener,
+            };
+            defer pending.deinit();
+            failing.fail_index = failing.alloc_index;
+            driver.PendingSend.onFetch(&pending, .{ .fulfilled = .{ .reference = .{ .far = model.FarRef.object(7) } } });
+            try std.testing.expect(flag.done);
+        } else {
+            failing.fail_index = failing.alloc_index;
+            try std.testing.expectError(error.OutOfMemory, client.beginSendNamed(&vat, &pending, "target", .{ .verb = "invoke" }, listener));
+            try std.testing.expect(!flag.done);
+        }
+        try std.testing.expect(failing.has_induced_failure);
+        try std.testing.expectEqual(@as(usize, 0), client.port.far_listeners.count());
+        try std.testing.expectEqual(@as(usize, 0), pair.p1.session_state.outbound_answers.len());
+        try std.testing.expect(!pair.p1.hasOutbound());
+        try std.testing.expect(pair.p1.pending_send.isEmpty());
+    }
+}
+
 // ── Byte-fed drive (ADR-0022) ────────────────────────────────────────────────
 //
 // A `driver.Served` owns no socket: the caller feeds inbound frames with

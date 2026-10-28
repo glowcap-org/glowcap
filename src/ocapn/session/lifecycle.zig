@@ -9,6 +9,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 
+const audit = @import("audit.zig");
 const answer_notifications = @import("answers/notifications.zig");
 const imported_promises = @import("promises/imported.zig");
 const limits = @import("limits.zig");
@@ -134,15 +135,25 @@ pub fn keyWireTables(self: *Session, multiplier: u64, bearer_secret: u64) void {
     self.v1_0_inbound_resolver_link.keyWire(multiplier);
 }
 
-/// Retire every Session-owned allocation exactly once.
+/// Retire every Session-owned allocation exactly once. Every owner outside
+/// the session, a queued carrier or a Host promise, released its payload
+/// first, so each charge comes back here with the payload or batch that took
+/// it and both counters end at zero. Under runtime safety the bookkeeping is
+/// checked against its rows first (`audit.check`).
 pub fn deinit(self: *Session) void {
+    if (comptime std.debug.runtime_safety) audit.check(self) catch unreachable;
+    // Every Host subscription unsubscribed before teardown.
+    std.debug.assert(self.inbound_answers.host_promises == 0);
     self.exports.deinit(self.allocator);
     self.imports.deinit(self.allocator);
-    self.inbound_answers.deinit(self.allocator);
-    self.outbound_answers.deinit(self.allocator);
-    answer_notifications.deinitDetached(self);
+    var released = self.inbound_answers.deinit(self.allocator);
+    released.add(self.outbound_answers.deinit(self.allocator));
+    released.add(answer_notifications.deinitDetached(self));
+    self.returnReleasedCharges(released);
     local_promise.destroyRegistry(self);
     if (self.import_release_outbox) |outbox| outbox.deinit(self);
+    std.debug.assert(self.retained_sent_answer_bytes == 0);
+    std.debug.assert(self.queued_call_bytes == 0);
     // Bootstrap key bytes live in `key_arena`, freed wholesale below.
     self.bootstrap.deinit(self.allocator);
     var imported_it = self.imported_promises.valueIterator();

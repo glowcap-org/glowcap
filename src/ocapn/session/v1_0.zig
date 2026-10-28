@@ -16,7 +16,7 @@
 //!
 //! The links are authoritative session state, so they live on `Session`. This
 //! file owns the V1.0 operations over them. The fields
-//! (`v1_0_inbound_resolver_link`, a `BiMap` holding both directions, plus
+//! (`v1_0_inbound_resolver_link`, indexed by answer name, plus
 //! `next_virtual_inbound_answer`) stay on `Session`, and `Session` aliases each
 //! function below so the call sites read as ordinary methods. The engine's
 //! encode-side V1.0 hooks live separately in `engine/v1_0.zig`. This is only the
@@ -45,7 +45,7 @@ pub const PreparedInboundResolver = struct {
             @import("deliver_resolver.zig").commitVirtualInboundAnswer(target, virtual);
             target.commitFreshInboundAnswerNamed(self.answer);
         }
-        target.v1_0_inbound_resolver_link.putAssumeNoClobber(
+        target.v1_0_inbound_resolver_link.putAssumeCapacityNoClobber(
             self.answer,
             self.resolver_import,
         );
@@ -82,9 +82,8 @@ pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model
 
 /// Record that the partner's inbound `answer` is resolved via their resolver
 /// import `resolver_import` (advertised in the deliver's `resolve_me_desc`).
-/// All-or-none: a failure on either map put rolls back everything already
-/// committed, the import retain and the forward entry, so no half-installed
-/// resolver row survives.
+/// Prepare both capacities before committing the import retain and link, so
+/// allocation failure leaves neither a retain nor a half-installed resolver.
 pub fn installInboundResolver(self: *Session, answer: model.AnswerName, resolver_import: model.ImportPosition) !void {
     try self.imports.prepareRetain(
         self.allocator,
@@ -98,17 +97,16 @@ pub fn installInboundResolver(self: *Session, answer: model.AnswerName, resolver
 
 /// Prepare a fresh answer-to-resolver link. `virtual_answer` is present only
 /// for the V1.0 resolver-only call shape. Its answer row and cursor advance are
-/// part of the same eventual commit. Existing pairs are refused rather than
-/// evicted: either collision names authority already accepted from an earlier status-allow: event or source ordering
-/// frame.
+/// part of the same eventual commit. An answer already linked is refused
+/// rather than replaced. Independent answers may share the partner's resolver
+/// capability, each with its own retained mention and callback obligation.
 pub fn prepareInboundResolver(
     self: *Session,
     answer: model.AnswerName,
     resolver_import: model.ImportPosition,
     virtual_answer: ?model.VirtualAnswer,
 ) !PreparedInboundResolver {
-    if (self.v1_0_inbound_resolver_link.getByKey(answer) != null or
-        self.v1_0_inbound_resolver_link.getByValue(resolver_import) != null)
+    if (self.v1_0_inbound_resolver_link.contains(answer))
         return error.UnexpectedMessage;
 
     if (virtual_answer) |virtual| {
@@ -126,12 +124,5 @@ pub fn prepareInboundResolver(
 /// The partner's resolver import for an inbound `answer`, if one was
 /// advertised, the target our outbound resolution deliver addresses.
 pub fn resolverForInboundAnswer(self: *const Session, answer: model.AnswerName) ?model.ImportPosition {
-    return self.v1_0_inbound_resolver_link.getByKey(answer);
-}
-
-/// The inbound `answer` a resolver import was installed for, the reverse
-/// of `resolverForInboundAnswer`. Used by bootstrap-fetch detection when the
-/// V1.0 resolver-only pattern has no wire answer-position.
-pub fn answerForResolverImport(self: *const Session, resolver_import: model.ImportPosition) ?model.AnswerName {
-    return self.v1_0_inbound_resolver_link.getByValue(resolver_import);
+    return self.v1_0_inbound_resolver_link.get(answer);
 }

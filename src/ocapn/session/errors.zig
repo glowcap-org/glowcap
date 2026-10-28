@@ -80,11 +80,11 @@ pub const Error = error{
     /// `SessionLimits.max_lifted_answers` (ADR-0068). The one call fails and
     /// the session keeps serving. Projects to `resource_exhausted`.
     LiftedAnswerCapExceeded,
-    /// A shortening callback would extend a promise chain past
-    /// `SessionLimits.max_resolution_chain`. Every chain walk (rewriting a
-    /// mention, validating a callback) is bounded by that admission, so a
-    /// partner cannot make one message cost a walk over its whole import
-    /// table. Projects to `resource_exhausted`.
+    /// A shortening callback's target walk exhausted
+    /// `SessionLimits.max_resolution_chain` before proving the link acyclic.
+    /// Rewriting independently bounds its walk and can stop at an intermediate
+    /// promise. Later callbacks may extend an admitted path; this is a work
+    /// budget, not a forest-depth invariant. Projects to `resource_exhausted`.
     ShorteningChainTooLong,
     /// An inbound argument tree nested deeper than
     /// `SessionLimits.max_nesting_depth`. The recursive validate / install walk

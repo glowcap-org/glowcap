@@ -263,5 +263,8 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
     try support.shuttleAndTraceEvents(allocator, &out, exporter_to_recipient, &recipient_to_exporter, "recipient");
     try out.appendSlice(allocator, "\n");
 
+    try support.expectAgreement(&gifter_to_recipient, &recipient_to_gifter);
+    try support.expectAgreement(&gifter_to_exporter, exporter_to_gifter);
+    try support.expectAgreement(&recipient_to_exporter, exporter_to_recipient);
     return out.toOwnedSlice(allocator);
 }

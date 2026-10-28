@@ -26,6 +26,27 @@ const dial_opts: driver.SessionOptions = .{
 const FirstService = support_actors.StaticReplyValueActor("poke", "first service");
 const SecondService = support_actors.StaticReplyValueActor("poke", "second service");
 
+test "durable publication URI allocation refusal leaves no publication" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var server = try driver.listen(
+        std.testing.allocator,
+        threaded.io(),
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        dial_opts,
+    );
+    defer server.deinit();
+    const before = server.runtime.core.publications.count();
+    const actors_before = server.runtime.core.vat.actors.count();
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    try std.testing.expectError(error.OutOfMemory, server.publishDurable(failing.allocator(), FirstService, .{}));
+    try std.testing.expectEqual(before, server.runtime.core.publications.count());
+    try std.testing.expectEqual(actors_before, server.runtime.core.vat.actors.count());
+}
+
 test "durable publication uses the host's selected acceptable location" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});

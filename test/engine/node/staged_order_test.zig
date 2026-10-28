@@ -103,6 +103,7 @@ test "retracting a staged gift retires its queued release without sending either
         defer fixture.deinit();
         const recipient = fixture.recipient;
         const answer = fixture.answer.?;
+        try std.testing.expect(recipient.isWireAnswer(answer));
         const release = try recipient.reserveAnswerRelease();
         recipient.publishAnswerRelease(release, answer);
         const Retractions = struct {
@@ -126,6 +127,7 @@ test "retracting a staged gift retires its queued release without sending either
         try recipient.stepToIdle();
         try std.testing.expect(recipient.takeOutbound() == null);
         try std.testing.expect(!recipient.canObserveAnswer(answer));
+        try std.testing.expect(!recipient.isWireAnswer(answer));
         try std.testing.expect(recipient.session_state.outboundAnswer(answer.position) == null);
         try std.testing.expectEqual(@as(usize, 0), recipient.pending_send_bytes);
         try std.testing.expectEqual(@as(usize, 0), recipient.pending_send_reservations);

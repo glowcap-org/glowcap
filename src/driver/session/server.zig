@@ -112,7 +112,10 @@ pub const Server = struct {
     /// it lazily. Exact gifts retain that actor independently of later name
     /// changes.
     pub fn publish(self: *Server, name: []const u8, comptime Behavior: type, initial: Behavior) !void {
-        try self.ensureOpen();
+        self.ensureOpen() catch |err| {
+            self.runtime.core.vat.discardInitial(Behavior, initial);
+            return err;
+        };
         return self.runtime.publish(name, Behavior, initial);
     }
 
@@ -136,18 +139,24 @@ pub const Server = struct {
     /// sans-io core only ever sees the bytes. `Behavior` is Value-shaped like
     /// every owning-tier behavior.
     pub fn publishDurable(self: *Server, allocator: std.mem.Allocator, comptime Behavior: type, initial: Behavior) ![]u8 {
+        var initial_pending = true;
+        defer if (initial_pending) self.runtime.core.vat.discardInitial(Behavior, initial);
         try self.ensureOpen();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
         var entropy: [engine.durable_swiss_entropy_len]u8 = undefined;
         self.runtime.io.randomSecure(&entropy) catch return driver.Error.MintEntropyFailed;
-        const swiss = try self.runtime.core.publishDurable(entropy, driver_core.Hosting(Behavior), .{ .inner = initial });
         const advertised = self.runtime.core.acceptableLocator() orelse
             return error.MissingAdvertisedLocator;
-        return model.uri.writeSturdyrefForProfile(allocator, self.runtime.opts.captp_version, .{
+        const swiss = driver_core.Host.DurableSwiss.fromEntropy(entropy);
+        const uri = try model.uri.writeSturdyrefForProfile(allocator, self.runtime.opts.captp_version, .{
             .peer = advertised,
             .swissnum = swiss.slice(),
         });
+        errdefer allocator.free(uri);
+        initial_pending = false;
+        _ = try self.runtime.core.publishDurable(entropy, driver_core.Hosting(Behavior), .{ .inner = initial });
+        return uri;
     }
 
     /// Remove a minted durable publication (see `driver_core.Host.removeDurable`):

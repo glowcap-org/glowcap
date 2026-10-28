@@ -67,7 +67,10 @@ pub const HostTurn = struct {
     /// This is the owning-tier twin of `spawnAt`. The spawned behavior is
     /// Value-shaped like every owning-tier behavior.
     pub fn spawn(self: *HostTurn, comptime Behavior: type, initial: Behavior) !capability.Ref {
-        const reservation = try self.host.reserveFreshCapability(self.session);
+        const reservation = self.host.reserveFreshCapability(self.session) catch |err| {
+            self.turn.vat.discardInitial(Behavior, initial);
+            return err;
+        };
         const ref = try self.turn.vat.spawn(Hosting(Behavior), .{ .inner = initial });
         errdefer self.turn.vat.discardFreshActor(ref);
         return self.host.adoptReservedLocalCapability(reservation, ref);

@@ -20,7 +20,7 @@ const glowcap = @import("glowcap");
 const engine = glowcap.ocapn.engine;
 const pairing = engine.pairing;
 const program = @import("../support/fuzz_program.zig");
-const agreement = @import("../support/session_agreement.zig");
+const agreement = @import("oracle").agreement;
 const FailingOnce = @import("../support/failing_once.zig").FailingOnce;
 
 /// Steps per program. Enough to build answers, listeners, imports, and

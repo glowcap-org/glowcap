@@ -5,7 +5,7 @@ sources:
   - resource: /src/ocapn/session/references/
   - resource: /src/ocapn/session/export_table.zig
   - resource: /src/ocapn/session/import_table.zig
-  - resource: /src/ocapn/session/bimap.zig
+  - resource: /src/ocapn/session/v1_0.zig
 ---
 
 # References and tables

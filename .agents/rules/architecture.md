@@ -132,7 +132,8 @@ directly rather than widening a root.
     its own `glowcap_<transport>_*` family. Children are `tcp`, `inproc`,
     `iroh`, `onion`, `relay`, and `webrtc`. WebRTC exposes no fake address
     `Netlayer`.
-- `oracle`: canonical scenario drivers for tests, off the runtime path.
+- `oracle`: canonical scenario drivers and the cross-session agreement
+  (ADR-0071) for tests, off the runtime path.
 
 ## CapTP vocabulary (ADR-0011)
 
