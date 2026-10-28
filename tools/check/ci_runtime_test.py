@@ -132,3 +132,38 @@ class RuntimeTest(unittest.TestCase):
             for index, output in enumerate(outputs):
                 self.assertEqual(output.read_text(), f'output {index}\n')
                 self.assertEqual(output.stat().st_mtime, 1700000100 + index)
+
+    def test_test_jobs_find_every_shard_state_or_fail(self):
+        # download-artifact extracts a lone match into `path` and gives each of
+        # several matches its own directory, so only merged, uniquely named
+        # archives sit at one path for every shard count.
+        workflow = (ROOT / '.github/workflows/check-group.yml').read_text()
+        self.assertIn('ci/state.sh pack "$RUNNER_TEMP/state-${{ matrix.shard }}.tar.zst"', workflow)
+        self.assertIn('path: ${{ runner.temp }}/state-${{ matrix.shard }}.tar.zst', workflow)
+        receive = workflow.split("      - name: Receive the group's compiled state\n", 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('path: ${{ runner.temp }}/state\n', receive)
+        self.assertIn('merge-multiple: true', receive)
+        step = workflow.split("      - name: Restore the group's compiled state\n", 1)[1].split('\n      - name:', 1)[0]
+        command = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        cases = [('success', (1, 2), 0, [2, 1]), ('success', (2,), 1, []), ('success', (1,), 1, []),
+                 ('failure', (2,), 0, [2]), ('failure', (), 0, [])]
+        for build, present, status, unpacked in cases:
+            with self.subTest(build=build, present=present), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                (base / 'ci').mkdir()
+                (base / 'ci/state.sh').write_text('#!/bin/sh\necho "$2" >> unpacked\n')
+                (base / 'ci/state.sh').chmod(0o755)
+                (base / 'state').mkdir()
+                for shard in present:
+                    (base / f'state/state-{shard}.tar.zst').write_text('')
+                # toJSON renders the shard list over several lines.
+                result = subprocess.run(['bash', '-e', '-c', command], cwd=base,
+                                        env=dict(os.environ, RUNNER_TEMP=str(base), BUILD=build,
+                                                 SHARDS='[\n  1,\n  2\n]'),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                order = (base / 'unpacked').read_text().split() if (base / 'unpacked').exists() else []
+                self.assertEqual(order, [str(base / f'state/state-{shard}.tar.zst') for shard in unpacked])
+                for shard in {1, 2} - set(present):
+                    kind = 'error' if build == 'success' else 'warning'
+                    self.assertIn(f'::{kind}::Shard {shard}', result.stdout)
