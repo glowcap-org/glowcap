@@ -169,12 +169,33 @@ fn appendPadded(arena: Allocator, pieces: *std.ArrayList(Piece), bytes: []const 
 
 const testing = std.testing;
 
+/// The symbol table a fixture carries: 32-bit offsets under `/`, or the
+/// 64-bit offsets under `/SYM64/` that Zig writes for x86_64.
+pub const SymbolTable = enum {
+    narrow,
+    wide,
+
+    fn name(table: SymbolTable) []const u8 {
+        return switch (table) {
+            .narrow => "/",
+            .wide => "/SYM64/",
+        };
+    }
+
+    fn width(table: SymbolTable) usize {
+        return switch (table) {
+            .narrow => 4,
+            .wide => 8,
+        };
+    }
+};
+
 /// A GNU archive whose members carry `names` and `contents`, with a symbol
 /// table naming each member in `symbol_members` by its header offset. A name
 /// that fits its header field is recorded inline, as `ar` and Zig record it,
 /// and a longer one in the name table. The installer's tests build their
 /// archives with it too.
-pub fn fixture(gpa: Allocator, names: []const []const u8, contents: []const []const u8, symbol_members: []const usize) ![]u8 {
+pub fn fixture(gpa: Allocator, table: SymbolTable, names: []const []const u8, contents: []const []const u8, symbol_members: []const usize) ![]u8 {
     var long_names: std.ArrayList(u8) = .empty;
     defer long_names.deinit(gpa);
     const fields = try gpa.alloc([16]u8, names.len);
@@ -188,7 +209,8 @@ pub fn fixture(gpa: Allocator, names: []const []const u8, contents: []const []co
         _ = try std.fmt.bufPrint(field, "/{d}", .{long_names.items.len});
         try long_names.print(gpa, "{s}/\n", .{name});
     }
-    const table_len = 4 + 4 * symbol_members.len + 2 * symbol_members.len;
+    const width = table.width();
+    const table_len = width + width * symbol_members.len + 2 * symbol_members.len;
     const offsets = try gpa.alloc(u64, names.len);
     defer gpa.free(offsets);
     var at: u64 = magic.len + header_len + table_len + (table_len & 1);
@@ -200,13 +222,13 @@ pub fn fixture(gpa: Allocator, names: []const []const u8, contents: []const []co
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
     try out.appendSlice(gpa, magic);
-    try out.print(gpa, "{s: <16}{d: <12}{d: <6}{d: <6}{d: <8}{d: <10}`\n", .{ "/", 0, 0, 0, 0, table_len });
-    var count: [4]u8 = undefined;
-    std.mem.writeInt(u32, &count, @intCast(symbol_members.len), .big);
-    try out.appendSlice(gpa, &count);
+    try out.print(gpa, "{s: <16}{d: <12}{d: <6}{d: <6}{d: <8}{d: <10}`\n", .{ table.name(), 0, 0, 0, 0, table_len });
+    var word: [8]u8 = undefined;
+    std.mem.writeInt(u64, &word, symbol_members.len, .big);
+    try out.appendSlice(gpa, word[8 - width ..]);
     for (symbol_members) |member| {
-        std.mem.writeInt(u32, &count, @intCast(offsets[member]), .big);
-        try out.appendSlice(gpa, &count);
+        std.mem.writeInt(u64, &word, offsets[member], .big);
+        try out.appendSlice(gpa, word[8 - width ..]);
     }
     for (symbol_members) |member| try out.print(gpa, "{c}\x00", .{@as(u8, 'a') + @as(u8, @intCast(member))});
     if (table_len & 1 != 0) try out.append(gpa, '\n');
@@ -247,8 +269,8 @@ test "members recorded under different cache directories install identically" {
     // Odd sizes exercise padding, and the directories differ in length so
     // every member header moves.
     const contents: []const []const u8 = &.{ "zig object", "c object!" };
-    const first = try installed(arena, tmp.dir, try fixture(arena, &.{ "/cache/o/1a/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 1, 0 }));
-    const second = try installed(arena, tmp.dir, try fixture(arena, &.{ "/work/.zig-cache/o/3c4d5e/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 1, 0 }));
+    const first = try installed(arena, tmp.dir, try fixture(arena, .narrow, &.{ "/cache/o/1a/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 1, 0 }));
+    const second = try installed(arena, tmp.dir, try fixture(arena, .narrow, &.{ "/work/.zig-cache/o/3c4d5e/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 1, 0 }));
     try testing.expectEqualStrings(first.?, second.?);
 
     // The result is the archive `ar` writes: a short name inline, a long one
@@ -277,7 +299,7 @@ test "each member keeps its own name when the archive records names inline" {
     // from a reused header buffer would show another member's name.
     const names: []const []const u8 = &.{ "aes.o", "compiler_rt.o", "o/1a/x.o", "/cache/o/2b/psa_crypto_driver.o" };
     const contents: []const []const u8 = &.{ "one", "two!", "three", "four" };
-    const out = (try installed(arena, tmp.dir, try fixture(arena, names, contents, &.{ 3, 0 }))).?;
+    const out = (try installed(arena, tmp.dir, try fixture(arena, .narrow, names, contents, &.{ 3, 0 }))).?;
     const table_len = 4 + 2 * 4 + 2 * 2;
     const names_at = magic.len + header_len + table_len;
     const long_name = "psa_crypto_driver.o/\n";
@@ -291,6 +313,26 @@ test "each member keeps its own name when the archive records names inline" {
     try testing.expectEqual(out.len, at);
 }
 
+test "a 64-bit symbol table names each member's new header" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const contents: []const []const u8 = &.{ "zig object", "c object!" };
+    const out = (try installed(arena, tmp.dir, try fixture(arena, .wide, &.{ "/cache/o/1a/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 1, 0 }))).?;
+    try testing.expectEqualStrings("/SYM64/         ", out[magic.len..][0..16]);
+    const table_len = 8 + 2 * 8 + 2 * 2;
+    const names_at = magic.len + header_len + table_len;
+    const objects_at = names_at + header_len + 20;
+    const mdb_at = objects_at + header_len + contents[0].len;
+    try testing.expectEqualStrings("mdb.o/          ", out[mdb_at..][0..16]);
+    const symbols = out[magic.len + header_len ..];
+    try testing.expectEqual(2, std.mem.readInt(u64, symbols[0..8], .big));
+    try testing.expectEqual(mdb_at, std.mem.readInt(u64, symbols[8..16], .big));
+    try testing.expectEqual(objects_at, std.mem.readInt(u64, symbols[16..24], .big));
+}
+
 test "other formats and inconsistent archives install unchanged" {
     var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena_state.deinit();
@@ -299,7 +341,7 @@ test "other formats and inconsistent archives install unchanged" {
     defer tmp.cleanup();
     try testing.expectEqual(null, try installed(arena, tmp.dir, "\x7fELF shared object"));
     try testing.expectEqual(null, try installed(arena, tmp.dir, magic ++ "#1/4            0           0     0     0       8         `\nb.o\x00data"));
-    const archive = try fixture(arena, &.{"/cache/o/1a/a.o"}, &.{"object"}, &.{0});
+    const archive = try fixture(arena, .narrow, &.{"/cache/o/1a/a.o"}, &.{"object"}, &.{0});
     // A symbol table entry no member header starts at.
     archive[magic.len + header_len + 7] +%= 1;
     try testing.expectEqual(null, try installed(arena, tmp.dir, archive));

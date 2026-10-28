@@ -157,12 +157,12 @@ test "an archive recompiled into another cache directory keeps the installed fil
     var out = try tmp.dir.createDirPathOpen(testing.io, "out", .{});
     defer out.close(testing.io);
     const contents: []const []const u8 = &.{ "zig object", "c object!" };
-    const first = try gnu_archive.fixture(testing.allocator, &.{ "/cache/o/1a/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 0, 1 });
+    const first = try gnu_archive.fixture(testing.allocator, .narrow, &.{ "/cache/o/1a/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 0, 1 });
     defer testing.allocator.free(first);
     try writeSource(tmp.dir, first);
     try install(testing.allocator, testing.io, tmp.dir, "lib.a", out, "lib.a");
     const before = try out.statFile(testing.io, "lib.a", .{});
-    const second = try gnu_archive.fixture(testing.allocator, &.{ "/cache/o/3c4d/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 0, 1 });
+    const second = try gnu_archive.fixture(testing.allocator, .narrow, &.{ "/cache/o/3c4d/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, contents, &.{ 0, 1 });
     defer testing.allocator.free(second);
     try writeSource(tmp.dir, second);
     try install(testing.allocator, testing.io, tmp.dir, "lib.a", out, "lib.a");
@@ -170,7 +170,7 @@ test "an archive recompiled into another cache directory keeps the installed fil
     try testing.expectEqual(before.inode, after.inode);
     try testing.expectEqual(before.mtime.nanoseconds, after.mtime.nanoseconds);
     // A changed member replaces it.
-    const third = try gnu_archive.fixture(testing.allocator, &.{ "/cache/o/3c4d/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, &.{ "zig object", "c object?" }, &.{ 0, 1 });
+    const third = try gnu_archive.fixture(testing.allocator, .narrow, &.{ "/cache/o/3c4d/glowcap_loam_zcu.o", "/cache/o/2b/mdb.o" }, &.{ "zig object", "c object?" }, &.{ 0, 1 });
     defer testing.allocator.free(third);
     try writeSource(tmp.dir, third);
     try install(testing.allocator, testing.io, tmp.dir, "lib.a", out, "lib.a");
