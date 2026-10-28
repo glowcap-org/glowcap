@@ -157,13 +157,14 @@ build zig build check-build
 gate zig build check
 build zig build test-memcheck-build
 gate zig build test-memcheck
-# The process, application, and language-workspace proofs. They share one
-# cold build with the core phase, and the two phases together exceed what one
-# hosted runner holds: a 72 GB runner ends a combined lane near full and its
-# compile state too large to save, so each phase is its own lane.
+# The process, application, and language-workspace proofs, run against the
+# ReleaseSafe archives a release ships (tools/build/release.zig refuses Debug).
+# The core lane's Debug tests still meet Debug's undefined-memory fill on every
+# change. Core and runtime together exceed what one hosted runner holds, so
+# each phase is its own lane.
 phase runtime
-build zig build runtime-check-build
-long zig build runtime-check
+build zig build runtime-check-build -Doptimize=ReleaseSafe
+long zig build runtime-check -Doptimize=ReleaseSafe
 # The optional Mbed TLS relay composition is deliberately absent from the
 # base library graph, so `check` cannot prove it. Fetch the pinned Mbed TLS
 # release by checksum and run both pollable and completion carriers through the
