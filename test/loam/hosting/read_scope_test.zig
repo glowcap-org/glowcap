@@ -71,6 +71,27 @@ test "loam read scope weak cache survives local capability release while publica
     try std.testing.expectEqual(actor, fixture.host.localActorFor(repeated).?);
 }
 
+test "loam read scope projects a fresh facade while a released one awaits retirement" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{ .max_continuation_targets = 2 });
+    defer fixture.deinit();
+    defer fixture.drain() catch unreachable;
+    const owner = try scope(&fixture, &interfaces);
+    defer owner.release();
+    const front = try owner.project(fixture.root, 0);
+    const released = fixture.host.localActorFor(front).?;
+    try fixture.host.releaseCapability(front, 1);
+    try std.testing.expect(!fixture.host.vat.hasActor(released.local));
+
+    // The released façade's slot stays reserved until the next Vat boundary,
+    // so the same target and role spawn a fresh façade in the other slot.
+    const fresh = try owner.project(fixture.root, 0);
+    defer fixture.host.releaseCapabilityTerminal(fresh, null);
+    const actor = fixture.host.localActorFor(fresh).?;
+    try std.testing.expect(!std.meta.eql(released, actor));
+    try std.testing.expect(fixture.host.vat.hasActor(actor.local));
+}
+
 test "loam read scope recursively preserves exact identity and refuses undeclared verbs and results" {
     var fixture: f.Fixture = undefined;
     try fixture.init(.{});

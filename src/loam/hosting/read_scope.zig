@@ -126,7 +126,11 @@ pub const Scope = struct {
         for (self.cache) |entry| if (entry.occupied and entry.role == role and entry.target.eql(target)) {
             // The façade can outlive its last Host capability through a wire
             // export or publication. Its actor identity remains the weak key.
-            return self.owner.host.retainLocalCapability(entry.actor.?);
+            // A released façade keeps its slot until the next Vat boundary
+            // retires it, and a fresh façade takes another slot meanwhile.
+            const actor = entry.actor orelse continue;
+            if (!self.owner.host.vat.hasActor(actor.local)) continue;
+            return self.owner.host.retainLocalCapability(actor);
         };
         const index = for (self.cache, 0..) |entry, index| {
             if (!entry.occupied) break index;

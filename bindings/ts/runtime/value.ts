@@ -363,9 +363,9 @@ export class Forward {
  * A behavior may also return a promise (an `async` behavior): the binding
  * defers the turn's answer onto a resolver vow and settles it when the
  * promise does, so awaited work never stalls the host's turn loop. A
- * deferred settle carries plain data only: a reply that hands out a
- * capability, or forwards, must come from a synchronous return. A rejection
- * breaks the caller's promise with the error's message. */
+ * deferred reply may hand out capabilities this thread holds, and a value the
+ * host refuses breaks the caller's promise. A rejection breaks the caller's
+ * promise with the error's message. */
 export type Behavior = (
 	verb: string,
 	args: Argument[],
