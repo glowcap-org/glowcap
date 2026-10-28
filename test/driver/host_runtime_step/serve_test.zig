@@ -369,8 +369,7 @@ test "a refusing open observer settles failure and releases the unexposed sessio
         .opened = DialRecorder.opened,
         .failed = DialRecorder.failed,
     });
-    _ = try runtime.stepAny(0);
-    const accepted = try server.accept();
+    const accepted = try harness.acceptWhileStepping(&runtime, server);
     defer accepted.deinit();
     try accepted.attend();
     var rounds: usize = 0;

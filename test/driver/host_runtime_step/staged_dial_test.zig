@@ -28,6 +28,7 @@ const DropSessionOnClose = harness.DropSessionOnClose;
 const connectAndHold = harness.connectAndHold;
 const RecordingSink = harness.RecordingSink;
 const DialRecorder = harness.DialRecorder;
+const acceptWhileStepping = harness.acceptWhileStepping;
 const opts = harness.opts;
 
 test "a staged dial serves a fetch and retirement preserves its claimed session" {
@@ -73,11 +74,9 @@ test "a staged dial serves a fetch and retirement preserves its claimed session"
     });
     try std.testing.expect(recorder.opened_session == null);
 
-    // One client step flushes the hello; the blocking accept then completes
-    // from bytes already in its socket; the next client steps read the
-    // server's hello and report the open through the observer.
-    _ = try client_runtime.stepAny(0);
-    var session = try server.accept();
+    // The accept completes on the client's hello, and the next client steps
+    // read the server's hello and report the open through the observer.
+    var session = try acceptWhileStepping(&client_runtime, server);
     defer session.deinit();
     _ = try session.publish("treasure", Treasure, .{});
     try session.attend();
@@ -219,19 +218,6 @@ test "runtime cancel close interrupts an admitted transport open and seals admis
     }));
 }
 
-/// Accept the dial's server session while stepping the client too. The
-/// accept completes on the client's hello, so a client left unstepped (or
-/// stepped once, on a runner too slow for that to write it) never lets the
-/// accept finish, and a blocking `accept` would hide that behind its own wait.
-fn acceptWhileStepping(runtime: *driver.HostRuntime, server: *driver.Server) !*driver.Session {
-    var rounds: usize = 0;
-    while (rounds < 1_000) : (rounds += 1) {
-        _ = try runtime.stepAny(0);
-        if (try server.waitAcceptable(10)) return server.accept();
-    }
-    return error.DialNeverAccepted;
-}
-
 test "runtime finish close publishes an admitted transport open before closing its session" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -357,8 +343,7 @@ test "runtime close preserves an exposed session until explicit release" {
         .failed = DialRecorder.failed,
     });
 
-    _ = try runtime.stepAny(0);
-    var accepted = try server.accept();
+    var accepted = try acceptWhileStepping(&runtime, server);
     defer accepted.deinit();
     try accepted.attend();
     var rounds: usize = 0;
@@ -404,8 +389,7 @@ test "session cancel returns after immediate transport teardown" {
         .failed = DialRecorder.failed,
     });
 
-    _ = try runtime.stepAny(0);
-    var accepted = try server.accept();
+    var accepted = try acceptWhileStepping(&runtime, server);
     defer accepted.deinit();
     try accepted.attend();
     var rounds: usize = 0;
@@ -497,8 +481,7 @@ test "session finish timeout terminates only that session and leaves its Host ac
         .failed = DialRecorder.failed,
     });
 
-    _ = try runtime.stepAny(0);
-    var accepted = try server.accept();
+    var accepted = try acceptWhileStepping(&runtime, server);
     defer accepted.deinit();
     try accepted.attend();
     var rounds: usize = 0;

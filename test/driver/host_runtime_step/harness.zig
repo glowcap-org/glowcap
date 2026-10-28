@@ -67,6 +67,19 @@ pub const FailureCapture = struct {
 
 pub const Treasure = support_actors.StaticReplyValueActor("greet", "hello from the step server");
 
+/// Accept the dial's server session while stepping the client too. The
+/// accept completes on the client's hello, so a client left unstepped (or
+/// stepped once, on a runner too slow for that to write it) never lets the
+/// accept finish, and a blocking `accept` would hide that behind its own wait.
+pub fn acceptWhileStepping(runtime: *driver.HostRuntime, server: *driver.Server) !*driver.Session {
+    var rounds: usize = 0;
+    while (rounds < 1_000) : (rounds += 1) {
+        _ = try runtime.stepAny(0);
+        if (try server.waitAcceptable(10)) return server.accept();
+    }
+    return error.DialNeverAccepted;
+}
+
 /// Serve entirely step-shaped: accept one session, publish, then pump
 /// nothing but poll(readiness) + `stepAny(0)` until told to stop. The
 /// descriptor and the step are the whole loop, exactly the loop-archive
