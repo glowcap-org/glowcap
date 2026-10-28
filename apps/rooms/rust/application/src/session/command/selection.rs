@@ -26,13 +26,21 @@ fn same_row(before: &Value, after: &Value, collection: &str, id: Option<&String>
 /// viewer is refused rather than overwritten.
 const SUPERVISED: [&str; 2] = ["inbox", "lines"];
 const CONVERSATION_STATE: [&str; 3] = ["inbox", "lines", "draft"];
+/// Directory supervision writes the registration, its granted nickname and the
+/// connection's inbox as connections come and go. A gesture that selects a
+/// directory acts through its access and source, so that churn re-prepares the
+/// gesture. The person's own choices on the row still fence it.
+const DIRECTORY_SUPERVISED: [&str; 3] = ["name", "assignedNick", "inbox"];
 fn same_conversation(before: &Value, after: &Value, id: Option<&String>) -> bool {
 	same_conversation_except(before, after, id, &CONVERSATION_STATE)
 }
 fn same_conversation_except(before: &Value, after: &Value, id: Option<&String>, ignored: &[&str]) -> bool {
+	same_row_except(before, after, "conversations", id, ignored)
+}
+fn same_row_except(before: &Value, after: &Value, collection: &str, id: Option<&String>, ignored: &[&str]) -> bool {
 	let Some(id) = id else { return false };
 	let (Some(Value::Object(before)), Some(Value::Object(after))) =
-		(row(before, "conversations", id), row(after, "conversations", id))
+		(row(before, collection, id), row(after, collection, id))
 	else {
 		return false;
 	};
@@ -151,19 +159,11 @@ pub fn unchanged(name: &str, args: &[String], before: &Value, after: &Value) -> 
 		Route::Effect(Effect::IssueRoomModerator | Effect::UnregisterManagedRoom | Effect::SetManagedRoomPolicy) => {
 			same_room_manager(before, after, args.first())
 		}
-		Route::Checkpoint(
-			JoinDirectory | SetDirectoryNick | ChooseDirectoryNickname | SetDirectoryStanding | JoinRoom,
-		) => {
-			let collection = if matches!(route, Route::Checkpoint(JoinRoom)) {
-				"conversations"
-			} else {
-				"directories"
-			};
-			same_row(before, after, collection, args.first())
-		}
-		Route::Effect(Effect::EnterRoom)
+		Route::Checkpoint(JoinRoom) => same_row(before, after, "conversations", args.first()),
+		Route::Checkpoint(JoinDirectory | SetDirectoryNick | ChooseDirectoryNickname | SetDirectoryStanding)
+		| Route::Effect(Effect::EnterRoom)
 		| Route::Result(crate::session::checkpoint::commands::results::Command::OpenManagedRoom) => {
-			same_row(before, after, "directories", args.first())
+			same_row_except(before, after, "directories", args.first(), &DIRECTORY_SUPERVISED)
 		}
 		Route::Checkpoint(AcceptInvitation | DismissInvitation) => same_row(before, after, "invitations", args.first()),
 		Route::Effect(Effect::OfferRoom) => {
@@ -327,6 +327,43 @@ mod tests {
 			!unchanged("setDraft", &args(), &before, &typed),
 			"a competing draft is refused"
 		);
+	}
+
+	#[test]
+	fn directory_gestures_survive_supervision_but_not_a_new_choice() {
+		let before = json!({
+			"conversations": [],
+			"directories": [{"id":"ada", "access":[1, 1], "source":[2, 1], "home":false, "nick":"cam",
+				"nickAllocation":"automatic", "standing":null}],
+		});
+		let mut supervised = before.clone();
+		supervised["directories"][0]["name"] = json!([3, 1]);
+		supervised["directories"][0]["assignedNick"] = json!("cam+1");
+		supervised["directories"][0]["inbox"] = json!([4, 1]);
+		let names = [
+			"enterRoom",
+			"openManagedRoom",
+			"chooseDirectoryNickname",
+			"setDirectoryStanding",
+		];
+		for name in names {
+			assert!(unchanged(name, &args(), &before, &supervised), "{name}");
+		}
+		for (field, value) in [
+			("access", json!([1, 2])),
+			("source", json!([2, 2])),
+			("nick", json!("dee")),
+		] {
+			let mut chosen = supervised.clone();
+			chosen["directories"][0][field] = value;
+			for name in names {
+				assert!(!unchanged(name, &args(), &before, &chosen), "{name} after {field}");
+			}
+		}
+		let retired = json!({ "conversations": [], "directories": [] });
+		for name in names {
+			assert!(!unchanged(name, &args(), &before, &retired), "{name}");
+		}
 	}
 
 	#[test]
