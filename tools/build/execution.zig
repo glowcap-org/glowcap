@@ -284,9 +284,11 @@ pub fn registerCompileOnly(b: *std.Build) void {
 /// so the shards of an invocation together compile its half once. Every
 /// build-tool command belongs to the first shard, because those commands share
 /// one Cargo target directory, and Cargo calls a unit stale when a dependency
-/// another job rebuilt is newer than it. A step another selected step depends
-/// on still builds in that shard. Every half is taken from the unmodified graph
-/// before any step is rewired.
+/// another job rebuilt is newer than it. A build tool runs over everything it
+/// reaches, so every step beneath one belongs to the first shard too, and a
+/// top-level step beneath one (`install`, which Cargo builds read) keeps its
+/// dependencies. Every half is taken from the unmodified graph before any step
+/// is rewired.
 fn compileOnly(b: *std.Build, shard: Shard) void {
     const gpa = b.allocator;
     const steps = b.top_level_steps.values();
@@ -295,10 +297,14 @@ fn compileOnly(b: *std.Build, shard: Shard) void {
     var everything: std.ArrayList(*std.Build.Step) = .empty;
     var walked: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
     for (steps) |top| appendCompileHalf(gpa, &top.step, &walked, &everything);
+    var beneath_tools: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
+    for (everything.items) |member| {
+        if (build_tools.contains(member)) appendBeneath(gpa, member, &beneath_tools);
+    }
     var selected: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
     var compiles: usize = 0;
     for (everything.items) |member| {
-        const owned = if (build_tools.contains(member)) shard.index == 1 else owned: {
+        const owned = if (build_tools.contains(member) or beneath_tools.contains(member)) shard.index == 1 else owned: {
             defer compiles += 1;
             break :owned shard.selects(compiles);
         };
@@ -313,10 +319,26 @@ fn compileOnly(b: *std.Build, shard: Shard) void {
         appendCompileHalf(gpa, &top.step, &seen, half);
     }
     for (steps, halves) |top, half| {
+        if (beneath_tools.contains(&top.step)) continue;
         top.step.dependencies.clearRetainingCapacity();
         for (half.items) |member| {
             if (selected.contains(member)) top.step.dependOn(member);
         }
+    }
+}
+
+/// Add every step `root` depends on, directly or not, to `beneath`.
+fn appendBeneath(
+    gpa: std.mem.Allocator,
+    root: *std.Build.Step,
+    beneath: *std.AutoHashMapUnmanaged(*std.Build.Step, void),
+) void {
+    var pending: std.ArrayList(*std.Build.Step) = .empty;
+    defer pending.deinit(gpa);
+    pending.appendSlice(gpa, root.dependencies.items) catch @panic("OOM");
+    while (pending.pop()) |current| {
+        if ((beneath.getOrPut(gpa, current) catch @panic("OOM")).found_existing) continue;
+        pending.appendSlice(gpa, current.dependencies.items) catch @panic("OOM");
     }
 }
 

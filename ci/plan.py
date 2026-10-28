@@ -17,15 +17,17 @@ import subprocess
 # phase runs it on their combined state. A shard count of zero runs no build
 # job, for phases whose gates compile in a nested build at run time. Shards
 # split the group's slowest cold build across hosted runners; phases split its
-# runs. Every gates.sh phase belongs to exactly one group.
+# runs. Only compiles no Cargo or Deno build reaches can leave the first shard
+# (execution.zig compileOnly), so a count above one pays only where those
+# compiles are many. Every gates.sh phase belongs to exactly one group.
 GROUPS = (
     ("core", ("infrastructure", "core", "memcheck"), 2),
-    ("runtime", ("runtime",), 4),
+    ("runtime", ("runtime",), 2),
     ("shipped", ("shipped", "smoke"), 2),
     ("fuzz", ("fuzz-1", "fuzz-2", "fuzz-3", "fuzz-4"), 0),
     ("bindings", ("sidecars", "bindings"), 1),
     ("browser", ("browser", "browser-proofs-1", "browser-proofs-2", "browser-proofs-3",
-                 "browser-proofs-4"), 2),
+                 "browser-proofs-4"), 1),
     ("interop", ("rooms-interop", "interop"), 1),
     ("transports", ("transports",), 1),
 )
