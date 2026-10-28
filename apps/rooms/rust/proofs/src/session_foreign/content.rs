@@ -8,7 +8,7 @@ use glowcap::{
 	},
 };
 use rooms_application::content::session::{custody, records};
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, collections::HashSet, rc::Rc};
 
 pub struct Application {
 	pub targets: Vec<Target>,
@@ -84,7 +84,7 @@ impl Content for Application {
 			field_count: page.field_count(),
 		}))
 		.collect();
-		let mut identities = Vec::with_capacity(FIELDS);
+		let mut identities = HashSet::with_capacity(FIELDS);
 		let restored = records::decode_graph(
 			custody::ResourceBinding {
 				resource: input.bound_resource,
@@ -95,8 +95,7 @@ impl Content for Application {
 					.get(page.checked_sub(1).ok_or(records::Error::Fields)?)
 					.ok_or(records::Error::Fields)?;
 				let reference = call.page_reference(page, field).map_err(|_| records::Error::Fields)?;
-				assert!(!identities.contains(&reference), "restored graph aliases a field");
-				identities.push(reference.clone());
+				assert!(identities.insert(reference.clone()), "restored graph aliases a field");
 				Ok(capacity::field(coordinate.role, coordinate.key.slot().get(), reference))
 			},
 		)

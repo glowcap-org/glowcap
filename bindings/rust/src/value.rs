@@ -5,7 +5,7 @@ use crate::{Error, Result, sys};
 
 /// An opaque capability identity in one Host. It is never a wire position and
 /// its shape does not reveal whether the target is local, remote, or routed
-/// through a handoff. `PartialEq` compares that immutable identity only.
+/// through a handoff. `PartialEq` and `Hash` read that immutable identity only.
 /// Occurrence-local release state does not change Target equality. The raw id
 /// and C layout stay private to the binding.
 #[derive(Debug, Clone)]
@@ -24,6 +24,12 @@ impl PartialEq for Ref {
 }
 
 impl Eq for Ref {}
+
+impl std::hash::Hash for Ref {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.id.hash(state);
+	}
+}
 
 impl Ref {
 	pub fn released(&self) -> bool {

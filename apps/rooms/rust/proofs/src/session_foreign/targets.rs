@@ -2,7 +2,7 @@
 use super::FIELDS;
 use futures_util::{StreamExt, stream};
 use glowcap::{Argument, CaptpVersion, Host, Locator, PendingWork, Ref, Session, format_sturdyref};
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 pub struct Target {
 	pub reference: Ref,
@@ -64,11 +64,9 @@ impl Targets {
 
 pub async fn population(session: &Session, uris: &[String]) -> Vec<Target> {
 	let mut targets = Vec::with_capacity(uris.len());
+	let mut seen = HashSet::with_capacity(uris.len());
 	for (uri, reference) in uris.iter().zip(references(session, uris).await) {
-		assert!(
-			targets.iter().all(|target: &Target| target.reference != reference),
-			"foreign population aliases a target"
-		);
+		assert!(seen.insert(reference.clone()), "foreign population aliases a target");
 		targets.push(Target {
 			reference,
 			uri: uri.clone(),
