@@ -513,7 +513,7 @@ pub fn register(ctx: Context) Registered {
     };
     const web_proofs_step = b.step("rooms-web-proofs", "Run every browser proof of the shipped Rooms page (needs cargo + deno + a Playwright Chromium). The proofs run concurrently, so a green run needs the machine to carry them: under fleet load the heaviest proofs (iroh dials) can exceed their wrapper deadline while passing alone through their own step.");
     // CI runs the family as shards, each under its own gate deadline.
-    const web_proof_shard = common.shardOption(b, "rooms-web-proof-shard", "Run only the k-th of n interleaved slices of rooms-web-proofs, as k/n (default 1/1)");
+    const web_proof_shard = execution.shardOption(b, "rooms-web-proof-shard", "Run only the k-th of n interleaved slices of rooms-web-proofs, as k/n (default 1/1)");
     var concurrent: [web_proofs.len]*std.Build.Step = undefined;
     var concurrent_len: usize = 0;
     for (web_proofs, 0..) |proof, position| {

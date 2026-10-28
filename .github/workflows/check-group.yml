@@ -1,0 +1,304 @@
+# One validation group: its build jobs each compile one shard of what the
+# group's phases run, and then one test job per phase runs that phase on their
+# combined state. Called by check.yml once per group the plan selects, so a
+# group's tests wait for its own build and no other. ci/plan.py owns the
+# groups, their phases, and their shard counts.
+name: check-group
+
+on:
+  workflow_call:
+    inputs:
+      group:
+        description: The group name, which keys its state artifact and caches.
+        type: string
+        required: true
+      phases:
+        description: JSON array of the ci/gates.sh phases this group runs.
+        type: string
+        required: true
+      shards:
+        description: JSON array of the build shards, 1 to n; empty when the phases compile at run time and there is nothing to hand over.
+        type: string
+        required: true
+      full:
+        description: The plan's full output.
+        type: string
+        required: true
+      image:
+        type: string
+        required: true
+      archive:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+# Cargo's fingerprint includes these, so the build and test jobs must agree on
+# them or every test job rebuilds. Cargo's intermediate state is cached
+# between runs, so incremental compilation would only add disk, and dev-profile
+# debug info keeps source lines without the variable data that dominates a
+# target directory; the Rooms test profile makes the same choice.
+env:
+  EXEC: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only
+
+jobs:
+  build:
+    if: inputs.shards != '[]'
+    name: build (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: ./.devcontainer/ci/start
+        with:
+          image: ${{ inputs.image }}
+          archive: ${{ inputs.archive }}
+
+      # Download stores are shared between runs. Installed tools and
+      # credentials are never restored. The first shard, which runs every
+      # Cargo and Deno build, saves them after its compile.
+      - name: Restore dependency downloads
+        id: downloads
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/glowcap/ci/zig-pkg
+            ~/.cache/glowcap/cargo/registry
+            ~/.cache/glowcap/cargo/git
+            ~/.cache/glowcap/tool/deno/remote
+            ~/.cache/glowcap/tool/deno/npm
+            ~/.cache/glowcap/tool/uv
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
+          restore-keys: downloads-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: List the compiled-state stores
+        id: stores
+        run: |
+          {
+            echo 'paths<<STORES'
+            ci/state.sh stores
+            echo STORES
+          } >> "$GITHUB_OUTPUT"
+
+      # Development runs start from the shard's last compile state, because a
+      # hosted runner compiles cold an order of magnitude slower than a
+      # workstation. Zig keys every object by its inputs and every proof
+      # reruns in the test jobs, so a restore saves compile time and skips no
+      # proof. A toolchain change starts a new family. Full qualification
+      # builds cold: its result qualifies main, and it holds the cold build to
+      # its budgets.
+      - name: Restore build state
+        if: inputs.full != 'true'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ steps.stores.outputs.paths }}
+          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-
+
+      - name: Bound the restored build state
+        if: inputs.full != 'true'
+        env:
+          # The repository's cache quota is 10 GB compressed across every
+          # shard, so a shard's state is held near its cold size instead of
+          # growing: Zig's cache has no collector.
+          LIMIT_GB: 12
+          # Free disk the build needs beyond its restored state: the 6 GB
+          # container image, zig-out, cargo outputs, and the packed state.
+          # The check runs after the restore, so the floor is what the build
+          # adds on top of the state, not the whole cold build.
+          FREE_FLOOR_GB: 20
+        run: |
+          mapfile -t stores < <(ci/state.sh stores)
+          present=()
+          for store in "${stores[@]}"; do
+            if [ -e "$store" ]; then present+=("$store"); fi
+          done
+          size=0
+          if [ "${#present[@]}" -gt 0 ]; then
+            du -sh "${present[@]}"
+            size=$(du -s --block-size=1G "${present[@]}" | awk '{ total += $1 } END { print total + 0 }')
+          fi
+          free=$(df --output=avail --block-size=1G / | tail -1 | tr -d ' ')
+          echo "Restored build state: ${size} GB of ${LIMIT_GB} GB, ${free} GB free"
+          if [ "$size" -gt "$LIMIT_GB" ] || [ "$free" -lt "$FREE_FLOOR_GB" ]; then
+            rm -rf -- "${stores[@]}"
+            echo "Dropped it; this run builds cold and saves a fresh state."
+          fi
+
+      - name: Fetch pinned Zig dependencies
+        id: fetch
+        run: $EXEC bash ci/fetch-zig.sh
+
+      - name: Stamp the checkout to the commit time
+        run: ci/state.sh stamp
+
+      - name: Compile this shard of what the group's phases run
+        env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          PHASES: ${{ join(fromJSON(inputs.phases), ' ') }}
+        run: $EXEC bash ci/gates.sh --compile-only "$SHARD" $PHASES
+
+      - name: Save dependency downloads
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.fetch.outcome == 'success' && steps.downloads.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/glowcap/ci/zig-pkg
+            ~/.cache/glowcap/cargo/registry
+            ~/.cache/glowcap/cargo/git
+            ~/.cache/glowcap/tool/deno/remote
+            ~/.cache/glowcap/tool/deno/npm
+            ~/.cache/glowcap/tool/uv
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
+
+      # The test jobs need the state even when one compile failed: each test
+      # job compiles what is missing itself, so one run still reports every
+      # failure in the group.
+      - name: Pack the compiled state
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
+        run: ci/state.sh pack "$RUNNER_TEMP/state.tar.zst"
+
+      - name: Hand the compiled state to the test jobs
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: state-${{ inputs.group }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/state.tar.zst
+          compression-level: 0
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+
+      # Pushes and nightly runs keep their compile state, even after a failed
+      # compile. Pull requests only read it. A job whose container never
+      # started holds no state, and saving it would hand the next run an
+      # empty cache.
+      - name: Save build state
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && github.event_name != 'pull_request' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ steps.stores.outputs.paths }}
+          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  test:
+    needs: build
+    # A failed build still hands over its state, so its phases run and report.
+    # A group with no build shards skips the build job.
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'failure' || needs.build.result == 'skipped') }}
+    name: test (${{ matrix.phase }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: ${{ fromJSON(inputs.phases) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: ./.devcontainer/ci/start
+        with:
+          image: ${{ inputs.image }}
+          archive: ${{ inputs.archive }}
+
+      - name: Restore dependency downloads
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/glowcap/ci/zig-pkg
+            ~/.cache/glowcap/cargo/registry
+            ~/.cache/glowcap/cargo/git
+            ~/.cache/glowcap/tool/deno/remote
+            ~/.cache/glowcap/tool/deno/npm
+            ~/.cache/glowcap/tool/uv
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
+          restore-keys: downloads-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Receive the group's compiled state
+        if: needs.build.result != 'skipped'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: state-${{ inputs.group }}-*
+          path: ${{ runner.temp }}/state
+
+      # Zig's cache is content-addressed, so the shards' stores merge. The
+      # first shard lands last: it ran every Cargo build, and Cargo judges
+      # freshness by the modification times it recorded. A shard that failed
+      # before packing hands over nothing, and this job compiles its share.
+      - name: Restore the group's compiled state
+        if: needs.build.result != 'skipped'
+        env:
+          GROUP: ${{ inputs.group }}
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          for shard in $(jq -r '.[]' <<<"$SHARDS" | sort -rn); do
+            archive="$RUNNER_TEMP/state/state-$GROUP-$shard/state.tar.zst"
+            if [ ! -e "$archive" ]; then
+              echo "Shard $shard handed over no state; this job compiles its share."
+              continue
+            fi
+            ci/state.sh unpack "$archive"
+            rm -f -- "$archive"
+          done
+
+      - name: Fetch pinned Zig dependencies
+        id: fetch
+        run: $EXEC bash ci/fetch-zig.sh
+
+      - name: Stamp the checkout to the commit time
+        run: ci/state.sh stamp
+
+      - name: Run the phase
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
+        run: $EXEC bash ci/gates.sh ${{ matrix.phase }}
+
+      # The evidence record is the run's product: what ran, on what, and how
+      # each gate ended. It is kept on failure too, since a red run's record
+      # is what names the gate that failed. A superseded run can be cancelled
+      # before the recorder starts, so cancellation has no required artifact.
+      - name: Keep the evidence record
+        if: ${{ !cancelled() && hashFiles('zig-out/evidence/**/*.json') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-${{ github.sha }}-${{ matrix.phase }}
+          path: zig-out/evidence/**/*.json
+          if-no-files-found: error
+
+      # A fuzz search never repeats, so the input that crashed a target is
+      # the only way to replay what this run found. The fuzz runner leaves it
+      # in the checkout, outside the build cache.
+      - name: Keep a fuzzer finding
+        if: ${{ !cancelled() && hashFiles('zig-out/fuzz-finding.bin') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-finding-${{ github.sha }}-${{ matrix.phase }}
+          path: zig-out/fuzz-finding.bin
+          if-no-files-found: error
+
+      - name: Summarize gate results
+        if: ${{ !cancelled() }}
+        run: |
+          df -h /
+          docker system df
+          python3 - <<'PYTHON'
+          import glob, json, os
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('| Gate | Result | Seconds |\n| --- | --- | ---: |\n')
+              for path in sorted(glob.glob('zig-out/evidence/**/*.json', recursive=True)):
+                  record = json.load(open(path))
+                  for gate in record['gates']:
+                      result = 'passed' if gate['exit'] == 0 else f"failed ({gate['exit']})"
+                      output.write(f"| `{gate['command']}` | {result} | {gate['seconds']} |\n")
+          PYTHON

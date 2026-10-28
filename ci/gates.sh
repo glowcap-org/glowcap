@@ -4,6 +4,13 @@
 # committed devcontainer image. The sequence itself names no forge.
 # With no argument, run every phase in order. A phase argument selects only
 # that phase for the parallel CI jobs; each writes separate evidence.
+# `--compile-only <k/n> <phase>...` compiles the k-th of n slices of what those
+# phases would run and runs nothing: each `zig build` gate gets -Dcompile-only
+# and -Dcompile-shard, which rewire its steps to their share of its compile
+# half, and every other command is skipped. CI's n build jobs for a group run
+# it so the test jobs that run the same phases find their compiles cached. It
+# writes no evidence record, because nothing was checked. Exits 2 on an
+# unknown phase or a malformed shard.
 # The script runs the isolated, runtime, infrastructure, and outside-authority
 # gates in order. The wider sibling inventory in docs/build-steps.md stays
 # excluded until its CI cost earns recurring execution.
@@ -51,6 +58,9 @@ phase() { current_phase=$1; }
 # that ran out of time ends the phase, because every later gate in it needs
 # that build.
 first_failure=0
+compile_only=false
+compile_shard=1/1
+selected_phases=()
 
 gate() { run_gate "$GATE_TIMEOUT" continue "$@"; }
 long() { run_gate "$LONG_TIMEOUT" continue "$@"; }
@@ -59,12 +69,18 @@ build() { run_gate "$BUILD_TIMEOUT" stop "$@"; }
 run_gate() {
   local timeout=$1 on_deadline=$2
   shift 2
-  if [ "${selected_phase:-all}" != all ] && [ "$selected_phase" != "${current_phase:-}" ]; then
+  if ! phase_selected "${current_phase:-}"; then
     return 0
   fi
   local rc=0
   local -a command=("$@")
-  if [ "${1:-}" = zig ] && [ "${2:-}" = build ]; then
+  if [ "$compile_only" = true ]; then
+    [ "${1:-}" = zig ] && [ "${2:-}" = build ] || return 0
+    # A compile has no run to time, so every gate gets the build deadline,
+    # and the summary names what this job compiled rather than reused.
+    timeout=$BUILD_TIMEOUT
+    command=(zig build -Dcompile-only "-Dcompile-shard=$compile_shard" --summary new "${@:3}")
+  elif [ "${1:-}" = zig ] && [ "${2:-}" = build ]; then
     local has_test_timeout=false arg
     for arg in "${@:3}"; do
       [ "$arg" = -- ] && break
@@ -106,15 +122,39 @@ run_gate() {
   printf 'ci/gates.sh: passed (%ss): %s\n' "$((SECONDS - began))" "${command[*]}" >&2
 }
 
+phase_selected() {
+  local candidate
+  [ "${#selected_phases[@]}" -eq 0 ] && return 0
+  for candidate in "${selected_phases[@]}"; do
+    [ "$candidate" = all ] || [ "$candidate" = "$1" ] && return 0
+  done
+  return 1
+}
+
 # Sourcing for the test above stops here; everything below is the sequence.
 if [ -n "${GATES_SOURCE_ONLY:-}" ]; then return 0; fi
 
+if [ "${1:-}" = --compile-only ]; then
+  compile_only=true
+  compile_shard=${2:-}
+  [[ "$compile_shard" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]] && [ "${compile_shard%/*}" -le "${compile_shard#*/}" ] ||
+    { echo "ci/gates.sh: --compile-only needs a k/n shard with 1 <= k <= n" >&2; exit 2; }
+  shift 2
+  [ "$#" -gt 0 ] || { echo "ci/gates.sh: --compile-only needs at least one phase" >&2; exit 2; }
+elif [ "$#" -gt 1 ]; then
+  echo "ci/gates.sh: expected at most one phase" >&2
+  exit 2
+fi
+selected_phases=("$@")
+# The phase lines below are the only list of phases.
+known_phases=" all $(sed -n 's/^phase \([a-z0-9-]*\)$/\1/p' "${BASH_SOURCE[0]}" | tr '\n' ' ')"
+for selected_phase in "${selected_phases[@]}"; do
+  case "$known_phases" in
+    *" $selected_phase "*) ;;
+    *) echo "ci/gates.sh: unknown phase: $selected_phase" >&2; exit 2 ;;
+  esac
+done
 selected_phase=${1:-all}
-if [ "$#" -gt 1 ]; then echo "ci/gates.sh: expected at most one phase" >&2; exit 2; fi
-case "$selected_phase" in
-  all|infrastructure|core|runtime|shipped|smoke|fuzz|sidecars|bindings|browser|interop|transports) ;;
-  *) echo "ci/gates.sh: unknown phase: $selected_phase" >&2; exit 2 ;;
-esac
 
 # Every gate above appends its exit and duration here, and the exit trap turns
 # the rows into the evidence record (tools/evidence/record.py) however the
@@ -124,6 +164,10 @@ EVIDENCE_ROWS=$(mktemp)
 EVIDENCE_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 finish() {
   local rc=$?
+  if [ "$compile_only" = true ]; then
+    rm -f -- "$EVIDENCE_ROWS"
+    exit "$rc"
+  fi
   local outcome=failed
   [ "$rc" -eq 0 ] && outcome=passed
   local record_rc=0
@@ -155,13 +199,13 @@ gate zig build infrastructure-check
 phase core
 build zig build check-build
 gate zig build check
+phase memcheck
 build zig build test-memcheck-build
 gate zig build test-memcheck
 # The process, application, and language-workspace proofs, run against the
 # ReleaseSafe archives a release ships (tools/build/release.zig refuses Debug).
-# The core lane's Debug tests still meet Debug's undefined-memory fill on every
-# change. Core and runtime together exceed what one hosted runner holds, so
-# each phase is its own lane.
+# The core phase's Debug tests still meet Debug's undefined-memory fill on
+# every change.
 phase runtime
 build zig build runtime-check-build -Doptimize=ReleaseSafe
 long zig build runtime-check -Doptimize=ReleaseSafe
@@ -200,12 +244,15 @@ gate zig build goblins-interop
 #
 # Each target compiles its own ReleaseSafe binary, which a cold hosted runner
 # pays in full, so the sweep's time grows with every target added. It runs as
-# interleaved shards, each a gate under its own deadline. When a shard's
-# headroom warning fires, add a shard here.
-phase fuzz
+# interleaved shards, each a phase of its own so CI runs them in parallel.
+# When a shard's headroom warning fires, add a shard here.
+phase fuzz-1
 gate zig build fuzz -Dfuzz-runs=25K -Dfuzz-shard=1/4
+phase fuzz-2
 gate zig build fuzz -Dfuzz-runs=25K -Dfuzz-shard=2/4
+phase fuzz-3
 gate zig build fuzz -Dfuzz-runs=25K -Dfuzz-shard=3/4
+phase fuzz-4
 gate zig build fuzz -Dfuzz-runs=25K -Dfuzz-shard=4/4
 # The Rust sidecars' own unit tests. The shared crate proves a private-runtime
 # call survives an ambient Tokio runtime and that the release barrier keeps a
@@ -256,12 +303,25 @@ gate zig build rooms-rust-browser-test
 # The production Rooms page is a peer, and every supported browser journey is
 # release evidence rather than an opt-in demo. The family runs concurrently
 # within a shard and grows with every journey, so like the fuzz sweep it runs
-# as interleaved shards. When a shard's headroom warning fires, add a shard.
+# as interleaved shards, each a phase that opens with the shared builds. When a
+# shard's headroom warning fires, add a shard.
+phase browser-proofs-1
+build zig build loam-browser-build rooms-web-build
+build zig build rooms-archive-build rooms-session-build iroh-abi
 gate zig build rooms-web-proofs -Drooms-web-proof-shard=1/4
+phase browser-proofs-2
+build zig build loam-browser-build rooms-web-build
+build zig build rooms-archive-build rooms-session-build iroh-abi
 gate zig build rooms-web-proofs -Drooms-web-proof-shard=2/4
+phase browser-proofs-3
+build zig build loam-browser-build rooms-web-build
+build zig build rooms-archive-build rooms-session-build iroh-abi
 gate zig build rooms-web-proofs -Drooms-web-proof-shard=3/4
+phase browser-proofs-4
+build zig build loam-browser-build rooms-web-build
+build zig build rooms-archive-build rooms-session-build iroh-abi
 gate zig build rooms-web-proofs -Drooms-web-proof-shard=4/4
-phase interop
+phase rooms-interop
 # The C ABI archives and the Rooms services every live proof below dials.
 build zig build build rooms-archive-build
 # The smallest outside-authority Rooms proof: a real Goblins vat and a Rooms
@@ -280,6 +340,8 @@ gate zig build demo-rooms
 # bridge ↔ Goblins, then ordinary IRC client ↔ front ↔ Rooms room ↔ Goblins,
 # including a reply over the direct session the IRC side initiated.
 gate zig build goblins-rooms-irc
+phase interop
+build zig build build rooms-archive-build
 # The same live-Goblins conversation, once per binding. Without these the
 # bindings are only ever proved against glowcap's own checks, which cannot
 # catch a binding that drifts from the protocol. These rows cover Deno, Python,

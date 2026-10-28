@@ -6,6 +6,7 @@
 //! growth or CPU contention into a false timeout on whichever test ran last.
 
 const std = @import("std");
+const Shard = @import("shard.zig").Shard;
 
 /// Every command built under the `build_tool` posture, so a gate can name the
 /// compile half of what it reaches (`addCompileHalf`). The build script
@@ -249,13 +250,95 @@ pub const RuntimeGate = struct {
 /// deadline. Call it after every registrar has wired `gate`.
 pub fn addCompileHalf(gate: *std.Build.Step, half: *std.Build.Step) void {
     const gpa = gate.owner.allocator;
-    var reached: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
-    defer reached.deinit(gpa);
-    collectReachable(gpa, gate, &reached);
-    var reached_steps = reached.keyIterator();
-    while (reached_steps.next()) |reached_step| {
-        const compiles = reached_step.*.cast(std.Build.Step.Compile) != null;
-        if (compiles or build_tools.contains(reached_step.*)) half.dependOn(reached_step.*);
+    var seen: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
+    defer seen.deinit(gpa);
+    var members: std.ArrayList(*std.Build.Step) = .empty;
+    defer members.deinit(gpa);
+    appendCompileHalf(gpa, gate, &seen, &members);
+    for (members.items) |member| half.dependOn(member);
+}
+
+/// Read a `-D<name>=k/n` option, the whole family when it is absent. A value
+/// that is not a shard stops configuration, so a CI line cannot run nothing.
+pub fn shardOption(b: *std.Build, name: []const u8, description: []const u8) Shard {
+    const text = b.option([]const u8, name, description) orelse return .{};
+    return Shard.parse(text) orelse
+        std.process.fatal("-D{s}={s} is not k/n with 1 <= k <= n", .{ name, text });
+}
+
+/// Declare `-Dcompile-only` and `-Dcompile-shard`, and apply them. Call it
+/// after every registrar and after anything that reads the unmodified graph.
+pub fn registerCompileOnly(b: *std.Build) void {
+    const shard = shardOption(b, "compile-shard", "With -Dcompile-only, compile only the k-th of n interleaved slices, as k/n (default 1/1)");
+    if (b.option(bool, "compile-only", "Compile what the requested steps would run, and run nothing (CI build jobs)") orelse false) {
+        compileOnly(b, shard);
+    }
+}
+
+/// Rewire every top-level step to its share of the compile half of what it
+/// reaches, so `zig build <steps> -Dcompile-only` compiles what the same
+/// invocation without the option would run, and runs nothing. A CI build job
+/// uses it to fill the cache a later job's ordinary invocation hits, and
+/// `shard` splits one cold build across parallel jobs: each Zig compile
+/// belongs to the shard its position in one walk of the whole graph selects,
+/// so the shards of an invocation together compile its half once. Every
+/// build-tool command belongs to the first shard, because those commands share
+/// one Cargo target directory, and Cargo calls a unit stale when a dependency
+/// another job rebuilt is newer than it. A step another selected step depends
+/// on still builds in that shard. Every half is taken from the unmodified graph
+/// before any step is rewired.
+fn compileOnly(b: *std.Build, shard: Shard) void {
+    const gpa = b.allocator;
+    const steps = b.top_level_steps.values();
+    // Configuration is deterministic, so this walk orders the same graph the
+    // same way in every shard's process.
+    var everything: std.ArrayList(*std.Build.Step) = .empty;
+    var walked: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
+    for (steps) |top| appendCompileHalf(gpa, &top.step, &walked, &everything);
+    var selected: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
+    var compiles: usize = 0;
+    for (everything.items) |member| {
+        const owned = if (build_tools.contains(member)) shard.index == 1 else owned: {
+            defer compiles += 1;
+            break :owned shard.selects(compiles);
+        };
+        if (owned) selected.put(gpa, member, {}) catch @panic("OOM");
+    }
+
+    const halves = gpa.alloc(std.ArrayList(*std.Build.Step), steps.len) catch @panic("OOM");
+    for (steps, halves) |top, *half| {
+        half.* = .empty;
+        var seen: std.AutoHashMapUnmanaged(*std.Build.Step, void) = .empty;
+        defer seen.deinit(gpa);
+        appendCompileHalf(gpa, &top.step, &seen, half);
+    }
+    for (steps, halves) |top, half| {
+        top.step.dependencies.clearRetainingCapacity();
+        for (half.items) |member| {
+            if (selected.contains(member)) top.step.dependOn(member);
+        }
+    }
+}
+
+/// Append to `half`, in the graph's own order, every Zig compile and
+/// build-tool command `root` reaches that `seen` does not already hold.
+fn appendCompileHalf(
+    gpa: std.mem.Allocator,
+    root: *std.Build.Step,
+    seen: *std.AutoHashMapUnmanaged(*std.Build.Step, void),
+    half: *std.ArrayList(*std.Build.Step),
+) void {
+    var pending: std.ArrayList(*std.Build.Step) = .empty;
+    defer pending.deinit(gpa);
+    pending.append(gpa, root) catch @panic("OOM");
+    while (pending.pop()) |current| {
+        if ((seen.getOrPut(gpa, current) catch @panic("OOM")).found_existing) continue;
+        if (current.cast(std.Build.Step.Compile) != null or build_tools.contains(current)) {
+            half.append(gpa, current) catch @panic("OOM");
+        }
+        for (current.dependencies.items) |dependency| {
+            pending.append(gpa, dependency) catch @panic("OOM");
+        }
     }
 }
 

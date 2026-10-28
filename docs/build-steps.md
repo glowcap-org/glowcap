@@ -66,6 +66,7 @@ zig build check-external                    # Run outside-authority protocol con
 zig build test                              # Run the unit and scenario test suite (test/all_test.zig); part of check
 zig build test -Dtest-filter=substring # only tests whose names match
 zig build test -Dtest-layer=engine,driver # compile and run only these test layers (the top-level test/ directories)
+zig build check -Dcompile-only -Dcompile-shard=1/2 # compile the first of two slices of what check would run, and run nothing (CI build jobs)
 zig build test-memcheck                     # Run the protocol core and actors tests under valgrind, built for the baseline CPU (-Dtest-filter narrows it)
 zig build test-memcheck-build               # Compile the test-memcheck suite without running it; part of test-memcheck
 zig build arch-check                        # Enforce the layer dependency DAG over src/; part of check

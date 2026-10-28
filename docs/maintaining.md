@@ -174,7 +174,7 @@ duration. A full local run writes `zig-out/evidence/<commit>.json` and, on a
 clean checkout, attaches a Git note under `refs/notes/evidence`. A phase run
 writes `zig-out/evidence/<phase>/<commit>.json` without attaching a note.
 
-CI uploads these records as `evidence-<commit>-<lane>` artifacts on success
+CI uploads these records as `evidence-<commit>-<phase>` artifacts on success
 and failure. A green sequence whose record step fails exits 70. To publish
 notes from a full local run, use `git push origin refs/notes/evidence`.
 

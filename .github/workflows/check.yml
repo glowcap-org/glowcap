@@ -1,10 +1,11 @@
-# Pull requests into dev select affected lanes. Full validation runs for
+# Pull requests into dev select affected groups. Full validation runs for
 # pushes to dev and main, main PRs, CI/build changes, nightly, and manual
 # suite=check. Only full runs report the required gates context, and the main
 # ruleset reads it from the dev push run. Nightly also runs deep fuzzing.
 # Topology: CONTRIBUTING.md "Continuous integration".
 #
-# One preparation job resolves or builds the toolchain before Linux fans out.
+# One preparation job resolves or builds the toolchain before Linux fans out
+# into groups, each of which compiles once and then tests in parallel.
 name: check
 
 on:
@@ -39,7 +40,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      lanes: ${{ steps.select.outputs.lanes }}
+      groups: ${{ steps.select.outputs.groups }}
       full: ${{ steps.select.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,234 +58,28 @@ jobs:
       packages: write
     uses: ./.github/workflows/devcontainer-image.yml
 
+  # Each group builds once, in shards, and then tests every phase in parallel
+  # (check-group.yml). Groups run side by side, so a group's tests wait only
+  # for its own build.
   linux:
     needs: [plan, image]
-    name: linux (${{ matrix.lane }})
+    name: linux (${{ matrix.group.name }})
     if: >-
       github.event_name == 'push' || github.event_name == 'pull_request' ||
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        lane: ${{ fromJSON(needs.plan.outputs.lanes) }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Reclaim disk space for container builds
-        run: .devcontainer/ci/reclaim-disk.sh
-
-      # Download stores are shared between runs. Installed tools and
-      # credentials are never restored.
-      - name: Restore dependency downloads
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.cache/glowcap/ci/zig-pkg
-            ~/.cache/glowcap/cargo/registry
-            ~/.cache/glowcap/cargo/git
-            ~/.cache/glowcap/tool/deno/remote
-            ~/.cache/glowcap/tool/deno/npm
-            ~/.cache/glowcap/tool/uv
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.lane }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
-          restore-keys: downloads-${{ runner.os }}-${{ runner.arch }}-
-
-      # Compile state is restored too, because a hosted runner compiles cold an
-      # order of magnitude slower than a workstation. Zig keys every object by
-      # its inputs and every process proof always reruns, so a restore saves
-      # compile time and skips no proof. Deno's type-check, dependency-analysis,
-      # and code caches are compile state as well: without them every
-      # `deno test` under a 30-second proof deadline type-checks its modules
-      # cold on two CPUs first. Each lane keeps its own entry, and a
-      # toolchain change starts a new family. Zig's cache has no collector, so
-      # state past the limit, or more than the runner's disk can spare, is
-      # dropped and that run saves a fresh one. Full qualification builds cold
-      # and saves: its result qualifies main, and it holds the cold build to
-      # its budgets.
-      - name: Restore build state
-        id: build-state
-        if: needs.plan.outputs.full != 'true'
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.cache/glowcap/tool/zig
-            ~/.cache/glowcap/ci/zig-local
-            ~/.cache/glowcap/ci/cargo-build
-            ~/.cache/glowcap/tool/deno/gen
-            ~/.cache/glowcap/tool/deno/check_cache_v2
-            ~/.cache/glowcap/tool/deno/dep_analysis_cache_v2
-            ~/.cache/glowcap/tool/deno/v8_code_cache_v2
-          key: build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.lane }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.lane }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-
-
-      - name: Bound the restored build state
-        if: needs.plan.outputs.full != 'true'
-        env:
-          # The repository's cache quota is 10 GB compressed across every
-          # lane, so a lane's state is held near its cold size instead of
-          # growing: Zig's cache has no collector.
-          LIMIT_GB: 12
-          # Free disk the lane needs beyond its restored state: the 6 GB
-          # container image, zig-out, cargo outputs, and proof scratch. On a
-          # hosted runner the heaviest lane's cold build grew used disk by
-          # 30 GB including the state it then saved, and the others by 9 to
-          # 14 GB with 5 to 9 GB of that being state. The check runs after
-          # the restore, so the floor is what the lane adds on top of the
-          # state, not the whole cold build: set to the whole cold build it
-          # dropped every restore, and no run ever built warm.
-          FREE_FLOOR_GB: 20
-        run: |
-          stores=(~/.cache/glowcap/tool/zig ~/.cache/glowcap/ci/zig-local ~/.cache/glowcap/ci/cargo-build ~/.cache/glowcap/tool/deno/gen ~/.cache/glowcap/tool/deno/check_cache_v2 ~/.cache/glowcap/tool/deno/dep_analysis_cache_v2 ~/.cache/glowcap/tool/deno/v8_code_cache_v2)
-          present=()
-          for store in "${stores[@]}"; do
-            if [ -e "$store" ]; then present+=("$store"); fi
-          done
-          size=0
-          if [ "${#present[@]}" -gt 0 ]; then
-            du -sh "${present[@]}"
-            size=$(du -s --block-size=1G "${present[@]}" | awk '{ total += $1 } END { print total + 0 }')
-          fi
-          free=$(df --output=avail --block-size=1G / | tail -1 | tr -d ' ')
-          echo "Restored build state: ${size} GB of ${LIMIT_GB} GB, ${free} GB free"
-          if [ "$size" -gt "$LIMIT_GB" ] || [ "$free" -lt "$FREE_FLOOR_GB" ]; then
-            rm -rf -- "${stores[@]}"
-            echo "Dropped it; this run builds cold and saves a fresh state."
-          fi
-
-      - name: Install the pinned Dev Containers CLI
-        run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
-
-      - name: Authenticate to the image registry
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-
-      - name: Download the unpublished PR image
-        if: needs.image.outputs.archive == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: devcontainer-image
-          path: ${{ runner.temp }}
-
-      - name: Start the prepared devcontainer
-        env:
-          IMAGE: ${{ needs.image.outputs.image }}
-        run: python3 .devcontainer/ci/image.py start "$IMAGE"
-
-      - name: Fetch pinned Zig dependencies
-        id: fetch
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json bash ci/fetch-zig.sh
-
-      # Every phase runs once the container is ready, even after an earlier
-      # phase failed, so one run reports every failure in the lane. Cargo's
-      # intermediate state is cached between runs, so incremental compilation
-      # would only add disk, and dev-profile debug info keeps source lines
-      # without the variable data that dominates a target directory; the
-      # Rooms test profile makes the same choice in its manifest.
-      - name: Infrastructure and timeout checks
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'core' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh infrastructure
-
-      - name: Core and memory checks
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'core' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh core
-
-      - name: Runtime process and TLS checks
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'runtime' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh runtime
-
-      - name: ReleaseSafe tests in bounded compile groups
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'shipped' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh shipped
-
-      - name: Browser and interoperability smoke checks
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'shipped' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh smoke
-
-      - name: Bounded mutation fuzzing
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'shipped' && needs.plan.outputs.full == 'true' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh fuzz
-
-      - name: Rust sidecar tests
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'bindings' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh sidecars
-
-      - name: Bindings and cross-language scenarios
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'bindings' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh bindings
-
-      - name: Wasm and browser scenarios
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'browser' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh browser
-
-      - name: Goblins and OCapN interoperability
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'interop' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh interop
-
-      - name: Iroh providers and relay matrices
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && matrix.lane == 'transports' }}
-        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only bash ci/gates.sh transports
-
-      # The evidence record is the run's product: what ran, on what, and how
-      # each gate ended. It is kept on failure too, since a red run's record
-      # is what names the gate that failed. A superseded run can be cancelled
-      # before the recorder starts, so cancellation has no required artifact.
-      - name: Keep the evidence record
-        if: ${{ !cancelled() && hashFiles('zig-out/evidence/**/*.json') != '' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: evidence-${{ github.sha }}-${{ matrix.lane }}
-          path: zig-out/evidence/**/*.json
-          if-no-files-found: error
-
-      # A fuzz search never repeats, so the input that crashed a target is
-      # the only way to replay what this run found. The fuzz runner leaves it
-      # in the checkout, outside the build cache.
-      - name: Keep a fuzzer finding
-        if: ${{ !cancelled() && hashFiles('zig-out/fuzz-finding.bin') != '' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: fuzz-finding-${{ github.sha }}-${{ matrix.lane }}
-          path: zig-out/fuzz-finding.bin
-          if-no-files-found: error
-
-      # Pushes and nightly runs keep their compile state, even after a failed
-      # gate. Pull requests only read it. A run whose container never started
-      # holds no state, and saving it would hand the next run an empty cache.
-      - name: Save build state
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && github.event_name != 'pull_request' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.cache/glowcap/tool/zig
-            ~/.cache/glowcap/ci/zig-local
-            ~/.cache/glowcap/ci/cargo-build
-            ~/.cache/glowcap/tool/deno/gen
-            ~/.cache/glowcap/tool/deno/check_cache_v2
-            ~/.cache/glowcap/tool/deno/dep_analysis_cache_v2
-            ~/.cache/glowcap/tool/deno/v8_code_cache_v2
-          key: build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.lane }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-      - name: Summarize gate results
-        if: ${{ !cancelled() }}
-        run: |
-          df -h /
-          docker system df
-          python3 - <<'PYTHON'
-          import glob, json, os
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-              output.write('| Gate | Result | Seconds |\n| --- | --- | ---: |\n')
-              for path in sorted(glob.glob('zig-out/evidence/**/*.json', recursive=True)):
-                  record = json.load(open(path))
-                  for gate in record['gates']:
-                      result = 'passed' if gate['exit'] == 0 else f"failed ({gate['exit']})"
-                      output.write(f"| `{gate['command']}` | {result} | {gate['seconds']} |\n")
-          PYTHON
+        group: ${{ fromJSON(needs.plan.outputs.groups) }}
+    uses: ./.github/workflows/check-group.yml
+    with:
+      group: ${{ matrix.group.name }}
+      phases: ${{ toJSON(matrix.group.phases) }}
+      shards: ${{ toJSON(matrix.group.shards) }}
+      full: ${{ needs.plan.outputs.full }}
+      image: ${{ needs.image.outputs.image }}
+      archive: ${{ needs.image.outputs.archive }}
 
   # Keep the branch-protection context stable. Missing, skipped, cancelled,
   # or failed matrix work must never produce a successful aggregate.
@@ -299,14 +94,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require every Linux lane to pass
+      - name: Require every Linux group to pass
         env:
           IMAGE: ${{ needs.image.result }}
           RESULT: ${{ needs.linux.result }}
           PLAN: ${{ needs.plan.result }}
         run: test "$PLAN" = success && test "$IMAGE" = success && test "$RESULT" = success
 
-  # Full validation searches each fuzz target for 25K runs. This lane searches a
+  # Full validation searches each fuzz target for 25K runs. This job searches
   # ten times longer, on main, and fails on a find; a find is replayed
   # into the layer's regression corpus by hand.
   scheduled-fuzz:

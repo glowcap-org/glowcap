@@ -1,14 +1,5 @@
 const std = @import("std");
 const execution = @import("execution.zig");
-pub const Shard = @import("shard.zig").Shard;
-
-/// Read a `-D<name>=k/n` option, the whole family when it is absent. A value
-/// that is not a shard stops configuration, so a CI line cannot run nothing.
-pub fn shardOption(b: *std.Build, name: []const u8, description: []const u8) Shard {
-    const text = b.option([]const u8, name, description) orelse return .{};
-    return Shard.parse(text) orelse
-        std.process.fatal("-D{s}={s} is not k/n with 1 <= k <= n", .{ name, text });
-}
 
 /// Build one executable over the public `glowcap` module.
 pub fn glowcapExecutable(

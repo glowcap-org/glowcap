@@ -13,6 +13,8 @@ SPEC = importlib.util.spec_from_file_location("ci_plan", ROOT / "ci/plan.py")
 PLAN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PLAN)
 INTO_DEV = {"pull_request": {"base": {"ref": "dev"}}}
+# Development validation never fuzzes.
+DEVELOPMENT = [name for name in PLAN.GROUP_NAMES if name != "fuzz"]
 
 
 class PlanTest(unittest.TestCase):
@@ -26,7 +28,7 @@ class PlanTest(unittest.TestCase):
         ):
             with self.subTest(event=event):
                 self.assertEqual(PLAN.select(event, ref, payload, ["README.md"]),
-                                 (list(PLAN.LANES), True))
+                                 (list(PLAN.GROUP_NAMES), True))
 
     def test_development_selects_consumers_and_fails_closed(self):
         cases = [
@@ -34,18 +36,18 @@ class PlanTest(unittest.TestCase):
             (["src/loam/core/mod.zig"], ["core", "runtime", "shipped", "browser"], False),
             (["bindings/python/glowcap/__init__.py"], ["core", "runtime", "shipped", "bindings", "interop", "transports"], False),
             (["conformance/goblins-peer/peer.rkt"], ["core", "runtime", "shipped", "interop", "transports"], False),
-            (["apps/rooms/lib/peer.ts"], list(PLAN.LANES), False),
-            (["bindings/rust/src/lib.rs"], list(PLAN.LANES), False),
-            (["bindings/proofs/scenario.ts"], list(PLAN.LANES), False),
-            (["bindings/ts/host.ts"], list(PLAN.LANES), False),
-            (["src/ocapn/session.zig"], list(PLAN.LANES), False),
-            (["src/c_abi/shared/archive_pin.zig"], list(PLAN.LANES), False),
-            ([".github/workflows/check.yml"], list(PLAN.LANES), True),
-            ([".agents/skills/work/bin/glowcap-dev"], list(PLAN.LANES), True),
-            (["build.zig.zon"], list(PLAN.LANES), True),
-            (["test/driver/fuzz_test.zig"], list(PLAN.LANES), True),
-            (["an-unclassified-file"], list(PLAN.LANES), True),
-            (None, list(PLAN.LANES), True),
+            (["apps/rooms/lib/peer.ts"], DEVELOPMENT, False),
+            (["bindings/rust/src/lib.rs"], DEVELOPMENT, False),
+            (["bindings/proofs/scenario.ts"], DEVELOPMENT, False),
+            (["bindings/ts/host.ts"], DEVELOPMENT, False),
+            (["src/ocapn/session.zig"], DEVELOPMENT, False),
+            (["src/c_abi/shared/archive_pin.zig"], DEVELOPMENT, False),
+            ([".github/workflows/check.yml"], list(PLAN.GROUP_NAMES), True),
+            ([".agents/skills/work/bin/glowcap-dev"], list(PLAN.GROUP_NAMES), True),
+            (["build.zig.zon"], list(PLAN.GROUP_NAMES), True),
+            (["test/driver/fuzz_test.zig"], list(PLAN.GROUP_NAMES), True),
+            (["an-unclassified-file"], list(PLAN.GROUP_NAMES), True),
+            (None, list(PLAN.GROUP_NAMES), True),
             ([], ["core", "runtime", "shipped"], False),
         ]
         for paths, lanes, full in cases:
@@ -53,7 +55,7 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV, paths), (lanes, full))
         self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV,
                                      ["src/loam/core/mod.zig", "bindings/rust/src/lib.rs"]),
-                         (list(PLAN.LANES), False))
+                         (DEVELOPMENT, False))
 
     def test_diff_includes_deletions_and_both_sides_of_renames(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -88,6 +90,10 @@ class PlanTest(unittest.TestCase):
                        GITHUB_OUTPUT=str(root / "output"), GITHUB_STEP_SUMMARY=str(root / "summary"))
             subprocess.run(["python3", str(ROOT / "ci/plan.py")], cwd=root, env=env, check=True)
             values = dict(line.split("=", 1) for line in (root / "output").read_text().splitlines())
-            self.assertEqual(json.loads(values["lanes"]), list(PLAN.LANES))
+            groups = json.loads(values["groups"])
+            self.assertEqual([group["name"] for group in groups], list(PLAN.GROUP_NAMES))
+            for group, (name, phases, shards) in zip(groups, PLAN.GROUPS):
+                self.assertEqual(group, {"name": name, "phases": list(phases),
+                                         "shards": list(range(1, shards + 1))})
             self.assertEqual(values["full"], "true")
             self.assertIn("**full**", (root / "summary").read_text())

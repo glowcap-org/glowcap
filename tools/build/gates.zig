@@ -377,7 +377,7 @@ pub fn register(ctx: Context) Registered {
     });
     const shard_mod = b.createModule(.{ .root_source_file = b.path("tools/build/shard.zig"), .target = b.graph.host });
     fuzz_driver_exe.root_module.addImport("shard", shard_mod);
-    const fuzz_shard = common.shardOption(b, "fuzz-shard", "Search only the k-th of n interleaved slices of the targets, as k/n (default 1/1)");
+    const fuzz_shard = execution.shardOption(b, "fuzz-shard", "Search only the k-th of n interleaved slices of the targets, as k/n (default 1/1)");
     const fuzz_driver = execution.addArtifact(b, .search, fuzz_driver_exe);
     fuzz_driver.addArgs(&.{ b.graph.zig_exe, b.fmt("--fuzz={s}", .{fuzz_budget}), b.fmt("--shard={d}/{d}", .{ fuzz_shard.index, fuzz_shard.count }) });
     fuzz_driver.has_side_effects = true;

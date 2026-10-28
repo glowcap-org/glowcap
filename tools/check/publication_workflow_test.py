@@ -24,7 +24,8 @@ from unittest import mock
 
 from ci_runtime_test import RuntimeTest
 from ci_image_test import ImageTest
-from ci_plan_test import PLAN, PlanTest  # unittest collects the coverage-selection contracts.
+from ci_plan_test import PlanTest  # unittest collects the coverage-selection contracts.
+from ci_phase_test import GateRecorder, PhaseTest  # unittest collects the phase contracts.
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -157,9 +158,11 @@ class PublicationWorkflow(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertFalse(log.exists())
-        for name, (_, body) in jobs('.github/workflows/check.yml').items():
-            if name not in ('gates', 'plan'):
-                self.assertIn('bash ci/fetch-zig.sh', body, name)
+        for path, skipped in (('.github/workflows/check.yml', ('gates', 'plan', 'linux')),
+                              ('.github/workflows/check-group.yml', ())):
+            for name, (_, body) in jobs(path).items():
+                if name not in skipped:
+                    self.assertIn('bash ci/fetch-zig.sh', body, f'{path}: {name}')
 
     def test_release_version_and_publication_stay_pre_one(self):
         source = (ROOT / ".github/workflows/release.yml").read_text()
@@ -397,8 +400,17 @@ else:
         self.assertNotIn("pull_request_target:", source)
         self.assertIn("\npermissions:\n  contents: read\n", source)
         self.assertNotIn("secrets.", source)
-        for name in ("plan", "linux", "gates", "macos-runtime"):
-            body = jobs(".github/workflows/check.yml")[name][1]
+        group = (ROOT / ".github/workflows/check-group.yml").read_text()
+        self.assertIn("\npermissions:\n  contents: read\n  packages: read\n", group)
+        self.assertNotIn("secrets", group)
+        linux = jobs(".github/workflows/check.yml")["linux"][1]
+        self.assertIn("    uses: ./.github/workflows/check-group.yml\n", linux)
+        self.assertNotIn("secrets", linux)
+        bodies = [(name, body) for name, (_, body) in jobs(".github/workflows/check.yml").items()
+                  if name in ("plan", "gates", "macos-runtime")]
+        bodies += [(f"group {name}", body) for name, (_, body) in jobs(".github/workflows/check-group.yml").items()]
+        self.assertEqual(len(bodies), 5)
+        for name, body in bodies:
             with self.subTest(job=name):
                 self.assertNotIn("permissions:", body)
                 self.assertNotIn("self-hosted", body)
@@ -457,102 +469,15 @@ else:
         self.assertIn("persist-credentials: false", workflow)
         self.assertNotIn("needs:", workflow)
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            calls = directory / "calls.jsonl"
-            recorder = directory / "python3"
-            recorder.write_text(f"#!{sys.executable}\n" + textwrap.dedent("""\
-                import json, os, sys
-                if sys.argv[1] == 'tools/evidence/record.py':
-                    from pathlib import Path
-                    rows = Path(sys.argv[sys.argv.index('--gates') + 1]).read_text()
-                    Path(os.environ['GATE_RECORD']).write_text(json.dumps({'args': sys.argv[2:], 'rows': rows}))
-                    sys.exit(int(os.environ.get('RECORD_FAILURE', '0')))
-                command = sys.argv[7:] if '--heartbeat' in sys.argv else sys.argv[5:]
-                with open(os.environ['GATE_CALLS'], 'a') as output:
-                    output.write(json.dumps(command) + '\\n')
-                sys.exit(37 if '.devcontainer/test/tool-install.sh' in command or os.environ.get('GATE_FAIL') in command else 0)
-                """))
-            recorder.chmod(0o755)
-            environment = dict(os.environ, PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
-                               GATE_CALLS=str(calls), GATE_RECORD=str(directory / "record.json"))
-            environment.pop("GATES_SOURCE_ONLY", None)
+            recorder = GateRecorder(Path(temporary))
             agent = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", command[1]],
-                                   cwd=ROOT, env=environment, capture_output=True, text=True)
+                                   cwd=ROOT, env=recorder.environment, capture_output=True, text=True)
             self.assertEqual(agent.returncode, 37, agent.stderr)
-            calls.unlink()
-            product = subprocess.run(["bash", "ci/gates.sh"], cwd=ROOT, env=environment,
-                                     capture_output=True, text=True)
-            self.assertEqual(product.returncode, 0, product.stderr)
-            invoked = [json.loads(line) for line in calls.read_text().splitlines()]
+            status, invoked = recorder.gates()
+            self.assertEqual(status.returncode, 0, status.stderr)
             self.assertFalse(any('.devcontainer/test/tool-install.sh' in call for call in invoked))
             for step in ("check", "runtime-check", "goblins-interop", "ocapn-conformance-next"):
                 self.assertTrue(any(call[:2] == ["zig", "build"] and step in call for call in invoked), step)
-            workflow = (ROOT / '.github/workflows/check.yml').read_text()
-            lanes, full = PLAN.select('workflow_dispatch', 'refs/heads/dev', {}, [])
-            self.assertTrue(full)
-            phase_steps = re.findall(
-                r"if: \$\{\{ !cancelled\(\) && steps.fetch.outcome == 'success' && matrix.lane == '([^']+)'( && needs.plan.outputs.full == 'true')? \}\}\n        run: devcontainer exec --workspace-folder \. --config \.devcontainer/\.ci/devcontainer\.json (?:--remote-env [A-Z_]+=[^ ]+ )+bash ci/gates.sh ([a-z]+)", workflow)
-            phases = [phase for lane in lanes for condition, _, phase in phase_steps if condition == lane]
-            self.assertEqual(len(phases), len(set(phases)))
-            combined = []
-            record_path = directory / 'record.json'
-            for phase in phases:
-                calls.unlink()
-                result = subprocess.run(['bash', 'ci/gates.sh', phase], cwd=ROOT, env=environment,
-                                        capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                commands = [json.loads(line) for line in calls.read_text().splitlines()]
-                self.assertTrue(commands, phase)
-                combined.extend(commands)
-                record = json.loads(record_path.read_text())
-                self.assertIn('zig-out/evidence/' + phase, record['args'])
-                self.assertNotIn('--note', record['args'])
-                self.assertEqual(len(record['rows'].splitlines()), len(commands))
-            self.assertEqual(combined, invoked, 'CI phases must cover the full local sequence exactly once')
-            reduced, full = PLAN.select('pull_request', 'refs/pull/7/merge',
-                                         {'pull_request': {'base': {'ref': 'dev'}}}, ['README.md'])
-            self.assertFalse(full)
-            reduced_phases = [phase for lane, full_only, phase in phase_steps
-                              if lane in reduced and not full_only]
-            self.assertEqual(reduced_phases, ['infrastructure', 'core', 'runtime', 'shipped', 'smoke'])
-            for arguments in (['unknown'], ['core', 'browser']):
-                calls.unlink(missing_ok=True)
-                record_path.unlink()
-                result = subprocess.run(['bash', 'ci/gates.sh', *arguments], cwd=ROOT, env=environment,
-                                        capture_output=True, text=True)
-                self.assertEqual(result.returncode, 2)
-                self.assertFalse(calls.exists())
-                self.assertFalse(record_path.exists())
-                record_path.write_text('{}')
-            # A failed gate does not stop its phase: every gate runs and records,
-            # and the phase exits with the first failure. Recorder failure
-            # must not hide a failed gate, or turn a successful phase green.
-            for gate_failure, record_failure, expected in [('check', '0', 37), ('check', '9', 37), ('', '9', 70)]:
-                result = subprocess.run(['bash', 'ci/gates.sh', 'core'], cwd=ROOT,
-                                        env=dict(environment, GATE_FAIL=gate_failure, RECORD_FAILURE=record_failure),
-                                        capture_output=True, text=True)
-                self.assertEqual(result.returncode, expected, result.stderr)
-                rows = json.loads(record_path.read_text())['rows'].splitlines()
-                if gate_failure:
-                    self.assertGreater(len(rows), 1)
-                    failed = [row for row in rows if row.endswith(' ' + gate_failure)]
-                    self.assertEqual(len(failed), 1, rows)
-                    self.assertTrue(failed[0].startswith('37\t'))
-                    self.assertTrue(all(row.startswith('0\t') for row in rows if row is not failed[0]))
-
-    def test_shipped_mode_partitions_cover_every_layer_once(self):
-        source = (ROOT / 'test/all_test.zig').read_text()
-        declared = re.search(r'const Layer = enum \{([^}]+)\}', source)[1]
-        layers = [name.strip() for name in declared.split(',') if name.strip()]
-        gates = (ROOT / 'ci/gates.sh').read_text()
-        shipped = re.search(r'^phase shipped\n(.*?)(?=^phase |\Z)', gates, re.M | re.S)[1]
-        commands = re.findall(r'^(?:gate|build) zig build test -Doptimize=ReleaseSafe(.*)$', shipped, re.M)
-        selected_layers = []
-        for command in commands:
-            selection = re.fullmatch(r' -Dtest-layer=([a-z_,]+)', command)
-            self.assertIsNotNone(selection, 'ship-mode tests must bound compiler memory by layer')
-            selected_layers.extend(selection[1].split(','))
-        self.assertCountEqual(selected_layers, layers)
 
     def test_parallel_checks_cannot_pass_with_a_missing_lane(self):
         conditions = jobs('.github/workflows/check.yml')
@@ -574,8 +499,14 @@ else:
             self.assertNotEqual(ran.returncode, 0)
         linux = conditions['linux'][1]
         self.assertIn('fail-fast: false', linux)
-        self.assertIn('lane: ${{ fromJSON(needs.plan.outputs.lanes) }}', linux)
-        self.assertIn('evidence-${{ github.sha }}-${{ matrix.lane }}', linux)
+        self.assertIn('group: ${{ fromJSON(needs.plan.outputs.groups) }}', linux)
+        # Every build shard and test phase reports, and the tests run even
+        # when a shard failed, so one run names every failure in a group.
+        group = jobs('.github/workflows/check-group.yml')
+        for name in ('build', 'test'):
+            self.assertIn('fail-fast: false', group[name][1])
+        self.assertIn("needs.build.result == 'failure'", group['test'][0])
+        self.assertIn('evidence-${{ github.sha }}-${{ matrix.phase }}', group['test'][1])
         self.assertEqual(conditions['linux'][0], conditions['gates'][0].removeprefix('always() && (').removesuffix(')').strip())
 
     def test_protection_is_signed_linear_and_checked_on_push(self):

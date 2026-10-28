@@ -175,7 +175,7 @@ compiles in groups to bound memory use, with every test layer covered. For a
 pull request into `dev`, the [coverage selector](ci/plan.py) adds deeper jobs
 for changed subsystems:
 
-| Changed files | Additional Linux jobs |
+| Changed files | Additional Linux groups |
 | --- | --- |
 | Documentation | None |
 | Loam | Browser |
@@ -200,11 +200,18 @@ Pull requests into `dev` report `dev-gates`. Only complete validation reports
 push to `dev` started, so a candidate qualifies through its own push run, as
 described in [Maintaining glowcap](docs/maintaining.md#promoting-to-main).
 
-The selected Linux jobs run independently with named phases, gate durations in
-their summaries, and JSON evidence attached as artifacts. A failed job does not
-cancel its siblings, and a failed test does not stop its job, so one run
-reports every failing test. A build that runs out of time ends its phase,
-because every later gate in that phase needs it. The aggregate check requires every selected job to pass.
+Linux validation runs in the groups [`ci/plan.py`](ci/plan.py) names. A group's
+build jobs each compile one shard of what its phases run and hand the compiled
+state to one test job per phase, so every phase starts warm and the phases run
+side by side. Each test job reports gate durations in its summary and attaches
+JSON evidence as an artifact.
+
+A failed job does not cancel its siblings, a failed build still hands its tests
+what it compiled, and a failed test does not stop its phase, so one run reports
+every failing test. A build that runs out of time ends its phase, because every
+later gate in that phase needs it. The aggregate check requires every selected
+group to pass.
+
 Superseded runs on the same branch and event are cancelled. Long gates report
 elapsed time once a minute without extending their deadlines.
 

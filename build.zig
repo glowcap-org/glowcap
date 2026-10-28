@@ -643,4 +643,6 @@ pub fn build(b: *std.Build) void {
 
     // The step inventory reads the whole graph, so it registers last.
     build_steps_doc.register(b, gates.source_check_step);
+    // Rewiring every top-level step follows the inventory, which reads them.
+    execution.registerCompileOnly(b);
 }
