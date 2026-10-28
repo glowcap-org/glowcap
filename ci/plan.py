@@ -19,8 +19,11 @@ LANES = ("core", "runtime", "shipped", "bindings", "browser", "interop", "transp
 
 def select(event_name, ref, event, paths):
     """Return selected lanes and whether full validation is required."""
+    # A push to dev or main reports the checks the main ruleset reads: GitHub
+    # judges a push to main by the push-triggered run on that commit, never a
+    # manually started one, so the dev push itself must be full validation.
     if (event_name in ("schedule", "workflow_dispatch")
-            or ref == "refs/heads/main"
+            or ref in ("refs/heads/main", "refs/heads/dev")
             or event.get("pull_request", {}).get("base", {}).get("ref") == "main"
             or paths is None):
         return list(LANES), True

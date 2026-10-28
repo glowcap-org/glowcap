@@ -509,7 +509,8 @@ else:
                 self.assertNotIn('--note', record['args'])
                 self.assertEqual(len(record['rows'].splitlines()), len(commands))
             self.assertEqual(combined, invoked, 'CI phases must cover the full local sequence exactly once')
-            reduced, full = PLAN.select('push', 'refs/heads/dev', {}, ['README.md'])
+            reduced, full = PLAN.select('pull_request', 'refs/pull/7/merge',
+                                         {'pull_request': {'base': {'ref': 'dev'}}}, ['README.md'])
             self.assertFalse(full)
             reduced_phases = [phase for lane, full_only, phase in phase_steps
                               if lane in reduced and not full_only]

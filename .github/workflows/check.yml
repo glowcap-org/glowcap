@@ -1,6 +1,7 @@
-# Development runs select affected lanes. Full validation runs for main,
-# main PRs, CI/build changes, nightly, and manual suite=check. Only full runs
-# report the required gates context. Nightly also runs deep fuzzing.
+# Pull requests into dev select affected lanes. Full validation runs for
+# pushes to dev and main, main PRs, CI/build changes, nightly, and manual
+# suite=check. Only full runs report the required gates context, and the main
+# ruleset reads it from the dev push run. Nightly also runs deep fuzzing.
 # Topology: CONTRIBUTING.md "Continuous integration".
 #
 # One preparation job resolves or builds the toolchain before Linux fans out.

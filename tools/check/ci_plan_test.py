@@ -12,12 +12,14 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("ci_plan", ROOT / "ci/plan.py")
 PLAN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PLAN)
+INTO_DEV = {"pull_request": {"base": {"ref": "dev"}}}
 
 
 class PlanTest(unittest.TestCase):
     def test_full_qualification_never_uses_paths(self):
         for event, ref, payload in (
             ("push", "refs/heads/main", {}),
+            ("push", "refs/heads/dev", {}),
             ("schedule", "refs/heads/main", {}),
             ("workflow_dispatch", "refs/heads/dev", {}),
             ("pull_request", "refs/pull/7/merge", {"pull_request": {"base": {"ref": "main"}}}),
@@ -46,11 +48,10 @@ class PlanTest(unittest.TestCase):
             (None, list(PLAN.LANES), True),
             ([], ["core", "runtime", "shipped"], False),
         ]
-        for event in ("push", "pull_request"):
-            for paths, lanes, full in cases:
-                with self.subTest(event=event, paths=paths):
-                    self.assertEqual(PLAN.select(event, "refs/heads/dev", {}, paths), (lanes, full))
-        self.assertEqual(PLAN.select("push", "refs/heads/dev", {},
+        for paths, lanes, full in cases:
+            with self.subTest(paths=paths):
+                self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV, paths), (lanes, full))
+        self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV,
                                      ["src/loam/core/mod.zig", "bindings/rust/src/lib.rs"]),
                          (list(PLAN.LANES), False))
 
@@ -74,7 +75,7 @@ class PlanTest(unittest.TestCase):
             for event in ({"before": base}, {"pull_request": {"base": {"sha": base}}}):
                 paths = PLAN.changed_paths(event, root)
                 self.assertEqual(set(paths), {"source.zig", "README.md", "delete.zig"})
-                self.assertTrue(PLAN.select("push", "refs/heads/dev", event, paths)[1])
+                self.assertTrue(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV, paths)[1])
             for base in ("", "0" * 40, "1" * 40, "--help"):
                 self.assertIsNone(PLAN.changed_paths({"before": base}, root))
 

@@ -115,25 +115,25 @@ repositories, including divergent and checked-out branches.
 ## Promoting to main
 
 `main` is a fast-forward of `dev`, so the commit the checks ran on is the
-commit that publishes: the same hash, signature, and evidence note. Choose a
-coherent increment on `dev` and request full validation:
+commit that publishes: the same hash, signature, and evidence note. Every push
+to `dev` runs full validation, and the main ruleset judges a push to `main` by
+the `gates` and `macos-runtime` jobs of that push-triggered run. GitHub does
+not count a manually started run toward the ruleset, so retry a failed job in
+the push run with `gh run rerun <run-id> --failed` instead of starting a new
+one. A push to `dev` cancels any `dev` run still in progress, so only the
+newest `dev` commit becomes a candidate.
+
+Wait for the push run on the candidate to pass, then move `main` to it:
 
 ```sh
-gh workflow run check.yml --ref dev -f suite=check
-```
-
-Wait for `gates` and `macos-runtime` to pass on the candidate hash. A green
-`dev-gates` result covers development checks and does not qualify promotion.
-If `dev` advances during validation, validate the new candidate before moving
-`main` to it:
-
-```sh
+git fetch origin refs/heads/dev:refs/heads/dev
 candidate=$(git rev-parse refs/heads/dev)
-git merge-base --is-ancestor "$candidate" refs/heads/dev
-gh run list --commit "$candidate" --workflow check.yml
-git push origin "$candidate:refs/heads/main"
+gh run list --commit "$candidate" --workflow check.yml --event push
+git push origin "${candidate}:refs/heads/main"
 git merge --ff-only "$candidate"
 ```
+
+The braces keep zsh from reading `:r` in `$candidate:refs` as a modifier.
 
 The push goes first so the remote's rules judge the candidate, and the merge
 then moves local `main` in the checkout that holds it. A refused push leaves

@@ -168,11 +168,12 @@ Repository instructions for coding agents live in [AGENTS.md](AGENTS.md).
 
 ## Continuous integration
 
-Every pull request and push to `dev` runs core, memory, runtime, infrastructure,
-and browser/interoperability smoke checks, plus macOS tests. Core validation
+Every pull request runs core, memory, runtime, infrastructure, and
+browser/interoperability smoke checks, plus macOS tests. Core validation
 includes source checks and Zig tests in Debug and ReleaseSafe. ReleaseSafe
-compiles in groups to bound memory use, with every test layer covered. The
-[coverage selector](ci/plan.py) adds deeper jobs for changed subsystems:
+compiles in groups to bound memory use, with every test layer covered. For a
+pull request into `dev`, the [coverage selector](ci/plan.py) adds deeper jobs
+for changed subsystems:
 
 | Changed files | Additional Linux jobs |
 | --- | --- |
@@ -188,16 +189,16 @@ qualification. Missing comparison history selects full validation. Renames
 account for both source and destination paths.
 Selection uses the complete push diff or the pull request's merge result.
 
-Main pushes, pull requests targeting main, nightly runs, and manual
-`suite=check` runs always execute the complete [`ci/gates.sh`](ci/gates.sh)
+Pushes to `dev` and `main`, pull requests targeting main, nightly runs, and
+manual `suite=check` runs always execute the complete [`ci/gates.sh`](ci/gates.sh)
 sequence. Full validation includes bounded mutation fuzzing. Nightly runs also
 search deeper with the fuzzer, as does a manual `suite=fuzz` run. A fuzzer
 finding is retained as a downloadable artifact for reproduction.
 
-Development runs report `dev-gates`. Only complete validation reports `gates`,
-which the main ruleset requires. Before promotion, run full validation on the
-exact `dev` candidate as described in [Maintaining glowcap](docs/maintaining.md#promoting-to-main).
-A successful development run alone cannot qualify a commit for publication.
+Pull requests into `dev` report `dev-gates`. Only complete validation reports
+`gates`, which the main ruleset requires. The ruleset reads it from the run the
+push to `dev` started, so a candidate qualifies through its own push run, as
+described in [Maintaining glowcap](docs/maintaining.md#promoting-to-main).
 
 The selected Linux jobs run independently with named phases, gate durations in
 their summaries, and JSON evidence attached as artifacts. A failed job does not
