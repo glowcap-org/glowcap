@@ -2,7 +2,7 @@
 use super::{
 	config::Config,
 	error::Error,
-	notice::{Notice, Report},
+	notice::{Notice, Report, StandingFailures},
 	readiness::Readiness,
 	transports::{Family, Needs, Transports},
 	webrtc::{Answering, Directories},
@@ -354,6 +354,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 	let route = glowcap::format_locator_uri(&registered)?;
 	let receive = opened.session().activity_receivers();
 	let activity_report = report.clone();
+	let mut standing = StandingFailures::default();
 	opened.supervise_workspace(
 		&route,
 		rooms_platform::OsEntropy,
@@ -364,14 +365,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 				operation: "workspace realization".into(),
 				cause,
 			}),
-			Ok(state) => {
-				for (target, cause) in &state.failures {
-					activity_report(Notice::Activity {
-						operation: format!("{target:?}"),
-						cause: cause.clone(),
-					});
-				}
-			}
+			Ok(state) => standing.report(&state.failures, &activity_report),
 		},
 	)?;
 	let link = opened.publish(&locator).await?;

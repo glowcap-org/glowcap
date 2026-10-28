@@ -1,5 +1,6 @@
 //! Production managed peer startup, TCP use, durable restart and retirement.
 use super::*;
+mod notices;
 mod recovery;
 use glowcap::PendingWork;
 use std::{
