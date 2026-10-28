@@ -148,7 +148,8 @@ fi
 selected_phases=("$@")
 # The phase lines below are the only list of phases.
 known_phases=" all $(sed -n 's/^phase \([a-z0-9-]*\)$/\1/p' "${BASH_SOURCE[0]}" | tr '\n' ' ')"
-for selected_phase in "${selected_phases[@]}"; do
+# bash 3.2 (the macOS host) calls an empty array unbound under set -u.
+for selected_phase in ${selected_phases[@]+"${selected_phases[@]}"}; do
   case "$known_phases" in
     *" $selected_phase "*) ;;
     *) echo "ci/gates.sh: unknown phase: $selected_phase" >&2; exit 2 ;;

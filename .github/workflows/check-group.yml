@@ -118,11 +118,13 @@ jobs:
           # adds on top of the state, not the whole cold build.
           FREE_FLOOR_GB: 20
         run: |
-          mapfile -t stores < <(ci/state.sh stores)
+          names=$(ci/state.sh stores)
+          stores=()
           present=()
-          for store in "${stores[@]}"; do
+          while IFS= read -r store; do
+            stores+=("$store")
             if [ -e "$store" ]; then present+=("$store"); fi
-          done
+          done <<<"$names"
           size=0
           if [ "${#present[@]}" -gt 0 ]; then
             du -sh "${present[@]}"

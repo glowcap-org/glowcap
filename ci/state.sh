@@ -15,6 +15,9 @@
 # the stores because the installer leaves an archive with unchanged bytes in
 # place, and Cargo's build scripts watch those archives' mtimes.
 #
+# The runner is Linux, but infrastructure-check also runs this on the macOS
+# host, so it keeps to bash 3.2 and to options BSD touch and tar share.
+#
 # Paths are absolute (tar -P), so pack and unpack must run as the same user
 # with the same home and checkout path, as every hosted runner does. Exits 2
 # on a malformed call, otherwise with the failing command's status. unpack
@@ -46,10 +49,11 @@ case "${1:-}" in
     ;;
   stamp)
     [ "$#" -eq 1 ] || usage
-    when=$(git -C "$root" log -1 --format=%ct HEAD)
+    # touch -t in UTC is the form GNU and BSD touch share.
+    when=$(TZ=UTC0 git -C "$root" log -1 --date=format-local:%Y%m%d%H%M.%S --format=%cd HEAD)
     # -c never creates a file the index names but the checkout lacks.
     git -C "$root" ls-files -z --recurse-submodules |
-      (cd "$root" && xargs -0 touch -c -h -d "@$when" --)
+      (cd "$root" && TZ=UTC0 xargs -0 touch -c -h -t "$when" --)
     ;;
   pack)
     [ "$#" -eq 2 ] || usage
