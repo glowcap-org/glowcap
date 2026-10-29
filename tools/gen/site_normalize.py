@@ -47,7 +47,7 @@ import sys
 from html.parser import HTMLParser
 from pathlib import Path
 
-HEADER_ROW = re.compile(r"<table><tr>((?:<th>.*?</th>)+)</tr>")
+HEADER_ROW = re.compile(r"<table><tr>((?:<th>(?:(?!</th>).)*</th>)+)</tr>")
 THEME_FIGURES = re.compile(
     r'<figure><img alt="" src="(?P<dark>[^" ]*/rooms-(?P<stem>[^" ]+)-dark\.webp)">\n?'
     r"<figcaption>(?P<caption>.*?)</figcaption></figure>"

@@ -1,8 +1,8 @@
 # Every update lands on dev through the ordinary checks. One grouped pull
 # request per ecosystem keeps the hosted-runner cost to one full run per
-# cycle. Toolchain pins (.devcontainer/pins.sh), the devcontainer base image,
-# Zig packages (build.zig.zon), Mbed TLS, and the conformance submodules move
-# through their own owners and are not watched here.
+# cycle. Toolchain pins (.devcontainer/pins.sh), the devcontainer and Rooms
+# deploy base images, Zig packages (build.zig.zon), Mbed TLS, and the
+# conformance submodules move through their own owners and are not watched here.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -47,10 +47,3 @@ updates:
     groups:
       python:
         patterns: ["*"]
-
-  - package-ecosystem: docker
-    directory: /apps/rooms/web/deploy
-    target-branch: dev
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 1

@@ -85,12 +85,13 @@ Deno.test("the capability-bearing page confines executable content", async () =>
 		const page = await response.text();
 		const policy = response.headers.get("content-security-policy") ?? "";
 		const scriptPolicy = policy.split(";").find((directive) => directive.trim().startsWith("script-src")) ?? "";
-		const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+		const scripts = [...page.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)]
+			.filter(([, attributes]) => !/\bsrc\s*=/i.test(attributes));
 		assert(scripts.length > 0, "the page had no inline boot scripts to authorize");
 		assertEquals(scriptPolicy.match(/'sha256-[^']+'/g)?.length ?? 0, scripts.length);
 		for (const script of scripts) {
 			const digest = new Uint8Array(
-				await crypto.subtle.digest("SHA-256", new TextEncoder().encode(script[1])),
+				await crypto.subtle.digest("SHA-256", new TextEncoder().encode(script[2])),
 			);
 			const hash = `'sha256-${btoa(String.fromCharCode(...digest))}'`;
 			assert(scriptPolicy.includes(hash), "the policy hash did not authorize the page's exact inline script");
