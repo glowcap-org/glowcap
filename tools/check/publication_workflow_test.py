@@ -52,6 +52,11 @@ def jobs(path):
     return found
 
 
+def top_level_permissions(source):
+    block = re.search(r"^permissions:\n((?:  [\w-]+: [\w-]+\n)+)", source, re.M)
+    return dict(re.findall(r"^  ([\w-]+): ([\w-]+)$", block[1], re.M))
+
+
 class PublicationWorkflow(unittest.TestCase):
     def test_package_metadata_matches_the_pre_one_release(self):
         version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
@@ -384,10 +389,13 @@ else:
         source = (ROOT / ".github/workflows/check.yml").read_text()
         self.assertIn("\n  pull_request:\n", source)
         self.assertNotIn("pull_request_target:", source)
-        self.assertIn("\npermissions:\n  contents: read\n", source)
+        # Every top-level scope is read-only; the test jobs read the run's
+        # artifacts through the API.
+        granted = {"actions": "read", "contents": "read", "packages": "read"}
+        self.assertEqual(top_level_permissions(source), granted)
         self.assertNotIn("secrets.", source)
         group = (ROOT / ".github/workflows/check-group.yml").read_text()
-        self.assertIn("\npermissions:\n  contents: read\n  packages: read\n", group)
+        self.assertEqual(top_level_permissions(group), granted)
         self.assertNotIn("secrets", group)
         linux = jobs(".github/workflows/check.yml")["linux"][1]
         self.assertIn("    uses: ./.github/workflows/check-group.yml\n", linux)

@@ -32,6 +32,7 @@ on:
         required: true
 
 permissions:
+  actions: read
   contents: read
   packages: read
 
@@ -141,10 +142,8 @@ jobs:
           FREE_FLOOR_GB: 20
         run: |
           names=$(ci/state.sh stores)
-          stores=()
           present=()
           while IFS= read -r store; do
-            stores+=("$store")
             if [ -e "$store" ]; then present+=("$store"); fi
           done <<<"$names"
           size=0
@@ -154,8 +153,13 @@ jobs:
           fi
           free=$(df --output=avail --block-size=1G / | tail -1 | tr -d ' ')
           echo "Restored build state: ${size} GB of ${LIMIT_GB} GB, ${free} GB free"
+          # The running container mounts the stores, so a drop empties each
+          # in place: a removed directory leaves its mount on a deleted inode,
+          # and every write through it fails.
           if [ "$size" -gt "$LIMIT_GB" ] || [ "$free" -lt "$FREE_FLOOR_GB" ]; then
-            rm -rf -- "${stores[@]}"
+            for store in ${present[@]+"${present[@]}"}; do
+              find "$store" -mindepth 1 -delete
+            done
             echo "Dropped it; this run builds cold and saves a fresh state."
           fi
 
@@ -282,26 +286,18 @@ jobs:
           key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
           restore-keys: downloads-${{ runner.os }}-${{ runner.arch }}-
 
-      # A pattern that matches one artifact extracts it into `path` itself, and
-      # one that matches several gives each its own directory. Merging keeps
-      # every shard's uniquely named archive in `path` either way.
-      # Bounded and retried once, like the build job's handoff.
+      # Each shard's archive lands in the state directory under its own name.
+      # ci/state.sh restarts a transfer that stalls.
       - name: Receive the group's compiled state
-        id: receive
         if: needs.build.result != 'skipped'
         timeout-minutes: 5
-        continue-on-error: true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: &receive
-          pattern: state-${{ inputs.group }}-*
-          path: ${{ runner.temp }}/state
-          merge-multiple: true
-
-      - name: Receive the group's compiled state again
-        if: needs.build.result != 'skipped' && steps.receive.outcome == 'failure'
-        timeout-minutes: 5
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: *receive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GROUP: ${{ inputs.group }}
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          names=$(jq -r --arg group "$GROUP" '.[] | "state-\($group)-\(.)"' <<<"$SHARDS")
+          ci/state.sh receive "$RUNNER_TEMP/state" $names
 
       # Zig's cache is content-addressed, so the shards' stores merge. The
       # first shard lands last: it ran every Cargo build, and Cargo judges
