@@ -103,6 +103,14 @@ class PhaseTest(unittest.TestCase):
         for call in compiled:
             self.assertEqual(call[:6], ['zig', 'build', '-Dcompile-only', '-Dcompile-shard=2/3', '--summary', 'new'])
         self.assertFalse(self.recorder.record.exists())
+        # Phases that open with the same shared build compile it once.
+        result, compiled = self.recorder.gates('--compile-only', '1/1', 'browser-proofs-1', 'browser-proofs-2')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[6:] for call in compiled],
+                         [['loam-browser-build', 'rooms-web-build'],
+                          ['rooms-archive-build', 'rooms-session-build', 'iroh-abi'],
+                          ['rooms-web-proofs', '-Drooms-web-proof-shard=1/4'],
+                          ['rooms-web-proofs', '-Drooms-web-proof-shard=2/4']])
 
     def test_malformed_calls_run_and_record_nothing(self):
         for arguments in (['unknown'], ['core', 'browser'], ['--compile-only', 'core'],

@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Free hosted-runner disk before the toolchain image is pulled or built.
 # Caller: the first step of every workflow job that starts the devcontainer
-# (check.yml lanes, the image composite action, pages.yml, agent-tools.yml).
-# No arguments or environment inputs. Prints the root filesystem before and
-# after, exits non-zero only when a removal fails.
+# (the CI start action, the image composite action, pages.yml,
+# agent-tools.yml). No arguments; NEED_GB overrides the free space a job
+# needs. Prints the root filesystem before and after, exits non-zero only when
+# a removal fails.
+#
+# Removal takes minutes, so it runs only when the root filesystem has less
+# free space than a job needs. The 60 GB default is several times what a
+# compile or test job adds, restored state and the container image included.
 #
 # The SDKs below belong to the disposable runner; every product tool comes
 # from the devcontainer. The runner's node, python3, docker, and git stay,
@@ -11,7 +16,13 @@
 # hosted toolcache keeps its Python and Node trees for setup-python callers.
 set -euo pipefail
 
+need=${NEED_GB:-60}
 df -h /
+free=$(df --output=avail --block-size=1G / | tail -1 | tr -d ' ')
+if [ "$free" -ge "$need" ]; then
+  echo "${free} GB free of the ${need} GB a job needs; keeping the runner's SDKs."
+  exit 0
+fi
 sudo rm -rf \
   /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
   /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go /opt/hostedtoolcache/Ruby /opt/hostedtoolcache/PyPy \

@@ -60,6 +60,9 @@ phase() { current_phase=$1; }
 first_failure=0
 compile_only=false
 compile_shard=1/1
+# Phases that share a build each open with it, so a compile-only job sees the
+# same command once per phase. One run of it fills the cache for all of them.
+compiled=$'\n'
 selected_phases=()
 
 gate() { run_gate "$GATE_TIMEOUT" continue "$@"; }
@@ -80,6 +83,8 @@ run_gate() {
     # and the summary names what this job compiled rather than reused.
     timeout=$BUILD_TIMEOUT
     command=(zig build -Dcompile-only "-Dcompile-shard=$compile_shard" --summary new "${@:3}")
+    case "$compiled" in *$'\n'"${command[*]}"$'\n'*) return 0 ;; esac
+    compiled+="${command[*]}"$'\n'
   elif [ "${1:-}" = zig ] && [ "${2:-}" = build ]; then
     local has_test_timeout=false arg
     for arg in "${@:3}"; do
@@ -277,12 +282,8 @@ build zig build rust-lint
 gate zig build bindings-fmt-check
 gate zig build bindings
 gate zig build bindings-noise-relay-listen
-# The verb spine and every other hermetic proof family. A proof no gate runs
-# rots: before these lines existed, the keyed-tcp restart family had a broken
-# Racket dial, an unserved Rust session, and five unawaited Python closes, and
-# the two iroh handoff families each had an unserved Rust session; redeem
-# exposed an unread-farewell barrier fault, and handoff closed accepted
-# sessions after their runtime had already released ownership.
+# The verb spine and every other hermetic proof family, because a proof no
+# gate runs rots.
 gate zig build bindings-verb-spine
 gate zig build bindings-keyed-tcp-restart
 gate zig build bindings-keyed-relay-rendezvous

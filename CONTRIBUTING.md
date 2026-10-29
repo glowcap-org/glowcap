@@ -233,8 +233,9 @@ and ports.
 Zig keys every object by its inputs and every process proof reruns, so a
 restored cache saves compile time without skipping a proof. A Zig unit-test
 run whose inputs are unchanged is reused. A toolchain change starts fresh, and
-state past a size limit is dropped. Linux jobs reclaim unused hosted-runner SDK space
-and disable Rust incremental compilation to leave room for build outputs.
+state past a size limit is dropped. A Linux job removes the hosted runner's
+unused SDKs only when the runner has less free disk than a job needs, and
+Rust incremental compilation stays off to leave room for build outputs.
 
 Zig packages are fetched in a named setup step on Linux and macOS, with three
 bounded attempts for download failures. Tests are never retried by that step.

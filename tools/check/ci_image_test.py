@@ -181,6 +181,25 @@ class ImageTest(unittest.TestCase):
                 self.assertIn('run: .devcontainer/ci/reclaim-disk.sh', source)
                 self.assertNotIn('rm -rf /usr/share/dotnet', source)
 
+    def test_runner_disk_is_reclaimed_only_below_what_a_job_needs(self):
+        script = ROOT / '.devcontainer/ci/reclaim-disk.sh'
+        for free, need, removed in ((86, None, False), (60, None, False), (59, None, True), (86, '90', True)):
+            with self.subTest(free=free, need=need), tempfile.TemporaryDirectory() as temporary:
+                binary = Path(temporary)
+                (binary / 'df').write_text(f'#!/bin/sh\nprintf "Avail\\n{free}\\n"\n')
+                (binary / 'sudo').write_text('#!/bin/sh\necho "$@" >> "$(dirname "$0")/removed"\n')
+                (binary / 'docker').write_text('#!/bin/sh\nexit 0\n')
+                for path in binary.iterdir():
+                    path.chmod(0o755)
+                environment = dict(os.environ, PATH=f"{binary}:{os.environ['PATH']}")
+                if need is not None:
+                    environment['NEED_GB'] = need
+                result = subprocess.run(['bash', str(script)], env=environment, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((binary / 'removed').exists(), removed)
+                if removed:
+                    self.assertIn('/usr/share/dotnet', (binary / 'removed').read_text())
+
     def test_fingerprint_covers_contents_names_and_modes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
