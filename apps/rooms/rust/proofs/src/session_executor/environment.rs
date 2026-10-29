@@ -13,6 +13,10 @@ use std::{
 
 #[derive(Clone, Default)]
 pub(super) struct Platform {
+	/// While set, every bounded wait also expires after this many
+	/// milliseconds. Clearing it lifts the short bound from waits still in
+	/// flight, so a worker that progressed before the test task resumed never
+	/// reports a deadline the test meant for the step it was driving.
 	pub deadline_ms: Rc<Cell<Option<u64>>>,
 	/// While set, every bounded wait's deadline counts from the moment a
 	/// write parks at this gate, so a scenario that expects a parked request
@@ -79,7 +83,20 @@ impl Deadline for Platform {
 			return None;
 		}
 		self.observation_suspended.wait().await;
-		let ms = self.deadline_ms.get().unwrap_or(ms);
+		tokio::pin!(work);
+		if let Some(short) = self.deadline_ms.get() {
+			if let Some(result) = self.bounded(short, work.as_mut()).await {
+				return Some(result);
+			}
+			if self.deadline_ms.get().is_some() {
+				return None;
+			}
+		}
+		self.bounded(ms, work).await
+	}
+}
+impl Platform {
+	async fn bounded<T>(&self, ms: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
 		let parking = self.deadline_after_parking.borrow().clone();
 		match parking {
 			None => within(ms, work).await,
