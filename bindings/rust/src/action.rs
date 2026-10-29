@@ -143,7 +143,9 @@ impl HostActionHandlers for Handlers<'_> {
 		let target = self.host.sessions.borrow().get(&session).cloned();
 		match target {
 			Some(session) => {
-				if let Err(error) = crate::pump::flush_outbound(&session).await {
+				// The session's writer task owns the write, so this drain, and the
+				// serve loop running it, keeps reading while the partner is slow to.
+				if let Err(error) = crate::pump::writer::request_flush(&session) {
 					session.record_wire_failure(error);
 					session.close_transport();
 				}
@@ -159,11 +161,11 @@ impl HostActionHandlers for Handlers<'_> {
 	async fn close(&self, session: usize, result: i32) -> Result<()> {
 		let target = self.host.sessions.borrow().get(&session).cloned();
 		if let Some(session) = target {
-			if let Err(error) = crate::pump::flush_outbound(&session).await {
-				session.record_wire_failure(error);
-			}
 			session.record_close_result(result);
-			session.close_transport();
+			if let Err(error) = crate::pump::writer::close_after_flush(&session) {
+				session.record_wire_failure(error);
+				session.close_transport();
+			}
 		}
 		Ok(())
 	}

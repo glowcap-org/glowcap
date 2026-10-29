@@ -263,7 +263,7 @@ pub fn checkBindingHostActionSpine(
             .markers = &.{
                 "host_action_gen::dispatch",
                 "run_dial_ticket",
-                "flush_outbound",
+                "writer::request_flush",
                 "glowcap_host_provide_gift_id",
                 "settle_vow",
                 "close_transport",

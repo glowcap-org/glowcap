@@ -3,8 +3,14 @@
 //! (`glowcap_host_session_feed_packet`, which owns framing), drain the
 //! host's action queue, and write what `glowcap_host_session_take_packet`
 //! drains. CapTP verbs, hosting, and vows stay on `Session`. This module owns
-//! the conn byte path (handshake, serve loop, feed, flush, feed-refusal, EOF /
-//! `glowcap_host_session_transport_closed`).
+//! the conn byte path (handshake, serve loop, feed, the writer task, flush,
+//! feed-refusal, EOF / `glowcap_host_session_transport_closed`).
+//!
+//! Reading and writing are separate tasks. A drain that awaited its own write
+//! would stop reading whenever the transport's buffer was full, and two peers
+//! doing that over one bounded channel each wait for the other to read. The
+//! core bounds each session's outbound queue and refuses input past its
+//! high-water mark, so the reader needs no second bound of its own.
 
 use std::rc::Rc;
 
@@ -13,6 +19,8 @@ use crate::session_shared::{SessionShared, io_err};
 use crate::sys::host as ffi;
 use crate::trampoline::DeliverGuard;
 use crate::{AbortDomain, AbortInfo, Error, Result, sys};
+
+pub(crate) mod writer;
 
 /// Drive a freshly opened connection's keyed handshake to an open session.
 /// The signed `op:start-session` was encoded by the open. Its FLUSH is on the
@@ -81,7 +89,7 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 	let mut outcome: Result<()> = async {
 		resume_feed(&shared).await?;
 		loop {
-			if shared.released.get() {
+			if shared.released.get() || shared.close_delivered() {
 				return Ok(());
 			}
 			tokio::select! {
@@ -90,12 +98,14 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 				read = reader.read() => {
 					match read {
 						Ok(None) => return Ok(()), // clean EOF
+						Ok(Some(_)) if shared.close_delivered() => return Ok(()),
 						Ok(Some(chunk)) => feed(&shared, chunk).await?,
-						// A read cancelled by our own close is a clean
+						// A read cancelled by our own close, or one that fails
+						// after the core ended the session, is a clean
 						// shutdown; any other failure ends the loop and the
 						// teardown below breaks the vows.
 						Err(error) => {
-							if shared.closing() {
+							if shared.closing() || shared.close_delivered() {
 								return Ok(());
 							}
 							return Err(io_err(error));
@@ -110,8 +120,9 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 	// that primary error while teardown carries the local consequence.
 	// The wire is gone: report the physical fact so the core retires the
 	// session and settles pending work, then release the connection.
-	// Idempotent with an application `close()`.
-	if !shared.released.get() && !shared.channel_retiring.get() {
+	// Idempotent with an application `close()`. A delivered CLOSE already
+	// retired the session, and its writer owns the transport close.
+	if !shared.released.get() && !shared.channel_retiring.get() && !shared.close_delivered() {
 		shared.closing.set(true);
 		let message = b"connection closed";
 		// SAFETY: `shared.ptr.get()` is this `SessionShared`'s `GlowcapHostSession` handle, live because
@@ -177,13 +188,22 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 			break;
 		}
 		if rc == sys::WOULD_BLOCK {
-			shared.host.kick_actions().await?;
+			await_outbound_room(shared).await?;
 			continue;
 		}
 		return Err(feed_refusal(shared, rc).await);
 	}
 	shared.host.kick_actions().await?;
 	Ok(())
+}
+
+/// The core refused input until its outbound queue drains below the
+/// high-water mark. Drain queued work into frames, then wait for the writer to
+/// take them before the caller feeds again.
+async fn await_outbound_room(shared: &Rc<SessionShared>) -> Result<()> {
+	shared.host.kick_actions().await?;
+	let covering = writer::request_flush(shared)?;
+	writer::written(shared, covering).await
 }
 
 async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
@@ -201,7 +221,7 @@ async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
 			break;
 		}
 		if rc == sys::WOULD_BLOCK {
-			shared.host.kick_actions().await?;
+			await_outbound_room(shared).await?;
 			continue;
 		}
 		return Err(feed_refusal(shared, rc).await);
@@ -222,7 +242,15 @@ async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 	};
 	// The local typed refusal remains primary; retain every diagnostic failure
 	// that happened while projecting it instead of silently dropping context.
-	let drain_failure = shared.host.kick_actions().await.err();
+	// The serve loop reports the transport closed next, so the abort must be
+	// written first.
+	let drain_failure = match shared.host.kick_actions().await {
+		Ok(()) => match writer::request_flush(shared) {
+			Ok(covering) => writer::written(shared, covering).await.err(),
+			Err(error) => Some(error),
+		},
+		Err(error) => Some(error),
+	};
 	let mut details = Vec::new();
 	if let Some(primary) = message {
 		details.push(primary);
@@ -290,7 +318,8 @@ fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 /// frame on the wire. The partner's framing cannot recover from that, so the
 /// session is marked torn and refuses to write again rather than appending to
 /// a stream nobody can parse.
-pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
+/// Returns whether any frame left the core.
+pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<bool> {
 	if shared.torn.get() {
 		return Err(Error::from_code(sys::ERR_CLOSED));
 	}
@@ -300,7 +329,7 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 	let mut in_flight = None;
 	loop {
 		if shared.released.get() {
-			return Ok(());
+			return Ok(false);
 		}
 		// SAFETY: `GlowcapManagedFrame` is a plain C struct of integers, null pointers, and an `Option` function
 		// pointer; all-zero is a valid value, and the callee fills it before it is read.
@@ -326,7 +355,7 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		check_host(rc)?;
 		let frame = FrameGuard(raw);
 		let Some(sink) = guard.inner.as_mut() else {
-			return Ok(()); // the transport is gone; the frame is released
+			return Ok(false); // the transport is gone; the frame is released
 		};
 		// Once a frame leaves the core, cancellation is terminal until the
 		// transport flush confirms every buffered byte was handed onward.
@@ -335,6 +364,7 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		}
 		write_or_closed(shared, sink, &prefix[..prefix_len], frame.bytes()).await?;
 	}
+	let wrote = in_flight.is_some();
 	if let Some(in_flight) = in_flight {
 		// Only this drain's transferred packets own a flush. An empty action
 		// drain may race transport EOF; touching the retired writer then would
@@ -344,7 +374,7 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		}
 		in_flight.finished();
 	}
-	Ok(())
+	Ok(wrote)
 }
 
 async fn write_or_closed(

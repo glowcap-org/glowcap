@@ -281,3 +281,47 @@ async fn failed_handshake_does_not_poison_a_later_connection() {
 		})
 		.await;
 }
+
+/// A session's writes must never stop its reads. Over a pipe smaller than one
+/// frame, a peer that waited on its own write before reading again would
+/// leave both sides waiting for the other to read, from the handshake on.
+/// Concurrent echoes of frames many times the pipe's size keep both
+/// directions full at once.
+#[tokio::test]
+async fn a_pipe_smaller_than_a_frame_carries_both_directions_at_once() {
+	LocalSet::new()
+		.run_until(async {
+			let exporter = Host::from_seed([71; 32]).unwrap();
+			let dialer = Host::from_seed([72; 32]).unwrap();
+			let locator = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:9011");
+			exporter.set_advertised_locator(&locator).unwrap();
+			exporter
+				.publish("echo", || Box::new(|_verb, args| Ok(args[0].clone())))
+				.unwrap();
+			let (left, right) = tokio::io::duplex(64);
+			let budget = Some(std::time::Duration::from_secs(5));
+			let traffic = async {
+				let (dialed, accepted) = tokio::join!(
+					crate::Session::dial_over(&dialer, &locator, left, budget),
+					crate::Session::accept_over(&exporter, "tcp", "127.0.0.1:9011", "127.0.0.1:9011", right, budget)
+				);
+				let (dialed, _accepted) = (dialed.unwrap(), accepted.unwrap());
+				let echo = dialed.fetch("echo").await.unwrap();
+				let call = |index: u8| {
+					let payload = Argument::Bytes(vec![index; 4096]);
+					let (dialed, echo) = (&dialed, &echo);
+					async move {
+						let reply = dialed.send(echo, "echo", std::slice::from_ref(&payload)).await.unwrap();
+						assert_eq!(reply, payload);
+					}
+				};
+				tokio::join!(call(0), call(1), call(2), call(3));
+			};
+			tokio::time::timeout(std::time::Duration::from_secs(10), traffic)
+				.await
+				.expect("both peers kept reading while their writes waited");
+			exporter.close(crate::PendingWork::Cancel).await.unwrap();
+			dialer.close(crate::PendingWork::Cancel).await.unwrap();
+		})
+		.await;
+}

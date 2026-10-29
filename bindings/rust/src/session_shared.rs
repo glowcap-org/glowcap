@@ -145,6 +145,8 @@ pub(crate) struct SessionShared {
 	pub(crate) torn: Cell<bool>,
 	// Wakes the serve task off its parked read when the connection closes.
 	pub(crate) closed: Notify,
+	// The writer task that owns every write to the transport.
+	pub(crate) outbound: crate::pump::writer::Outbound,
 	// The auto-started serve task's handle; `Session::serve` takes it.
 	serving: Cell<Option<tokio::task::JoinHandle<Result<()>>>>,
 }
@@ -191,6 +193,7 @@ impl SessionShared {
 			host_retained: Cell::new(false),
 			torn: Cell::new(false),
 			closed: Notify::new(),
+			outbound: crate::pump::writer::Outbound::new(),
 			serving: Cell::new(None),
 		});
 		// Join the host's registry so a FLUSH action can find the transport and
@@ -231,6 +234,7 @@ impl SessionShared {
 			host_retained: Cell::new(false),
 			torn: Cell::new(false),
 			closed: Notify::new(),
+			outbound: crate::pump::writer::Outbound::new(),
 			serving: Cell::new(None),
 		});
 		host.register_session(shared.key, Rc::clone(&shared));
@@ -383,6 +387,12 @@ impl SessionShared {
 
 	pub(crate) fn record_close_result(&self, result: i32) {
 		self.close_result.set(Some(result));
+	}
+
+	/// The core already ended this session. Reading is over, and the writer
+	/// closes the transport after its final drain.
+	pub(crate) fn close_delivered(&self) -> bool {
+		self.close_result.get().is_some()
 	}
 
 	pub(crate) fn record_wire_failure(&self, failure: crate::Error) {

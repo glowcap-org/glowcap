@@ -73,8 +73,10 @@ impl Session {
 		if self.shared.released.get() {
 			return self.shared.terminal_result();
 		}
-		request_session_close(&self.shared, pending)?;
-		ensure_session_close_driver(&self.shared)?;
+		if !self.shared.close_delivered() {
+			request_session_close(&self.shared, pending)?;
+			ensure_session_close_driver(&self.shared)?;
+		}
 		wait_session_close(&self.shared).await;
 		self.shared.terminal_result()
 	}
