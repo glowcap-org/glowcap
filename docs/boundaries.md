@@ -41,7 +41,8 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
 - **Two sessions to one peer stay open on an address transport.** `127.0.0.1`
   and `[::1]` are different designators, and neither is an identity glowcap
   acts on. A key-designator transport with channel proof recognizes the peer
-  by its durable name and keeps one session.
+  by its durable name and keeps one session. When that peer reconnects before
+  its old session's close arrives, the new session replaces the old one.
 - **A proved peer is a computer, not a person.** A transport proves which
   key answered. Checking who a person is, and telling one person from many
   bots, belongs to the application

@@ -103,9 +103,12 @@ pub fn refuseDuplicateDialForDemand(
 /// independently keep the session the higher-keyed peer opened (dialed
 /// when we are higher, accepted when we are lower), so a crossed pair that
 /// missed the designator tiebreak still collapses to the same session
-/// on both ends rather than condemning by local arrival order. Same-role
-/// duplicates (dual-accept) keep the already-indexed session and condemn
-/// the newcomer.
+/// on both ends rather than condemning by local arrival order. A proved
+/// durable peer that opens a second accepted session has reconnected: a
+/// peer reuses a live session rather than dial another (the draft's session
+/// rule), so the older session belongs to an incarnation that ended and is
+/// the one condemned. Other same-role duplicates keep the already-indexed
+/// session and condemn the newcomer.
 pub const DuplicatePartnerError = error{SessionPairExists} ||
     foundation.error_sets.Of(crypto.PeerKey.fromSlice) ||
     IndexPartnerKeyError ||
@@ -159,6 +162,14 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
         // A side-name collision is not partner-key equality. Refuse the
         // newcomer rather than replacing an unrelated live index row.
         return error.SessionPairExists;
+    }
+
+    // Only the proved peer can open an accepted session under its durable
+    // key, so a second one is its reconnect, and the older session is what
+    // an ended incarnation left open.
+    if (durable_dup != null and session.role == .accepted and other.role == .accepted) {
+        try host_pump.condemn(self, other, .connection_lost, "superseded by the peer's newer session");
+        return indexPartnerKey(self, session, partner_key.bytes, ss.acceptable_location.designator);
     }
 
     // Ordered by the two *session* identities, as crossed hellos are

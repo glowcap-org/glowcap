@@ -367,7 +367,7 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
             if (session.sessionOpen()) self.finishSessionOpen(session);
             hold.release();
         }
-        body.call() catch |err| {
+        body.call() catch |err| if (!condemnedByDispatch(session, err)) {
             if (session.sessionClosed()) {
                 if (session.served.partnerAbort() != null) {
                     // A partner abort is the successful terminal outcome of
@@ -396,6 +396,14 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
         error.OutOfMemory, error.OutboundBackpressure => return,
         else => return err,
     };
+}
+
+/// Condemnation can arise while the fed input is dispatched (crossed hellos, a
+/// superseded duplicate), and it has already cancelled the Port ingress, so the
+/// post-batch drive meets an absent ingress. That is the dispatch's successful
+/// terminal outcome on every ingress verb, not a failure of the fed peer.
+fn condemnedByDispatch(session: *const HostSession, err: anyerror) bool {
+    return err == error.UnknownIngress and session.isTerminating();
 }
 
 /// A partner abort is a complete remote verdict, not merely a closed session

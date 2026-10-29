@@ -293,6 +293,7 @@ comptime {
         _ = @import("driver/core_host/gift_order_test.zig");
         _ = @import("driver/core_host/pairing_test.zig");
         _ = @import("driver/core_host/pairing/reentry_test.zig");
+        _ = @import("driver/core_host/pairing/durable_peer_test.zig");
         _ = @import("driver/core_host/answer_release_test.zig");
         _ = @import("driver/core_host/vow_test.zig");
         _ = @import("driver/core_host/vow/allocation_test.zig");

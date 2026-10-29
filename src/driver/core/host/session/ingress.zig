@@ -30,15 +30,7 @@ pub fn feed(self: *Host, session: *HostSession, frame: foundation.FrameView) !vo
         c: *HostSession,
         f: foundation.FrameView,
         pub fn call(s: @This()) !void {
-            session_wire.feedBorrowedCommitted(s.c, s.f) catch |err| {
-                // Condemnation can arise while this very frame is being
-                // dispatched (crossed hellos). It has already cancelled
-                // the Port ingress, so the Served post-batch drive sees an
-                // absent ingress; that is the successful terminal outcome,
-                // not a failure of the fed peer.
-                if (err == error.UnknownIngress and s.c.isTerminating()) return;
-                return err;
-            };
+            try session_wire.feedBorrowedCommitted(s.c, s.f);
         }
     }{ .c = session, .f = frame });
 }

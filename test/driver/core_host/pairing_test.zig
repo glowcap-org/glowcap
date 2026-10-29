@@ -1,7 +1,7 @@
 //! One session per partner: crossed hellos condemn one loser per advertised
 //! snapshot, duplicate dials refuse, partner-side indexes empty on release,
-//! an authenticated channel collapses a crossed pair, and a sturdyref
-//! survives restart.
+//! and a sturdyref survives restart. A proved durable peer's session rules
+//! live in `pairing/durable_peer_test.zig`.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -464,98 +464,6 @@ test "core host: crossed hellos match the advertised route across different chan
     try b.releaseSession(b_dialed);
 }
 
-const CrossedPairProof = enum { none, authenticated_channel };
-
-/// Exercise the same fresh-key crossed pair with and without realizer proof.
-/// Four distinct session keys make the durable-peer directory the only possible
-/// cross-connection match. A bare key designator cannot populate it, while a
-/// channel-authenticated durable key can.
-fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof) !void {
-    const allocator = std.testing.allocator;
-    const a_seed = @as([32]u8, @splat(0x01));
-    const b_seed = @as([32]u8, @splat(0xff));
-    const a_opts = Host.Options.withFrameCap(frame_cap);
-    const b_opts = Host.Options.withFrameCap(frame_cap);
-    var a = test_host.init(allocator, a_seed, a_opts);
-    defer a.deinit();
-    var b = test_host.init(allocator, b_seed, b_opts);
-    defer b.deinit();
-
-    const a_designator = crypto.SecretKey.fromSeed(a_seed).publicKey().toDesignator();
-    const b_designator = crypto.SecretKey.fromSeed(b_seed).publicKey().toDesignator();
-
-    const a_direct: []const u8 = if (std.mem.eql(u8, transport, "keyed-tcp")) "127.0.0.1:9200" else &.{};
-    const b_direct: []const u8 = if (std.mem.eql(u8, transport, "keyed-tcp")) "127.0.0.1:9201" else &.{};
-    const a_accept = try publishAndOpenAccepted(&a, transport, a_designator[0..], a_direct);
-    const b_accept = try publishAndOpenAccepted(&b, transport, b_designator[0..], b_direct);
-    const a_dialed = try a.openDialedLocator(.{
-        .transport = transport,
-        .designator = b_designator[0..],
-        .hints = model.Hints.emptyFalse(),
-    });
-    const b_dialed = try b.openDialedLocator(.{
-        .transport = transport,
-        .designator = a_designator[0..],
-        .hints = model.Hints.emptyFalse(),
-    });
-
-    if (proof == .authenticated_channel) {
-        try a.bindVerifiedChannelKey(a_accept, &b_designator);
-        try a.bindVerifiedChannelKey(a_dialed, &b_designator);
-        try b.bindVerifiedChannelKey(b_accept, &a_designator);
-        try b.bindVerifiedChannelKey(b_dialed, &a_designator);
-    }
-
-    const ids = [_][32]u8{
-        crypto.derivePublicIdentifier(a_accept.sessionSecret().publicKey()).bytes,
-        crypto.derivePublicIdentifier(a_dialed.sessionSecret().publicKey()).bytes,
-        crypto.derivePublicIdentifier(b_accept.sessionSecret().publicKey()).bytes,
-        crypto.derivePublicIdentifier(b_dialed.sessionSecret().publicKey()).bytes,
-    };
-    for (ids, 0..) |left, i| {
-        for (ids[i + 1 ..]) |right| try std.testing.expect(!std.mem.eql(u8, &left, &right));
-    }
-
-    var a_hello = (try a_dialed.takeOutbound()) orelse return error.MissingAHello;
-    defer a_hello.deinit();
-    var b_hello = (try b_dialed.takeOutbound()) orelse return error.MissingBHello;
-    defer b_hello.deinit();
-    var a_accept_hello = (try a_accept.takeOutbound()) orelse return error.MissingAAcceptHello;
-    defer a_accept_hello.deinit();
-    var b_accept_hello = (try b_accept.takeOutbound()) orelse return error.MissingBAcceptHello;
-    defer b_accept_hello.deinit();
-
-    try b.feed(b_accept, a_hello.view());
-    try a.feed(a_accept, b_hello.view());
-    try b.feed(b_dialed, a_accept_hello.view());
-    try a.feed(a_dialed, b_accept_hello.view());
-
-    switch (proof) {
-        .none => {
-            try std.testing.expect(!a_accept.isTerminating() and !a_dialed.isTerminating());
-            try std.testing.expect(!b_accept.isTerminating() and !b_dialed.isTerminating());
-        },
-        .authenticated_channel => {
-            try std.testing.expect(a_accept.isTerminating() != a_dialed.isTerminating());
-            try std.testing.expect(b_accept.isTerminating() != b_dialed.isTerminating());
-            try std.testing.expectEqual(a_accept.isTerminating(), b_dialed.isTerminating());
-            try std.testing.expectEqual(a_dialed.isTerminating(), b_accept.isTerminating());
-        },
-    }
-
-    try a.releaseSession(a_accept);
-    try a.releaseSession(a_dialed);
-    try b.releaseSession(b_accept);
-    try b.releaseSession(b_dialed);
-}
-
-test "session identity: raw keyed transport cannot collapse crossed locator claims" {
-    try expectFreshKeyCrossedPair("keyed-tcp", .none);
-}
-
-test "session identity: authenticated channel collapses a crossed pair to one shared survivor" {
-    try expectFreshKeyCrossedPair("iroh", .authenticated_channel);
-}
 
 test "durable publication: a sturdyref issued before a restart still names a live object after it" {
     // What "durable bootstrap" actually requires of the library, and where the
