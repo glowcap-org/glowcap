@@ -815,22 +815,22 @@ int32_t glowcap_host_vow_send(GlowcapHost *host, uint64_t vow, const uint8_t *ve
 int32_t glowcap_host_vow_tell(GlowcapHost *host, uint64_t vow, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len);
 /* Release one public Host vow. Settlement does not consume the handle: until
    this call succeeds it remains a valid promise-pipeline target, including after
-   a fast peer has resolved it. Releasing a far answer emits op:gc-answer; a local
+   a fast peer has resolved it. Releasing a far answer emits op:gc-answers; a local
    answer only drops its Host observer. A row already retired with its session is
    a wire-free success. Any other non-OK return consumes nothing and is retryable.
    Single-thread affinity applies: finalizers park the id for the owning runtime
    loop rather than calling this directly. */
 int32_t glowcap_host_vow_release(GlowcapHost *host, uint64_t vow);
-/* The pending answer of a public Host vow as a capability (ADR-0068): one
-   application retain lands in *out_reference, released with
-   glowcap_host_ref_release. Passed as a send argument it travels as a promise
-   this Host settles when the vow does, in any state the vow is in until its
-   handle is released: a settled vow's promise settles to the completion the
-   Host kept, breaks when that completion names a capability released since,
-   and a broken one breaks the receiver's promise with its reason. A partner
-   receives it as an ordinary capability. The same vow asked twice is one
-   capability retained once more. A local vow with no session is
-   refused GLOWCAP_ERR_INVALID_ARGUMENT (SessionlessVow); an unknown vow reports
+/* A public Host vow as a capability (ADR-0068): one application retain lands in
+   *out_reference, released with glowcap_host_ref_release. Passed as a send
+   argument it travels as a promise this Host exports and settles when the vow
+   does, in any state the vow is in until its handle is released: a settled
+   vow's promise settles to the completion the Host kept, breaks when that
+   completion names a capability released since, and a broken one breaks the
+   receiver's promise with its reason. A partner receives that exported promise,
+   never this Host's open answer. The same vow asked twice is one capability
+   retained once more. A local vow with no session is refused
+   GLOWCAP_ERR_INVALID_ARGUMENT (SessionlessVow); an unknown vow reports
    GLOWCAP_ERR_NOT_FOUND. Legal inside a callback. */
 int32_t glowcap_host_vow_capability(GlowcapHost *host, uint64_t vow, GlowcapReference *out_reference);
 /* Pipeline an op:index projection against a far host vow, minting a new vow for

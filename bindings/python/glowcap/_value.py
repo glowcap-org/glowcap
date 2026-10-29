@@ -128,8 +128,9 @@ class Forward:
 #   list, Set, Tagged, Struct, and ``array.array('q')``, a list of integers
 #   sent as one run of words (a peer's list of integers arrives as a list).
 #   A RemotePromise this Host returned is passable to ``send``/``tell`` in
-#   any state (ADR-0068): the Host carries it as a capability for its answer,
-#   and it never arrives. An object this side hosts receives the promise itself.
+#   any state (ADR-0068): the Host passes it as a capability for its answer.
+#   A peer's promise arrives as a Ref, and an object this side hosts receives
+#   the RemotePromise itself.
 Argument: TypeAlias = (
     int | float | bool | bytes | str | Symbol | Keyword | ErrorValue | None | Ref | list | Set | Tagged | Struct | array.array[int]
 )

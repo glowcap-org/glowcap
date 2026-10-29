@@ -84,7 +84,7 @@ pub fn retireUnwatched(self: *Host, row: *VowRow, session: *HostSession) void {
     settlement.retireRow(self, row);
 }
 
-/// Release one public Host vow. A peer-visible answer emits `op:gc-answer`. A
+/// Release one public Host vow. A peer-visible answer emits `op:gc-answers`. A
 /// local listen answer retires directly in Session. A local actor vow owns no
 /// answer. Every fallible no-answer cancellation completes before another
 /// effect, and peer-visible release is queued before infallible producer teardown,

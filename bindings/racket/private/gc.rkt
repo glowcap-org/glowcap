@@ -124,7 +124,7 @@
 
 ;; Every public far-vow handle owns one FFI Host vow independently of the
 ;; opt-in capability GC policy. Its finalizer parks only the id; the Host loop
-;; performs the release and publishes op:gc-answer.
+;; performs the release and publishes op:gc-answers.
 (define (queue-vow-release! weak-host gs id armed)
   (when (and armed (unbox armed))
     (set-box! armed #f)

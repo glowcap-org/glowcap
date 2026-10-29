@@ -382,9 +382,8 @@ def _listen_far(session, target) -> RemotePromise:
 def _lower_promise(session, promise: "RemotePromise", minted: list[Ref]) -> Ref:
     """What a far promise passes as (ADR-0068): the capability its Host mints
     for the vow, in whatever state the vow is in while this handle lives, one
-    application retain pushed on ``minted`` for the caller to give back. The
-    Host carries a pending answer as the open promise and a settled one as its
-    value."""
+    application retain pushed on ``minted`` for the caller to give back.
+    ``glowcap_host_vow_capability`` says what the partner receives."""
     vow = promise.far_vow(session.host)
     out = _Reference()
     _check_host(_host.glowcap_host_vow_capability(session.host.raw, vow, ctypes.byref(out)))

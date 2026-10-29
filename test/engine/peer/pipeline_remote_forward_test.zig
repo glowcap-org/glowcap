@@ -181,7 +181,7 @@ fn resolveThenRelease(peer: *engine.Peer, value: model.Argument) !void {
 }
 
 /// Release the partner's question 42, which settles the hold: the retains
-/// released meanwhile leave as one `op:gc-export` and the row retires.
+/// released meanwhile leave as one `op:gc-exports` and the row retires.
 fn releaseAnswerExpectingRelease(peer: *engine.Peer, expected: u64) !void {
     try receive(peer, .{ .gc_answer = .{ .positions = &.{42} } });
     try std.testing.expectEqual(expected, try drainReleasesOf(peer, 9));
@@ -189,7 +189,7 @@ fn releaseAnswerExpectingRelease(peer: *engine.Peer, expected: u64) !void {
     try std.testing.expectEqual(@as(usize, 0), peer.session_state.import_release_outbox.?.active_batches);
 }
 
-/// Step to idle and sum the `op:gc-export` deltas that left for `position`.
+/// Step to idle and sum the `op:gc-exports` deltas that left for `position`.
 fn drainReleasesOf(peer: *engine.Peer, position: u64) !u64 {
     var released: u64 = 0;
     while ((try peer.step()) == .progress) {}

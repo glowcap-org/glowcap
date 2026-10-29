@@ -353,8 +353,8 @@
 
 ;; What a far vow passes as (ADR-0068): the capability Host `m` mints for it,
 ;; in whatever state the vow is in while this handle lives, one application
-;; retain pushed on `minted` for the caller to give back. The Host carries a
-;; pending answer as the open promise and a settled one as its value.
+;; retain pushed on `minted` for the caller to give back.
+;; `glowcap_host_vow_capability` says what the partner receives.
 (define (lower-vow m v minted)
   (far-vow-home m v 'session-send)
   (define-values (rc capability)

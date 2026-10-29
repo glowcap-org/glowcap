@@ -211,7 +211,7 @@ async def _distributed_release_reaches_each_capability_home() -> None:
     gc_counts = {True: 0, False: 0}
     gc_tails = {True: b"", False: b""}
     gc_seen = {True: asyncio.Event(), False: asyncio.Event()}
-    needle = b"op:gc-export"
+    needle = b"op:gc-exports"
 
     def observe(chunk: bytes, to_server: bool) -> None:
         combined = gc_tails[to_server] + chunk

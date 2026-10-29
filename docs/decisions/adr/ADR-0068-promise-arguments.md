@@ -36,7 +36,7 @@ answer's exact incarnation, `AnswerTarget` (name plus row id), so two
 occurrences of one pending answer lift to one capability and a reused wire
 position never aliases an older question. The answer payload records which Host promise
 watches it, and the Host retains the payload so the stored resolution survives
-`op:gc-answer`.
+`op:gc-answers`.
 
 The Host learns of settlement through the Node action queue it already drains
 for inline-give settlement. When the engine drains a settled answer whose
@@ -50,8 +50,9 @@ settled at lift time lifts its stored value directly: a reference shortens to
 that capability with no promise row, and data or a break settles a fresh row.
 
 A capability promise therefore has a data settlement. A send or tell to a
-promise that settled to data breaks with the uncallable-target reason, and a
-listen fulfills with the data. Settlement, backpressure parking, and queued
+promise already settled to data is refused as `UncallableTarget` before
+anything queues, one queued while the promise was pending breaks when it
+settles to data, and a listen fulfills with the data. Settlement, backpressure parking, and queued
 operation dispatch stay in the one row state machine.
 
 Each session is held to a bound on lifted answer promises, a `SessionLimits`

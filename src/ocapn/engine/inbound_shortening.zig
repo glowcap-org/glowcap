@@ -76,7 +76,7 @@ pub const ShorteningCallbackPlan = struct {
     source: session.PromiseIncarnation,
     /// The application still holds the source promise, so the move keeps its
     /// import and nominates shortening for the introduced promise. Released,
-    /// the introduced promise's mention goes back as one `op:gc-export`.
+    /// the introduced promise's mention goes back as one `op:gc-exports`.
     source_is_held: bool,
     /// A settling consumer (an answer or the Node) follows the source, so its
     /// settling listener moves onto the target.

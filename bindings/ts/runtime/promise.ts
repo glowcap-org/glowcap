@@ -191,9 +191,8 @@ export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
 
 /** What a far promise passes as (ADR-0068): the capability its Host mints
  * for the vow, in whatever state the vow is in while this handle lives, one
- * application retain pushed on `minted` for the caller to give back. The
- * Host carries a pending answer as the open promise and a settled one as its
- * value. */
+ * application retain pushed on `minted` for the caller to give back.
+ * `glowcap_host_vow_capability` says what the partner receives. */
 function lowerPromise(h: PromiseFactoryHandle, promise: RemotePromise, minted: Ref[]): Ref {
 	const vow = promise.farVow(h.hostOwner);
 	const out = new Uint8Array(8);

@@ -298,7 +298,7 @@ pub fn glowcap_host_vow_tell(
 
 /// Release one public Host vow. The handle remains a valid promise-pipeline
 /// target after settlement until this call succeeds. A far answer publishes
-/// its `op:gc-answer`. A non-OK return consumes nothing and is retryable.
+/// its `op:gc-answers`. A non-OK return consumes nothing and is retryable.
 pub fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -306,15 +306,17 @@ pub fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) callconv(.c) i32 
     return GLOWCAP_OK;
 }
 
-/// The pending answer of a public Host vow as a capability (ADR-0068): one
-/// application retain in `*out_reference`, released with
-/// `glowcap_host_ref_release`. Passed as a send argument it travels as a
-/// promise this Host settles when the vow does, in any state the vow is in
-/// until its handle is released: a settled vow's promise settles to the
-/// completion the Host kept, breaks when that completion names a capability
-/// released since, and a broken one breaks the receiver's promise with its
-/// reason. The same vow asked twice is one capability retained once more. A local vow
-/// with no session is refused `GLOWCAP_ERR_INVALID_ARGUMENT` (SessionlessVow).
+/// A public Host vow as a capability (ADR-0068): one application retain in
+/// `*out_reference`, released with `glowcap_host_ref_release`. Passed as a
+/// send argument it travels as a promise this Host exports and settles when
+/// the vow does, in any state the vow is in until its handle is released: a
+/// settled vow's promise settles to the completion the Host kept, breaks when
+/// that completion names a capability released since, and a broken one breaks
+/// the receiver's promise with its reason. A partner receives that exported
+/// promise, never this Host's open answer. The same vow asked twice is one
+/// capability retained once more. A local vow with no session is refused
+/// `GLOWCAP_ERR_INVALID_ARGUMENT` (SessionlessVow), and an unknown vow reports
+/// `GLOWCAP_ERR_NOT_FOUND`. Legal inside a callback.
 pub fn glowcap_host_vow_capability(host: ?*GlowcapHost, vow: u64, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;

@@ -67,9 +67,9 @@ export class PStruct<T = Argument> {
 //   bigint (integer), number (float64), boolean, Uint8Array (bytes), BigInt64Array (list of integers), string,
 //   Sym (symbol), Kw (keyword), Error (OCapN Error value), null (void), Ref, Argument[] (list),
 //   PSet (set), Tagged, or PStruct. A RemotePromise this Host returned is
-//   passable to `send`/`tell` in any state (ADR-0068): the Host carries it as
-//   a capability for its answer, and it never arrives; an object this side
-//   hosts receives the promise itself. It enters the grammar
+//   passable to `send`/`tell` in any state (ADR-0068): the Host passes it as
+//   a capability for its answer. A peer's promise arrives as a Ref, and an
+//   object this side hosts receives the RemotePromise itself. It enters the grammar
 //   through the `PromiseArgument` brand rather than as a Promise type, which
 //   would make the value grammar refer to itself through `then`.
 export type Argument =

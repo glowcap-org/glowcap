@@ -14,6 +14,7 @@ const appendViolation = util.appendViolation;
 const doc_path = "docs/threat-model.md";
 const limits_path = "src/ocapn/session/limits.zig";
 const body_path = "src/ocapn/model/view_body.zig";
+const ops_path = "src/ocapn/codec/syrup/shared.zig";
 const limits_marker = "pub const SessionLimits = struct {";
 const body_marker = "pub const Body = union(enum) {";
 const section_heading = "## Untrusted inputs";
@@ -30,6 +31,8 @@ pub fn checkThreatModelCoverage(
     defer gpa.free(limits);
     const body = readOrReport(io, gpa, root, body_path, violations) orelse return;
     defer gpa.free(body);
+    const ops = readOrReport(io, gpa, root, ops_path, violations) orelse return;
+    defer gpa.free(ops);
 
     const section = util.sectionBody(doc, section_heading) orelse {
         try appendViolation(gpa, violations, "{s}: has no `{s}` section for the coverage check to read", .{ doc_path, section_heading });
@@ -61,8 +64,10 @@ pub fn checkThreatModelCoverage(
         try appendViolation(gpa, violations, "{s}: `{s}` declares no arms the coverage check can read", .{ body_path, body_marker });
     }
     for (arms.items) |arm| {
-        const wire = try wireName(gpa, arm);
-        defer gpa.free(wire);
+        const wire = wireName(ops, arm) orelse {
+            try appendViolation(gpa, violations, "{s}: `messageOp` names no wire operation for the `Body` arm `{s}`", .{ ops_path, arm });
+            continue;
+        };
         if (std.mem.indexOf(u8, section, wire) == null) {
             try appendViolation(gpa, violations, "{s}: the inbound operation `{s}` has no entry under {s}", .{ doc_path, wire, section_heading });
         }
@@ -106,11 +111,14 @@ fn declaredNames(gpa: std.mem.Allocator, text: []const u8, marker: []const u8, o
     }
 }
 
-/// The wire form of a `Body` arm, `op:` and the name with hyphens.
-fn wireName(gpa: std.mem.Allocator, arm: []const u8) ![]u8 {
-    const wire = try std.fmt.allocPrint(gpa, "op:{s}", .{arm});
-    std.mem.replaceScalar(u8, wire, '_', '-');
-    return wire;
+/// The wire form of a `Body` arm, read from the codec's `messageOp` table,
+/// because a name such as `op:gc-exports` is not a transform of its arm.
+fn wireName(ops: []const u8, arm: []const u8) ?[]const u8 {
+    var buffer: [64]u8 = undefined;
+    const key = std.fmt.bufPrint(&buffer, ".{s} => \"", .{arm}) catch return null;
+    const start = (std.mem.indexOf(u8, ops, key) orelse return null) + key.len;
+    const end = std.mem.indexOfScalarPos(u8, ops, start, '"') orelse return null;
+    return ops[start..end];
 }
 
 /// The text of every "Bounded by" and "Refusal proved by" bullet in the
@@ -202,9 +210,12 @@ test "declared names come from the block's top-level fields and skip its functio
     try std.testing.expectEqual(@as(usize, 2), names.items.len);
     try std.testing.expectEqualStrings("deliver", names.items[0]);
     try std.testing.expectEqualStrings("gc_export", names.items[1]);
-    const wire = try wireName(gpa, names.items[1]);
-    defer gpa.free(wire);
-    try std.testing.expectEqualStrings("op:gc-export", wire);
+    const ops =
+        \\        .deliver => "op:deliver",
+        \\        .gc_export => "op:gc-exports",
+    ;
+    try std.testing.expectEqualStrings("op:gc-exports", wireName(ops, names.items[1]).?);
+    try std.testing.expect(wireName(ops, "gc_answer") == null);
 }
 
 test "rows gather each kind with its sub-bullets and stop at the next entry" {

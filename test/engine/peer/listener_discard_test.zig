@@ -1,5 +1,5 @@
 //! An inbound listener the engine discards leaves like one it fires: the
-//! listener's import goes back to the partner as one `op:gc-export`, with no
+//! listener's import goes back to the partner as one `op:gc-exports`, with no
 //! callback. The spec discards a settling listener when its promise fulfills
 //! with a far promise, and the partner counted the listener mention as one
 //! export retain, so a discard that kept it would pin that export for the

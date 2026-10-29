@@ -81,6 +81,8 @@ pub const VowReservation = struct {
         row_value.vow = vow;
         const installed: actors.Listener = .{ .ctx = row_value, .func = VowRow.fire };
         row_value.pending_cancel = .{ .row_listener = installed };
+        // tolerant: an answer an inline projection publishes after this row is
+        // absent here, and settlement claims it again and drops the release on a miss.
         _ = settlement.claimOwnedAnswer(row_value, self.session);
         self.session.served.port.onReserved(&host.vat, transferred.listener, vow, installed);
         publishRow(host, row_value);
@@ -92,7 +94,7 @@ pub const VowReservation = struct {
 
 /// Register a one-shot in-process listener on a host vow. The listener hears
 /// the resolution borrowed (zero-copy) and keeps settlement off the action
-/// queue. A remote answer reserves its eventual `op:gc-answer` carrier here,
+/// queue. A remote answer reserves its eventual `op:gc-answers` carrier here,
 /// before the callback can make settlement infallible. A second listener on a
 /// pending row is refused `AlreadyListening`. A completed public vow is
 /// refused `AlreadySettled` but remains a valid pipeline target until release.
@@ -341,6 +343,8 @@ pub fn attachDeferredVow(
     row.observer_release = observer_release;
     const installed: actors.Listener = .{ .ctx = row, .func = VowRow.fire };
     row.pending_cancel = .{ .row_listener = installed };
+    // tolerant: an answer an inline projection publishes after this row is
+    // absent here, and settlement claims it again and drops the release on a miss.
     _ = settlement.claimOwnedAnswer(row, target);
     target.served.port.onReserved(&self.vat, listener, vow, installed);
 }

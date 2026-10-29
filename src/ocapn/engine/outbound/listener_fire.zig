@@ -41,7 +41,7 @@ pub fn deinit(carrier: Carrier, peer: *Peer) void {
 }
 
 /// Release only the payload owner after emission. The matching listener import
-/// was already transferred into an emitted `op:gc-export` (or retired locally
+/// was already transferred into an emitted `op:gc-exports` (or retired locally
 /// because the Session was terminal).
 pub fn deinitEmitted(carrier: Carrier, peer: *Peer) void {
     switch (carrier.target) {

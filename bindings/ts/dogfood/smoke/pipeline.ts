@@ -35,7 +35,7 @@ export async function run(managed: Runtime): Promise<void> {
 		await using gcHost = new Host();
 		const server = await tcp.listen("127.0.0.1", 0, { host: gcHost });
 		const targetPort = server.port;
-		const needle = new TextEncoder().encode("op:gc-export");
+		const needle = new TextEncoder().encode("op:gc-exports");
 		let toServerTail = new Uint8Array();
 		let toClientTail = new Uint8Array();
 		let toServerGc = 0;

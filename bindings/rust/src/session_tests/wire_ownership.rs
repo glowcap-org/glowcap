@@ -178,7 +178,7 @@ async fn exercise_gc_tracking(
 	let designator = crate::tcp::address_designator(&peer.ip().to_string(), peer.port());
 	let stream = Scanning::duplex(
 		stream,
-		b"op:gc-export",
+		b"op:gc-exports",
 		Rc::clone(&server_to_client_gc),
 		Rc::clone(&client_to_server_gc),
 	);
