@@ -31,6 +31,11 @@ pub const Save = opaque {
     pub fn result(self: *Save) Result {
         return state(self).result();
     }
+    /// Why the proof's restoration failed, borrowed from this save. Only a
+    /// save whose result failed as `RestorationFailed` has one.
+    pub fn restorationCause(self: *Save) []const u8 {
+        return state(self).enliven.?.result().failed.message;
+    }
     pub fn deinit(self: *Save) void {
         state(self).deinit();
     }

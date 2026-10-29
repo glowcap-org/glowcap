@@ -76,6 +76,9 @@ pub const Call = struct {
     /// invocation that fails may publish it. Storage and activation failures
     /// keep their own verdict. No successful call allocates refusal storage.
     refusal: ?[]const u8 = null,
+    /// Why a foreign restoration failed, as the Host's enliven reported it,
+    /// copied into the working arena behind the `RestorationFailed` name.
+    restoration_failure: ?[]const u8 = null,
     /// A dependent projection enters through `view`'s endpoint authority but
     /// invokes the content behind this separately held durable capability.
     /// The operation owns the retain. The call only borrows it.
@@ -86,6 +89,17 @@ pub const Call = struct {
 
     pub fn arena(self: *Call) std.mem.Allocator {
         return self.memory.working.allocator();
+    }
+
+    /// Keep the first foreign restoration's cause for the operation's failure
+    /// reason, and return the restoration verdict.
+    pub fn restorationFailed(self: *Call, cause: []const u8) error{RestorationFailed} {
+        if (self.restoration_failure == null) {
+            // best-effort: a working arena too full for the cause leaves the
+            // bare `RestorationFailed` name as the reason.
+            self.restoration_failure = std.fmt.allocPrint(self.arena(), "RestorationFailed: {s}", .{cause}) catch null;
+        }
+        return error.RestorationFailed;
     }
 
     pub fn refuseCopying(self: *Call, reason: []const u8) !void {

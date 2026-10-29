@@ -60,9 +60,13 @@ pub fn directory(reason: &str) -> Option<&'static str> {
 
 pub fn attachment(reason: &str) -> Option<Advice> {
 	// The browser's own restoration timeouts carry this code in their line;
-	// the binding's `RestorationFailed` kind arrives as its rendered name.
-	if Failure::parse(reason).is_some_and(|failure| failure.code == FailureCode::SessionRestorationFailed)
-		|| reason == "glowcap error -12: RestorationFailed"
+	// the binding's `RestorationFailed` kind arrives as its rendered name,
+	// followed by the cause when the Host reported one.
+	let restoration = reason
+		.strip_prefix("glowcap error -12: RestorationFailed")
+		.is_some_and(|cause| cause.is_empty() || cause.starts_with(": "));
+	if restoration
+		|| Failure::parse(reason).is_some_and(|failure| failure.code == FailureCode::SessionRestorationFailed)
 	{
 		return Some(advice(FailureCode::SessionRestorationFailed));
 	}
@@ -134,6 +138,10 @@ mod tests {
 			("host: NetworkUnreachable", "could not be reached"),
 			("broken promise: unknown swissnum", "does not know this capability"),
 			("glowcap error -12: RestorationFailed", "could not be restored"),
+			(
+				"glowcap error -12: RestorationFailed: unknown swissnum",
+				"could not be restored",
+			),
 			(
 				"session-restoration-failed: Saved workspace connection timed out",
 				"attach its new session link",

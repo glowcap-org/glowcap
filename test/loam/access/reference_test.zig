@@ -371,3 +371,98 @@ test "loam foreign save refuses a mismatched or missing durable reference withou
         try std.testing.expectEqual(@as(usize, 0), source.attached.reference_saves);
     }
 }
+
+test "loam foreign save reports why its proof could not restore" {
+    var source_backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
+    defer source_backend.deinit();
+    var source_store = try h.loam.core.Store.init(a, try source_backend.open(), &f.schemas, h.limits);
+    defer source_store.deinit() catch unreachable;
+    const source_data = try h.seed(&source_store, &source_backend);
+    var target_backend = try h.loam.Volatile.init(a, @fromBackingInt(95), 16 * 1024 * 1024);
+    defer target_backend.deinit();
+    var target_store = try h.loam.core.Store.init(a, try target_backend.open(), &h.schemas, h.limits);
+    defer target_store.deinit() catch unreachable;
+    const target_data = try h.seed(&target_store, &target_backend);
+    var source: h.Hosted = undefined;
+    try source.init(&source_store, &source_backend, source_data);
+    defer source.deinit();
+    source.service.contents = &f.contents;
+    var target: h.Hosted = undefined;
+    try target.initIdentity(&target_store, &target_backend, target_data, .{}, @splat(0x65));
+    defer target.deinit();
+    const name = try f.publication(&target, &target_backend, target_data.use, @splat(0x74));
+    const pair = try f.pairs.openPair(&source.host, &target.host, "127.0.0.1:9791");
+    const original = try f.fetch(&source, &source_backend, &target, &target_backend, pair, name);
+    defer source.host.releaseCapabilityTerminal(original, null);
+    // The target never published this name, so the proof's restoration fails
+    // at the target, and the caller learns that cause.
+    const unpublished = try f.uri(a, h.driver.Host.DurableSwiss.fromEntropy(@splat(0x75)));
+    defer a.free(unpublished);
+    const refused = try f.send(&source, &source_backend, &target, &target_backend, pair, source.use, "put", &.{ .{ .integer = 0 }, .{ .capability = original }, .{ .string = unpublished } });
+    defer refused.deinit();
+    try std.testing.expectEqualStrings("RestorationFailed: unknown swissnum", refused.result().failed.message);
+    try std.testing.expectEqual(@as(usize, 0), source.attached.reference_saves);
+}
+
+/// Drain one ended session's terminal effects and release it.
+fn retireSession(host: *h.driver.Host, session: *h.driver.HostSession) !void {
+    const peer = session.peer_handle;
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => |flushed| if (flushed == peer) while (try session.takeOutbound()) |frame_value| {
+            var frame = frame_value;
+            frame.deinit();
+        },
+        .close => |closed| if (closed == peer) return host.releaseSession(session),
+        else => {},
+    };
+    return error.SessionDidNotClose;
+}
+
+test "loam foreign restoration reports why the Host could not reach its target" {
+    var source_backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
+    defer source_backend.deinit();
+    var source_store = try h.loam.core.Store.init(a, try source_backend.open(), &f.schemas, h.limits);
+    defer source_store.deinit() catch unreachable;
+    const source_data = try h.seed(&source_store, &source_backend);
+    var target_backend = try h.loam.Volatile.init(a, @fromBackingInt(96), 16 * 1024 * 1024);
+    defer target_backend.deinit();
+    var target_store = try h.loam.core.Store.init(a, try target_backend.open(), &h.schemas, h.limits);
+    defer target_store.deinit() catch unreachable;
+    const target_data = try h.seed(&target_store, &target_backend);
+    var source: h.Hosted = undefined;
+    try source.init(&source_store, &source_backend, source_data);
+    defer source.deinit();
+    source.service.contents = &f.contents;
+    var target: h.Hosted = undefined;
+    try target.initIdentity(&target_store, &target_backend, target_data, .{}, @splat(0x65));
+    defer target.deinit();
+    const name = try f.publication(&target, &target_backend, target_data.use, @splat(0x76));
+    const pair = try f.pairs.openPair(&source.host, &target.host, "127.0.0.1:9791");
+    const original = try f.fetch(&source, &source_backend, &target, &target_backend, pair, name);
+    const uri = try f.uri(a, name);
+    defer a.free(uri);
+    const saved = try f.send(&source, &source_backend, &target, &target_backend, pair, source.use, "put", &.{ .{ .integer = 0 }, .{ .capability = original }, .{ .string = uri } });
+    defer saved.deinit();
+    try std.testing.expect(saved.result().ready.boolean);
+    source.host.releaseCapabilityTerminal(original, null);
+    try source.attached.sleep(source.use);
+
+    // The session ends, so the cold restore dials again, and that dial fails.
+    try h.driver.testing.condemn(&source.host, pair.a, .connection_lost, "ended in this scenario");
+    _ = try f.pairs.shuttle(pair);
+    try retireSession(&source.host, pair.a);
+    try retireSession(&target.host, pair.b);
+    const call = try source.host.callLocalCapability(a, source.use, "ref", &.{.{ .integer = 0 }}, 4096);
+    defer call.deinit();
+    for (0..256) |_| {
+        while (try source.host.nextAction()) |action| switch (action) {
+            .dial => |dial| try source.host.dialFailed(dial.ticket, dial.route_index, "unreachable in this scenario"),
+            else => {},
+        };
+        _ = try source.attached.advanceProgress();
+        if (try source.reads(&source_backend)) |batch| try source.attached.completeWrite(batch.ticket, source_backend.commit(batch));
+        if (call.result() != .pending) break;
+    } else return error.DidNotSettle;
+    try std.testing.expectEqualStrings("RestorationFailed: unreachable in this scenario", call.result().failed.message);
+    try std.testing.expectEqual(@as(usize, 0), source.host.pending_operations);
+}

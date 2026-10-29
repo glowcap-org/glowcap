@@ -154,7 +154,7 @@ fn disclose(owner: *h.Attachment, op: *calls.Operation, index: usize) Flow {
     if (owner.store.phase != .idle) return .next_operation;
     const ready = prepareCurrent(owner, op, index) catch |err| {
         op.failure = err;
-        op.failure_reason = null;
+        op.failure_reason = callReason(op, err);
         op.forwarded_failure = false;
         op.failure_kind = .broken;
         op.disclosure = .none;
@@ -178,6 +178,7 @@ fn schedule(owner: *h.Attachment, op: *calls.Operation, index: usize) !void {
     }
     const ready = prepareCurrent(owner, op, index) catch |err| {
         op.failure = err;
+        op.failure_reason = callReason(op, err);
         op.phase = .failed;
         return;
     };
@@ -203,6 +204,18 @@ fn schedule(owner: *h.Attachment, op: *calls.Operation, index: usize) !void {
     if (op.peer) |peer| {
         if (owner.host.sessionForPeer(peer)) |session| try owner.host.flushSession(session);
     }
+}
+
+/// The text a failed call publishes in place of its error's name: the
+/// application's own refusal, or the cause a foreign restoration reported.
+/// Both live in the call's working arena, which settlement outlives.
+fn callReason(op: *const calls.Operation, err: anyerror) ?[]const u8 {
+    const call = if (op.call) |*held| held else return null;
+    return switch (err) {
+        error.ApplicationRefused => call.refusal,
+        error.RestorationFailed => call.restoration_failure,
+        else => null,
+    };
 }
 
 fn prepare(owner: *h.Attachment, op: *calls.Operation) !void {
@@ -296,7 +309,7 @@ pub const Runner = struct {
         }
         invoke(self.owner, index) catch |err| {
             op.failure = err;
-            if (err == error.ApplicationRefused) op.failure_reason = op.call.?.refusal;
+            op.failure_reason = callReason(op, err);
             op.phase = .failed;
         };
         return .{ .void = {} };

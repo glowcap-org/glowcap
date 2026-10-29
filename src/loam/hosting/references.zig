@@ -104,13 +104,20 @@ const SavedState = struct {
     staged: ?struct { ticket: core.Ticket, edge: core.Edge } = null,
 };
 
+/// A save whose proof could not restore its recipe reports why through the
+/// call. Every other save failure is its own verdict.
+fn savedFailure(call: *h.Call, save: *Save, err: anyerror) anyerror {
+    if (err != error.RestorationFailed) return err;
+    return call.restorationFailed(save.restorationCause());
+}
+
 pub fn copySaved(call: *h.Call, save: *Save) !Replacement {
     const saved = save_mod.state(save);
     if (saved.owner.host != call.attachment.host or saved.owner.store != call.attachment.store) return error.ForeignStore;
     if (saved.owner != call.attachment) return error.ForeignAttachment;
     switch (save.result()) {
         .pending => return error.ReferencePending,
-        .failed => |err| return err,
+        .failed => |err| return savedFailure(call, save, err),
         .ready => {},
     }
     _ = try hold(call, saved.capability);
@@ -272,7 +279,7 @@ pub const Set = struct {
         }
         return switch (slot.save.?.result()) {
             .pending => .waiting,
-            .failed => |err| err,
+            .failed => |err| savedFailure(self.call, slot.save.?, err),
             .ready => null,
         };
     }
@@ -367,7 +374,7 @@ pub const Set = struct {
                 }
                 switch (slot.enliven.?.result()) {
                     .pending => return .waiting,
-                    .failed => return error.RestorationFailed,
+                    .failed => |failed| return self.call.restorationFailed(failed.message),
                     .ready => |ready| {
                         try save_mod.validateForeignObject(self.call.attachment.host, ready.capability);
                         slot.capability = try slot.enliven.?.take();
