@@ -7,8 +7,6 @@
 #   ci/state.sh stamp            set every tracked file's mtime to HEAD's commit time
 #   ci/state.sh pack <archive>   write the stores and zig-out to a zstd tar
 #   ci/state.sh unpack <archive> restore them, keeping their recorded mtimes
-#   ci/state.sh receive <dir> <name>...
-#                                fetch this run's named artifacts into <dir>
 #
 # Zig keys its cache by content, but Cargo calls an output stale when a source
 # is newer than it. Two jobs check the same commit out at different times, so
@@ -24,12 +22,6 @@
 # with the same home and checkout path, as every hosted runner does. Exits 2
 # on a malformed call, otherwise with the failing command's status. unpack
 # overwrites files at the recorded paths and removes nothing.
-#
-# receive reads the run from the runner's GITHUB_* variables and GH_TOKEN,
-# which needs actions: read. A blob transfer streams in seconds or stalls with
-# no end of its own, so an attempt that moves under 1 MB/s for
-# STATE_STALL_SECONDS (20) aborts and curl starts it over. A name the run
-# never uploaded is skipped: the caller judges a missing archive.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -46,15 +38,8 @@ stores() {
 }
 
 usage() {
-  echo "usage: ci/state.sh stores | stamp | pack <archive> | unpack <archive> | receive <dir> <name>..." >&2
+  echo "usage: ci/state.sh stores | stamp | pack <archive> | unpack <archive>" >&2
   exit 2
-}
-
-# curl strips the Authorization header when the artifact redirects to its blob.
-api() {
-  curl -fsSL --retry 4 --retry-connrefused --connect-timeout 10 \
-    --speed-limit 1048576 --speed-time "${STATE_STALL_SECONDS:-20}" \
-    -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$@"
 }
 
 case "${1:-}" in
@@ -85,24 +70,6 @@ case "${1:-}" in
   unpack)
     [ "$#" -eq 2 ] || usage
     tar -P --use-compress-program='zstd -d -T0' -xf "$2"
-    ;;
-  receive)
-    [ "$#" -ge 3 ] || usage
-    dir=$2
-    shift 2
-    actions="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions"
-    mkdir -p "$dir"
-    for name in "$@"; do
-      id=$(api "$actions/runs/$GITHUB_RUN_ID/artifacts?name=$name" |
-        jq -r '[.artifacts[] | select(.expired | not)] | last | .id // empty')
-      if [ -z "$id" ]; then
-        echo "ci/state.sh: run $GITHUB_RUN_ID has no artifact $name"
-        continue
-      fi
-      api -o "$dir/$name.zip" "$actions/artifacts/$id/zip"
-      unzip -o -q "$dir/$name.zip" -d "$dir"
-      rm -f -- "$dir/$name.zip"
-    done
     ;;
   *) usage ;;
 esac

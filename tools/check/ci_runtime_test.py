@@ -4,8 +4,6 @@ Loaded by publication_workflow_test.py under infrastructure-check. Shell
 steps run with disposable stores and stub disk measurements, never host caches.
 """
 
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import io
 import json
 import os
 from pathlib import Path
@@ -14,10 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
-import threading
-import time
 import unittest
-import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -182,25 +177,15 @@ class RuntimeTest(unittest.TestCase):
             self.assertNotEqual(state('unpack', str(archive)).returncode, 0)
 
     def test_test_jobs_find_every_shard_state_or_fail(self):
-        # Each shard's archive is fetched by its exact name into one directory,
-        # where the restore step looks for it.
+        # download-artifact extracts a lone match into `path` and gives each of
+        # several matches its own directory, so only merged, uniquely named
+        # archives sit at one path for every shard count.
         workflow = (ROOT / '.github/workflows/check-group.yml').read_text()
         self.assertIn('ci/state.sh pack "$RUNNER_TEMP/state-${{ matrix.shard }}.tar.zst"', workflow)
         self.assertIn('path: ${{ runner.temp }}/state-${{ matrix.shard }}.tar.zst', workflow)
-        self.assertIn('name: state-${{ inputs.group }}-${{ matrix.shard }}\n', workflow)
         receive = workflow.split("      - name: Receive the group's compiled state\n", 1)[1].split('\n      - name:', 1)[0]
-        command = textwrap.dedent(receive.split('        run: |\n', 1)[1])
-        with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
-            (base / 'ci').mkdir()
-            (base / 'ci/state.sh').write_text('#!/bin/sh\necho "$@" > received\n')
-            (base / 'ci/state.sh').chmod(0o755)
-            subprocess.run(['bash', '-e', '-c', command], cwd=base, check=True,
-                           env=dict(os.environ, RUNNER_TEMP='/runner', GROUP='browser', SHARDS='[\n  1,\n  2\n]'))
-            self.assertEqual((base / 'received').read_text(), 'receive /runner/state state-browser-1 state-browser-2\n')
-        for name in ('check.yml', 'check-group.yml'):
-            permissions = (ROOT / '.github/workflows' / name).read_text().split('\npermissions:\n', 1)[1]
-            self.assertIn('  actions: read\n', permissions.split('\n\n', 1)[0], name)
+        self.assertIn('path: ${{ runner.temp }}/state\n', receive)
+        self.assertIn('merge-multiple: true', receive)
         step = workflow.split("      - name: Restore the group's compiled state\n", 1)[1].split('\n      - name:', 1)[0]
         command = textwrap.dedent(step.split('        run: |\n', 1)[1])
         cases = [('success', (1, 2), 0, [2, 1]), ('success', (2,), 1, []), ('success', (1,), 1, []),
@@ -225,70 +210,3 @@ class RuntimeTest(unittest.TestCase):
                 for shard in {1, 2} - set(present):
                     kind = 'error' if build == 'success' else 'warning'
                     self.assertIn(f'::{kind}::Shard {shard}', result.stdout)
-
-    def test_receive_restarts_a_stalled_transfer_and_skips_a_missing_shard(self):
-        # The artifact API redirects to a blob host. The first blob transfer
-        # stalls after a few bytes, and receive must abort it and start over.
-        archive = io.BytesIO()
-        with zipfile.ZipFile(archive, 'w') as packed:
-            packed.writestr('state-browser-1.tar.zst', 'state\n')
-        body = archive.getvalue()
-        requests = []
-
-        class Artifacts(BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
-
-            def reply(self, status, payload=b'', headers=()):
-                self.send_response(status)
-                for header in headers:
-                    self.send_header(*header)
-                self.send_header('Content-Length', str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
-
-            def do_GET(self):
-                requests.append((self.headers.get('Host'), self.path, self.headers.get('Authorization')))
-                port = self.server.server_address[1]
-                if self.path == '/repos/o/r/actions/runs/7/artifacts?name=state-browser-1':
-                    self.reply(200, json.dumps({'artifacts': [{'id': 41, 'expired': False}]}).encode())
-                elif self.path == '/repos/o/r/actions/runs/7/artifacts?name=state-browser-2':
-                    self.reply(200, b'{"artifacts": []}')
-                elif self.path == '/repos/o/r/actions/artifacts/41/zip':
-                    self.reply(302, headers=[('Location', f'http://localhost:{port}/blob')])
-                elif self.path == '/blob' and sum(path == '/blob' for _, path, _ in requests) == 1:
-                    self.send_response(200)
-                    self.send_header('Content-Length', str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body[:4])
-                    self.wfile.flush()
-                    time.sleep(6)
-                elif self.path == '/blob':
-                    self.reply(200, body)
-                else:
-                    self.reply(404)
-
-        server = ThreadingHTTPServer(('127.0.0.1', 0), Artifacts)
-        server.daemon_threads = True
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        try:
-            with tempfile.TemporaryDirectory() as temporary:
-                state = Path(temporary, 'state')
-                started = time.monotonic()
-                result = subprocess.run(
-                    ['bash', 'ci/state.sh', 'receive', str(state), 'state-browser-1', 'state-browser-2'],
-                    cwd=ROOT, capture_output=True, text=True, timeout=25,
-                    env=dict(os.environ, GH_TOKEN='token', GITHUB_API_URL=f'http://127.0.0.1:{server.server_address[1]}',
-                             GITHUB_REPOSITORY='o/r', GITHUB_RUN_ID='7', STATE_STALL_SECONDS='1'))
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertLess(time.monotonic() - started, 6, 'the stall was waited out, not detected')
-                self.assertEqual(sorted(path.name for path in state.iterdir()), ['state-browser-1.tar.zst'])
-                self.assertEqual((state / 'state-browser-1.tar.zst').read_text(), 'state\n')
-                self.assertIn('has no artifact state-browser-2', result.stdout)
-        finally:
-            server.shutdown()
-        blobs = [request for request in requests if request[1] == '/blob']
-        self.assertEqual(len(blobs), 2)
-        self.assertTrue(all(authorization is None for _, _, authorization in blobs))
-        self.assertTrue(all(authorization == 'Bearer token'
-                            for host, path, authorization in requests if path != '/blob'))

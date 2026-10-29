@@ -32,7 +32,6 @@ on:
         required: true
 
 permissions:
-  actions: read
   contents: read
   packages: read
 
@@ -286,18 +285,26 @@ jobs:
           key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
           restore-keys: downloads-${{ runner.os }}-${{ runner.arch }}-
 
-      # Each shard's archive lands in the state directory under its own name.
-      # ci/state.sh restarts a transfer that stalls.
+      # A pattern that matches one artifact extracts it into `path` itself, and
+      # one that matches several gives each its own directory. Merging keeps
+      # every shard's uniquely named archive in `path` either way.
+      # Bounded and retried once, like the build job's handoff.
       - name: Receive the group's compiled state
+        id: receive
         if: needs.build.result != 'skipped'
         timeout-minutes: 5
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GROUP: ${{ inputs.group }}
-          SHARDS: ${{ inputs.shards }}
-        run: |
-          names=$(jq -r --arg group "$GROUP" '.[] | "state-\($group)-\(.)"' <<<"$SHARDS")
-          ci/state.sh receive "$RUNNER_TEMP/state" $names
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: &receive
+          pattern: state-${{ inputs.group }}-*
+          path: ${{ runner.temp }}/state
+          merge-multiple: true
+
+      - name: Receive the group's compiled state again
+        if: needs.build.result != 'skipped' && steps.receive.outcome == 'failure'
+        timeout-minutes: 5
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: *receive
 
       # Zig's cache is content-addressed, so the shards' stores merge. The
       # first shard lands last: it ran every Cargo build, and Cargo judges
