@@ -41,6 +41,28 @@ export function retainSecondaryFailure(primary: unknown, secondary: unknown, obs
 	return primary;
 }
 
+/** The first failure a barrier observes, boxed so that `null`, `undefined`,
+ * and every other falsy reason still counts as a failure. Each later failure
+ * is attached to it in observation order. */
+export class FirstFailure {
+	#first: { readonly error: unknown } | null = null;
+
+	add(error: unknown): void {
+		if (this.#first === null) this.#first = { error };
+		else retainSecondaryFailure(this.#first.error, error);
+	}
+
+	addRejections(outcomes: readonly PromiseSettledResult<unknown>[]): void {
+		for (const outcome of outcomes) {
+			if (outcome.status === "rejected") this.add(outcome.reason);
+		}
+	}
+
+	throwIfAny(): void {
+		if (this.#first !== null) throw this.#first.error;
+	}
+}
+
 /** Run rollback barriers in order, attaching every refusal to the unchanged
  * construction failure. Cleanup is cold-path and must never short-circuit the
  * owners that follow it. */

@@ -378,6 +378,29 @@ Deno.test("rendezvous close is one physical-release barrier", async () => {
 	assertEquals(settled, true);
 });
 
+Deno.test("rendezvous close reports a falsy close refusal exactly", async () => {
+	for (const refusal of [null, undefined, false, 0, -0, NaN, ""]) {
+		class RefusingWebSocket extends FakeWebSocket {
+			override close(): void {
+				throw refusal;
+			}
+		}
+		const rendezvous = new Rendezvous();
+		if (!rendezvous.register("a".repeat(64), new RefusingWebSocket() as unknown as WebSocket)) {
+			throw new Error("registration should be admitted");
+		}
+		let refused = false;
+		let reason: unknown;
+		try {
+			await rendezvous.close();
+		} catch (error) {
+			refused = true;
+			reason = error;
+		}
+		assertEquals(refused && Object.is(reason, refusal), true);
+	}
+});
+
 Deno.test("rendezvous accepts only canonical fixed-size key designators", () => {
 	assertEquals(isKeyDesignator("a".repeat(64)), true);
 	for (const value of ["", "a".repeat(63), "a".repeat(65), "A".repeat(64), "g".repeat(64)]) {

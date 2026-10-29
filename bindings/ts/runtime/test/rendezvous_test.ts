@@ -317,6 +317,46 @@ Deno.test("rendezvous stop preserves its first close refusal and later consequen
 	}
 });
 
+Deno.test("rendezvous stop reports a falsy close refusal exactly", async () => {
+	const realWebSocket = globalThis.WebSocket;
+	for (const refusal of [null, undefined, false, 0, -0, NaN, ""]) {
+		class RefusingWebSocket extends FakeWebSocket {
+			override close(): void {
+				queueMicrotask(() => {
+					this.readyState = FakeWebSocket.CLOSED;
+					this.onclose?.({ wasClean: true, code: 1000, reason: "" } as CloseEvent);
+					this.dispatchEvent(new Event("close"));
+				});
+				throw refusal;
+			}
+		}
+		try {
+			(globalThis as { WebSocket: typeof WebSocket }).WebSocket =
+				RefusingWebSocket as unknown as typeof WebSocket;
+			const handle = serveRendezvous(
+				new FakeHost() as unknown as Host,
+				TRANSPORT_NOISE_RELAY,
+				{
+					registerUrl: () => "wss://relay.example.test/register",
+					relayUrl: "wss://relay.example.test/relay",
+				},
+				{ pool: 1 },
+			);
+			let refused = false;
+			let reason: unknown;
+			try {
+				await handle.stop();
+			} catch (error) {
+				refused = true;
+				reason = error;
+			}
+			assert(refused && Object.is(reason, refusal), `stop dropped the close refusal ${String(refusal)}`);
+		} finally {
+			(globalThis as { WebSocket: typeof WebSocket }).WebSocket = realWebSocket;
+		}
+	}
+});
+
 Deno.test("rendezvous refuses an invalid pool before advertising or opening I/O", () => {
 	const realWebSocket = globalThis.WebSocket;
 	let sockets = 0;

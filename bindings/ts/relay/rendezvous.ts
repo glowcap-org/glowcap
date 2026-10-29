@@ -170,13 +170,14 @@ export class Rendezvous {
 			closing.push(this.#closeHeld(entry, "relay.rendezvous.shutdown.close"));
 		}
 		this.#closePromise = (async () => {
-			let failure: unknown = null;
+			// Boxed so a falsy rejection reason still counts as a failure.
+			let failure: { error: unknown } | null = null;
 			for (const outcome of await Promise.allSettled(closing)) {
 				if (outcome.status === "fulfilled") continue;
-				if (failure == null) failure = outcome.reason;
-				else retainSecondaryFailure(failure, outcome.reason);
+				if (failure === null) failure = { error: outcome.reason };
+				else retainSecondaryFailure(failure.error, outcome.reason);
 			}
-			if (failure != null) throw failure;
+			if (failure !== null) throw failure.error;
 		})();
 		void this.#closePromise.catch(() => {});
 		return this.#closePromise;

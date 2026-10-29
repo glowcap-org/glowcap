@@ -28,7 +28,7 @@
 
 import type { Host } from "./host.ts";
 import type { Timer } from "./timer.ts";
-import { retainSecondaryFailure } from "./errors.ts";
+import { FirstFailure } from "./errors.ts";
 import { Session } from "./session.ts";
 import { TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "./locator.ts";
 import type { Locator } from "./locator.ts";
@@ -240,19 +240,11 @@ export function serveRendezvous(
 			stopPromise = (async () => {
 				for (const timer of retries) clearTimeout(timer);
 				retries.clear();
-				let failure: unknown = null;
+				const failures = new FirstFailure();
 				const closing = [...pending.values()].map((channel) => channel.close(1000, "rendezvous stopped"));
-				for (const outcome of await Promise.allSettled(closing)) {
-					if (outcome.status === "fulfilled") continue;
-					if (failure == null) failure = outcome.reason;
-					else retainSecondaryFailure(failure, outcome.reason);
-				}
-				for (const outcome of await Promise.allSettled([...registrations])) {
-					if (outcome.status === "fulfilled") continue;
-					if (failure == null) failure = outcome.reason;
-					else retainSecondaryFailure(failure, outcome.reason);
-				}
-				if (failure != null) throw failure;
+				failures.addRejections(await Promise.allSettled(closing));
+				failures.addRejections(await Promise.allSettled([...registrations]));
+				failures.throwIfAny();
 			})();
 			return stopPromise;
 		},
@@ -260,15 +252,11 @@ export function serveRendezvous(
 			if (drainPromise != null) return drainPromise;
 			drainPromise = (async () => {
 				await this.stop();
-				let failure: unknown = null;
+				const failures = new FirstFailure();
 				while (accepted.size !== 0) {
-					for (const outcome of await Promise.allSettled([...accepted])) {
-						if (outcome.status === "fulfilled") continue;
-						if (failure == null) failure = outcome.reason;
-						else retainSecondaryFailure(failure, outcome.reason);
-					}
+					failures.addRejections(await Promise.allSettled([...accepted]));
 				}
-				if (failure != null) throw failure;
+				failures.throwIfAny();
 			})();
 			return drainPromise;
 		},

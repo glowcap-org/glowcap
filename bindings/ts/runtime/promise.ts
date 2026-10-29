@@ -11,7 +11,7 @@ import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64 } from "./internal/seam.ts";
 import { INVALID_ARGUMENT, UNSUPPORTED_VALUE } from "@glowcap/abi";
-import { checkHost, FetchFailed, GlowcapError, retainSecondaryFailure } from "./errors.ts";
+import { checkHost, FetchFailed, FirstFailure, GlowcapError, retainSecondaryFailure } from "./errors.ts";
 import { encodeArgs, refStruct } from "./abi_value.ts";
 import { releaseRef } from "./gc.ts";
 import { type Argument, isReference, promiseArgument, Ref, refFromId } from "./value.ts";
@@ -214,15 +214,15 @@ function encodeFarArgs(
 ): { readonly buf: Uint8Array; release(): void } {
 	const minted: Ref[] = [];
 	const release = () => {
-		let failure: unknown;
+		const failures = new FirstFailure();
 		for (const ref of minted.splice(0)) {
 			try {
 				releaseRef(h.hostRaw, ref);
 			} catch (error) {
-				failure = failure === undefined ? error : retainSecondaryFailure(failure, error);
+				failures.add(error);
 			}
 		}
-		if (failure !== undefined) throw failure;
+		failures.throwIfAny();
 	};
 	try {
 		const buf = encodeArgs(args, keep, (promise) => {

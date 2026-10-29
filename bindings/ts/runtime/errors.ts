@@ -68,7 +68,13 @@ export class GlowcapError extends Error {
 	}
 }
 
-export { retainCleanupFailures, retainSecondaryFailure, secondaryFailureCount, secondaryFailures } from "./cleanup.ts";
+export {
+	FirstFailure,
+	retainCleanupFailures,
+	retainSecondaryFailure,
+	secondaryFailureCount,
+	secondaryFailures,
+} from "./cleanup.ts";
 
 /** A promise the partner broke, the typed rejection an awaited `send` (or any
  * settled vow) produces. `reason` is the partner's break message. */
