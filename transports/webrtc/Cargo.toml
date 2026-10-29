@@ -55,7 +55,7 @@ glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0" }
 # dep webrtc: Data channels behind the `webrtc` transport.
 webrtc = "=0.21.1"
 # dep tokio: The runtime the WebRTC peer runs on.
-tokio = { version = "=1.54.0", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync", "time"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync", "time"] }
 # dep async-trait: Async methods on the peer's traits.
 async-trait = "0.1"
 # dep serde_json: JSON signaling messages.
