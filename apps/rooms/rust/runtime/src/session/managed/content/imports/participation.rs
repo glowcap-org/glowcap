@@ -57,9 +57,10 @@ impl Request<'_> {
 		let Some(replacement) = &self.replacement else {
 			return Ok(false);
 		};
-		if receipt.adopted || replacement.expected != input.content_revision {
+		if receipt.adopted || !record.fence.admits(replacement.expected, input.content_revision) {
 			// Adopted requests change nothing. Stale candidates pass through the
 			// acquisition's conflict check, which admits no custody or intent delta.
+			// A candidate the fence admits carries its delta and is checked below.
 			return Ok(true);
 		}
 		let mut candidate =

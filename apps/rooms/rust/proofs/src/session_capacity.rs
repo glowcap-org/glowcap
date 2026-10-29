@@ -137,6 +137,7 @@ pub fn candidate<C>(revision: u64, mut next: impl FnMut() -> C) -> workspace::Re
 	workspace::Record {
 		binding: custody::ResourceBinding { resource: () },
 		intent,
+		fence: Default::default(),
 		custody,
 		outgoing: List::default(),
 		bridges: Default::default(),
@@ -220,6 +221,7 @@ fn payload_boundary() {
 	let mut record = workspace::Record::<References<usize>, ()> {
 		binding: custody::ResourceBinding { resource: () },
 		intent: intent(),
+		fence: Default::default(),
 		custody: custody::Custody::default(),
 		outgoing: List::default(),
 		bridges: Default::default(),

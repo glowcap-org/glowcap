@@ -82,17 +82,25 @@ pub(super) async fn membership(
 		snapshot.revision,
 		"invalid selection imports no field"
 	);
-	let acquisition = command
+	let stale = command
 		.prepare_result_acquisition_with_source(snapshot.revision, &mappings, &[], &intent, Some(source_key))
 		.unwrap();
-	let stale = command
-		.prepare_result_acquisition_with_source(snapshot.revision - 1, &mappings, &[], &intent, Some(source_key))
-		.unwrap();
+	// A detour through another standing restores the same choices behind a
+	// newer intent fence, so the result prepared before it is stale.
+	let mut detour = original.clone();
+	detour.standing = rooms_application::fields::Text::new("detour".into()).unwrap();
+	owner.replace_workspace(&detour).await.unwrap();
+	owner.replace_workspace(&original).await.unwrap();
+	let snapshot = workspace.snapshot().await.unwrap();
+	assert_eq!(snapshot.intent, original);
 	assert!(matches!(
 		stale.submit().await,
 		Err(rooms_glowcap::client::Error::WorkspaceConflict)
 	));
 	assert_eq!(workspace.snapshot().await.unwrap().revision, snapshot.revision);
+	let acquisition = command
+		.prepare_result_acquisition_with_source(snapshot.revision, &mappings, &[], &intent, Some(source_key))
+		.unwrap();
 	let (control, policy, full) = management;
 	let manager = Control::local(host.clone(), Platform::default(), control.clone());
 	for missing in [Permission::ManageCustody, Permission::ReplaceWorkspace] {

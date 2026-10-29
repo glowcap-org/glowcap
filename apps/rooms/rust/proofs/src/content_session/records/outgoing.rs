@@ -50,6 +50,7 @@ pub(super) fn run() {
 	let mut record = workspace::Record {
 		binding: custody::ResourceBinding { resource: 41 },
 		intent: workspace::Intent::decode(&raw.to_string()).unwrap(),
+		fence: Default::default(),
 		custody,
 		outgoing: List::default(),
 		bridges: Default::default(),
@@ -231,6 +232,7 @@ fn diagnostic_reservation() {
 		let mut record = workspace::Record {
 			binding: custody::ResourceBinding { resource: 41 },
 			intent: workspace::Intent::decode(&fixture().to_string()).unwrap(),
+			fence: Default::default(),
 			custody: Default::default(),
 			outgoing: Default::default(),
 			bridges: Default::default(),

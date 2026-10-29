@@ -142,12 +142,24 @@ fn decode_with<R: custody::References>(
 	.map_err(|_| loam::refusal("invalid session graph"))
 }
 
-/// The codec owns page ordering. These temporary spines borrow its payloads
+/// The codec owns page ordering and the intent fence, which advances only when
+/// this write changes the intent. These temporary spines borrow its payloads
 /// through one shared staging call. Only Loam's candidate survives the callback.
 pub fn replace(call: &mut Call<'_>, input: Invocation<'_>, record: &mut Record) -> Result<()> {
 	rooms_application::content::session::bridge::retire(record);
 	rooms_application::content::session::outgoing::retire(record);
-	let encoded = records::encode(record).map_err(|_| loam::refusal("session record exceeds its profile"))?;
+	let stored: Vec<_> = core::iter::once(input.payload)
+		.chain(
+			input
+				.graph
+				.ok_or_else(|| loam::refusal("session graph is not prepared"))?
+				.iter()
+				.take_while(|page| page.schema().id == records::WORKSPACE.id)
+				.map(|page| page.payload()),
+		)
+		.collect();
+	let encoded = records::encode_replacement(record, &stored, input.content_revision)
+		.map_err(|_| loam::refusal("session record exceeds its profile"))?;
 	let pages: Vec<_> = encoded
 		.workspace
 		.iter()

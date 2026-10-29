@@ -159,9 +159,10 @@ impl<'a> Request<'a> {
 		} = self
 		{
 			let intent = workspace::Intent::decode(intent).map_err(|_| refuse("invalid workspace intent"))?;
-			// An exact replay may recover after its original revision. A stale
-			// request cannot install new fields or replace intervening intent.
-			if *expected != input.content_revision
+			// A request prepared before the last intent change is stale. Only an
+			// exact replay of it recovers: it cannot install new fields or
+			// replace the intervening intent.
+			if !record.fence.admits(*expected, input.content_revision)
 				&& (intent != record.intent
 					|| self
 						.entries()

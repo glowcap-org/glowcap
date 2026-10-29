@@ -15,6 +15,7 @@ pub use effects::{decode_effect, encode_effect};
 pub use graph::{GraphPage, decode_graph};
 pub use reservations::check_reservations;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 
 pub const PAGE_BYTES: usize = 48 * 1024;
 pub const FIELDS_PER_PAGE: usize = 64;
@@ -54,6 +55,22 @@ pub const PROVENANCE: Schema = Schema {
 };
 pub const SCHEMAS: &[Schema] = &[WORKSPACE, CUSTODY, PROVENANCE, EFFECT];
 
+/// The content revision read by the write that last changed a record's
+/// intent. Loam advances the revision on every commit, so a gesture prepared
+/// at a snapshot's revision saw that change exactly when the revision exceeds
+/// it. Receipt and custody commits leave the intent alone and never make a
+/// gesture stale.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Fence(u64);
+impl Fence {
+	/// Whether a gesture prepared at `base` saw the intent of the record now
+	/// at `revision`. A base from the future is refused like a stale one.
+	pub fn admits(self, base: u64, revision: u64) -> bool {
+		base <= revision && base > self.0
+	}
+}
+
 #[derive(Debug)]
 pub enum Error {
 	Capacity,
@@ -89,6 +106,31 @@ pub struct Encoded<'a, R: References, C> {
 	pub effects: Vec<Vec<Page<'a, R>>>,
 }
 pub fn encode<R: References, C>(record: &super::workspace::Record<R, C>) -> Result<Encoded<'_, R, C>, Error> {
+	encode_with(record, &serde_json::value::to_raw_value(&record.intent)?)
+}
+/// Encode `record` to replace the stored graph whose workspace pages are
+/// `stored`, read at content `revision`. The fence advances only when the
+/// intent's encoding changed. Encoding is deterministic, so an unchanged intent
+/// keeps its bytes, and a changed encoding of an equal intent could only make
+/// a gesture conflict early, never admit a stale one. The comparison costs one
+/// reassembly of the stored pages beside the intent encoding `encode` makes.
+pub fn encode_replacement<'a, R: References, C>(
+	record: &'a mut super::workspace::Record<R, C>,
+	stored: &[&[u8]],
+	revision: u64,
+) -> Result<Encoded<'a, R, C>, Error> {
+	let bytes = pages::decode(WORKSPACE.id, stored)?;
+	let previous: Workspace<'_> = serde_json::from_slice(&bytes)?;
+	let intent = serde_json::value::to_raw_value(&record.intent)?;
+	if previous.intent.get() != intent.get() {
+		record.fence = Fence(revision);
+	}
+	encode_with(record, &intent)
+}
+fn encode_with<'a, R: References, C>(
+	record: &'a super::workspace::Record<R, C>,
+	intent: &RawValue,
+) -> Result<Encoded<'a, R, C>, Error> {
 	record.intent.validate(&record.custody).map_err(|_| Error::Fields)?;
 	check_outgoing(&record.outgoing, &record.custody)?;
 	provenance::check_bridges(&record.bridges, &record.custody)?;
@@ -102,7 +144,7 @@ pub fn encode<R: References, C>(record: &super::workspace::Record<R, C>) -> Resu
 	}
 	let output = Encoded {
 		binding: &record.binding,
-		workspace: encode_workspace(&record.intent)?,
+		workspace: encode_raw_workspace(intent, record.fence)?,
 		custody: encode_custody(&record.custody)?,
 		provenance: provenance::encode(&record.outgoing, &record.bridges)?,
 		effects: record.effects.0.iter().map(encode_effect).collect::<Result<_, _>>()?,
@@ -163,9 +205,11 @@ pub fn decode<R: References, C>(
 		}
 	}
 	let private = self::provenance::decode(provenance)?;
+	let (intent, fence) = decode_workspace(workspace)?;
 	let record = super::workspace::Record {
 		binding,
-		intent: decode_workspace(workspace)?,
+		intent,
+		fence,
 		custody: decode_custody(custody)?,
 		outgoing: private.outgoing,
 		bridges: private.bridges,
@@ -188,16 +232,29 @@ pub(super) fn check_outgoing<R: References>(origins: &Origins, held: &Custody<R>
 	Ok(())
 }
 
-pub fn encode_workspace(intent: &Intent) -> Result<Vec<Vec<u8>>, Error> {
-	pages::encode(WORKSPACE.id, &serde_json::to_vec(intent)?)
+/// The workspace pages carry the intent beside its fence. The intent stays
+/// borrowed raw text until it is decoded under its own bounds.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Workspace<'a> {
+	fence: Fence,
+	#[serde(borrow)]
+	intent: &'a RawValue,
 }
-pub fn decode_workspace(payloads: &[&[u8]]) -> Result<Intent, Error> {
+pub fn encode_workspace(intent: &Intent, fence: Fence) -> Result<Vec<Vec<u8>>, Error> {
+	encode_raw_workspace(&serde_json::value::to_raw_value(intent)?, fence)
+}
+fn encode_raw_workspace(intent: &RawValue, fence: Fence) -> Result<Vec<Vec<u8>>, Error> {
+	pages::encode(WORKSPACE.id, &serde_json::to_vec(&Workspace { fence, intent })?)
+}
+pub fn decode_workspace(payloads: &[&[u8]]) -> Result<(Intent, Fence), Error> {
 	let bytes = pages::decode(WORKSPACE.id, payloads)?;
-	let raw = core::str::from_utf8(&bytes).map_err(|_| Error::Format)?;
-	Intent::decode(raw).map_err(|e| match e {
+	let stored: Workspace<'_> = serde_json::from_slice(&bytes)?;
+	let intent = Intent::decode(stored.intent.get()).map_err(|e| match e {
 		super::workspace::DecodeError::Capacity => Error::Capacity,
 		super::workspace::DecodeError::Json(e) => Error::Json(e),
-	})
+	})?;
+	Ok((intent, stored.fence))
 }
 
 #[derive(Serialize, Deserialize)]

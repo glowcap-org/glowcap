@@ -126,7 +126,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			owner.running(&request.intent.operation),
 		));
 	}
-	if input.content_revision != request.intent.base {
+	if !metadata.fence.admits(request.intent.base, input.content_revision) {
 		return Err(refuse(&rooms_application::failure::stale_workspace()));
 	}
 	let coordinates = request

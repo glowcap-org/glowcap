@@ -32,7 +32,7 @@ pub fn decode_graph<R: References, C>(
 		return Err(Error::Fields);
 	}
 	let payloads: Vec<_> = input[..workspace_len].iter().map(|page| page.payload).collect();
-	let intent = super::decode_workspace(&payloads)?;
+	let (intent, fence) = super::decode_workspace(&payloads)?;
 	let mut at = workspace_len;
 	let mut custody = custody::Custody::default();
 	let custody_start = at;
@@ -92,6 +92,7 @@ pub fn decode_graph<R: References, C>(
 	let record = super::super::workspace::Record {
 		binding,
 		intent,
+		fence,
 		custody,
 		outgoing: private.outgoing,
 		bridges: private.bridges,

@@ -219,25 +219,12 @@ pub(super) async fn run() {
 						.await
 						.is_err()
 				);
-				assert!(
-					owner
-						.acquire_workspace(&root, after as u64 - 1, vec![import()], &[coordinate(1)], &intent)
-						.await
-						.is_err()
-				);
 				let workspace =
 					rooms_glowcap::client::workspace::Workspace::local(host.clone(), Platform::default(), root.clone());
-				let stale = workspace
-					.prepare_acquisition(after as u64 - 1, vec![import()], &[coordinate(1)], &intent)
-					.unwrap();
-				let stale_outcome = stale.submit().await;
-				assert_eq!(
-					revision(&host, &root).await,
-					after,
-					"conflict saves no fields or content"
-				);
+				// The bundle import committed custody alone, so an acquisition
+				// prepared before it saw the intent it replaces.
 				let acquisition = workspace
-					.prepare_acquisition(after as u64, vec![import()], &[coordinate(1)], &intent)
+					.prepare_acquisition(after as u64 - 1, vec![import()], &[coordinate(1)], &intent)
 					.unwrap();
 				assert_eq!(acquisition.source(), &root);
 				acquisition.submit().await.unwrap();
@@ -251,6 +238,25 @@ pub(super) async fn run() {
 					revision(&host, &root).await,
 					after + 1,
 					"exact acquisition replay keeps the original revision"
+				);
+				// The acquisition changed the intent. A different candidate
+				// prepared before it is stale and saves nothing.
+				let mut later = intent.clone();
+				later.standing = rooms_application::fields::Text::new("later".into()).unwrap();
+				assert!(
+					owner
+						.acquire_workspace(&root, after as u64, vec![import()], &[], &later)
+						.await
+						.is_err()
+				);
+				let stale = workspace
+					.prepare_acquisition(after as u64, vec![import()], &[], &later)
+					.unwrap();
+				let stale_outcome = stale.submit().await;
+				assert_eq!(
+					revision(&host, &root).await,
+					after + 1,
+					"conflict saves no fields or content"
 				);
 				owner.import(coordinate(1), two.clone(), None).await.unwrap();
 				assert!(acquisition.submit().await.is_err());

@@ -404,12 +404,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			if input.graph.is_none() {
 				return Err(refuse("session graph is not prepared"));
 			}
+			let (intent, fence) = session::records::decode_workspace(&[input.payload])
+				.map_err(|_| refuse("invalid initial workspace"))?;
 			let mut record = workspace::Record {
 				binding: custody::ResourceBinding {
 					resource: input.bound_resource,
 				},
-				intent: session::records::decode_workspace(&[input.payload])
-					.map_err(|_| refuse("invalid initial workspace"))?,
+				intent,
+				fence,
 				custody: custody::Custody::<References>::default(),
 				outgoing: List::default(),
 				bridges: Default::default(),

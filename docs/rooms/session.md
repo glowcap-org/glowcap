@@ -102,8 +102,8 @@ unknown receipt found cold has no executor to resume, so it stays unknown.
 Saving the result of a posted line or a direct introduction needs only the
 original participation permissions. It installs that one result, leaves other
 workspace choices alone, and checks the returned identity, held targets,
-releases and source. If the workspace changed underneath it, it reports a
-conflict before saving anything. Saving any other result still needs
+releases and source. If the workspace intent changed underneath it, it
+reports a conflict before saving anything. Saving any other result still needs
 `ManageCustody` and a workspace replacement.
 
 Activity delivers message text and attachment details apart from the file

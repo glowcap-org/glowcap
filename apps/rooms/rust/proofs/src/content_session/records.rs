@@ -41,6 +41,31 @@ fn restored(page: &records::Page<'_, References>) -> records::RestoredPage<Refer
 		fields,
 	}
 }
+/// Receipt and custody commits re-encode an unchanged intent to its stored
+/// bytes, across pages, so only a write that changes the intent advances the
+/// fence a prepared gesture is judged by.
+fn fence<C>(mut record: workspace::Record<References, C>, stored: &[&[u8]]) {
+	assert_eq!(record.fence, records::Fence::default());
+	let unchanged = records::encode_replacement(&mut record, stored, 7).unwrap().workspace;
+	assert_eq!(unchanged.iter().map(Vec::as_slice).collect::<Vec<_>>(), stored);
+	assert!(
+		record.fence.admits(1, 7),
+		"a receipt commit leaves an older gesture current"
+	);
+	record.intent.keep_history = !record.intent.keep_history;
+	let changed = records::encode_replacement(&mut record, stored, 7).unwrap().workspace;
+	assert!(
+		!record.fence.admits(7, 8),
+		"a gesture prepared before the change is stale"
+	);
+	assert!(record.fence.admits(8, 8));
+	assert!(!record.fence.admits(9, 8), "a base from the future is stale");
+	let pages: Vec<_> = changed.iter().map(Vec::as_slice).collect();
+	assert_eq!(
+		records::decode_workspace(&pages).unwrap(),
+		(record.intent, record.fence)
+	);
+}
 pub fn run() {
 	outgoing::run();
 	bridge::run();
@@ -95,6 +120,7 @@ pub fn run() {
 	let record = workspace::Record {
 		binding: custody::ResourceBinding { resource: 41 },
 		intent: workspace::Intent::decode(&intent.to_string()).unwrap(),
+		fence: Default::default(),
 		custody,
 		outgoing: List::default(),
 		bridges: Default::default(),
@@ -137,6 +163,7 @@ pub fn run() {
 		panic!("original result")
 	};
 	assert_eq!(result.reference.0, 9);
+	fence(decoded, &workspace);
 	let mut missing = restored(&encoded.custody[0]);
 	missing.fields.clear();
 	assert!(matches!(

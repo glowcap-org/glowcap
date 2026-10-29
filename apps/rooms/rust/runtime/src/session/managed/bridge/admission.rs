@@ -131,10 +131,10 @@ pub(in crate::session::managed) fn reapplication(call: &mut Call<'_>, input: Inv
 		.and_then(|base| u64::try_from(base).ok())
 		.and_then(SafeInteger::new)
 		.ok_or_else(|| loam::refusal("invalid bridge revision"))?;
-	if base.get() != input.content_revision {
+	let record = records::decode(input)?;
+	if !record.fence.admits(base.get(), input.content_revision) {
 		return Err(loam::refusal(rooms_application::failure::stale_workspace()));
 	}
-	let record = records::decode(input)?;
 	let witness = record
 		.bridges
 		.as_slice()
@@ -230,7 +230,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			),
 		));
 	}
-	if request.base.get() != input.content_revision {
+	if !metadata.fence.admits(request.base.get(), input.content_revision) {
 		return Ok("conflict".into());
 	}
 	if !request.selected(&metadata.intent) {

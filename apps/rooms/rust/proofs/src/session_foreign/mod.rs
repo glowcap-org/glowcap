@@ -150,7 +150,7 @@ async fn run(database: Database, phases: &[usize], inspect_baseline: bool) {
 		};
 		if resource.is_none() {
 			let policy = Policy::new([94; 16], &[10, 20], &[]).unwrap();
-			let payload = records::encode_workspace(&session_capacity::intent())
+			let payload = records::encode_workspace(&session_capacity::intent(), Default::default())
 				.unwrap()
 				.remove(0);
 			#[cfg(not(target_arch = "wasm32"))]

@@ -270,8 +270,10 @@ outcome separately.
   workspace reads, and composer sends (one queued beside the one sending). History has one reader at a time.
 - The caller limits how long it watches each receipt, the runtime owns the executor's watch windows, and the page adds
   no retry loop of its own.
-- Only a proven revision conflict allows preparing again, up to `MAX_CONFLICT_REPREPARATIONS` times, each checked
-  against the original selection. A simple workspace setting is fenced at its original value, and retention also fences
+- A revision conflict means the workspace intent changed after the gesture was prepared. Receipts and held storage
+  committing beside it never cause one ([ADR-0072](../../../../docs/decisions/adr/ADR-0072-workspace-intent-fence.md)).
+  Only a proven conflict allows preparing again, up to `MAX_CONFLICT_REPREPARATIONS` times, each checked against the
+  original selection. A simple workspace setting is fenced at its original value, and retention also fences
   an unfinished erasure. Supervising unrelated rooms leaves these settings available.
 - Diagnostics on a kept change show its elapsed time, owners and last eight phase changes, without message bodies or
   capabilities. Session resource counts cover active workers, reads, receipts, listeners and subscriptions, and return

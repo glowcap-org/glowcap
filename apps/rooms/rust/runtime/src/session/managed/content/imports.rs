@@ -261,7 +261,7 @@ impl<'a> Request<'a> {
 				return Err(refuse("connection selection differs from its original gateway request"));
 			}
 		}
-		if replacement.expected != input.content_revision
+		if !record.fence.admits(replacement.expected, input.content_revision)
 			&& (intent != record.intent
 				|| self
 					.selections

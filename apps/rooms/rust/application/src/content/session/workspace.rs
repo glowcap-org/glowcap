@@ -633,6 +633,8 @@ impl Intent {
 pub struct Record<R: References, C> {
 	pub binding: custody::ResourceBinding<C>,
 	pub intent: Intent,
+	/// The revision read by the write that last changed `intent`.
+	pub fence: super::records::Fence,
 	pub custody: Custody<R>,
 	pub outgoing: List<super::outgoing::Origin, { custody::MAX_FIELDS_PER_ROLE }>,
 	pub bridges: List<super::bridge::Witness, { super::bridge::MAX_WITNESSES }>,

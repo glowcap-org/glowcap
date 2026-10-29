@@ -87,6 +87,7 @@ record's id, filename and status.
 - [ADR-0043 Rooms identity and authority](adr/ADR-0043-rooms-identity-and-authority.md)
 - [ADR-0044 Member-owned archives](adr/ADR-0044-member-owned-archives.md)
 - [ADR-0045 Managed Rooms sessions](adr/ADR-0045-managed-rooms-sessions.md)
+- [ADR-0072 Workspace intent fence](adr/ADR-0072-workspace-intent-fence.md)
 
 ### Persistence and managed access
 

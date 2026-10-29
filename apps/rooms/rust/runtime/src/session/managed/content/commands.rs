@@ -31,7 +31,7 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	let operation = Text::new(request.id().into()).ok_or_else(|| refuse("invalid operation id"))?;
 	let canonical = request.canonical().map_err(|_| refuse("invalid command intent"))?;
 	let intent = Text::new(canonical.clone().into()).ok_or_else(|| refuse("effect intent exceeds receipt capacity"))?;
-	if request.base() != input.content_revision {
+	if !record.fence.admits(request.base(), input.content_revision) {
 		// This reply proves absence of admission: no receipt, continuation or
 		// upstream effect was installed. Callers may prepare a new gesture only
 		// after comparing its original selection with the current workspace.

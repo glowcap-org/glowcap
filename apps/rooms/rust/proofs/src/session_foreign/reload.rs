@@ -119,7 +119,7 @@ pub async fn rooms_session_foreign_reload(
 			};
 			let resource = if creating {
 				let policy = Policy::new([97; 16], &[10, 20], &[]).unwrap();
-				let payload = records::encode_workspace(&session_capacity::intent())
+				let payload = records::encode_workspace(&session_capacity::intent(), Default::default())
 					.unwrap()
 					.remove(0);
 				store

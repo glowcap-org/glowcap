@@ -362,8 +362,8 @@ pub fn schemas() -> Vec<Schema> {
 pub fn initial_payload(connection: rooms_application::content::session::workspace::Connection) -> Result<Vec<u8>> {
 	let mut intent = rooms_application::content::session::workspace::Intent::empty();
 	intent.connection = connection;
-	let mut pages =
-		codec::encode_workspace(&intent).map_err(|_| glowcap::loam::refusal("initial session exceeds its profile"))?;
+	let mut pages = codec::encode_workspace(&intent, Default::default())
+		.map_err(|_| glowcap::loam::refusal("initial session exceeds its profile"))?;
 	Ok(pages.remove(0))
 }
 const MAX_JOBS: usize = custody::MAX_EFFECTS;

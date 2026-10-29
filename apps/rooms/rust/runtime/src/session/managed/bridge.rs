@@ -78,11 +78,15 @@ pub(super) fn forget<P: Tasks + Deadline + Clone + 'static>(
 	let [base, room] = input.args else {
 		return Err(glowcap::loam::refusal("forget-bridge takes revision and room"));
 	};
-	if base.as_i64().and_then(|base| u64::try_from(base).ok()) != Some(input.content_revision) {
+	let mut record = records::decode(input)?;
+	if !base
+		.as_i64()
+		.and_then(|base| u64::try_from(base).ok())
+		.is_some_and(|base| record.fence.admits(base, input.content_revision))
+	{
 		return Err(glowcap::loam::refusal(rooms_application::failure::stale_workspace()));
 	}
 	let room = content::text(room)?;
-	let mut record = records::decode(input)?;
 	if record.effects.as_slice().iter().any(|receipt| {
 		owner
 			.jobs

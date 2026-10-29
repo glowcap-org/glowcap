@@ -64,7 +64,9 @@ fn key<K>(slot: u64) -> custody::FieldKey<K> {
 }
 
 pub fn initial() -> Vec<u8> {
-	records::encode_workspace(&intent(false)).unwrap().remove(0)
+	records::encode_workspace(&intent(false), Default::default())
+		.unwrap()
+		.remove(0)
 }
 fn intent(large: bool) -> workspace::Intent {
 	workspace::Intent::decode(
@@ -93,6 +95,7 @@ fn candidate(target: Ref, revision: u64) -> workspace::Record<References, ()> {
 	workspace::Record {
 		binding: custody::ResourceBinding { resource: () },
 		intent,
+		fence: Default::default(),
 		custody,
 		outgoing: Default::default(),
 		bridges: Default::default(),
