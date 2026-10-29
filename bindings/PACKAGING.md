@@ -84,7 +84,7 @@ This builds a Python source distribution and its wheel, packages the Rust
 crate and Racket collection, and exercises installed consumers outside the
 checkout. It also builds Rust API docs without C libraries and checks
 all nine TypeScript packages with `deno publish --dry-run`. Nothing is uploaded.
-Run this locally before a release. Hosted CI does not run this rehearsal.
+The bindings CI phase runs this rehearsal before qualification.
 
 The C-library checks use the locally built SDK. Before publishing a
 language package, complete the [hosted archive checks](#publishing-c-archives)
@@ -105,8 +105,8 @@ describes. Racket installs as the `glowcap` collection, with imports such as
 therefore does not contact the network unless `GLOWCAP_DOWNLOAD=1` is set.
 Once releases are enabled, `GLOWCAP_SKIP_DOWNLOAD=1` disables fetching.
 
-Downloads require HTTPS and a matching entry in `SHA256SUMS`. Extraction
-accepts regular files under `lib/` only. Links and path traversal are refused.
+Downloads require HTTPS through redirects and a matching entry in `SHA256SUMS`.
+Extraction accepts regular files under `lib/` only. Links and path traversal are refused.
 `GLOWCAP_STRICT=1` turns a network or tool failure into a hard error instead of
 continuing to the local fallbacks.
 

@@ -286,6 +286,8 @@ gate zig build webrtc-redeem
 build zig build rust-lint
 gate zig build bindings-fmt-check
 gate zig build bindings
+# Checkout consumers cannot catch files omitted from a published package.
+gate zig build bindings-package-check
 gate zig build bindings-noise-relay-listen
 # The verb spine and every other hermetic proof family, because a proof no
 # gate runs rots.

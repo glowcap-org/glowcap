@@ -112,6 +112,15 @@ class PhaseTest(unittest.TestCase):
                           ['rooms-web-proofs', '-Drooms-web-proof-shard=1/4'],
                           ['rooms-web-proofs', '-Drooms-web-proof-shard=2/4']])
 
+    def test_binding_package_failure_blocks_qualification(self):
+        result, invoked = self.recorder.gates('bindings', GATE_FAIL='bindings-package-check')
+        packages = [call for call in invoked if 'bindings-package-check' in call]
+        self.assertEqual(len(packages), 1, 'detached package consumers must run in CI')
+        self.assertEqual(result.returncode, 37, result.stderr)
+        rows = json.loads(self.recorder.record.read_text())['rows'].splitlines()
+        self.assertTrue(any(row.startswith('37\t') and row.endswith(' bindings-package-check')
+                            for row in rows))
+
     def test_malformed_calls_run_and_record_nothing(self):
         for arguments in (['unknown'], ['core', 'browser'], ['--compile-only', 'core'],
                           ['--compile-only', '4/3', 'core'], ['--compile-only', '1/2', 'unknown']):

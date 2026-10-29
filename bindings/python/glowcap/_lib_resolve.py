@@ -206,9 +206,21 @@ def _require_https(base: str) -> None:
     _hard_fail(f"refusing non-HTTPS release base URL: {base}")
 
 
+class _ReleaseRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # An HTTPS release may redirect to its CDN, but never to cleartext.
+        # The insecure override permits an explicitly configured HTTP mirror.
+        if req.type == "https" and not newurl.startswith("https://"):
+            _hard_fail(f"refusing non-HTTPS release redirect: {newurl}")
+        _require_https(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _download(url: str, dest: pathlib.Path, *, max_bytes: int, user_agent: str) -> None:
+    _require_https(url)
     req = urllib.request.Request(url, headers={"User-Agent": user_agent})
-    with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 - HTTPS gated
+    opener = urllib.request.build_opener(_ReleaseRedirectHandler())
+    with opener.open(req, timeout=60) as resp:
         length = resp.headers.get("Content-Length")
         if length is not None and int(length) > max_bytes:
             raise OSError(

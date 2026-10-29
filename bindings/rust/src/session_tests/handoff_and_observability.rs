@@ -252,7 +252,10 @@ async fn the_live_trace_produces_the_timeline_schema() {
 			let captp = Host::new_host();
 			captp
 				.publish("greeter", move || {
-					Box::new(move |verb, _args| Ok(Argument::String(format!("hello {verb:?}"))))
+					Box::new(move |verb, _args| match verb {
+						Some(verb) => Ok(Argument::String(format!("hello {verb}"))),
+						None => Err("greeter requires a method selector".into()),
+					})
 				})
 				.unwrap();
 			let server = listen_with_host("127.0.0.1:0", captp).await.unwrap();

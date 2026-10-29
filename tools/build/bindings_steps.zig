@@ -130,6 +130,7 @@ pub fn register(
         else => {},
     }
     const python_unit_tests = [_][]const u8{
+        "bindings/python/test/lib_resolve_test.py",
         "bindings/python/test/session_writer_test.py",
         "bindings/python/test/bounded_channel_test.py",
         "bindings/python/test/relay_provider_test.py",
@@ -242,7 +243,7 @@ pub fn register(
     bindings_step.dependOn(site_reg.python_examples_check);
     bindings_step.dependOn(site_reg.rust_examples_check);
     bindings_step.dependOn(site_reg.racket_examples_check);
-    const package_check = addRootedSystemCommand(b, .build_tool, &.{ "python3", "tools/check/binding_packages.py" });
+    const package_check = addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/binding_packages.py" });
     package_check.step.dependOn(b.getInstallStep());
     package_check.has_side_effects = true;
     const package_step = b.step("bindings-package-check", "Build and exercise detached Rust, Python and Racket packages and dry-run JSR publication (needs cargo, uv, racket and deno)");
