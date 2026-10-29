@@ -507,6 +507,17 @@ test "session finish timeout terminates only that session and leaves its Host ac
     try runtime.releaseWire(session);
 }
 
+/// Records that a staged dial's connect completed, which moves the dial to
+/// its handshake.
+const ConnectFlag = struct {
+    connected: bool = false,
+
+    fn report(ctx: *anyopaque, outcome: driver.DialOutcome, _: u32) void {
+        const self: *ConnectFlag = @ptrCast(@alignCast(ctx));
+        if (outcome == .ok) self.connected = true;
+    }
+};
+
 test "a wire lost mid-handshake fails the staged dial through the dial observer, not the close observer" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -529,13 +540,10 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
     const transports: driver.Transports = .{ .symbols = &.{.tcp} };
     var closed = std.atomic.Value(bool).init(false);
     var close_flag = CloseFlag{ .flag = &closed };
-    var client_runtime = try driver.HostRuntime.init(
-        allocator,
-        io,
-        transports,
-        .ephemeral,
-        harness.stepped(harness.Quiet.sink(), .{ .ctx = &close_flag, .closed = CloseFlag.notify }),
-    );
+    var connect = ConnectFlag{};
+    var client_options = harness.stepped(harness.Quiet.sink(), .{ .ctx = &close_flag, .closed = CloseFlag.notify });
+    client_options.dial_outcome = .{ .ctx = &connect, .report = ConnectFlag.report };
+    var client_runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, client_options);
     defer client_runtime.deinit();
     var recorder = DialRecorder{};
 
@@ -545,7 +553,14 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
         .opened = DialRecorder.opened,
         .failed = DialRecorder.failed,
     });
-    _ = try client_runtime.stepAny(0);
+    // The connect must finish first: on macOS one step can leave it in
+    // progress, and a listener closed before it lands refuses the dial
+    // instead of losing a wire.
+    var connect_rounds: usize = 0;
+    while (!connect.connected and recorder.failed_err == null and connect_rounds < 1_000) : (connect_rounds += 1) {
+        _ = try client_runtime.stepAny(10);
+    }
+    try std.testing.expect(connect.connected);
 
     // Tearing the listener down resets its never-accepted backlog
     // connection; the pump sees the loss on the next step. The dial path
