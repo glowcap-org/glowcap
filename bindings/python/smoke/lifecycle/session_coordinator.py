@@ -17,8 +17,10 @@ class _HostStub:
 def _stub_session(transport, *, released: bool, wire_failure=None):
     """A Session over a stub Host and transport, before any close began."""
     from glowcap._session import Session
+    from glowcap._session.writer import Outbound
 
     session = Session.__new__(Session)
+    session._outbound = Outbound(session)
     session._host = _HostStub()
     session._transport = transport
     session._ptr = None if released else object()

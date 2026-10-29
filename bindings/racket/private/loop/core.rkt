@@ -427,7 +427,7 @@
             fires])]
         [(driver-event-completion? e)
          (append (reverse (settle-completion! m (driver-event-completion-action e))) fires)])))
-  (drain-effects '() (reverse fires) #f (pair? events)))
+  (drain-effects (reverse fires) #f (pair? events)))
 
 ;; A COMPLETION carries the byte-fed queue's own SETTLE or FAIL shape; route
 ;; it through the same vow table. The core's FAIL result is authoritative.

@@ -88,18 +88,22 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
 
     first_failure = OSError("injected exact FLUSH failure")
     client_channel.failure = first_failure
-    try:
-        await session.tell(svc, "ping", [])
-    except BaseException as error:
-        assert error is first_failure, "tell lost the exact FLUSH failure"
-    else:
-        raise AssertionError("tell accepted a failed FLUSH")
+    # tell returns once the deliver is queued, before the writer meets the
+    # failure. The session keeps that exact failure for serve and every later
+    # operation.
+    await session.tell(svc, "ping", [])
     try:
         await client_serving
     except BaseException as error:
         assert error is first_failure, "serve lost the exact FLUSH failure"
     else:
         raise AssertionError("serve resolved after a failed FLUSH")
+    try:
+        await session.tell(svc, "ping", [])
+    except BaseException as error:
+        assert error is first_failure, "tell lost the exact FLUSH failure"
+    else:
+        raise AssertionError("tell accepted a session whose FLUSH failed")
 
     closing = asyncio.create_task(session.close())
     await client_channel.close_started.wait()

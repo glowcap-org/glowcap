@@ -122,6 +122,32 @@ class _ProgressMixin(HostMixinBase):
 
         task.add_done_callback(done)
 
+    def _own_session_writer(self, task: "asyncio.Task") -> None:
+        """Keep a session's running writer under Host release."""
+        self._session_writers.add(task)
+
+        def done(finished: "asyncio.Task") -> None:
+            self._session_writers.discard(finished)
+            if finished.cancelled():
+                return
+            error = finished.exception()
+            if error is not None:
+                self._record_terminal_failure(error)
+                self.signal_close_activity()
+
+        task.add_done_callback(done)
+
+    async def _join_session_writers(self) -> None:
+        # Writers finish the CLOSE passes Host release queued, and a pass that
+        # wrote schedules another drain, so join both until neither has work.
+        while True:
+            pending = tuple(self._session_writers)
+            if not pending:
+                return
+            await asyncio.gather(*pending, return_exceptions=True)
+            self._session_writers.difference_update(pending)
+            await self._join_action_drains()
+
     async def _join_action_drains(self) -> None:
         current = asyncio.current_task()
         while True:

@@ -130,7 +130,8 @@ pub fn register(
         else => {},
     }
     const python_unit_tests = [_][]const u8{
-        "bindings/python/test/action_drain_test.py",
+        "bindings/python/test/session_writer_test.py",
+        "bindings/python/test/bounded_channel_test.py",
         "bindings/python/test/relay_provider_test.py",
         "bindings/python/test/relay_test.py",
         "bindings/python/test/webrtc_provider_test.py",
@@ -221,6 +222,7 @@ pub fn register(
         "bindings/racket/private/listen-loop.rkt",
         "bindings/racket/private/promise.rkt",
         "bindings/racket/private/relay-provider.rkt",
+        "bindings/racket/private/session/outbound.rkt",
         "bindings/racket/private/ws-transport.rkt",
     };
     const racket_test_step = b.step("racket-test", "Run the Racket unit tests (needs racket + goblins)");

@@ -11,18 +11,18 @@
 ;;
 ;; THE ACTION DRAIN. After any top-level host verb, the action queue drains
 ;; until dry (the one loop rule): a NEED_GIFT_ID draws 32 random bytes on the
-;; spot, a FLUSH parks the named session's encoded outbound on its
-;; pending-writes FIFO (via `drain-outbound!` in `pump.rkt`), and a DIAL parks
-;; the executor among the drain's fires. The pops run under the host's
-;; reentrant lock (`call-with-host`), so several green threads can share one
-;; host (a server's accepted sessions, a gifter's exporter dial) while the C
-;; host sees one caller at a time; everything that can block (socket writes,
-;; dial executors, listener fires) runs after the lock releases. Reads happen
-;; outside the lock too: `pump-until` (in `pump.rkt`) makes one thread the
-;; session's reader (the `async-connection` reader gate), parks drain effects
-;; until that gate clears, and parks every other pump on the host's progress
-;; event. So a settle another session's feed recorded wakes a pump parked on
-;; its own quiet socket without sharing the reader window with a write or fire.
+;; spot, a FLUSH wakes the named session's writer thread
+;; (`session/outbound.rkt`), and a DIAL parks the executor among the drain's
+;; fires. The pops run under the host's reentrant lock (`call-with-host`), so
+;; several green threads can share one host (a server's accepted sessions, a
+;; gifter's exporter dial) while the C host sees one caller at a time. Socket
+;; writes happen only on each session's writer, and everything else that can
+;; block (dial executors, listener fires) runs after the lock releases. Reads
+;; happen outside the lock too: `pump-until` (in `pump.rkt`) makes one thread
+;; the session's reader (the `async-connection` reader gate), parks drain
+;; effects until that gate clears, and parks every other pump on the host's
+;; progress event. No reader waits on its own write, so a partner slow to read
+;; never stops this side reading.
 
 (require ffi/unsafe
          "constants.rkt"
@@ -42,7 +42,9 @@
          "promise.rkt"
          "gc.rkt"
          "locator.rkt"
-         "session/state.rkt")
+         "session/state.rkt"
+         "session/outbound.rkt"
+         "session/write.rkt")
 
 (provide (all-defined-out)
          (all-from-out "pending-writes.rkt")
@@ -93,9 +95,17 @@
 (define (build-session m ptr transport time-travel?)
   (define ac (make-async-connection transport))
   (define v (make-vat #:time-travel? time-travel?))
+  ;; The writer starts on its first FLUSH, possibly inside a reader's drain,
+  ;; and runs in this construction context instead of that reader's.
+  (define writer
+    (without-deferred-drain-effects
+     (lambda ()
+       (make-outbound (lambda () (write-session-outbound! c))
+                      (lambda (result) (finish-session-close! c result))
+                      (lambda () (host-bump-progress! m))))))
   (define c (session ac v m ptr
                      (make-pending-writes)
-                     (make-semaphore 1)
+                     writer
                      (make-GlowcapManagedFrame #f 0 0 #f (make-vector 8 0))
                      (make-bytes HOST-OUTBOUND-PREFIX-CAP)
                      (box #f)
@@ -148,8 +158,8 @@
       [else
        ;; The abandoned connection's own parked frames die with it, but the
        ;; drain may flush a *different, healthy* connection (a sibling withdraw
-       ;; failing closed), so the touched list is still written after the lock
-       ;; releases. The core has already classified any queued FAIL completion.
+       ;; failing closed), whose writer takes those frames on its own thread.
+       ;; The core has already classified any queued FAIL completion.
        (with-session-drain c
          (lambda ()
            (commit-release!)))])))
@@ -162,17 +172,14 @@
                        (record-session-outbound-failure! c error)
                        (retire-session-wire-failure! c)
                        (raise-session-wire-failure! c))])
-      (with-host-drain m
-        (lambda ()
-          ;; This session is flushed whether or not an action named it, so it
-          ;; is merged into the drained effects' touched list.
-          (define drained (drain-host-actions! m))
-          (drain-outbound! c)
-          (define touched (drain-effects-touched drained))
-          (drain-effects (if (memq c touched) touched (cons c touched))
-                         (drain-effects-fires drained)
-                         (drain-effects-resume drained)
-                         (drain-effects-popped? drained)))))
+      ;; This session is flushed whether or not an action named it, and the
+      ;; caller returns only once its writer has written what was queued.
+      (define covering
+        (with-host-drain m
+          (lambda ()
+            (define drained (drain-host-actions! m))
+            (values drained (outbound-request! (session-outbound c))))))
+      (await-session-written! c covering 'session-flush!))
     (raise-session-wire-failure! c)))
 
 (define (session-close-code-error result)

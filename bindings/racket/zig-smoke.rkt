@@ -12,7 +12,8 @@
          "test/zig-smoke/proxies.rkt"
          "test/zig-smoke/lifecycle.rkt"
          "test/zig-smoke/callbacks-and-redeem.rkt"
-         "test/zig-smoke/transports.rkt")
+         "test/zig-smoke/transports.rkt"
+         "test/zig-smoke/backpressure.rkt")
 
 (close-test-runtimes!)
 (printf "racket zig-smoke OK: the onion transport reached a fake Tor and reported its service\n")

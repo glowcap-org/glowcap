@@ -22,6 +22,7 @@ from .._trampoline import _inside_turn
 if TYPE_CHECKING:
     from .._host import Host
     from . import Session
+    from .writer import Outbound
 
 
 class _LifecycleMixin:
@@ -47,6 +48,7 @@ class _LifecycleMixin:
         _transport_close_started: bool
         _close_task: Optional[asyncio.Task[None]]
         _retirement: asyncio.Event
+        _outbound: Outbound
 
     # ── The pump ────────────────────────────────────────────────────────────
 
@@ -102,14 +104,16 @@ class _LifecycleMixin:
         """The typed cause of the most recent local dispatch failure."""
         return _pump.last_abort(self)
 
-    async def flush_outbound(self) -> None:
-        """Drain encoded frames to this session's transport, in order."""
+    async def flush_outbound(self) -> bool:
+        """Drain encoded frames to this session's transport, in order,
+        returning whether any frame left the core. The session's writer is
+        the one caller. On a loop-backed session one loop step is the flush."""
         try:
             loop_ref = getattr(self._transport, "_driver_loop", None)
             if loop_ref is not None:
                 loop_ref.step_now()
-                return
-            await _pump.flush_outbound(self)
+                return False
+            return await _pump.flush_outbound(self)
         except BaseException as error:
             self.record_outbound_failure(error)
             self.close_transport()
@@ -260,6 +264,7 @@ class _LifecycleMixin:
             if (
                 not terminal.done()
                 and not self._released
+                and not self._outbound.close_delivered
                 and signature != getattr(self, "_close_request_signature", None)
             ):
                 ptr = self._ptr
@@ -282,6 +287,15 @@ class _LifecycleMixin:
                     self._start_close_driver()
                     self._host.schedule_kick()
             await asyncio.shield(terminal)
+            return
+
+        # The core already ended this session, and its writer is closing the
+        # transport after the final frames. Join that instead of asking the
+        # core to close a session it retired.
+        if self._outbound.close_delivered:
+            await self._outbound.exited()
+            self._start_terminal_coordinator()
+            await self._await_terminal()
             return
 
         if self._released:
@@ -370,6 +384,7 @@ class _LifecycleMixin:
     def _ffi_owner_did_release(self) -> None:
         """Commit wrapper retirement after the driver loop was released."""
         self._closing = True
+        self._outbound.stop()
         self._released = True
         self._release_pending = False
         self._ptr = None
@@ -387,6 +402,7 @@ class _LifecycleMixin:
             return
         self._host._assert_owner()
         self._closing = True
+        self._outbound.stop()
         if not self._transport_close_started:
             self._transport_close_started = True
             try:

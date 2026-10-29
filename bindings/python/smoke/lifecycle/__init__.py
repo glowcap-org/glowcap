@@ -471,6 +471,7 @@ async def _iroh_close_joins_after_cancellation() -> None:
 async def _session_close_joins_owned_transport_release() -> None:
     """Session.close joins transport cleanup after the core close effect."""
     from glowcap._session import Session
+    from glowcap._session.writer import Outbound
 
     started = asyncio.Event()
     finish = asyncio.Event()
@@ -494,6 +495,7 @@ async def _session_close_joins_owned_transport_release() -> None:
 
     transport = TransportStub()
     session = Session.__new__(Session)
+    session._outbound = Outbound(session)
     session._host = HostStub()
     session._transport = transport
     session._closing = False
@@ -520,6 +522,7 @@ async def _session_close_joins_owned_transport_release() -> None:
 async def _session_repeated_close_joins_published_failure() -> None:
     """Released state cannot let a repeated close outrun its shared result."""
     from glowcap._session import Session
+    from glowcap._session.writer import Outbound
 
     class HostStub:
         def _assert_owner(self) -> None:
@@ -529,6 +532,7 @@ async def _session_repeated_close_joins_published_failure() -> None:
             pass
 
     session = Session.__new__(Session)
+    session._outbound = Outbound(session)
     session._host = HostStub()
     session._transport = object()
     session._closing = True
@@ -560,6 +564,7 @@ async def _session_close_retains_every_terminal_failure() -> None:
     """The exact primary remains raised while later owned-barrier failures
     remain inspectable in deterministic observation order."""
     from glowcap._session import Session
+    from glowcap._session.writer import Outbound
 
     primary = OSError("primary wire failure")
     close_result = RuntimeError("FFI close result failed")
@@ -590,6 +595,7 @@ async def _session_close_retains_every_terminal_failure() -> None:
         raise serve_failure
 
     session = Session.__new__(Session)
+    session._outbound = Outbound(session)
     session._host = HostStub()
     session._transport = TransportStub()
     session._released = True

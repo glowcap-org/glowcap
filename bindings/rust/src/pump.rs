@@ -311,11 +311,11 @@ fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 /// prefix then the borrowed frame. A message channel accepts the packet as one
 /// unit. The binding neither copies the frame nor chooses its framing.
 ///
-/// Writes serialize on the write half's lock, which keeps them in submission
-/// order. It does not make one write atomic: `write_all` is not
-/// cancellation-safe, so a caller who drops this future part-way through a
-/// frame, which `tokio::time::timeout` around a send does, leaves a partial
-/// frame on the wire. The partner's framing cannot recover from that, so the
+/// The session's writer task is the only caller, and it holds the write half's
+/// lock for the pass, so frames leave in submission order. That does not make
+/// one write atomic: `write_all` is not cancellation-safe, so dropping the
+/// writer part-way through a frame, as a runtime shutting down does, leaves a
+/// partial frame on the wire. The partner's framing cannot recover from that, so the
 /// session is marked torn and refuses to write again rather than appending to
 /// a stream nobody can parse.
 /// Returns whether any frame left the core.

@@ -5,8 +5,11 @@
 ;; Owns the connection byte path the embedder contract leaves to the binding:
 ;; the keyed handshake, read raw bytes off the transport, hand them to the
 ;; core's stream delimiter (`glowcap_host_session_feed_bytes`, which owns framing),
-;; write what `take_outbound` drains, the feed-refusal path (`last_abort` /
-;; abort), and the EOF teardown that `transport_closed` reports to the core.
+;; the writer pass that writes what `take_outbound` drains, the feed-refusal
+;; path (`last_abort` / abort), and the EOF teardown that `transport_closed`
+;; reports to the core. Reading and writing are separate threads: the core
+;; bounds each session's outbound queue and refuses input past its high-water
+;; mark, so the reader needs no second bound of its own.
 ;; The CapTP surface stays in the `private/session` module family; the host
 ;; action switch (`drain-host-actions!`) lives in `private/action.rkt`. This
 ;; module is required by that family; the public barrel reaches pump only
@@ -25,7 +28,8 @@
          "pending-writes.rkt"
          "host/state.rkt"
          "vat.rkt"
-         "session/state.rkt")
+         "session/state.rkt"
+         "session/outbound.rkt")
 
 ;; `session/state.rkt` owns the `session` type; this module owns the shared
 ;; lock-drain choreography (`with-host-drain` / `drain-host!` / …), and action
@@ -34,8 +38,7 @@
 ;; session and action eagerly require this module for the byte path / FLUSH arm.
 (lazy-require
  ["session.rkt"
-  (abandon-session!
-   retire-session-wire-failure!)]
+  (abandon-session!)]
  ["action.rkt"
   (drain-host-actions!)]
  ["gc.rkt"
@@ -44,7 +47,6 @@
   (inside-turn?)])
 
 (provide drain-effects
-         drain-effects-touched
          drain-effects-fires
          drain-effects-resume
          drain-effects-popped?
@@ -59,9 +61,8 @@
          run-drain-effects!
          current-deliver-owner
          HANDSHAKE-TIMEOUT-MS
-         drain-outbound!
          pending-writes-clear!
-         write-pending!
+         await-session-written!
          feed-bytes!
          capture-feed-refusal
          raise-feed-refusal
@@ -79,26 +80,24 @@
 (define current-deliver-owner (make-parameter #f))
 
 ;; What one locked drain hands back to run once the host lock releases: the
-;; connections whose outbound was drained, and the deferred fires (settled
-;; vows' listeners, dial executors, condemned-connection closes). Everything
-;; here must run post-lock: a socket write can block, a dial is a connect
-;; syscall plus a whole keyed handshake, and a listener is application code
-;; that may pump. When the feed runs under the reader gate,
-;; `current-defer-drain-effects` parks this record until the gate releases:
-;; writes and fires never share the reader window with a blocking TCP write.
-(struct drain-effects (touched fires resume popped?))
-(define no-drain-effects (drain-effects '() '() #f #f))
+;; deferred fires (settled vows' listeners, dial executors, the close commit
+;; of a session whose writer already exited). Everything here must run post-lock: a dial is a
+;; connect syscall plus a whole keyed handshake, and a listener is application
+;; code that may pump. When the feed runs under the reader gate,
+;; `current-defer-drain-effects` parks this record until the gate releases.
+;; Socket writes are never here: each session's writer thread owns them.
+(struct drain-effects (fires resume popped?))
+(define no-drain-effects (drain-effects '() #f #f))
 
 ;; A drain pass advanced close-relevant state exactly when it popped at least
 ;; one action; `popped?` records that at the drain, because an action can
 ;; retire state (an unwrapped session's release, for one) while leaving no
-;; touched session and no fire behind. The close drivers bump host progress
+;; fire behind. The close drivers bump host progress
 ;; only for such a pass: an idle pass stays silent, which keeps two drivers
 ;; parked on the progress event from waking each other in an endless idle
 ;; exchange.
 (define (drain-effects-productive? fx)
   (or (drain-effects-popped? fx)
-      (pair? (drain-effects-touched fx))
       (pair? (drain-effects-fires fx))
       (and (drain-effects-resume fx) #t)))
 
@@ -127,26 +126,26 @@
   (parameterize ([current-defer-drain-effects #f])
     (thunk)))
 
-;; Write every session a drain flushed, tolerating a dead transport per
-;; session so one broken partner never strands another's frames.
-(define (write-touched! touched)
-  (for ([c (in-list touched)])
-    (with-handlers
-        ([(lambda (_e) #t)
-          (lambda (error)
-            ;; A popped frame cannot be replayed, and the stream may contain
-            ;; only its prefix. End this session so its far vows settle closed;
-            ;; keep draining unrelated sessions while the exact write error
-            ;; remains observable on this Session.
-            (record-session-outbound-failure! c error)
-            (retire-session-wire-failure! c))])
-      (write-pending! c))))
+;; Wait until the writer has finished pass `covering`, within the pump's
+;; deadline when one is set. A writer that exited first retired the session,
+;; so its frames never leave: raise that cause.
+(define (await-session-written! c covering who)
+  (let loop ()
+    (define evt (pump-wake-evt (session-host c)))
+    (case (outbound-written-state (session-outbound c) covering)
+      [(written) (void)]
+      [(exited)
+       (raise-session-wire-failure! c)
+       (raise-glowcap who ERR-CLOSED "the connection closed before its queued frames were written")]
+      [else
+       (when (pump-deadline-passed?)
+         (raise-glowcap who ERR-TIMEOUT "the partner did not read the queued frames before the deadline"))
+       (sync evt)
+       (loop)])))
 
-;; Run the post-lock half of a drain: write flushed connections, then fire
-;; deferred dials / settles / closes.
+;; Run the post-lock half of a drain: fire deferred dials / settles / closes.
 (define (run-drain-effects! m fx)
   (let loop ([current fx])
-    (write-touched! (drain-effects-touched current))
     (for ([fire (in-list (drain-effects-fires current))])
       (with-handlers ([converts-to-broken?
                        (lambda (error)
@@ -164,7 +163,6 @@
 ;; reader-held feed nests further locked drains under the same deferral box.
 (define (merge-drain-effects a b)
   (drain-effects
-   (append (drain-effects-touched a) (drain-effects-touched b))
    (append (drain-effects-fires a) (drain-effects-fires b))
    (cond
      [(and (drain-effects-resume a) (drain-effects-resume b))
@@ -284,87 +282,6 @@
   (check/host (glowcap_host_session_transport_closed
                (session-ptr c) (pin-immobile bs) (bytes-length bs))))
 
-;; Pop transport-ready prefix/payload vectors on `c` into its pending-writes
-;; FIFO. The host returns canonical outer framing for clear sessions and an
-;; empty prefix for wire-ready sealed payloads. Admission is checked before
-;; `take_outbound` transfers ownership, so a full FIFO never drops an already
-;; popped frame. One admitted frame may carry the FIFO over its high-water; the
-;; drain then stops until `write-pending!` debits it. Caller holds the host lock
-;; (`take_outbound` is a host verb); the socket write happens after the lock
-;; releases, through `write-pending!`. Returns `empty` only when the core queue
-;; was observed empty; every other result means the writer must refill after it
-;; drains this bounded batch.
-(define (drain-outbound! c)
-  ;; A loop-owned host's wire belongs to the loop (ADR-0024): its steps
-  ;; flush queued outbound themselves, and `take_outbound` must not compete
-  ;; with them, so a loop-hosted session drains nothing here.
-  ;; Breaks stay off across the whole drain: a frame `take_outbound` handed
-  ;; over is on the wire only once its bytes reach the pending writes, and a
-  ;; break between the two would release it unsent and corrupt the stream.
-  ;; Nothing here blocks, and the pending-writes room bounds the loop.
-  (if (or (session-released? c) (host-loop-of (session-host c)))
-      'empty
-      (parameterize-break #f
-        (let loop ([queued? #f])
-          (if (pending-writes-has-room? (session-pending-writes c))
-              (let ([mf (session-outbound-frame c)]
-                    [prefix (session-outbound-prefix c)])
-                (define-values (rc prefix-len)
-                  (glowcap_host_session_take_outbound
-                   (session-ptr c) mf prefix (bytes-length prefix)))
-                (cond
-                  [(= rc WOULD-BLOCK) (if queued? 'queued-drained 'empty)]
-                  [else
-                   (check/host rc)
-                   (define out
-                     (dynamic-wind
-                      void
-                      (lambda ()
-                        (bytes<-c (GlowcapManagedFrame-bytes mf)
-                                  (GlowcapManagedFrame-len mf)))
-                      (lambda () (glowcap_managed_frame_release mf))))
-                   (if (pending-writes-put-pair!
-                        (session-pending-writes c)
-                        (subbytes prefix 0 prefix-len)
-                        out)
-                       (loop #t)
-                       'queued-bounded)]))
-              (if queued? 'queued-bounded 'bounded))))))
-
-;; Write everything parked on `c`'s pending-writes FIFO to the transport,
-;; flushing once, serialized by the connection's write gate. Runs outside the
-;; host lock; a dead transport's write error is the caller's to tolerate.
-;; Callers must not hold `c`'s reader gate: reader-held feeds park frames in
-;; `drain-effects` via `current-defer-drain-effects`, and `pump-until` writes
-;; only after the gate clears.
-(define (write-pending! c)
-  ;; The loop-owned early-out above holds here too: the loop writes its own
-  ;; wire, and this session's FIFO stays empty.
-  (unless (or (session-released? c) (host-loop-of (session-host c)))
-    (define tr (async-connection-transport (session-async c)))
-    (call-with-semaphore
-     (session-write-gate c)
-     (lambda ()
-       (let batch-loop ()
-         (define wrote?
-           (let write-loop ([wrote? #f])
-             (define out (pending-writes-try-get! (session-pending-writes c)))
-             (if out
-                 (begin
-                   ((async-transport-write-frame! tr) out)
-                   (write-loop #t))
-                 wrote?)))
-         (when wrote?
-           ((async-transport-flush! tr)))
-         ;; The binding FIFO is only a bounded staging batch. Refill it under
-         ;; the host lock after the socket write, then release the lock before
-         ;; writing that batch. `empty` is the sole proof that no core frame was
-         ;; stranded behind the high-water stop.
-         (unless (session-released? c)
-           (define status
-             (call-with-host (session-host c) (lambda () (drain-outbound! c))))
-           (unless (eq? status 'empty) (batch-loop))))))))
-
 ;; Feed freshly read bytes into the host through the core's stream delimiter
 ;; (`glowcap_host_session_feed_bytes`): the session's codec splits each
 ;; complete frame off the front (both codecs, both frame shapes, the frame
@@ -400,16 +317,13 @@
             [(= rc OK)
              (values (drain-host-actions! m) 'done)]
             [(= rc WOULD-BLOCK)
-             (values (drain-host-actions! m) 'retry)]
+             (values (drain-host-actions! m) (cons 'retry (outbound-request! (session-outbound c))))]
             [else
              (define captured (capture-feed-refusal c rc))
-             ;; Park the abort on the FIFO and mark `c` touched so the shared
-             ;; drain spine writes it. Refusal is a flush, not a private exit.
-             (values (drain-effects (list c) '() #f #t) captured)]))))
-    (cond
-      [(eq? result 'done) (void)]
-      [(eq? result 'retry) (loop)]
-      [else (raise-feed-refusal result)])))
+             ;; The writer takes the projected abort through the same pass as
+             ;; any FLUSH. Refusal is a flush, not a private exit.
+             (values (drain-effects '() #f #t) (cons captured (outbound-request! (session-outbound c))))]))))
+    (feed-outcome! c result loop)))
 
 ;; Resume frames the Host held behind the handshake open. Stream sessions may
 ;; dispatch a retained tail; packet-framed sessions have no hidden tail.
@@ -428,22 +342,36 @@
             [(= rc OK)
              (values (drain-host-actions! m) 'done)]
             [(= rc WOULD-BLOCK)
-             (values (drain-host-actions! m) 'retry)]
+             (values (drain-host-actions! m) (cons 'retry (outbound-request! (session-outbound c))))]
             [else
              (define captured (capture-feed-refusal c rc))
-             (values (drain-effects (list c) '() #f #t) captured)]))))
-    (cond
-      [(eq? result 'done) (void)]
-      [(eq? result 'retry) (loop)]
-      [else (raise-feed-refusal result)])))
+             (values (drain-effects '() #f #t) (cons captured (outbound-request! (session-outbound c))))]))))
+    (feed-outcome! c result loop)))
+
+;; Act on one feed's outcome outside the host lock. A refused input waits
+;; until the core drains its outbound queue below the high-water mark, so the
+;; writer must take those frames before the same bytes feed again. A refusal
+;; is reported once its abort is written, because the serve loop retires the
+;; transport next. `again` repeats the feed.
+(define (feed-outcome! c result again)
+  (cond
+    [(eq? result 'done) (void)]
+    [(eq? (car result) 'retry)
+     (await-session-written! c (cdr result) 'session-serve)
+     (again)]
+    [else
+     ;; tolerant: the refusal stays the reported cause; a lost abort only
+     ;; costs the partner its diagnostic.
+     (with-handlers ([exn:fail? void])
+       (await-session-written! c (cdr result) 'session-serve))
+     (raise-feed-refusal (car result))]))
 
 ;; The feed refusal choreography, split around the host lock. Under the lock
 ;; (`capture-feed-refusal`): read the typed cause before another verb can
-;; clobber the last-error slot, and park the projected op:abort on the
-;; connection's pending-writes FIFO (`take_outbound` is a host verb). The
-;; feed returns `c` in `drain-effects.touched` so `run-drain-effects!` writes
-;; the abort after the lock (and after the reader gate, when deferred).
-;; `raise-feed-refusal` only raises and never writes.
+;; clobber the last-error slot. The feed then wakes the writer, which takes the
+;; projected op:abort with every frame queued before it, and `feed-outcome!`
+;; raises once that pass is written. `raise-feed-refusal` only raises and
+;; never writes.
 (define (capture-feed-refusal c rc)
   (define msg (host-last-error))
   (define abort #f)
@@ -452,10 +380,6 @@
                    (lambda (error)
                      (set! diagnostics (cons error diagnostics)))])
     (set! abort (session-last-abort c)))
-  (with-handlers ([(lambda (_) #t)
-                   (lambda (error)
-                     (set! diagnostics (cons error diagnostics)))])
-    (drain-outbound! c))
   (define base
     (if msg (format "glowcap error ~a: ~a" rc msg) (format "glowcap error ~a" rc)))
   (define detail

@@ -9,6 +9,11 @@ handshake, the feed-refusal path (``last_abort``), and the EOF teardown that
 ``transport_closed`` reports to the core. Session methods wrap these through
 binding-internal seams (``raw`` / ``host`` / …). CapTP verbs stay
 in :mod:`glowcap._session`.
+
+Reading and writing are separate tasks: the session's writer
+(:mod:`glowcap._session.writer`) performs every write. The core bounds each
+session's outbound queue and refuses input past its high-water mark, so the
+reader needs no second bound of its own.
 """
 
 from __future__ import annotations
@@ -56,7 +61,7 @@ async def _serve_loop(session) -> None:
     try:
         await _resume_feed(session)
         while True:
-            if session.released:
+            if session.released or session.close_delivered:
                 break
             chunk = await session.transport.read()
             if chunk is None:
@@ -65,16 +70,21 @@ async def _serve_loop(session) -> None:
                 # serve() while the Host still indexed a dead session.
                 session.mark_transport_lost()
                 break  # clean EOF
+            if session.close_delivered:
+                break
             await _feed(session, chunk)
     except (asyncio.CancelledError, OSError) as error:
-        # A read cancelled by our own close is a clean shutdown; any other
-        # failure is a real fault the awaiting caller should see.
-        if not session.is_closing:
+        # A read cancelled by our own close, or one that fails after the core
+        # ended the session, is a clean shutdown; any other failure is a real
+        # fault the awaiting caller should see.
+        if session.close_delivered:
+            session.mark_transport_lost()
+        elif not session.is_closing:
             session.mark_transport_lost()
             session.record_wire_failure(error)
             failure = error
     except BaseException as error:
-        if not session.is_closing:
+        if not session.is_closing and not session.close_delivered:
             session.mark_transport_lost()
             session.record_wire_failure(error)
             failure = error
@@ -83,7 +93,11 @@ async def _serve_loop(session) -> None:
     # the core that the wire disappeared is itself the serve failure; it must
     # not look like a successful end of stream. An application-driven close
     # already has its own result path, so its redundant report remains cleanup.
-    if not session.released:
+    # A delivered CLOSE already retired the session, and its writer owns the
+    # transport close, so serve() returns once that writer has released it.
+    if session.close_delivered:
+        await session.writer_exited()
+    elif not session.released:
         was_closing = session.is_closing
         session.closing_flag = True
         try:
@@ -139,7 +153,7 @@ async def _feed(session, chunk: bytes) -> None:
         if rc == _OK:
             break
         if rc == _WOULD_BLOCK:
-            await session.host.kick_actions()
+            await _await_outbound_room(session)
             continue
         await _raise_feed_refusal(session, rc)
     await session.host.kick_actions()
@@ -161,22 +175,32 @@ async def _resume_feed(session) -> None:
         if rc == _OK:
             break
         if rc == _WOULD_BLOCK:
-            await session.host.kick_actions()
+            await _await_outbound_room(session)
             continue
         await _raise_feed_refusal(session, rc)
     await session.host.kick_actions()
+
+
+async def _await_outbound_room(session) -> None:
+    # The core refused input until its outbound queue drains below the
+    # high-water mark. Drain queued work into frames, then wait for the writer
+    # to take them before the caller feeds again.
+    await session.host.kick_actions()
+    await session.written(session.request_flush())
 
 
 async def _raise_feed_refusal(session, rc: int) -> None:
     # Capture last_error / last_abort before another verb can clobber them,
     # then run the shared action drain so the projected op:abort (and any
     # CLOSE/FAIL queued with it) leave through the same spine as a steady
-    # FLUSH: not a private take_outbound path.
+    # FLUSH: not a private take_outbound path. The serve loop reports the
+    # transport closed next, so the abort must be written first.
     message = _host_last_error()
     abort = last_abort(session)
     drain_failure: BaseException | None = None
     try:
         await session.host.kick_actions()
+        await session.written(session.request_flush())
     except BaseException as error:
         drain_failure = error
     refusal = GlowcapError(rc, message, abort=abort)
@@ -220,39 +244,42 @@ def last_abort(session) -> Optional[AbortDetail]:
     )
 
 
-async def flush_outbound(session) -> None:
-    """Drain transport-ready prefix/payload vectors and write them in order.
+async def flush_outbound(session) -> bool:
+    """Drain transport-ready prefix/payload vectors and write them in order,
+    returning whether any frame left the core. Only the session's writer calls
+    this, so one drain runs at a time.
 
     The host owns whether a prefix is present: clear sessions return canonical
     outer framing, while sealed sessions return wire-ready payloads with an
     empty prefix. Binding-internal.
     """
-    async with session.write_lock:
-        scratch = session.outbound_scratch
-        try:
-            while True:
-                if session.released:
-                    return
-                rc = _host.glowcap_host_session_take_outbound(
-                    session.raw,
-                    ctypes.byref(scratch.frame),
-                    scratch.prefix,
-                    len(scratch.prefix),
-                    ctypes.byref(scratch.prefix_len),
+    scratch = session.outbound_scratch
+    wrote = False
+    try:
+        while True:
+            if session.released:
+                return wrote
+            rc = _host.glowcap_host_session_take_outbound(
+                session.raw,
+                ctypes.byref(scratch.frame),
+                scratch.prefix,
+                len(scratch.prefix),
+                ctypes.byref(scratch.prefix_len),
+            )
+            if rc == _WOULD_BLOCK:
+                return wrote
+            _check_host(rc)
+            frame = _copy_managed_frame(scratch.frame)
+            wrote = True
+            if scratch.prefix_len.value:
+                await session.transport.write(
+                    bytes(scratch.prefix[:scratch.prefix_len.value])
                 )
-                if rc == _WOULD_BLOCK:
-                    return
-                _check_host(rc)
-                frame = _copy_managed_frame(scratch.frame)
-                if scratch.prefix_len.value:
-                    await session.transport.write(
-                        bytes(scratch.prefix[:scratch.prefix_len.value])
-                    )
-                await session.transport.write(frame)
-        except BaseException as error:
-            # `take_outbound` transferred the frame and a failed/cancelled
-            # write may have put only a prefix on the stream. The session is
-            # no longer retryable; release it so every far vow settles closed. status-allow: lifecycle transition
-            session.record_outbound_failure(error)
-            session.close_transport()
-            raise
+            await session.transport.write(frame)
+    except BaseException as error:
+        # `take_outbound` transferred the frame and a failed/cancelled
+        # write may have put only a prefix on the stream. The session is
+        # no longer retryable; release it so every far vow settles closed. status-allow: lifecycle transition
+        session.record_outbound_failure(error)
+        session.close_transport()
+        raise

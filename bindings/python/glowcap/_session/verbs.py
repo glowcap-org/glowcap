@@ -205,8 +205,8 @@ class _VerbsMixin:
     ) -> None:
         """Fire-and-forget eventual-send without allocating an answer.
 
-        The one-way deliver is flushed before return and any exact wire failure
-        is then surfaced.
+        Returns once the deliver is queued, and the session's writer sends it.
+        A wire failure already recorded on the session is raised.
         """
         self.guard_open()
         self._host.gc.drain_gc()

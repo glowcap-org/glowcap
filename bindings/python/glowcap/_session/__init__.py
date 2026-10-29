@@ -22,6 +22,7 @@ from .._locator import _OwnedLocator, Locator
 from .lifecycle import _LifecycleMixin
 from .profile import SessionProfile, read_session_profile, read_session_transport_name
 from .verbs import PartnerIdentity, SendRedeemingResult, _VerbsMixin
+from .writer import Outbound
 
 _ERR_CLOSED = _abi.ERR_CLOSED
 _ERR_TIMEOUT = _abi.ERR_TIMEOUT
@@ -29,7 +30,7 @@ _HANDSHAKE_TIMEOUT_MS = _abi.HANDSHAKE_TIMEOUT_MS
 
 
 class _OutboundScratch:
-    """One Session's reusable C descriptors, serialized by ``write_lock``."""
+    """One Session's reusable C descriptors, used by its one writer."""
 
     __slots__ = ("frame", "prefix", "prefix_len")
 
@@ -74,9 +75,11 @@ class Session(_LifecycleMixin, _VerbsMixin):
         # coordinator and must outlive cancellation of any one close waiter.
         self._close_task: Optional[asyncio.Task[None]] = None
         self._retirement = asyncio.Event()
-        self._write_lock = asyncio.Lock()
-        # Reused only under _write_lock. Payload bytes are still copied before
-        # await because Python cannot retain the FFI frame across it.
+        # The writer task that owns every write to the transport.
+        self._outbound = Outbound(self)
+        # Reused only by the writer, one pass at a time. Payload bytes are
+        # still copied before await because Python cannot retain the FFI frame
+        # across it.
         self._outbound_scratch = _OutboundScratch()
         self._hosted = host._hosted
         self._gc_enabled = False
@@ -253,8 +256,35 @@ class Session(_LifecycleMixin, _VerbsMixin):
         return read_session_transport_name(self.raw)
 
     @property
-    def write_lock(self) -> asyncio.Lock:
-        return self._write_lock
+    def close_delivered(self) -> bool:
+        """The core delivered CLOSE, and the writer owns the transport close."""
+        return self._outbound.close_delivered
+
+    def request_flush(self) -> int:
+        """Wake this session's writer, how a FLUSH action lands. Returns
+        before any byte is written, with the pass that takes every frame
+        queued so far. Binding-internal."""
+        return self._outbound.request()
+
+    async def written(self, covering: int) -> None:
+        """Wait until that writer pass has finished. Pump seam."""
+        await self._outbound.written(covering)
+
+    async def writer_exited(self) -> None:
+        """Return once this session's writer has exited. Pump seam."""
+        await self._outbound.exited()
+
+    def close_after_flush(self, result: int) -> None:
+        """Have the writer drain what the core queued ahead of a CLOSE
+        action, then retire the session and settle an explicit close with
+        ``result``. Binding-internal."""
+        self._outbound.close_after_flush(result)
+
+    def _writer_wrote(self) -> None:
+        self._host.schedule_kick()
+
+    def _own_writer(self, task: "asyncio.Task[None]") -> None:
+        self._host._own_session_writer(task)
 
     @property
     def outbound_scratch(self) -> _OutboundScratch:

@@ -251,10 +251,10 @@ pub fn checkBindingHostActionSpine(
             .markers = &.{
                 "dispatch",
                 "run_dial_ticket",
-                "flush_outbound",
+                "request_flush",
                 "glowcap_host_provide_gift_id",
                 "settle_vow",
-                "close_transport",
+                "close_after_flush",
             },
         },
         .{
@@ -275,7 +275,8 @@ pub fn checkBindingHostActionSpine(
             .markers = &.{
                 "host-dispatch-action!",
                 "run-dial!",
-                "drain-outbound!",
+                "outbound-request!",
+                "outbound-close-after-flush!",
                 "host-provide-gift-id!",
                 "settle-vow!",
                 "session-close!",

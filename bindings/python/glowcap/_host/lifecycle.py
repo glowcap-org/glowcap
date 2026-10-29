@@ -308,6 +308,7 @@ class _LifecycleMixin(HostMixinBase):
             await self.kick_actions()
             await self.wait_close_wake()
         await self._join_action_drains()
+        await self._join_session_writers()
         await self._join_behavior_tasks()
         self._vows.clear()
         self._finish_release()
@@ -397,7 +398,12 @@ class _LifecycleMixin(HostMixinBase):
                 asyncio.get_running_loop()
             except RuntimeError:
                 if owner_loop.is_closed():
-                    if self._dial_tasks or self._behavior_tasks or self._action_drains:
+                    if (
+                        self._dial_tasks
+                        or self._behavior_tasks
+                        or self._action_drains
+                        or self._session_writers
+                    ):
                         raise GlowcapError(
                             _ERR_INVALID_ARGUMENT,
                             "host owner loop is closed with asynchronous work still active",

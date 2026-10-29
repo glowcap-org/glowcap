@@ -8,15 +8,17 @@
          "../errors.rkt"
          "../async.rkt"
          "../pending-writes.rkt"
-         "../host/state.rkt")
+         "../host/state.rkt"
+         "outbound.rkt")
 
 (provide (all-defined-out))
 
 ;; A session carries its pump state, vat, Host, FFI handle, bounded outbound
-;; queue, and lifecycle barriers. Handoff redemption and routed sends remain
-;; Host-owned; queue byte accounting lives in `pending-writes.rkt`.
+;; queue, the writer that alone writes it, and lifecycle barriers. Handoff
+;; redemption and routed sends remain Host-owned; queue byte accounting lives
+;; in `pending-writes.rkt`.
 (struct session
-  (async vat host ffi pending-writes write-gate outbound-frame outbound-prefix
+  (async vat host ffi pending-writes outbound outbound-frame outbound-prefix
          release-pending? close-result
          closing-state wire-failure transport-lost? transport-close-started?))
 
@@ -46,6 +48,7 @@
 ;; evidence, but never skips FFI retirement or replaces an earlier cause. status-allow: event or source ordering
 (define (close-session-transport! c)
   (set-box! (session-closing-state c) #t)
+  (outbound-stop! (session-outbound c))
   (when (box-cas! (session-transport-close-started? c) #f #t)
     (with-handlers ([(lambda (_) #t)
                      (lambda (error)

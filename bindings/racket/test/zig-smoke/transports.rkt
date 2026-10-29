@@ -60,10 +60,12 @@
 ;; The exchange is single-threaded. Unlike Racket's own
 ;; scheduler-aware ports, these explicit C-ABI netlayers park the whole Racket
 ;; place for the duration of a foreign read or write, so two connections cannot
-;; rendezvous across green threads in one place. The script therefore orders
-;; every blocking read after the frame it waits for is already in flight: both
-;; hellos leave before either side pumps its handshake, and each fetch/call leg
-;; feeds exactly the frame the previous leg wrote.
+;; rendezvous across green threads in one place, and a session's writer thread
+;; cannot run while its partner reads. The script therefore orders every
+;; blocking read after the frame it waits for is already written: each read
+;; first flushes the partner session, both hellos leave before either side
+;; pumps its handshake, and each fetch/call leg feeds exactly the frame the
+;; previous leg wrote.
 (define (outer-frame-bytes frame)
   (bytes-append
    (string->bytes/utf-8 (format "~a:" (bytes-length frame)))
@@ -111,9 +113,8 @@
         (glowcap_host_session_fetch (session-ptr c) (pin-immobile nb) (bytes-length nb)))
       (check/host rc)
       (define fresh (adopt-minted-vow! m c id #f #f))
-      ;; The drain parks the fetch deliver on the connection's pending-writes
-      ;; FIFO; `with-host-drain` runs the write once the lock releases, like
-      ;; every drain.
+      ;; The drain wakes the connection's writer, which sends the fetch
+      ;; deliver on its own thread, like every FLUSH.
       (values (drain-host-actions! m) fresh))))
 
 ;; Read one whole frame off the connection and feed its bytes (the feed drains,
@@ -121,16 +122,28 @@
 (define (feed-next! c read-frame)
   (feed-bytes! c (outer-frame-bytes (read-frame))))
 
-(define (transport-counter-roundtrip client-read client-write! server-read server-write!)
+(define (transport-counter-roundtrip raw-client-read client-write! raw-server-read server-write!)
   (define chost (make-fresh-host))
   (define shost (make-fresh-host))
+  ;; Each side reads what its partner's writer wrote, so a read waits for that
+  ;; writer's pass before it parks the place.
+  (define client-box (box #f))
+  (define server-box (box #f))
+  (define ((after-partner-writes read partner-box))
+    (define partner (unbox partner-box))
+    (when partner (session-flush! partner))
+    (read))
+  (define client-read (after-partner-writes raw-client-read server-box))
+  (define server-read (after-partner-writes raw-server-read client-box))
   ;; Both hellos leave before either side pumps, so neither establish blocks.
   (define client-session (open-dialed-over chost "tcp" (tcp-address-designator "127.0.0.1" 1)
                                         (connection-transport client-read client-write!)))
-  (drain-host! chost)  ; the dialer's signed op:start-session is in flight
+  (set-box! client-box client-session)
+  (drain-host! chost)  ; the dialer's signed op:start-session is queued
   (define server-session (open-accepted-over shost "tcp" (tcp-address-designator "127.0.0.1" 1)
                                           (connection-transport server-read server-write!)
                                           #:designator-scheme DESIGNATOR-SCHEME-ADDRESS))
+  (set-box! server-box server-session)
   (drain-host! shost)  ; the acceptor's hello crosses it
   ;; #f: no handshake bound. Both hellos are already in the paired in-memory
   ;; transports, so each pump reads a frame that is waiting for it.

@@ -93,9 +93,9 @@ pub(crate) struct SessionShared {
 	pub(crate) ptr: Cell<*mut ffi::GlowcapHostSession>,
 	key: usize,
 	pub(crate) host: Rc<HostShared>,
-	// The transport halves: the serve task takes the read half for its life;
-	// FLUSH drains serialize on the write half's async lock, which keeps frames
-	// in submission order. Order is all the lock gives: a write dropped
+	// The transport halves: the serve task takes the read half for its life,
+	// and the writer task (`outbound`) writes through the write half's async
+	// lock, which keeps frames in submission order. Order is all the lock gives: a write dropped
 	// mid-frame still leaves a partial one on the wire, which `torn` records.
 	// Both stay `None` on a loop-backed session, whose wire the driver loop
 	// owns (`loop_wire`).
@@ -135,11 +135,11 @@ pub(crate) struct SessionShared {
 	/// The Host adopted this dial independently of application handles. An
 	/// implicit final-handle drop must not condemn it. Explicit close still can.
 	pub(crate) host_retained: Cell<bool>,
-	// Set when an outbound write was dropped part-way through a frame, which a
-	// caller does by cancelling: `tokio::time::timeout` around a send is
-	// enough. `write_all` is not cancellation-safe, so some prefix of the frame
-	// is already on the wire and the partner's framing is unrecoverable. The
-	// lock serializes writers but cannot make one atomic. Once this is set the
+	// Set when an outbound write was dropped part-way through a frame, as a
+	// runtime shutting down under the writer task does. `write_all` is not
+	// cancellation-safe, so some prefix of the frame is already on the wire and
+	// the partner's framing is unrecoverable. The lock orders writes but cannot
+	// make one atomic. Once this is set the
 	// session refuses further writes rather than appending to a stream the
 	// partner can no longer parse. status-allow: lifecycle transition
 	pub(crate) torn: Cell<bool>,

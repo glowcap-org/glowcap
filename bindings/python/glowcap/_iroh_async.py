@@ -332,12 +332,11 @@ class _IrohTransport:
     readiness loop, not a parked blocking read, decides when bytes are
     available, and the host's stream delimiter frames them above. ``write``
     goes through the non-blocking ``try_write``, re-arming on the next writable
-    record when the sidecar buffer is full (the serve loop's FLUSH drain
+    record when the sidecar buffer is full (the session's one writer task
     serializes the writes, so the retry never interleaves frames). The write
     contract every transport record shares: ``write()`` moves bytes only: it
-    must not call host verbs or feed a connection, because it runs under the
-    connection's ``_write_lock`` and a reentrant flush would deadlock or
-    interleave frames.
+    must not call host verbs or feed a connection, because it runs inside the
+    writer's pass and a reentrant flush would deadlock or interleave frames.
 
     Lifetime: a server-accepted transport borrows the server's loop and
     netlayer. A dialing transport minted its own netlayer and loop

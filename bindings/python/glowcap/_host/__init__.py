@@ -201,6 +201,11 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # Every admitted action drain, including directly awaited drains. Host
         # release joins this barrier before invalidating FFI storage.
         self._action_drains: "set[asyncio.Task]" = set()
+        # Each session's writer task. A CLOSE leaves the transport close to its
+        # writer, so Host release waits for every writer to exit. Session
+        # teardown barriers never join them: a write blocked on a slow partner
+        # must not stop that partner's reader.
+        self._session_writers: "set[asyncio.Task]" = set()
         # The shared close-activity event (wake-all): a close driver clears it
         # before reading FFI close progress, and every FFI verb that can
         # advance close-relevant state sets it after the verb returns, so a

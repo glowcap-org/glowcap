@@ -112,27 +112,19 @@ class _Handlers:
         await self._host.cancel_dial_task(a.ticket, a.route_index)
 
     async def flush(self, a: Flush) -> None:
+        # The session's writer owns the write, so this drain, and the serve
+        # loop running it, keeps reading while the partner is slow to. A write
+        # failure retires only that session, never this Host drain.
         session = self._host.get_session(a.session_ptr)
         if session is not None:
-            try:
-                await session.flush_outbound()
-            except Exception:  # noqa: BLE001 - the session owns this failure
-                # Session.flush_outbound retained the exact first cause and
-                # retired this stream. Do not fail an unrelated Host drain.
-                # Cancellation is not the session's failure: it is this drain
-                # being stopped, and it propagates like the close arm's.
-                pass
+            session.request_flush()
 
     async def close(self, a: Close) -> None:
+        # The writer drains what the core queued ahead of this CLOSE, then
+        # retires the session and settles an explicit close.
         session = self._host.get_session(a.session_ptr)
         if session is not None:
-            try:
-                await session.flush_outbound()
-            except Exception:  # noqa: BLE001 - the session is ending either way
-                # Session.flush_outbound owns terminal failure state.
-                pass
-            session.close_transport()
-            session._finish_close(a.result)
+            session.close_after_flush(a.result)
 
     async def need_gift_id(self, a: NeedGiftId) -> None:
         def provide(gift_id: bytes) -> None:

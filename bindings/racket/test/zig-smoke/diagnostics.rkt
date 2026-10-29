@@ -261,8 +261,7 @@
 (define later-drain-fire-ran? (box #f))
 (run-drain-effects!
  drain-fire-failure-host
- (drain-effects '()
-                (list (lambda () (raise drain-fire-failure))
+ (drain-effects (list (lambda () (raise drain-fire-failure))
                       (lambda () (set-box! later-drain-fire-ran? #t)))
                 #f
                 #t))

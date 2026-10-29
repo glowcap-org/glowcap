@@ -23,6 +23,7 @@
          "host/state.rkt"
          "pump.rkt"
          "session/state.rkt"
+         "session/outbound.rkt"
          "host-action-gen.rkt")
 
 ;; Dial owns run-dial!; session/close owns session-close!. Promise owns settle-vow!.
@@ -34,8 +35,7 @@
  ["dial.rkt"
   (run-dial!)]
  ["session.rkt"
-  (finish-session-close!
-   retire-session-wire-failure!)])
+  (finish-session-close!)])
 
 (provide drain-host-actions!)
 
@@ -69,52 +69,32 @@
   (values (reverse parked) (not (zero? yielded))))
 
 ;; ── Execute ───────────────────────────────────────────────────────────────────
-;; Honor one parked action under the host lock: FLUSH/NEED_GIFT_ID run here;
-;; dial / close / settle / fail park as post-lock fires. Returns updated
-;; `(values touched fires)`. The kind inventory is generated, so
-;; `host-dispatch-action!` fails loud on a new kind. Each handler
-;; returns `(values touched fires)` so the fold stays values-shaped (no box).
-(define (apply-parked-action! m a touched fires)
+;; Honor one parked action under the host lock: FLUSH/CLOSE wake the named
+;; session's writer and NEED_GIFT_ID runs here; dial / settle / fail park as
+;; post-lock fires. Returns the updated fires. The kind inventory is
+;; generated, so `host-dispatch-action!` fails loud on a new kind.
+(define (apply-parked-action! m a fires)
   (host-dispatch-action!
    a
    (hash
     'flush
     (lambda (act)
+      ;; The writer owns the write, so this drain, and the reader running it,
+      ;; keeps reading while the partner is slow to. A write failure retires
+      ;; only that session, on its writer.
       (define c (host-session-for-ptr m (cadr act)))
-      (cond
-        [c
-         ;; The drain runs with breaks off, so a break can only land at its
-         ;; edges, where it is the operator's interrupt and escapes as itself.
-         (define failure
-           (with-handlers ([(lambda (raised) (not (exn:break? raised))) values])
-             (drain-outbound! c)
-             #f))
-         (when failure (record-session-outbound-failure! c failure))
-         (values (if (memq c touched) touched (cons c touched))
-                 (if failure
-                     (cons (lambda () (retire-session-wire-failure! c)) fires)
-                     fires))]
-        [else (values touched fires)]))
+      (when c (outbound-request! (session-outbound c)))
+      fires)
     'close
     (lambda (act)
-      ;; The host condemned the connection mid-pump (local turn budget
-      ;; exceeded): drain its queued resource_exhausted abort so the
-      ;; post-lock write carries it, then close the transport and release
-      ;; the shell. That work is deferred to the fires, which run after the touched
-      ;; writes, once the host lock is released.
+      ;; The writer drains what the core queued ahead of this CLOSE (a
+      ;; condemned connection's resource_exhausted abort, for one), then
+      ;; closes the transport and releases the shell. A writer that already
+      ;; exited leaves that commit to a post-lock fire.
       (define c (host-session-for-ptr m (cadr act)))
-      (cond
-        [c
-         ;; The drain runs with breaks off, so a break can only land at its
-         ;; edges, where it is the operator's interrupt and escapes as itself.
-         (define failure
-           (with-handlers ([(lambda (raised) (not (exn:break? raised))) values])
-             (drain-outbound! c)
-             #f))
-         (when failure (record-session-outbound-failure! c failure))
-         (values (if (memq c touched) touched (cons c touched))
-                 (cons (lambda () (finish-session-close! c (caddr act))) fires))]
-        [else (values touched fires)]))
+      (if (and c (outbound-close-after-flush! (session-outbound c) (caddr act)))
+          (cons (lambda () (finish-session-close! c (caddr act))) fires)
+          fires))
     'dial
     (lambda (act)
       ;; A dial is a connect syscall plus a whole keyed handshake:
@@ -140,16 +120,14 @@
                   m
                   (lambda () (hash-remove! (host-dial-workers m) attempt))))))))))
       (hash-set! (host-dial-workers m) attempt (dial-worker worker cancelled?))
-      (values touched (cons (lambda () (semaphore-post start)) fires)))
+      (cons (lambda () (semaphore-post start)) fires))
     'cancel-dial
     (lambda (act)
       (define ticket (cadr act))
       (define route-index (caddr act))
       (define attempt (cons ticket route-index))
       (define worker (hash-ref (host-dial-workers m) attempt #f))
-      (values
-       touched
-       (cons
+      (cons
         (lambda ()
           (when worker
             (set-box! (dial-worker-cancelled? worker) #t)
@@ -162,26 +140,26 @@
            m
            (lambda ()
              (check/host (glowcap_host_dial_cancelled (host-ptr m) ticket route-index)))))
-        fires)))
+        fires))
     'need-gift-id
     (lambda (act)
       (host-provide-gift-id! m (cadr act))
-      (values touched fires))
+      fires)
     'settle
     (lambda (act)
-      (values touched (append (reverse (settle-vow! m (cadr act) (cons 'ok (caddr act)))) fires)))
+      (append (reverse (settle-vow! m (cadr act) (cons 'ok (caddr act)))) fires))
     'fail
     (lambda (act)
       (define outcome (vow-failure-outcome (caddr act) (cadddr act)))
-      (values touched (append (reverse (settle-vow! m (cadr act) outcome)) fires)))
+      (append (reverse (settle-vow! m (cadr act) outcome)) fires))
     'resume
     (lambda (_act)
       ;; The shared C pump reports this separately before dispatch; retain the
       ;; exhaustive generated handler for direct decoded-action callers.
-      (values touched fires)))))
+      fires))))
 
 ;; The one loop rule's drain: park via the shared C wrapper until dry, honoring
-;; each arm, and return the `drain-effects` (parked writes and listener fires)
+;; each arm, and return the `drain-effects` (listener fires and dial executors)
 ;; the caller runs with `run-drain-effects!` once the host lock is released.
 ;; The host lock is held. A NEED_GIFT_ID's provide may queue FLUSH legs, so we
 ;; re-park until the queue is empty (same as the pre-wrapper pull loop). FLUSH
@@ -203,22 +181,21 @@
       (drain-pump-actions! m)))
 
 (define (drain-pump-actions! m)
-  (let loop ([touched '()] [fires '()] [popped? #f])
+  (let loop ([fires '()] [popped? #f])
     ;; The FFI drain resumes queued Host work before its first external
     ;; action and may synchronously invoke a behavior.
     (define-values (parked yielded?)
       (parameterize ([current-deliver-owner m])
         (park-host-actions! m)))
     (define any-popped? (or popped? (pair? parked)))
-    (define-values (t f)
-      (for/fold ([touched touched] [fires fires]) ([a (in-list parked)])
-        (apply-parked-action! m a touched fires)))
+    (define f
+      (for/fold ([fires fires]) ([a (in-list parked)])
+        (apply-parked-action! m a fires)))
     (cond
       [yielded?
        ;; The continuation reacquires the host lock only after the current
        ;; effects have run and the Racket scheduler has received a turn.
        (drain-effects
-        (reverse t)
         (reverse f)
         (lambda ()
           (call-with-host*
@@ -226,9 +203,9 @@
            (lambda () no-drain-effects)
            (lambda () (drain-host-actions! m))))
         any-popped?)]
-      [(null? parked) (drain-effects (reverse t) (reverse f) #f any-popped?)]
+      [(null? parked) (drain-effects (reverse f) #f any-popped?)]
       [else
-       (loop t f any-popped?)])))
+       (loop f any-popped?)])))
 
 ;; Drive a byte-fed Host close without choosing any lifecycle transition here:
 ;; the core emits every effect, this loop executes it, supplies monotonic time,
