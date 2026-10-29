@@ -206,7 +206,7 @@ class PublicationWorkflow(unittest.TestCase):
             self.assertIn("glowcap v0.1.0 alpha", arguments)
 
     def evidence(self, runs, commit="a" * 40, repository="owner/project", status=0, raw=None,
-                 command=None, current="a" * 40, job_records=None):
+                 command=None, current="a" * 40, job_records=None, relation="identical"):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             gh = directory / "gh"
@@ -220,6 +220,9 @@ if int(os.environ['EVIDENCE_STATUS']):
 if any('/git/ref/heads/main' in argument for argument in sys.argv):
     print(os.environ['EVIDENCE_CURRENT'])
     sys.exit(0)
+if any('/compare/' in argument for argument in sys.argv):
+    print(json.dumps({'status': os.environ['EVIDENCE_RELATION']}))
+    sys.exit(0)
 if any('/jobs?' in argument for argument in sys.argv):
     print(os.environ['EVIDENCE_JOBS'])
 else:
@@ -230,6 +233,7 @@ else:
             environment = dict(os.environ, PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
                                GITHUB_REPOSITORY=repository, EVIDENCE_CALL=str(call),
                                EVIDENCE_STATUS=str(status), EVIDENCE_CURRENT=current,
+                               EVIDENCE_RELATION=relation,
                                DEPLOY_SHA=commit, GITHUB_SHA=commit, GH_TOKEN="test-token",
                                EVIDENCE_RESPONSE=raw if raw is not None else json.dumps({"workflow_runs": runs}),
                                EVIDENCE_JOBS=json.dumps({"jobs": job_records if job_records is not None else [
@@ -240,19 +244,28 @@ else:
             result = subprocess.run(arguments, cwd=directory if command is None else ROOT,
                                     env=environment, capture_output=True, text=True)
             self.api_calls = [json.loads(line) for line in call.read_text().splitlines()] if call.exists() else []
-            return result, self.api_calls[0] if self.api_calls else None
+            runs_call = next((c for c in self.api_calls if any("/runs" in a for a in c)), None)
+            return result, runs_call
 
-    def test_publication_requires_main_push_evidence(self):
-        run = {"id": 42, "run_attempt": 1, "head_sha": "a" * 40, "head_branch": "main", "event": "push",
+    def test_publication_requires_the_dev_push_run_of_a_main_commit(self):
+        run = {"id": 42, "run_attempt": 1, "head_sha": "a" * 40, "head_branch": "dev", "event": "push",
                "status": "completed", "conclusion": "success",
                "head_repository": {"full_name": "owner/project"},
-               "html_url": "https://example.invalid/main-run"}
+               "html_url": "https://example.invalid/dev-run"}
         result, call = self.evidence([run])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), run["html_url"])
-        for value in ("branch=main", "status=completed", "head_sha=" + "a" * 40):
+        self.assertIn("repos/owner/project/compare/" + "a" * 40 + "...main", self.api_calls[0])
+        for value in ("status=completed", "head_sha=" + "a" * 40):
             self.assertIn(value, call)
-        for key, value in [("head_sha", "b" * 40), ("head_branch", "dev"),
+        self.assertEqual(self.evidence([run], relation="ahead")[0].returncode, 0)
+        for relation in ("behind", "diverged"):
+            with self.subTest(relation=relation):
+                refused, _ = self.evidence([run], relation=relation)
+                self.assertEqual(refused.returncode, 1, refused.stderr)
+                self.assertIn("is not on main", refused.stderr)
+                self.assertEqual(len(self.api_calls), 1)
+        for key, value in [("head_sha", "b" * 40), ("head_branch", "main"), ("head_branch", "feature"),
                            ("event", "pull_request"), ("status", "in_progress"),
                            ("conclusion", "failure"), ("head_repository", {"full_name": "fork/project"}),
                            ("html_url", "")]:
@@ -271,7 +284,7 @@ else:
                "html_url": "https://example.invalid/manual-run"}
         accepted, _ = self.evidence([run])
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
-        self.assertIn("repos/owner/project/actions/runs/42/attempts/2/jobs?per_page=100", self.api_calls[1])
+        self.assertIn("repos/owner/project/actions/runs/42/attempts/2/jobs?per_page=100", self.api_calls[2])
         for event in ("push", "workflow_dispatch"):
             for conclusion in ("skipped", "failure", "cancelled", None):
                 records = [{"name": "gates", "status": "completed", "conclusion": "success"},
@@ -286,6 +299,7 @@ else:
                         [], [None, {"name": {}}, {"name": "gates", "status": "in_progress", "conclusion": "success"}]):
             refused, _ = self.evidence([run], job_records=records)
             self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertEqual(self.evidence([dict(run, head_branch="dev")])[0].returncode, 0)
         refused, _ = self.evidence([dict(run, event="schedule")])
         self.assertEqual(refused.returncode, 1)
 
@@ -293,7 +307,7 @@ else:
         failed, _ = self.evidence([], status=7)
         self.assertEqual(failed.returncode, 7)
         self.assertIn("Actions API unavailable", failed.stderr)
-        for raw in ("{", "{}", '{"workflow_runs": null}'):
+        for raw in ("{", "{}", '{"workflow_runs": null}', '{"workflow_runs": {}}'):
             malformed, _ = self.evidence([], raw=raw)
             self.assertEqual(malformed.returncode, 1, malformed.stderr)
             self.assertIn("invalid Actions response", malformed.stderr)
@@ -322,10 +336,10 @@ else:
             self.assertLessEqual(lookup.call_args.kwargs["timeout"], 30)
 
     def test_workflow_steps_enforce_publication_evidence(self):
-        run = {"id": 42, "run_attempt": 1, "head_sha": "a" * 40, "head_branch": "main", "event": "push",
+        run = {"id": 42, "run_attempt": 1, "head_sha": "a" * 40, "head_branch": "dev", "event": "push",
                "status": "completed", "conclusion": "success",
                "head_repository": {"full_name": "owner/project"},
-               "html_url": "https://example.invalid/main-run"}
+               "html_url": "https://example.invalid/dev-run"}
         for path, name in [("pages", "Verify the exact commit passed check"),
                            ("release", "Require this commit's successful check workflow")]:
             source = (ROOT / f".github/workflows/{path}.yml").read_text()
@@ -337,7 +351,7 @@ else:
             with self.subTest(workflow=path):
                 accepted, _ = self.evidence([run], command=command)
                 self.assertEqual(accepted.returncode, 0, accepted.stderr)
-                refused, _ = self.evidence([dict(run, head_branch="dev")], command=command)
+                refused, _ = self.evidence([run], command=command, relation="diverged")
                 self.assertNotEqual(refused.returncode, 0, refused.stderr)
                 if path == "pages":
                     stale, _ = self.evidence([run], command=command, current="b" * 40)
@@ -546,25 +560,22 @@ else:
         self.assertEqual({rule["type"] for rule in tags["rules"]}, {"deletion", "update", "required_signatures"})
         self.assertIn('tags: ["v*"]', (ROOT / ".github/workflows/release.yml").read_text())
 
-    def test_pages_requires_trusted_push_or_manual_main(self):
+    def test_pages_builds_only_main(self):
+        # The verify step, not this condition, requires the commit's
+        # successful check run.
+        source = (ROOT / ".github/workflows/pages.yml").read_text()
+        self.assertIn("\non:\n  push:\n    branches: [main]\n  workflow_dispatch:\n", source)
         condition = jobs(".github/workflows/pages.yml")["build"][0]
-        for event, origin, conclusion, expected in [
-            ("push", "owner/project", "success", True),
-            ("workflow_dispatch", "owner/project", "success", True),
-            ("schedule", "owner/project", "success", False),
-            ("pull_request", "owner/project", "success", False),
-            ("push", "fork/project", "success", False),
-            ("push", "owner/project", "failure", False),
-        ]:
-            context = {"event_name": "workflow_run", "repository": "owner/project", "event": {
-                "workflow_run": {"event": event, "conclusion": conclusion,
-                                 "head_repository": {"full_name": origin}},
-            }}
-            with self.subTest(event=event, origin=origin, conclusion=conclusion):
-                self.assertEqual(selected(condition, context), expected)
-        for branch, expected in [("main", True), ("dev", False)]:
-            self.assertEqual(selected(condition, {"event_name": "workflow_dispatch",
-                                                 "ref": f"refs/heads/{branch}"}), expected)
+        for event in ("push", "workflow_dispatch"):
+            for branch, expected in [("main", True), ("dev", False)]:
+                with self.subTest(event=event, branch=branch):
+                    self.assertEqual(selected(condition, {"event_name": event,
+                                                         "ref": f"refs/heads/{branch}"}), expected)
+
+    def test_check_does_not_revalidate_main(self):
+        for path in (".github/workflows/check.yml", ".github/workflows/agent-tools.yml"):
+            with self.subTest(workflow=path):
+                self.assertRegex((ROOT / path).read_text(), r"(?m)^  push:\n    branches: \[dev\]$")
 
 
 if __name__ == "__main__":

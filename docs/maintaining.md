@@ -150,23 +150,25 @@ repository's Pages settings, because a Pages deployment from Actions ignores a
 `CNAME` file in its artifact. The DNS records live with the domain's DNS host
 and the domain verification in the maintainer's GitHub account settings.
 
-Only the maintainer moves `main`. Pages and tagged releases each run
-`tools/check/require-main-check.py`, which requires a successful `check.yml`
-run on `main` for the exact commit being published. Both `gates` and
-`macos-runtime` must complete successfully in the same run attempt.
-Passing `dev` checks or the long fuzz search alone does not authorize publication.
+Only the maintainer moves `main`. A push to `main` runs no checks of its own,
+because the commit it moves to already passed them on `dev`.
 
-If a push has no check run, including the first publication of a repository,
-start full validation explicitly:
+Pages deploys each commit `main` moves to, and a tagged release publishes its
+tagged commit. Both first run `tools/check/require-main-check.py`. It requires
+the commit to be on `main` and to have a successful `check.yml` run, either the
+push run on `dev` or a manual full check. Both `gates` and `macos-runtime` must complete
+successfully in the same run attempt. The long fuzz search alone does not
+authorize publication.
+
+If a commit on `main` has no such run, start full validation explicitly:
 
 ```sh
 gh workflow run check.yml --ref main -f suite=check
 ```
 
-Wait for both required jobs to pass. Their successful workflow triggers Pages
-automatically. To retry a failed deployment of that checked commit, run
-`gh workflow run pages.yml --ref main`. A manual `check` defaults to full
-validation. Select `suite=fuzz` for the separate long fuzz search.
+Once both required jobs pass, run `gh workflow run pages.yml --ref main` to
+deploy. A release tag cannot move, so rerun its refused release run with
+`gh run rerun <run-id>`. A manual `check` defaults to full validation. Select `suite=fuzz` for the separate long fuzz search.
 
 Each `ci/gates.sh` run records the commit, working-tree hash and dirty state,
 submodule revisions, toolchain pins, host, and each gate's exit status and

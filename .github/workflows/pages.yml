@@ -1,13 +1,12 @@
-# Build the documentation site and deploy it only after the full `check`
-# workflow succeeds. The site build captures the Rooms pictures from the
-# shipped page, so it runs in the devcontainer, which owns cargo, Deno, and
-# the Playwright browser, the same way `check` runs the gates.
+# Build the documentation site and deploy each commit main moves to, once
+# require-main-check finds that commit's successful full `check` run. The site
+# build captures the Rooms pictures from the shipped page, so it runs in the
+# devcontainer, which owns cargo, Deno, and the Playwright browser, the same
+# way `check` runs the gates.
 name: pages
 
 on:
-  workflow_run:
-    workflows: [check]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -19,17 +18,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  DEPLOY_SHA: ${{ github.sha }}
 
 jobs:
   build:
-    if: >-
-      (github.event_name == 'workflow_run' &&
-       (github.event.workflow_run.event == 'push' ||
-        github.event.workflow_run.event == 'workflow_dispatch') &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_repository.full_name == github.repository) ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    if: github.ref == 'refs/heads/main'
     permissions:
       actions: read
       contents: read

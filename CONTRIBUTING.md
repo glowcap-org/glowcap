@@ -189,8 +189,8 @@ qualification. Missing comparison history selects full validation. Renames
 account for both source and destination paths.
 Selection uses the complete push diff or the pull request's merge result.
 
-Pushes to `dev` and `main`, pull requests targeting main, nightly runs, and
-manual `suite=check` runs always execute the complete [`ci/gates.sh`](ci/gates.sh)
+Pushes to `dev`, pull requests targeting main, nightly runs, and manual
+`suite=check` runs always execute the complete [`ci/gates.sh`](ci/gates.sh)
 sequence. Full validation includes bounded mutation fuzzing. Nightly runs also
 search deeper with the fuzzer, as does a manual `suite=fuzz` run. A fuzzer
 finding is retained as a downloadable artifact for reproduction.

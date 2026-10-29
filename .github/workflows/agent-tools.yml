@@ -4,7 +4,7 @@ name: agent-tools
 
 on:
   push:
-    branches: [main, dev]
+    branches: [dev]
     paths:
       - ".devcontainer/**"
       - ".github/workflows/agent-tools.yml"

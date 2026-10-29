@@ -9,8 +9,10 @@
 name: check
 
 on:
+  # Main is a fast-forward of a dev commit this workflow already validated, so
+  # a push to main runs nothing again.
   push:
-    branches: [main, dev]
+    branches: [dev]
   pull_request:
   schedule:
     - cron: "17 3 * * *"
