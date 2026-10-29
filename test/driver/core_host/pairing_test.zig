@@ -464,7 +464,6 @@ test "core host: crossed hellos match the advertised route across different chan
     try b.releaseSession(b_dialed);
 }
 
-
 test "durable publication: a sturdyref issued before a restart still names a live object after it" {
     // What "durable bootstrap" actually requires of the library, and where the
     // storage belongs. The core is sync and no-I/O, so it cannot own a file;
