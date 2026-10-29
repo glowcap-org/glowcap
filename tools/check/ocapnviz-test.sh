@@ -10,6 +10,7 @@
 #
 # Build, type, lint, and format checks live in ocapnviz-build-check.sh because
 # they are cache-populating tool work, not a deterministic test deadline.
+# That phase checks test modules with --no-run; this phase only executes them.
 #
 # Test files run in parallel. Run one after another, each file's isolate
 # startup cost more than its tests, and the suite outgrew the per-step
@@ -30,4 +31,4 @@ if [ ! -d "$app" ]; then
 fi
 
 cd "$app"
-exec deno test -A --parallel
+exec deno test -A --no-check --parallel

@@ -39,9 +39,9 @@ def select(event_name, ref, event, paths):
     """Return selected group names and whether full validation is required.
 
     Bounded mutation fuzzing runs only in full validation."""
-    # A push to dev or main reports the checks the main ruleset reads: GitHub
-    # judges a push to main by the push-triggered run on that commit, never a
-    # manually started one, so the dev push itself must be full validation.
+    # Dev supplies the exact commit's promotion evidence, which main reuses
+    # after a fast-forward, so every dev push must run full validation. Keep
+    # explicit validation on main full for recovery runs too.
     if (event_name in ("schedule", "workflow_dispatch")
             or ref in ("refs/heads/main", "refs/heads/dev")
             or event.get("pull_request", {}).get("base", {}).get("ref") == "main"

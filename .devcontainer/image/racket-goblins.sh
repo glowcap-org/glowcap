@@ -15,7 +15,7 @@ mapfile -t racket_asset < <(racket_tarball_and_sha256)
 tarball="${racket_asset[0]}"
 sha256="${racket_asset[1]}"
 # Select an official mirror directly; TLS and the pinned digest both apply.
-url="https://users.cs.utah.edu/plt/installers/${RACKET_VERSION}/${tarball}"
+url="https://mirror.racket-lang.org/installers/${RACKET_VERSION}/${tarball}"
 
 glowcap_fetch_verified "${url}" "${tmp}/${tarball}" "${sha256}"
 

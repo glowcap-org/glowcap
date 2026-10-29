@@ -277,7 +277,8 @@ export abstract class SessionLifecycle {
 
 	/** Run `listener` exactly once when this session's transport retires.
 	 * Registration after retirement runs it immediately. The callback is a
-	 * lifecycle signal only; `serve()` remains the typed failure channel. */
+	 * lifecycle signal only; `serve()` remains the typed failure channel.
+	 * The Host retains a failure from an asynchronous notification. */
 	onClose(listener: () => void): () => void {
 		if (this.#released || this.#transportClose !== null) {
 			listener();
@@ -285,6 +286,17 @@ export abstract class SessionLifecycle {
 		}
 		this.#closeListeners.add(listener);
 		return () => this.#closeListeners.delete(listener);
+	}
+
+	#notifyCloseListeners(): void {
+		for (const listener of this.#closeListeners) {
+			this.#closeListeners.delete(listener);
+			try {
+				listener();
+			} catch (error) {
+				this.#host.recordBackgroundFailure(error);
+			}
+		}
 	}
 
 	/** The typed cause of this CapTP session's most recent local dispatch failure,
@@ -533,6 +545,7 @@ export abstract class SessionLifecycle {
 			}
 			this.#host.trackSessionRetirement(this.#transportClose);
 		}
+		this.#notifyCloseListeners();
 		return this.#transportClose;
 	}
 
@@ -558,10 +571,6 @@ export abstract class SessionLifecycle {
 		this.#closing = true;
 		this.#outbound.stop();
 		if (this.#transportClose == null) {
-			for (const listener of this.#closeListeners) listener();
-			this.#closeListeners.clear();
-		}
-		if (this.#transportClose == null) {
 			try {
 				this.#transportClose = Promise.resolve(this.#transport.close());
 			} catch (error) {
@@ -570,6 +579,7 @@ export abstract class SessionLifecycle {
 			this.#host.trackSessionRetirement(this.#transportClose);
 			void this.#transportClose.catch(() => {});
 		}
+		this.#notifyCloseListeners();
 		const transportClose = this.#transportClose;
 		if (this.#released || this.#releasePending) return transportClose;
 		const ptr = this.#ptr;

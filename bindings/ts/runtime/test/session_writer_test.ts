@@ -1,5 +1,4 @@
-// Two peers over a channel smaller than one frame. Each must keep reading
-// while its own write waits, or each waits for the other to read.
+// Session writes over bounded channels, retirement callbacks, and task failures.
 import { DESIGNATOR_SCHEME_ADDRESS } from "@glowcap/abi";
 import { Host } from "../host.ts";
 import { bareLocator } from "../locator.ts";
@@ -124,5 +123,105 @@ Deno.test("a pipe smaller than a frame carries both directions at once", async (
 		await dialer.close();
 		await exporter.close();
 		await Promise.all(serving);
+	}
+});
+
+Deno.test("a throwing close listener cannot strand a bounded channel or skip another listener", async () => {
+	const exporter = new Host();
+	const dialer = new Host();
+	const serving: Promise<void>[] = [];
+	let removeListener = () => {};
+	try {
+		const [dialSide, acceptSide] = channelPair(64);
+		let retired = 0;
+		const closeChannel = dialSide.close;
+		dialSide.close = () => {
+			retired++;
+			return closeChannel();
+		};
+		const designator = "127.0.0.1:9011";
+		const [accepted, dialed] = await Promise.all([
+			Session.establishAccepted(exporter, {
+				transport: "tcp",
+				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
+				serverDesignator: designator,
+				channel: acceptSide,
+			}, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+		]);
+		serving.push(accepted.serve().catch(() => {}), dialed.serve().catch(() => {}));
+		const failure = new Error("close listener sentinel");
+		let first = 0;
+		let later = 0;
+		removeListener = dialed.onClose(() => {
+			first++;
+			throw failure;
+		});
+		dialed.onClose(() => later++);
+		let observed: unknown;
+		try {
+			await within(dialed.close(), 1_000, "session retirement");
+		} catch (error) {
+			observed = error;
+		}
+		try {
+			dialer.drainGc();
+		} catch (error) {
+			observed = error;
+		}
+		assert(first === 1 && later === 1, `close listeners ran ${first} and ${later} times`);
+		assert(retired === 1, "the listener prevented channel retirement");
+		assert(observed === failure, "the exact listener failure was lost");
+		await dialed.close();
+		assert(first === 1 && later === 1, "repeated close reran listeners");
+		assert(retired === 1, "repeated close retired the channel again");
+	} finally {
+		removeListener();
+		await dialer.close().catch(() => {});
+		await exporter.close().catch(() => {});
+		await Promise.all(serving);
+	}
+});
+
+Deno.test("the Host retains an unexpected writer task failure", async () => {
+	for (const failure of [new Error("unexpected writer sentinel"), null, undefined, false, 0, -0, NaN, ""]) {
+		const host = new Host();
+		try {
+			const writer = Promise.reject(failure);
+			host.trackSessionWriter(writer);
+			await writer.catch(() => {});
+			let caught = false;
+			let observed: unknown;
+			try {
+				host.drainGc();
+			} catch (error) {
+				caught = true;
+				observed = error;
+			}
+			assert(caught && Object.is(observed, failure), `the writer failure ${String(failure)} was lost`);
+		} finally {
+			await host.close().catch(() => {});
+		}
+	}
+});
+
+Deno.test("Host close retains a falsy transport retirement failure", async () => {
+	for (const failure of [null, undefined, false, 0, -0, NaN, ""]) {
+		const host = new Host();
+		try {
+			const closing = host.close();
+			host.trackSessionRetirement(Promise.reject(failure));
+			let caught = false;
+			let observed: unknown;
+			try {
+				await closing;
+			} catch (error) {
+				caught = true;
+				observed = error;
+			}
+			assert(caught && Object.is(observed, failure), `the retirement failure ${String(failure)} was lost`);
+		} finally {
+			await host.close().catch(() => {});
+		}
 	}
 });

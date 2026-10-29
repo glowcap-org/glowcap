@@ -90,8 +90,8 @@ export abstract class HostLifecycle extends HostState {
 		// with the host.
 		traceDrainHost(raw);
 		this.drainParkedReleases();
-		let failure: unknown | null = timedOut
-			? new GlowcapError(TIMEOUT, "finish close exhausted its grace period")
+		let failure: { error: unknown } | null = timedOut
+			? { error: new GlowcapError(TIMEOUT, "finish close exhausted its grace period") }
 			: null;
 		if (this._finalizerState.raw === raw) {
 			try {
@@ -99,10 +99,11 @@ export abstract class HostLifecycle extends HostState {
 			} catch (error) {
 				// A refusal preserves the live wrapper for an explicit retry.
 				if (this._finalizerState.raw === raw) throw error;
-				failure = failure === null ? error : retainSecondaryFailure(failure, error);
+				if (failure === null) failure = { error };
+				else retainSecondaryFailure(failure.error, error);
 			}
 		}
-		const sessionRetirements = this._joinSessionRetirements([...this._sessions.values()]);
+		const sessions = [...this._sessions.values()];
 		this._sessions.clear();
 		unregisterHostFinalizer(this);
 		traceDetachHost(raw);
@@ -114,18 +115,20 @@ export abstract class HostLifecycle extends HostState {
 		this.hosted.clear();
 		this.clearVowRows();
 		try {
-			await sessionRetirements;
+			// Publish the consumed owner before session retirement calls user code.
+			await this._joinSessionRetirements(sessions);
 		} catch (error) {
-			failure = failure === null ? error : retainSecondaryFailure(failure, error);
+			if (failure === null) failure = { error };
+			else retainSecondaryFailure(failure.error, error);
 		}
-		if (failure !== null) throw failure;
+		if (failure !== null) throw failure.error;
 	}
 
 	/** Retire every channel the consumed FFI owner made unreachable. The
 	 * first physical-close failure stays primary and every later one is attached
 	 * in observation order; wrapper retirement itself never short-circuits. */
 	protected async _joinSessionRetirements(sessions: readonly Session[]): Promise<void> {
-		let failure: unknown | null = null;
+		let failure: { error: unknown } | null = null;
 		// Claim the return directly as well as the Host registry. The registry is
 		// what preserves a session that unregistered before this snapshot; the
 		// return is the local authority for every session still present in it.
@@ -138,10 +141,11 @@ export abstract class HostLifecycle extends HostState {
 			for (const retirement of batch) this._sessionRetirements.delete(retirement);
 			for (const outcome of outcomes) {
 				if (outcome.status !== "rejected") continue;
-				failure = failure === null ? outcome.reason : retainSecondaryFailure(failure, outcome.reason);
+				if (failure === null) failure = { error: outcome.reason };
+				else retainSecondaryFailure(failure.error, outcome.reason);
 			}
 		}
-		if (failure !== null) throw failure;
+		if (failure !== null) throw failure.error;
 	}
 
 	protected async _joinActionDrains(): Promise<void> {
@@ -188,7 +192,7 @@ export abstract class HostLifecycle extends HostState {
 		if (this._raw === NULL) return;
 		const raw = this._raw;
 		traceDetachHost(raw);
-		const sessionRetirements = this._joinSessionRetirements([...this._sessions.values()]);
+		const sessions = [...this._sessions.values()];
 		this._sessions.clear();
 		retireHostFinalizerState(this._finalizerState);
 		this.clearVowRows();
@@ -198,7 +202,7 @@ export abstract class HostLifecycle extends HostState {
 		this._publications.clear();
 		this._connectors.clear();
 		this.hosted.clear();
-		await sessionRetirements;
+		await this._joinSessionRetirements(sessions);
 	}
 
 	async [Symbol.asyncDispose](): Promise<void> {

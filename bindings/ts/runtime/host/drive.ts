@@ -151,7 +151,7 @@ export abstract class HostDrive extends HostApplication {
 
 	drainGc(): void {
 		if (this._backgroundFailure !== null) {
-			const failure = this._backgroundFailure;
+			const failure = this._backgroundFailure.error;
 			this._backgroundFailure = null;
 			throw failure;
 		}
@@ -160,8 +160,8 @@ export abstract class HostDrive extends HostApplication {
 
 	/** Retain the first failure from a callerless runtime task. Binding-internal. */
 	recordBackgroundFailure(failure: unknown): void {
-		if (this._backgroundFailure === null) this._backgroundFailure = failure;
-		else this._backgroundFailure = retainSecondaryFailure(this._backgroundFailure, failure);
+		if (this._backgroundFailure === null) this._backgroundFailure = { error: failure };
+		else retainSecondaryFailure(this._backgroundFailure.error, failure);
 		this.signalCloseActivity();
 	}
 

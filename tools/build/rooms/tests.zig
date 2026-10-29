@@ -60,6 +60,8 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/store/roster_test.ts",
         "apps/rooms/test/store/app_shell_test.ts",
         "apps/rooms/test/page_projection_test.ts",
+    },
+    &.{
         "apps/rooms/test/session/setup_projection_test.ts",
         "apps/rooms/test/session/managed_viewer_test.ts",
         "apps/rooms/test/session/managed_typing_test.ts",
@@ -74,6 +76,8 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/session/managed_completion_test.ts",
         "apps/rooms/test/session/managed_line_completion_test.ts",
         "apps/rooms/test/session/managed_direct_recovery_test.ts",
+    },
+    &.{
         "apps/rooms/test/session/managed_projection_test.ts",
         "apps/rooms/test/session/managed_projection_cost_test.ts",
         "apps/rooms/test/session/managed_operations_test.ts",
@@ -86,6 +90,8 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/session/managed_history_test.ts",
         "apps/rooms/test/session/managed_archive_shares_test.ts",
         "apps/rooms/test/session/archive_reconciliation_test.ts",
+    },
+    &.{
         "apps/rooms/test/store/room_access_test.ts",
         "apps/rooms/test/store/irc_test.ts",
         "apps/rooms/test/store/line_identity_test.ts",
@@ -103,6 +109,8 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/attached/line_projection_custody_test.ts",
         "apps/rooms/test/attached/projection_media_test.ts",
         "apps/rooms/test/attached/history_invalidation_test.ts",
+    },
+    &.{
         "apps/rooms/test/toast_test.ts",
         "apps/rooms/test/richtext_test.ts",
         "apps/rooms/test/writing_test.ts",
@@ -168,6 +176,8 @@ fn dependOnRuntimeArchives(step: *std.Build.Step, ctx: Context, relay: bool) voi
 pub fn register(ctx: Context) *std.Build.Step {
     const b = ctx.b;
     const lib_dir = common.rootPath(ctx.b, "zig-out/lib");
+    // Check the complete inventory here. Timed batches use --no-check so
+    // their smaller module graphs never type-check again inside the deadline.
     const cache = common.addRootedSystemCommand(ctx.b, .build_tool, &.{ "deno", "test", "--no-run" });
     cache.addArgs(command[2..]);
     for (batches) |files| cache.addArgs(files);
@@ -191,6 +201,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     const archive = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
     archive.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_BIN=", .make_absolute = true });
     archive.addArgs(command);
+    archive.addArg("--no-check");
     archive.step.dependOn(ctx.archive_install);
     archive.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
     archive.addArgs(archive_files);
@@ -214,6 +225,7 @@ pub fn register(ctx: Context) *std.Build.Step {
             if (std.mem.eql(u8, file, "apps/rooms/test/web/serve_test.ts")) batch.step.dependOn(ctx.browser_assets);
         }
         batch.addArgs(command);
+        batch.addArg("--no-check");
         batch.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
         batch.addArgs(files);
         batch.step.dependOn(&cache.step);

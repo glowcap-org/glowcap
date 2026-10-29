@@ -24,6 +24,11 @@ const retireClosedSession = harness.retireClosedSession;
 
 const CrossedPairProof = enum { none, authenticated_channel };
 const Delivery = enum { frame, stream };
+const CrossedPairOptions = struct {
+    a_seed_byte: u8 = 0x01,
+    a_dialed_first: bool = false,
+    b_dialed_first: bool = false,
+};
 
 fn deliver(delivery: Delivery, host: *Host, session: *HostSession, frame: glowcap.foundation.FrameView) !void {
     switch (delivery) {
@@ -36,9 +41,9 @@ fn deliver(delivery: Delivery, host: *Host, session: *HostSession, frame: glowca
 /// Four distinct session keys make the durable-peer directory the only possible
 /// cross-connection match. A bare key designator cannot populate it, while a
 /// channel-authenticated durable key can.
-fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof, delivery: Delivery) !void {
+fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof, delivery: Delivery, options: CrossedPairOptions) !void {
     const allocator = std.testing.allocator;
-    const a_seed = @as([32]u8, @splat(0x01));
+    const a_seed = @as([32]u8, @splat(options.a_seed_byte));
     const b_seed = @as([32]u8, @splat(0xff));
     const a_opts = Host.Options.withFrameCap(frame_cap);
     const b_opts = Host.Options.withFrameCap(frame_cap);
@@ -91,10 +96,21 @@ fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof, del
     var b_accept_hello = (try b_accept.takeOutbound()) orelse return error.MissingBAcceptHello;
     defer b_accept_hello.deinit();
 
-    try deliver(delivery, &b, b_accept, a_hello.view());
-    try deliver(delivery, &a, a_accept, b_hello.view());
-    try deliver(delivery, &b, b_dialed, a_accept_hello.view());
-    try deliver(delivery, &a, a_dialed, b_accept_hello.view());
+    const Hello = struct { session: *HostSession, frame: glowcap.foundation.FrameView };
+    const a_hellos = [_]Hello{
+        .{ .session = a_accept, .frame = b_hello.view() },
+        .{ .session = a_dialed, .frame = b_accept_hello.view() },
+    };
+    const b_hellos = [_]Hello{
+        .{ .session = b_accept, .frame = a_hello.view() },
+        .{ .session = b_dialed, .frame = a_accept_hello.view() },
+    };
+    for (0..2) |index| {
+        const a_next = a_hellos[if (options.a_dialed_first) 1 - index else index];
+        const b_next = b_hellos[if (options.b_dialed_first) 1 - index else index];
+        try deliver(delivery, &a, a_next.session, a_next.frame);
+        try deliver(delivery, &b, b_next.session, b_next.frame);
+    }
 
     switch (proof) {
         .none => {
@@ -106,6 +122,10 @@ fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof, del
             try std.testing.expect(b_accept.isTerminating() != b_dialed.isTerminating());
             try std.testing.expectEqual(a_accept.isTerminating(), b_dialed.isTerminating());
             try std.testing.expectEqual(a_dialed.isTerminating(), b_accept.isTerminating());
+            // The spec keeps the connection with the higher initiator's
+            // session identifier, regardless of either hello's arrival order.
+            const a_is_higher = std.mem.order(u8, &ids[1], &ids[3]) != .lt;
+            try std.testing.expectEqual(a_is_higher, a_accept.isTerminating());
         },
     }
 
@@ -116,17 +136,17 @@ fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof, del
 }
 
 test "session identity: raw keyed transport cannot collapse crossed locator claims" {
-    try expectFreshKeyCrossedPair("keyed-tcp", .none, .frame);
+    try expectFreshKeyCrossedPair("keyed-tcp", .none, .frame, .{});
 }
 
 test "session identity: authenticated channel collapses a crossed pair to one shared survivor" {
-    try expectFreshKeyCrossedPair("iroh", .authenticated_channel, .frame);
+    try expectFreshKeyCrossedPair("iroh", .authenticated_channel, .frame, .{});
 }
 
 test "session identity: a crossed pair collapses over byte-stream delivery without an ingress error" {
     // The loser is condemned while its own hello dispatches, through the
     // byte-stream verb a socket or relay transport feeds.
-    try expectFreshKeyCrossedPair("iroh", .authenticated_channel, .stream);
+    try expectFreshKeyCrossedPair("iroh", .authenticated_channel, .stream, .{});
 }
 
 /// Feed one frame the way a byte-stream transport delivers it, through the
@@ -202,4 +222,17 @@ test "session identity: a proved peer's reconnect supersedes the session its old
     try old_peer.releaseSession(old_dialed);
     try new_peer.releaseSession(new_dialed);
     try host.releaseSession(new_accepted);
+}
+
+test "session identity: authenticated crossed pairs converge across fresh keys" {
+    for ([_]Delivery{ .frame, .stream }) |delivery|
+        for ([_]bool{ false, true }) |a_dialed_first|
+            for ([_]bool{ false, true }) |b_dialed_first|
+                for (2..18) |seed| {
+                    try expectFreshKeyCrossedPair("iroh", .authenticated_channel, delivery, .{
+                        .a_seed_byte = @intCast(seed),
+                        .a_dialed_first = a_dialed_first,
+                        .b_dialed_first = b_dialed_first,
+                    });
+                };
 }

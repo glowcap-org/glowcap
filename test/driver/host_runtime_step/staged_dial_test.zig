@@ -140,13 +140,45 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     const transports: driver.Transports = .{ .symbols = &.{.tcp} };
+    var connect = ConnectFlag{};
     var client_runtime = try driver.HostRuntime.init(allocator, io, transports, .ephemeral, .{
         .frame_cap = frame_cap,
         .handshake = .{ .ms = 200 },
         .settle = .{ .ms = 200 },
+        .dial_outcome = .{ .ctx = &connect, .report = ConnectFlag.report },
     });
     defer client_runtime.deinit();
     var recorder = DialRecorder{};
+
+    // Model a park that consumes its entire budget, independent of early
+    // kernel wakes. The step must clamp that budget to the staged deadline
+    // and report the failure before returning from that same step.
+    const DeadlinePark = struct {
+        threadlocal var now_ms: i64 = 0;
+        threadlocal var waited_ms: ?i32 = null;
+        threadlocal var early_wake: bool = true;
+
+        fn now(_: ?*anyopaque, _: std.Io.Clock) std.Io.Timestamp {
+            return .{ .nanoseconds = @as(i96, now_ms) * std.time.ns_per_ms };
+        }
+
+        fn park(_: *anyopaque, timeout_ms: i32) bool {
+            if (early_wake) {
+                early_wake = false;
+                return false;
+            }
+            waited_ms = timeout_ms;
+            now_ms += timeout_ms;
+            return false;
+        }
+    };
+    DeadlinePark.now_ms = net.clock.nowMs(io);
+    DeadlinePark.waited_ms = null;
+    DeadlinePark.early_wake = true;
+    var clock_vtable = io.vtable.*;
+    clock_vtable.now = DeadlinePark.now;
+    client_runtime.io.vtable = &clock_vtable;
+    defer client_runtime.io = io;
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     try client_runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 9, .{
@@ -155,22 +187,29 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
         .failed = DialRecorder.failed,
     });
 
-    // Long park timeouts: the staged deadline must clamp the park and wake
-    // the step to fail the dial, not wait out the caller's timeout. The one
-    // step whose park ends on the deadline fires it before returning: a
-    // step that judged the deadline on the time it read before parking
-    // would return empty-handed and leave the failure to a second park.
-    const started_ms = net.clock.nowMs(io);
-    var rounds: usize = 0;
-    var parked_out: usize = 0;
-    while (recorder.failed_err == null and rounds < 50) : (rounds += 1) {
-        if (try client_runtime.stepAny(5_000) == null) parked_out += 1;
+    // Establish the handshake stage before replacing the park. A connect
+    // still in flight needs the real resident to observe socket readiness.
+    var connect_rounds: usize = 0;
+    while (!connect.connected and recorder.failed_err == null and connect_rounds < 1_000) : (connect_rounds += 1) {
+        _ = try client_runtime.stepAny(10);
     }
-    const elapsed_ms = net.clock.nowMs(io) - started_ms;
+    try std.testing.expect(connect.connected);
+
+    const resident_vtable = client_runtime.residents.items[0].resident.vtable;
+    var park_vtable = resident_vtable.*;
+    park_vtable.park = DeadlinePark.park;
+    client_runtime.residents.items[0].resident.vtable = &park_vtable;
+    defer client_runtime.residents.items[0].resident.vtable = resident_vtable;
+
+    var rounds: usize = 0;
+    while (DeadlinePark.waited_ms == null and rounds < 50) : (rounds += 1) {
+        _ = try client_runtime.stepAny(5_000);
+        if (DeadlinePark.waited_ms == null) try std.testing.expectEqual(@as(?anyerror, null), recorder.failed_err);
+    }
+    const waited_ms = DeadlinePark.waited_ms orelse return error.NeverParked;
+    try std.testing.expect(waited_ms > 0 and waited_ms <= 200);
     try std.testing.expectEqual(@as(u64, 9), recorder.failed_tag);
     try std.testing.expectEqual(@as(?anyerror, error.HandshakeTimedOut), recorder.failed_err);
-    try std.testing.expect(elapsed_ms < 3_000);
-    try std.testing.expectEqual(@as(usize, 1), parked_out);
 }
 
 test "runtime cancel close interrupts an admitted transport open and seals admission" {

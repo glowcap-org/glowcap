@@ -202,8 +202,8 @@ described in [Maintaining glowcap](docs/maintaining.md#promoting-to-main).
 
 Linux validation runs in the groups [`ci/plan.py`](ci/plan.py) names. A group's
 build jobs each compile one shard of what its phases run and hand the compiled
-state to one test job per phase, so every phase starts warm and the phases run
-side by side. The source group has no build job: its source checks, formatting
+state to one test job per phase. Test jobs restore that state before running
+their phases side by side. The source group has no build job: its source checks, formatting
 among them, start with the run and report within minutes. Each test job reports gate durations in its summary and attaches
 JSON evidence as an artifact.
 
@@ -224,6 +224,14 @@ proof's deadline times the proof. A step that passes using more than half its
 deadline says so, locally too. A test step whose deadline fires reruns once,
 and the log names the miss, so a retry absorbs a stalled runner without
 hiding a slow test.
+
+To reproduce CI's process checks locally, compile in ReleaseSafe first, then
+run the tests in the same mode. Run browser proofs separately from this sequence.
+
+```sh
+zig build runtime-check-build -Doptimize=ReleaseSafe
+zig build runtime-check -Doptimize=ReleaseSafe
+```
 
 Each Linux job starts one devcontainer and reuses it across phases. Dependency
 downloads and each job's Zig and Cargo compile state are cached between runs,

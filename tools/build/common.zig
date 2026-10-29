@@ -259,10 +259,6 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
     return run;
 }
 
-/// The iroh sidecar (ADR-0021): the drivers and bench, the public C ABI
-/// companion, the iroh-enabled rooms client, and the published `glowcap_iroh`
-/// module all link it through the shared `linkRustSidecar` recipe.
-/// `archive` is the staticlib the iroh family's cargo step emits.
 /// Resolve `-Dtarget`/`-Dcpu` with the baseline CPU as the default, the one
 /// releases ship, and build every host tool for it too. A native CPU keys each
 /// compile on the model of whichever core ran the build process, so
@@ -275,6 +271,10 @@ pub fn baselineTarget(b: *std.Build) std.Build.ResolvedTarget {
     return b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
 }
 
+/// The iroh sidecar (ADR-0021): the drivers and bench, the public C ABI
+/// companion, the iroh-enabled rooms client, and the published `glowcap_iroh`
+/// module all link it through the shared `linkRustSidecar` recipe.
+/// `archive` is the staticlib the iroh family's cargo step emits.
 pub fn linkIrohSidecar(
     b: *std.Build,
     mod: *std.Build.Module,

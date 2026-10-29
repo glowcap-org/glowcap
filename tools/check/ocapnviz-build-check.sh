@@ -16,9 +16,10 @@ cd "$app"
 log=$(mktemp "${TMPDIR:-/tmp}/ocapnviz-build-check.XXXXXX")
 trap 'rm -f "$log"' EXIT
 if ! {
-	deno task typecheck
-	deno task fmt:check
-	deno lint
+	deno task typecheck &&
+	deno test -A --no-run &&
+	deno task fmt:check &&
+	deno lint &&
 	deno task build
 } >"$log" 2>&1; then
 	cat "$log" >&2

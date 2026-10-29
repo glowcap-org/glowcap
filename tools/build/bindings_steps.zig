@@ -480,7 +480,7 @@ pub fn registerChecks(
     // These tests touch FFI but open no sockets; keep that capability out
     // of the otherwise pure stack suite.
     const deno_ffi_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/ffi_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/bounded_channel_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts", "bindings/ts/runtime/test/driver_loop_teardown_test.ts",
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/ffi_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/session_writer_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts", "bindings/ts/runtime/test/driver_loop_teardown_test.ts",
     });
     bindings_fmt_check_step.dependOn(&deno_ffi_runtime_test.step);
     // The WebRTC driver adapter's exchange book, driven by fakes. It imports

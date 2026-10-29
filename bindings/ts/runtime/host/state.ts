@@ -130,7 +130,7 @@ export abstract class HostState {
 	protected _terminalVowFailure: GlowcapError | null = null;
 	// The first failure from work detached from its immediate
 	// caller. The next verb head consumes the exact cause before doing more work.
-	protected _backgroundFailure: unknown | null = null;
+	protected _backgroundFailure: { readonly error: unknown } | null = null;
 	// FIFO of settled-but-unobserved vow ids, for the eviction cap.
 	protected readonly _unobserved: bigint[] = [];
 	protected _unobservedHead = 0;

@@ -2,6 +2,7 @@ import { INTERNAL } from "@glowcap/abi";
 import { DriverLoop } from "../driver_loop.ts";
 import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
+import type { Session } from "../session.ts";
 import { assert } from "../../dogfood/assert.ts";
 
 Deno.test("close runs each retained release once in order and records a throwing one", async () => {
@@ -37,4 +38,32 @@ Deno.test("a background failure runs each retained release once", async () => {
 	await loop.close().catch(() => {});
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	assert(ran === 1, `the release ran ${ran} times`);
+});
+
+Deno.test("Host retirement invalidates the consumed handle before notifying session wrappers", async () => {
+	for (const loopOwned of [false, true]) {
+		const host = new Host();
+		const owner = loopOwned ? DriverLoop.takeHost(host) : host;
+		let notified = false;
+		let ownerWasReleased = false;
+		// A registry-only wrapper isolates the post-FFI notification boundary.
+		// No protocol session is needed to observe the Host's handle validity.
+		host.registerSession(host.raw, {
+			ffiOwnerDidRelease: () => {
+				notified = true;
+				ownerWasReleased = host.released;
+				return Promise.resolve();
+			},
+		} as Session);
+		try {
+			await owner.close();
+			assert(notified, "Host teardown skipped its session wrapper");
+			assert(
+				ownerWasReleased,
+				`the ${loopOwned ? "loop" : "Host"} exposed its consumed handle during notification`,
+			);
+		} finally {
+			await owner.close().catch(() => {});
+		}
+	}
 });

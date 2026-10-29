@@ -392,7 +392,10 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		const retire = () => {
 			this._sessionWriters.delete(writer);
 		};
-		void writer.then(retire, retire);
+		void writer.then(retire, (error) => {
+			retire();
+			this.recordBackgroundFailure(error);
+		});
 	}
 
 	/** Retain one physical channel-close barrier independently of the FFI

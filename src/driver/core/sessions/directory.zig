@@ -97,13 +97,12 @@ pub fn refuseDuplicateDialForDemand(
 }
 
 /// After crossed-hellos tiebreak, keep at most one non-condemned session to
-/// the same CapTP partner key (dual-accept settlement, or a dial that
+/// the same CapTP partner (dual-accept settlement, or a dial that
 /// slipped past pre-identity refuse). Survivor choice follows the ADR-0026
 /// / crossed-hellos key order (`CrossedHellos.checkInbound`): both peers
-/// independently keep the session the higher-keyed peer opened (dialed
-/// when we are higher, accepted when we are lower), so a crossed pair that
-/// missed the designator tiebreak still collapses to the same session
-/// on both ends rather than condemning by local arrival order. A proved
+/// independently keep the session with the higher initiator identifier. A
+/// crossed pair that missed the designator tiebreak still collapses to the
+/// same session on both ends rather than condemning by local arrival order. A proved
 /// durable peer that opens a second accepted session has reconnected: a
 /// peer reuses a live session rather than dial another (the draft's session
 /// rule), so the older session belongs to an incarnation that ended and is
@@ -172,20 +171,21 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
         return indexPartnerKey(self, session, partner_key.bytes, ss.acceptable_location.designator);
     }
 
-    // Ordered by the two *session* identities, as crossed hellos are
-    // (ADR-0028): ours on this session against the partner's on it. The
-    // durable keys are equal on both racing connection attempts by definition, so
-    // they cannot order anything.
-    const our_pid = crypto.derivePublicIdentifier(session.sessionPublicKey());
-    const partner_pid = crypto.derivePublicIdentifier(partner_key);
-    // Same rule as crossed hellos: not-lower aborts inbound / keeps dialed.
-    const we_are_lower = std.mem.order(u8, &our_pid.bytes, &partner_pid.bytes) == .lt;
-    const prefer_accepted = we_are_lower;
-
     const loser: *HostSession = blk: {
         const session_accepted = session.role == .accepted;
         const other_accepted = other.role == .accepted;
         if (session_accepted != other_accepted) {
+            // Both endpoints must compare the same two initiators, as
+            // crossed hellos do (ADR-0028). Comparing this connection's
+            // endpoints instead can use unrelated fresh keys at each Host.
+            const dialed = if (session_accepted) other else session;
+            const accepted_partner = if (session_accepted)
+                partner_key
+            else
+                crypto.PeerKey.fromBytes(other.indexed_partner_key.?);
+            const our_pid = crypto.derivePublicIdentifier(dialed.sessionPublicKey());
+            const partner_pid = crypto.derivePublicIdentifier(accepted_partner);
+            const prefer_accepted = std.mem.order(u8, &our_pid.bytes, &partner_pid.bytes) == .lt;
             const session_preferred = session_accepted == prefer_accepted;
             break :blk if (session_preferred) other else session;
         }
