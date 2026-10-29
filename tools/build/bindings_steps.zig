@@ -323,16 +323,16 @@ pub fn registerChecks(
     b.step("fmt-check", "Check Zig formatting without writing (zig fmt --check)").dependOn(&fmt_check.step);
     check_step.dependOn(&fmt_check.step);
 
-    // Every Rust manifest in the tree. They share the root `rustfmt.toml` (hard
-    // tabs); rustfmt finds it by searching upward, so one config governs all of
-    // them. Keep this list complete: a crate missing from it is not unformatted,
-    // it is formatted by whoever last edited a file in it, which is drift with
-    // nobody watching.
+    // Every Rust manifest in the tree that no listed workspace covers. They
+    // share the root `rustfmt.toml` (hard tabs), which rustfmt finds by
+    // searching upward. `source-check` (rust_manifest_inventory.zig) refuses a
+    // crate this list leaves out.
     const rust_manifests = [_][]const u8{
         "bindings/proofs/loam_browser/rust/Cargo.toml",
         "bindings/rust/Cargo.toml",
         "bindings/rust/relay/Cargo.toml",
         "bench/langs/clients/rust_bench/Cargo.toml",
+        "bench/capnp/rust/Cargo.toml",
         "apps/tools/rust/Cargo.toml",
         "apps/tasks/rust/Cargo.toml",
         "apps/rooms/rust/Cargo.toml",
@@ -340,6 +340,7 @@ pub fn registerChecks(
         "transports/iroh/Cargo.toml",
         "transports/webrtc/Cargo.toml",
         "transports/sidecar-common/Cargo.toml",
+        "test/interface/rust/Cargo.toml",
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
     const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust and TypeScript formatting, the lint and type-check for every TypeScript scope, and ruff plus mypy over the Python binding (needs cargo + deno + uv)");

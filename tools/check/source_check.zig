@@ -56,6 +56,7 @@ const ps_zig_version = @import("source_check/project_shape/zig_version.zig");
 const ps_dependency_doc = @import("source_check/project_shape/dependency_doc.zig");
 const doc_orphans = @import("source_check/doc_orphans.zig");
 const prerelease_versions = @import("source_check/prerelease_versions.zig");
+const rust_manifest_inventory = @import("source_check/rust_manifest_inventory.zig");
 const rust_unsafe_floor = @import("source_check/rust_unsafe_floor.zig");
 const rooms_scenes = @import("source_check/rooms_scenes.zig");
 const runtime_paths = @import("source_check/runtime_paths.zig");
@@ -311,6 +312,7 @@ pub fn check(
     try ps_packages.checkTsPackagePublishSurface(io, gpa, root, &violations);
     try doc_orphans.check(io, gpa, root, &violations);
     try prerelease_versions.check(io, gpa, root, &violations);
+    try rust_manifest_inventory.check(io, gpa, root, &violations);
     try rust_unsafe_floor.check(io, gpa, root, &violations);
     try rooms_scenes.check(io, gpa, root, &violations);
     try runtime_paths.check(io, gpa, root, &violations);
@@ -428,6 +430,7 @@ test {
     _ = cp_rooms_profile;
     _ = cp_rooms_signaling;
     _ = rooms_rust_ownership;
+    _ = rust_manifest_inventory;
     _ = rooms_protocol;
     _ = cp_pins;
     _ = zig_docs;
