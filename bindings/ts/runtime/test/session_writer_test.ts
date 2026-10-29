@@ -184,23 +184,38 @@ Deno.test("a throwing close listener cannot strand a bounded channel or skip ano
 });
 
 Deno.test("the Host retains an unexpected writer task failure", async () => {
-	for (const failure of [new Error("unexpected writer sentinel"), null, undefined, false, 0, -0, NaN, ""]) {
-		const host = new Host();
-		try {
-			const writer = Promise.reject(failure);
-			host.trackSessionWriter(writer);
-			await writer.catch(() => {});
-			let caught = false;
-			let observed: unknown;
+	for (const closeHost of [false, true]) {
+		for (const failure of [new Error("unexpected writer sentinel"), null, undefined, false, 0, -0, NaN, ""]) {
+			const host = new Host();
 			try {
-				host.drainGc();
-			} catch (error) {
-				caught = true;
-				observed = error;
+				const writer = Promise.reject(failure);
+				host.trackSessionWriter(writer);
+				await writer.catch(() => {});
+				let caught = false;
+				let observed: unknown;
+				try {
+					if (closeHost) await host.close();
+					else host.drainGc();
+				} catch (error) {
+					caught = true;
+					observed = error;
+				}
+				assert(caught && Object.is(observed, failure), `the writer failure ${String(failure)} was lost`);
+				if (closeHost) {
+					assert(host.released, "the writer failure interrupted Host release");
+					let repeated: unknown;
+					let repeatedCaught = false;
+					try {
+						await host.close();
+					} catch (error) {
+						repeatedCaught = true;
+						repeated = error;
+					}
+					assert(repeatedCaught && Object.is(repeated, failure), "repeated Host close lost its outcome");
+				}
+			} finally {
+				await host.close().catch(() => {});
 			}
-			assert(caught && Object.is(observed, failure), `the writer failure ${String(failure)} was lost`);
-		} finally {
-			await host.close().catch(() => {});
 		}
 	}
 });
@@ -223,5 +238,41 @@ Deno.test("Host close retains a falsy transport retirement failure", async () =>
 		} finally {
 			await host.close().catch(() => {});
 		}
+	}
+});
+
+Deno.test("a close listener failure cannot interrupt Host teardown", async () => {
+	const exporter = new Host();
+	const dialer = new Host();
+	const serving: Promise<void>[] = [];
+	try {
+		const [dialSide, acceptSide] = channelPair(64);
+		const designator = "127.0.0.1:9011";
+		const [accepted, dialed] = await Promise.all([
+			Session.establishAccepted(exporter, {
+				transport: "tcp",
+				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
+				serverDesignator: designator,
+				channel: acceptSide,
+			}, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+		]);
+		serving.push(accepted.serve().catch(() => {}), dialed.serve().catch(() => {}));
+		const failure = new Error("Host close listener sentinel");
+		dialed.onClose(() => {
+			throw failure;
+		});
+		let observed: unknown;
+		try {
+			await within(dialer.close(), 1_000, "Host retirement despite callback failure");
+		} catch (error) {
+			observed = error;
+		}
+		assert(dialer.released, "the callback failure interrupted FFI Host retirement");
+		assert(observed === failure, "Host close did not report the exact callback failure");
+	} finally {
+		await dialer.close().catch(() => {});
+		await exporter.close().catch(() => {});
+		await Promise.all(serving);
 	}
 });

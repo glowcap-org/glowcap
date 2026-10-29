@@ -74,6 +74,9 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 
 	protected _beginClose(encoded: Uint8Array): void {
 		checkDriver(loopS.glowcap_driver_close(this._h, encoded));
+		// Claim detached failures and channel retirements before any close step
+		// can consume them or unregister a wrapper from the live-session snapshot.
+		this._wrapper.prepareLoopTeardown();
 		// The close call escalates pending-work policy and may install a new
 		// finite deadline while a close driver is already parked without a
 		// timer; wake it so it re-reads the wait budget.
@@ -177,7 +180,9 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 				throw new GlowcapError(TIMEOUT, "finish close exhausted its grace period");
 			}
 		} catch (error) {
-			this._failBackground(error);
+			// Once released, only this close promise owns the teardown outcome.
+			// Preserve its exact cause instead of classifying it as a drive failure.
+			if (!this._released) this._failBackground(error);
 			throw this._terminalFailure ?? error;
 		}
 	}

@@ -150,10 +150,11 @@ export abstract class HostDrive extends HostApplication {
 	}
 
 	drainGc(): void {
-		if (this._backgroundFailure !== null) {
-			const failure = this._backgroundFailure.error;
-			this._backgroundFailure = null;
-			throw failure;
+		// Terminal close owns retained task failures through physical retirement.
+		// Its progress steps still drain GC without consuming that final outcome.
+		if (!this._releaseStarted) {
+			const failure = this._takeBackgroundFailure();
+			if (failure !== null) throw failure.error;
 		}
 		this._gc.drainGc();
 	}

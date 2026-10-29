@@ -1,6 +1,6 @@
 import { INTERNAL } from "@glowcap/abi";
 import { DriverLoop } from "../driver_loop.ts";
-import { GlowcapError } from "../errors.ts";
+import { GlowcapError, secondaryFailures } from "../errors.ts";
 import { Host } from "../host.ts";
 import type { Session } from "../session.ts";
 import { assert } from "../../dogfood/assert.ts";
@@ -62,6 +62,118 @@ Deno.test("Host retirement invalidates the consumed handle before notifying sess
 				ownerWasReleased,
 				`the ${loopOwned ? "loop" : "Host"} exposed its consumed handle during notification`,
 			);
+		} finally {
+			await owner.close().catch(() => {});
+		}
+	}
+});
+
+Deno.test("Host and loop close report failures raised during wrapper retirement", async () => {
+	for (const loopOwned of [false, true]) {
+		for (
+			const failure of [
+				new GlowcapError(INTERNAL, "wrapper retirement callback sentinel"),
+				new Error("callback sentinel"),
+				null,
+				undefined,
+				false,
+				0,
+				-0,
+				NaN,
+				"",
+			]
+		) {
+			const host = new Host();
+			const owner = loopOwned ? DriverLoop.takeHost(host) : host;
+			host.registerSession(host.raw, {
+				ffiOwnerDidRelease: () => {
+					host.recordBackgroundFailure(failure);
+					return Promise.resolve();
+				},
+			} as Session);
+			try {
+				let caught = false;
+				let observed: unknown;
+				try {
+					await owner.close();
+				} catch (error) {
+					caught = true;
+					observed = error;
+				}
+				assert(host.released, "the callback failure interrupted Host release");
+				assert(caught && Object.is(observed, failure), "the close barrier lost its callback failure");
+				let repeatedCaught = false;
+				let repeated: unknown;
+				try {
+					await owner.close();
+				} catch (error) {
+					repeatedCaught = true;
+					repeated = error;
+				}
+				assert(repeatedCaught && Object.is(repeated, failure), "repeated close changed its callback failure");
+			} finally {
+				await owner.close().catch(() => {});
+			}
+		}
+	}
+});
+
+Deno.test("Host and loop close retain callback and transport consequences", async () => {
+	for (const loopOwned of [false, true]) {
+		const host = new Host();
+		const owner = loopOwned ? DriverLoop.takeHost(host) : host;
+		const primary = new Error("retained writer sentinel");
+		const callback = new Error("retirement callback sentinel");
+		const transport = new Error("transport close sentinel");
+		host.recordBackgroundFailure(primary);
+		host.registerSession(host.raw, {
+			ffiOwnerDidRelease: () => {
+				host.recordBackgroundFailure(callback);
+				return Promise.reject(transport);
+			},
+		} as Session);
+		try {
+			let observed: unknown;
+			try {
+				await owner.close();
+			} catch (error) {
+				observed = error;
+			}
+			assert(host.released && observed === primary, "close replaced its primary failure");
+			const secondary = secondaryFailures(primary);
+			assert(
+				secondary.length === 2 && secondary.includes(callback) && secondary.includes(transport),
+				"close lost a callback or transport consequence",
+			);
+		} finally {
+			await owner.close().catch(() => {});
+		}
+	}
+});
+
+Deno.test("Host and loop close join a channel unregistered during progress", async () => {
+	for (const loopOwned of [false, true]) {
+		const host = new Host();
+		const owner = loopOwned ? DriverLoop.takeHost(host) : host;
+		const raw = host.raw;
+		const wrapper = { ffiOwnerDidRelease: () => Promise.resolve() } as Session;
+		host.registerSession(raw, wrapper);
+		const failure = new Error("unregistered channel retirement sentinel");
+		const retirement = Promise.reject(failure);
+		void retirement.catch(() => {});
+		try {
+			const closing = owner.close();
+			// Model a wrapper retiring while the close driver awaits progress.
+			// Its physical close still needs an observer after leaving the registry.
+			host.unregisterSession(raw, wrapper);
+			host.trackSessionRetirement(retirement);
+			let observed: unknown;
+			try {
+				await closing;
+			} catch (error) {
+				observed = error;
+			}
+			assert(host.released && observed === failure, "close lost the unregistered channel's outcome");
 		} finally {
 			await owner.close().catch(() => {});
 		}

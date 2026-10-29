@@ -129,7 +129,7 @@ export abstract class HostState {
 	// the loop failed receive the original cause rather than a generic close.
 	protected _terminalVowFailure: GlowcapError | null = null;
 	// The first failure from work detached from its immediate
-	// caller. The next verb head consumes the exact cause before doing more work.
+	// caller. The next verb head or terminal close barrier consumes the exact cause.
 	protected _backgroundFailure: { readonly error: unknown } | null = null;
 	// FIFO of settled-but-unobserved vow ids, for the eviction cap.
 	protected readonly _unobserved: bigint[] = [];
@@ -334,6 +334,13 @@ export abstract class HostState {
 	/** Return a defensive copy of the durable identity seed. */
 	get seed(): Uint8Array {
 		return new Uint8Array(this._seed);
+	}
+
+	/** Transfer a retained task failure to a verb or terminal close barrier. */
+	protected _takeBackgroundFailure(): { readonly error: unknown } | null {
+		const failure = this._backgroundFailure;
+		this._backgroundFailure = null;
+		return failure;
 	}
 
 	/** The raw GlowcapHost handle. Binding-internal: `Session` mints and

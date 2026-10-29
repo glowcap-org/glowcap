@@ -122,10 +122,12 @@ export abstract class HostLifecycle extends HostState {
 	}
 
 	/** Retire every channel the consumed FFI owner made unreachable. The
-	 * first physical-close failure stays primary and every later one is attached
-	 * in observation order; wrapper retirement itself never short-circuits. */
+	 * existing retained failure stays primary; collect retirement and task
+	 * failures without short-circuiting wrapper retirement. */
 	protected async _joinSessionRetirements(sessions: readonly Session[]): Promise<void> {
 		const failures = new FirstFailure();
+		const retained = this._takeBackgroundFailure();
+		if (retained !== null) failures.add(retained.error);
 		// Claim the return directly as well as the Host registry. The registry is
 		// what preserves a session that unregistered before this snapshot; the
 		// return is the local authority for every session still present in it.
@@ -138,6 +140,10 @@ export abstract class HostLifecycle extends HostState {
 			for (const retirement of batch) this._sessionRetirements.delete(retirement);
 			failures.addRejections(outcomes);
 		}
+		// Retirement notifications and task completions can retain another
+		// failure after the final live drain. Close is their surviving caller.
+		const background = this._takeBackgroundFailure();
+		if (background !== null) failures.add(background.error);
 		failures.throwIfAny();
 	}
 
@@ -171,8 +177,9 @@ export abstract class HostLifecycle extends HostState {
 		return this._releasePromise ?? Promise.resolve();
 	}
 
-	/** Drain tracing while the FFI Host is still readable. Irreversible
-	 * wrapper cleanup waits for `finishLoopTeardown` after driver release. */
+	/** Claim terminal-close outcomes and drain tracing while the FFI Host is
+	 * readable. Repeat before driver release to flush later trace entries.
+	 * Irreversible cleanup waits for `finishLoopTeardown` after release. */
 	prepareLoopTeardown(): void {
 		if (this._raw === NULL) return;
 		this._releaseStarted = true;

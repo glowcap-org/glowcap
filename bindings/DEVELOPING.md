@@ -70,7 +70,7 @@ progress task:
   after `GLOWCAP_OK`, and keeps the refused token and the unattempted tail for
   retry.
 - A scheduled drain has no immediate caller, so the Host wrapper retains its
-  exact typed failure and surfaces it at the next verb head.
+  exact failure and reports it at the next verb head or terminal close barrier.
 - Bindings do not classify release failures or define release semantics. The C
   ABI guarantees that a non-OK release committed nothing, and the core defines
   what a release means.
