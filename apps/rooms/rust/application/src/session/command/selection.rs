@@ -12,11 +12,7 @@ fn row<'a>(intent: &'a Value, collection: &str, id: &str) -> Option<&'a Value> {
 	intent[collection].as_array()?.iter().find(|row| row["id"] == id)
 }
 fn same_row(before: &Value, after: &Value, collection: &str, id: Option<&String>) -> bool {
-	let Some(id) = id else { return false };
-	let Some(original) = row(before, collection, id) else {
-		return false;
-	};
-	row(after, collection, id) == Some(original)
+	same_row_except(before, after, collection, id, &[])
 }
 /// A conversation's receiving callback and its posted-line receipts are written
 /// by supervisors while a gesture is being admitted, and its draft by the
