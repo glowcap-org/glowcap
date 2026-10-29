@@ -457,7 +457,7 @@ pub fn register(ctx: Context) Registered {
     const source_check_tests = b.addTest(.{ .root_module = source_check_tests_mod });
     const run_source_check_tests = execution.addZigTest(b, source_check_tests, .unit_test);
 
-    const source_check_step = b.step("source-check", "Enforce cross-file source, generated, documentation, and scaffolding contracts");
+    const source_check_step = b.step("source-check", "Enforce formatting and cross-file source, generated, documentation, and scaffolding contracts");
     source_check_step.dependOn(source_check_step_inner);
     source_check_step.dependOn(&run_source_check_tests.step);
     agent_index_build.register(b, source_check_step);

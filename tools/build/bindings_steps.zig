@@ -321,6 +321,9 @@ pub fn registerChecks(
     b.step("fmt", "Format Zig sources in place (zig fmt)").dependOn(&fmt_write.step);
     const fmt_check = b.addFmt(.{ .paths = fmt_paths, .check = true });
     b.step("fmt-check", "Check Zig formatting without writing (zig fmt --check)").dependOn(&fmt_check.step);
+    // Formatting is a source contract, so the focused gate a Zig edit runs
+    // catches it, not only the aggregate.
+    b.top_level_steps.get("source-check").?.step.dependOn(&fmt_check.step);
     check_step.dependOn(&fmt_check.step);
 
     // Every Rust manifest in the tree that no listed workspace covers. They
