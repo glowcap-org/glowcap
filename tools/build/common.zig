@@ -263,6 +263,18 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
 /// companion, the iroh-enabled rooms client, and the published `glowcap_iroh`
 /// module all link it through the shared `linkRustSidecar` recipe.
 /// `archive` is the staticlib the iroh family's cargo step emits.
+/// Resolve `-Dtarget`/`-Dcpu` with the baseline CPU as the default, the one
+/// releases ship, and build every host tool for it too. A native CPU keys each
+/// compile on the model of whichever core ran the build process, so
+/// heterogeneous cores and the separate machines of CI build and test jobs
+/// each miss the others' cache. Call it first in `build`, before any
+/// dependency configures, so their generators use the same host. Measure the
+/// host with -Dcpu=native.
+pub fn baselineTarget(b: *std.Build) std.Build.ResolvedTarget {
+    b.graph.host = b.resolveTargetQuery(.{ .cpu_model = .baseline });
+    return b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
+}
+
 pub fn linkIrohSidecar(
     b: *std.Build,
     mod: *std.Build.Module,

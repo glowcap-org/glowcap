@@ -192,7 +192,7 @@ const linkIrohSidecar = build_common.linkIrohSidecar;
 const irohDriverModule = build_common.irohDriverModule;
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    const target = build_common.baselineTarget(b);
     const optimize = b.standardOptimizeOption(.{});
 
     // ── Port pinning for demo and interop steps ──────────────────────────────
