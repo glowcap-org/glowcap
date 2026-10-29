@@ -89,7 +89,7 @@ class PhaseTest(unittest.TestCase):
         self.assertFalse(full)
         reduced_phases = [phase for name, group_phases, _ in PLAN.GROUPS if name in reduced
                           for phase in group_phases]
-        self.assertEqual(reduced_phases, ['infrastructure', 'core', 'memcheck', 'runtime', 'shipped', 'smoke'])
+        self.assertEqual(reduced_phases, ['source', 'infrastructure', 'core', 'memcheck', 'runtime', 'shipped', 'smoke'])
 
     def test_a_build_job_compiles_its_shard_and_runs_nothing(self):
         # Only `zig build` lines, each rewired to its compile half, and no

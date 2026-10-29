@@ -21,6 +21,7 @@ import subprocess
 # (execution.zig compileOnly), so a count above one pays only where those
 # compiles are many. Every gates.sh phase belongs to exactly one group.
 GROUPS = (
+    ("source", ("source",), 0),
     ("core", ("infrastructure", "core", "memcheck"), 2),
     ("runtime", ("runtime",), 2),
     ("shipped", ("shipped", "smoke"), 2),
@@ -46,7 +47,7 @@ def select(event_name, ref, event, paths):
             or event.get("pull_request", {}).get("base", {}).get("ref") == "main"
             or paths is None):
         return list(GROUP_NAMES), True
-    selected = {"core", "runtime", "shipped"}
+    selected = {"source", "core", "runtime", "shipped"}
     for path in paths:
         if path.endswith((".md", ".smd")):
             continue

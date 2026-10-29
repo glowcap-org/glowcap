@@ -203,7 +203,8 @@ described in [Maintaining glowcap](docs/maintaining.md#promoting-to-main).
 Linux validation runs in the groups [`ci/plan.py`](ci/plan.py) names. A group's
 build jobs each compile one shard of what its phases run and hand the compiled
 state to one test job per phase, so every phase starts warm and the phases run
-side by side. Each test job reports gate durations in its summary and attaches
+side by side. The source group has no build job: its source checks, formatting
+among them, start with the run and report within minutes. Each test job reports gate durations in its summary and attaches
 JSON evidence as an artifact.
 
 A failed job does not cancel its siblings, a failed build still hands its tests

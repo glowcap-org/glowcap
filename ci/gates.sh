@@ -192,6 +192,11 @@ finish() {
 }
 trap finish EXIT
 
+# The source contracts, formatting among them, compile only their checkers,
+# so CI runs them in a group with no build job that reports within minutes of
+# a push instead of behind the product compile.
+phase source
+gate zig build source-check
 phase infrastructure
 gate bash .devcontainer/hooks/post-create.sh
 # Coding-agent downloads run in .github/workflows/agent-tools.yml. Product
