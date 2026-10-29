@@ -86,10 +86,10 @@ try {
 
 	// 5. Enliven the echo cap and prove the round-trip content survives. The
 	// echo actor is `(lambda args args)`, so assert the bytes, not mere
-	// settlement. Goblins invokes a cap positionally, hence verb "".
+	// settlement. Goblins invokes a cap positionally, hence no selector.
 	const sturdyref = `${runtime.formatLocatorUri(locator)}/s/${sturdyrefPath}`;
 	const echo = await session.enliven(sturdyref);
-	const reply = await session.send(echo, "", [new TextEncoder().encode("relay-ping")]);
+	const reply = await session.send(echo, null, [new TextEncoder().encode("relay-ping")]);
 	if (!Array.isArray(reply) || reply.length !== 1 || !(reply[0] instanceof Uint8Array)) {
 		throw new Error(`echo reply is not a one-bytes list: ${JSON.stringify(reply)}`);
 	}

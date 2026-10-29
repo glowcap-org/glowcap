@@ -9,7 +9,7 @@
 ;; its NDJSON readiness line, then `connect` (keyed `op:start-session`),
 ;; `enliven` the echo sturdyref (bootstrap fetch + ADR-0007 dedup), calls it
 ;; positionally, then a repeat `enliven` of the same swiss-num. Positional calls
-;; pass the empty method symbol to `session-send`. It closes by pipelining
+;; pass the `#f` selector to `session-send`. It closes by pipelining
 ;; `session-get` against a call answer Goblins settles to a Struct, the one
 ;; shape a field projects out of. Needs `racket` + `goblins`;
 ;; `zig build racket-goblins-interop`.
@@ -54,7 +54,7 @@
     (unless (equal? reply (list expected))
       (error 'racket-goblins-interop
              "echo returned ~v, expected ~v" reply (list expected))))
-  (assert-echoed (session-send session echo (string->symbol "") #"glowcap-ping")
+  (assert-echoed (session-send session echo #f #"glowcap-ping")
                  #"glowcap-ping")
 
   (define again (session-enliven session sturdyref))
@@ -62,7 +62,7 @@
                (= (ref-id echo) (ref-id again)))
     (error 'racket-goblins-interop
            "repeat enliven did not return the same Host identity (dedup miss)"))
-  (assert-echoed (session-send session again (string->symbol "") #"glowcap-ping-again")
+  (assert-echoed (session-send session again #f #"glowcap-ping-again")
                  #"glowcap-ping-again")
   (printf "racket-goblins-interop: repeat enliven same Host identity (dedup), second call resolved\n")
 
@@ -74,7 +74,7 @@
   ;; the unsettled call answer and the two differing values pin which field was
   ;; asked for.
   (define record (session-fetch session RECORD-SWISS))
-  (define made (session-send-promise session record (string->symbol "") "glowcap-get"))
+  (define made (session-send-promise session record #f "glowcap-get"))
   (define name-vow (session-get session made "name"))
   (define kind-vow (session-get session made "kind"))
   (define (assert-projected vow field expected)

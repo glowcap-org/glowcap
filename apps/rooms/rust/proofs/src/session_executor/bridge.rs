@@ -188,7 +188,7 @@ pub(super) async fn run() {
 					}),
 				};
 				let mut attachment = store.attach(&host, vec![owner.registration(), registration]).unwrap();
-				attachment.start_live(None, 128).unwrap();
+				environment::start_live(&attachment, None, 128).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control).unwrap();
 				owner.initialize().await.unwrap();

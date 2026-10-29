@@ -94,9 +94,9 @@ export async function startRelay(
 
 // A counter behavior reused by the round-trip tests: "add" adds args[0] to the
 // count and returns it, "get" reads it, anything else throws (a break).
-export function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Argument {
+export function counterBehavior(start: bigint): (verb: string | null, args: Argument[]) => Argument {
 	let count = start;
-	return (verb: string, args: Argument[]): Argument => {
+	return (verb: string | null, args: Argument[]): Argument => {
 		if (verb === "add") {
 			const n = args[0];
 			count += typeof n === "bigint" ? n : BigInt(n as number);

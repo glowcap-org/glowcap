@@ -24,7 +24,7 @@ pub const PendingSend = struct {
     /// happens later, inside the fetch vow's listener, after the caller's
     /// borrowed message may already be gone.
     msg_arena: std.heap.ArenaAllocator,
-    verb: []const u8 = "",
+    verb: ?[]const u8 = null,
     args: []const model.Argument = &.{},
     mode: Mode = .send,
     stage: Stage = .fetching,

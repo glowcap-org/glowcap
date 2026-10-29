@@ -33,7 +33,7 @@ const Reader = struct {
 };
 const Target = struct {
     calls: *usize,
-    pub fn handle(self: *Target, _: *h.driver.HostTurn, _: []const u8, _: h.driver.Args) !h.driver.Value {
+    pub fn handle(self: *Target, _: *h.driver.HostTurn, _: ?[]const u8, _: h.driver.Args) !h.driver.Value {
         self.calls.* += 1;
         return .{ .integer = 9 };
     }

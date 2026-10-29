@@ -47,7 +47,7 @@ const Greeter = struct {
 
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        if (!msg.is("greet")) return error.NoSuchMethod;
         self.done.store(true, .release);
         return .{ .string = greeting };
     }

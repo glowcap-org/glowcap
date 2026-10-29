@@ -180,8 +180,8 @@ const PersistentCounter = struct {
     n: i64,
 
     pub fn handle(self: *const PersistentCounter, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "increment")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("increment")) {
             try turn.become(PersistentCounter, .{ .n = self.n + 1 });
             return .{ .void = {} };
         }

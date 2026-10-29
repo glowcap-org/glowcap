@@ -29,11 +29,11 @@ const net = glowcap.net;
 /// assertion instead of passing on another scenario's greeting.
 pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8) type {
     return struct {
-        pub fn handle(self: *@This(), turn: *driver.HostTurn, called: []const u8, args: driver.Args) !driver.Value {
+        pub fn handle(self: *@This(), turn: *driver.HostTurn, called: ?[]const u8, args: driver.Args) !driver.Value {
             _ = self;
-            _ = turn;
-            _ = args;
-            if (!std.mem.eql(u8, called, verb)) return error.NoSuchMethod;
+            defer turn.releaseArguments(args);
+            const method = called orelse return error.NoSuchMethod;
+            if (!std.mem.eql(u8, method, verb)) return error.NoSuchMethod;
             return .{ .string = reply };
         }
     };
@@ -47,7 +47,8 @@ pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8
 /// encoded. A partner that names a verb wants `StaticReplyBehavior` instead.
 pub fn PositionalReplyBehavior(comptime template: []const u8) type {
     return struct {
-        pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
+            defer turn.releaseArguments(args);
             const arg_values = try args.values();
             _ = self;
             _ = verb;

@@ -158,7 +158,7 @@ async fn run_case(options: u8) {
 						],
 					)
 					.unwrap();
-				attachment.start_live(None, 64).unwrap();
+				environment::start_live(&attachment, None, 64).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control.clone()).unwrap();
 				owner.initialize().await.unwrap();
@@ -479,7 +479,7 @@ async fn run_case(options: u8) {
 					std::num::NonZeroUsize::new(4096).unwrap(),
 				);
 				let mut cold_attachment = reopened.attach(&cold_host, vec![cold_owner.registration()]).unwrap();
-				cold_attachment.start_live(Some(marker), 64).unwrap();
+				environment::start_live(&cold_attachment, Some(marker), 64).await;
 				let (cold_root, cold_root_control) =
 					environment::restore(&cold_attachment, loam::Resource::decode(resource.encode())).await;
 				cold_owner.bind(cold_root.clone(), cold_root_control.clone()).unwrap();

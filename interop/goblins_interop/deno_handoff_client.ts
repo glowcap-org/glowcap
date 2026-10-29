@@ -13,7 +13,7 @@ import * as tcp from "@glowcap/tcp";
 //      directly (keyed with the *same* identity Alice saw), withdraws the gift,
 //      and resolves the send to an ordinary capability, the app never sees the
 //      give or the second connection.
-//   3. `send(greeter, "", ["glowcap-carol"])`. The bytes go straight to Bob;
+//   3. `send(greeter, null, ["glowcap-carol"])`. The bytes go straight to Bob;
 //      the reply must carry the name back, proving data integrity end to end.
 //
 // Needs `racket` plus the `goblins` collection on PATH, so it runs as the
@@ -83,7 +83,7 @@ try {
 	// Call the greeter. The send routes straight to Bob (the exporter); the reply
 	// must echo the name we sent, so the handoff proves data integrity, not just
 	// choreography.
-	const reply = await session.send(greeter, "", ["glowcap-carol"]);
+	const reply = await session.send(greeter, null, ["glowcap-carol"]);
 	if (typeof reply !== "string" || !reply.includes("glowcap-carol")) {
 		fail(
 			"deno-goblins-handoff",

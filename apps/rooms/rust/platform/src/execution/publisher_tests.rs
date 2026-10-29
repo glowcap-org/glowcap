@@ -52,6 +52,7 @@ async fn scenario() {
 		.host()
 		.publish("directory", move || {
 			Box::new(move |verb, args| {
+				let verb = verb.ok_or("fixture requires a method")?;
 				assert_eq!(verb, "offerInbox");
 				assert_eq!(args.len(), 4);
 				if delayed.replace(false) {

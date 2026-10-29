@@ -93,8 +93,9 @@ fn behavior(
 	shared: Shared,
 	publication: Rc<Publication>,
 	generation: u64,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let mut state = shared.borrow_mut();
 		let authority = publication.authority.borrow();
 		if state.irc.stopping || !publication.active.get() || !authority.issued || authority.generation != generation {

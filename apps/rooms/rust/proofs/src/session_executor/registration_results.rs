@@ -204,6 +204,7 @@ async fn run_scenarios(scenarios: &[Scenario]) {
 					exporter
 						.publish("name", || {
 							Box::new(|verb, args| {
+								let verb = verb.ok_or("fixture requires a method")?;
 								if verb == "leave" {
 									assert!(args.is_empty());
 									return Ok(Argument::Void);
@@ -220,6 +221,7 @@ async fn run_scenarios(scenarios: &[Scenario]) {
 							let count = notifications.clone();
 							move || {
 								Box::new(move |verb, _| {
+									let verb = verb.ok_or("fixture requires a method")?;
 									assert_eq!(verb, "notify");
 									count.set(count.get() + 1);
 									Ok(Argument::Void)
@@ -256,7 +258,7 @@ async fn run_scenarios(scenarios: &[Scenario]) {
 							vec![owner.registration(), registration(&name, &count, wrong_nick)],
 						)
 						.unwrap();
-					attachment.start_live(None, 64).unwrap();
+					environment::start_live(&attachment, None, 64).await;
 					let (root, root_control) = environment::restore(&attachment, resource).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();
 					owner.initialize().await.unwrap();
@@ -449,7 +451,7 @@ async fn run_scenarios(scenarios: &[Scenario]) {
 						std::num::NonZeroUsize::new(8192).unwrap(),
 					);
 					let mut attachment = store.attach(&host, vec![owner.registration()]).unwrap();
-					attachment.start_live(Some(marker), 64).unwrap();
+					environment::start_live(&attachment, Some(marker), 64).await;
 					let (root, root_control) =
 						environment::restore(&attachment, loam::Resource::decode(resource.encode())).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();

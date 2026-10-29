@@ -144,7 +144,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 		.connect(&tcp::locator(HOST, port), ConnectOptions::default())
 		.await?;
 	let vendor = to_bob.fetch(VENDOR_SWISS).await?;
-	let offered = to_bob.send(&vendor, "", &[]).await?;
+	let offered = to_bob.send(&vendor, None, &[]).await?;
 	let greeter = Ref::try_from(&offered).map_err(|_| format!("vendor did not return a capability: {offered:?}"))?;
 	println!("rust-goblins-gift: lifted goblins-bob's greeter from a reply");
 
@@ -155,8 +155,8 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// logic, all returning the one greeter.
 	host.publish(INTRODUCER_SWISS, move || {
 		let greeter = greeter.clone();
-		Box::new(move |verb: &str, _args: &[Argument]| {
-			if verb == "get-greeter" {
+		Box::new(move |verb: Option<&str>, _args: &[Argument]| {
+			if verb == Some("get-greeter") {
 				Ok(Argument::List(vec![
 					Argument::from(&greeter),
 					Argument::List(vec![Argument::from(&greeter)]),

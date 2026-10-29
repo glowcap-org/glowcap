@@ -7,8 +7,8 @@
 use glowcap::{Argument, PendingWork, relay};
 use tokio::task::LocalSet;
 
-fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
-	if verb != "greet" {
+fn greeter(verb: Option<&str>, args: &[Argument]) -> Result<Argument, String> {
+	if verb != Some("greet") {
 		return Err("no such method".into());
 	}
 	let Some(Argument::String(name)) = args.first() else {

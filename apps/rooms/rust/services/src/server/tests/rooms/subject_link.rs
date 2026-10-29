@@ -25,9 +25,9 @@ async fn linked_subject() {
 		.listener
 		.host()
 		.publish_durable(|| {
-			Box::new(|verb, _| match verb {
+			Box::new(|verb, _| match verb.ok_or("fixture requires a method")? {
 				"describe" => Ok("three moves in".into()),
-				_ => Err(format!("the board has no method {verb}")),
+				_ => Err(format!("the board has no method {verb:?}")),
 			})
 		})
 		.unwrap();

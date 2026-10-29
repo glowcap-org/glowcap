@@ -59,9 +59,9 @@ const route_hint_bytes = @as([64]u8, @splat(0xa5));
 const Introducer = struct {
     greeter: driver.Capability,
 
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
-        _ = ht;
-        _ = args;
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
         return .{ .capability = self.greeter };
     }

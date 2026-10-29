@@ -106,6 +106,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Route<D> {
 		let weak = Rc::downgrade(&state);
 		let reply = match self.caller.host().spawn(move |verb, args| {
 			let state = weak.upgrade().ok_or("the signaling exchange has ended")?;
+			let verb = verb.ok_or("unknown method")?;
 			let reply = policy::reply(verb, args.len(), |i| args.get(i).map(Value)).map_err(|e| e.to_string())?;
 			let result = state.borrow_mut().core.receive(reply);
 			wake(&state);

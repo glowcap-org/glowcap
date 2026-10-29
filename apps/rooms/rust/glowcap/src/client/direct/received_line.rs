@@ -30,6 +30,7 @@ pub fn behavior(
 ) -> Result<Behavior, String> {
 	let mut line = Line::new(id, from, files).map_err(|_| "too many initial direct line files")?;
 	Ok(Box::new(move |verb, args| {
+		let verb = verb.ok_or("unknown direct line method")?;
 		if !current() {
 			return Err(rooms_application::failure::Failure {
 				code: rooms_application::failure::FailureCode::DirectNotAccepted,

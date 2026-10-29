@@ -74,7 +74,7 @@ async def converse() -> None:
                         f"echo returned {reply!r}, expected [{expected!r}]",
                     )
 
-            assert_echoed(await session.send(echo, "", [b"glowcap-ping"]), b"glowcap-ping")
+            assert_echoed(await session.send(echo, None, [b"glowcap-ping"]), b"glowcap-ping")
 
             again = await session.enliven(sturdyref)
         # The dedup cache hands back the same capability, so the two handles
@@ -87,7 +87,7 @@ async def converse() -> None:
                     "repeat enliven did not return the same capability (dedup miss)",
                 )
             assert_echoed(
-                await session.send(again, "", [b"glowcap-ping-again"]), b"glowcap-ping-again"
+                await session.send(again, None, [b"glowcap-ping-again"]), b"glowcap-ping-again"
             )
             print(
                 "python-goblins-interop: repeat enliven same import (dedup), second call resolved"

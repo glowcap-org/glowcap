@@ -186,7 +186,7 @@ async fn a_mid_turn_driving_verb_breaks_its_own_answer() {
 				let raw = session.shared.ptr.get();
 				session
 					.publish("svc", move |verb, _args| {
-						if verb == "reenter" {
+						if verb == Some("reenter") {
 							// A driving verb inside the turn: the latch refuses
 							// it, and the error's words become the broken answer.
 							let mut vow: u64 = 0;
@@ -256,7 +256,7 @@ async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release(
 			let captured = Cell::new(Some(session));
 			let me = observer
 				.spawn(move |verb, _args| {
-					if verb == "die" {
+					if verb == Some("die") {
 						drop(captured.take());
 						observed_release.set(shared.released.get());
 						return Ok(Argument::Symbol("closing".into()));
@@ -311,8 +311,8 @@ async fn a_behavior_closing_a_two_session_host_records_ffi_intent() {
 				let host_to_close = server.host();
 				first
 					.publish("svc", move |verb, _args| {
-						if verb != "close-host" {
-							return Err(format!("no such method: {verb}"));
+						if verb != Some("close-host") {
+							return Err(format!("no such method: {verb:?}"));
 						}
 						host_to_close.request_close();
 						let refused = host_to_close

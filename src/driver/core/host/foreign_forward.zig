@@ -48,7 +48,7 @@ comptime {
         @compileError("foreign forwarding changed its 64-byte completion box");
 }
 
-pub fn begin(turn: *actors.Turn, source: *local.Producer, target: capability.Ref, verb: []const u8, args: []const values.Value) !void {
+pub fn begin(turn: *actors.Turn, source: *local.Producer, target: capability.Ref, verb: ?[]const u8, args: []const values.Value) !void {
     const transfer = try turn.prepareAnswerTransfer();
     const host = source.host;
     const lease = if (source.lease) |*lease| lease else return error.NoPendingWork;

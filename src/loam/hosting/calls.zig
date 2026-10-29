@@ -76,7 +76,7 @@ pub const Operation = struct {
 pub const Endpoint = struct {
     entry: *h.Entry,
 
-    pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         if (self.entry.owner.closing) return error.AttachmentClosed;
@@ -107,7 +107,7 @@ pub const Endpoint = struct {
         const args = try values.copyArgs(memory.input.allocator(), message.args);
         var call: h.Call = .{ .memory = &memory, .attachment = owner, .view = view, .context = behavior.context };
         defer call.release();
-        const reply = try behavior.invoke(&call, view, message.verb, args);
+        const reply = try behavior.invoke(&call, view, message.verb orelse return error.NoSuchMethod, args);
         if (call.replacement != null or call.transaction != null or call.result != null or call.confirmation != null or call.forward != null) return error.DurableTurnRequired;
         return values.copy(model.Argument, turn.arena, reply);
     }
@@ -131,7 +131,7 @@ pub const DependentEndpoint = struct {
     guard: driver.Capability,
     target: driver.Capability,
 
-    pub fn handle(self: *DependentEndpoint, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *DependentEndpoint, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         if (self.owner.closing) return error.AttachmentClosed;
@@ -163,7 +163,8 @@ pub fn admitLocalContinuation(owner: *h.Attachment, source: driver.Capability, t
     try admit(try owner.entryFor(source), turn, null, intent.verb, intent.args, target, dispatch, .protected);
 }
 
-fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, verb: []const u8, args: []const driver.Value, dependent_target: ?driver.Capability, dispatch: ?h.Call.Intent, completion: Completion) !void {
+fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, selector: ?[]const u8, args: []const driver.Value, dependent_target: ?driver.Capability, dispatch: ?h.Call.Intent, completion: Completion) !void {
+    const verb = selector orelse return error.NoSuchMethod;
     const owner = entry.owner;
     if (turn.vat != &owner.host.vat) return error.ForeignTurn;
     if (owner.sequence == std.math.maxInt(i64)) return error.SequenceExhausted;

@@ -129,7 +129,7 @@
       (s ev))))
 
 (define (view->string ptr len)
-  (if (and ptr (> len 0))
+  (if ptr
       (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)
       #f))
 
@@ -180,10 +180,7 @@
        ;; derive. Absent when the partner sent no session key.
        (define session-id-value (view->string (GlowcapTraceEvent-session-id ev)
                                               (GlowcapTraceEvent-session-id-len ev)))
-       ;; The partner locator's OCapN Transport. Left out when the open
-       ;; carried none, the way `session_id` and `op` are: a record says what
-       ;; it knows, and an empty string is a third spelling of "nothing" that
-       ;; every consumer would then have to know about.
+       ;; Leave out the partner locator's transport when none was reported.
        (define transport (view->string (GlowcapTraceEvent-transport ev)
                                        (GlowcapTraceEvent-transport-len ev)))
        (define open-record

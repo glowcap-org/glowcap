@@ -17,7 +17,7 @@ async fn callback_session_projects_the_turn_and_clears_after_unwind() {
 					let arrived = crate::current_session().unwrap().expect("remote callback session");
 					assert!(arrived.same_session(&expected));
 					assert!(arrived.is_open());
-					if verb == "panic" {
+					if verb == Some("panic") {
 						panic!("callback unwind probe");
 					}
 					Ok(Argument::Void)

@@ -554,7 +554,7 @@ pub const Served = struct {
         };
         errdefer pending.msg_arena.deinit();
         const arena = pending.msg_arena.allocator();
-        pending.verb = try arena.dupe(u8, msg.verb);
+        pending.verb = if (msg.verb) |method| try arena.dupe(u8, method) else null;
         pending.args = try model.cloneArgumentSlice(arena, msg.args);
         const listener = try self.port.reserveListener(vat, .far);
         const vow = try self.sendBootstrapFetch(vat, name);

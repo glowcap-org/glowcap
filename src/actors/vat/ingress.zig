@@ -405,7 +405,7 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
     const payload_bytes = switch (msg) {
         .message => |message| bytes: {
             const args = model.measureArgumentSliceOwnedBytes(message.args) catch return error.MalformedView;
-            break :bytes std.math.add(usize, message.verb.len, args) catch return error.ResourceExhausted;
+            break :bytes std.math.add(usize, (if (message.verb) |method| method.len else 0), args) catch return error.ResourceExhausted;
         },
         .owned => |body| body.owned_bytes,
     };
@@ -483,7 +483,7 @@ fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Queued) Error!Queued {
     const arena = chunk.arena.allocator();
     return switch (msg) {
         .message => |message| .{ .message = .{
-            .verb = try arena.dupe(u8, message.verb),
+            .verb = if (message.verb) |method| try arena.dupe(u8, method) else null,
             .args = try model.cloneArgumentSlice(arena, message.args),
         } },
         .owned => |body| switch (body.vtable.copy(body.ctx, arena)) {

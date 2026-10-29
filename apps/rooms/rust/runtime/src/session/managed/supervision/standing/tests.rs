@@ -59,12 +59,12 @@ async fn inspect() {
 			let current_intent = current_intent.clone();
 			move |verb, args| {
 				match verb {
-					"snapshot" => assert!(args.is_empty()),
-					"continue-workspace" => {
+					Some("snapshot") => assert!(args.is_empty()),
+					Some("continue-workspace") => {
 						assert_eq!(args.len(), 2);
 						assert_eq!(args[1].as_i64(), Some(1), "only the private snapshot is permitted");
 					}
-					_ => panic!("unchanged standing cannot dispatch {verb}"),
+					_ => panic!("unchanged standing cannot dispatch {verb:?}"),
 				}
 				reads.set(reads.get() + 1);
 				Ok(Argument::List(vec![

@@ -77,6 +77,7 @@ async fn membership_scenario() {
 			(calls.clone(), goodbye.clone(), goodbye_started.clone(), host.clone());
 		let seat = accepted
 			.spawn_owned(move |verb, args| {
+				let verb = verb.ok_or("fixture requires a method")?;
 				seen.borrow_mut().push((name, verb.to_owned()));
 				match verb {
 					membership::AWAY => {
@@ -101,6 +102,7 @@ async fn membership_scenario() {
 			Some(
 				accepted
 					.spawn_owned(|verb, args| {
+						let verb = verb.ok_or("fixture requires a method")?;
 						assert_eq!(verb, membership::SET_SUBJECT);
 						let args: Vec<_> = args.iter().map(Argument::as_str).collect();
 						assert_eq!(args, [Some("the board"), Some(BOARD)]);
@@ -115,6 +117,7 @@ async fn membership_scenario() {
 		roots.push(
 			accepted
 				.publish(name, move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					assert_eq!(verb, membership::SUBSCRIBE);
 					assert_eq!(args.len(), 2);
 					assert_eq!(args[0].as_str(), Some("alice"));

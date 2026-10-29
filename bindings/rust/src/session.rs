@@ -223,7 +223,7 @@ impl Session {
 	/// it replies with).
 	pub fn spawn(
 		&self,
-		behavior: impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static,
+		behavior: impl FnMut(Option<&str>, &[Argument]) -> std::result::Result<Argument, String> + 'static,
 	) -> Result<Ref> {
 		self.shared.spawn_actor(outcome_behavior(behavior))
 	}
@@ -235,7 +235,7 @@ impl Session {
 	/// independent of the session's distributed-GC opt-in.
 	pub fn spawn_owned(
 		&self,
-		behavior: impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static,
+		behavior: impl FnMut(Option<&str>, &[Argument]) -> std::result::Result<Argument, String> + 'static,
 	) -> Result<Ref> {
 		let mut reference = self.spawn(behavior)?;
 		reference.attach_guard(crate::gc::owned_guard(&self.shared.host, reference.id()));
@@ -247,7 +247,7 @@ impl Session {
 	pub fn publish(
 		&self,
 		name: &str,
-		behavior: impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static,
+		behavior: impl FnMut(Option<&str>, &[Argument]) -> std::result::Result<Argument, String> + 'static,
 	) -> Result<Ref> {
 		self.shared.publish_actor(name, outcome_behavior(behavior))
 	}
@@ -338,8 +338,13 @@ impl Session {
 	/// `Into<Argument>`. A `Ref` this session spawned runs in process. A
 	/// partner's rides the wire, and a redeemed or fetched token routes to the
 	/// exporter session that hosts it, transparently.
-	pub fn send<T: AsSendTarget>(&self, target: T, verb: &str, args: &[Argument]) -> RemotePromise {
-		crate::promise::send_promise(&self.shared, target.as_send_target(), verb, args)
+	pub fn send<'a, T: AsSendTarget>(
+		&self,
+		target: T,
+		verb: impl Into<Option<&'a str>>,
+		args: &[Argument],
+	) -> RemotePromise {
+		crate::promise::send_promise(&self.shared, target.as_send_target(), verb.into(), args)
 	}
 
 	/// Eventual-send `verb(args)` to `target`, await the reply, and also hand
@@ -372,10 +377,10 @@ impl Session {
 	/// let inbox = hop.spawn(reply_behavior)?;   // hosted where the reply lives
 	/// hop.send(&member, "dm", &[text, (&inbox).into()]).await?;
 	/// ```
-	pub async fn send_redeeming<T: AsSendTarget>(
+	pub async fn send_redeeming<'a, T: AsSendTarget>(
 		&self,
 		target: T,
-		verb: &str,
+		verb: impl Into<Option<&'a str>>,
 		args: &[Argument],
 	) -> Result<SendRedeemingResult> {
 		self.shared.guard_open()?;
@@ -400,8 +405,13 @@ impl Session {
 	/// rather than a deliver plus a reply. Returns once the deliver is queued on
 	/// the host. The scheduled drain flushes it, in order with the sends around
 	/// it.
-	pub fn tell<T: AsSendTarget>(&self, target: T, verb: &str, args: &[Argument]) -> Result<()> {
-		crate::promise::tell_target(&self.shared, target.as_send_target(), verb, args)
+	pub fn tell<'a, T: AsSendTarget>(
+		&self,
+		target: T,
+		verb: impl Into<Option<&'a str>>,
+		args: &[Argument],
+	) -> Result<()> {
+		crate::promise::tell_target(&self.shared, target.as_send_target(), verb.into(), args)
 	}
 
 	/// Start or resume inbound delivery immediately. The first call takes the

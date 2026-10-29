@@ -252,6 +252,7 @@ async fn scoped_sources(client: &Client<HostPlatform>) {
 	let receiver = client
 		.session()
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			if verb != "putFiles" {
 				return Err("fixture method".into());
 			}
@@ -324,6 +325,7 @@ async fn survives(runtime: Rc<Runtime>, client: &Client<HostPlatform>, target: O
 	let root = client
 		.session()
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			let [Argument::Integer(offset), Argument::Integer(length)] = args else {
 				return Err("source arguments".into());
 			};

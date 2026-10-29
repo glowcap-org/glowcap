@@ -16,7 +16,7 @@ test "loam attachment creation refuses an unsubmitted transaction without consum
 
 const ForwardTarget = struct {
     calls: *usize,
-    pub fn handle(self: *ForwardTarget, turn: *f.driver.HostTurn, _: []const u8, args: f.driver.Args) !f.driver.Value {
+    pub fn handle(self: *ForwardTarget, turn: *f.driver.HostTurn, _: ?[]const u8, args: f.driver.Args) !f.driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.calls.* += 1;

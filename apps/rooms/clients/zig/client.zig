@@ -116,9 +116,10 @@ const State = struct {
 const Inbox = struct {
     state: *State,
 
-    pub fn handle(self: *Inbox, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Inbox, turn: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer turn.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         const arg_values = try args.values();
-        _ = turn;
         if (!std.mem.eql(u8, verb, proto.notify)) return error.NoSuchMethod;
         try applyNotify(self.state, arg_values);
         return .{ .boolean = true };
@@ -175,9 +176,10 @@ fn printRoomEvent(nick: []const u8, event_kind: []const u8, room: wire.RoomInfo)
 const Watcher = struct {
     nick: []const u8,
 
-    pub fn handle(self: *Watcher, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Watcher, turn: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer turn.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         const arg_values = try args.values();
-        _ = turn;
         if (!std.mem.eql(u8, verb, proto.notify)) return error.NoSuchMethod;
         if (try wire.watchEvent(arg_values)) |room| printRoomEvent(self.nick, arg_values[0].string, room);
         return .{ .boolean = true };

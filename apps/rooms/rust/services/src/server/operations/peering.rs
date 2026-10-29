@@ -26,8 +26,9 @@ const REVOKE: &str = rooms_application::protocol_data::REVOKE;
 /// What a lease's `ready` waits on: nothing yet, live, or why not. status-allow: pending state or quoted runtime label
 pub(crate) type Outcome = Option<Result<(), String>>;
 
-pub(super) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let session = current_session()
 			.map_err(|e| e.to_string())?
 			.ok_or("directory peering is reachable only over a session")?;
@@ -133,8 +134,9 @@ fn publish(shared: &Shared, session: &Session, name: &str, room: Ref) -> Result<
 /// The lease over one publication: `ready` answers once the room is live
 /// or why it never became so, and `revoke` takes the listing down. A lease
 /// names its exact publication, so a stale one cannot touch a replacement.
-fn lease(shared: Shared, id: String) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+fn lease(shared: Shared, id: String) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		current_session()
 			.map_err(|e| e.to_string())?
 			.ok_or("a room publication lease is reachable only over a session")?;

@@ -34,8 +34,9 @@ pub(super) fn posted_reply(state: &State, key: LineKey, actor: glowcap::Ref) -> 
 pub(super) fn line(
 	shared: Shared,
 	key: Rc<Cell<Option<LineKey>>>,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let values: Vec<Value<'_>> = args.iter().map(Value).collect();
 		let mut state = shared.borrow_mut();
 		let (connection, _) = rooms::caller(&mut state)?;
@@ -60,8 +61,12 @@ pub(super) fn line(
 /// What this room is about, as a capability every participant holds.
 /// `setSubject(description, link?)` takes the subject exactly or refuses it,
 /// and the room keeps a link without ever calling it.
-pub(super) fn subject(shared: Shared, room: RoomKey) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+pub(super) fn subject(
+	shared: Shared,
+	room: RoomKey,
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if args.iter().any(|arg| Value(arg).contains_capability()) {
 			return Err("a room subject does not take capability arguments".into());
 		}

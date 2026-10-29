@@ -96,6 +96,7 @@ async fn scenario() {
 	};
 	let entrance = accepted
 		.spawn_owned(|verb, _| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "called");
 			Ok("invited garden".into())
 		})
@@ -109,6 +110,7 @@ async fn scenario() {
 	let winner = winning.clone();
 	let invitation_root = accepted
 		.publish("invitation", move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			claim_record(verb, args);
 			assert_eq!(verb, "claimInvitation");
 			assert_eq!(args.len(), 1);
@@ -141,6 +143,7 @@ async fn scenario() {
 	let seat_record = record("seat", calls.clone());
 	let seat = accepted
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			seat_record(verb, args);
 			match verb {
 				"mintInvitation" => {
@@ -162,6 +165,7 @@ async fn scenario() {
 	let (member, override_reply) = (seat.clone(), query_reply.clone());
 	let root = accepted
 		.publish("room", move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			if verb != "subscribe" {
 				assert!(args.is_empty());
 				if let Some(reply) = override_reply.borrow().as_ref() {
@@ -196,6 +200,7 @@ async fn scenario() {
 		.unwrap();
 	let other = accepted
 		.publish("other", |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert!(args.is_empty());
 			match verb {
 				"called" => Ok("square".into()),

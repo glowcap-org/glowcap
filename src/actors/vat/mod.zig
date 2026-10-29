@@ -342,6 +342,8 @@ pub const Vat = struct {
     /// outermost turn begins (when `turn_depth` returns to 0 and rises again), so a
     /// reply stays valid until then and no handler frees or leaks its own reply.
     turn_arena: std.heap.ArenaAllocator,
+    /// Borrowed resource destructors run before their turn-arena storage resets.
+    turn_resources: ?*@import("turn.zig").ResourceCleanup = null,
     /// Nesting depth of in-flight turns. The turn arena resets only at depth 0, so a
     /// near-call or send made inside a turn shares that turn's scratch rather than
     /// pulling it out from under the call in flight.
@@ -412,6 +414,7 @@ pub const Vat = struct {
     pub fn deinit(self: *Vat) void {
         std.debug.assert(!self.queue_copy_active);
         self.tearing_down = true;
+        frame.drainTurnResources(self);
         var it = self.actors.valueIterator();
         while (it.next()) |cell| {
             // A become promoted by the last frame but never installed (a vat torn
@@ -443,9 +446,9 @@ pub const Vat = struct {
         self.listeners.deinit(self.allocator);
         self.pending_local_vows.deinit(self.allocator);
         self.resolver_vows.deinit(self.allocator);
+        frame.reclaimTurnStorage(self);
         frame.drainMovedReplies(self);
         self.moved_replies.deinit(self.allocator);
-        frame.releaseRetiredBoxes(self);
         self.retired_boxes.deinit(self.allocator);
         self.turn_arena.deinit();
         self.settle_arena.deinit();

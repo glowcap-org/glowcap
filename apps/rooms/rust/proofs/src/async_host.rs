@@ -53,10 +53,10 @@ async fn run() -> Result<(), String> {
 	server
 		.publish(rooms_application::directory::NAME, || {
 			Box::new(|verb, args| match (verb, args) {
-				(rooms_application::directory::LIST, []) => {
+				(Some(rooms_application::directory::LIST), []) => {
 					Ok(Argument::List(vec![Argument::List(Vec::new()), Argument::Void]))
 				}
-				(rooms_application::directory::creation::LOCATION, []) => {
+				(Some(rooms_application::directory::creation::LOCATION), []) => {
 					Ok(Argument::String("ocapn://127.0.0.1:9000?transport=tcp".into()))
 				}
 				_ => Err("unexpected directory call".into()),

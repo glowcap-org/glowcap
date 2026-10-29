@@ -6,7 +6,7 @@ async with await onion.listen("/run/tor/socks", control="/run/tor/control") as s
     # From here, the CapTP workflow is transport-independent.
     print(server.uri)  # hand this locator to partners
 
-    def greet(verb: str, args: list[Argument]) -> str:
+    def greet(verb: str | None, args: list[Argument]) -> str:
         if verb != "greet":
             raise LookupError("no such method")
         if len(args) != 1 or not isinstance(args[0], str):

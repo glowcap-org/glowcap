@@ -94,7 +94,7 @@ pub fn traceMessage(
     self: *Host,
     session: *HostSession,
     outbound: bool,
-    verb: []const u8,
+    verb: ?[]const u8,
     frame: []const u8,
 ) void {
     self.assertOwner();

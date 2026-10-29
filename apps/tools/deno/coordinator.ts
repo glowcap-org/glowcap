@@ -27,7 +27,7 @@ import { revocable, toolFor } from "./capabilities.ts";
  * connection (to spawn capabilities on it) and the last revocable grant. */
 function coordinatorBehavior(session: Session) {
 	let lastRevoke: (() => void) | null = null;
-	return (verb: string, args: Argument[]): Argument => {
+	return (verb: string | null, args: Argument[]): Argument => {
 		if (verb === GRANT) {
 			const name = typeof args[0] === "string" ? args[0] : "";
 			// Delegation: hand the agent a capability to the requested tool.

@@ -45,6 +45,7 @@ fn facet(session: &Rc<Session>, index: Rc<RefCell<Index>>, scope: Facet) -> Ref 
 	let session_weak = Rc::downgrade(session);
 	session
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			let fail = |e: rooms_application::archive::Error| e.to_string();
 			match (verb, args) {
 				("put", [row]) => {
@@ -126,6 +127,7 @@ async fn scenario() {
 	let held = root.clone();
 	let public = accepted
 		.publish("archive", move |verb, _| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "root");
 			Ok(held.clone().into())
 		})
@@ -179,6 +181,7 @@ async fn scenario() {
 	let count = scanned_calls.clone();
 	let endless = accepted
 		.publish("endless", move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "read");
 			count.set(count.get() + 1);
 			let after = Value(&args[1]).integer().unwrap() as u64;

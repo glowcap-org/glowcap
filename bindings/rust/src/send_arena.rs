@@ -215,9 +215,7 @@ impl Drop for SendArena {
 }
 
 // A Rust slice's pointer is non-null even at length zero (`NonNull`'s dangling
-// stand-in), so a zero-length byte view, a methodless positional verb, an
-// empty payload, marshals as the non-NULL `ptr + 0` the host requires, with
-// no special case here.
+// stand-in), so even an empty payload marshals as a non-null ptr + 0.
 fn set_bytes(c: &mut sys::GlowcapArgument, kind: u32, b: &[u8]) {
 	c.kind = kind;
 	c.bytes = b.as_ptr();

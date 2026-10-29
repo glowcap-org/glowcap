@@ -544,7 +544,7 @@ fn checkCallbackBinding(store: *c.GlowcapLoamStore, content_id: @import("loam_co
     var input: access.hosting.ContentInvocation = .{ .bound_resource = .{ .id = managed.resource.id, .kind = managed.resource.kind, .object = object, .revision = managed.revision }, .delivery = .local, .content = view, .verb = "get", .args = &.{} };
     const driver = @import("driver_core");
     const Live = struct {
-        pub fn handle(_: *@This(), _: *driver.HostTurn, _: []const u8, _: driver.Args) !driver.Value {
+        pub fn handle(_: *@This(), _: *driver.HostTurn, _: ?[]const u8, _: driver.Args) !driver.Value {
             return .{ .void = {} };
         }
     };

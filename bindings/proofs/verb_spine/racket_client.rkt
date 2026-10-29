@@ -87,6 +87,19 @@
 (expect-string "greet"
                (session-await session (send-handle session spine 'greet '("spine") "greet"))
                "hello, spine")
+(for* ([selector (in-list (list #f '|| 'call))]
+       [payload (in-list (list '() '("payload")))])
+  (define label (cond [(not selector) "direct"] [(eq? selector '||) "empty"] [else "call"]))
+  (expect-string "invocation shape" (apply session-send session spine selector payload)
+                 (format "~a:~a" label (length payload))))
+(define shape-target
+  (session-spawn session
+    (lambda (_bcom)
+      (lambda (selector . args)
+        (format "~a:~a" (cond [(not selector) "direct"] [(eq? selector '||) "empty"] [else selector])
+                (length args))))))
+(define shape-proxy (session-caretaker session shape-target))
+(expect-string "forwarded callback shapes" (session-send session spine 'shapes shape-proxy) "shapes preserved")
 (mark "promise-handle")
 
 ;; ── promise-index / promise-untag / promise-get ──────────────────────────────

@@ -133,7 +133,7 @@ fn readListenerLocator(loop: ?*cdrv.GlowcapDriverLoop, listener: u64) !model.Pee
 fn unusedBehavior(
     _: ?*anyopaque,
     _: ?*cd.GlowcapHostTurn,
-    _: [*]const u8,
+    _: ?[*]const u8,
     _: usize,
     _: ?[*]const cs.GlowcapArgument,
     _: usize,

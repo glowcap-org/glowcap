@@ -84,7 +84,7 @@ pub const Event = union(enum) {
         captp_version: model.CaptpVersion,
     },
     /// One message crossing the wire on an open session. `outbound` reads
-    /// from this host's side. `verb` is the deliver's own verb symbol.
+    /// from this host's side. `verb` is the leading symbol, or null for a positional list with none.
     /// `frame` is the message's wire frame, borrowed for the callback.
     /// Both fact sites sit at the wire boundary (inbound dispatch, the
     /// outbound drain), so a near send (in-process, never encoded) is
@@ -92,7 +92,7 @@ pub const Event = union(enum) {
     message: struct {
         session: engine.PeerHandle,
         outbound: bool,
-        verb: []const u8,
+        verb: ?[]const u8,
         frame: []const u8,
         /// A tag over the wire bytes, identifying this message across the two
         /// peers that carried it.

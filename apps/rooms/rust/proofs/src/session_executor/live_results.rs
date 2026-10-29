@@ -214,7 +214,7 @@ async fn run_case(external: bool) {
 						.attach(&exporter, vec![registration(calls.clone(), edits.clone(), false)])
 						.unwrap()
 				});
-				attachment.start_live(None, 32).unwrap();
+				environment::start_live(&attachment, None, 32).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control.clone()).unwrap();
 				owner.initialize().await.unwrap();
@@ -262,6 +262,7 @@ async fn run_case(external: bool) {
 					exporter
 						.publish("line-disclosure", || {
 							Box::new(move |verb, args| {
+								let verb = verb.ok_or("fixture requires a method")?;
 								assert_eq!(verb, "take");
 								assert!(args.is_empty());
 								Ok(Argument::Reference(held.clone()))
@@ -586,7 +587,7 @@ async fn run_case(external: bool) {
 					std::num::NonZeroUsize::new(4096).unwrap(),
 				);
 				let mut cold_attachment = reopened.attach(&cold_host, vec![cold_owner.registration()]).unwrap();
-				cold_attachment.start_live(Some(marker), 32).unwrap();
+				environment::start_live(&cold_attachment, Some(marker), 32).await;
 				let (cold_root, cold_root_control) =
 					environment::restore(&cold_attachment, loam::Resource::decode(resource.encode())).await;
 				cold_owner.bind(cold_root.clone(), cold_root_control.clone()).unwrap();

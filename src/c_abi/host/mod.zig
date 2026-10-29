@@ -120,7 +120,7 @@ pub const testing = if (builtin.is_test) struct {
     ) !void {
         const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
         const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
-        _ = try common.hostArgsToC(inst, session_ptr, allocator, .fromOwnedSlice(args));
+        _ = try inst.core.projectValues(session_ptr, allocator, .fromOwnedSlice(args), allocator, common.valuesToC);
     }
 
     pub fn liveCapabilityCount(host_handle: ?*GlowcapHost) !usize {
@@ -413,11 +413,12 @@ pub const GlowcapHostPumpHooks = extern struct {
 /// not a callback stack local). Any non-OK return settles the answer broken
 /// with a generic reason. Inside the callback the enqueueing host verbs and
 /// the `glowcap_host_turn_*` verbs (with this `turn` only) are legal. The
-/// host-driving verbs are refused.
+/// host-driving verbs are refused. A null verb means no leading selector.
+/// A non-null verb of length zero is the empty-symbol selector.
 pub const GlowcapHostBehavior = *const fn (
     ctx: ?*anyopaque,
     turn: ?*GlowcapHostTurn,
-    verb: [*]const u8,
+    verb: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,

@@ -83,6 +83,7 @@ async fn scenario() {
 	let (recorded, answer) = (calls.clone(), voucher.clone());
 	let first_name = accepted
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "voucher");
 			recorded
 				.borrow_mut()
@@ -92,6 +93,7 @@ async fn scenario() {
 		.unwrap();
 	let second_name = accepted
 		.spawn_owned(|verb, _| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "voucher");
 			Ok(Argument::Bytes(vec![9]))
 		})
@@ -111,6 +113,7 @@ async fn scenario() {
 	let pending = pending_reply.clone();
 	let root = accepted
 		.publish("directory", move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			recorded
 				.borrow_mut()
 				.push(json!({"target":"directory","verb":verb,"args":args.iter().map(project).collect::<Vec<_>>()}));

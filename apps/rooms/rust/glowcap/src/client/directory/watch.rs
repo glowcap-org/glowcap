@@ -98,7 +98,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 		let state = Rc::new(RefCell::new(State::default()));
 		let weak = Rc::downgrade(&state);
 		let observer = self.client.session.spawn_owned(move |verb, args| {
-			if verb != rooms_application::protocol_data::NOTIFY {
+			if verb != Some(rooms_application::protocol_data::NOTIFY) {
 				return Err("unknown directory observer method".into());
 			}
 			let state = weak.upgrade().ok_or("the directory observer has ended")?;

@@ -28,7 +28,9 @@ const opts: driver.SessionOptions = .{
 };
 
 const Widget = struct {
-    pub fn handle(_: *Widget, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(_: *Widget, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "poke")) return error.NoSuchMethod;
         return .{ .string = "poked: directly, the directory is out of the path" };
     }
@@ -37,7 +39,9 @@ const Widget = struct {
 const Directory = struct {
     widget: driver.Capability,
 
-    pub fn handle(self: *Directory, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(self: *Directory, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "lookup")) return error.NoSuchMethod;
         return .{ .capability = self.widget };
     }

@@ -13,7 +13,7 @@ async fn directory_server(port: u16, watches: Rc<Cell<usize>>) -> (Rc<tcp::Serve
 	let host = Host::from_seed([193; 32]).unwrap();
 	host.publish("recovery-directory", move || {
 		let watches = watches.clone();
-		Box::new(move |verb, _args| match verb {
+		Box::new(move |verb, _args| match verb.ok_or("fixture requires a method")? {
 			directory::WATCH => {
 				watches.set(watches.get() + 1);
 				Ok(directory::wire::snapshot::<rooms_glowcap::snapshot::Arguments>(

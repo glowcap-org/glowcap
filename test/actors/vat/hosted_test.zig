@@ -39,12 +39,12 @@ const HostedState = struct {
     }
     fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Delivery) anyerror!model.Argument {
         const self: *HostedState = @ptrCast(@alignCast(ctx));
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "add")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("add")) {
             self.n += try msg.argInt(0);
             return .{ .integer = self.n };
         }
-        if (std.mem.eql(u8, msg.verb, "bump-sink")) {
+        if (msg.is("bump-sink")) {
             _ = try turn.send(self.sink.?, .{ .verb = "increment" });
             return .{ .void = {} };
         }

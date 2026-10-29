@@ -36,6 +36,7 @@ const Slot = struct {
     kind: u32 = 0,
     session: u64 = 0,
     outbound: u8 = 0,
+    has_verb: bool = false,
     provenance: u32 = c.GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED,
     codec: u32 = 0,
     captp_version: u32 = 0,
@@ -138,7 +139,8 @@ pub const TraceQueue = struct {
                 slot.kind = c.GLOWCAP_TRACE_MESSAGE;
                 slot.session = msg.session.int();
                 slot.outbound = @intFromBool(msg.outbound);
-                slot.verb_len = take(buf, &used, msg.verb);
+                slot.has_verb = msg.verb != null;
+                slot.verb_len = take(buf, &used, msg.verb orelse "");
                 slot.digest = msg.digest;
                 slot.frame_total = msg.frame.len;
                 slot.frame_len = take(buf, &used, msg.frame);
@@ -184,7 +186,7 @@ pub const TraceQueue = struct {
             .transport_len = slot.transport_len,
             .session_id = view(buf, &cursor, slot.session_id_len),
             .session_id_len = slot.session_id_len,
-            .verb = view(buf, &cursor, slot.verb_len),
+            .verb = if (!slot.has_verb) null else if (slot.verb_len == 0) "".ptr else view(buf, &cursor, slot.verb_len),
             .verb_len = slot.verb_len,
             .frame = view(buf, &cursor, slot.frame_len),
             .frame_len = slot.frame_len,

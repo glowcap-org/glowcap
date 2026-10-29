@@ -139,6 +139,7 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 		let id = id.clone();
 		session
 			.spawn_owned(move |verb, args| {
+				let verb = verb.ok_or("unknown name capability method")?;
 				{
 					use rooms_application::{admission::Class, protocol_data, signaling};
 					let mut held = state.borrow_mut();

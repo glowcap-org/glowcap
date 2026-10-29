@@ -53,7 +53,7 @@ pub fn ReaderOf(comptime which: u8) type {
             text_len = 0;
         }
 
-        pub fn handle(_: *@This(), ht: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        pub fn handle(_: *@This(), ht: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
             ran += 1;
             const cap = args.capability(0) catch |err| {
                 const string = args.string(0) catch return err;
@@ -98,7 +98,7 @@ pub fn GreeterOf(comptime which: u8) type {
             resolver = 0;
         }
 
-        pub fn handle(_: *@This(), ht: *driver.HostTurn, _: []const u8, _: driver.Args) !driver.Value {
+        pub fn handle(_: *@This(), ht: *driver.HostTurn, _: ?[]const u8, _: driver.Args) !driver.Value {
             ran += 1;
             resolver = try ht.deferAnswer();
             return .{ .void = {} };
@@ -111,7 +111,7 @@ pub const GreeterB = GreeterOf('b');
 
 /// Replies with the capability the reader on `b` kept.
 pub const Keeper = struct {
-    pub fn handle(_: *@This(), _: *driver.HostTurn, _: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(_: *@This(), _: *driver.HostTurn, _: ?[]const u8, _: driver.Args) !driver.Value {
         return .{ .capability = ReaderB.kept orelse return error.NothingKept };
     }
 };
@@ -119,7 +119,7 @@ pub const Keeper = struct {
 /// The object a reference settlement names.
 pub const Target = struct {
     pub var ran: usize = 0;
-    pub fn handle(_: *@This(), _: *driver.HostTurn, _: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(_: *@This(), _: *driver.HostTurn, _: ?[]const u8, _: driver.Args) !driver.Value {
         ran += 1;
         return .{ .string = "from the target" };
     }

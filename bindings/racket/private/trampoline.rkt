@@ -86,15 +86,11 @@
   (define rc (glowcap_host_turn_break turn (pin-immobile bs) (bytes-length bs)))
   (if (= rc OK) OK rc))
 
-;; An inbound deliver's wire verb as the Racket method symbol: a leading OCapN
-;; symbol became the verb host-side, and a methodless positional deliver (a
-;; bare `(cap args…)` call, verb length zero) dispatches as 'call, which is a Racket
-;; symbol where the other bindings hand their handlers an empty verb string,
-;; because a Racket behavior matches on symbols and '|| would be unwritable.
+;; A missing selector is #f; every wire symbol maps to that exact symbol,
+;; including the empty symbol '|| and the ordinary method 'call.
 (define (decode-verb verb-ptr verb-len)
-  (if (zero? verb-len)
-      'call
-      (string->symbol (bytes->string/utf-8 (bytes<-c verb-ptr verb-len) #\uFFFD))))
+  (and verb-ptr
+       (string->symbol (bytes->string/utf-8 (bytes<-c verb-ptr verb-len) #\uFFFD))))
 
 ;; Resolve a trampoline result into the turn's answer: a plain value marshals
 ;; into the reply; a `forward` composes locally or defers through the host's
@@ -116,13 +112,14 @@
      (define target (forward-target chased))
      (cond
        [(ref? target)
-        (define mb (string->bytes/utf-8 (symbol->string (forward-method chased))))
+        (define method (forward-method chased))
+        (define mb (if method (string->bytes/utf-8 (symbol->string method)) #""))
         (define keep (box '()))
         (define-values (aptr acnt) (args->c (forward-args chased) keep))
         ;; The host writes a placeholder reply and lets the real answer ride
         ;; the forwarded send's vow; buffers stay pinned until it returns.
         (define rc (glowcap_host_turn_forward turn (ref->c target)
-                                              (pin-immobile mb) (bytes-length mb)
+                                              (and method (pin-immobile mb)) (bytes-length mb)
                                               aptr acnt out-reply))
         ;; Buffers nested inside `aptr` are reachable only through `keep`,
         ;; whose raw addresses the collector cannot see; keep them live past
@@ -290,7 +287,7 @@
 (define (attenuate-behavior allow target)
   (lambda (bcom)
     (lambda (method . args)
-      (if (member (symbol->string method) allow)
+      (if (and method (member (symbol->string method) allow))
           (forward target method args)
           (error "Attenuated")))))
 

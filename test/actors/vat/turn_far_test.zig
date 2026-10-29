@@ -29,7 +29,7 @@ const SendBack = struct {
     reentry: ?*Reentry = null,
 
     pub fn handle(self: *SendBack, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "recover")) {
+        if (msg.is("recover")) {
             try turn.tell(self.target, .{ .verb = "increment" });
             return .{ .void = {} };
         }
@@ -41,7 +41,7 @@ const SendBack = struct {
         else
             try turn.port().?.on(turn.vat, vow, .{ .ctx = self.broke, .func = promise_capture.captureBroken });
         try turn.tell(self.target, .{ .verb = "increment" });
-        if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
+        if (msg.is("fail")) return error.Refused;
         return .{ .void = {} };
     }
 };

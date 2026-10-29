@@ -332,7 +332,7 @@ pub(super) async fn run() {
 				assert_eq!(removed, empty);
 				assert_eq!(snapshot(&host, &root).await, (after + 2, empty));
 				assert_eq!(calls.get(), 0, "retirement never invokes predecessor authority");
-				attachment.start_live(None, 32).unwrap();
+				environment::start_live(&attachment, None, 32).await;
 				super::operations_selection::run(&owner, &host, &root).await;
 				owner.close().await.unwrap();
 				attachment.close().await.unwrap();

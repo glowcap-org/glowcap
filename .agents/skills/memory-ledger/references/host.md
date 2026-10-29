@@ -5,6 +5,16 @@ at each declaration, and this inventory names Host runtime and custody costs.
 
 ## The ledger
 
+- **Borrowed callback capabilities**: `HostTurn.retainArguments` keeps incoming
+  identities live through reply consumption. A capability-bearing input adds one
+  five-word turn-arena node (`ArgumentLease` plus `ResourceCleanup`), with no
+  Value copy or per-occurrence receipt allocation. One pointer per Vat owns the
+  cleanup chain. Declaration assertions and the Host footprint test pin these
+  charges.
+
+  The stable tree is the retain rollback inventory. Refusal releases immediately;
+  a top-level wire serve releases after reply consumption. Near-call custody lasts
+  until the next outermost turn or Vat teardown.
 - **Host face wires**: `driver.HostRuntime`'s `Wire` (ADR-0018, ADR-0024). One
   shell per session, freed only by its owner.
   - Every link is a resident connection. It feeds the core from a lending

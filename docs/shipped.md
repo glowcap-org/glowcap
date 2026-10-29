@@ -233,6 +233,9 @@ management and observation. The [managed access coverage](loam/coverage.md) maps
 `actors.Vat` is a Goblins-style actor layer above the protocol engine. It supports local actors, eventual sends that
 return vows, hosted objects, forwarding, attenuation, and revocation. Optional snapshots cover local actor state only
 and never rewind a network session.
+Direct invocation, an empty-symbol method, and ordinary named methods remain distinct
+through local queues, wire delivery, forwarding, traces, and every binding
+([invocation contract](../bindings/README.md#invocation-shape)).
 
 A Host owns one Vat and gives each session its own queue budget
 ([ADR-0014](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)). A failed turn rolls back before failure listeners

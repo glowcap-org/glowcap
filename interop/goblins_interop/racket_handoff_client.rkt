@@ -14,8 +14,8 @@
 ;;      dials Bob directly (keyed with the *same* identity Alice saw), withdraws
 ;;      the gift, and resolves the send to an ordinary capability, the
 ;;      application never sees the give or the second connection.
-;;   3. `(session-send session greeter (string->symbol "") "glowcap-carol")`. The empty
-;;      method is a positional (methodless) deliver, which the greeter lambda
+;;   3. `(session-send session greeter #f "glowcap-carol")`. This
+;;      is a positional deliver, which the greeter lambda
 ;;      expects; the call routes straight to Bob and the reply carries the name
 ;;      back, proving data integrity end to end.
 ;;
@@ -56,9 +56,9 @@
     (fail (format "introduction did not redeem to a capability: ~a" greeter)))
   (printf "racket-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref\n")
 
-  ;; Call the greeter positionally (empty method). The send routes straight to Bob
+  ;; Call the greeter positionally (absent selector). The send routes straight to Bob
   ;; (the exporter); the reply must echo the name we sent.
-  (define reply (session-send session greeter (string->symbol "") "glowcap-carol"))
+  (define reply (session-send session greeter #f "glowcap-carol"))
   (unless (and (string? reply) (regexp-match? #rx"glowcap-carol" reply))
     (fail (format "greeter reply did not carry the name back: ~a" reply)))
   (printf "racket-goblins-handoff: greeter replied: ~a\n" reply)

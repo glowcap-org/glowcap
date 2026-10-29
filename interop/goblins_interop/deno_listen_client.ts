@@ -6,7 +6,7 @@ import * as tcp from "@glowcap/tcp";
 
 const ACTOR_SWISS = "glowcapActorSwissnumABCDEFGH1234";
 
-function greeter(_verb: string, args: Argument[]): string {
+function greeter(_verb: string | null, args: Argument[]): string {
 	const value = args[0];
 	const who = value instanceof Uint8Array ? new TextDecoder().decode(value) : String(value ?? "stranger");
 	return `Hello from a binding host: ${who}`;

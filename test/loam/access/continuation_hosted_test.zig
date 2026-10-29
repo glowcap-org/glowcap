@@ -101,7 +101,7 @@ const WaitingTarget = struct {
     const State = struct { resolver: ?u64 = null, calls: usize = 0 };
     state: *State,
 
-    pub fn handle(self: *WaitingTarget, turn: *h.driver.HostTurn, _: []const u8, args: h.driver.Args) !h.driver.Value {
+    pub fn handle(self: *WaitingTarget, turn: *h.driver.HostTurn, _: ?[]const u8, args: h.driver.Args) !h.driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.state.resolver = try turn.deferAnswer();
@@ -112,7 +112,7 @@ const WaitingTarget = struct {
 
 const WaitingWireTarget = struct {
     state: *WaitingTarget.State,
-    pub fn handle(self: *WaitingWireTarget, turn: *h.driver.HostTurn, _: []const u8, args: h.driver.Args) !h.driver.Value {
+    pub fn handle(self: *WaitingWireTarget, turn: *h.driver.HostTurn, _: ?[]const u8, args: h.driver.Args) !h.driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.state.resolver = try turn.deferAnswer();

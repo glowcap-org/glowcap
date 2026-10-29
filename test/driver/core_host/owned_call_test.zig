@@ -8,9 +8,10 @@ const a = std.testing.allocator;
 
 const Echo = struct {
     calls: *usize,
-    pub fn handle(self: *Echo, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Echo, turn: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer turn.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         const arg_values = try args.values();
-        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
         if (std.mem.eql(u8, verb, "break")) return error.Refused;
         return arg_values[0];
@@ -112,25 +113,32 @@ test "core host: owned call retains nested remote capabilities beside public com
     var calls: usize = 0;
     const actor = try server.sessionPublish(pair.b, "echo", driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
     defer server.releaseCapability(actor, 1) catch unreachable;
+    const callback = try client.sessionPublish(pair.a, "callback", driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
+    defer client.releaseCapability(callback, 1) catch unreachable;
     const fetched = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7911", "echo"));
     defer fetched.deinit();
     try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
     const target = fetched.result().ready.capability;
-    const values = [_]driver.Value{.{ .list = &.{ .{ .string = "owned bytes" }, .{ .capability = target }, .{ .capability = target } } }};
+    const server_live = server.capabilities.liveCount();
+    const values = [_]driver.Value{.{ .list = &.{ .{ .string = "owned bytes" }, .{ .capability = target }, .{ .capability = target }, .{ .capability = callback }, .{ .capability = callback } } }};
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const public = try client.queueSendValues(pair.a, target, "echo", &values, arena.allocator());
     const owned = try client.callCapability(a, pair.a, target, "echo", &values, 4096);
+    defer owned.deinit();
     try std.testing.expect(owned.result() == .pending);
     try client.flushSession(pair.a);
     for (0..64) |_| {
         if (!try h.shuttleAll(&.{pair})) break;
     } else return error.PumpDidNotQuiesce;
+    try std.testing.expect(owned.result() == .ready);
+    try std.testing.expectEqual(server_live, server.capabilities.liveCount());
     const result = owned.result().ready.list;
     try std.testing.expectEqualStrings("owned bytes", result[0].string);
     try std.testing.expect(result[1].capability.eql(target));
     try std.testing.expect(result[2].capability.eql(target));
-    owned.deinit();
+    try std.testing.expect(result[3].capability.eql(callback));
+    try std.testing.expect(result[4].capability.eql(callback));
     var found = false;
     while (try client.nextAction()) |action| {
         if (action == .settled and action.settled.vow_id == public) found = true;
@@ -223,7 +231,7 @@ const Deferring = struct {
 const Receiving = struct {
     calls: *usize,
     poke: *u64,
-    pub fn handle(self: *Receiving, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Receiving, turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.calls.* += 1;
@@ -425,4 +433,41 @@ fn replayReservation(profile: glowcap.ocapn.model.CaptpVersion, codec: glowcap.o
         try std.testing.expectEqualDeep(before, ReservationSnapshot.capture(&client, pair.a));
     }
     return induced;
+}
+
+test "core host: selector refusal releases nested observations on local and wire calls" {
+    var client = support.init(a, @splat(0x75), driver.Host.Options.withFrameCap(h.frame_cap));
+    defer client.deinit();
+    var server = support.init(a, @splat(0x76), driver.Host.Options.withFrameCap(h.frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(h.ParkedDial) = .empty;
+    defer dials.deinit(a);
+    const pair = try h.openPair(a, &client, &server, "127.0.0.1:7938", &dials);
+    var calls: usize = 0;
+    const local = try server.sessionPublish(pair.b, "echo", driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
+    defer server.releaseCapabilityTerminal(local, null);
+    const fetched = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7938", "echo"));
+    defer fetched.deinit();
+    try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+    const remote = fetched.result().ready.capability;
+    const retained = server.capabilities.retainCount(local) orelse return error.MissingCapability;
+    for ([_]?[]const u8{ null, "break" }) |selector| {
+        for ([_]enum { local, near, wire }{ .local, .near, .wire }) |path| {
+            const target = if (path == .wire) remote else local;
+            const values = [_]driver.Value{.{ .list = &.{ .{ .capability = target }, .{ .@"struct" = &.{.{ .key = "again", .value = .{ .capability = target } }} } } }};
+            const call = switch (path) {
+                .local => try server.callLocalCapability(a, target, selector, &values, 4096),
+                .near => try server.callCapability(a, pair.b, target, selector, &values, 4096),
+                .wire => try client.callCapability(a, pair.a, target, selector, &values, 4096),
+            };
+            {
+                defer call.deinit();
+                try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+                try std.testing.expect(call.result() == .failed);
+                try std.testing.expectEqualStrings(if (selector == null) "NoSuchMethod" else "Refused", call.result().failed.message);
+            }
+            try std.testing.expectEqual(@as(?u64, retained), server.capabilities.retainCount(local));
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 3), calls);
 }

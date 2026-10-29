@@ -197,11 +197,11 @@ async fn run_connections(locator: &Locator, n: usize) -> Result<(), String> {
 /// The local-turn counter behavior: `hit` increments and returns the count,
 /// any other verb refuses. A fresh closure per use, so the two paths of
 /// `run_local` never share a count.
-fn counter_behavior() -> impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static {
+fn counter_behavior() -> impl FnMut(Option<&str>, &[Argument]) -> std::result::Result<Argument, String> + 'static {
 	let mut count: i64 = 0;
 	move |verb, _args| {
-		if verb != "hit" {
-			return Err(format!("counter: no such method {verb}"));
+		if verb != Some("hit") {
+			return Err(format!("counter: no such method {verb:?}"));
 		}
 		count += 1;
 		Ok(Argument::Integer(count))

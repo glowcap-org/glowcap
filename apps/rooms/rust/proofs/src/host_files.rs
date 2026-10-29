@@ -45,6 +45,7 @@ impl Fixture {
 			host.publish(&format!("upload-{name}"), move || {
 				let (store, upload) = (file_store.clone(), upload.clone());
 				Box::new(move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					store
 						.borrow_mut()
 						.upload_call(&upload, verb, &values(args).collect::<Vec<_>>())
@@ -57,6 +58,7 @@ impl Fixture {
 			host.publish(&format!("blob-{name}"), move || {
 				let (store, host, blob, tx) = (file_store.clone(), behavior_host.clone(), blob.clone(), tx.clone());
 				Box::new(move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					match store
 						.borrow_mut()
 						.blob_call(&blob, verb, &values(args).collect::<Vec<_>>())
@@ -78,6 +80,7 @@ impl Fixture {
 			host.publish(&format!("line-{name}"), move || {
 				let (store, line) = (file_store.clone(), line.clone());
 				Box::new(move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					let args = values(args).collect::<Vec<_>>();
 					let mut line = line.borrow_mut();
 					let mut store = store.borrow_mut();

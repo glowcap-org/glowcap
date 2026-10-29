@@ -38,7 +38,7 @@ const Reader = struct {
         kept = null;
     }
 
-    pub fn handle(_: *@This(), ht: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(_: *@This(), ht: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         ran += 1;
         const cap = try args.capability(0);
         promise_id = switch (ht.host.capabilities.resolve(cap).?) {
@@ -71,7 +71,7 @@ const Greeter = struct {
     var ran: usize = 0;
     var resolver: u64 = 0;
 
-    pub fn handle(_: *@This(), ht: *driver.HostTurn, _: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(_: *@This(), ht: *driver.HostTurn, _: ?[]const u8, _: driver.Args) !driver.Value {
         ran += 1;
         resolver = try ht.deferAnswer();
         return .{ .void = {} };
@@ -81,7 +81,7 @@ const Greeter = struct {
 /// The object a reference settlement names.
 const Target = struct {
     var ran: usize = 0;
-    pub fn handle(_: *@This(), _: *driver.HostTurn, _: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(_: *@This(), _: *driver.HostTurn, _: ?[]const u8, _: driver.Args) !driver.Value {
         ran += 1;
         return .{ .string = "from the target" };
     }

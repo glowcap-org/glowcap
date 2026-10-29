@@ -380,8 +380,9 @@ fn project(event: &TraceEvent) -> Map<String, Value> {
 
 /// The trace object: `subscribe(inbox)` replays the live topology to the
 /// inbox and then every line as it goes out.
-fn trace_object(feed: Shared) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+fn trace_object(feed: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let session = current_session()
 			.map_err(|e| e.to_string())?
 			.ok_or("trace.subscribe requires a session")?;

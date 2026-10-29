@@ -74,7 +74,7 @@ const AttenuatorActor = struct {
 
     pub fn handle(self: *AttenuatorActor, turn: *Turn, msg: Delivery) !model.Argument {
         for (self.allowed) |verb| {
-            if (std.mem.eql(u8, verb, msg.verb)) return turn.forward(self.target, msg);
+            if (msg.is(verb)) return turn.forward(self.target, msg);
         }
         return error.Attenuated;
     }

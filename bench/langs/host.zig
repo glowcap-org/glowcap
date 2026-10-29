@@ -37,7 +37,9 @@ const opts: driver.SessionOptions = .{
 const Task = struct {
     done: bool = false,
 
-    pub fn handle(self: *Task, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(self: *Task, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (std.mem.eql(u8, verb, "assign")) return .{ .bytes = "assigned" };
         if (std.mem.eql(u8, verb, "complete")) {
             self.done = true;
@@ -54,7 +56,9 @@ const Task = struct {
 /// client invokes the returned task several times over the wire, the
 /// capability-passing the bench measures.
 const Board = struct {
-    pub fn handle(_: *Board, ht: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(_: *Board, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "create")) return error.NoSuchMethod;
         return .{ .capability = try ht.spawn(Task, .{}) };
     }

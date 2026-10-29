@@ -161,7 +161,7 @@ pub(super) async fn run() {
 				let uris = ["room", "control"].map(|identity| {
 					let swiss = exporter
 						.publish_durable(move || {
-							Box::new(move |verb, _| match verb {
+							Box::new(move |verb, _| match verb.ok_or("fixture requires a method")? {
 								"identity" => Ok(identity.into()),
 								rooms_application::room::authority::MANAGED_IDENTITY if identity == "room" => {
 									Ok("created-room".into())
@@ -169,7 +169,7 @@ pub(super) async fn run() {
 								rooms_application::room::authority::GOVERNS if identity == "control" => {
 									Ok("created-room".into())
 								}
-								_ => panic!("unexpected creation authority method: {verb}"),
+								_ => panic!("unexpected creation authority method: {verb:?}"),
 							})
 						})
 						.unwrap();

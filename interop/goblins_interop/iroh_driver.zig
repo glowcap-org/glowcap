@@ -245,7 +245,7 @@ fn callEcho(
     // carries no verb.
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
-    const reply = try session.call(echo, "", &.{.{ .bytes = "glowcap-over-iroh" }}, arena_state.allocator());
+    const reply = try session.call(echo, null, &.{.{ .bytes = "glowcap-over-iroh" }}, arena_state.allocator());
     switch (reply) {
         .fulfilled => |payload| {
             if (payload != .list or payload.list.len != 1) return error.EchoWrongPayload;

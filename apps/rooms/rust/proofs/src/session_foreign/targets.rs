@@ -34,6 +34,7 @@ impl Targets {
 					let swiss = host
 						.publish_durable(move || {
 							Box::new(move |verb, args| {
+								let verb = verb.ok_or("fixture requires a method")?;
 								assert_eq!((verb, args.len()), ("identity", 0));
 								Ok(Argument::Integer(identity as i64))
 							})

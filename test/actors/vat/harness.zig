@@ -15,12 +15,12 @@ pub const Counter = struct {
 
     pub fn handle(self: *Counter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "increment")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("increment")) {
             self.n += 1;
             return .{ .void = {} };
         }
-        if (std.mem.eql(u8, msg.verb, "add")) {
+        if (msg.is("add")) {
             self.n += try msg.argInt(0);
             return .{ .integer = self.n };
         }
@@ -51,12 +51,12 @@ pub const PersistentCounter = struct {
     n: i64,
 
     pub fn handle(self: *const PersistentCounter, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "increment")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("increment")) {
             try turn.become(PersistentCounter, .{ .n = self.n + 1 });
             return .{ .void = {} };
         }
-        if (std.mem.eql(u8, msg.verb, "bump-then-fail")) {
+        if (msg.is("bump-then-fail")) {
             // Stage a become, then error: the staged value must be discarded.
             try turn.become(PersistentCounter, .{ .n = 999 });
             return error.Boom;
@@ -74,8 +74,8 @@ pub const LabelHolder = struct {
 
     pub fn handle(self: *LabelHolder, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .bytes = self.label };
-        if (std.mem.eql(u8, msg.verb, "relabel")) {
+        if (msg.is("get")) return .{ .bytes = self.label };
+        if (msg.is("relabel")) {
             const fresh = try self.allocator.dupe(u8, try msg.argBytes(0));
             self.allocator.free(self.label);
             self.label = fresh;

@@ -320,8 +320,7 @@
 ;; unobserved eventual-send still makes progress; the FFI Host keeps the
 ;; answer target addressable through fast settlement until the public vow is
 ;; released. Inside a turn `session-flush!` defers to the host unwind.
-;; An empty verb symbol is a methodless positional deliver (verb length zero on
-;; the wire). `answer?` #t returns the minted `session-vow`; #f is tell
+;; A #f verb invokes directly; every symbol contributes an exact wire symbol. `answer?` #t returns the minted `session-vow`; #f is tell
 ;; (Goblins `<-np`). Promise-pipelined targets ride `vow_send`.
 ;; `session-listen`'s wire half: mint the listen vow over a held far reference
 ;; (CapTP op:listen) and hand back the vow. The session API owns
@@ -400,8 +399,8 @@
 (define (session-far-send c target verb args answer?)
   (guard-open 'session-send c)
   (define m (session-host c))
-  (define vb (string->bytes/utf-8 (symbol->string verb)))
-  (define vbuf (pin-immobile vb))
+  (define vb (if verb (string->bytes/utf-8 (symbol->string verb)) #""))
+  (define vbuf (and verb (pin-immobile vb)))
   (define vlen (bytes-length vb))
   (define result
     (call-with-host m

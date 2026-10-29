@@ -6,7 +6,7 @@ impl Host {
 	/// Turn-time factories use the existing turn spawn transaction.
 	pub fn spawn(
 		&self,
-		behavior: impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static,
+		behavior: impl FnMut(Option<&str>, &[Argument]) -> std::result::Result<Argument, String> + 'static,
 	) -> Result<Ref> {
 		let turn = current_turn_for(Rc::as_ptr(&self.shared) as usize);
 		if turn.is_none() {

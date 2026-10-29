@@ -196,9 +196,9 @@ async function runCold(): Promise<void> {
 // The local-turn counter behavior: `hit` increments and returns the count, any
 // other verb throws. Returned as a fresh closure per use so the two paths of
 // runLocal never share a count.
-function counterBehavior(): (verb: string) => bigint {
+function counterBehavior(): (verb: string | null) => bigint {
 	let count = 0n;
-	return (verb: string): bigint => {
+	return (verb: string | null): bigint => {
 		if (verb !== "hit") throw new Error(`counter: no such method ${verb}`);
 		count += 1n;
 		return count;

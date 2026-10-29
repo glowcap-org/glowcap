@@ -39,12 +39,14 @@ pub const HandlerResult = union(enum) {
     }
 };
 
-/// A message a caller sends: a verb (method selector) and the arguments it
+/// A message a caller sends: an optional method selector and the arguments it
 /// owns. `send`, `tell`, `near`, and `forward` borrow both only for the call.
 /// The local arm clones them into the queue and the far arm encodes them
 /// onto the wire before the call returns.
 pub const Message = struct {
-    verb: []const u8,
+    /// Null invokes positionally; every non-null slice, including empty,
+    /// contributes a leading symbol to the wire argument list.
+    verb: ?[]const u8 = null,
     args: []const model.Argument = &.{},
 
     /// This message as a handler reads it. The owned arguments project into
@@ -61,7 +63,7 @@ pub const Message = struct {
 /// A handler never frees them, and one that keeps a value past its turn
 /// copies it first (`Argument.toOwned`).
 pub const Delivery = struct {
-    verb: []const u8,
+    verb: ?[]const u8 = null,
     args: model.view.Args = .fromOwnedSlice(&.{}),
     /// How many reference and handoff slots `args` holds at every depth,
     /// when session validation counted them for a wire deliver, or null
@@ -76,6 +78,24 @@ pub const Delivery = struct {
     /// did not project, which session validation makes unreachable on a
     /// wire deliver.
     pub const ArgError = error{ MissingArgument, WrongArgumentType, MalformedView };
+
+    /// Split a positional wire list using the actor convention: a leading
+    /// symbol is the selector, including the empty symbol. OCapN itself has
+    /// no distinguished method slot; a first positional symbol is the same
+    /// wire list as a method selector.
+    pub fn fromArgs(args: model.view.Args) model.view.ProjectError!Delivery {
+        if ((try args.len()) > 0) {
+            const first = try args.at(0);
+            if (first == .symbol) return .{ .verb = first.symbol, .args = try args.from(1) };
+        }
+        return .{ .args = args };
+    }
+
+    /// Whether this delivery selects exactly `method`. Direct invocation
+    /// selects no method, including the empty name.
+    pub fn is(self: Delivery, method: []const u8) bool {
+        return std.mem.eql(u8, self.verb orelse return false, method);
+    }
 
     /// The argument at `i`, or `MissingArgument`.
     ///
@@ -172,7 +192,7 @@ pub const Queued = union(enum) {
 
     pub fn retire(self: *Queued, reason: ?[]const u8) void {
         const retired = self.*;
-        self.* = .{ .message = .{ .verb = "" } };
+        self.* = .{ .message = .{} };
         switch (retired) {
             .message => {},
             .owned => |body| body.vtable.retire(body.ctx, reason),

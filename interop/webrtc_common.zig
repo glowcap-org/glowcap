@@ -402,9 +402,10 @@ pub const SignalingInbox = struct {
     peer: *webrtc.Peer,
     response_buf: [signaling_frame_bytes]u8 = undefined,
 
-    pub fn handle(self: *SignalingInbox, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *SignalingInbox, turn: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer turn.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         const arg_values = try args.values();
-        _ = turn;
         if (std.mem.eql(u8, verb, "offer")) {
             if (arg_values.len != 1) return error.BadSignalingCall;
             const sdp = strArg(arg_values[0]) orelse return error.BadSignalingCall;

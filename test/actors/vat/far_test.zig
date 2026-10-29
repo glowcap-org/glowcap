@@ -204,7 +204,7 @@ test "a listener that drives a state-mutating turn still reads an intact resolut
 const EchoVerb = struct {
     pub fn handle(self: *EchoVerb, turn: *Turn, msg: Delivery) !model.Argument {
         _ = self;
-        return .{ .bytes = try std.fmt.allocPrint(turn.arena, "reply-{s}", .{msg.verb}) };
+        return .{ .bytes = try std.fmt.allocPrint(turn.arena, "reply-{s}", .{msg.verb orelse return error.NoSuchMethod}) };
     }
 };
 

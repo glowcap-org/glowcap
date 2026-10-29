@@ -72,7 +72,7 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 	let echo = session.enliven(&sturdyref).await?;
 	println!("rust-goblins-interop: enlivened goblins echo cap, calling it");
 
-	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
+	// Goblins invokes a cap positionally (no method symbol), so send with no selector.
 	// The echo actor is `(lambda args args)`: it returns its argument list, so
 	// assert the content survived the round-trip (the Zig driver's bar).
 	fn assert_echoed(reply: &Argument, expected: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
@@ -84,7 +84,7 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 			other => Err(format!("echo reply is not a one-bytes list: {other:?}").into()),
 		}
 	}
-	let reply = session.send(&echo, "", &[b"glowcap-ping".as_slice().into()]).await?;
+	let reply = session.send(&echo, None, &[b"glowcap-ping".as_slice().into()]).await?;
 	assert_echoed(&reply, b"glowcap-ping")?;
 
 	let again = session.enliven(&sturdyref).await?;
@@ -92,7 +92,7 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 		return Err("repeat enliven did not return the same Host identity (dedup miss)".into());
 	}
 	let reply_again = session
-		.send(&again, "", &[b"glowcap-ping-again".as_slice().into()])
+		.send(&again, None, &[b"glowcap-ping-again".as_slice().into()])
 		.await?;
 	assert_echoed(&reply_again, b"glowcap-ping-again")?;
 	println!("rust-goblins-interop: repeat enliven same Host identity (dedup), second call resolved");

@@ -29,6 +29,7 @@ pub(super) async fn run() {
 				let target = host.spawn({
 					let calls = calls.clone();
 					move |verb, args| {
+						let verb = verb.ok_or("fixture requires a method")?;
 						assert_eq!(verb, "typing");
 						assert!(matches!(args, [Argument::Boolean(_)]));
 						calls.set(calls.get() + 1);
@@ -41,7 +42,7 @@ pub(super) async fn run() {
 					move |_, _| { calls.set(calls.get() + 1); Ok(Argument::Void) }
 				}).unwrap();
 				let mut attachment = store.attach(&host, vec![owner.registration()]).unwrap();
-				attachment.start_live(None, 32).unwrap();
+				environment::start_live(&attachment, None, 32).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control.clone()).unwrap();
 				owner.initialize().await.unwrap();

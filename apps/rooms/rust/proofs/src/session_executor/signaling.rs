@@ -59,6 +59,7 @@ pub(super) async fn run() {
 						let refuse_route = refuse_route.clone();
 						let refused_routes = refused_routes.clone();
 						move |verb, _| {
+							let verb = verb.ok_or("fixture requires a method")?;
 							if verb == policy::CHECK {
 								if refuse_route.get() {
 									refused_routes.set(refused_routes.get() + 1);
@@ -82,7 +83,7 @@ pub(super) async fn run() {
 					})
 					.unwrap();
 				let mut attachment = store.attach(&host, vec![owner.registration()]).unwrap();
-				attachment.start_live(None, 32).unwrap();
+				environment::start_live(&attachment, None, 32).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control.clone()).unwrap();
 				owner.initialize().await.unwrap();

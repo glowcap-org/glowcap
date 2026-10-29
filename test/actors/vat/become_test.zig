@@ -227,8 +227,8 @@ const MutateThenFail = struct {
 
     pub fn handle(self: *MutateThenFail, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "bump-then-fail")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("bump-then-fail")) {
             self.n += 1;
             return error.Boom;
         }
@@ -268,7 +268,7 @@ const Swappable = struct {
 
     pub fn handle(self: *const Swappable, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "peek")) return .{ .bytes = &self.label };
+        if (msg.is("peek")) return .{ .bytes = &self.label };
         return error.NoSuchMethod;
     }
 };
@@ -278,8 +278,8 @@ const Swapper = struct {
     label: [8]u8,
 
     pub fn handle(self: *const Swapper, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "peek")) return .{ .bytes = &self.label };
-        if (std.mem.eql(u8, msg.verb, "swap")) {
+        if (msg.is("peek")) return .{ .bytes = &self.label };
+        if (msg.is("swap")) {
             try turn.become(Swapper, .{ .label = "new-name".* });
             return .{ .void = {} };
         }

@@ -10,6 +10,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
+const actors = @import("actors");
 
 const host_mod = @import("../host.zig");
 const served_mod = @import("../served.zig");
@@ -289,8 +290,7 @@ pub const HostSession = struct {
     /// frame exists. A send-time fact would predate the deferred encode
     /// (no bytes to report) and would report near sends that never touch
     /// the wire. One borrowed view decode per outbound frame, paid only
-    /// while a sink is installed. A non-deliver frame or one without a
-    /// symbol verb is protocol traffic the trace skips, as inbound.
+    /// while a sink is installed. Non-deliver protocol traffic is skipped.
     fn traceOutboundFrame(self: *HostSession, frame: *const foundation.Frame) void {
         const host = self.host;
         if (host.trace_sink == null) return;
@@ -300,9 +300,8 @@ pub const HostSession = struct {
         const body = engine.decodeBodyView(state.codec, state.captp_version, frame.view()) catch return;
         if (body != .deliver) return;
         // best-effort: the same observation-only skip as the decode above.
-        const first = body.deliver.args.at(0) catch return;
-        if (first != .symbol) return;
-        host.traceMessage(self, true, first.symbol, frame.bytes());
+        const delivery = actors.Delivery.fromArgs(body.deliver.args) catch return;
+        host.traceMessage(self, true, delivery.verb, frame.bytes());
     }
 
     /// Whether the keyed handshake has completed and the session is open.

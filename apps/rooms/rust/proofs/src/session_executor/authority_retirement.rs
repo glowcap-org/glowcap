@@ -62,7 +62,7 @@ async fn run_case(role: &str) {
 					std::num::NonZeroUsize::new(4096).unwrap(),
 				);
 				let mut attachment = store.attach(&host, vec![owner.registration()]).unwrap();
-				attachment.start_live(None, 32).unwrap();
+				environment::start_live(&attachment, None, 32).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control).unwrap();
 				owner.initialize().await.unwrap();

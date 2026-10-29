@@ -178,7 +178,7 @@ pub fn callCapability(
     allocator: std.mem.Allocator,
     session: *host_mod.HostSession,
     target: capability.Ref,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     reply_bytes: usize,
 ) !*Call {
@@ -187,7 +187,7 @@ pub fn callCapability(
 
 /// Internal counterpart with a synchronous admitted-work proof. Session
 /// admission remains independent. A Host lease cannot reopen a session.
-pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, session: *host_mod.HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, reply_bytes: usize, admission: @import("admission.zig").WorkAdmission) !*Call {
+pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, session: *host_mod.HostSession, target: capability.Ref, verb: ?[]const u8, values: []const value_mod.Value, reply_bytes: usize, admission: @import("admission.zig").WorkAdmission) !*Call {
     try host.refuseReentry();
     try admission.check(host);
     if (reply_bytes == 0) return error.InvalidLimits;

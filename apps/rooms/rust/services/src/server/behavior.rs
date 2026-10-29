@@ -39,8 +39,9 @@ fn takes_capability(verb: &str) -> bool {
 
 /// Publish before listeners open. The calling session identifies the policy
 /// owner even when a first turn precedes the accept loop's bookkeeping.
-pub(super) fn root(state: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
+pub(super) fn root(state: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Reply {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let (connection, _) = super::rooms::caller(&mut state.borrow_mut())?;
 		if !matches!(
 			verb,

@@ -221,3 +221,14 @@ def _load():
 
 
 _host = _load()
+
+
+def _selector_buf(verb: str | None):
+    """Borrow a selector; None is direct invocation, including with no args."""
+    if verb is None:
+        return None, None, 0
+    from ._ffi_ocapn import _byte_buf
+
+    data = verb.encode()
+    owner, ptr = _byte_buf(data)
+    return owner, ptr, len(data)

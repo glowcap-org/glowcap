@@ -140,7 +140,7 @@ test "served Host reply lends containers without turn storage and near reply kee
         .origin = .{ .served = null },
     };
     const Handler = struct {
-        pub fn handle(_: *@This(), _: *core.HostTurn, _: []const u8, _: core.Args) !Value {
+        pub fn handle(_: *@This(), _: *core.HostTurn, _: ?[]const u8, _: core.Args) !Value {
             return .{ .@"struct" = &.{.{ .key = "value", .value = .{ .integer = 42 } }} };
         }
     };

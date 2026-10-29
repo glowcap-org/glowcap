@@ -28,6 +28,7 @@ pub(super) async fn run(host: &Host, exporter: &Host, owner: &managed::Session<P
 	exporter
 		.publish("offered-archive", || {
 			Box::new(|verb, _| {
+				let verb = verb.ok_or("fixture requires a method")?;
 				assert_eq!(verb, "read");
 				Ok(Argument::Void)
 			})

@@ -36,10 +36,10 @@ const opts: driver.SessionOptions = .{
 /// The widget: the service the client ends up talking to directly. It never
 /// learns that an introduction happened.
 const Widget = struct {
-    pub fn handle(self: *Widget, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Widget, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         _ = self;
-        _ = ht;
-        _ = args;
         if (!std.mem.eql(u8, verb, "spin")) return error.NoSuchMethod;
         return .{ .string = "widget spun" };
     }
@@ -53,9 +53,9 @@ const Widget = struct {
 const Directory = struct {
     widget: driver.Capability,
 
-    pub fn handle(self: *Directory, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
-        _ = ht;
-        _ = args;
+    pub fn handle(self: *Directory, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "lookup")) return error.NoSuchMethod;
         return .{ .capability = self.widget };
     }

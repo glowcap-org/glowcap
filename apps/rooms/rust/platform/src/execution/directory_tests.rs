@@ -59,6 +59,7 @@ async fn scenario() {
 	let client = Client::new(connected.unwrap(), HostPlatform);
 	let room = accepted
 		.spawn_owned(|verb, _| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "called");
 			Ok("garden".into())
 		})
@@ -75,6 +76,7 @@ async fn scenario() {
 	let (answer, recorded, delay, actor_host) = (authority_reply.clone(), calls.clone(), delayed.clone(), host.clone());
 	let bootstrap = accepted
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "roomAuthorities");
 			assert!(args.is_empty());
 			recorded
@@ -105,62 +107,65 @@ async fn scenario() {
 		calls.clone(),
 	);
 	let root = accepted
-		.publish("directory", move |verb, args| match verb {
-			"openManaged" => {
-				recorded.borrow_mut().push(
-					json!({"target":"directory","verb":verb,"args":args.iter().map(|v|v.as_str().unwrap()).collect::<Vec<_>>()}),
-				);
-				Ok(Argument::List(if bad.get() {
-					vec![member.clone().into()]
-				} else {
-					vec![member.clone().into(), boot.clone().into()]
-				}))
-			}
-			"open" => {
-				if args.len() == 3 {
-					assert_eq!(args[1].as_bool(), Some(true));
-					assert!(args[2].as_str().unwrap().starts_with('~'));
-				} else {
+		.publish("directory", move |verb, args| {
+			match verb.ok_or("fixture requires a method")? {
+				"openManaged" => {
+					recorded.borrow_mut().push(
+						json!({"target":"directory","verb":verb,"args":args.iter().map(|v|v.as_str().unwrap()).collect::<Vec<_>>()}),
+					);
+					Ok(Argument::List(if bad.get() {
+						vec![member.clone().into()]
+					} else {
+						vec![member.clone().into(), boot.clone().into()]
+					}))
+				}
+				"open" => {
+					if args.len() == 3 {
+						assert_eq!(args[1].as_bool(), Some(true));
+						assert!(args[2].as_str().unwrap().starts_with('~'));
+					} else {
+						assert_eq!(args.len(), 1);
+					}
+					Ok(if bad.get() {
+						Argument::Void
+					} else {
+						member.clone().into()
+					})
+				}
+				"enter" | "enterPublication" => {
 					assert_eq!(args.len(), 1);
+					Ok(member.clone().into())
 				}
-				Ok(if bad.get() {
-					Argument::Void
-				} else {
-					member.clone().into()
-				})
-			}
-			"enter" | "enterPublication" => {
-				assert_eq!(args.len(), 1);
-				Ok(member.clone().into())
-			}
-			"link" | "openPrivateLink" => {
-				assert_eq!(args.len(), 1);
-				Ok(room_link.clone().into())
-			}
-			"advertisedLocation" => {
-				assert!(args.is_empty());
-				Ok("directory.id".into())
-			}
-			"listPublications" => {
-				assert!(args.is_empty());
-				Ok(lists.borrow().clone())
-			}
-			"watchPublications" => {
-				let [Argument::Reference(inbox)] = args else {
-					panic!("watch expects one observer")
-				};
-				*observer.borrow_mut() = Some(inbox.clone());
-				if let Some(Argument::List(args)) = event.borrow().as_ref() {
-					service.tell(inbox, "notify", args).unwrap();
+				"link" | "openPrivateLink" => {
+					assert_eq!(args.len(), 1);
+					Ok(room_link.clone().into())
 				}
-				Ok(snapshot.borrow().clone())
+				"advertisedLocation" => {
+					assert!(args.is_empty());
+					Ok("directory.id".into())
+				}
+				"listPublications" => {
+					assert!(args.is_empty());
+					Ok(lists.borrow().clone())
+				}
+				"watchPublications" => {
+					let [Argument::Reference(inbox)] = args else {
+						panic!("watch expects one observer")
+					};
+					*observer.borrow_mut() = Some(inbox.clone());
+					if let Some(Argument::List(args)) = event.borrow().as_ref() {
+						service.tell(inbox, "notify", args).unwrap();
+					}
+					Ok(snapshot.borrow().clone())
+				}
+				_ => Err("unknown directory verb".into()),
 			}
-			_ => Err("unknown directory verb".into()),
 		})
 		.unwrap();
 	let directory = Directory::fetch(client.clone()).await.unwrap();
 	let other_root = accepted
 		.publish("other-directory", |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "watchPublications");
 			assert!(matches!(args, [Argument::Reference(_)]));
 			Ok(Argument::List(vec![

@@ -36,6 +36,7 @@ async fn manager_client_validates_authority_and_executes_real_host_calls() {
 			host.publish("room", move || {
 				let seen = seen.clone();
 				Box::new(move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					assert_eq!(verb, authority::MANAGED_IDENTITY);
 					assert!(args.is_empty());
 					seen.borrow_mut().push(verb.to_string());
@@ -60,6 +61,7 @@ async fn manager_client_validates_authority_and_executes_real_host_calls() {
 						correlator.clone(),
 					);
 					Box::new(move |verb, args| {
+						let verb = verb.ok_or("fixture requires a method")?;
 						seen.borrow_mut().push(verb.to_string());
 						match verb {
 							authority::GOVERNS => Ok(identity.into()),

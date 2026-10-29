@@ -96,6 +96,16 @@ async def run(peer_uri: str, dead_uri: str) -> None:
         # ── promise-handle ───────────────────────────────────────────────────
         greeted = send_handle(session, spine, "greet", ["spine"], "greet")
         expect_string("greet", await greeted, "hello, spine")
+        for selector in (None, "", "call"):
+            for payload in ([], ["payload"]):
+                label = "direct" if selector is None else "empty" if selector == "" else "call"
+                expect_string("invocation shape", await session.send(spine, selector, payload), f"{label}:{len(payload)}")
+        def shape_behavior(selector, args):
+            label = "direct" if selector is None else "empty" if selector == "" else selector
+            return f"{label}:{len(args)}"
+        shape_target = session.spawn(shape_behavior)
+        shape_proxy = session.caretaker(shape_target).proxy
+        expect_string("forwarded callback shapes", await session.send(spine, "shapes", [shape_proxy]), "shapes preserved")
         mark("promise-handle")
 
         # ── promise-index / promise-untag / promise-get ──────────────────────

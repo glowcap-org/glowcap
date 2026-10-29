@@ -55,10 +55,10 @@ async fn acknowledged_route_retains_refusal_and_original_completion_until_recove
 				.spawn({
 					let (host, refuse, calls, answer) = (host.clone(), refuse.clone(), calls.clone(), answer.clone());
 					move |verb, args| {
-						if matches!(verb, "check-inbox" | "record-inbox") {
+						if matches!(verb, Some("check-inbox" | "record-inbox")) {
 							return Ok(Argument::Boolean(false));
 						}
-						assert_eq!(verb, "adopt-direct-route");
+						assert_eq!(verb, Some("adopt-direct-route"));
 						calls.borrow_mut().push(args.to_vec());
 						if refuse.get() {
 							return Err("storage unavailable".into());

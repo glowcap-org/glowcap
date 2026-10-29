@@ -7,7 +7,7 @@ use crate::abi_constants_gen::{CAPTP_NEXT, CAPTP_V1_0, CODEC_CAPNP, CODEC_SYRUP}
 /// `ptr` and `len` are one text view of the `GlowcapTraceEvent` the core hands the trace callback, which stays
 /// borrowed until that callback returns.
 pub(super) unsafe fn view(ptr: *const u8, len: usize, field: &str) -> crate::Result<Option<String>> {
-	if len == 0 {
+	if ptr.is_null() && len == 0 {
 		return Ok(None);
 	}
 	if ptr.is_null() {

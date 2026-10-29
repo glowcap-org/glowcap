@@ -19,7 +19,7 @@
 // hands that locator to the client. The harness runs a second copy of this
 // script and kills it, so the client also has a dead address to dial.
 
-import { PStruct, tagged } from "@glowcap/runtime";
+import { PStruct, Ref, tagged } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
 
 const server = await tcp.listen("127.0.0.1", 0);
@@ -29,6 +29,28 @@ for await (const accepted of server) {
 	const session = accepted;
 	session.publish("spine", (verb, args) => {
 		switch (verb) {
+			case null:
+			case "":
+			case "call":
+				return `${verb === null ? "direct" : verb === "" ? "empty" : "call"}:${args.length}`;
+			case "shapes": {
+				const target = args[0];
+				if (!(target instanceof Ref)) throw new Error("shapes needs a callback");
+				const proxy = session.caretaker(target).proxy;
+				return (async () => {
+					for (const selector of [null, "", "call"]) {
+						for (const payload of [[], ["payload"]]) {
+							const expected = `${
+								selector === null ? "direct" : selector === "" ? "empty" : "call"
+							}:${payload.length}`;
+							if (await session.send(proxy, selector, payload) !== expected) {
+								throw new Error(`callback lost invocation ${expected}`);
+							}
+						}
+					}
+					return "shapes preserved";
+				})();
+			}
 			case "greet": {
 				const who = typeof args[0] === "string" ? args[0] : "?";
 				return `hello, ${who}`;

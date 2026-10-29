@@ -361,7 +361,9 @@ pub fn drainActions(hosts: []const ?*cd.GlowcapHost, dials: *Dials, watches: *Wa
         watches: *Watches,
 
         pub fn flush(_: @This(), _: ?*cd.GlowcapHost, _: *const cd.GlowcapHostAction) !bool {
-            return false;
+            // A local turn can queue its foreign forward while actions drain,
+            // after this round's shuttles. It needs another shuttle round.
+            return true;
         }
         pub fn close(_: @This(), _: ?*cd.GlowcapHost, _: *const cd.GlowcapHostAction) !bool {
             return false;

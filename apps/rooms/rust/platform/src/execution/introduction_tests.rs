@@ -70,6 +70,7 @@ async fn waiting() {
 	let name = peer.spawn_owned(|_, _| Ok(Argument::Void)).unwrap();
 	let dm = peer
 		.spawn_owned(|verb, _| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "hello");
 			Ok("bob".into())
 		})
@@ -92,42 +93,44 @@ async fn waiting() {
 		queries.clone(),
 	);
 	let root = peer
-		.publish("directory", move |verb, args| match verb {
-			"register" => {
-				let Argument::Reference(observer) = &args[2] else {
-					panic!("registration inbox")
-				};
-				*inbox.borrow_mut() = Some(observer.clone());
-				service
-					.tell(observer, "notify", &["registered".into(), "alice".into(), ID.into()])
-					.unwrap();
-				Ok(Argument::List(vec![args[0].clone(), ID.into(), named.clone().into()]))
-			}
-			"memberRegistration" => {
-				assert_eq!(args[0].as_str(), Some("bob"));
-				queried.set(queried.get() + 1);
-				Ok(ID.into())
-			}
-			"introduce" => {
-				assert_eq!(args.len(), 3);
-				assert_eq!(args[0].as_str(), Some("bob"));
-				assert_eq!(args[1].as_str(), Some(ID));
-				tx.try_send(()).unwrap();
-				if notify.replace(false) {
+		.publish("directory", move |verb, args| {
+			match verb.ok_or("fixture requires a method")? {
+				"register" => {
+					let Argument::Reference(observer) = &args[2] else {
+						panic!("registration inbox")
+					};
+					*inbox.borrow_mut() = Some(observer.clone());
 					service
-						.tell(inbox.borrow().as_ref().unwrap(), "notify", &notice(ID))
+						.tell(observer, "notify", &["registered".into(), "alice".into(), ID.into()])
 						.unwrap();
+					Ok(Argument::List(vec![args[0].clone(), ID.into(), named.clone().into()]))
 				}
-				if fail.get() {
-					return Err("peer-offline: gone".into());
+				"memberRegistration" => {
+					assert_eq!(args[0].as_str(), Some("bob"));
+					queried.set(queried.get() + 1);
+					Ok(ID.into())
 				}
-				if refuse.get() > 0 {
-					refuse.set(refuse.get() - 1);
-					return Err("introduction-pending: not offered".into());
+				"introduce" => {
+					assert_eq!(args.len(), 3);
+					assert_eq!(args[0].as_str(), Some("bob"));
+					assert_eq!(args[1].as_str(), Some(ID));
+					tx.try_send(()).unwrap();
+					if notify.replace(false) {
+						service
+							.tell(inbox.borrow().as_ref().unwrap(), "notify", &notice(ID))
+							.unwrap();
+					}
+					if fail.get() {
+						return Err("peer-offline: gone".into());
+					}
+					if refuse.get() > 0 {
+						refuse.set(refuse.get() - 1);
+						return Err("introduction-pending: not offered".into());
+					}
+					Ok(reply.borrow().clone())
 				}
-				Ok(reply.borrow().clone())
+				_ => Err("unknown directory verb".into()),
 			}
-			_ => Err("unknown directory verb".into()),
 		})
 		.unwrap();
 	let directory = Directory::fetch(client.clone()).await.unwrap();
@@ -315,6 +318,7 @@ async fn handoff() {
 		.publish("directory", move || {
 			let handed = handed.clone();
 			Box::new(move |verb, args| {
+				let verb = verb.ok_or("fixture requires a method")?;
 				assert_eq!(verb, "introduce");
 				assert_eq!(args[1].as_str(), Some(ID));
 				Ok(handed.clone().into())
@@ -350,6 +354,7 @@ async fn handoff() {
 			// The delegated line survives the direct conversation's local close.
 			let line = session
 				.spawn_owned(|verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					assert_eq!(verb, "edit");
 					assert_eq!(args[0].as_str(), Some("after direct close"));
 					Ok(Argument::Void)

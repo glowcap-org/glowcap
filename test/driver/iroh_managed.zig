@@ -10,7 +10,9 @@ const secret_type = glowcap.foundation.crypto.SecretKey;
 const opts: driver.SessionOptions = .{ .handshake = .{ .ms = 5000 }, .settle = .{ .ms = 5000 } };
 
 const Greeter = struct {
-    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(_: *Greeter, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "greet") or (try args.len()) != 1) return error.BadInvocation;
         if (!std.mem.eql(u8, try args.string(0), "world")) return error.BadArgument;
         return .{ .string = "hello over managed iroh" };

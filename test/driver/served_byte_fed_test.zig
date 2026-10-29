@@ -117,7 +117,7 @@ const Adder = struct {
     n: i64,
     pub fn handle(self: *Adder, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "add")) return error.NoSuchMethod;
+        if (!msg.is("add")) return error.NoSuchMethod;
         self.n += try msg.argInt(0);
         return .{ .integer = self.n };
     }

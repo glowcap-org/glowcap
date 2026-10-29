@@ -198,7 +198,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * deciding whether the operation leaves the process. */
 	send(
 		target: Ref | RemotePromise,
-		verb: string,
+		verb: string | null,
 		args: Argument[] = [],
 	): RemotePromise {
 		// A send that cannot be issued comes back as a failed handle, not a
@@ -249,7 +249,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 */
 	async sendRedeeming(
 		target: Ref | RemotePromise,
-		verb: string,
+		verb: string | null,
 		args: Argument[] = [],
 	): Promise<SendRedeemingResult> {
 		this.guardOpen();
@@ -264,7 +264,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * and none comes back, so it is the right call for a notification or a
 	 * broadcast: it costs one deliver, not a deliver plus a reply. Returns once
 	 * the deliver is queued, and the session's writer sends it. */
-	async tell(target: Ref | RemotePromise, verb: string, args: Argument[] = []): Promise<void> {
+	async tell(target: Ref | RemotePromise, verb: string | null, args: Argument[] = []): Promise<void> {
 		this.guardOpen();
 		this.hostOwner.drainGc();
 		await dispatchTell(

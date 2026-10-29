@@ -253,7 +253,7 @@ function hex(out: Uint8Array, off: number, len: number): string {
 function view(dv: DataView, ptrOff: number, lenOff: number): string | undefined {
 	const ptr = L.getPtr(dv, ptrOff);
 	const len = L.getUsize(dv, lenOff);
-	if (len === 0n || ptr === NULL) return undefined;
+	if (ptr === NULL) return undefined;
 	return utf8.decode(readBytes(ptr, len));
 }
 

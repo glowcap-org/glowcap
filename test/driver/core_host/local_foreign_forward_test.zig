@@ -9,7 +9,7 @@ const a = std.testing.allocator;
 
 const Echo = struct {
     calls: *usize,
-    pub fn handle(self: *Echo, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Echo, turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.calls.* += 1;
@@ -19,7 +19,7 @@ const Echo = struct {
 const Hop = struct {
     target: driver.Capability,
     fail: bool = false,
-    pub fn handle(self: *Hop, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Hop, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         const result = try turn.forward(self.target, verb, arg_values);
@@ -29,7 +29,7 @@ const Hop = struct {
 };
 const Gift = struct {
     target: driver.Capability,
-    pub fn handle(self: *Gift, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Gift, turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         return .{ .capability = self.target };

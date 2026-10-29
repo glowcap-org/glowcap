@@ -72,7 +72,14 @@ impl<P: Platform> Work<P> {
 			work.dispatch(&host, &facet, verb, args).map_err(Error::into_refusal)
 		})?)
 	}
-	pub fn dispatch(&self, host: &Host, facet: &Facet, verb: &str, args: &[Argument]) -> Result<Argument, Error> {
+	pub fn dispatch(
+		&self,
+		host: &Host,
+		facet: &Facet,
+		verb: Option<&str>,
+		args: &[Argument],
+	) -> Result<Argument, Error> {
+		let verb = verb.ok_or_else(|| Error::invalid("unknown archive share method"))?;
 		let owner = self.owner()?;
 		if matches!(
 			verb,

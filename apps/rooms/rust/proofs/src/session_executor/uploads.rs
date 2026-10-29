@@ -314,7 +314,7 @@ pub(super) async fn run() {
 				let mut attachment = store
 					.attach(&host, vec![owner.registration(), registration(trace.clone())])
 					.unwrap();
-				attachment.start_live(None, 128).unwrap();
+				environment::start_live(&attachment, None, 128).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control.clone()).unwrap();
 				owner.initialize().await.unwrap();

@@ -31,7 +31,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			let [Argument::String(cursor), Argument::Boolean(wait)] = args else {
 				return Err("activity read takes a cursor and wait choice".into());
 			};
-			if verb != "read" {
+			if verb != Some("read") {
 				return Err("activity reader accepts only read".into());
 			}
 			let activity = weak.upgrade().ok_or("Session activity has closed")?;
@@ -73,7 +73,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			let [Argument::Integer(offset), Argument::Integer(maximum)] = args else {
 				return Err("file read takes offset and bounded chunk length".into());
 			};
-			if verb != rooms_application::protocol_data::READ {
+			if verb != Some(rooms_application::protocol_data::READ) {
 				return Err("file reader accepts only read".into());
 			}
 			let offset = u64::try_from(*offset).map_err(|_| "invalid file offset")?;

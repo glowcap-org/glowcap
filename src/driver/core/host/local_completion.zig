@@ -100,7 +100,7 @@ pub const Reply = struct {
     }
 };
 
-pub fn send(host: *host_mod.Host, lease: *const host_mod.Host.PendingWorkLease, target: value_mod.Capability, verb: []const u8, args: []const value_mod.Value) !u64 {
+pub fn send(host: *host_mod.Host, lease: *const host_mod.Host.PendingWorkLease, target: value_mod.Capability, verb: ?[]const u8, args: []const value_mod.Value) !u64 {
     try lease.checkHost(host);
     const charge = try local.inputCharge(host, verb, args);
     const id = try vows.peekVowId(host);

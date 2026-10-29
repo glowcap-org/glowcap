@@ -263,9 +263,9 @@ test "driver loopback: connect and listen own peers and buffers, fetch + call ro
 /// questioner-side pipelining path end to end.
 const Task = struct {
     done: bool = false,
-    pub fn handle(self: *Task, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
-        _ = ht;
-        _ = args;
+    pub fn handle(self: *Task, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (std.mem.eql(u8, verb, "assign")) return .{ .bytes = "assigned" };
         if (std.mem.eql(u8, verb, "complete")) {
             self.done = true;
@@ -277,9 +277,10 @@ const Task = struct {
 };
 
 const Board = struct {
-    pub fn handle(self: *Board, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Board, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         _ = self;
-        _ = args;
         if (!std.mem.eql(u8, verb, "create")) return error.NoSuchMethod;
         return .{ .capability = try ht.spawn(Task, .{}) };
     }
@@ -347,10 +348,10 @@ test "driver loopback: promise pipelining drives create->assign->complete->statu
 /// The locally spawned actor for the local-call test: replies from its own
 /// state, so settling it needs no partner traffic at all.
 const LocalPing = struct {
-    pub fn handle(self: *LocalPing, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *LocalPing, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         _ = self;
-        _ = ht;
-        _ = args;
         if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
         return .{ .string = "pong from this side" };
     }
@@ -400,9 +401,10 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
 /// marshals exactly one into its reply. The other's export position leaks only
 /// as an integer, which is data, not authority.
 const TwoSpawner = struct {
-    pub fn handle(self: *TwoSpawner, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *TwoSpawner, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         _ = self;
-        _ = args;
         if (!std.mem.eql(u8, verb, "make")) return error.NoSuchMethod;
         const granted = try ht.spawn(Greeter, .{});
         // The reserved one is minted at the wire tier: the test
@@ -499,11 +501,15 @@ test "Identity.ephemeral signs the unreachable-client designator" {
 /// a lifted promise or a settled object, and `echo(capability)` with the
 /// capability itself.
 const CapabilityKindReader = struct {
-    pub fn handle(_: *@This(), ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
-        if (std.mem.eql(u8, verb, "echo")) return .{ .capability = try args.capability(0) };
+    pub fn handle(_: *@This(), ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        if (selector != null and std.mem.eql(u8, selector.?, "echo")) {
+            if ((try args.len()) != 1) return error.BadInvocation;
+            return .{ .capability = try args.capability(0) };
+        }
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "read")) return error.NoSuchMethod;
         const cap = try args.capability(0);
-        defer ht.releaseValues(&.{.{ .capability = cap }});
         const kind: []const u8 = switch (try ht.host.resolveCapability(ht.session.?, cap)) {
             .pending => "promise",
             .resolved => |object| blk: {

@@ -47,9 +47,9 @@ const Widget = harness.StaticReplyBehavior("poke", poked);
 const Introducer = struct {
     widget: driver.Capability,
 
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
-        _ = ht;
-        _ = args;
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
         return .{ .capability = self.widget };
     }

@@ -295,7 +295,14 @@ impl<P: Platform> Receiver<P> {
 				.map_err(Error::into_refusal)
 		})?)
 	}
-	fn receive(&self, facet: &Facet, authority: &Authority, verb: &str, args: &[Argument]) -> Result<Argument, Error> {
+	fn receive(
+		&self,
+		facet: &Facet,
+		authority: &Authority,
+		verb: Option<&str>,
+		args: &[Argument],
+	) -> Result<Argument, Error> {
+		let verb = verb.ok_or_else(|| Error::invalid("unknown archive method"))?;
 		let state = self
 			.0
 			.upgrade()

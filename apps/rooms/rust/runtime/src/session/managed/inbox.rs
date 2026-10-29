@@ -325,7 +325,7 @@ pub(super) fn open_line<P: Tasks + Deadline + Clone + 'static>(
 		platform,
 		Admission::Child { workspace, origin },
 		budget,
-		move |verb, args, _, _| behavior(verb, args),
+		move |verb, args, _, _| behavior(Some(verb), args),
 	)
 }
 
@@ -391,6 +391,7 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 	let receiving_clock = platform.clone();
 	let mut remote = super::incoming::Sender::default();
 	let reference = host.spawn(move |verb, args| {
+		let verb = verb.ok_or("Unknown inbox method")?;
 		let verb = if matches!(kind, Kind::Line) {
 			use rooms_application::protocol_data as protocol;
 			match verb {

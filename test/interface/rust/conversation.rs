@@ -30,8 +30,8 @@ async fn scenario(wrong_fulfillment: bool, discard_original: bool) {
 		.spawn(|verb, args| {
 			assert!(args.is_empty());
 			match verb {
-				"read" => Ok(Argument::String("reader value".into())),
-				"then" => Ok(Argument::String("ordinary then method".into())),
+				Some("read") => Ok(Argument::String("reader value".into())),
+				Some("then") => Ok(Argument::String("ordinary then method".into())),
 				_ => Err("unknown reader method".into()),
 			}
 		})
@@ -46,14 +46,14 @@ async fn scenario(wrong_fulfillment: bool, discard_original: bool) {
 			assert_eq!(args.len(), 1);
 			let argument = Ref::try_from(&args[0]).unwrap();
 			match verb {
-				"open" => {
+				Some("open") => {
 					let resolver = owner.defer_turn().unwrap();
 					let mut factory = factory.borrow_mut();
 					assert!(factory.resolver.is_none());
 					factory.sink = Some(argument);
 					factory.resolver = Some(resolver);
 				}
-				"accept" => {
+				Some("accept") => {
 					let mut factory = factory.borrow_mut();
 					assert!(factory.resolver.is_some(), "argument must arrive before fulfillment");
 					factory.argument = Some(argument);
@@ -89,8 +89,8 @@ async fn scenario(wrong_fulfillment: bool, discard_original: bool) {
 		.spawn_owned(move |verb, args| {
 			assert_eq!(args.len(), 1);
 			match verb {
-				"push" => received.borrow_mut().reference = Some(Ref::try_from(&args[0]).unwrap()),
-				"changed" => {
+				Some("push") => received.borrow_mut().reference = Some(Ref::try_from(&args[0]).unwrap()),
+				Some("changed") => {
 					assert_eq!(args[0].as_str(), Some("notice"));
 					received.borrow_mut().notices += 1;
 				}

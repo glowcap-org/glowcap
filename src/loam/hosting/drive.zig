@@ -296,8 +296,8 @@ pub const Runner = struct {
     owner: *h.Attachment,
     pub fn handle(self: *Runner, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "barrier")) return .{ .void = {} };
-        if (!std.mem.eql(u8, msg.verb, "invoke") or (try msg.args.len()) != 2) return error.InvalidDelivery;
+        if (msg.is("barrier")) return .{ .void = {} };
+        if (!msg.is("invoke") or (try msg.args.len()) != 2) return error.InvalidDelivery;
         const index = std.math.cast(usize, try msg.argInt(0)) orelse return error.InvalidDelivery;
         if (index >= self.owner.operations.len) return error.InvalidDelivery;
         const op = &self.owner.operations[index];

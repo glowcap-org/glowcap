@@ -36,8 +36,8 @@ pub(super) fn mint(
 			if !held.active.get() || shared.borrow().irc.stopping {
 				return Err(retired());
 			}
-			if verb != CLAIM {
-				return Err(format!("a room invitation has no method {verb}"));
+			if verb != Some(CLAIM) {
+				return Err(format!("a room invitation has no method {verb:?}"));
 			}
 			let [Argument::String(receipt)] = args else {
 				return Err("claimInvitation takes one 128-bit lowercase hexadecimal receipt".into());

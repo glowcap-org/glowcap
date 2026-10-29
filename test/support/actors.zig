@@ -19,7 +19,7 @@ pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) t
         pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
             _ = self;
             _ = turn;
-            if (!std.mem.eql(u8, msg.verb, verb)) return error.NoSuchMethod;
+            if (!msg.is(verb)) return error.NoSuchMethod;
             return .{ .string = reply };
         }
     };
@@ -30,11 +30,11 @@ pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) t
 /// behaviors speak opaque capabilities (`driver.Hosting`).
 pub fn StaticReplyValueActor(comptime verb: []const u8, comptime reply: []const u8) type {
     return struct {
-        pub fn handle(self: *@This(), ht: *glowcap.driver.HostTurn, v: []const u8, args: glowcap.driver.Args) !glowcap.driver.Value {
+        pub fn handle(self: *@This(), ht: *glowcap.driver.HostTurn, v: ?[]const u8, args: glowcap.driver.Args) !glowcap.driver.Value {
             _ = self;
             _ = ht;
             _ = args;
-            if (!std.mem.eql(u8, v, verb)) return error.NoSuchMethod;
+            if (!std.mem.eql(u8, v orelse return error.NoSuchMethod, verb)) return error.NoSuchMethod;
             return .{ .string = reply };
         }
     };
@@ -47,7 +47,7 @@ pub const Counter = struct {
     hits: i64 = 0,
     pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
+        if (!msg.is("hit")) return error.NoSuchMethod;
         self.hits += 1;
         return .{ .integer = self.hits };
     }

@@ -19,7 +19,9 @@ const model = glowcap.ocapn.model;
 /// The published actor: answers `greet(name)` with a greeting built in the
 /// turn's arena, which outlives the reply encode and nothing more.
 const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(_: *Greeter, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         if ((try args.len()) != 1) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{try args.string(0)}) };

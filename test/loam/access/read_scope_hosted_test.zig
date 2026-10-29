@@ -132,7 +132,7 @@ test "loam read scope settlement retry rechecks volatile source admission withou
 const Waiting = struct {
     const State = struct { resolver: ?u64 = null, calls: usize = 0 };
     state: *State,
-    pub fn handle(self: *Waiting, turn: *h.driver.HostTurn, _: []const u8, args: h.driver.Args) !h.driver.Value {
+    pub fn handle(self: *Waiting, turn: *h.driver.HostTurn, _: ?[]const u8, args: h.driver.Args) !h.driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.state.resolver = try turn.deferAnswer();

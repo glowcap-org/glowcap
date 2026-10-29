@@ -27,10 +27,10 @@ const Greeter = support_actors.StaticReplyValueActor("greet", "still serving");
 const Probe = struct {
     freed: *bool,
 
-    pub fn handle(self: *Probe, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Probe, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         _ = self;
-        _ = ht;
-        _ = args;
         if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
         return .{ .string = "pong" };
     }

@@ -23,7 +23,7 @@ pub(in crate::server) fn link_publication(shared: &Shared, args: &[Argument]) ->
 			shared.clone(),
 			publication,
 			rooms_application::room::policy::MembershipKind::Participant,
-		)(LINK, &[]);
+		)(Some(LINK), &[]);
 	}
 	if let Some(entrance) = state
 		.foreign
@@ -40,5 +40,5 @@ pub(in crate::server) fn link_publication(shared: &Shared, args: &[Argument]) ->
 	}
 	let entrance = state.rooms.enter_publication(id, &state.authority).map_err(refusal)?;
 	drop(state);
-	super::entrance(shared.clone(), entrance)(LINK, &[])
+	super::entrance(shared.clone(), entrance)(Some(LINK), &[])
 }

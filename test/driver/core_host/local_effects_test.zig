@@ -11,7 +11,7 @@ const metrics = @import("../../support/alloc_metrics.zig");
 const Child = struct {
     calls: *usize,
     resolver: ?*u64 = null,
-    pub fn handle(self: *@This(), turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *@This(), turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.calls.* += 1;
@@ -34,7 +34,7 @@ const Parent = struct {
     vow: *u64,
     tell: bool,
     fail: bool = false,
-    pub fn handle(self: *@This(), turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *@This(), turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         if (self.tell) try turn.tell(self.target, "echo", arg_values) else self.vow.* = try turn.send(self.target, "echo", arg_values);
@@ -44,7 +44,7 @@ const Parent = struct {
 };
 const Hop = struct {
     target: driver.Capability,
-    pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         return turn.forward(self.target, verb, arg_values);

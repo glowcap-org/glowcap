@@ -23,7 +23,9 @@ const opts: driver.SessionOptions = .{
 };
 
 const Echo = struct {
-    pub fn handle(_: *Echo, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(_: *Echo, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
         return .{ .string = "pong, sealed" };
     }

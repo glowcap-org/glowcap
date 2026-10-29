@@ -135,7 +135,7 @@ pub const Producer = struct {
 const Input = struct {
     producer: *Producer,
     target: capability.Ref,
-    verb: []const u8,
+    verb: ?[]const u8,
     args: []const value_mod.Value,
     retained: []capability.Ref = &.{},
     owned_bytes: usize,
@@ -161,7 +161,7 @@ const Input = struct {
     fn copyOwned(ctx: *anyopaque, arena: std.mem.Allocator) actors.Error!actors.OpaqueMessage {
         const self: *Input = @ptrCast(@alignCast(ctx));
         const result = try arena.create(Input);
-        const verb = try arena.dupe(u8, self.verb);
+        const verb = if (self.verb) |method| try arena.dupe(u8, method) else null;
         const args = try arena.alloc(value_mod.Value, self.args.len);
         for (args, self.args) |*out, value| out.* = value_copy.copy(value_mod.Value, arena, value) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
@@ -207,7 +207,7 @@ pub fn producer(turn: *actors.Turn) !*Producer {
 /// Acquire callback observations separately from the queue's keeper retains. A
 /// behavior can release its observations and return an aliased argument. The
 /// queue still holds that authority through owning-reply preparation.
-pub fn arguments(turn: *actors.Turn) !struct { verb: []const u8, args: []const value_mod.Value } {
+pub fn arguments(turn: *actors.Turn) !struct { verb: ?[]const u8, args: []const value_mod.Value } {
     const owner = try producer(turn);
     const input: *Input = @ptrCast(@alignCast(turn.opaque_message.?.ctx));
     _ = try owner.host.retainValueCapabilities(turn.arena, input.args);
@@ -217,12 +217,12 @@ pub fn arguments(turn: *actors.Turn) !struct { verb: []const u8, args: []const v
 /// Admit one exact local target on the Host's trusted local progress lane.
 /// Queued inputs belong to the Host/Vat, while
 /// the operation and bounded reply buffer belong to `allocator`.
-pub fn callLocalCapability(host: *host_mod.Host, allocator: std.mem.Allocator, target: capability.Ref, verb: []const u8, args: []const value_mod.Value, reply_bytes: usize) !*owned.Call {
+pub fn callLocalCapability(host: *host_mod.Host, allocator: std.mem.Allocator, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value, reply_bytes: usize) !*owned.Call {
     return callAdmitted(host, allocator, target, verb, args, reply_bytes, .application);
 }
 
 /// One constructor for top-level and lease-authorized retained child calls.
-pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, target: capability.Ref, verb: []const u8, args: []const value_mod.Value, reply_bytes: usize, admission: @import("admission.zig").WorkAdmission) !*owned.Call {
+pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value, reply_bytes: usize, admission: @import("admission.zig").WorkAdmission) !*owned.Call {
     try host.refuseReentry();
     try admission.check(host);
     if (host.localActorFor(target) == null) return error.UnknownCapability;
@@ -248,7 +248,7 @@ pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, target: 
     return call;
 }
 
-pub fn inputCharge(host: *host_mod.Host, verb: []const u8, args: []const value_mod.Value) !usize {
+pub fn inputCharge(host: *host_mod.Host, verb: ?[]const u8, args: []const value_mod.Value) !usize {
     const bytes = try value_copy.measureSlice(args);
     // Validate identities and count the same occurrence inventory retained by
     // the queue. No publication or target effect precedes this preflight.
@@ -262,7 +262,7 @@ pub fn inputCharge(host: *host_mod.Host, verb: []const u8, args: []const value_m
         }
     };
     for (args) |*value| try value.forEachCapability(Counter{ .host = host, .count = &count }, Counter.visit);
-    var charge = try std.math.add(usize, @sizeOf(Input), verb.len);
+    var charge = try std.math.add(usize, @sizeOf(Input), if (verb) |method| method.len else 0);
     charge = try std.math.add(usize, charge, bytes);
     charge = try std.math.add(usize, charge, try std.math.mul(usize, count, @sizeOf(capability.Ref)));
     return charge;
@@ -271,7 +271,7 @@ pub fn inputCharge(host: *host_mod.Host, verb: []const u8, args: []const value_m
 /// Local forwarding retains the original completion owner. Each actual
 /// delivery owns its input, but no hop allocates another result buffer, Host
 /// vow row or producer. Existing Vat forwarding carries the terminal token.
-pub fn forward(turn: *actors.Turn, target: capability.Ref, verb: []const u8, args: []const value_mod.Value) !void {
+pub fn forward(turn: *actors.Turn, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value) !void {
     const source = try producer(turn);
     const actor = source.host.localActorFor(target) orelse return @import("foreign_forward.zig").begin(turn, source, target, verb, args);
     const charge = try inputCharge(source.host, verb, args);
@@ -280,7 +280,7 @@ pub fn forward(turn: *actors.Turn, target: capability.Ref, verb: []const u8, arg
 }
 
 /// Callback effects derive admission from their real local input owner.
-pub fn send(turn: *actors.Turn, target: capability.Ref, verb: []const u8, args: []const value_mod.Value) !u64 {
+pub fn send(turn: *actors.Turn, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value) !u64 {
     const parent = try producer(turn);
     const lease = if (parent.lease) |*lease| lease else return error.NoPendingWork;
     try lease.checkHost(parent.host);
@@ -290,7 +290,7 @@ pub fn send(turn: *actors.Turn, target: capability.Ref, verb: []const u8, args: 
     return @import("delivery.zig").sendValuesAdmitted(parent.host, session, target, verb, args, turn.arena, .{ .retained = lease });
 }
 
-pub fn tell(turn: *actors.Turn, target: capability.Ref, verb: []const u8, args: []const value_mod.Value) !void {
+pub fn tell(turn: *actors.Turn, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value) !void {
     const parent = try producer(turn);
     const lease = if (parent.lease) |*lease| lease else return error.NoPendingWork;
     try lease.checkHost(parent.host);
@@ -304,7 +304,7 @@ pub fn tell(turn: *actors.Turn, target: capability.Ref, verb: []const u8, args: 
 /// answer vow. Turn tells and sessionless Host tells use the same ownership.
 /// The discard Producer and copied ingress input survive the caller's borrowed
 /// values and target release. Reusing queue custody avoids an answer allocation.
-pub fn tellLocal(host: *host_mod.Host, lease: *@import("admission.zig").PendingWorkLease, target: capability.Ref, verb: []const u8, args: []const value_mod.Value) !void {
+pub fn tellLocal(host: *host_mod.Host, lease: *@import("admission.zig").PendingWorkLease, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value) !void {
     try lease.checkHost(host);
     const actor = host.localActorFor(target) orelse return error.UnknownCapability;
     const charge = try inputCharge(host, verb, args);
@@ -317,7 +317,7 @@ pub fn tellLocal(host: *host_mod.Host, lease: *@import("admission.zig").PendingW
 }
 
 /// Shared opaque queue admission for public and private result owners.
-pub fn enqueue(host: *host_mod.Host, source: *Producer, target: capability.Ref, verb: []const u8, args: []const value_mod.Value, charge: usize, listener: actors.Listener) !actors.Vow {
+pub fn enqueue(host: *host_mod.Host, source: *Producer, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value, charge: usize, listener: actors.Listener) !actors.Vow {
     const actor = host.localActorFor(target) orelse return error.UnknownCapability;
     var input: Input = .{ .producer = source, .target = target, .verb = verb, .args = args, .owned_bytes = charge };
     return host.vat.sendOpaqueFromIngress(.local, actor, input.message(), listener);

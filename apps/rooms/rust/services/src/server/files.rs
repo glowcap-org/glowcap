@@ -62,6 +62,7 @@ fn reader(state: &State, session: &Session, blob: &Blob) -> Result<Ref, glowcap:
 	let shared = Rc::downgrade(&state.shared());
 	let blob = blob.clone();
 	session.spawn_owned(move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let shared = shared.upgrade().ok_or("room file owner is closed")?;
 		read(&shared, &blob, verb, args)
 	})
@@ -170,8 +171,9 @@ pub(super) fn facet(
 	shared: Shared,
 	room: RoomKey,
 	membership: Rc<Cell<Option<MembershipKey>>>,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let (membership, session) = seat::admitted(&membership, "room files facet", verb, args)?;
 		let mut state = shared.borrow_mut();
 		let connection = state.admit(session.borrowed());
@@ -303,8 +305,12 @@ pub(super) fn facet(
 
 /// The upload capability `attach` answers: `write(chunk)` fills the declared
 /// size in order, `discard()` gives the room its reservation back.
-pub(super) fn upload(shared: Shared, key: UploadKey) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+pub(super) fn upload(
+	shared: Shared,
+	key: UploadKey,
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let values: Vec<Value<'_>> = args.iter().map(Value).collect();
 		let mut state = shared.borrow_mut();
 		let (connection, _) = super::rooms::caller(&mut state)?;

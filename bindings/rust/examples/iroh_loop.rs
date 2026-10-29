@@ -137,11 +137,11 @@ async fn run() -> Result<(), Fail> {
 }
 
 // The published actor: answer `greet` with a static greeting.
-fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
-	if verb == "greet" {
+fn greeter(verb: Option<&str>, _args: &[Argument]) -> Result<Argument, String> {
+	if verb == Some("greet") {
 		Ok(GREETING.into())
 	} else {
-		Err(format!("no such method: {verb}"))
+		Err(format!("no such method: {verb:?}"))
 	}
 }
 

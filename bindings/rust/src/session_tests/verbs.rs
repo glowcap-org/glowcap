@@ -20,8 +20,8 @@ async fn enliven_round_trips_then_caches() {
 				let session = server.accept().await.unwrap();
 				session
 					.publish("greeter", |verb, _args| {
-						if verb != "hello" {
-							return Err(format!("no such method: {verb}"));
+						if verb != Some("hello") {
+							return Err(format!("no such method: {verb:?}"));
 						}
 						Ok(Argument::Symbol("alive".into()))
 					})
@@ -114,8 +114,8 @@ async fn send_surfaces_the_partner_break_reason() {
 				session
 					.publish("svc", |verb, _args| {
 						Err(match verb {
-							"do" => "nope: revoked".to_string(),
-							other => format!("no such method: {other}"),
+							Some("do") => "nope: revoked".to_string(),
+							other => format!("no such method: {other:?}"),
 						})
 					})
 					.unwrap();
@@ -165,7 +165,7 @@ async fn a_panicking_behavior_breaks_its_answer_and_the_process_survives() {
 				let session = server.accept().await.unwrap();
 				session
 					.publish("svc", |verb, _args| {
-						if verb == "explode" {
+						if verb == Some("explode") {
 							panic!("Revoked by panic");
 						}
 						Ok(Argument::Symbol("calm".into()))
@@ -217,12 +217,12 @@ async fn tell_flushes_in_order_before_a_following_send() {
 				let mut count: i64 = 0;
 				session
 					.publish("counter", move |verb, _args| match verb {
-						"bump" => {
+						Some("bump") => {
 							count += 1;
 							Ok(Argument::Void)
 						}
-						"get" => Ok(Argument::Integer(count)),
-						other => Err(format!("no such method: {other}")),
+						Some("get") => Ok(Argument::Integer(count)),
+						other => Err(format!("no such method: {other:?}")),
 					})
 					.unwrap();
 				ready_tx.send(()).unwrap();
@@ -287,7 +287,7 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 				.unwrap();
 				session
 					.publish("svc", move |verb, _args| {
-						if verb == "hang" {
+						if verb == Some("hang") {
 							// The socket dies before the reply can flush: the
 							// client observes a disconnect, not an answer.
 							let _ = dup.shutdown(std::net::Shutdown::Both);
@@ -373,8 +373,8 @@ async fn a_failed_command_replies_typed_and_the_connection_survives() {
 				let session = server.accept().await.unwrap();
 				session
 					.publish("svc", |verb, _args| {
-						if verb != "ping" {
-							return Err(format!("no such method: {verb}"));
+						if verb != Some("ping") {
+							return Err(format!("no such method: {verb:?}"));
 						}
 						Ok(Argument::String("pong".into()))
 					})
@@ -434,12 +434,12 @@ async fn local_tell_forward_refusal_does_not_poison_a_later_verb() {
 			let proxy = shared
 				.spawn_actor(Box::new(move |verb, args| crate::trampoline::TurnOutcome::Forward {
 					target: bogus.clone(),
-					verb: verb.to_string(),
+					verb: verb.map(str::to_string),
 					args: args.to_vec(),
 				}))
 				.unwrap();
 
-			shared.tell(&proxy, "notify", &[]).unwrap();
+			shared.tell(&proxy, Some("notify"), &[]).unwrap();
 			tokio::task::yield_now().await;
 			let calls = Rc::new(Cell::new(0));
 			let seen = calls.clone();
@@ -449,7 +449,7 @@ async fn local_tell_forward_refusal_does_not_poison_a_later_verb() {
 					crate::trampoline::TurnOutcome::Value(Argument::Void)
 				}))
 				.unwrap();
-			shared.tell(&sink, "later", &[]).unwrap();
+			shared.tell(&sink, Some("later"), &[]).unwrap();
 			assert_eq!(calls.get(), 1);
 
 			shared.close_transport();
@@ -483,8 +483,8 @@ async fn send_to_a_self_spawned_actor_resolves_in_process() {
 			.unwrap();
 			let me = session
 				.spawn(|verb, args| {
-					if verb != "greet" {
-						return Err(format!("no such method: {verb}"));
+					if verb != Some("greet") {
+						return Err(format!("no such method: {verb:?}"));
 					}
 					let who = match args.first() {
 						Some(Argument::String(s)) => s.as_str(),

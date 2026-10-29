@@ -17,6 +17,7 @@ pub(super) async fn run(archive: &ClientArchive<HostPlatform>, client: &Client<H
 	let source = client
 		.session()
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			let [Argument::Integer(offset), Argument::Integer(length)] = args else {
 				return Err("source arguments".into());
 			};

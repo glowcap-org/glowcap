@@ -268,6 +268,7 @@ async fn attempt<D: Deadline>(
 			return Err("the name registration has ended".into());
 		}
 		let inbox = weak.upgrade().ok_or("the name registration has ended")?;
+		let verb = verb.ok_or("unknown method")?;
 		let notice = policy::notice(verb, |i| args.get(i).map(Value)).map_err(|e| e.to_string())?;
 		if let Some(Notice::Event(event)) = &notice
 			&& event.kind == policy::Kind::Introducible

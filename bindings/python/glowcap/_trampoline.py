@@ -33,7 +33,7 @@ from typing import Callable, Optional
 from . import _constants as _abi
 from ._abi_value import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
 from ._errors import _check_host, _host_last_error, GlowcapError, VowBroken
-from ._ffi_host import _host, _HostBehavior
+from ._ffi_host import _host, _selector_buf, _HostBehavior
 from ._ffi_ocapn import _Argument, _byte_buf, _Reference
 from ._promise import RemotePromise, _FarArguments, _send_far
 from ._value import Forward, Ref, _ref_from_id
@@ -115,7 +115,7 @@ def _chase_local_forwards(entry: _BehaviorEntry, result):
     return result
 
 
-def _run_hosted(entry: _BehaviorEntry, verb: str, args: list, turn=None):
+def _run_hosted(entry: _BehaviorEntry, verb: str | None, args: list, turn=None):
     """Run a hosted behavior and chase the local Forward prefix. When ``turn``
     is set, latch ``_current_turn`` for the duration (the wire trampoline path).
     Local send/tell omit the latch."""
@@ -130,7 +130,7 @@ def _run_hosted(entry: _BehaviorEntry, verb: str, args: list, turn=None):
         _turn_state.current_turn = prev
 
 
-def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
+def _send_local(session, ctx: int, verb: str | None, args: list) -> RemotePromise:
     # The local arm of `send`: run the hosted behavior on first observation
     # and settle from its result. A `Forward` to another object this side
     # hosts composes in process; a `Forward` to a far target defers onto
@@ -157,7 +157,7 @@ def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
     return RemotePromise.local(begin)
 
 
-async def _tell_local(session, ctx: int, verb: str, args: list) -> None:
+async def _tell_local(session, ctx: int, verb: str | None, args: list) -> None:
     # The local arm of `tell`: discard the result; a surviving Forward
     # continues as a far tell. Behavior failures have no answer to break and
     # therefore enter the Host's central callerless-failure seam.
@@ -285,14 +285,13 @@ def _settle_reply(turn: int, result, out_reply) -> int:
         # until the synchronous call returns.
         keep: list = []
         ref = _ref_to_c(result.target)
-        verb_bytes = result.verb.encode()
-        vbuf, vptr = _byte_buf(verb_bytes)
+        vbuf, vptr, verb_len = _selector_buf(result.verb)
         arr, count = _args_to_c(result.args, keep)
         rc = _host.glowcap_host_turn_forward(
             turn,
             ctypes.byref(ref),
             vptr,
-            len(verb_bytes),
+            verb_len,
             arr,
             count,
             out_reply,
@@ -326,8 +325,8 @@ def _trampoline_body(
         restore_deliver = True
         verb = (
             ctypes.string_at(verb_ptr, verb_len).decode(errors="replace")
-            if verb_len
-            else ""
+            if verb_ptr
+            else None
         )
         args = [_arg_from_c(args_ptr[i]) for i in range(args_len)]
         if getattr(arriving, "gc_enabled", False):
@@ -363,7 +362,7 @@ def _caretaker_proxy(spawn, target: Ref) -> "Caretaker":
     # revoke(), then breaks every call Revoked.
     live = [True]
 
-    def proxy_behavior(verb: str, args: list):
+    def proxy_behavior(verb: str | None, args: list):
         if not live[0]:
             raise ValueError("Revoked")
         return Forward(target, verb, args)
@@ -376,7 +375,7 @@ def _attenuate_proxy(spawn, target: Ref, verbs: list) -> Ref:
     # verbs and breaks every other call Attenuated.
     allowed = set(verbs)
 
-    def proxy_behavior(verb: str, args: list):
+    def proxy_behavior(verb: str | None, args: list):
         if verb not in allowed:
             raise ValueError("Attenuated")
         return Forward(target, verb, args)
@@ -384,11 +383,10 @@ def _attenuate_proxy(spawn, target: Ref, verbs: list) -> Ref:
     return spawn(proxy_behavior)
 
 
-async def _tell_far(session, target: Ref | RemotePromise, verb: str, args: list) -> None:
+async def _tell_far(session, target: Ref | RemotePromise, verb: str | None, args: list) -> None:
     # Far tell mint: encode args, call glowcap_host_session_tell, kick the drain. Local
     # targets stay behind _dispatch_tell / _tell_local.
-    verb_bytes = verb.encode()
-    vbuf, vptr = _byte_buf(verb_bytes)
+    vbuf, vptr, verb_len = _selector_buf(verb)
     with _FarArguments(session, args) as (arr, count):
         if isinstance(target, RemotePromise):
             source_vow = target.far_vow(session.host)
@@ -397,7 +395,7 @@ async def _tell_far(session, target: Ref | RemotePromise, verb: str, args: list)
                     session.host.raw,
                     source_vow,
                     vptr,
-                    len(verb_bytes),
+                    verb_len,
                     arr,
                     count,
                 )
@@ -409,7 +407,7 @@ async def _tell_far(session, target: Ref | RemotePromise, verb: str, args: list)
                     session.raw,
                     ctypes.byref(ref),
                     vptr,
-                    len(verb_bytes),
+                    verb_len,
                     arr,
                     count,
                 )
@@ -417,7 +415,7 @@ async def _tell_far(session, target: Ref | RemotePromise, verb: str, args: list)
     await session.host.kick_actions()
 
 
-def _dispatch_send(session, target, verb: str, args) -> RemotePromise:
+def _dispatch_send(session, target, verb: str | None, args) -> RemotePromise:
     # Near-hosted vs far send dispatch: a self-hosted near runs _send_local,
     # everything else mints through _send_far. Session keeps guard/drain + the
     # CapTP verb; this owns the routing if.
@@ -428,7 +426,7 @@ def _dispatch_send(session, target, verb: str, args) -> RemotePromise:
     return _send_far(session, target, verb, args)
 
 
-async def _dispatch_tell(session, target: Ref | RemotePromise, verb: str, args) -> None:
+async def _dispatch_tell(session, target: Ref | RemotePromise, verb: str | None, args) -> None:
     # Near-hosted vs far tell dispatch: a self-hosted near runs _tell_local,
     # everything else mints through _tell_far.
     if isinstance(target, Ref):

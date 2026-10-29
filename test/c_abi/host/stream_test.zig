@@ -461,12 +461,13 @@ const NestedEchoCtx = struct { self_ref: c.GlowcapReference = .{ .id = 0 } };
 fn nestedEchoBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     const ec: *NestedEchoCtx = @ptrCast(@alignCast(ctx.?));
     const v = verb[0..verb_len];
     if (std.mem.eql(u8, v, "noop")) {
@@ -493,12 +494,13 @@ const ForwarderCtx = struct { target_ref: c.GlowcapReference };
 fn forwarderBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = .{ args, args_len };
     const fc: *ForwarderCtx = @ptrCast(@alignCast(ctx.?));
     if (!std.mem.eql(u8, verb[0..verb_len], "relay")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;

@@ -117,7 +117,7 @@ class Forward:
 
     __slots__ = ("target", "verb", "args")
 
-    def __init__(self, target: "Ref", verb: str, args=None):
+    def __init__(self, target: "Ref", verb: str | None, args=None):
         self.target = target
         self.verb = verb
         self.args = list(args or [])
@@ -135,8 +135,9 @@ Argument: TypeAlias = (
     int | float | bool | bytes | str | Symbol | Keyword | ErrorValue | None | Ref | list | Set | Tagged | Struct | array.array[int]
 )
 
+# The verb is None for direct invocation and "" for an empty-symbol selector.
 # An actor: handle a ``(verb, args)`` call and return a reply (``None`` is the
 # OCapN void). ``args`` may contain :class:`Ref`s (capabilities handed to you);
 # raise to break the caller's promise, or return a :class:`Forward` to
 # tail-forward the answer.
-Behavior: TypeAlias = Callable[[str, "list[Argument]"], "Argument | Forward | None"]
+Behavior: TypeAlias = Callable[[str | None, "list[Argument]"], "Argument | Forward | None"]

@@ -96,13 +96,12 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
     const session: *HostSession = @ptrCast(@alignCast(ctx.?));
     const host = session.host;
     const body = event.view();
-    // Every event notices a just-opened session. An inbound deliver also
-    // reports its verb; a deliver without one is protocol traffic we skip.
+    // Every event notices a just-opened session. Every deliver reports its
+    // selector, including absence, using the actor layer's one splitter.
     host.traceNoteOpen(session);
-    if (host.trace_sink != null and body.* == .deliver) trace_verb: {
-        const args = body.deliver.args;
-        const first = args.at(0) catch break :trace_verb;
-        if (first == .symbol) host.traceMessage(session, false, first.symbol, event.bytes());
+    if (host.trace_sink != null and body.* == .deliver) {
+        const delivery = try actors.Delivery.fromArgs(body.deliver.args);
+        host.traceMessage(session, false, delivery.verb, event.bytes());
     }
     if (body.* == .start_session) {
         if (session.role == .accepted)

@@ -162,7 +162,7 @@ pub fn queueVowSend(self: *Host, vow_id: u64, msg: actors.Message) !u64 {
 pub fn vowSendValues(
     self: *Host,
     vow_id: u64,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !u64 {
@@ -173,7 +173,7 @@ pub fn vowSendValues(
 pub fn queueVowSendValues(
     self: *Host,
     vow_id: u64,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !u64 {
@@ -186,7 +186,7 @@ pub fn queueVowSendValues(
 pub fn vowTellValues(
     self: *Host,
     vow_id: u64,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !void {
@@ -206,7 +206,7 @@ pub fn vowTellValues(
 fn vowSendValuesWithProgress(
     self: *Host,
     vow_id: u64,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
     drive_now: bool,

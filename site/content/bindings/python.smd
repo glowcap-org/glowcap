@@ -200,7 +200,7 @@ From here, the CapTP workflow is the same for every transport:
 ```python
     print(server.uri)  # hand this locator to partners
 
-    def greet(verb: str, args: list[Argument]) -> str:
+    def greet(verb: str | None, args: list[Argument]) -> str:
         if verb != "greet":
             raise LookupError("no such method")
         if len(args) != 1 or not isinstance(args[0], str):

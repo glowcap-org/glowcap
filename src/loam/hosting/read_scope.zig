@@ -225,9 +225,10 @@ pub const Scope = struct {
     const Endpoint = struct {
         scope: *Scope,
         index: usize,
-        pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        pub fn handle(self: *Endpoint, turn: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
             const arg_values = try args.values();
             defer turn.releaseValues(arg_values);
+            const verb = selector orelse return error.NoSuchMethod;
             const scope = self.scope;
             const entry = scope.cache[self.index];
             const method = for (scope.interfaces[entry.role]) |*candidate| {

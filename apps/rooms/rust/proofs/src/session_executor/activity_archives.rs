@@ -21,6 +21,7 @@ pub(super) async fn run(
 		.spawn({
 			let calls = calls.clone();
 			move |verb, _| {
+				let verb = verb.ok_or("fixture requires a method")?;
 				assert_eq!(verb, "read");
 				calls.set(calls.get() + 1);
 				Ok(Argument::Void)
@@ -103,6 +104,7 @@ pub(super) async fn sharing(
 	let share_uri = glowcap::format_sturdyref(&locator, b"durable-share", glowcap::CaptpVersion::V1_0).unwrap();
 	let read = exporter
 		.spawn(|verb, _| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "read");
 			Ok(Argument::Void)
 		})
@@ -121,6 +123,7 @@ pub(super) async fn sharing(
 				let revocations = revocations.clone();
 				let share_uri = share_uri.clone();
 				Box::new(move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					use rooms_application::archive::shares::protocol::{self, Request};
 					if verb != "narrow" {
 						let values: Vec<_> = rooms_glowcap::values(args).collect();
@@ -162,6 +165,7 @@ pub(super) async fn sharing(
 				let share_uri = share_uri.clone();
 				let refuse_delivery = refuse_delivery.clone();
 				Box::new(move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					if verb == rooms_application::direct::OFFER_ARCHIVE {
 						assert_eq!(args[3], Argument::from(share_uri.as_str()));
 						offers.set(offers.get() + 1);

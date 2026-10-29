@@ -151,12 +151,13 @@ fn locatorView(designator: *const [64]u8) cs.GlowcapLocatorView {
 fn behavior(
     _: ?*anyopaque,
     _: ?*ch.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     _: ?[*]const cs.GlowcapArgument,
     _: usize,
     out_reply: *cs.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     if (!std.mem.eql(u8, verb[0..verb_len], "describe")) return cs.GLOWCAP_ERR_INVALID_ARGUMENT;
     const reply = "generic driver provider";
     out_reply.* = .{

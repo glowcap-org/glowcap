@@ -20,7 +20,7 @@ pub(super) async fn run(
 			let trace = trace.clone();
 			let host = host.clone();
 			let mut first = true;
-			move |verb, args| match verb {
+			move |verb, args| match verb.ok_or("fixture requires a method")? {
 				"write" => {
 					let [Argument::Bytes(bytes)] = args else {
 						return Err("invalid append".into());

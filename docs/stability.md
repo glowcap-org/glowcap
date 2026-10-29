@@ -28,19 +28,19 @@ change a deployment, read [known limitations](boundaries.md).
 | `noise-relay` | In-tree tests keep CapTP plaintext off the relay. Recurring checks cover hostname and unknown-CA refusal from every binding, real local certificate chains, and a Chromium Wasm peer over local WSS. | Interoperability with another CapTP implementation is untested. Public-certificate and non-Linux checks remain open. |
 | `onion` | Fake-daemon tests drive the blocking resident, provider lifecycle, completion adapter, and every binding. Live checks cover two glowcap peers, both Goblins directions, the portable upstream suite plus the strict abort probe, fresh-process service restoration, and Rooms with two independent clients. | Live Tor checks need Tor and outbound network, so they run on demand. No live scale run is recorded. |
 | `webrtc` | Rust library tests cover inbound backpressure, partial writes, oversized-message refusal, retained capacity, runtime teardown, readiness coalescing, and exactly-once terminal publication. The recurring `webrtc-loop` and `webrtc-redeem` checks exercise Host adoption of many DataChannels and three-party redemption. | Browser and signaling-mesh checks for the Rust WebRTC DataChannel run on demand. |
-| C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. `release-pack` also safely extracts its tarball off-tree, then compiles and runs an independent C consumer for each self-contained static archive and one across the packaged shared libraries. These test programs are maintained in this repository. | These consumers check packaging, linkage, version, and archive identity. Behavioral interoperability still runs through the bindings rather than an external C implementation. |
+| C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. `release-pack` also safely extracts its tarball off-tree, then compiles and runs an independent C consumer for each self-contained static archive and one across the packaged shared libraries. These test programs are maintained in this repository. | These consumers check packaging, linkage, version, and archive identity. Behavioral interoperability still runs through the bindings rather than an external C implementation. The macOS library-pinning hook is unverified. |
 | Rooms host package | `glowcap-pack` checks the extracted runtime and skill links, then drives HTTP bootstrap, encrypted iroh, multiple rooms and DMs, observer failure and unread restart without checkout tooling. Damaged-package fixtures run in `check`. | Linux and macOS release runners exercise their own artifacts. This does not prove a particular public deployment's reachability, macOS download approval, or a model harness's continuing wake behavior. |
 | Rust, Deno, Python, and Racket bindings | Each binding holds live Goblins sessions in both directions and takes both handoff roles, as community review details. | Bun cannot host the driver loop. |
 | TypeScript on Bun | The `bun-dogfood` consumer check covers Host identity and lifetime, locator and sturdyref ABI calls, and that Bun refuses driver listeners before allocating a loop. | Bun's synchronous FFI cannot host the C driver or blocking transport lifecycles. No Goblins check runs on Bun. |
 | Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are glowcap's own APIs with no outside implementation to compare. |
-| Loam storage | Shared storage scenarios run on SQLite and LMDB. Crash and I/O-fault probes check recovery, and C, Rust, and browser tests exercise the foreign interfaces. [Storage failure coverage](#storage-failure-coverage) details their scope. | Power loss and arbitrary corruption are untested. macOS process probes and some managed-access failure cases lack evidence, as detailed below. |
+| Loam storage | Shared storage scenarios run on SQLite and LMDB. Crash and I/O-fault probes check recovery, and C, Rust, and browser tests exercise the foreign interfaces. [Storage failure coverage](#storage-failure-coverage) details their scope. | Power loss and arbitrary corruption are untested. Some managed-access failure cases lack evidence, as detailed below. |
 | Distributed GC | Live Goblins checks prove release in both directions from Zig and every binding, as community review details. | Automatic capability finalizers have in-tree checks. The live binding checks finalize answer wrappers and release capability handles explicitly. |
 | Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The Goblins interoperability check does not run through the Python, Rust, or Racket relays. |
 | Rooms | `goblins-rooms` and `goblins-rooms-irc` put a real Goblins vat in a room, as community review details. The recurring `demo-rooms` tour puts every one-shot client in one room. `rooms-web-proofs` runs every shipped-page journey in Chromium, including direct messages, durable and shared sessions, private rooms, routing, management, reconnect, archive, and trace lifecycles. In-tree checks cover room authority, operator revocation, the bounded browser state bundle, archives, and a durable session peer with two attached OCapN clients, room events, interaction, revocation, restart, and effects whose outcome is unknown. | The four-peer iroh matrix runs on demand because it needs iroh and a live Goblins vat. |
 | CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
 | Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. The recurring `web-peer-test` drives a Chromium Wasm peer and proves Zig-peer-to-browser Noise rendezvous over local WSS. On demand, `ocapnviz-live-browser` drives the production visualizer bundle as an OCapN peer. | WebRTC and public-certificate WSS scenarios remain on-demand or unsupported as named above. |
 | Linux | The full CI sequence runs on Linux. TCP completion loops exercise io_uring when the host provides its required facilities and otherwise exercise the epoll fallback. Selection and its reasons are tested separately. | The recorded 500,000-session result used io_uring. No equivalent epoll scale result or claim exists. |
-| macOS | The macOS CI job runs `infrastructure-check`, then `zig build test loam-lmdb-test loam-sqlite-test` and the `loam-*-crash-test` process-loss probes. | No successful macOS run of the process probes is recorded. `zig build check` and the external-runtime matrix remain Linux-only. |
+| macOS | The macOS CI job runs `infrastructure-check`, then `zig build test loam-lmdb-test loam-sqlite-test` and the `loam-*-crash-test` process-loss probes. A [recorded run](#storage-failure-coverage) passed this scope. | `zig build check` and the external-runtime matrix remain Linux-only. |
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
 | Untrusted-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, the Noise handshake and sealed channel, sessions, handoff, locators, the host, actors, and persistent collections. The protocol core and actors tests also run under valgrind, and the whole suite runs in ReleaseSafe. | The per-push fuzz budget is shallow and the nightly search is one machine for a few hours, and most assertions are written by glowcap. |
 
@@ -63,14 +63,27 @@ whose backing file changes while the caller still holds a value.
 
 These tests do not cover power loss, reordered writes, faults in the engines'
 mapped coordination files, or arbitrary damaged pages. Read tests empty
-Loam's record cache, not the OS file cache. No successful macOS process-probe
-run is recorded. Managed access also lacks tests for a panic during commit
-and owner retirement while unrelated actors run.
+Loam's record cache, not the OS file cache. Managed access also lacks tests
+for a panic during commit and owner retirement while unrelated actors run.
 
 The [C/Rust guide](loam/c-and-rust.md#tests) owns foreign-interface test
 coverage, including the browser. Rooms additionally checks cold session
 graph reopening on both disk engines and page reload under Chromium.
 The [roadmap](roadmap.md) tracks work to extend this evidence.
+
+On October 29, 2026, `fe2d45312` passed `zig build infrastructure-check`
+and `zig build test loam-lmdb-test loam-sqlite-test` with the Loam crash probes
+on macOS 15 in [this run](https://github.com/glowcap-org/glowcap/actions/runs/40926693326/job/123633985101).
+The [macos-runtime workflow](../.github/workflows/check.yml) records the full
+commands and options.
+
+## Measurement coverage
+
+Storage benchmarks do not measure open-loop arrival rates, maximum throughput,
+real transport latency, a cold OS page cache, or browser transaction latency.
+The [access measurement contract](loam/access-storage.md#performance-contract-and-measurements)
+owns the workloads. The [roadmap](roadmap.md#what-starts-next) schedules the
+missing measurements. No managed-owner 500,000-session result is established.
 
 ## Which checks recur
 

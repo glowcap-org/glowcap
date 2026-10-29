@@ -291,7 +291,7 @@ const actors = glowcap.actors;
 const Greeter = struct {
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        if (!msg.is("greet")) return error.NoSuchMethod;
         return .{ .string = try std.fmt.allocPrint(turn.arena, "hi from the loop", .{}) };
     }
 };

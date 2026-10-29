@@ -41,7 +41,7 @@ async function settles(handle: PromiseLike<unknown>): Promise<boolean> {
 function sendHandle(
 	from: Session,
 	target: Ref,
-	verb: string,
+	verb: string | null,
 	args: string[],
 	what: string,
 ): PromiseLike<unknown> {
@@ -83,6 +83,17 @@ mark("dial-ok", peerUri);
 
 // ── promise-handle ──────────────────────────────────────────────────────────
 expectString("greet", await sendHandle(session, spine, "greet", ["spine"], "greet"), "hello, spine");
+for (const selector of [null, "", "call"]) {
+	for (const payload of [[], ["payload"]]) {
+		const expected = `${selector === null ? "direct" : selector === "" ? "empty" : "call"}:${payload.length}`;
+		expectString("invocation shape", await session.send(spine, selector, payload), expected);
+	}
+}
+const shapeTarget = session.spawn((selector, args) =>
+	`${selector === null ? "direct" : selector === "" ? "empty" : selector}:${args.length}`
+);
+const shapeProxy = session.caretaker(shapeTarget).proxy;
+expectString("forwarded callback shapes", await session.send(spine, "shapes", [shapeProxy]), "shapes preserved");
 mark("promise-handle");
 
 // ── promise-index / promise-untag / promise-get ─────────────────────────────

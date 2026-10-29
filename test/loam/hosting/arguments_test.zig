@@ -146,7 +146,7 @@ const RestartPreparation = struct {
 };
 
 const Live = struct {
-    pub fn handle(_: *Live, turn: *f.driver.HostTurn, _: []const u8, args: f.driver.Args) !f.driver.Value {
+    pub fn handle(_: *Live, turn: *f.driver.HostTurn, _: ?[]const u8, args: f.driver.Args) !f.driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         return .{ .void = {} };

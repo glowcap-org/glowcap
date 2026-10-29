@@ -189,6 +189,7 @@ async fn run_case(case: ResultCase) {
 				let swiss = exporter
 					.publish_durable(|| {
 						Box::new(|verb, _| {
+							let verb = verb.ok_or("fixture requires a method")?;
 							assert_eq!(verb, "identity");
 							Ok("moderator".into())
 						})

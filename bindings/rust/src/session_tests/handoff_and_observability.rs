@@ -22,7 +22,7 @@ async fn send_redeeming_matches_send_and_reports_no_exporter_without_a_handoff()
 					.unwrap();
 				session
 					.publish("svc", move |verb, _args| match verb {
-						"grab" => Ok((&target).into()),
+						Some("grab") => Ok((&target).into()),
 						_ => Ok(Argument::String("plain".into())),
 					})
 					.unwrap();
@@ -252,7 +252,7 @@ async fn the_live_trace_produces_the_timeline_schema() {
 			let captp = Host::new_host();
 			captp
 				.publish("greeter", move || {
-					Box::new(move |verb, _args| Ok(Argument::String(format!("hello {verb}"))))
+					Box::new(move |verb, _args| Ok(Argument::String(format!("hello {verb:?}"))))
 				})
 				.unwrap();
 			let server = listen_with_host("127.0.0.1:0", captp).await.unwrap();

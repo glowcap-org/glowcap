@@ -83,7 +83,7 @@ pub(super) async fn run() {
 				content: Box::new(ArchiveTarget(calls.clone())),
 			};
 			let mut attachment = store.attach(&host, vec![owner.registration(), target]).unwrap();
-			attachment.start_live(None, 32).unwrap();
+			environment::start_live(&attachment, None, 32).await;
 			let (root, root_control) = environment::restore(&attachment, resource).await;
 			owner.bind(root.clone(), root_control.clone()).unwrap();
 			owner.initialize().await.unwrap();
@@ -101,6 +101,7 @@ pub(super) async fn run() {
 			let bridge_calls = Rc::new(Cell::new(0));
 			let bridge_dispatches = bridge_calls.clone();
 			let history_target = host.spawn(move |verb, _| {
+				let verb = verb.ok_or("fixture requires a method")?;
 				if verb == rooms_application::bridge::ASK {
 					bridge_dispatches.set(bridge_dispatches.get() + 1);
 					return Ok(Argument::String(r#"{"scope":"network","title":"Identity","said":"","fields":[],"actions":[{"id":"connect","label":"Connect","busyLabel":"Connecting","tone":"primary","remembered":true}]}"#.into()));

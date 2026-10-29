@@ -84,7 +84,7 @@ pub const PendingWorkLease = struct {
 
     /// Bounded child delivery uses the same producers and reply owners as a
     /// top-level call. The actual capability determines its local/wire home.
-    pub fn call(self: *const PendingWorkLease, allocator: std.mem.Allocator, target: @import("../capability.zig").Ref, verb: []const u8, args: []const @import("../value.zig").Value, reply_bytes: usize) !*@import("owned_call.zig").Call {
+    pub fn call(self: *const PendingWorkLease, allocator: std.mem.Allocator, target: @import("../capability.zig").Ref, verb: ?[]const u8, args: []const @import("../value.zig").Value, reply_bytes: usize) !*@import("owned_call.zig").Call {
         const host = self.host orelse return error.NoPendingWork;
         const admission: WorkAdmission = .{ .retained = self };
         try admission.check(host);

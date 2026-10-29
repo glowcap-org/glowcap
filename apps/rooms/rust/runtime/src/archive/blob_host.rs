@@ -102,6 +102,7 @@ impl<P: Platform> Receiver<P> {
 			Ok(session.spawn_owned(move |verb, args| {
 				let _held = &permit;
 				let read = || {
+					let verb = verb.ok_or_else(|| Error::invalid("unknown blob reader method"))?;
 					let state = receiver
 						.0
 						.upgrade()

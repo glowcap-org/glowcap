@@ -6,10 +6,11 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		&self,
 		lease: policy::Lease<Source>,
 		host: glowcap::Host,
-	) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> + 'static {
+	) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> + 'static {
 		let state = Rc::downgrade(&self.state);
 		let platform = self.platform.clone();
 		move |verb, args| {
+			let verb = verb.ok_or("direct invocation is not supported")?;
 			let blob = lease.blob();
 			let [offset, length] = args else {
 				return Err(policy::Error::Arguments.to_string());

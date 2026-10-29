@@ -21,11 +21,11 @@ const Counter = struct {
     n: i64,
     pub fn handle(self: *Counter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "add")) {
+        if (msg.is("add")) {
             self.n += try msg.argInt(0);
             return .{ .integer = self.n };
         }
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
+        if (msg.is("get")) return .{ .integer = self.n };
         return error.NoSuchMethod;
     }
 };

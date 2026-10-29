@@ -90,6 +90,7 @@ async fn scenario() {
 	let line_record = record("line", calls.clone());
 	let line = accepted
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			line_record(verb, args);
 			match verb {
 				"edit" | "refile" | "withdraw" => Ok(Argument::Void),
@@ -103,7 +104,7 @@ async fn scenario() {
 	let (tx, mut acknowledgements) = tokio::sync::mpsc::channel(1);
 	let (seen, discarded, delayed, actor_host) = (bytes.clone(), discard_count.clone(), delay.clone(), host.clone());
 	let upload = accepted
-		.spawn_owned(move |verb, args| match verb {
+		.spawn_owned(move |verb, args| match verb.ok_or("fixture requires a method")? {
 			"write" => {
 				assert_eq!(args.len(), 1);
 				let chunk = args[0].as_bytes().unwrap();
@@ -129,6 +130,7 @@ async fn scenario() {
 	let seat_record = record("seat", calls.clone());
 	let seat = accepted
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			seat_record(verb, args);
 			match verb {
 				"post" => Ok(Argument::List(vec![1.into(), line_ref.clone().into()])),
@@ -153,6 +155,7 @@ async fn scenario() {
 	let member = seat.clone();
 	let root = accepted
 		.publish("room", move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "subscribe");
 			let Argument::Reference(inbox) = &args[1] else {
 				panic!("no inbox")
@@ -276,6 +279,7 @@ async fn scenario() {
 	let response_mode = mode.clone();
 	let blob = accepted
 		.publish("blob", move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "read");
 			assert_eq!(args.len(), 2);
 			reads.set(reads.get() + 1);

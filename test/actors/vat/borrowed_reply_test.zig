@@ -23,7 +23,7 @@ const Borrowed = struct {
         const entries = try turn.arena.alloc(model.view.StructEntry, 1);
         entries[0] = .{ .key = "label", .value = .{ .bytes = &self.label } };
         try turn.become(Replacement, .{});
-        if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
+        if (msg.is("fail")) return error.Refused;
         return .{ .viewed = .{ .@"struct" = .fromViews(entries) } };
     }
 
@@ -167,7 +167,7 @@ test "borrowed reply: forwarding ignores an unused malformed result" {
     const Forward = struct {
         target: actors.Ref,
         pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !actors.HostedActor.Result {
-            if (std.mem.eql(u8, msg.verb, "tell")) {
+            if (msg.is("tell")) {
                 try turn.tell(self.target, .{ .verb = "increment" });
                 turn.forwardNoAnswer();
             } else {
@@ -227,4 +227,69 @@ test "borrowed reply: frame-backed echo survives input retirement" {
     const bytes = try fixture.drainOutbound(&peer, allocator);
     defer allocator.free(bytes);
     try std.testing.expectEqualStrings("borrowed", retained.list[0].string);
+}
+
+const ResourceProbe = struct {
+    released: *usize,
+    nested: ?actors.Ref = null,
+
+    const Lease = struct {
+        released: *usize,
+        fn release(self: *@This()) void {
+            self.released.* += 1;
+        }
+    };
+
+    pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
+        if (msg.is("noop")) return .{ .void = {} };
+        const before = self.released.*;
+        _ = try turn.allocResource(Lease, .{ .released = self.released }, Lease.release);
+        if (self.nested) |nested| _ = try turn.near(nested, .{ .verb = "lease" });
+        try std.testing.expectEqual(before, self.released.*);
+        if (msg.is("refuse")) return error.Refused;
+        return .{ .void = {} };
+    }
+};
+
+test "borrowed turn resources survive nested frames and release on reset, refusal and teardown" {
+    var released: usize = 0;
+    {
+        var vat = actors.Vat.init(std.testing.allocator);
+        defer vat.deinit();
+        const child = try vat.spawn(ResourceProbe, .{ .released = &released });
+        const parent = try vat.spawn(ResourceProbe, .{ .released = &released, .nested = child });
+        _ = try vat.near(parent, .{ .verb = "lease" });
+        try std.testing.expectEqual(@as(usize, 0), released);
+        _ = try vat.near(child, .{ .verb = "noop" });
+        try std.testing.expectEqual(@as(usize, 2), released);
+        try std.testing.expectError(error.Refused, vat.near(child, .{ .verb = "refuse" }));
+        _ = try vat.near(child, .{ .verb = "noop" });
+        try std.testing.expectEqual(@as(usize, 3), released);
+        _ = try vat.near(child, .{ .verb = "lease" });
+    }
+    try std.testing.expectEqual(@as(usize, 4), released);
+}
+
+const RetiringProbe = struct {
+    vat: *actors.Vat,
+    child: actors.Ref,
+
+    pub fn handle(_: *@This(), _: *actors.Turn, _: actors.Delivery) !model.Argument {
+        return .{ .void = {} };
+    }
+
+    pub fn deinit(self: *@This(), _: std.mem.Allocator) void {
+        _ = self.vat.near(self.child, .{ .verb = "lease" }) catch unreachable;
+    }
+};
+
+test "retired actor destructor reply custody is reclaimed before arena reset" {
+    var released: usize = 0;
+    var vat = actors.Vat.init(std.testing.allocator);
+    defer vat.deinit();
+    const child = try vat.spawn(ResourceProbe, .{ .released = &released });
+    const retiring = try vat.spawn(RetiringProbe, .{ .vat = &vat, .child = child });
+    vat.releaseActor(retiring.local);
+    _ = try vat.near(child, .{ .verb = "noop" });
+    try std.testing.expectEqual(@as(usize, 1), released);
 }

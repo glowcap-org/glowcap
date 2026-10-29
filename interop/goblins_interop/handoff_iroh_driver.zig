@@ -60,7 +60,7 @@ pub fn main(init: std.process.Init) !void {
     };
     try expectExporterHome(gifter, greeter, exporter_id);
 
-    const greeting = try expectFulfilled(try gifter.call(greeter, "", &.{.{ .string = "Carol" }}, arena));
+    const greeting = try expectFulfilled(try gifter.call(greeter, null, &.{.{ .string = "Carol" }}, arena));
     if (greeting != .string or !std.mem.eql(u8, greeting.string, "Hello Carol, I'm Bob, handed off directly from the exporter!"))
         return error.WrongGreeting;
     std.debug.print("goblins-handoff-iroh: Goblins give redeemed on the authenticated exporter session\n", .{});

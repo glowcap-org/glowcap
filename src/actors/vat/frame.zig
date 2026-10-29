@@ -88,6 +88,25 @@ pub fn drainMovedReplies(self: *Vat) void {
     }
 }
 
+/// Release resources before their borrowed storage is invalidated. Detaching
+/// each node before its destructor also makes terminal cleanup idempotent.
+pub fn drainTurnResources(self: *Vat) void {
+    while (self.turn_resources) |resource| {
+        self.turn_resources = resource.next;
+        resource.destroy(resource);
+    }
+}
+
+/// Retired actor destructors may open nested calls and register reply custody.
+/// Drain both owners to quiescence before resetting their shared arena.
+pub fn reclaimTurnStorage(self: *Vat) void {
+    while (true) {
+        drainTurnResources(self);
+        releaseRetiredBoxes(self);
+        if (self.turn_resources == null) return;
+    }
+}
+
 /// What an outermost turn's opening commits: prepared before the frame is
 /// marked running, so the reset itself cannot fail.
 const TurnBoundary = struct {
@@ -129,15 +148,14 @@ fn beginTurn(self: *Vat, boundary: *TurnBoundary) std.mem.Allocator {
     if (boundary.outermost) {
         // Every allocation the boundary needs succeeded in prepareTurnBoundary,
         // so the lifetime transition below is one infallible commit.
-        releaseRetiredBoxes(self);
+        reclaimTurnStorage(self);
         if (boundary.retired_replacement) |replacement| {
             self.retired_boxes.deinit(self.allocator);
             self.retired_boxes = replacement;
             boundary.retired_replacement = null;
         }
-        // The turn arena is scratch space for one turn. Everything allocated
-        // in it is freed at once when the turn ends. The reset keeps up to a
-        // bounded amount of memory for the next turn, so steady traffic
+        // This outermost turn invalidates its predecessor's borrowed scratch.
+        // The reset keeps a bounded amount of memory, so steady traffic
         // allocates nothing and one large turn cannot pin its peak.
         _ = self.turn_arena.reset(.{ .retain_with_limit = vat_mod.steady_turn_arena_bytes });
         // Moved replies share the arena's lifetime, so reclaim the previous
@@ -367,6 +385,6 @@ pub fn retireActorRow(self: *Vat, id: u64) void {
 /// it retires. Turn-boundary preparation decides transactionally whether a
 /// burst-sized list should be replaced. Teardown needs only this infallible
 /// release. A snapshot sharing a box keeps it alive past the boundary.
-pub fn releaseRetiredBoxes(self: *Vat) void {
+fn releaseRetiredBoxes(self: *Vat) void {
     while (self.retired_boxes.pop()) |box| releaseBox(self.allocator, box);
 }

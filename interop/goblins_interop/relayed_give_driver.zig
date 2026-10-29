@@ -71,9 +71,10 @@ const Held = struct {
 const Holder = struct {
     held: *Held,
 
-    pub fn handle(self: *Holder, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Holder, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        errdefer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         const arg_values = try args.values();
-        _ = ht;
         if (!std.mem.eql(u8, verb, "hold")) return error.NoSuchMethod;
         if (arg_values.len != 1 or arg_values[0] != .capability) return error.NotACapability;
         self.held.promise = arg_values[0].capability;
@@ -88,9 +89,9 @@ const Holder = struct {
 const Introducer = struct {
     held: *Held,
 
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
-        _ = ht;
-        _ = args;
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
         return .{ .capability = self.held.promise orelse return error.NotReady };
     }

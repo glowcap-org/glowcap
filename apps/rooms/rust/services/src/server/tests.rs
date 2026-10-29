@@ -276,6 +276,7 @@ async fn members() {
 	let inbox = alice
 		.session()
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			heard.borrow_mut().push(format!(
 				"{verb} {}",
 				args.first().and_then(Argument::as_str).unwrap_or("")
@@ -511,6 +512,7 @@ async fn expiry() {
 	let reply = bob
 		.session()
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			let detail = args.first().and_then(Argument::as_str).unwrap_or("").to_owned();
 			heard.send((verb.to_owned(), detail)).unwrap();
 			Ok(Argument::Void)

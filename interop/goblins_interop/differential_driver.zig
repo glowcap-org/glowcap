@@ -64,7 +64,7 @@ pub const Outcome = enum { accepted, refused, silent };
 
 /// Echoes its first argument, the way the Goblins echo cap returns its list.
 const Echo = struct {
-    pub fn handle(_: *Echo, _: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(_: *Echo, _: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         if (arg_values.len == 0) return .{ .string = "" };
         return arg_values[0];

@@ -126,8 +126,8 @@ fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
             out.kind = c.GLOWCAP_TRACE_MESSAGE;
             out.session = message.session.int();
             out.outbound = @intFromBool(message.outbound);
-            out.verb = message.verb.ptr;
-            out.verb_len = message.verb.len;
+            out.verb = if (message.verb) |method| method.ptr else null;
+            out.verb_len = if (message.verb) |method| method.len else 0;
             out.digest = message.digest;
             if (message.frame.len > 0) {
                 out.frame = message.frame.ptr;

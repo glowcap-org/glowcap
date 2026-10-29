@@ -203,7 +203,7 @@ fn expectEchoAnswer(session: *driver.Session, allocator: std.mem.Allocator, swis
     const echo = try session.fetch(swiss);
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
-    const reply = try session.call(echo, "", &.{.{ .bytes = echo_payload }}, arena_state.allocator());
+    const reply = try session.call(echo, null, &.{.{ .bytes = echo_payload }}, arena_state.allocator());
     switch (reply) {
         .fulfilled => |payload| {
             if (payload != .list or payload.list.len != 1) return error.EchoWrongPayload;

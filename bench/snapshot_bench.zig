@@ -52,7 +52,7 @@ const Blob = struct {
 
     pub fn handle(self: *Blob, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (msg.verb.len > 0 and msg.verb[0] == 't') {
+        if (if (msg.verb) |method| method.len > 0 and method[0] == 't' else false) {
             self.data[0] +%= 1;
             return .{ .void = {} };
         }
@@ -75,7 +75,7 @@ const MapMut = struct {
 
     pub fn handle(self: *MapMut, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (msg.verb.len > 0 and msg.verb[0] == 't') {
+        if (if (msg.verb) |method| method.len > 0 and method[0] == 't' else false) {
             self.entries[0] +%= 1;
             return .{ .void = {} };
         }
@@ -97,7 +97,7 @@ const MapPersistent = struct {
     map: PMap,
 
     pub fn handle(self: *const MapPersistent, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        if (msg.verb.len > 0 and msg.verb[0] == 't') {
+        if (if (msg.verb) |method| method.len > 0 and method[0] == 't' else false) {
             var next = try self.map.put(0, (self.map.get(0) orelse 0) +% 1);
             turn.become(MapPersistent, .{ .map = next }) catch |e| {
                 next.deinit();

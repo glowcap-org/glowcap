@@ -101,7 +101,7 @@
     (open-runtime #:providers (list (tcp-provider)) #:adopt-host gifter-host))
   (define to-bob (runtime-connect runtime (tcp-locator HOST PORT)))
   (define vendor (session-fetch to-bob VENDOR-SWISS))
-  (define greeter (session-send to-bob vendor (string->symbol "")))
+  (define greeter (session-send to-bob vendor #f))
   (unless (ref? greeter) (gift-fail "the vendor reply was not a capability"))
   (printf "racket-goblins-gift: lifted goblins-bob's greeter from a reply\n")
 

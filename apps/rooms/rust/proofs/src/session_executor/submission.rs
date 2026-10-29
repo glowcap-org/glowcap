@@ -19,7 +19,7 @@ pub(super) async fn run() {
 						let host = host.clone();
 						let calls = calls.clone();
 						let answer = answer.clone();
-						move |verb, args| match verb {
+						move |verb, args| match verb.ok_or("fixture requires a method")? {
 							"command" => {
 								assert_eq!(args[0].as_str(), Some("pending"));
 								assert_eq!(args[1].as_i64(), Some(1));
@@ -32,7 +32,7 @@ pub(super) async fn run() {
 								*answer.borrow_mut() = Some(host.defer_turn().unwrap());
 								Ok(Argument::Void)
 							}
-							_ => panic!("unexpected admission method: {verb}"),
+							_ => panic!("unexpected admission method: {verb:?}"),
 						}
 					})
 					.unwrap();

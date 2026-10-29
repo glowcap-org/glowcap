@@ -16,11 +16,11 @@ const SEED_HONEST: [u8; 32] = [0x72; 32];
 const SEED_SQUATTER: [u8; 32] = [0x73; 32];
 const SEED_RESTART: [u8; 32] = [0x74; 32];
 
-fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
-	if verb == "greet" {
+fn greeter(verb: Option<&str>, _args: &[Argument]) -> Result<Argument, String> {
+	if verb == Some("greet") {
 		Ok(GREETING.into())
 	} else {
-		Err(format!("no such method: {verb}"))
+		Err(format!("no such method: {verb:?}"))
 	}
 }
 

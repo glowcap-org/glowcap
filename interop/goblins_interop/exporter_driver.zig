@@ -59,11 +59,11 @@ const Greeter = struct {
     mark: [64]u8 = undefined,
     mark_len: usize = 0,
 
-    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Greeter, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
         // A Goblins `(<- greeter 'prime "…")` arrives with the method symbol
-        // as the deliver's verb; the plain greet arrives with an empty verb
+        // as the deliver's verb; the plain greet arrives with no selector
         // and the caller's name as the one argument.
-        if (std.mem.eql(u8, verb, "prime")) {
+        if (selector != null and std.mem.eql(u8, selector.?, "prime")) {
             if ((try args.len()) != 1) return error.BadInvocation;
             const mark = try args.string(0);
             self.mark_len = @min(mark.len, self.mark.len);
@@ -84,7 +84,7 @@ const Greeter = struct {
 /// wrongly consulted the alias, Carol's greeting would come from here and the
 /// marker assert below would fail the run.
 const DecoyGreeter = struct {
-    pub fn handle(self: *DecoyGreeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *DecoyGreeter, ht: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         _ = self;
         _ = ht;
         _ = verb;

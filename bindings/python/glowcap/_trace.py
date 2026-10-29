@@ -199,7 +199,7 @@ def _decode_ffi_event(sink: TraceSink, owner, cookie: int, ev) -> None:
             # ends draws one message rather than two.
             "digest": bytes(ev.digest).hex(),
         }
-        if ev.verb and ev.verb_len:
+        if ev.verb:
             record["op"] = ctypes.string_at(ev.verb, ev.verb_len).decode(
                 "utf-8", "replace",
             )

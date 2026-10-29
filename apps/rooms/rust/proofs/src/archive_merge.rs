@@ -24,6 +24,7 @@ async fn combined_reader() {
 			index.apply(position as u64 + 1, (*row.record).clone()).unwrap();
 		}
 		host.spawn(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "read");
 			let [_, Argument::Integer(after), Argument::Integer(limit)] = args else {
 				panic!("archive read");

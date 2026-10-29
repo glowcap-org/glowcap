@@ -19,7 +19,7 @@ const Vendor = struct {
     offered: model.Reference,
 
     pub fn handle(self: *Vendor, _: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
+        if (!msg.is("make")) return error.NoSuchMethod;
         return .{ .reference = self.offered };
     }
 };
@@ -35,7 +35,7 @@ const LiftSink = struct {
     capture: *LiftCapture,
 
     pub fn handle(self: *LiftSink, _: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "take") or (try msg.args.len()) != 1) return error.BadArguments;
+        if (!msg.is("take") or (try msg.args.len()) != 1) return error.BadArguments;
         const far = switch (try msg.arg(0)) {
             .reference => |reference| switch (reference) {
                 .far => |far| far,

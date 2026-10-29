@@ -177,9 +177,9 @@ fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const 
 const Counter = struct {
     count: i64 = 0,
 
-    pub fn handle(self: *Counter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
-        _ = ht;
-        _ = args;
+    pub fn handle(self: *Counter, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "hit")) return error.NoSuchMethod;
         self.count += 1;
         return .{ .integer = self.count };

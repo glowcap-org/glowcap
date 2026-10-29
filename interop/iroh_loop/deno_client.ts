@@ -35,7 +35,7 @@ const GREETING = "hello over the iroh loop";
 parseOptionalPortArg(GATE);
 
 /** The published actor: answer `greet` with a static greeting. */
-function greeter(verb: string): string | null {
+function greeter(verb: string | null): string | null {
 	if (verb !== "greet") return null;
 	return GREETING;
 }

@@ -33,6 +33,7 @@ pub(super) async fn run() {
 						move || {
 							let incoming = incoming.clone();
 							Box::new(move |verb, args| {
+								let verb = verb.ok_or("fixture requires a method")?;
 								if verb != "admit" {
 									return Err("unexpected ingestion request".into());
 								}

@@ -389,7 +389,7 @@ const PendingPressure = struct {
 
     pub fn handle(self: *PendingPressure, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "flood")) return error.NoSuchMethod;
+        if (!msg.is("flood")) return error.NoSuchMethod;
         if (self.hits) |hits| hits.* += 1;
         var attempts: usize = 0;
         while (attempts < 32) : (attempts += 1) {
@@ -416,7 +416,7 @@ const FeedPressure = struct {
 
     pub fn handle(self: *FeedPressure, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "flood")) return error.NoSuchMethod;
+        if (!msg.is("flood")) return error.NoSuchMethod;
         self.hits.* += 1;
         while (true) {
             self.session.served.port.peer.sendBorrowed(.{ .deliver = .{
@@ -441,7 +441,7 @@ const DeferringCapture = struct {
     out_answer: *?engine.AnswerTarget,
 
     pub fn handle(self: *DeferringCapture, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "work")) return error.NoSuchMethod;
+        if (!msg.is("work")) return error.NoSuchMethod;
         self.out_answer.* = turn.origin.served;
         self.out_resolver.* = try self.host.deferTurn(self.session, turn);
         return .{ .void = {} };

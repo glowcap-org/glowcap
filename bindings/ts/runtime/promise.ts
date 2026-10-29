@@ -7,6 +7,7 @@
 // this module owns the handle type, remote-send/post-mint choreography, and
 // the projection FFI (`glowcap_host_vow_*`).
 
+import { selectorBuffer, selectorLength } from "./internal/selector.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64 } from "./internal/seam.ts";
@@ -282,10 +283,10 @@ export function withFarArgs<T>(
 export function sendFar(
 	h: PromiseFactoryHandle,
 	target: Ref | RemotePromise,
-	verb: string,
+	verb: string | null,
 	args: Argument[],
 ): RemotePromise {
-	const verbBytes = utf8Encoder.encode(verb);
+	const verbBytes = selectorBuffer(verb);
 	const out = new Uint8Array(8);
 	withFarArgs(h, args, (argsBuf) => {
 		if (target instanceof RemotePromise) {
@@ -295,8 +296,8 @@ export function sendFar(
 			checkHost(hostS.glowcap_host_vow_send(
 				h.hostRaw,
 				sourceVow,
-				ab(verbBytes),
-				BigInt(verbBytes.length),
+				verbBytes,
+				selectorLength(verbBytes),
 				ab(argsBuf),
 				BigInt(args.length),
 				ab(out),
@@ -305,8 +306,8 @@ export function sendFar(
 			checkHost(hostS.glowcap_host_session_send(
 				h.ptr,
 				ab(refStruct(target)),
-				ab(verbBytes),
-				BigInt(verbBytes.length),
+				verbBytes,
+				selectorLength(verbBytes),
 				ab(argsBuf),
 				BigInt(args.length),
 				ab(out),

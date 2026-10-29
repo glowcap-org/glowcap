@@ -65,7 +65,7 @@ const Forward = struct {
 };
 const Target = struct {
     invocations: *usize,
-    pub fn handle(self: *Target, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Target, turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.invocations.* += 1;

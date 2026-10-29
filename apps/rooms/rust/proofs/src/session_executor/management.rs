@@ -19,6 +19,7 @@ pub(super) async fn connect(host: &Host, viewer: &Host, control: &Ref) -> (Clien
 		move || {
 			let control = control.clone();
 			Box::new(move |verb, args| {
+				let verb = verb.ok_or("fixture requires a method")?;
 				if verb != "get" || !args.is_empty() {
 					return Err("invalid owner bootstrap".into());
 				}

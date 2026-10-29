@@ -22,8 +22,9 @@ fn empty(verb: &str, args: &[Argument]) -> Result<(), String> {
 		Err(format!("{verb} takes no arguments"))
 	}
 }
-pub(super) fn directory(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
+pub(super) fn directory(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Reply {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let mut state = shared.borrow_mut();
 		let (id, session) = state.caller()?;
 		if !matches!(verb, protocol_data::WATCH | directory::WATCH) {
@@ -101,8 +102,9 @@ pub(super) fn directory(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Repl
 		}
 	}
 }
-fn room(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
+fn room(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Reply {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let mut state = shared.borrow_mut();
 		let (id, session) = state.caller()?;
 		if verb != protocol_data::SUBSCRIBE {
@@ -160,8 +162,9 @@ fn room(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
 		}
 	}
 }
-fn membership(shared: Shared, id: u64, generation: u64) -> impl FnMut(&str, &[Argument]) -> Reply {
+fn membership(shared: Shared, id: u64, generation: u64) -> impl FnMut(Option<&str>, &[Argument]) -> Reply {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		data(args)?;
 		let mut state = shared.borrow_mut();
 		let (_, session) = state.caller()?;

@@ -440,6 +440,7 @@ comptime {
         _ = @import("actors/actor_roots_test.zig");
         _ = @import("actors/vat_alloc_budget_test.zig");
         _ = @import("actors/freight_send_test.zig");
+        _ = @import("actors/invocation_shape_test.zig");
         _ = @import("actors/vat_footprint_budget_test.zig");
         _ = @import("actors/ocap_test.zig");
         _ = @import("actors/host_test.zig");
@@ -457,6 +458,7 @@ comptime {
         _ = @import("c_abi/host/values_test.zig");
         _ = @import("c_abi/host/turn_test.zig");
         _ = @import("c_abi/host/local_delivery_test.zig");
+        _ = @import("c_abi/host/invocation_test.zig");
         _ = @import("c_abi/host/dial_plan_test.zig");
         _ = @import("c_abi/host/handoff_test.zig");
         _ = @import("c_abi/host/stream_test.zig");

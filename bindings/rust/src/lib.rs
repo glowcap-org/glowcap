@@ -221,7 +221,8 @@ pub(crate) use runtime_failure::{FAILURE_PAYLOAD_CAP, RUNTIME_FAILURE_CAP, Runti
 /// error message (which becomes a broken answer carrying those words). This is
 /// what [`Session::spawn`]/[`Session::publish`] host and what a
 /// [`Host::publish`] factory mints.
-pub type Behavior = Box<dyn FnMut(&str, &[Argument]) -> std::result::Result<Argument, String>>;
+/// None invokes directly. Some("") selects the empty symbol.
+pub type Behavior = Box<dyn FnMut(Option<&str>, &[Argument]) -> std::result::Result<Argument, String>>;
 
 mod failure;
 pub(crate) use failure::require_archive_fingerprint;

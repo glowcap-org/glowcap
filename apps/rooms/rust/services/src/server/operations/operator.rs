@@ -48,8 +48,9 @@ impl rooms_application::server::operations::listeners::Wire for Wire {
 	}
 }
 
-pub(super) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let session = current_session()
 			.map_err(|e| e.to_string())?
 			.ok_or("the Rooms operator is reachable only over a session")?;

@@ -9,7 +9,7 @@ async fn refused_admission_retires_without_a_receipt_and_unknown_admission_stays
 		.run_until(async {
 			let host = Host::from_seed([130; 32]).unwrap();
 			let endpoint = host
-				.spawn(|verb, args| match verb {
+				.spawn(|verb, args| match verb.ok_or("fixture requires a method")? {
 					"command" if args[0].as_str() == Some("refused") => {
 						Err("rate-limited: retry-after-ms=1000; scope=message; owner=session".into())
 					}
@@ -50,14 +50,14 @@ async fn pending_admission_leaves_other_commands_and_release_available() {
 				.spawn({
 					let host = host.clone();
 					let answer = answer.clone();
-					move |verb, args| match verb {
+					move |verb, args| match verb.ok_or("fixture requires a method")? {
 						"command" if args[0].as_str() == Some("held") => {
 							assert!(answer.borrow().is_none(), "pending admission was redispatched");
 							*answer.borrow_mut() = Some(host.defer_turn().unwrap());
 							Ok(Argument::Void)
 						}
 						"command" | "effect-status" => Ok("committed".into()),
-						_ => Err(format!("unexpected command observation: {verb}")),
+						_ => Err(format!("unexpected command observation: {verb:?}")),
 					}
 				})
 				.unwrap();

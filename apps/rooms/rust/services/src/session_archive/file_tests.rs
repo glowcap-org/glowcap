@@ -512,6 +512,7 @@ async fn reupload(
 	let proxy = client
 		.session()
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			let [glowcap::Argument::Integer(offset), glowcap::Argument::Integer(length)] = args else {
 				return Err("read arguments".into());
 			};

@@ -160,10 +160,10 @@ impl<D: Deadline + Clone + 'static> Session<D> {
 				let callback = weak.upgrade().ok_or("Rooms session observer retired")?;
 				let mut callback = callback.try_borrow_mut().map_err(|_| "Rooms observer was reentered")?;
 				match verb {
-					rooms_application::session::CHANGED => {
+					Some(rooms_application::session::CHANGED) => {
 						callback.changed(read_snapshot_args(args).map_err(|e| e.to_string())?)?
 					}
-					rooms_application::session::EVENT => {
+					Some(rooms_application::session::EVENT) => {
 						if args.len() > rooms_application::session::event::MAX_FIELDS {
 							return Err(rooms_application::session::event::Refusal::Shape.to_string());
 						}
@@ -171,13 +171,13 @@ impl<D: Deadline + Clone + 'static> Session<D> {
 							Event::read(&args.iter().map(Value).collect::<Vec<_>>()).map_err(|e| e.to_string())?,
 						)?
 					}
-					rooms_application::session::OPERATIONS_CHANGED => match args {
+					Some(rooms_application::session::OPERATIONS_CHANGED) => match args {
 						[Argument::String(scope)] if scope.encode_utf16().take(65537).count() <= 65536 => {
 							callback.operations_changed(scope)?
 						}
 						_ => return Err("invalid Rooms operations invalidation".into()),
 					},
-					rooms_application::session::HISTORY_CHANGED => {
+					Some(rooms_application::session::HISTORY_CHANGED) => {
 						if args.len() > 3 {
 							return Err("invalid Rooms history invalidation".into());
 						}

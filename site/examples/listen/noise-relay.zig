@@ -42,7 +42,9 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 
 // From here, the CapTP workflow is transport-independent.
 const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *glowcap.driver.HostTurn, verb: []const u8, args: glowcap.driver.Args) !glowcap.driver.Value {
+    pub fn handle(_: *Greeter, ht: *glowcap.driver.HostTurn, selector: ?[]const u8, args: glowcap.driver.Args) !glowcap.driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         if ((try args.len()) != 1) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{try args.string(0)}) };

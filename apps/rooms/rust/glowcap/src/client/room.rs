@@ -220,7 +220,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 			.client
 			.session
 			.spawn_owned(move |verb, args| match weak.upgrade() {
-				Some(inner) => inner.notify(verb, args),
+				Some(inner) => inner.notify(verb.ok_or("unknown room method")?, args),
 				None => Err("this room membership has ended".into()),
 			})?;
 		inner.state.borrow_mut().inbox = Some(inbox.clone());

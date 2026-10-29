@@ -4,7 +4,7 @@ use glowcap::{Argument, PendingWork, tcp};
 
 const ACTOR_SWISS: &str = "glowcapActorSwissnumABCDEFGH1234";
 
-fn greeter(_verb: &str, args: &[Argument]) -> Result<Argument, String> {
+fn greeter(_verb: Option<&str>, args: &[Argument]) -> Result<Argument, String> {
 	let who = match args.first() {
 		Some(Argument::Bytes(value)) => String::from_utf8_lossy(value).into_owned(),
 		Some(Argument::String(value)) => value.clone(),

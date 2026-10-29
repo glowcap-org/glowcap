@@ -10,7 +10,8 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, line: &
 	let (client, accepted) = management::connect(host, &recipient, line).await;
 	let receive = |verb: &'static str, start: usize, result: Option<Ref>| {
 		let trace = trace.clone();
-		move |method: &str, args: &[Argument]| {
+		move |method: Option<&str>, args: &[Argument]| {
+			let method = method.ok_or("fixture requires a method")?;
 			if method != verb {
 				return Err("unexpected direct file method".into());
 			}

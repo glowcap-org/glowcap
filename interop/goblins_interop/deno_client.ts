@@ -70,7 +70,7 @@ try {
 	const echo = await session.enliven(sturdyref);
 	console.log("deno-goblins-interop: enlivened goblins echo cap, calling it");
 
-	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
+	// Goblins invokes a cap positionally (no method symbol), so send with no selector.
 	// The echo actor is `(lambda args args)`: it returns its argument list, so
 	// assert the content survived the round-trip (the Zig driver's bar),
 	// not merely that something resolved.
@@ -90,7 +90,7 @@ try {
 		}
 	};
 	assertEchoed(
-		await session.send(echo, "", [new TextEncoder().encode("glowcap-ping")]),
+		await session.send(echo, null, [new TextEncoder().encode("glowcap-ping")]),
 		"glowcap-ping",
 	);
 
@@ -102,7 +102,7 @@ try {
 		);
 	}
 	assertEchoed(
-		await session.send(again, "", [new TextEncoder().encode("glowcap-ping-again")]),
+		await session.send(again, null, [new TextEncoder().encode("glowcap-ping-again")]),
 		"glowcap-ping-again",
 	);
 	console.log(

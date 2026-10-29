@@ -48,6 +48,7 @@ pub(super) async fn run(
 	rooms.close().await.unwrap();
 	let line = host
 		.spawn(|verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "read");
 			assert!(args.is_empty());
 			Ok("exact line".into())

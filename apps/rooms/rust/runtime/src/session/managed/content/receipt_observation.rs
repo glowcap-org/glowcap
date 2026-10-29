@@ -51,7 +51,7 @@ pub(in crate::session::managed) fn initialize<P: Tasks + Deadline + Clone + 'sta
 		let [Argument::String(id), Argument::Reference(source)] = args else {
 			return Err("effect observation takes operation id and original source witness".into());
 		};
-		if verb != "read" {
+		if verb != Some("read") {
 			return Err("effect observation accepts only read".into());
 		}
 		if !rooms_application::session::state::OperationId::accepts_utf16(id.encode_utf16()) {

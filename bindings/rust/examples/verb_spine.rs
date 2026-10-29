@@ -101,8 +101,8 @@ fn expect_value<T>(what: &str, outcome: Result<T, Error>) -> T {
 async fn serve_once(listener: Rc<tcp::Server>) -> Result<(), Error> {
 	let served = listener.accept().await?;
 	served.publish("echo", |verb, args| {
-		if verb != "echo" {
-			return Err(format!("echo has no verb {verb}"));
+		if verb != Some("echo") {
+			return Err(format!("echo has no verb {verb:?}"));
 		}
 		Ok(args.first().and_then(Argument::as_str).unwrap_or("?").into())
 	})?;
@@ -131,6 +131,41 @@ async fn walk(peer_uri: String, dead_uri: String) {
 	)
 	.await;
 	expect_string("greet", &greeted, "hello, spine");
+	for selector in [None, Some(""), Some("call")] {
+		for payload in [vec![], vec![Argument::from("payload")]] {
+			let label = match selector {
+				None => "direct",
+				Some("") => "empty",
+				_ => "call",
+			};
+			expect_string(
+				"invocation shape",
+				&value("invocation shape", session.send(&spine, selector, &payload)).await,
+				&format!("{label}:{}", payload.len()),
+			);
+		}
+	}
+	let shape_target = expect_value(
+		"spawn shape callback",
+		session.spawn(|selector, args| {
+			let label = match selector {
+				None => "direct",
+				Some("") => "empty",
+				Some(method) => method,
+			};
+			Ok(format!("{label}:{}", args.len()).into())
+		}),
+	);
+	let shape_proxy = expect_value("protect shape callback", session.caretaker(&shape_target));
+	expect_string(
+		"forwarded callback shapes",
+		&value(
+			"forwarded callback shapes",
+			session.send(&spine, "shapes", &[shape_proxy.proxy.clone().into()]),
+		)
+		.await,
+		"shapes preserved",
+	);
 	mark("promise-handle", "");
 
 	// ── promise-index / promise-untag / promise-get ─────────────────────────

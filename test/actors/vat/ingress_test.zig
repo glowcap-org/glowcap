@@ -77,12 +77,12 @@ const OrderActor = struct {
 
     pub fn handle(self: *OrderActor, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "record")) {
+        if (msg.is("record")) {
             self.order[self.len] = @intCast(try msg.argInt(0));
             self.len += 1;
             return .{ .void = {} };
         }
-        if (std.mem.eql(u8, msg.verb, "order")) return .{ .bytes = self.order[0..self.len] };
+        if (msg.is("order")) return .{ .bytes = self.order[0..self.len] };
         return error.NoSuchMethod;
     }
 };
@@ -200,7 +200,7 @@ test "an ingress cannot close while a sibling turn holds staged work" {
             try turn.vat.tellFromIngress(self.ingress, self.target, .{ .verb = "increment" });
             try std.testing.expectError(error.IngressBusy, turn.vat.closeIngress(self.ingress));
             try std.testing.expectError(error.IngressBusy, turn.vat.cancelIngress(self.ingress, "cancel"));
-            if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
+            if (msg.is("fail")) return error.Refused;
             return .{ .void = {} };
         }
     };
@@ -256,7 +256,7 @@ const CausalFanout = struct {
     refused: bool = false,
 
     pub fn handle(self: *CausalFanout, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "fan")) {
+        if (msg.is("fan")) {
             _ = try turn.send(self.sink, .{ .verb = "increment" });
             _ = turn.send(self.sink, .{ .verb = "increment" }) catch |err| {
                 if (err != actors.Error.ResourceExhausted) return err;
@@ -265,7 +265,7 @@ const CausalFanout = struct {
             };
             return .{ .void = {} };
         }
-        if (std.mem.eql(u8, msg.verb, "refused")) return .{ .boolean = self.refused };
+        if (msg.is("refused")) return .{ .boolean = self.refused };
         return error.NoSuchMethod;
     }
 };
@@ -318,7 +318,7 @@ const ReentrantChunkBorrow = struct {
     observed_len: usize = 0,
 
     pub fn handle(self: *ReentrantChunkBorrow, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "outer")) {
+        if (msg.is("outer")) {
             // Drain the next row in this same chunk. Once it exhausts the chunk,
             // enqueue again to force an incorrect early spare to be reused and
             // overwrite the outer message before we read it.
@@ -329,8 +329,8 @@ const ReentrantChunkBorrow = struct {
             self.observed_len = original.len;
             return .{ .void = {} };
         }
-        if (std.mem.eql(u8, msg.verb, "inner") or std.mem.eql(u8, msg.verb, "after")) return .{ .void = {} };
-        if (std.mem.eql(u8, msg.verb, "observed")) return .{ .bytes = self.observed[0..self.observed_len] };
+        if (msg.is("inner") or msg.is("after")) return .{ .void = {} };
+        if (msg.is("observed")) return .{ .bytes = self.observed[0..self.observed_len] };
         return error.NoSuchMethod;
     }
 };

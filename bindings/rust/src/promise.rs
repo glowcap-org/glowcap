@@ -111,7 +111,7 @@ pub(crate) async fn resolve(shared: &Rc<SessionShared>, target: &Ref) -> Result<
 pub(crate) fn send_promise(
 	shared: &Rc<SessionShared>,
 	target: CmdTarget,
-	verb: &str,
+	verb: Option<&str>,
 	args: &[Argument],
 ) -> RemotePromise {
 	let failed = |error: Error, session: &Rc<SessionShared>| RemotePromise::failed(error, Rc::clone(session));
@@ -153,8 +153,8 @@ pub(crate) fn send_promise(
 				ffi::glowcap_host_session_send(
 					shared.ptr.get(),
 					&wire,
-					verb.as_ptr(),
-					verb.len(),
+					verb.map_or(core::ptr::null(), str::as_ptr),
+					verb.map_or(0, str::len),
 					args_ptr,
 					args_len,
 					&mut vow,
@@ -170,8 +170,8 @@ pub(crate) fn send_promise(
 				ffi::glowcap_host_vow_send(
 					shared.host.raw(),
 					source,
-					verb.as_ptr(),
-					verb.len(),
+					verb.map_or(core::ptr::null(), str::as_ptr),
+					verb.map_or(0, str::len),
 					args_ptr,
 					args_len,
 					&mut vow,
@@ -201,7 +201,12 @@ enum Addressed {
 
 /// Fire-and-forget eventual-send to a concrete capability or an unresolved
 /// answer. The Host routes concrete capabilities and vow identities.
-pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &str, args: &[Argument]) -> Result<()> {
+pub(crate) fn tell_target(
+	shared: &Rc<SessionShared>,
+	target: CmdTarget,
+	verb: Option<&str>,
+	args: &[Argument],
+) -> Result<()> {
 	let _arrival = DeliverGuard::enter(shared);
 	match &target.0 {
 		CmdTargetKind::Ref(reference) => shared.tell(reference, verb, args),
@@ -216,7 +221,14 @@ pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &
 			// `source`; `verb` borrows the caller's `&str`, and `args_ptr` and `args_len` come from the
 			// local `arena`, which borrows `args` and outlives the call.
 			arena.finish(check_host(unsafe {
-				ffi::glowcap_host_vow_tell(shared.host.raw(), source, verb.as_ptr(), verb.len(), args_ptr, args_len)
+				ffi::glowcap_host_vow_tell(
+					shared.host.raw(),
+					source,
+					verb.map_or(core::ptr::null(), str::as_ptr),
+					verb.map_or(0, str::len),
+					args_ptr,
+					args_len,
+				)
 			}))?;
 			shared.host.schedule_kick()
 		}

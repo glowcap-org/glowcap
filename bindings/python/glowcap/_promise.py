@@ -18,7 +18,7 @@ from typing import Optional, Union
 from . import _constants as _abi
 from ._abi_value import _args_to_c, _ref_to_c
 from ._errors import FetchFailed, GlowcapError, _check_host, _retain_cleanup_failure
-from ._ffi_host import _host
+from ._ffi_host import _host, _selector_buf
 from ._ffi_ocapn import _Reference, _byte_buf
 from ._gc import release_ref
 from ._value import Ref, _ref_from_id
@@ -446,13 +446,12 @@ class _FarArguments:
             raise failure
 
 
-def _send_far(session, target, verb: str, args: list) -> RemotePromise:
+def _send_far(session, target, verb: str | None, args: list) -> RemotePromise:
     # Far-send mint→RemotePromise: encode args, mint the host vow
     # (glowcap_host_session_send / glowcap_host_vow_send), register it, and
     # hand back _promise_for.
     # Local-hosted targets stay in Session (trampoline _send_local).
-    verb_bytes = verb.encode()
-    vbuf, vptr = _byte_buf(verb_bytes)
+    vbuf, vptr, verb_len = _selector_buf(verb)
     out = ctypes.c_uint64()
     with _FarArguments(session, args) as (arr, count):
         if isinstance(target, RemotePromise):
@@ -464,7 +463,7 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
                     session.host.raw,
                     source_vow,
                     vptr,
-                    len(verb_bytes),
+                    verb_len,
                     arr,
                     count,
                     ctypes.byref(out),
@@ -477,7 +476,7 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
                     session.raw,
                     ctypes.byref(ref),
                     vptr,
-                    len(verb_bytes),
+                    verb_len,
                     arr,
                     count,
                     ctypes.byref(out),

@@ -18,9 +18,10 @@
 // composes in process, a far target defers the answer onto the forwarded
 // send's vow.
 
+import { readSelector, selectorBuffer, selectorLength } from "./internal/selector.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, outPointer, outU64, readBytes } from "./internal/seam.ts";
+import { ab, outPointer, outU64 } from "./internal/seam.ts";
 import { MAX_LOCAL_FORWARD_HOPS, OK } from "@glowcap/abi";
 import { FORWARD_CYCLE_MESSAGE } from "./internal/constants.ts";
 import { checkHost, GlowcapError, hostLastError, VowBroken } from "./errors.ts";
@@ -40,7 +41,6 @@ export {
 // One encoder/decoder pair for every turn: both are stateless here, and the
 // trampoline is the binding's hottest path.
 const utf8Encoder = new TextEncoder();
-const utf8Decoder = new TextDecoder();
 
 // Chase a behavior's result through the locally hosted `Forward` prefix:
 // while it forwards to a near target the current entry's Host
@@ -92,7 +92,7 @@ function chaseLocalForwards(
  * a far tell. */
 export function runHosted(
 	id: bigint,
-	verb: string,
+	verb: string | null,
 	args: Argument[],
 	turn: Ptr | null = null,
 ): { result: BehaviorResult } | undefined {
@@ -128,11 +128,11 @@ export function runHosted(
  * broken with the behavior's own words. */
 export function sendLocal(
 	ctx: bigint,
-	verb: string,
+	verb: string | null,
 	args: Argument[],
 	forwardFar: (
 		target: Ref,
-		verb: string,
+		verb: string | null,
 		args: Argument[],
 	) => Promise<Argument> | RemotePromise,
 ): RemotePromise {
@@ -168,9 +168,9 @@ export function sendLocal(
  * no answer to break, so the Host retains it through `recordFailure`. */
 export async function tellLocal(
 	ctx: bigint,
-	verb: string,
+	verb: string | null,
 	args: Argument[],
-	forwardFar: (target: Ref, verb: string, args: Argument[]) => Promise<void>,
+	forwardFar: (target: Ref, verb: string | null, args: Argument[]) => Promise<void>,
 	recordFailure: (error: unknown) => void,
 ): Promise<void> {
 	let result: Argument | Forward | PromiseLike<Argument | void> | void;
@@ -196,17 +196,17 @@ export async function tellLocal(
 export async function tellFar(
 	h: PromiseFactoryHandle,
 	target: Ref | RemotePromise,
-	verb: string,
+	verb: string | null,
 	args: Argument[],
 ): Promise<void> {
-	const verbBytes = utf8Encoder.encode(verb);
+	const verbBytes = selectorBuffer(verb);
 	withFarArgs(h, args, (argsBuf) => {
 		if (target instanceof RemotePromise) {
 			checkHost(hostS.glowcap_host_vow_tell(
 				h.hostRaw,
 				target.farVow(h.hostOwner),
-				ab(verbBytes),
-				BigInt(verbBytes.length),
+				verbBytes,
+				selectorLength(verbBytes),
 				ab(argsBuf),
 				BigInt(args.length),
 			));
@@ -214,8 +214,8 @@ export async function tellFar(
 			checkHost(hostS.glowcap_host_session_tell(
 				h.ptr,
 				ab(refStruct(target)),
-				ab(verbBytes),
-				BigInt(verbBytes.length),
+				verbBytes,
+				selectorLength(verbBytes),
 				ab(argsBuf),
 				BigInt(args.length),
 			));
@@ -231,11 +231,11 @@ export function dispatchSend(
 	hosted: Map<bigint, bigint>,
 	factory: PromiseFactoryHandle,
 	target: Ref | RemotePromise,
-	verb: string,
+	verb: string | null,
 	args: Argument[],
 	recurse: (
 		target: Ref | RemotePromise,
-		verb: string,
+		verb: string | null,
 		args: Argument[],
 	) => RemotePromise,
 ): RemotePromise {
@@ -254,9 +254,9 @@ export async function dispatchTell(
 	hosted: Map<bigint, bigint>,
 	h: PromiseFactoryHandle,
 	target: Ref | RemotePromise,
-	verb: string,
+	verb: string | null,
 	args: Argument[],
-	recurse: (target: Ref | RemotePromise, verb: string, args: Argument[]) => Promise<void>,
+	recurse: (target: Ref | RemotePromise, verb: string | null, args: Argument[]) => Promise<void>,
 	recordFailure: (error: unknown) => void,
 ): Promise<void> {
 	if (target instanceof Ref) {
@@ -367,13 +367,13 @@ function settleReply(
 		// The host forwards: the real answer rides the forwarded send's vow and
 		// out_reply gets a void placeholder. Buffers stay pinned until it returns.
 		const keep: Uint8Array[] = [];
-		const verbBytes = utf8Encoder.encode(result.verb);
+		const verbBytes = selectorBuffer(result.verb);
 		const argsBuf = encodeArgs(result.args, keep);
 		const rc = hostS.glowcap_host_turn_forward(
 			turn,
 			ab(refStruct(result.target)),
-			ab(verbBytes),
-			BigInt(verbBytes.length),
+			verbBytes,
+			selectorLength(verbBytes),
 			ab(argsBuf),
 			BigInt(result.args.length),
 			outReply,
@@ -404,7 +404,7 @@ function trampoline(
 	outReply: Ptr,
 ): number {
 	try {
-		const verb = BigInt(verbLen) === 0n ? "" : utf8Decoder.decode(readBytes(verbPtr, BigInt(verbLen)));
+		const verb = readSelector(verbPtr, verbLen);
 		const args = readArgArray(argsPtr, BigInt(argsLen));
 		const hosted = runHosted(BigInt(ctx), verb, args, turn);
 		if (hosted === undefined) return turnBreak(turn, "no such hosted object");
@@ -482,7 +482,7 @@ export function attenuateProxy(
 ): Ref {
 	const allowed = new Set(verbs);
 	return spawn((verb, args) => {
-		if (!allowed.has(verb)) throw new Error("Attenuated");
+		if (verb === null || !allowed.has(verb)) throw new Error("Attenuated");
 		return new Forward(target, verb, args);
 	});
 }

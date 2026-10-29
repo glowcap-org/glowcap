@@ -177,8 +177,9 @@ pub(super) fn bootstrap(
 	shared: Shared,
 	name: String,
 	managed: Option<(String, RoomPolicy)>,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if args.iter().any(|arg| Value(arg).contains_capability()) {
 			return Err("room manager bootstrap accepts no capability arguments".into());
 		}
@@ -225,8 +226,9 @@ fn steward(
 	identity: String,
 	generation: u64,
 	room_generation: u64,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if args.iter().any(|arg| Value(arg).contains_capability()) {
 			return Err("a durable steward does not take capability arguments".into());
 		}
@@ -267,8 +269,13 @@ fn steward(
 
 /// Passable authority over one room's durable link and moderator
 /// generations. It retains only the durable name, never a live room.
-fn manager(shared: Shared, name: String, generation: u64) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+fn manager(
+	shared: Shared,
+	name: String,
+	generation: u64,
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if args.iter().any(|arg| Value(arg).contains_capability()) {
 			return Err("a room manager accepts no capability arguments".into());
 		}

@@ -51,7 +51,7 @@ const MAX_UNREAD_LINES: usize = 256;
 /// Lift a capability a `send` returned (an `Argument::Reference`) into a `Ref`
 /// you can `send` to.
 fn room_ref(arg: Argument, verb: &str) -> Result<glowcap::Ref, String> {
-	glowcap::Ref::try_from(&arg).map_err(|_| format!("{verb} did not return a room capability"))
+	glowcap::Ref::try_from(&arg).map_err(|_| format!("{verb:?} did not return a room capability"))
 }
 
 /// The wire reason a broken `send` carried, so a caller can classify it by the
@@ -139,8 +139,8 @@ impl Directory {
 		let observer = self
 			.session
 			.spawn(move |verb, args| {
-				if verb != NOTIFY {
-					return Err(format!("watch inbox has no method {verb}"));
+				if verb != Some(NOTIFY) {
+					return Err(format!("watch inbox has no method {verb:?}"));
 				}
 				if let Some((kind, room)) = parse_watch_event(args)? {
 					on_event(kind, room);
@@ -321,8 +321,8 @@ impl Room {
 		let heard_ended = ended.clone();
 		let inbox = session
 			.spawn(move |verb, args| {
-				if verb != NOTIFY {
-					return Err(format!("inbox has no method {verb}"));
+				if verb != Some(NOTIFY) {
+					return Err(format!("inbox has no method {verb:?}"));
 				}
 				deliver_notify(&mut msg_tx, &heard_ended, args)?;
 				Ok(Argument::Void)

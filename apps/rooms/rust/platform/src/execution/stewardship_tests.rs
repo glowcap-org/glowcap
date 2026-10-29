@@ -39,7 +39,7 @@ async fn stewardship_keeps_rooms_isolated_and_rejects_late_authority() {
 				let steward_link = link(&format!("steward-{name}"));
 				let room_answer = room_link.clone();
 				host.publish(name, move || {
-					Box::new(move |verb, _| match verb {
+					Box::new(move |verb, _| match verb.ok_or("fixture requires a method")? {
 						authority::LINK => Ok(room_answer.clone().into()),
 						authority::MANAGED_IDENTITY => Ok(name.into()),
 						_ => Err("unexpected room call".into()),
@@ -49,7 +49,7 @@ async fn stewardship_keeps_rooms_isolated_and_rejects_late_authority() {
 				let grant_mode = mode.clone();
 				let grant_identity = identity.clone();
 				host.publish(&format!("manager-{name}"), move || {
-					Box::new(move |verb, _| match verb {
+					Box::new(move |verb, _| match verb.ok_or("fixture requires a method")? {
 						authority::GOVERNS => Ok(name.into()),
 						authority::LINK => Ok(room_link.clone().into()),
 						authority::GIVE_STEWARD => match grant_mode.get() {
@@ -75,7 +75,7 @@ async fn stewardship_keeps_rooms_isolated_and_rejects_late_authority() {
 						host.clone(),
 					);
 					host.publish(&format!("steward-{name}{suffix}"), move || {
-						Box::new(move |verb, args| match verb {
+						Box::new(move |verb, args| match verb.ok_or("fixture requires a method")? {
 							authority::GOVERNS if hold.get() => {
 								*saved.borrow_mut() = Some(actor_host.defer_turn().unwrap());
 								started.notify_one();

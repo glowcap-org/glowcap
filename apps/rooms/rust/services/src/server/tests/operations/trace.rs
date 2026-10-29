@@ -108,6 +108,7 @@ impl Viewer {
 					let trace = session.enliven(&sturdyref).await.map_err(|e| e.to_string())?;
 					let inbox = session
 						.spawn_owned(move |verb, args| {
+							let verb = verb.ok_or("fixture requires a method")?;
 							if let ("record", Some(Argument::String(line))) = (verb, args.first()) {
 								sink.lock().unwrap().push(line.clone());
 							}

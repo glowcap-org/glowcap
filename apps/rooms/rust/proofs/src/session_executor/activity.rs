@@ -19,6 +19,7 @@ pub(super) async fn run(
 	let reader = remote.activity_reader().await.unwrap();
 	let blob = host
 		.spawn(|verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			if verb != "read" || !matches!(args, [Argument::Integer(0), Argument::Integer(4)]) {
 				return Err("invalid blob read".into());
 			}

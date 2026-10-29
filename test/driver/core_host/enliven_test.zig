@@ -79,7 +79,7 @@ test "core host: owned observations cancel across independently compiled archive
 
     const Local = struct {
         calls: *usize,
-        pub fn handle(self: *@This(), turn: *glowcap.driver.core.HostTurn, _: []const u8, args: glowcap.driver.core.Args) !glowcap.driver.core.Value {
+        pub fn handle(self: *@This(), turn: *glowcap.driver.core.HostTurn, _: ?[]const u8, args: glowcap.driver.core.Args) !glowcap.driver.core.Value {
             const arg_values = try args.values();
             defer turn.releaseValues(arg_values);
             self.calls.* += 1;

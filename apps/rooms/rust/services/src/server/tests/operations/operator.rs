@@ -43,6 +43,7 @@ async fn operator() {
 	let sink = heard.clone();
 	let observer = session
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			match (verb, args.first()) {
 				("changed", Some(Argument::Integer(revision))) => sink.borrow_mut().push(*revision),
 				other => sink.borrow_mut().push(-(other.1.map_or(1, |_| 2))),

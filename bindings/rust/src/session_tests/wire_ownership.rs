@@ -149,11 +149,11 @@ async fn serve_gc_tracking(server: tcp::Server) {
 	let delegated_reply = delegated.clone();
 	session
 		.publish("factory", move |verb, args| match verb {
-			"reply" => Ok(Argument::Struct(vec![(
+			Some("reply") => Ok(Argument::Struct(vec![(
 				"nested".to_string(),
 				Argument::List(vec![Argument::Reference(delegated_reply.clone())]),
 			)])),
-			"accept" => {
+			Some("accept") => {
 				assert!(matches!(
 					args,
 					[Argument::Struct(entries)]
@@ -162,7 +162,7 @@ async fn serve_gc_tracking(server: tcp::Server) {
 				));
 				Ok(Argument::Void)
 			}
-			other => Err(format!("unexpected verb {other}")),
+			other => Err(format!("unexpected verb {other:?}")),
 		})
 		.unwrap();
 	session.serve().await.unwrap();

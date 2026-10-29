@@ -45,7 +45,7 @@ pub(crate) enum TurnOutcome {
 	Value(Argument),
 	Forward {
 		target: Ref,
-		verb: String,
+		verb: Option<String>,
 		args: Vec<Argument>,
 	},
 	Break(String),
@@ -54,12 +54,12 @@ pub(crate) enum TurnOutcome {
 /// The internal behavior shape the trampoline runs. The public
 /// [`Behavior`](crate::Behavior) (`Result<Argument, String>`) wraps into this.
 /// The caretaker/attenuator proxies mint forwarding outcomes directly.
-pub(crate) type InternalBehavior = Box<dyn FnMut(&str, &[Argument]) -> TurnOutcome>;
+pub(crate) type InternalBehavior = Box<dyn FnMut(Option<&str>, &[Argument]) -> TurnOutcome>;
 
 /// Wrap a public behavior into the internal outcome shape: `Ok` replies,
 /// `Err(reason)` breaks the answer with the behavior's words.
 pub(crate) fn outcome_behavior(
-	mut behavior: impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static,
+	mut behavior: impl FnMut(Option<&str>, &[Argument]) -> std::result::Result<Argument, String> + 'static,
 ) -> InternalBehavior {
 	Box::new(move |verb, args| match behavior(verb, args) {
 		Ok(value) => TurnOutcome::Value(value),
@@ -79,7 +79,7 @@ pub(crate) fn caretaker_proxy(shared: &Rc<SessionShared>, target: &Ref) -> Resul
 		} else {
 			TurnOutcome::Forward {
 				target: target.clone(),
-				verb: verb.to_string(),
+				verb: verb.map(str::to_string),
 				args: args.to_vec(),
 			}
 		}
@@ -93,12 +93,12 @@ pub(crate) fn attenuate_proxy(shared: &Rc<SessionShared>, target: &Ref, verbs: &
 	let allowed: HashSet<String> = verbs.iter().map(|verb| verb.to_string()).collect();
 	let target = target.clone();
 	let behavior: InternalBehavior = Box::new(move |verb, args| {
-		if !allowed.contains(verb) {
+		if !verb.is_some_and(|method| allowed.contains(method)) {
 			TurnOutcome::Break("Attenuated".to_string())
 		} else {
 			TurnOutcome::Forward {
 				target: target.clone(),
-				verb: verb.to_string(),
+				verb: verb.map(str::to_string),
 				args: args.to_vec(),
 			}
 		}
@@ -303,7 +303,15 @@ fn settle_reply(turn: *mut ffi::GlowcapHostTurn, outcome: TurnOutcome, out_reply
 			// `verb` of the outcome, and `args_ptr` and `args_len` come from the local `arena`, which borrows `args`
 			// and outlives the call; `out_reply` is the reply slot the host passed to this callback.
 			let rc = unsafe {
-				ffi::glowcap_host_turn_forward(turn, &wire, verb.as_ptr(), verb.len(), args_ptr, args_len, out_reply)
+				ffi::glowcap_host_turn_forward(
+					turn,
+					&wire,
+					verb.as_deref().map_or(core::ptr::null(), str::as_ptr),
+					verb.as_deref().map_or(0, str::len),
+					args_ptr,
+					args_len,
+					out_reply,
+				)
 			};
 			if rc != sys::OK {
 				let reason = host_last_error().unwrap_or_else(|| "forward refused".to_string());
@@ -352,15 +360,16 @@ unsafe fn trampoline_body(
 		return turn_break(turn, "hosted object owner is closed");
 	};
 	let _host = DeliverGuard::enter_host(&host);
-	// A zero-length verb is the positional call (the Goblins methodless shape).
-	// The verb bytes outlive this callback, so valid UTF-8 is borrowed as is
-	// and only a malformed verb pays an owned repair.
-	let verb: std::borrow::Cow<'_, str> = if verb_len == 0 || verb.is_null() {
-		std::borrow::Cow::Borrowed("")
+	// A null pointer is direct invocation; a non-null zero-length view is
+	// the empty selector. UTF-8 borrows the callback storage when valid.
+	let verb = if verb.is_null() {
+		None
 	} else {
-		// SAFETY: the host lends the verb bytes for the callback's duration, and
-		// the null and empty cases went to the arm above.
-		String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(verb, verb_len) })
+		// SAFETY: the Host lends this non-null slice for the whole callback,
+		// including when its length is zero.
+		Some(String::from_utf8_lossy(unsafe {
+			core::slice::from_raw_parts(verb, verb_len)
+		}))
 	};
 	// The one owned lift per deliver: the borrowed C args become owned Rust
 	// values before any behavior code can run.
@@ -390,7 +399,7 @@ unsafe fn trampoline_body(
 	}
 	let host_key = active_deliver_host_key();
 	let _guard = TurnGuard::enter(turn, host_key);
-	let outcome = (cell.behavior.borrow_mut())(&verb, &args);
+	let outcome = (cell.behavior.borrow_mut())(verb.as_deref(), &args);
 	settle_reply(turn, outcome, out_reply)
 }
 

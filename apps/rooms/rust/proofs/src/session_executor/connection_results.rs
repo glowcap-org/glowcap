@@ -205,7 +205,7 @@ pub(super) async fn run() {
 							],
 						)
 						.unwrap();
-					attachment.start_live(None, 32).unwrap();
+					environment::start_live(&attachment, None, 32).await;
 					let (root, root_control) = environment::restore(&attachment, resource).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();
 					owner.initialize().await.unwrap();
@@ -524,7 +524,7 @@ pub(super) async fn run() {
 							],
 						)
 						.unwrap();
-					attachment.start_live(Some(marker), 32).unwrap();
+					environment::start_live(&attachment, Some(marker), 32).await;
 					let (root, root_control) =
 						environment::restore(&attachment, loam::Resource::decode(resource.encode())).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();

@@ -29,7 +29,7 @@ before comparing authoring frontends. Syrup remains the direct compiler input.
 | Binding prerequisites | Rust retention and TypeScript owning-thread capability fulfillment are implemented using existing Host operations | `bindings/rust`, `bindings/ts` |
 | Prepared pending arguments | Next: retain before sequence acquisition, drop or observe the original, submit and replay, then prove release | Milestone 2 ownership case |
 | Remaining conversation coverage | Qualify breaks, cancellation, export failure, supported handoff and Goblins in both directions | Milestone 2 runtime cases |
-| Invocation shape | Blocked on preserving empty-symbol versus direct invocation | [Runtime boundary](../boundaries.md#invocation-shape) |
+| Invocation shape | Runtime preserves absent, empty, and named selectors | Generated-path qualification still required |
 | Cost and authoring decision | Measure generation first, then compare text and Cap'n Proto adapters | Milestone 2 decision |
 
 The [earlier experiment](../research/interface-design-proof.md) is background
@@ -71,9 +71,9 @@ They affect specific qualification cases, not all compiler work:
 | Dependency | Owner | Work that waits |
 | --- | --- | --- |
 | Stored resolutions retaining partner objects | [ADR-0070](../decisions/adr/ADR-0070-stored-resolutions-hold-imports.md) | Implemented in `25ae1ce6`, with generated-path qualification still required |
-| Direct invocation versus an empty-symbol method | Actor `Message`/`Delivery`, then driver and binding APIs | Exact preservation of both invocation shapes |
+| Direct invocation versus an empty-symbol method | Actor `Message`/`Delivery`, driver and every binding preserve selector presence | Exact preservation through generated clients and servers |
 | Independently owned pending arguments | Host and binding API under ADR-0068 | Rust `RemotePromise::retain()` projects the existing C operation, with prepared-request qualification still required |
-| Forwarded answer references and remote pipelines across sessions | Protocol boundary and its recorded supported behavior | Claims beyond that behavior |
+| Pending and local promise projection, remote pipelines across sessions | Host, actor, and engine owners, under the [runtime repairs](../roadmap.md#what-starts-next) | Exact target, outcome, ordering, cancellation, and release qualification |
 
 Descriptions, copied-value checks, and ordinary calls can be developed while a
 required runtime fix proceeds. Frontend comparison still follows the generation

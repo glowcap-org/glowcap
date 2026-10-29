@@ -58,49 +58,51 @@ async fn scenario() {
 	let (tx, mut calls) = tokio::sync::mpsc::channel(16);
 	let (service, targets, inbox, retired) = (peer.clone(), replies.clone(), incoming.clone(), done.clone());
 	let root = peer
-		.publish("directory", move |verb, args| match verb {
-			"signalOffer" => {
-				assert_eq!(args.len(), 3);
-				assert_eq!(args[1].as_str(), Some("offer"));
-				let Argument::Reference(reply) = &args[2] else {
-					panic!("reply capability")
-				};
-				targets.borrow_mut().push(reply.clone());
-				tx.try_send("offer").unwrap();
-				Ok(Argument::Void)
-			}
-			"signalCandidate" => {
-				assert_eq!(args[0].as_str(), Some("exchange"));
-				assert_eq!(args[1].as_str(), Some("local ice"));
-				tx.try_send("candidate").unwrap();
-				Ok(Argument::Void)
-			}
-			"signalAnswer" => {
-				assert_eq!(args[0].as_str(), Some("exchange"));
-				assert_eq!(args[1].as_str(), Some("local answer"));
-				tx.try_send("answer").unwrap();
-				Ok(Argument::Void)
-			}
-			"signalDone" => {
-				assert_eq!(args[0].as_str(), Some("exchange"));
-				retired.set(retired.get() + 1);
-				Ok(Argument::Void)
-			}
-			"offerSignaling" => {
-				let [Argument::Reference(reply)] = args else {
-					panic!("incoming signaling inbox")
-				};
-				*inbox.borrow_mut() = Some(reply.clone());
-				if refused.get() {
-					return Err("inbox refused".into());
+		.publish("directory", move |verb, args| {
+			match verb.ok_or("fixture requires a method")? {
+				"signalOffer" => {
+					assert_eq!(args.len(), 3);
+					assert_eq!(args[1].as_str(), Some("offer"));
+					let Argument::Reference(reply) = &args[2] else {
+						panic!("reply capability")
+					};
+					targets.borrow_mut().push(reply.clone());
+					tx.try_send("offer").unwrap();
+					Ok(Argument::Void)
 				}
-				service
-					.tell(reply, "offer", &["exchange".into(), "remote offer".into()])
-					.unwrap();
-				Ok(Argument::Void)
+				"signalCandidate" => {
+					assert_eq!(args[0].as_str(), Some("exchange"));
+					assert_eq!(args[1].as_str(), Some("local ice"));
+					tx.try_send("candidate").unwrap();
+					Ok(Argument::Void)
+				}
+				"signalAnswer" => {
+					assert_eq!(args[0].as_str(), Some("exchange"));
+					assert_eq!(args[1].as_str(), Some("local answer"));
+					tx.try_send("answer").unwrap();
+					Ok(Argument::Void)
+				}
+				"signalDone" => {
+					assert_eq!(args[0].as_str(), Some("exchange"));
+					retired.set(retired.get() + 1);
+					Ok(Argument::Void)
+				}
+				"offerSignaling" => {
+					let [Argument::Reference(reply)] = args else {
+						panic!("incoming signaling inbox")
+					};
+					*inbox.borrow_mut() = Some(reply.clone());
+					if refused.get() {
+						return Err("inbox refused".into());
+					}
+					service
+						.tell(reply, "offer", &["exchange".into(), "remote offer".into()])
+						.unwrap();
+					Ok(Argument::Void)
+				}
+				"barrier" => Ok(Argument::Void),
+				_ => Err("unknown signaling verb".into()),
 			}
-			"barrier" => Ok(Argument::Void),
-			_ => Err("unknown signaling verb".into()),
 		})
 		.unwrap();
 	let directory = Directory::fetch(client.clone()).await.unwrap();

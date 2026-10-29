@@ -12,7 +12,7 @@ readiness line, then:
      directly (keyed with the *same* identity Alice saw), withdraws the gift, and
      resolves the send to an ordinary capability, the app never sees the give or
      the second connection.
-  3. ``send(greeter, "", ["glowcap-carol"])``. The bytes go straight to Bob; the
+  3. ``send(greeter, None, ["glowcap-carol"])``. The bytes go straight to Bob; the
      reply must carry the name back, proving data integrity end to end.
 
 Needs ``racket`` plus the ``goblins`` collection on PATH; run via
@@ -60,7 +60,7 @@ async def converse() -> None:
                 fail("python-goblins-handoff", f"introduction did not redeem to a capability: {greeter!r}")
             print("python-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref")
 
-            reply = await session.send(greeter, "", ["glowcap-carol"])
+            reply = await session.send(greeter, None, ["glowcap-carol"])
             if not isinstance(reply, str) or "glowcap-carol" not in reply:
                 fail("python-goblins-handoff", f"greeter reply did not carry the name back: {reply!r}")
             print(f"python-goblins-handoff: greeter replied: {reply}")

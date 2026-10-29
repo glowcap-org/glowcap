@@ -82,7 +82,7 @@ async fn run(scenario: Scenario) {
 						],
 					)
 					.unwrap();
-				attachment.start_live(None, 32).unwrap();
+				environment::start_live(&attachment, None, 32).await;
 				let (root, control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), control).unwrap();
 				owner.initialize().await.unwrap();

@@ -43,11 +43,12 @@ const Holder = struct {
     pub fn handle(
         self: *Holder,
         turn: *driver.HostTurn,
-        verb: []const u8,
+        selector: ?[]const u8,
         args: driver.Args,
     ) !driver.Value {
+        errdefer turn.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         const arg_values = try args.values();
-        _ = turn;
         if (!std.mem.eql(u8, verb, "hold")) return error.NoSuchMethod;
         if (arg_values.len != 1 or arg_values[0] != .capability) return error.NotACapability;
         if (self.state.promise != null) return error.PromiseDeliveredTwice;
@@ -187,7 +188,7 @@ pub fn main(init: std.process.Init) !void {
     _ = arena_state.reset(.retain_capacity);
     requireGreeting(try session.call(
         greeter,
-        "",
+        null,
         &.{.{ .string = "glowcap" }},
         arena,
     )) catch |err| {

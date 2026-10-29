@@ -93,13 +93,19 @@ fn serveDeliver(
     // The reply and the interceptor both read `value` while
     // `running >= 1`, so the box `value` may alias is never freed
     // before the fulfill is sent.
-    defer frame.closeTurnFrame(self, local_id);
+    defer {
+        // A top-level serve consumes its reply here. Nested near-call leases
+        // share that window, while a serve nested in a near-call must leave
+        // the outer caller's borrowed reply alive until its next turn.
+        if (self.turn_depth == 1) frame.drainTurnResources(self);
+        frame.closeTurnFrame(self, local_id);
+    }
     // The handler reads the frame's views where they lie. The frame
     // outlives this call, and the reply is copied onto the wire below,
     // inside the turn, so a reply that aliases an argument is still
     // valid when `resolveFulfill` reads it. A handler that keeps a
     // value past its turn copies it (module header).
-    var delivery = try deliveryFor(deliver.args);
+    var delivery = try Delivery.fromArgs(deliver.args);
     delivery.reference_slots = reference_slots;
     var turn = Turn{ .vat = self, .source = .{ .port = port }, .self_id = local_id, .arena = arena, .origin = .{ .served = answer } };
     switch (box.handle(box.ptr, &turn, delivery)) {
@@ -301,25 +307,4 @@ fn resolveFulfillView(port: *Port, answer: ?engine.AnswerTarget, reply: model.vi
 pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, message: []const u8) !void {
     const ans = answer orelse return;
     try port.peer.sendAnswerTargetResolutionCopying(ans, .{ .@"break" = .{ .message = message } });
-}
-
-/// Split an inbound deliver's args into a method verb and its arguments: a
-/// leading symbol is the verb, the rest are its arguments. This is the inverse of
-/// what the local eventual-send payload does on the way out (it prepends the
-/// verb as a leading symbol), so a glowcap actor talking to a glowcap actor
-/// round-trips exactly.
-///
-/// It is a convention of this actor layer, not an OCapN rule: OCapN delivers a
-/// positional argument list with no distinguished method slot. So a deliver from
-/// a peer that does not follow the convention, a genuine Goblins object whose
-/// first real argument is itself a symbol, or a call sent with no leading verb,
-/// is read here as "the first symbol is the method." A vat hosting objects for a
-/// non-glowcap peer must agree on this verb-as-leading-symbol convention, or
-/// dispatch by inspecting the args directly rather than through this split.
-fn deliveryFor(args: model.view.Args) model.view.ProjectError!Delivery {
-    if ((try args.len()) > 0) {
-        const first = try args.at(0);
-        if (first == .symbol) return .{ .verb = first.symbol, .args = try args.from(1) };
-    }
-    return .{ .verb = "", .args = args };
 }

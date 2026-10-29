@@ -496,7 +496,7 @@ impl SessionShared {
 	// ── The verbs' shared plumbing ─────────────────────────────────────────────
 
 	/// The Host routes every target, including locally hosted actors.
-	pub(crate) fn tell(self: &Rc<SessionShared>, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
+	pub(crate) fn tell(self: &Rc<SessionShared>, target: &Ref, verb: Option<&str>, args: &[Argument]) -> Result<()> {
 		self.guard_open()?;
 		self.drain_gc()?;
 		let _arrival = DeliverGuard::enter(self);
@@ -509,7 +509,14 @@ impl SessionShared {
 		// come from `arena`, a live local `SendArena` that outlives the call; the header says the host copies what it
 		// queues.
 		arena.finish(check_host(unsafe {
-			ffi::glowcap_host_session_tell(self.ptr.get(), &wire, verb.as_ptr(), verb.len(), args_ptr, args_len)
+			ffi::glowcap_host_session_tell(
+				self.ptr.get(),
+				&wire,
+				verb.map_or(core::ptr::null(), str::as_ptr),
+				verb.map_or(0, str::len),
+				args_ptr,
+				args_len,
+			)
 		}))?;
 		self.host.schedule_kick()
 	}

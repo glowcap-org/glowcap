@@ -145,7 +145,7 @@ class _VerbsMixin:
         )
 
     def send(
-        self, target: "Ref | RemotePromise", verb: str, args: "Optional[list]" = None
+        self, target: "Ref | RemotePromise", verb: str | None, args: "Optional[list]" = None
     ) -> RemotePromise:
         """Eventual-send ``verb(args)`` and return a pipelineable promise.
 
@@ -179,7 +179,7 @@ class _VerbsMixin:
     async def send_redeeming(
         self,
         target: "Ref | RemotePromise",
-        verb: str,
+        verb: str | None,
         args: "Optional[list]" = None,
     ) -> SendRedeemingResult:
         """Send and surface the direct exporter Session opened by redemption.
@@ -200,7 +200,7 @@ class _VerbsMixin:
     async def tell(
         self,
         target: "Ref | RemotePromise",
-        verb: str,
+        verb: str | None,
         args: "Optional[list]" = None,
     ) -> None:
         """Fire-and-forget eventual-send without allocating an answer.

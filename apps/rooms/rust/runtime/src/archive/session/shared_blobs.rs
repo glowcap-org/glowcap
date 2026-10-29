@@ -94,9 +94,10 @@ impl<P: Platform> Work<P> {
 			let reader = Rc::new(reader);
 			let work = self.clone();
 			let actor_host = host.clone();
-			let actor = move |verb: &str, args: &[Argument]| {
+			let actor = move |verb: Option<&str>, args: &[Argument]| {
 				let _permit = &permit;
 				let result = (|| {
+					let verb = verb.ok_or_else(|| Error::invalid("unknown blob reader method"))?;
 					let owner = work.owner()?;
 					if args.len() != 2 {
 						return Err(Error::invalid("invalid archive byte arguments"));

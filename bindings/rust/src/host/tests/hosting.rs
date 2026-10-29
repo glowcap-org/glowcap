@@ -17,7 +17,7 @@ async fn local_callback_retains_and_retires_its_received_capability_occurrence()
 			let held = received.clone();
 			let receiver = host
 				.spawn(move |verb, args| {
-					if verb == "hold" {
+					if verb == Some("hold") {
 						*held.borrow_mut() = Some(Ref::try_from(&args[0]).unwrap());
 					}
 					Ok(Argument::Void)
@@ -82,7 +82,7 @@ async fn host_notifications_keep_admitted_work_after_target_release_without_an_a
 					move |verb, args| {
 						let _retained = &probe;
 						assert!(crate::current_session().unwrap().is_none());
-						assert_eq!(verb, "notify");
+						assert_eq!(verb, Some("notify"));
 						assert_eq!(args[0].as_str(), Some("held payload"));
 						calls.set(calls.get() + 1);
 						Ok(Argument::Void)

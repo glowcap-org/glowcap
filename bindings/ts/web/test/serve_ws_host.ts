@@ -68,6 +68,14 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 					// exercises the reverse direction too: the callback ref the
 					// caller passes is an object the *browser* hosts, so the tell
 					// below runs the wasm module's behavior trampoline far side.
+					session.publish("shape", (selector, args) => {
+						if (selector === "callbacks") {
+							const target = args[0];
+							if (!(target instanceof Ref)) throw new Error("expected a callback");
+							return Promise.all([null, "", "call"].map((method) => session.send(target, method, [])));
+						}
+						return [selector, args];
+					});
 					session.publish("greeter", (verb, args) => {
 						if (verb !== "greet") throw new Error(`unknown verb ${verb}`);
 						const name = args[0] as string;
@@ -114,6 +122,14 @@ async function serveTcpHost(
 							),
 						},
 					);
+					session.publish("shape", (selector, args) => {
+						if (selector === "callbacks") {
+							const target = args[0];
+							if (!(target instanceof Ref)) throw new Error("expected a callback");
+							return Promise.all([null, "", "call"].map((method) => session.send(target, method, [])));
+						}
+						return [selector, args];
+					});
 					session.publish("greeter", (verb, args) => {
 						if (verb !== "greet") throw new Error(`unknown verb ${verb}`);
 						const name = args[0] as string;

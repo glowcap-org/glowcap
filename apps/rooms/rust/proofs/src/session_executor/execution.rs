@@ -69,7 +69,7 @@ pub(super) async fn run(case: Case) {
 					)
 					.unwrap();
 				if case.role.live() {
-					attachment.start_live(None, 32).unwrap();
+					environment::start_live(&attachment, None, 32).await;
 				}
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control.clone()).unwrap();
@@ -486,7 +486,7 @@ pub(super) async fn run(case: Case) {
 					)
 					.unwrap();
 				if case.role.live() {
-					cold_attachment.start_live(live_marker, 32).unwrap();
+					environment::start_live(&cold_attachment, live_marker, 32).await;
 				}
 				let (cold_root, cold_root_control) =
 					environment::restore(&cold_attachment, loam::Resource::decode(resource.encode())).await;

@@ -84,7 +84,9 @@ const max_readings = 16_384;
 /// measures the transport and the protocol turn alone, and `report` sums the
 /// readings it was sent, the same work the comparison servers do.
 const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(_: *Greeter, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (std.mem.eql(u8, verb, "greet")) return .{ .string = greeting };
         if (std.mem.eql(u8, verb, "report")) return reportReply(ht, args);
         return error.NoSuchMethod;

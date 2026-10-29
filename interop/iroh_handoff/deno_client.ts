@@ -65,7 +65,7 @@ async function acceptLoopWithServed(server: IrohServer, served: Session[]): Prom
 }
 
 /** The published actor: answer `greet` by echoing the caller's name. */
-function greeter(verb: string, args: unknown[]): string | null {
+function greeter(verb: string | null, args: unknown[]): string | null {
 	if (verb !== "greet") return null;
 	return `hello ${String(args[0] ?? "")} over iroh handoff`;
 }

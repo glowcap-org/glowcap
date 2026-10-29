@@ -67,8 +67,8 @@ const DigestLog = struct {
             .message => |m| {
                 if (self.n == self.rows.len) return;
                 var row = Row{ .outbound = m.outbound, .digest = m.digest };
-                row.verb_len = @min(m.verb.len, row.verb.len);
-                @memcpy(row.verb[0..row.verb_len], m.verb[0..row.verb_len]);
+                row.verb_len = @min(m.verb.?.len, row.verb.len);
+                @memcpy(row.verb[0..row.verb_len], m.verb.?[0..row.verb_len]);
                 self.rows[self.n] = row;
                 self.n += 1;
             },

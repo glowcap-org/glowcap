@@ -236,11 +236,9 @@ pub const HostedBehavior = struct {
     allocator: std.mem.Allocator,
 
     /// The vat calls this on each deliver. It marshals the message into C,
-    /// invokes the consumer's callback with the turn, and materializes the
-    /// reply *owned* into `turn.arena` before returning: the consumer's
-    /// `out_reply` storage is only valid until the callback returns, and the
-    /// reply must own its bytes for the turn window, exactly like a Zig
-    /// reply.
+    /// invokes the consumer's callback with the turn, and materializes its
+    /// reply into `turn.arena`. The consumer lends its reply storage across
+    /// callback return; the copied reply then borrows the whole turn.
     pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) actors.HostedActor.Result {
         return actors.HostedActor.Result.fromResult(handleOwned(erased, turn, msg));
     }
@@ -248,16 +246,18 @@ pub const HostedBehavior = struct {
     fn handleOwned(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) anyerror!model.Argument {
         const self: *HostedBehavior = @ptrCast(@alignCast(erased));
         const arena = turn.arena;
-        const host_turn = try driver_core.HostTurn.fromActorTurn(turn);
+        var host_turn = try driver_core.HostTurn.fromActorTurn(turn);
         const session = host_turn.session orelse return error.OwningReplyRequired;
         const inst = instOf(host_turn.host);
-        const c_args = try hostArgsToC(inst, session, arena, msg.args);
+        const input = try inst.core.projectValues(session, arena, msg.args, &host_turn, projectCallbackArguments);
+        errdefer if (input.lease) |held| held.release();
+        const c_args = input.args;
         var reply = shared.zero_argument;
         const code = self.behavior(
             self.ctx,
             @ptrCast(turn),
-            msg.verb.ptr,
-            msg.verb.len,
+            if (msg.verb) |method| method.ptr else null,
+            if (msg.verb) |method| method.len else 0,
             if (c_args.len > 0) c_args.ptr else null,
             c_args.len,
             &reply,
@@ -288,7 +288,7 @@ pub const HostedBehavior = struct {
             return err;
         };
         var reply = shared.zero_argument;
-        const code = self.behavior(self.ctx, @ptrCast(turn), input.verb.ptr, input.verb.len, if (c_args.len == 0) null else c_args.ptr, c_args.len, &reply);
+        const code = self.behavior(self.ctx, @ptrCast(turn), if (input.verb) |method| method.ptr else null, if (input.verb) |method| method.len else 0, if (c_args.len == 0) null else c_args.ptr, c_args.len, &reply);
         if (code != GLOWCAP_OK) return error.ForeignBehaviorBroke;
         if (turn.forwarded) return;
         const replies = [_]shared.GlowcapArgument{reply};
@@ -305,6 +305,19 @@ pub const HostedBehavior = struct {
         self.allocator.destroy(self);
     }
 };
+
+const CallbackArguments = struct {
+    args: []shared.GlowcapArgument,
+    lease: ?*driver_core.HostTurn.ArgumentLease,
+};
+
+/// Marshal and acquire reply custody inside the lift transaction, before any
+/// observation reaches foreign code or a redeemed route is consumed.
+fn projectCallbackArguments(turn: *driver_core.HostTurn, values: []const driver_core.Value) !CallbackArguments {
+    const args = try valuesToC(turn.turn.arena, values);
+    const lease = try turn.retainArguments(.fromValues(values, turn.turn.arena));
+    return .{ .args = args, .lease = lease };
+}
 
 /// Allocate the C callback bridge and return the actor descriptor a Vat or
 /// Host publication consumes. On allocation failure this owns the foreign
@@ -324,7 +337,7 @@ pub fn hostedBridge(
 }
 
 pub const ValueMessage = struct {
-    verb: []const u8,
+    verb: ?[]const u8,
     args: []const driver_core.Value,
 };
 
@@ -345,7 +358,7 @@ pub fn valueMessageFromC(
     if (!inst.core.withinCallback())
         _ = inst.arg_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
     return .{
-        .verb = verb_slice,
+        .verb = if (verb != null) verb_slice else null,
         .args = try shared.valuesFromCWith(
             driver_core.Value,
             anyerror,
@@ -425,12 +438,8 @@ pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) shared.Marsh
     return shared.valueToCWith(driver_core.Value, error{}, {}, capabilityToC, arena, value);
 }
 
-fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) shared.MarshalError![]shared.GlowcapArgument {
+pub fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) shared.MarshalError![]shared.GlowcapArgument {
     return shared.valuesToCWith(driver_core.Value, error{}, {}, capabilityToC, arena, values);
-}
-
-pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, args: model.view.Args) ![]shared.GlowcapArgument {
-    return inst.core.projectValues(session, arena, args, arena, valuesToC);
 }
 
 /// One `DurableProvenance` in its C spelling.

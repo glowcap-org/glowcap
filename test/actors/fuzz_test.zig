@@ -59,8 +59,8 @@ const Counter = struct {
 
     pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "bump")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("bump")) {
             self.n += 1;
             return .{ .void = {} };
         }

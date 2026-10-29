@@ -26,12 +26,13 @@ pub const Counter = struct { pokes: u32 = 0 };
 pub fn widgetBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = .{ turn, args, args_len };
     if (!std.mem.eql(u8, verb[0..verb_len], "poke")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     if (ctx) |p| {
@@ -55,12 +56,13 @@ pub const InlineCapabilityCapture = struct {
 pub fn inlineCapabilityBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = turn;
     if (!std.mem.eql(u8, verb[0..verb_len], "accept") or args_len != 2)
         return c.GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -89,12 +91,13 @@ pub fn inlineCapabilityBehavior(
 pub fn typedBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = turn;
     if (!std.mem.eql(u8, verb[0..verb_len], "typed") or args_len != 7) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     const values = args orelse return c.GLOWCAP_ERR_NULL_POINTER;
@@ -143,12 +146,13 @@ pub const IntroducerCtx = struct { widget: c.GlowcapReference };
 pub fn introducerBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = .{ turn, args, args_len };
     if (!std.mem.eql(u8, verb[0..verb_len], "introduce")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     const ic: *IntroducerCtx = @ptrCast(@alignCast(ctx.?));
@@ -164,12 +168,13 @@ pub const CaretakerCtx = struct { target_ref: c.GlowcapReference };
 pub fn caretakerBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     const cc: *CaretakerCtx = @ptrCast(@alignCast(ctx.?));
     const target = cc.target_ref;
     if (std.mem.eql(u8, verb[0..verb_len], "poke")) {
@@ -190,12 +195,13 @@ pub fn caretakerBehavior(
 pub fn relayBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = ctx;
     if (!std.mem.eql(u8, verb[0..verb_len], "relay") or args_len != 1) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     const values = args orelse return c.GLOWCAP_ERR_NULL_POINTER;
@@ -216,12 +222,13 @@ pub const FactoryCtx = struct {
 pub fn factoryBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = .{ args, args_len };
     const factory: *FactoryCtx = @ptrCast(@alignCast(ctx.?));
     var ingress: ?*cd.GlowcapHostSession = null;
@@ -254,12 +261,13 @@ pub const KitchenCtx = struct { widget_local_ref: c.GlowcapReference };
 pub fn kitchenBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = .{ turn, args, args_len };
     const kc: *KitchenCtx = @ptrCast(@alignCast(ctx.?));
     const v = verb[0..verb_len];

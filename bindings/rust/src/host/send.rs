@@ -32,7 +32,8 @@ impl IntoFuture for HostPromise {
 impl Host {
 	/// Queue a notification at the held target's actual home. No reply vow is
 	/// created. The queue owns admitted work independently of this handle.
-	pub fn tell(&self, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
+	pub fn tell<'a>(&self, target: &Ref, verb: impl Into<Option<&'a str>>, args: &[Argument]) -> Result<()> {
+		let verb = verb.into();
 		self.shared.guard_handle()?;
 		let target = target.to_sys()?;
 		let mut arena = SendArena::for_host(&self.shared);
@@ -42,14 +43,22 @@ impl Host {
 		// borrowed for the call, and `args`/`count` come from `arena`, a live local `SendArena`; the header says the
 		// host copies what it queues.
 		arena.finish(check_host(unsafe {
-			ffi::glowcap_host_tell(self.shared.raw(), &target, verb.as_ptr(), verb.len(), args, count)
+			ffi::glowcap_host_tell(
+				self.shared.raw(),
+				&target,
+				verb.map_or(core::ptr::null(), str::as_ptr),
+				verb.map_or(0, str::len),
+				args,
+				count,
+			)
 		}))?;
 		self.shared.schedule_kick()
 	}
 	/// Admit an eventual send using the target's actual local or foreign home.
 	/// The Host queue copies borrowed arguments. Completion uses its usual action
 	/// drain. Callbacks use their turn-scoped send so rollback remains atomic.
-	pub fn send(&self, target: &Ref, verb: &str, args: &[Argument]) -> HostPromise {
+	pub fn send<'a>(&self, target: &Ref, verb: impl Into<Option<&'a str>>, args: &[Argument]) -> HostPromise {
+		let verb = verb.into();
 		let admission = (|| {
 			self.shared.guard_handle()?;
 			let target = target.to_sys()?;
@@ -62,8 +71,8 @@ impl Host {
 				ffi::glowcap_host_send(
 					self.shared.raw(),
 					&target,
-					verb.as_ptr(),
-					verb.len(),
+					verb.map_or(core::ptr::null(), str::as_ptr),
+					verb.map_or(0, str::len),
 					args,
 					count,
 					&mut vow,

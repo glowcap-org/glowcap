@@ -275,8 +275,9 @@ pub(super) fn behavior(
 	shared: Shared,
 	publication: Rc<Publication>,
 	seat: Rc<Seat>,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if super::super::operations::carries_capability(args) {
 			return Err(format!("IRC membership {verb} does not take capabilities"));
 		}

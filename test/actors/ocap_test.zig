@@ -24,12 +24,12 @@ const Counter = struct {
 
     pub fn handle(self: *Counter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "add")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("add")) {
             self.n += try msg.argInt(0);
             return .{ .integer = self.n };
         }
-        if (std.mem.eql(u8, msg.verb, "increment")) {
+        if (msg.is("increment")) {
             self.n += 1;
             return .{ .void = {} };
         }

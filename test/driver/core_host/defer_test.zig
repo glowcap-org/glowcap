@@ -206,7 +206,7 @@ const Deferring = struct {
     out_resolver: *u64,
 
     pub fn handle(self: *Deferring, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "work")) return error.NoSuchMethod;
+        if (!msg.is("work")) return error.NoSuchMethod;
         self.out_resolver.* = try self.host.deferTurn(self.session, turn);
         return .{ .void = {} };
     }

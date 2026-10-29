@@ -6,8 +6,9 @@ use rooms_application::server::operations::inspect::{self, SessionFace, View};
 
 const SNAPSHOT: &str = rooms_application::protocol_data::SNAPSHOT;
 
-pub(super) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if super::carries_capability(args) {
 			return Err(format!("diagnostics {verb} does not take capability arguments"));
 		}

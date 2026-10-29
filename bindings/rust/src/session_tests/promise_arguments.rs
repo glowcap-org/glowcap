@@ -21,30 +21,30 @@ async fn promise_argument_passes_as_a_capability() {
 				let kept: Rc<RefCell<Option<Argument>>> = Rc::new(RefCell::new(None));
 				session
 					.publish("root", move |verb, args| match verb {
-						"keep" => {
+						Some("keep") => {
 							*kept.borrow_mut() = args.first().cloned();
 							Ok(Argument::String("kept".into()))
 						}
-						"kept" => kept.borrow().clone().ok_or_else(|| "nothing kept".to_string()),
-						"make" => {
+						Some("kept") => kept.borrow().clone().ok_or_else(|| "nothing kept".to_string()),
+						Some("make") => {
 							let greeter = factory
 								.spawn(|greeter_verb, _args| match greeter_verb {
-									"greet" => Ok(Argument::String("hello from the greeter".into())),
-									other => Err(format!("no such method: {other}")),
+									Some("greet") => Ok(Argument::String("hello from the greeter".into())),
+									other => Err(format!("no such method: {other:?}")),
 								})
 								.map_err(|error| error.to_string())?;
 							Ok((&greeter).into())
 						}
-						"use" => args.first().cloned().ok_or_else(|| "use needs a target".to_string()),
-						"data" => Ok(Argument::String("retained data".into())),
-						"break" => Err("retained refusal".into()),
-						"use_first" => match args.first() {
+						Some("use") => args.first().cloned().ok_or_else(|| "use needs a target".to_string()),
+						Some("data") => Ok(Argument::String("retained data".into())),
+						Some("break") => Err("retained refusal".into()),
+						Some("use_first") => match args.first() {
 							Some(Argument::List(items)) => {
 								items.first().cloned().ok_or_else(|| "empty list".to_string())
 							}
 							_ => Err("use_first needs a list".to_string()),
 						},
-						other => Err(format!("no such method: {other}")),
+						other => Err(format!("no such method: {other:?}")),
 					})
 					.unwrap();
 				session.serve().await.unwrap();

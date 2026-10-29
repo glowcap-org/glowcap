@@ -71,15 +71,15 @@ const ReentrantBecomer = struct {
     n: i64,
 
     pub fn handle(self: *const ReentrantBecomer, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "outer")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("outer")) {
             try turn.become(ReentrantBecomer, .{ .n = self.n + 1 });
             _ = try turn.near(turn.me(), .{ .verb = "inner" });
             // Read after the reentrant inner become: the outer frame's box is
             // still live because the install is deferred to this outermost frame.
             return .{ .integer = self.n };
         }
-        if (std.mem.eql(u8, msg.verb, "inner")) {
+        if (msg.is("inner")) {
             try turn.become(ReentrantBecomer, .{ .n = self.n + 100 });
             return .{ .void = {} };
         }
@@ -111,12 +111,12 @@ const AliasedBecomer = struct {
     label: [8]u8,
 
     pub fn handle(self: *const AliasedBecomer, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "read")) return .{ .bytes = &self.label };
-        if (std.mem.eql(u8, msg.verb, "outer")) {
+        if (msg.is("read")) return .{ .bytes = &self.label };
+        if (msg.is("outer")) {
             _ = try turn.near(turn.me(), .{ .verb = "inner" });
             return .{ .bytes = &self.label };
         }
-        if (std.mem.eql(u8, msg.verb, "inner")) {
+        if (msg.is("inner")) {
             try turn.become(AliasedBecomer, .{ .label = "new-name".* });
             return .{ .void = {} };
         }

@@ -176,7 +176,7 @@ export fn glowcap_wasm_loam_archive_fingerprint() u64 {
 extern "env" fn glowcap_behavior_trampoline(
     ctx: ?*anyopaque,
     turn: ?*driver.GlowcapHostTurn,
-    verb: [*]const u8,
+    verb: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const shared.GlowcapArgument,
     args_len: usize,

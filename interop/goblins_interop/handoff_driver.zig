@@ -91,7 +91,7 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
         },
     };
     std.debug.print("goblins-handoff: redeemed greeter; calling it directly\n", .{});
-    switch (try alice.call(greeter, "", &.{.{ .string = "glowcap-carol" }}, arena)) {
+    switch (try alice.call(greeter, null, &.{.{ .string = "glowcap-carol" }}, arena)) {
         .fulfilled => |value| switch (value) {
             .string => |reply| std.debug.print("goblins-handoff: greeter replied: {s}\n", .{reply}),
             else => return error.HandoffFailed,

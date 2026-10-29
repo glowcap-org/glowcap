@@ -27,7 +27,7 @@ const TakeCounter = struct {
     takes: *usize,
     pub fn handle(self: *TakeCounter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "take")) self.takes.* += 1;
+        if (msg.is("take")) self.takes.* += 1;
         return .{ .void = {} };
     }
 };
@@ -43,7 +43,7 @@ const SendThen = struct {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
         _ = try self.host.queueSendValues(self.session, self.target, "take", &.{.{ .capability = self.gift }}, arena.allocator());
-        if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
+        if (msg.is("fail")) return error.Refused;
         return .{ .void = {} };
     }
 };

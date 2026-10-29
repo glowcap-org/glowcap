@@ -6,353 +6,182 @@ sources: []
 
 # Known limitations
 
-[What ships](shipped.md) is the feature inventory, [stability](stability.md)
-says how each part is tested, and the [roadmap](roadmap.md) lists future
-work.
+Pin a commit. APIs, ABIs, and prerelease store formats have no compatibility
+guarantee. [What ships](shipped.md) lists features, [stability](stability.md)
+records test coverage, and the [roadmap](roadmap.md) owns work to close gaps.
+A limitation here describes current behavior, not acceptance of it as the goal.
 
 ## Protocol draft coverage
 
-`glowcap-next` adopts the current draft's operations while retaining the shared
-four-field hello and its crypto representations. It does not claim complete
-current-draft conformance. The [conformance manifest](ocapn-conformance.md)
-names the deferred crypto sections and test replacements. Next conformance
-runs over testing TCP. Onion conformance remains a separate baseline check.
+`glowcap-next` retains the shared four-field hello and crypto representations,
+so it does not provide complete current-draft conformance. The
+[conformance manifest](ocapn-conformance.md) names the deferred sections.
+The [crypto transition](roadmap.md#waiting-on-upstream) waits on a compatible
+specification and Goblins release.
 
 ## Transports and peer identity
 
-- **Plain `tcp` is a testing transport.** Its designator is an address, so the
-  peer claims no identity and proves none, and the channel is cleartext. Use
-  `tcp` to reach a peer that speaks nothing else, not to deploy.
-- **`keyed-tcp` and `keyed-relay` are cleartext and unauthenticated.** Their key
-  designator is a stable dial target, but the channel proves no possession of
-  it. Anyone on the path reads and can alter every frame. On `keyed-relay` that
-  includes the relay operator even when the carrier leg itself uses WSS. A
-  fresh session key limits reconnects but does not stop a captured hello
-  from being replayed. Prefer `noise-tcp` or `noise-relay` between glowcap
-  peers, iroh when you need discovery or NAT traversal, and WebRTC for a direct
-  browser channel when you trust its signaling. An application with its own authenticated channel records the
-  proof through `glowcap_host_session_bind_verified_channel_key`.
-- **An address locator names a socket.** On `tcp` and `onion`, the
-  crossed-connection tiebreak trusts the location each peer declares. While
-  your dial's handshake is outstanding, a peer that can connect and claim the
-  address you are dialing can make that dial lose the tiebreak. An open
-  session is never condemned this way, and only a channel-authenticated key
-  designator can collapse one.
-- **Two sessions to one peer stay open on an address transport.** `127.0.0.1`
-  and `[::1]` are different designators, and neither is an identity glowcap
-  acts on. A key-designator transport with channel proof recognizes the peer
-  by its durable name and keeps one session. When that peer reconnects before
-  its old session's close arrives, the new session replaces the old one.
-- **A proved peer is a computer, not a person.** A transport proves which
-  key answered. Checking who a person is, and telling one person from many
-  bots, belongs to the application
-  ([What about identity?](https://glowcap.org/identity/)).
-- **`inproc` is a test transport.** Its unbounded pipes block the reading
-  thread, so it is not a production or load-test substitute.
-- **`onion` has no scale tests.** Live checks need `tor` and network access,
-  so they run apart from `zig build check`. Zig `Session` and `Server` reach
-  Tor at TCP addresses only. A Unix-socket SOCKS or control endpoint needs a
-  binding, whose provider archive accepts socket paths.
-- **Over onion, glowcap offers more than `1.0` only to a peer it knows is
-  glowcap.** That means a peer that handed out the glowcap-hinted address, or
-  one whose hello stated a preference. Pinned Goblins refuses a hinted onion
-  locator, so glowcap sends onion locators bare, except in a give to a peer it
-  knows is glowcap. Goblins sessions and
-  hosts on the default profile use `1.0`
-  ([ADR-0042](decisions/adr/ADR-0042-onion-interoperability.md)).
-- **CI does not test iroh hole-punching between separate NATs.** Opt-in checks
-  cover discovery and relay use from one host. `discovery_no_relay` has no
-  check because it needs a publishable direct address.
-- **A `webrtc` dial needs configured signaling.** In a browser, TypeScript
-  composes the runtime with `webrtc.connector(signaling)`. On a server, Rust,
-  Python, Racket, and Deno compose it with `webrtc.provider(signaling)`, Zig
-  gives the backend a `SignalingAuthority`, and the C library takes callbacks
-  in `GlowcapWebrtcConfig.signaling`. Without it the dial refuses.
-- **glowcap has no Zig QUIC or WebRTC stack.** iroh and WebRTC run through
-  their own Rust libraries.
-- **iroh notices a peer that died without closing only after an idle
-  timeout.** A killed TCP peer sends a FIN at once. UDP has no equivalent. The
-  default is in the `GlowcapIrohConfig` header. Set `idle_timeout_ms` on any
-  binding when a live session means presence. A shorter timeout costs more
-  idle traffic.
+- **`tcp`, `keyed-tcp`, and `keyed-relay` are cleartext and unauthenticated.**
+  A key designator alone proves no possession of that key. WSS to a relay
+  does not protect CapTP from the relay operator. Use `noise-tcp`,
+  `noise-relay`, iroh, or WebRTC with trusted signaling for deployment.
+- **Address locators prove no identity.** On `tcp` and `onion`, a peer claiming
+  the address of an outstanding dial can win its crossed-connection tiebreak.
+  An open session is protected from that claim. Address aliases remain
+  separate peers, while a channel-proved durable key permits session replacement.
+- **A proved key does not identify a person.** Human identity and bot resistance
+  belong to the application ([identity](https://glowcap.org/identity/)).
+- **`inproc` is for tests.** Its unbounded, blocking pipes do not model production
+  backpressure or scale.
+- **Zig onion clients accept TCP Tor endpoints only.** Unix-socket SOCKS and
+  control endpoints need a binding. This adapter gap is
+  [roadmap work](roadmap.md#what-starts-next).
+- **Onion negotiation preserves Goblins compatibility.** Versions above `1.0`
+  are offered only to a peer known to be glowcap. Pinned Goblins refuses
+  hinted onion locators ([ADR-0042](decisions/adr/ADR-0042-onion-interoperability.md)).
+- **WebRTC needs configured signaling.** Its Rust provider and iroh's Rust
+  stack are dependencies, not Zig implementations. A silent iroh peer is
+  detected after its configured idle timeout. Shortening it costs idle traffic.
+  [Transport setup](../bindings/README.md#transports) gives the options.
 
 ## Invocation shape
 
-Actor handlers receive a verb and arguments. An inbound leading symbol becomes
-the verb. Both a direct invocation with no arguments and a named invocation
-whose selector is an empty symbol become `verb = ""` with no arguments.
-Sending an empty verb omits the selector. Actor-backed forwarding and generated
-adapters cannot preserve that distinction through this API.
-
-The owners are `Message` and `Delivery` in `src/actors/vat/behavior.zig`,
-`deliveryFor` in `src/actors/vat/serve.zig`, and `verbSpine` in
-`src/actors/vat/port.zig`, followed by driver and binding projections.
-The [interface fixtures](../test/interface/README.md) keep both intended message
-shapes distinct. This limits actor/driver invocation coverage, not the codec's
-ability to encode the two argument lists.
+Actor APIs read a leading positional symbol as the method selector. A first
+positional symbol is therefore indistinguishable from a selector on the wire.
+Absent and empty selectors remain distinct through forwarding and every
+binding ([invocation contract](../bindings/README.md#invocation-shape)).
 
 ## Runtime and scale
 
-- **TypeScript on Bun cannot host the driver loop.** Bun runs FFI
-  calls on its JavaScript thread, so a listener could park it. Those APIs
-  refuse before allocating. The synchronous Host, locators, and the byte-fed
-  client still work. Use Deno for the full driver loop.
-- **A Host's Vat is single-threaded and non-preemptive.** A behavior runs to
-  the end of its turn, so a slow handler stalls every session on that Host.
-  Keep handlers bounded. Separate Hosts isolate scheduling but also separate
-  identity and actor graphs. To keep them shared, move blocking work out of
-  the callback:
-  - A Zig behavior defers its answer with a resolver vow
-    ([ADR-0014](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)) and settles it
-    later through `Vat.fulfillVow` or `Vat.breakVow` on the owning thread.
-  - A byte-fed C program uses `glowcap_host_turn_defer` and its settle verbs.
-  - A TypeScript or Python behavior that returns a promise defers
-    automatically. Rust and Racket expose the resolver pair.
-  - A worker thread posts its result to `driver.SettleMailbox`, which wakes the
-    owning thread. Only plain data crosses threads, never a capability.
-- **`driver.HostRuntime` does not report which Linux backend it selected.** A
-  completion loop reports io_uring or epoll, with the reason, through
-  `net.tcpBackendStatus`.
-- **`libglowcap_driver` has a readiness descriptor only on Linux and Darwin.**
-  Elsewhere `glowcap_driver_readiness_fd` returns a typed failure, and the
-  stepping verbs still work.
-- **Connections that are opening are capped.** `max_pending_opens` (default
-  `GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS`) caps them per driver Host,
-  across dials, accepts, external adoption, and redeems. Redeem dials a
-  partner's handoffs induce hold at most `max_pending_redeem_dials` of them,
-  a quarter of the pool unless the Zig caller names a share. A stream accept
-  over the limit waits in the kernel backlog. A multiplexed accept over the
-  limit is closed without a session.
-- **A driver loop allows one listener per transport.** Closing the
-  selected listener leaves no acceptable route until you select another. The
-  relay package dials both `keyed-relay` and `noise-relay` but hosts only one
-  at a time, because the rendezvous protocol queues inbound legs by designator
-  alone. Providers that cannot host refuse listener start.
-- **Callers can choose an infinite wait.** Zig requires a handshake and settle
-  budget, and `.unbounded` is allowed.
-- **A plain Host's durable publication needs saved entropy.** A durable name depends only on
-  the <!-- value ../src/ocapn/session/references/bootstrap.zig durable_swiss_entropy_len -->16<!-- /value --> entropy bytes you pass to `publishDurable`. Republish with the same
-  bytes at startup and old sturdyrefs reach the new actor. Lose them and the
-  name is gone. [Loam publications](loam/publications.md) instead store names
-  on disk and answer lookups after reopening.
-- **Some binding pumps copy outbound frames.** TypeScript, Python, and Racket
-  copy bytes before an asynchronous write, and Rust retains the frame.
-- **Only Zig can register a new codec.** The C ABI and the bindings select the
-  built-in Syrup and Cap'n Proto codecs.
-- **macOS runs the Zig suite, and Windows is not implemented.** `zig build check`
-  and the external-runtime matrix are Linux-only.
+- **Bun cannot host the driver loop.** Its synchronous FFI would park JavaScript.
+  Use Deno for those APIs pending the
+  [runtime decision](roadmap.md#waiting-on-you).
+- **A Vat runs one turn at a time.** A blocking handler stalls its Host.
+  Defer its answer and settle on the owning thread. Only plain data crosses
+  worker threads ([actor execution](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)).
+- **Admission and waits are explicit.** Opening sessions have bounded capacity,
+  and callers may choose unbounded handshake or settlement waits.
+  [Resource options](architecture.md#resource-knobs) own the defaults.
+- **A driver permits one listener per transport.** The relay can host keyed or
+  Noise traffic, but not both at once, because rendezvous queues by designator.
+- **Backend reporting is incomplete.** `driver.HostRuntime` does not expose the
+  Linux backend selection available from `net.tcpBackendStatus`.
+  [Adapter work](roadmap.md#what-starts-next) owns the missing projection.
+- **Driver readiness descriptors require Linux or Darwin.** Other platforms
+  retain stepping APIs. Windows has no implementation. Platform work and
+  verification are [tracked separately](roadmap.md#waiting-on-hardware-or-a-hostname).
+- **A plain Host needs saved publication entropy.** Republish the same
+  <!-- value ../src/ocapn/session/references/bootstrap.zig durable_swiss_entropy_len -->16<!-- /value --> bytes after restart to preserve a durable name.
+  [Loam publications](loam/publications.md) store names for you.
+- **Bindings have different frame costs.** TypeScript, Python, and Racket copy
+  outbound bytes before asynchronous writes. Rust retains the frame.
+  Custom codec registration is Zig-only. C and bindings select built-in codecs.
 
 ## API gaps
 
 ### Loam storage
 
-[Loam](loam.md) stores records and runs sleepy actors (actors that leave memory between calls).
-It has no recursive room or directory resources.
-
-- **Disk format.** LMDB stores need the LMDB 1.x format, and SQLite stores carry
-  the row format version they were written with. A store from an older
-  prerelease needs a fresh directory.
-- **What is not durable.** Pending messages are not durable, and a lost reply
-  does not mean the change was aborted. Behaviors perform no outside effects.
-- **Collection.** Tracing needs spare storage for its queue and marks, and a
-  full work list (`max_collection_roots`) can refuse a new retention. A
-  retired name keeps its index reservation after its descriptor is collected.
-- **Locking and growth.** Each disk engine holds an advisory `flock` lock. LMDB
-  grows its file-size limit and SQLite its page limit only within an explicit
-  budget.
-- **Uncertain disk commits.** When a commit fails without saying whether it
-  landed, as a full disk can, the store refuses other work until
-  [recovery](loam/store.md#when-a-writes-outcome-is-unknown) finds out.
-- **Engine memory.** LMDB and SQLite each keep a page cache outside the
-  Store's memory limits. [LMDB operations](loam/lmdb.md#read-failures) says
-  what LMDB's page cache costs.
-- **Testing.** [Stability](stability.md) says which platforms and failures the
-  crash tests cover.
-- **Capacity.** The Store and hosting defaults size a small program. An
-  application declares its own record, call and live-capability limits from
-  the shape of its data. One process owns a store at a time, and one commit
-  changes at most `ChangeBatchRecord.max_effects` resources of one owner, so
-  a bulk load is many commits.
-- **Measurement.** Open-loop arrival rates, maximum throughput, real transport
-  latency, a cold OS page cache, and browser transaction latency are not
-  measured.
-- **C, Rust, and IndexedDB.** These cover creating, sharing, editing, and
-  reopening a fixed resource, strong saved-reference fields, and bounded
-  collection steps. General graph editing and the operations reserved for a
-  resource's owner are Zig-only. C and Rust receipt handles do
-  not persist themselves. The application owns durable effect receipts and
-  restart recovery.
+- **A lost reply does not mean an aborted change.** Pending calls and replies
+  are not durable. Behaviors perform no outside effects, and applications own
+  durable effect receipts and restart recovery
+  ([C and Rust](loam/c-and-rust.md#work-after-a-receipt-commits)).
+- **An unknown commit outcome blocks other work** until
+  [recovery](loam/store.md#when-a-writes-outcome-is-unknown) establishes it.
+- **One process owns a store.** Growth and each transaction's work are bounded.
+  Engine page caches sit outside Store memory limits. The
+  [Store guide](loam/store.md) owns sizing, reads, and close requirements.
+- **Collection needs spare space and bounded work.** It can refuse new
+  retention, and durable names keep index reservations after collection
+  ([collection](loam/collection.md#bounds)).
+- **Foreign APIs cover one managed resource with registered content graphs.**
+  C, Rust, and [IndexedDB](loam/browser.md) do not expose resource-tree editing
+  or owner administration. The
+  [C/Rust guide](loam/c-and-rust.md#registered-content-graphs) defines supported
+  graphs. The [roadmap](roadmap.md#what-starts-next) owns extending that surface
+  and integrating recursive Rooms resources.
 
 ### Managed access
 
-The [managed access guide](loam/access.md) gives the full memory and lifetime
-contract.
-
-- **No distributed transaction.** A remote publication's lifetime belongs to
-  its remote owner.
-- **Receipts.** Derivation and other mutations each keep a fixed window of
-  retry receipts per endpoint (`access.records.RetryWindow.capacity`). An
-  expired receipt fails rather than issuing again. Receipt codecs accept only
-  durable capabilities from the same attachment.
-- **Authorization does not carry over.** An evaluation result cannot authorize
-  a later effect.
-- **Fixed capacity.** The graph and grant ledger reserve their full capacity in
-  memory and cannot grow or be restored. A fresh store needs fresh identities.
-  A revoked record keeps its capacity until the ledger is destroyed. The
-  stored profile never reuses committed resource or grant slots.
-- **History.** An owner keeps a fixed window of committed change batches
-  (`access.records.ChangeHistoryRecord.capacity`, each up to
-  `ChangeBatchRecord.max_effects` effects). Observation resynchronizes when
-  visible changes expired.
-- **Policy schema.** Boolean permissions, lower or upper bounds, and kind
-  declarations are capped by the `max_*` constants on `access.core.Policy`.
-  Applications declare every fact an effect needs. Fact relations,
-  alternatives, projections, and remote dependencies are not implemented.
-- **Access descriptions.** `describe-access` returns a snapshot. It delivers no
-  events and lists no controls.
-- **Live fields.** An explicit live field holds a capability for one hosting
-  lifetime. After a restart it refuses.
-- **Reads and closing.** A Store read expires after any commit and refuses
-  during an unknown outcome. Close refuses while reads are submitted or
-  references are live. Under a tight cache, release finished operations before
-  starting new work. A descriptor survives final C release only when a
-  root or containing edge retains it.
-- **Cost.** A permanent name keeps a fixed index reservation
-  ([cleanup](loam/access.md#bounded-owner-cleanup) gives its size). Directory
-  traversal takes up to four page reads plus the target.
-  Each cache slot reserves the configured maximum record size. Selected scopes
-  copy on issuance and editing, and reparenting costs one ancestry walk and two
-  subtree traversals. No managed-owner throughput or 500k-scale figure exists.
+- **The standalone in-memory graph and grant ledger reserve capacity up front.**
+  They have no restore path and require fresh identities when recreated.
+  [Record-backed owners](loam/access.md#durable-owner-operations) support persistence
+  and loading on demand. Stored identities are not reused, while
+  [cleanup](loam/access.md#bounded-owner-cleanup) can reclaim records.
+- **Receipts and change history are finite.** An expired receipt refuses a retry.
+  Observation resynchronizes after history expires
+  ([retry and observation contracts](loam/access.md)).
+- **Policy uses a bounded vocabulary.** Permissions, numeric bounds, and resource
+  kinds must cover each effect. An earlier evaluation never authorizes a later
+  effect ([policy support](loam/access.md#policy-and-interface-support)).
+- **Descriptions and live fields have limited lifetimes.** `describe-access`
+  returns a snapshot without controls or events. A live capability field refuses
+  after its hosting lifetime ends ([reference fields](loam/c-and-rust.md#reference-fields)).
+- **Local receipts do not create a distributed transaction.** A remote
+  publication remains under its remote owner's lifetime. Reads, cache leases,
+  permanent-name costs, and close rules are specified in the
+  [access storage guide](loam/access-storage.md).
 
 ### Rooms
 
-Limits that belong to the Rooms application are listed in [operating Rooms](../apps/rooms/operating.md#known-limitations).
+[Operating Rooms](../apps/rooms/operating.md#known-limitations) owns application
+limits. The [session guide](rooms/session.md) covers observation and file access.
+An inbox gap needs explicit recovery. DM file bytes can expire or disappear
+when the sender's session ends, even when the message remains.
 
 ### Host and ABI
 
-- **The public API and ABI are not stable.** There are no release tags or
-  compatibility guarantees. Pin a commit.
-- **A turn forwards its answer to an object or to a promise the partner
-  exported, not to a promise this Host holds pending.** A lifted answer, an
-  inline give, or a projected vow that is pending refuses the forward
-  as `PromisePending`. Defer the answer, send to the promise, and settle the
-  resolver from the reply.
-- **A vow with no session has no capability form.** A send to an object this
-  Host serves itself settles locally, so `vowCapability` refuses it as
-  `SessionlessVow`. Await it, or pass the object.
-- **A libc-linked shared archive stays mapped until its process exits.** It
-  pins itself when the loader maps it (ADR-0024), so an embedder's close of
-  the library (Deno closes every FFI library at teardown) never unmaps code a
-  detached `std.Io.Threaded` worker is still leaving. ELF installs check it,
-  and macOS runs the same entry unchecked. A libc-free archive runs nothing
-  after its last call returns.
-- **Rust finalizer recovery belongs to the owning thread.** If that thread
-  exits with refused C releases pending, their callbacks and Rust owners
-  stay allocated for the process lifetime. Finish close and recovery before
-  the thread exits.
-- **Enlivening a sturdyref refuses an accepted plain-TCP session.** Only the
-  `assertion_only` opt-in proceeds, and it reports the peer as asserted
-  rather than proved. Enlivening does not prove that a sturdyref names some
-  capability you already hold.
-
-Archive discovery and packaging are in the
-[packaging guide](../bindings/PACKAGING.md#finding-the-archives). Windows release
-assets are not published.
+- **Pending and local promises have API gaps.** Forwarding to a pending local
+  promise can refuse with `PromisePending`. A local-only vow has no capability
+  form and refuses conversion with `SessionlessVow`. These are part of the
+  [promise work](roadmap.md#what-starts-next).
+- **Libc-linked shared archives remain mapped until process exit** so detached
+  workers cannot return into unloaded code
+  ([ADR-0024](decisions/adr/ADR-0024-transport-provider-and-abi-contracts.md)).
+- **Rust recovery requires its owning thread.** Exiting that thread with refused
+  C releases pending retains callbacks and Rust owners for the process lifetime.
+  Finish recovery before thread exit. The
+  [adapter audit](roadmap.md#what-starts-next) must establish a safe terminal outcome.
+- **An accepted plain-TCP session cannot prove a sturdyref's peer.** Enlivening
+  refuses unless `assertion_only` is explicit, and then reports asserted identity.
+  Enlivening also does not prove equality with a capability already held.
 
 ## Protocol and interop
 
-- **A locator holds at most <!-- value ../src/ocapn/model/hints.zig max_count -->32<!-- /value --> hint entries.** This is glowcap's resource
-  bound, not an OCapN maximum. Unknown names within it are kept and ignored.
-- **OCapN Null is absent.** Unknown Syrup records stay tagged values
-  ([watch](upstream-watch.md#ocapn-null)).
-- **Only the negotiated features are accepted.** glowcap supports
-  `pipelining`, `handoff`, `wire_delta`, `sturdyref`, `untag`, and
-  `multi_location`. An `id` locator is refused unless the session negotiated
-  `glowcap-next` with `multi_location`, and a Host-level `id` sturdyref needs
-  the Host to opt in too.
-- **Only the Node chooses among a route bundle's routes**
-  ([multi-home peers](https://glowcap.org/multihome/),
-  ADR-0036). The single-path dial planner and Host open refuse a bundle as a
-  physical session. A give keeps its route list only when both sessions
-  negotiated it. Otherwise it falls back to the exporter's claimed location.
-  New route advice reaches later gives only after one withdrawal succeeds.
-- **A forwarded call or reply cannot carry the partner's own answer
-  reference.** An answer position names a question of the peer that sent the
-  message holding it, so a `desc:answer` the partner wrote means a different
-  question once this side sends it back
-  ([watch](upstream-watch.md#answer-references-outside-target-position)).
-  A pipelined call forwarded to the partner with one in its arguments breaks
-  its question, and a forwarded reply carrying one breaks the original answer,
-  each with a typed reason (`test/engine/peer/pipeline_remote_forward_test.zig`).
-  No known peer writes `desc:answer` outside target position in a call it
-  expects forwarded.
-- **A partner object a stored resolution names stays imported until the
-  partner releases the answer.** A resolution this side sent holds every
-  import it names, so a late call, listen, projection, or lift reaches the
-  object even after the application released it. The application's release
-  stays with the session and leaves as one `op:gc-exports` when the partner
-  releases the answer, so the partner decides how long the import lives.
-  The retained-answer byte cap and the inbound-answer count bound what a
-  partner can keep held
-  (`test/engine/peer/pipeline_remote_forward_test.zig`,
-  [ADR-0070](decisions/adr/ADR-0070-stored-resolutions-hold-imports.md)).
-- **A call a partner pipelines onto a promise this Host projects breaks when
-  the promise settles to a capability on another session.** The partner's
-  listen sees the handoff and redeems it, but the queued call lives on the
-  projecting session, which cannot carry it to the capability's home. The
-  call breaks with the engine's undeliverable-target reason
-  (`test/driver/vow_capability_test.zig`). A call this Host's own application
-  queues on the promise follows the capability wherever it settles.
-- **Handoff signatures always use Syrup**, even on a Cap'n Proto session.
-- **Pinned Goblins can reject handoffs from independent receivers.** Goblins
-  keeps the `handoff-count` on the wrong session, so a second receiver starting
-  at zero is refused. glowcap keeps reconnects safe inside one Node but cannot
-  coordinate separate receivers
-  ([upstream watch](upstream-watch.md#handoff-count-across-independent-receiver-sessions)).
-- **Remote equality does not cross unrelated sessions.** Without durable peer
-  proof, two sessions' targets stay unrelated even when their locators look
-  alike.
-- **Cap'n Proto is glowcap-to-glowcap only.** `zig build bench-codec` measures
-  it against Syrup on the current workload.
-
-[Community review](community-review.md) records outside-peer coverage and
-specification gaps.
+- **Locators permit at most <!-- value ../src/ocapn/model/hints.zig max_count -->32<!-- /value --> hints.**
+  Unknown names within that resource bound are preserved and ignored.
+- **Profiles and negotiated features constrain routing.** Only the Node selects
+  a route bundle. A physical-session open refuses one, and a give falls back to
+  a single claimed location unless both sessions negotiated multi-location
+  ([multi-home peers](https://glowcap.org/multihome/)).
+- **Forwarded answer references are session-relative.** Re-sending the partner's
+  answer reference in a call argument or reply breaks with a typed reason.
+  The [upstream question](upstream-watch.md#answer-references-outside-target-position)
+  owns the missing wire representation.
+- **Projected remote pipelines can break across sessions.** When a projected
+  promise settles on another session, its partner's queued call breaks even
+  though listening can redeem the handoff. Local application calls follow the
+  capability. This needs the [promise work](roadmap.md#what-starts-next).
+- **Published resolutions retain the imports they name** until the partner
+  releases the answer, subject to retained-answer limits
+  ([ADR-0070](decisions/adr/ADR-0070-stored-resolutions-hold-imports.md)).
+- **OCapN Null is absent, and Goblins can reject independent receivers' handoffs.**
+  [Upstream watch](upstream-watch.md) records the specification and peer dependencies.
+  Unknown Syrup records retain their tags. Cap'n Proto interoperates only between
+  glowcap peers. Handoff signatures use Syrup even on those sessions.
+- **Unproved peer identity cannot establish equality across sessions.** Matching
+  locators alone do not make two remote targets the same capability.
 
 ## Browser reachability
 
-- **A browser's iroh gateway is trusted.** The browser's `relayUrl` path
-  lets the gateway read traffic and vouch for the peer's key.
-  [The relay guide](https://glowcap.org/relay/) explains that trust and the
-  sealed `noise-relay` alternative.
-
-- **A browser opens no listening socket.** Cold dial reaches it through a
-  relay that holds an inbound socket under the browser's key, or over WebRTC,
-  where the browser answers offers its signaling carries. Raw `keyed-relay`
-  leaves frames cleartext and proves nothing. `noise-relay` seals the stream
-  end to end, and WebRTC encrypts its channel and relies on the application's
-  signaling to say who the peer is.
-- **No check uses a public certificate.** Zig and binding WSS relay checks run against a
-  local certificate authority, so no check proves a non-browser peer reaching a
-  browser through a deployed secure route.
-- **Rooms uses STUN only by default.** Symmetric NATs and strict firewalls need
-  a configured TURN credential issuer, or those peers may find no route. Zig
-  WebRTC programs own their own TURN credential refresh.
-- **A standalone Rooms session reaches a browser through a relay or over
-  WebRTC, and each is configured.** Pass `--relay-url` (or
-  `GLOWCAP_ROOMS_SESSION_RELAY_URL`) for members that chose the relay, and
-  `--dial-transports=webrtc` for members that advertise WebRTC, which also
-  lets those members open a WebRTC connection to the session. WebRTC
-  gathers through `--ice-servers`, STUN only unless the list carries TURN
-  credentials, so a session behind a symmetric NAT may find no route.
-  Deployments and `rooms-dev` configure the relay.
-- **A session's inbox is bounded** ([operating Rooms](../apps/rooms/operating.md)
-  has the limits). Pressure retires the observer, not the session, and
-  reports a gap you must accept before observing again. An agent harness needs
-  a live consumer to wake its model.
-- **A DM sender hosts its own files until the recipient pulls them.** It keeps
-  a bounded number of files and bytes across direct conversations. The oldest
-  idle source expires first. If the session ends or a file expires first, the
-  recipient keeps the message but not the bytes.
-
-[Rooms admission](rooms/admission.md) covers per-process limits and proxy
-grouping.
+- **A browser opens no listening socket.** It needs a relay or WebRTC signaling.
+  An iroh gateway can read traffic and vouch for the peer, while `noise-relay`
+  seals the stream end to end ([relay trust](https://glowcap.org/relay/)).
+- **STUN does not cover every network.** Symmetric NATs and strict firewalls may
+  require TURN. Rooms needs a configured credential issuer, and Zig WebRTC
+  applications own refresh. Standalone sessions must configure their relay or
+  WebRTC route ([session connectivity](../apps/rooms/operating.md)).
+- **Deployment evidence is incomplete.** Public-certificate WSS, separate-NAT
+  reachability, live onion scale, non-Linux runtimes, and several storage and
+  performance cases lack evidence. [Stability](stability.md) and the
+  [measurement contract](loam/access-storage.md#performance-contract-and-measurements)
+  specify coverage. The [roadmap](roadmap.md) schedules extensions.

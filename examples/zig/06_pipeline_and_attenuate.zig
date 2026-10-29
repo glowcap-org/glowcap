@@ -26,9 +26,9 @@ const Record = struct {
     title: []const u8,
 
     pub fn handle(self: *Record, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "play"))
+        if (msg.is("play"))
             return .{ .string = try std.fmt.allocPrint(turn.arena, "spinning: {s}", .{self.title}) };
-        if (std.mem.eql(u8, msg.verb, "eject")) return .{ .string = self.title };
+        if (msg.is("eject")) return .{ .string = self.title };
         return error.NoSuchMethod;
     }
 };
@@ -36,7 +36,7 @@ const Record = struct {
 const Desk = struct {
     pub fn handle(self: *Desk, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
-        if (!std.mem.eql(u8, msg.verb, "checkout")) return error.NoSuchMethod;
+        if (!msg.is("checkout")) return error.NoSuchMethod;
         // Spawn the record, then export only a play-attenuated view of it: the
         // proxy is an ordinary actor whose handler forwards `play` and breaks
         // everything else, so the reply grants exactly one verb of authority.

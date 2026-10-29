@@ -115,6 +115,7 @@ pub(super) async fn run() {
 						.spawn({
 							let changes = changed_lines.clone();
 							move |verb, args| {
+								let verb = verb.ok_or("fixture requires a method")?;
 								assert!(matches!(verb, "edit" | "withdraw" | "refile"));
 								changes.set(changes.get() + 1);
 								if verb == "edit" {
@@ -134,6 +135,7 @@ pub(super) async fn run() {
 							let line = line.clone();
 							move || {
 								Box::new(move |verb, args| {
+									let verb = verb.ok_or("fixture requires a method")?;
 									if !live.get() {
 										return Err("registration ended".into());
 									}
@@ -190,7 +192,7 @@ pub(super) async fn run() {
 							vec![owner.registration(), registration(&inbox, &acquisitions, malformed)],
 						)
 						.unwrap();
-					attachment.start_live(None, 64).unwrap();
+					environment::start_live(&attachment, None, 64).await;
 					let (root, root_control) = environment::restore(&attachment, resource).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();
 					owner.initialize().await.unwrap();
@@ -209,6 +211,7 @@ pub(super) async fn run() {
 						exporter
 							.publish("pending-directory", move || {
 								Box::new(move |verb, args| {
+									let verb = verb.ok_or("fixture requires a method")?;
 									assert_eq!(verb, "introduce");
 									assert_eq!(args, &["peer".into(), REGISTRATION.into(), "opening".into()]);
 									acquisitions.set(acquisitions.get() + 1);
@@ -591,7 +594,7 @@ pub(super) async fn run() {
 						std::num::NonZeroUsize::new(8192).unwrap(),
 					);
 					let mut attachment = store.attach(&host, vec![owner.registration()]).unwrap();
-					attachment.start_live(Some(marker), 64).unwrap();
+					environment::start_live(&attachment, Some(marker), 64).await;
 					let (root, root_control) =
 						environment::restore(&attachment, loam::Resource::decode(resource.encode())).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();

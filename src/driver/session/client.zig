@@ -36,13 +36,13 @@ pub const Promise = struct {
     home: *driver_core.HostSession,
     id: u64,
 
-    pub fn send(self: Promise, verb: []const u8, args: []const Value) !Promise {
+    pub fn send(self: Promise, verb: ?[]const u8, args: []const Value) !Promise {
         return self.owner.sendToPromise(self, verb, args);
     }
 
     /// Fire-and-forget eventual-send to this promise's answer. No result vow
     /// or answer position is allocated.
-    pub fn tell(self: Promise, verb: []const u8, args: []const Value) !void {
+    pub fn tell(self: Promise, verb: ?[]const u8, args: []const Value) !void {
         return self.owner.tellToPromise(self, verb, args);
     }
 
@@ -279,14 +279,14 @@ pub const Session = struct {
     /// Args are owning-tier `Value`s. The pending machinery owns its own clone
     /// of the lowered message, so the caller's slices are borrowed for this
     /// call only.
-    pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
+    pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: ?[]const u8, args: []const Value, terminal: actors.Listener) !void {
         self.enterCall();
         defer self.leaveCall();
         try self.runtime.core.beginSendNamedValues(self.hs, pending, name, verb, args, self.scratch(), terminal);
     }
 
     /// Chain fetch-then-tell without blocking (see `Served.beginTellNamed`).
-    pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
+    pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: ?[]const u8, args: []const Value, terminal: actors.Listener) !void {
         self.enterCall();
         defer self.leaveCall();
         try self.runtime.core.beginTellNamedValues(self.hs, pending, name, verb, args, self.scratch(), terminal);
@@ -355,7 +355,7 @@ pub const Session = struct {
     /// An argument foreign to the routed session is refused whole
     /// (`ForeignArgument`). A partner that leaves before the reply settles
     /// breaks it with the wire's close reason.
-    pub fn call(self: *Session, target: Capability, verb: []const u8, args: []const Value, arena: std.mem.Allocator) !Reply {
+    pub fn call(self: *Session, target: Capability, verb: ?[]const u8, args: []const Value, arena: std.mem.Allocator) !Reply {
         self.enterCall();
         defer self.leaveCall();
         const promise = try self.queueSend(target, verb, args);
@@ -365,7 +365,7 @@ pub const Session = struct {
     /// Eventual-send to `target`, returning its Promise without blocking.
     /// Args are borrowed
     /// for this call: the actor layer owns its clone before this returns.
-    pub fn send(self: *Session, target: Capability, verb: []const u8, args: []const Value) !Promise {
+    pub fn send(self: *Session, target: Capability, verb: ?[]const u8, args: []const Value) !Promise {
         self.enterCall();
         defer self.leaveCall();
         return self.queueSend(target, verb, args);
@@ -373,7 +373,7 @@ pub const Session = struct {
 
     /// Lower one owning-tier delivery and commit it through the Host's routing,
     /// vow, and pending-work authority without driving local settlement.
-    fn queueSend(self: *Session, target: Capability, verb: []const u8, args: []const Value) !Promise {
+    fn queueSend(self: *Session, target: Capability, verb: ?[]const u8, args: []const Value) !Promise {
         const id = try self.runtime.core.queueSendValues(self.hs, target, verb, args, self.scratch());
         return .{ .owner = self, .home = try self.runtime.core.vowSession(id), .id = id };
     }
@@ -407,14 +407,14 @@ pub const Session = struct {
         return .{ .owner = self, .home = try self.runtime.core.vowSession(id), .id = id };
     }
 
-    fn sendToPromise(self: *Session, promise: Promise, verb: []const u8, args: []const Value) !Promise {
+    fn sendToPromise(self: *Session, promise: Promise, verb: ?[]const u8, args: []const Value) !Promise {
         self.enterCall();
         defer self.leaveCall();
         const id = try self.runtime.core.queueVowSendValues(promise.id, verb, args, self.scratch());
         return .{ .owner = self, .home = promise.home, .id = id };
     }
 
-    fn tellToPromise(self: *Session, promise: Promise, verb: []const u8, args: []const Value) !void {
+    fn tellToPromise(self: *Session, promise: Promise, verb: ?[]const u8, args: []const Value) !void {
         self.enterCall();
         defer self.leaveCall();
         try self.runtime.core.vowTellValues(promise.id, verb, args, self.scratch());
@@ -513,7 +513,7 @@ pub const Session = struct {
 
     /// Fire-and-forget eventual-send (see `Served.tell`), routed exactly as
     /// `call` routes.
-    pub fn tell(self: *Session, target: Capability, verb: []const u8, args: []const Value) !void {
+    pub fn tell(self: *Session, target: Capability, verb: ?[]const u8, args: []const Value) !void {
         self.enterCall();
         defer self.leaveCall();
         try self.runtime.core.tellValues(self.hs, target, verb, args, self.scratch());

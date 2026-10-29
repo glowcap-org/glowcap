@@ -58,8 +58,9 @@ pub(super) fn seat(
 	shared: Shared,
 	room: RoomKey,
 	membership: Rc<Cell<Option<MembershipKey>>>,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		let (membership, session) = admitted(&membership, "room membership", verb, args)?;
 		let mut state = shared.borrow_mut();
 		let connection = state.admit(session.borrowed());

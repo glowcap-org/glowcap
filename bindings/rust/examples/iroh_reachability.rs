@@ -121,11 +121,11 @@ fn accept_loop(
 }
 
 // The published actor: answer `greet` by echoing the caller's name.
-fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
-	if verb == "greet" {
+fn greeter(verb: Option<&str>, args: &[Argument]) -> Result<Argument, String> {
+	if verb == Some("greet") {
 		let name = args.first().and_then(Argument::as_str).unwrap_or("");
 		Ok(format!("hello {name} over iroh discovery").into())
 	} else {
-		Err(format!("no such method: {verb}"))
+		Err(format!("no such method: {verb:?}"))
 	}
 }

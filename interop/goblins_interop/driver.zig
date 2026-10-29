@@ -98,15 +98,13 @@ const Greeter = harness.PositionalReplyActor("Hello {s}, from a glowcap actor!")
 const ProjectionResponder = struct {
     pub fn handle(self: *ProjectionResponder, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
-        const tag: []const u8 = if (msg.verb.len > 0)
-            msg.verb
-        else switch (try msg.arg(0)) {
+        const tag: []const u8 = msg.verb orelse switch (try msg.arg(0)) {
             .string => |s| s,
             .bytes => |b| b,
             .symbol => |s| s,
             else => return error.UnknownMethod,
         };
-        const name_index: usize = if (msg.verb.len > 0) 0 else 1;
+        const name_index: usize = if (msg.verb != null) 0 else 1;
         if (std.mem.eql(u8, tag, "record")) {
             const name: []const u8 = switch (try msg.arg(name_index)) {
                 .string => |s| s,

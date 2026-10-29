@@ -25,9 +25,9 @@ const Admission = struct {
 const Target = struct {
     ref: *f.driver.Capability,
     calls: *usize,
-    pub fn handle(self: *Target, turn: *f.driver.HostTurn, verb: []const u8, args: f.driver.Args) !f.driver.Value {
-        const arg_values = try args.values();
-        defer turn.releaseValues(arg_values);
+    pub fn handle(self: *Target, turn: *f.driver.HostTurn, selector: ?[]const u8, args: f.driver.Args) !f.driver.Value {
+        defer turn.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         self.calls.* += 1;
         if (std.mem.eql(u8, verb, "read")) return .{ .string = "chunk" };
         if (std.mem.eql(u8, verb, "self")) {

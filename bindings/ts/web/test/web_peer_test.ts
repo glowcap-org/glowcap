@@ -1,4 +1,3 @@
-import * as tcp from "@glowcap/tcp";
 // The ADR-0034 proof, run by `zig build web-peer-test`: a browser-
 // shaped glowcap peer holds a real keyed OCapN session over WebSocket.
 //
@@ -15,6 +14,7 @@ import * as tcp from "@glowcap/tcp";
 // bytes); Deno supplies the same globals, so the check is in-tree and
 // socket-real at once.
 
+import * as tcp from "@glowcap/tcp";
 import { init } from "@glowcap/web";
 import { proveChromiumNoiseRelay } from "./browser_noise_relay_proof.ts";
 
@@ -112,6 +112,23 @@ try {
 	const seen = await notifiedValue;
 	if (seen !== "saw web") fail(`unexpected callback payload: ${JSON.stringify(seen)}`);
 
+	const proveShapes = async (s: typeof session) => {
+		const shape = await s.fetch("shape");
+		for (const selector of [null, "", "call"]) {
+			for (const payload of [[], ["payload"]]) {
+				const got = await s.send(shape, selector, payload);
+				if (JSON.stringify(got) !== JSON.stringify([selector, payload])) {
+					fail(`wasm lost invocation shape ${JSON.stringify([selector, payload])}: ${JSON.stringify(got)}`);
+				}
+			}
+		}
+		const callback = s.spawn((selector) => selector === null ? "direct" : selector === "" ? "empty" : selector);
+		const got = await s.send(shape, "callbacks", [callback]);
+		if (JSON.stringify(got) !== '["direct","empty","call"]') {
+			fail(`wasm callback lost selector presence: ${JSON.stringify(got)}`);
+		}
+	};
+	await proveShapes(session);
 	await Promise.all([session.close(), sessionServing]);
 
 	// 5. The second grammar: a fresh dial negotiates Cap'n Proto against the
@@ -122,6 +139,7 @@ try {
 	);
 	const capnpServing = capnpSession.serve();
 	const capnpGreeter = await capnpSession.fetch("greeter");
+	await proveShapes(capnpSession);
 	const capnpReply = await capnpSession.send(capnpGreeter, "greet", ["capnp web"]);
 	if (capnpReply !== "hello capnp web") {
 		fail(`unexpected capnp greet reply: ${JSON.stringify(capnpReply)}`);

@@ -31,7 +31,7 @@ pub fn queueSendValues(
     self: *Host,
     id: capability.PromiseId,
     source: *HostSession,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
 ) !u64 {
     return (try queueMessage(self, id, source, .send, verb, values)).?;
@@ -45,7 +45,7 @@ pub fn queueTellValues(
     self: *Host,
     id: capability.PromiseId,
     source: *HostSession,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
 ) !void {
     _ = try queueMessage(self, id, source, .tell, verb, values);
@@ -58,7 +58,7 @@ fn queueMessage(
     id: capability.PromiseId,
     source: *HostSession,
     kind: MessageKind,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
 ) !?u64 {
     try prepareOperationSlot(self, id, source);
@@ -67,7 +67,7 @@ fn queueMessage(
     errdefer arena.deinit();
     var retained: std.ArrayListUnmanaged(capability.Ref) = .empty;
     errdefer promise_values.rollbackRetains(self, retained.items);
-    const owned_verb = try arena.allocator().dupe(u8, verb);
+    const owned_verb = if (verb) |method| try arena.allocator().dupe(u8, method) else null;
     const owned_values = try promise_values.cloneValues(self, arena.allocator(), values, &retained);
     const result_vow = switch (kind) {
         .send => try self.mintDeferredVow(source, .{

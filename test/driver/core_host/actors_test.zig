@@ -350,7 +350,7 @@ test "core host: unpublish removes discovery on every session while issued capab
 const UnnamedMaker = struct {
     row: *TaggedRow,
     pub fn handle(self: *UnnamedMaker, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
+        if (!msg.is("make")) return error.NoSuchMethod;
         const cap = try driver.spawnAt(turn, Tagged, .{ .row = self.row });
         return cap.arg();
     }
@@ -444,8 +444,8 @@ const Becomer = struct {
     n: i64,
 
     pub fn handle(self: *const Becomer, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
-        if (std.mem.eql(u8, msg.verb, "bump")) {
+        if (msg.is("get")) return .{ .integer = self.n };
+        if (msg.is("bump")) {
             try turn.become(Becomer, .{ .n = self.n + 1 });
             return .{ .integer = self.n + 1 };
         }

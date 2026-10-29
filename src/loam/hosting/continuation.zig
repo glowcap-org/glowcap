@@ -240,19 +240,19 @@ const Endpoint = struct {
     index: usize,
     completion: calls.Completion,
 
-    pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         const value = state(self.continuation);
         if (!value.active) return error.ContinuationUnconfirmed;
-        try calls.admitContinuation(value.owner, value.source, turn, value.intent, try target(value, self.index), .{ .verb = verb, .args = arg_values }, self.completion);
+        try calls.admitContinuation(value.owner, value.source, turn, value.intent, try target(value, self.index), .{ .verb = verb orelse return error.NoSuchMethod, .args = arg_values }, self.completion);
         return .{ .void = {} };
     }
     pub fn handleLocal(self: *Endpoint, turn: *actors.Turn, message: actors.Delivery) !model.Argument {
         const value = state(self.continuation);
         if (!value.active) return error.ContinuationUnconfirmed;
         const args = try values.copyArgs(turn.arena, message.args);
-        try calls.admitLocalContinuation(value.owner, value.source, turn, value.intent, try target(value, self.index), .{ .verb = message.verb, .args = args });
+        try calls.admitLocalContinuation(value.owner, value.source, turn, value.intent, try target(value, self.index), .{ .verb = message.verb orelse return error.NoSuchMethod, .args = args });
         return .{ .void = {} };
     }
     pub fn deinit(self: *Endpoint, _: std.mem.Allocator) void {

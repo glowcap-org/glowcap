@@ -56,6 +56,14 @@ Field, index, and tag projections over an unresolved remote answer use the
 `1.0` wire operations. On `glowcap-next`, await the value before projecting it
 locally. Ordinary call pipelining remains available on both profiles.
 
+### Invocation shape
+
+A missing `verb` invokes positionally: `null` in Zig and TypeScript, `None` in
+Rust and Python, or `#f` in Racket. An empty string selects the empty symbol
+(Racket `'||`). In C, use `(NULL, 0)` for absence and a non-null pointer with
+length zero for an empty selector. OCapN carries a positional list, and the
+actor API treats a leading symbol as its method selector.
+
 ### References
 
 A `Ref` is opaque. Pass it as an argument, and the binding picks the wire

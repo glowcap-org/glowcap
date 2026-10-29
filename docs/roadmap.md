@@ -31,10 +31,11 @@ unmeasured deployment sizes can remain open when the public docs do not
 promise them. A passing documentation check alone does not establish release
 readiness.
 
-A limitation is not automatically a feature commitment. Intentional limits
-stay in known limitations, evidence gaps stay in stability, and accepted work
-to change either belongs here. Plans own implementation steps and acceptance,
-not a second publication checklist.
+Known limitations describe consequences, not acceptance. A gap against the
+vision needs work here with a completion criterion, or an explicit decision
+narrowing the supported scope. Intentional contracts stay in their guides.
+Stability owns missing evidence. Keep a limitation visible until its fix is
+verified. Plans own implementation steps and acceptance.
 
 ## What starts next
 
@@ -44,12 +45,27 @@ Items run side by side when their plans' lanes allow, so a later item waits
 for an earlier one to start, not to finish. A plan marked as waiting for
 review needs that review before its first step.
 
-1. **Interop coverage.** Extend live binding checks to automatic capability
+1. **Promise projection and forwarding.** Resolve pending local answer
+   forwarding, local-only vow capabilities, and remote pipelines whose target
+   settles on another session. Establish the required behavior from OCapN and
+   independent messages before changing the owning runtime. Done when calls
+   preserve their target, outcome, and required ordering through settlement,
+   with cancellation and release coverage. A wire restriction needs its
+   external rule and upstream dependency, not just an expected refusal in a
+   local test ([plan to plan](planning/plan-to-plan.md)).
+2. **Adapter contract gaps.** Make Rust shutdown finish finalizer recovery or
+   return an owned failure before its executor exits. Prove refused C releases
+   cannot silently strand recovery. Project the existing backend-selection
+   report through `driver.HostRuntime` and support Unix-socket Tor endpoints
+   through Zig's public runtime. Done when public API tests cover those
+   existing provider contracts and both successful and refused shutdown
+   ([plan to plan](planning/plan-to-plan.md)).
+3. **Interop coverage.** Extend live binding checks to automatic capability
    finalization, and live Goblins relay checks to Python, Rust and Racket.
    Keep the exact role and transport coverage in community review. Work that
    requires unsupported Goblins operations waits on upstream support, and the
    rest starts here ([plan to plan](planning/plan-to-plan.md)).
-2. **Sealed scale.** Repeat the 500,000 live session run on `noise-tcp`. The
+4. **Sealed scale.** Repeat the 500,000 live session run on `noise-tcp`. The
    load half drives raw peers through completion loops, and the product
    refuses a second session between one pair of durable identities. So the
    sealed run needs a load half that opens one Noise channel per connection
@@ -58,7 +74,7 @@ review needs that review before its first step.
    [live-session report](https://glowcap.org/performance/#live-sessions)
    records a completed sealed run beside the cleartext one
    ([plan to plan](planning/plan-to-plan.md)).
-3. **Session open cost.** The
+5. **Session open cost.** The
    [session-opening report](https://glowcap.org/performance/#live-sessions)
    measures connect, handshake, fetch, and close. Its cost model needs
    per-session key derivation, socket setup, accept wake, and the fetch round
@@ -67,26 +83,28 @@ review needs that review before its first step.
    floors for both transports, with each total under 2× its named floors or
    an explanation of the remaining cost
    ([plan to plan](planning/plan-to-plan.md)).
-4. **Measure the remaining access workloads.** The
+6. **Measure the remaining access workloads.** The
    [access storage guide](loam/access-storage.md#performance-contract-and-measurements)
    names each workload and what it must observe. Warm reads by depth, scope
    selection, descendant growth, hot reads under slow writes, churn, and
    browser latency and responsiveness are not measured. Measure each on the
-   default engine, SQLite. One that locates a limit in it reopens that choice
+   default engine, SQLite, including the
+   [missing load and cache conditions](stability.md#measurement-coverage).
+   One that locates a limit in it reopens that choice
    ([ADR-0062](decisions/adr/ADR-0062-sqlite-default-storage.md),
    [plan to plan](planning/plan-to-plan.md)).
-5. **Managed-access failure isolation.** Add commit-panic and
+7. **Managed-access failure isolation.** Add commit-panic and
    owner-retirement coverage while unrelated actors remain active. Prove
    recovery or explicit refusal, no premature publication, and progress for
    unrelated owners. The existing process-kill suite does not prove these
    cases. Coordinate with the hosted access C surface item below
    ([plan to plan](planning/plan-to-plan.md)).
-6. **Power-loss assumptions.** Establish which power-loss assumptions each
+8. **Power-loss assumptions.** Establish which power-loss assumptions each
    disk engine's flush supports before claiming them, SQLite first because it
    is the default. [Stability](stability.md) says power loss is untested, so
    this extends evidence rather than repairing a claim
    ([plan to plan](planning/plan-to-plan.md)).
-7. **Integrate Rooms content and access.** Use the settled interaction
+9. **Integrate Rooms content and access.** Use the settled interaction
    contract. Integrate recursive rooms, directory access, branching
    conversations and reorganization in the
    [Rooms plan](planning/rooms.md).
@@ -95,7 +113,7 @@ review needs that review before its first step.
    resource work, and the [session guide](rooms/session.md) and
    [effect contract](rooms/session-effects.md) describe the session that
    exists.
-8. **Interface definitions.** Prove one complete authored contract and useful
+10. **Interface definitions.** Prove one complete authored contract and useful
    generated clients and server checks, including capabilities, promises,
    ownership, and retained mutations. The
    [interface plan](planning/interface-definitions.md) owns acceptance.
@@ -111,13 +129,13 @@ review needs that review before its first step.
 
    [Discovery](planning/interface-discovery.md) needs a concrete consumer and
    separate review. Neither generation nor publication depends on it.
-9. **Hosted access C surface.** Bounded resource-tree operations and the
+11. **Hosted access C surface.** Bounded resource-tree operations and the
     owner lifecycle, create, open, retire, are reachable only from Zig. Project
     them through the C ABI over the existing Host, with Zig admission,
     receipts, and recovery staying authoritative. Ready to plan once the
     [shared hosting plan](planning/rooms-hosting.md) names the owner API it
     needs ([plan to plan](planning/plan-to-plan.md)).
-10. **Shared Rooms hosting and sign-in.** Host independent Rooms sessions
+12. **Shared Rooms hosting and sign-in.** Host independent Rooms sessions
     over shared transport, storage and execution, with bounded per-session
     costs, and add optional identity-provider login that restores explicitly
     held access. The [hosting plan](planning/rooms-hosting.md) defines
@@ -126,7 +144,7 @@ review needs that review before its first step.
     custody and recovery. Hosting builds on the Rooms plan's policy catalog
     and room-owned grants, so it starts after those land. Both contracts wait
     for maintainer review before implementation.
-11. **Bindings own their symbol omissions.** Each C archive's symbol
+13. **Bindings own their symbol omissions.** Each C archive's symbol
     inventory (`symbols.zig`) carries a per-binding omit flag, so the C ABI
     layer names its consumers and a new binding adds a field to a shared row
     type. Each binding should hold its own short list of the symbols it skips
@@ -161,12 +179,6 @@ None of them needs a plan until the decision is made.
   release commit through the checks and macOS jobs, then verify the
   repository, badge, and run are visible without authentication
   ([plan to plan](planning/plan-to-plan.md)).
-- **Loam acceptance on macOS.** One successful macOS run of
-  `zig build test loam-lmdb-test loam-sqlite-test` plus the Loam crash probes
-  the macOS job runs, recorded with revision and commands. Done when
-  `docs/stability.md` records the run and the macOS sentences in
-  [stability](stability.md) and [shipped](shipped.md#resource-models) change
-  to present tense ([plan to plan](planning/plan-to-plan.md)).
 - **Visualizer playback.** Re-measure playback on the reporting machine's
   real GPU with the committed stress corpus. Done when there is no visible
   playhead jump with the work-budget tests green, and the table in
@@ -256,8 +268,8 @@ pending sections independently of the specification reference.
 
 ## Waiting on hardware or a hostname
 
-OS portability and platform acceptance, including Windows with IOCP and
-macOS validation, are release obligations the maintainer runs.
+Windows support and the remaining platform and deployment checks need
+target machines and recorded runs.
 
 - **Windows and IOCP.** There is no Windows runtime check and no IOCP backend.
   Windows support needs an IOCP backend that meets the existing
@@ -271,6 +283,8 @@ macOS validation, are release obligations the maintainer runs.
   real relay hostname ([plan to plan](planning/plan-to-plan.md)).
 - **Transport deployment coverage.** Exercise iroh between separate NATs,
   including a publishable direct address without a relay. Record the network
-  setup and observed route. Extend non-Linux relay and runtime coverage when
-  runners are available. Public-certificate work is the item above
+  setup and observed route. Record live onion load with its Tor setup,
+  session count, and failure behavior. Extend non-Linux relay and runtime
+  coverage, including macOS library pinning, when runners are available.
+  Public-certificate work is the item above
   ([plan to plan](planning/plan-to-plan.md)).

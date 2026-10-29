@@ -34,7 +34,7 @@ pub(in crate::server) fn subscribe_publication(
 			shared.clone(),
 			publication,
 			rooms_application::room::policy::MembershipKind::Participant,
-		)(SUBSCRIBE, &args[1..]);
+		)(Some(SUBSCRIBE), &args[1..]);
 	}
 	if let Some(entrance) = state
 		.foreign

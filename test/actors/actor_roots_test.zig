@@ -20,7 +20,7 @@ const Probe = struct {
     pub fn handle(self: *Probe, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "ping")) return error.NoSuchMethod;
+        if (!msg.is("ping")) return error.NoSuchMethod;
         return .{ .string = "pong" };
     }
 

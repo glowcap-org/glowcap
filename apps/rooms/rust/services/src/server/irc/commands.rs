@@ -18,8 +18,9 @@ fn one(args: &[Argument], verb: &str) -> Result<String, String> {
 		_ => Err(format!("{verb} needs one nonempty text argument")),
 	}
 }
-pub(in crate::server) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
+pub(in crate::server) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) -> Reply {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if super::super::operations::carries_capability(args) {
 			return Err(format!("IRC gateway {verb} does not take capabilities"));
 		}
@@ -72,8 +73,9 @@ pub(in crate::server) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument
 		}
 	}
 }
-fn connection(shared: Shared, network: Rc<Network>) -> impl FnMut(&str, &[Argument]) -> Reply {
+fn connection(shared: Shared, network: Rc<Network>) -> impl FnMut(Option<&str>, &[Argument]) -> Reply {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if super::super::operations::carries_capability(args) {
 			return Err(format!("IRC connection {verb} does not take capabilities"));
 		}

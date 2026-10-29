@@ -80,7 +80,7 @@ const ReentryCtx = struct {
 fn reentryBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    verb: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
@@ -251,12 +251,13 @@ const DeferCtx = struct {
 fn deferringBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = .{ args, args_len };
     if (!std.mem.eql(u8, verb[0..verb_len], "work")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     const state: *DeferCtx = @ptrCast(@alignCast(ctx.?));

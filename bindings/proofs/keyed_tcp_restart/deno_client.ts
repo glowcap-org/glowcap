@@ -16,7 +16,7 @@ const SEED_SQUATTER = new Uint8Array(32).fill(0x73);
 const SEED_RESTART = new Uint8Array(32).fill(0x74);
 await using runtime = await Runtime.open({ providers: [tcp.provider()] });
 
-function greeter(verb: string, _args: unknown[]): string | null {
+function greeter(verb: string | null, _args: unknown[]): string | null {
 	if (verb === "greet") return GREETING;
 	return null;
 }

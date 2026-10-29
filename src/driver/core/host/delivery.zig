@@ -54,7 +54,7 @@ pub fn beginSendNamedValues(
     session: *HostSession,
     pending: *pending_send.PendingSend,
     name: []const u8,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
     terminal: actors.Listener,
@@ -71,7 +71,7 @@ pub fn beginTellNamedValues(
     session: *HostSession,
     pending: *pending_send.PendingSend,
     name: []const u8,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
     terminal: actors.Listener,
@@ -144,7 +144,7 @@ pub fn sendValues(
     self: *Host,
     session: *HostSession,
     target: capability.Ref,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !u64 {
@@ -154,7 +154,7 @@ pub fn sendValues(
 /// An application need not choose a transport session for held authority. Local
 /// targets use the owning queue. Foreign targets use their actual home and the
 /// same routed delivery as an explicitly selected session.
-pub fn sendApplicationValues(self: *Host, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator) !u64 {
+pub fn sendApplicationValues(self: *Host, target: capability.Ref, verb: ?[]const u8, values: []const value_mod.Value, arena: std.mem.Allocator) !u64 {
     try self.refuseReentry();
     const selected = try routing.applicationTarget(self, target);
     if (selected.session == null) {
@@ -166,7 +166,7 @@ pub fn sendApplicationValues(self: *Host, target: capability.Ref, verb: []const 
 }
 
 /// Notification admission uses the actual capability home and no answer vow.
-pub fn tellApplicationValues(self: *Host, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator) !void {
+pub fn tellApplicationValues(self: *Host, target: capability.Ref, verb: ?[]const u8, values: []const value_mod.Value, arena: std.mem.Allocator) !void {
     try self.refuseReentry();
     const selected = try routing.applicationTarget(self, target);
     if (selected.session == null) {
@@ -181,14 +181,14 @@ pub fn queueSendValues(
     self: *Host,
     session: *HostSession,
     target: capability.Ref,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !u64 {
     return sendValuesWithProgress(self, session, target, verb, values, arena, false, null, .application);
 }
 
-pub fn sendValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator, admission: WorkAdmission) !u64 {
+pub fn sendValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: ?[]const u8, values: []const value_mod.Value, arena: std.mem.Allocator, admission: WorkAdmission) !u64 {
     return sendValuesWithProgress(self, session, target, verb, values, arena, false, null, admission);
 }
 
@@ -198,7 +198,7 @@ pub const Observation = union(enum) {
     listener: actors.Listener,
 };
 
-pub fn sendObservedValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator, observer: Observation, admission: WorkAdmission) !u64 {
+pub fn sendObservedValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: ?[]const u8, values: []const value_mod.Value, arena: std.mem.Allocator, observer: Observation, admission: WorkAdmission) !u64 {
     return sendValuesWithProgress(self, session, target, verb, values, arena, false, observer, admission);
 }
 
@@ -206,7 +206,7 @@ fn sendValuesWithProgress(
     self: *Host,
     session: *HostSession,
     target: capability.Ref,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
     drive_now: bool,
@@ -250,7 +250,7 @@ fn unsettledPromiseOf(self: *Host, target: capability.Ref) !?capability.PromiseI
 /// lowering an owned tree (ADR-0064). A local target
 /// and a tree with a capability take the owned path, which lowers each
 /// capability under the session.
-fn freightOf(routed: routing.RoutedSend, verb: []const u8, values: []const value_mod.Value) ?actors.Delivery {
+fn freightOf(routed: routing.RoutedSend, verb: ?[]const u8, values: []const value_mod.Value) ?actors.Delivery {
     if (routed.target != .far or value_views.carriesCapability(values)) return null;
     return .{ .verb = verb, .args = value_views.args(values), .reference_slots = 0 };
 }
@@ -342,14 +342,14 @@ pub fn tellValues(
     self: *Host,
     session: *HostSession,
     target: capability.Ref,
-    verb: []const u8,
+    verb: ?[]const u8,
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !void {
     return tellValuesAdmitted(self, session, target, verb, values, arena, .application);
 }
 
-pub fn tellValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator, admission: WorkAdmission) !void {
+pub fn tellValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: ?[]const u8, values: []const value_mod.Value, arena: std.mem.Allocator, admission: WorkAdmission) !void {
     try admission.check(self);
     if (try unsettledPromiseOf(self, target)) |promise_id| {
         try capability_promise.queueTellValues(self, promise_id, session, verb, values);

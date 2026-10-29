@@ -50,7 +50,7 @@ async fn scenario() {
 	let (tx, mut resolutions) = tokio::sync::mpsc::channel(1);
 	let (answer, recorded, delay, actor_host) = (reply.clone(), calls.clone(), delayed.clone(), host.clone());
 	let seat = accepted
-		.spawn_owned(move |verb, args| match verb {
+		.spawn_owned(move |verb, args| match verb.ok_or("fixture requires a method")? {
 			"bridgeForm" => {
 				assert!(args.is_empty());
 				answer.borrow().clone()
@@ -73,6 +73,7 @@ async fn scenario() {
 		.unwrap();
 	let other_seat = accepted
 		.spawn_owned(|verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert!(args.is_empty());
 			match verb {
 				"bridgeForm" | "leave" => Ok(Argument::Void),
@@ -86,6 +87,7 @@ async fn scenario() {
 		publications.push(
 			accepted
 				.publish(name, move |verb, args| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					assert_eq!(verb, "subscribe");
 					let Argument::Reference(inbox) = &args[1] else {
 						panic!("no inbox")

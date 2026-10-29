@@ -75,7 +75,7 @@ const Greeter = struct {
             },
             else => return error.BadGreet,
         };
-        _ = try turn.send(target, .{ .verb = "", .args = &.{.{ .string = "Hello" }} });
+        _ = try turn.send(target, .{ .verb = null, .args = &.{.{ .string = "Hello" }} });
         return .{ .void = {} };
     }
 };

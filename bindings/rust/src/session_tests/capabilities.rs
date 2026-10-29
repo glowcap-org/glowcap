@@ -75,19 +75,19 @@ async fn promise_pipelining_drives_a_dependent_chain() {
 				let factory = Session::view(Rc::clone(&session.shared));
 				session
 					.publish("root", move |verb, _args| {
-						if verb != "create" {
-							return Err(format!("no such method: {verb}"));
+						if verb != Some("create") {
+							return Err(format!("no such method: {verb:?}"));
 						}
 						let done = Cell::new(false);
 						let task = factory
 							.spawn(move |task_verb, _args| match task_verb {
-								"assign" => Ok(Argument::String("assigned".into())),
-								"complete" => {
+								Some("assign") => Ok(Argument::String("assigned".into())),
+								Some("complete") => {
 									done.set(true);
 									Ok(Argument::String("done".into()))
 								}
-								"status" => Ok(Argument::String(if done.get() { "done" } else { "open" }.into())),
-								other => Err(format!("no such method: {other}")),
+								Some("status") => Ok(Argument::String(if done.get() { "done" } else { "open" }.into())),
+								other => Err(format!("no such method: {other:?}")),
 							})
 							.map_err(|error| error.to_string())?;
 						Ok((&task).into())
@@ -121,8 +121,8 @@ async fn promise_pipelining_drives_a_dependent_chain() {
 				let factory = Session::view(Rc::clone(&second_session.shared));
 				second_session
 					.publish("root", move |verb, args| {
-						if verb != "create" {
-							return Err(format!("no such method: {verb}"));
+						if verb != Some("create") {
+							return Err(format!("no such method: {verb:?}"));
 						}
 						let label = match args.first() {
 							Some(Argument::String(label)) => label.clone(),
@@ -130,10 +130,10 @@ async fn promise_pipelining_drives_a_dependent_chain() {
 						};
 						let task = factory
 							.spawn(move |task_verb, _args| {
-								if task_verb == "label" {
+								if task_verb == Some("label") {
 									Ok(Argument::String(label.clone()))
 								} else {
-									Err(format!("no such method: {task_verb}"))
+									Err(format!("no such method: {task_verb:?}"))
 								}
 							})
 							.map_err(|error| error.to_string())?;
@@ -189,15 +189,15 @@ async fn turn_spawn_uses_the_host_after_the_originating_port_closes() {
 				let stale_origin = Session::view(Rc::clone(&origin.shared));
 				let root = origin
 					.spawn(move |verb, _args| {
-						if verb != "create" {
-							return Err(format!("no such method: {verb}"));
+						if verb != Some("create") {
+							return Err(format!("no such method: {verb:?}"));
 						}
 						let child = stale_origin
 							.spawn(|child_verb, _args| {
-								if child_verb == "ping" {
+								if child_verb == Some("ping") {
 									Ok(Argument::Symbol("alive".into()))
 								} else {
-									Err(format!("no such method: {child_verb}"))
+									Err(format!("no such method: {child_verb:?}"))
 								}
 							})
 							.map_err(|error| error.to_string())?;
@@ -207,10 +207,10 @@ async fn turn_spawn_uses_the_host_after_the_originating_port_closes() {
 				let sibling = server.accept().await.unwrap();
 				sibling
 					.publish("introducer", move |verb, _args| {
-						if verb == "get" {
+						if verb == Some("get") {
 							Ok((&root).into())
 						} else {
-							Err(format!("no such method: {verb}"))
+							Err(format!("no such method: {verb:?}"))
 						}
 					})
 					.unwrap();
@@ -290,12 +290,12 @@ async fn pipelined_projections_reach_a_field() {
 				let behavior_host = session.host();
 				session
 					.publish("root", move |verb, args| {
-						if verb == "release" {
+						if verb == Some("release") {
 							release_tx.send(()).map_err(|_| "release observer closed".to_string())?;
 							return Ok(Argument::String("released".into()));
 						}
-						if verb != "make" {
-							return Err(format!("no such method: {verb}"));
+						if verb != Some("make") {
+							return Err(format!("no such method: {verb:?}"));
 						}
 						let label = match args.first() {
 							Some(Argument::String(s)) => s.clone(),
@@ -409,13 +409,13 @@ async fn forwarding_proxies_forward_revoke_and_attenuate_over_the_wire() {
 
 				session
 					.publish("root", move |verb, _args| match verb {
-						"proxy" => Ok((&proxy).into()),
-						"readonly" => Ok((&readonly).into()),
-						"revoke" => {
+						Some("proxy") => Ok((&proxy).into()),
+						Some("readonly") => Ok((&readonly).into()),
+						Some("revoke") => {
 							care.revoke();
 							Ok(Argument::Void)
 						}
-						other => Err(format!("no such method: {other}")),
+						other => Err(format!("no such method: {other:?}")),
 					})
 					.unwrap();
 				proxy_ready_tx.send(()).unwrap();
@@ -431,12 +431,12 @@ async fn forwarding_proxies_forward_revoke_and_attenuate_over_the_wire() {
 			// The tool the host will wrap: `add` increments, `get` reads.
 			session
 				.publish("tool", |verb, args| match verb {
-					"add" => {
+					Some("add") => {
 						let n = args.first().and_then(|a| a.as_i64()).unwrap_or(0);
 						Ok(Argument::Integer(n + 1))
 					}
-					"get" => Ok(Argument::Integer(7)),
-					other => Err(format!("no such method: {other}")),
+					Some("get") => Ok(Argument::Integer(7)),
+					other => Err(format!("no such method: {other:?}")),
 				})
 				.unwrap();
 			// Publishing is setup, not admission. Resume only after the complete
@@ -490,8 +490,8 @@ async fn a_forwarding_proxy_answers_its_hosts_own_local_call() {
 				let session = server.accept().await.unwrap();
 				session
 					.publish("tool", |verb, _args| match verb {
-						"ping" => Ok(Argument::Integer(99)),
-						other => Err(format!("no such method: {other}")),
+						Some("ping") => Ok(Argument::Integer(99)),
+						other => Err(format!("no such method: {other:?}")),
 					})
 					.unwrap();
 				ready_tx.send(()).unwrap();
@@ -509,11 +509,11 @@ async fn a_forwarding_proxy_answers_its_hosts_own_local_call() {
 			// A caretaker over a local tool, called locally by its own host.
 			let local_tool = session
 				.spawn(|verb, args| match verb {
-					"double" => {
+					Some("double") => {
 						let n = args.first().and_then(|a| a.as_i64()).unwrap_or(0);
 						Ok(Argument::Integer(n * 2))
 					}
-					other => Err(format!("no such method: {other}")),
+					other => Err(format!("no such method: {other:?}")),
 				})
 				.unwrap();
 			let care_local = session.caretaker(&local_tool).unwrap();

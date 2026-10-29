@@ -17,7 +17,9 @@ const Probe = struct {
     seen: *?Backing,
     in_place: *?bool,
 
-    pub fn handle(self: *Probe, turn: *core.HostTurn, verb: []const u8, args: core.Args) !core.Value {
+    pub fn handle(self: *Probe, turn: *core.HostTurn, selector: ?[]const u8, args: core.Args) !core.Value {
+        defer turn.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         self.seen.* = std.meta.activeTag(args.inner);
         if (!std.mem.eql(u8, verb, "report")) return error.NoSuchMethod;
         if ((try args.len()) != 3) return error.BadArguments;
@@ -44,7 +46,6 @@ const Probe = struct {
             },
             else => return err,
         }
-        if (args.inner == .values) turn.releaseValues(args.inner.values.items);
         return .{ .integer = sum };
     }
 };

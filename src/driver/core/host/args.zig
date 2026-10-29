@@ -9,6 +9,9 @@
 //! list of integers is read as one slice (`integers`): in place when the
 //! codec left it on the wire as a word run, copied into the turn arena
 //! otherwise.
+//!
+//! Incoming capability observations belong to the handler. Defer
+//! `HostTurn.releaseArguments` before validation when keeping none of them.
 
 const std = @import("std");
 

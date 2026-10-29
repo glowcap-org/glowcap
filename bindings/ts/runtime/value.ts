@@ -351,12 +351,13 @@ export function liveRefId(ref: Ref): bigint {
 export class Forward {
 	constructor(
 		readonly target: Ref,
-		readonly verb: string,
+		readonly verb: string | null,
 		readonly args: Argument[],
 	) {}
 }
 
 /** A hosted object's behavior: handle a `(verb, args)` call and return a reply.
+ * Null selects no method. The empty string selects the empty symbol.
  * `args` may contain `Ref`s (capabilities you were handed). Throw to break the
  * caller's promise.
  *
@@ -367,6 +368,6 @@ export class Forward {
  * host refuses breaks the caller's promise. A rejection breaks the caller's
  * promise with the error's message. */
 export type Behavior = (
-	verb: string,
+	verb: string | null,
 	args: Argument[],
 ) => Argument | Forward | void | PromiseLike<Argument | void>;

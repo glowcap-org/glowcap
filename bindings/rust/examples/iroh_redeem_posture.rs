@@ -90,8 +90,8 @@ async fn run() -> Result<(), Fail> {
 	to_exporter.set_exporter_locator(Some(&exporter_locator))?;
 	gifter_host.publish("introducer", move || {
 		let greeter = greeter_ref.clone();
-		Box::new(move |verb: &str, _args: &[Argument]| {
-			if verb == "get-greeter" {
+		Box::new(move |verb: Option<&str>, _args: &[Argument]| {
+			if verb == Some("get-greeter") {
 				Ok(Argument::from(&greeter))
 			} else {
 				Err(format!("introducer: no such verb {verb:?}"))
@@ -142,11 +142,11 @@ async fn run() -> Result<(), Fail> {
 }
 
 // The published actor: answer `greet` by echoing the caller's name.
-fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
-	if verb == "greet" {
+fn greeter(verb: Option<&str>, args: &[Argument]) -> Result<Argument, String> {
+	if verb == Some("greet") {
 		let name = args.first().and_then(Argument::as_str).unwrap_or("");
 		Ok(format!("hello {name} over a configured-posture redeem").into())
 	} else {
-		Err(format!("no such method: {verb}"))
+		Err(format!("no such method: {verb:?}"))
 	}
 }

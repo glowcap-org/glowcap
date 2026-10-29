@@ -52,7 +52,8 @@ pub const GlowcapTraceEvent = extern struct {
     /// on and the only one that merges two producers' feeds.
     session_id: ?[*]const u8,
     session_id_len: usize,
-    /// `GLOWCAP_TRACE_MESSAGE`: the deliver's verb. Borrowed.
+    /// `GLOWCAP_TRACE_MESSAGE`: the deliver's selector. Borrowed.
+    /// Null means absent. Non-null with length zero means the empty symbol.
     verb: ?[*]const u8,
     verb_len: usize,
     /// `GLOWCAP_TRACE_MESSAGE`: the message's wire frame, borrowed. Both

@@ -12,7 +12,7 @@
 import type { Argument } from "@glowcap/runtime";
 import { NOW, READ, WRITE } from "./protocol.ts";
 
-export type Tool = (verb: string, args: Argument[]) => Argument;
+export type Tool = (verb: string | null, args: Argument[]) => Argument;
 
 /** A clock tool: tells the time, nothing else. */
 export const clock: Tool = (verb) => {

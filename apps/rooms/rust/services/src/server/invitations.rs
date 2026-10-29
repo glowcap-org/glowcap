@@ -11,8 +11,9 @@ use rooms_glowcap::Value;
 pub(super) fn invitation(
 	shared: Shared,
 	key: InvitationKey,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if args.iter().any(|arg| Value(arg).contains_capability()) {
 			return Err("a room invitation does not take capability arguments".into());
 		}

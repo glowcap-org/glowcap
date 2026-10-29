@@ -365,11 +365,11 @@ fn releaseBreakReservation(vat: *Vat, answered: bool) void {
 /// symbol, then `count` arguments the caller fills in from `head`. `buf`
 /// backs the common arity, and a longer spine comes from the vat's
 /// allocator, which the caller frees when the spine outgrew `buf`.
-fn verbSpine(comptime Elem: type, vat: *Vat, buf: []Elem, verb: []const u8, count: usize) Error!struct { spine: []Elem, head: usize } {
-    const has_verb = verb.len > 0;
+fn verbSpine(comptime Elem: type, vat: *Vat, buf: []Elem, verb: ?[]const u8, count: usize) Error!struct { spine: []Elem, head: usize } {
+    const has_verb = verb != null;
     const total = std.math.add(usize, count, @intFromBool(has_verb)) catch return error.MalformedView;
     const spine = if (total <= buf.len) buf[0..total] else try vat.allocator.alloc(Elem, total);
-    if (has_verb) spine[0] = .{ .symbol = verb };
+    if (verb) |method| spine[0] = .{ .symbol = method };
     return .{ .spine = spine, .head = @intFromBool(has_verb) };
 }
 

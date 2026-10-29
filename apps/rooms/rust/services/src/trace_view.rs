@@ -135,7 +135,7 @@ async fn follow(
 		let inbox = session
 			.spawn_owned(move |verb, args| {
 				let result = (|| {
-					let ("record", [Argument::String(line)]) = (verb, args) else {
+					let (Some("record"), [Argument::String(line)]) = (verb, args) else {
 						return Err("trace inbox received an invalid record".to_owned());
 					};
 					if line.len() > rooms_application::server::trace::MAX_LINE_BYTES {

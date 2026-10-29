@@ -94,7 +94,8 @@ typedef struct GlowcapHostTurn GlowcapHostTurn;
    instant you return, so its bytes must stay valid across the return
    (point them at your ctx or a buffer you own, not a callback stack
    local). Any non-OK return settles the answer broken
-   with a generic reason. */
+   with a generic reason. A NULL verb means no leading selector. A non-NULL
+   verb of length zero is the empty-symbol selector. */
 typedef int32_t (*GlowcapHostBehavior)(void *ctx, GlowcapHostTurn *turn,
     const uint8_t *verb, size_t verb_len, const GlowcapArgument *args,
     size_t args_len, GlowcapArgument *out_reply);
@@ -139,7 +140,7 @@ typedef struct GlowcapTraceEvent {
     const uint8_t *session_id;
     /* Length of session_id. */
     size_t session_id_len;
-    /* MESSAGE: the deliver's verb. Borrowed. */
+    /* MESSAGE: the deliver's selector. Borrowed. NULL means absent. Non-NULL with length zero means the empty symbol. */
     const uint8_t *verb;
     /* Length of verb. */
     size_t verb_len;
@@ -792,9 +793,8 @@ int32_t glowcap_host_send(GlowcapHost *host, const GlowcapReference *target, con
    chooses local delivery or the owning exporter session. A target or nested
    argument from another Host, or a retired identity, is refused rather than
    being interpreted as a wire position. verb/args are borrowed; the host copies
-   what it queues. An empty verb (including (NULL, 0), which the family's ptr+len
-   contract admits) is a real message, not an error: it delivers positionally,
-   the way Goblins invokes a capability. Legal inside a callback (the send
+   what it queues. (NULL, 0) invokes positionally. A non-null verb contributes one leading
+   symbol, even with length zero. Null with nonzero length is refused. Legal inside a callback (the send
    encodes when the enclosing call unwinds). */
 int32_t glowcap_host_session_send(GlowcapHostSession *session, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, uint64_t *out_vow);
 /* Notification through the target's actual home, with no reply or vow. Input
@@ -802,16 +802,16 @@ int32_t glowcap_host_session_send(GlowcapHostSession *session, const GlowcapRefe
    inside a callback, where turn_tell owns transactional delivery. */
 int32_t glowcap_host_tell(GlowcapHost *host, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len);
 /* Fire-and-forget eventual-send: glowcap_host_session_send with no answer and no
-   vow. Same routing, refusals, and empty-verb contract. */
+   vow. Same routing, refusals, and selector-presence contract. */
 int32_t glowcap_host_session_tell(GlowcapHostSession *session, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len);
 /* Promise pipelining: eventual-send to a host vow before it resolves, minting a
    new vow for this call's own answer. A local vow (a NEAR send's answer) has no
    wire answer to pipeline against and is refused GLOWCAP_ERR_INVALID_ARGUMENT
    (NotPipelineable); an unknown vow reports GLOWCAP_ERR_NOT_FOUND. The
-   empty-verb contract is glowcap_host_session_send's. */
+   selector-presence contract is glowcap_host_session_send's. */
 int32_t glowcap_host_vow_send(GlowcapHost *host, uint64_t vow, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, uint64_t *out_vow);
 /* Fire-and-forget promise-pipelined send: glowcap_host_vow_send with no answer
-   and no returned vow. Same target, argument, and empty-verb contract. */
+   and no returned vow. Same target, argument, and selector-presence contract. */
 int32_t glowcap_host_vow_tell(GlowcapHost *host, uint64_t vow, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len);
 /* Release one public Host vow. Settlement does not consume the handle: until
    this call succeeds it remains a valid promise-pipeline target, including after
@@ -900,7 +900,7 @@ int32_t glowcap_host_turn_session(GlowcapHostTurn *turn, GlowcapHostSession **ou
    local eventual or wire-served turn the real answer rides the forwarded vow and *out_reply gets a
    void placeholder; pass your behavior's own out_reply and return GLOWCAP_OK.
    The written reply is BORROWED and valid until the next turn verb or drive on
-   this host. The empty-verb contract is glowcap_host_session_send's. */
+   this host. The selector-presence contract is glowcap_host_session_send's. */
 int32_t glowcap_host_turn_forward(GlowcapHostTurn *turn, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, GlowcapArgument *out_reply);
 /* Atomically defer this turn's answer onto a fresh resolver vow (ADR-0014).
    *out_resolver_id receives the one-shot settle authority used by
@@ -918,10 +918,10 @@ int32_t glowcap_host_turn_defer_if_answer(GlowcapHostTurn *turn, uint64_t *out_r
    or foreign home; wire callbacks use their Session routing. Local public
    vows settle through Host actions and support release, without a wire
    pipeline or raw wire listener. Delivery commits with the enclosing turn.
-   The empty-verb contract is glowcap_host_session_send's. */
+   The selector-presence contract is glowcap_host_session_send's. */
 int32_t glowcap_host_turn_send(GlowcapHostTurn *turn, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, uint64_t *out_vow);
 /* From inside a behavior callback, fire-and-forget eventual-send:
-   glowcap_host_turn_send with no answer and no vow. Same empty-verb contract. */
+   glowcap_host_turn_send with no answer and no vow. Same selector-presence contract. */
 int32_t glowcap_host_turn_tell(GlowcapHostTurn *turn, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len);
 /* From inside a behavior callback, spawn a hosted object in the Host Vat and
    create its first projection on the Port that delivered this turn. This is how a

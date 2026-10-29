@@ -30,17 +30,17 @@ const BurstActor = struct {
     turns: usize = 0,
 
     pub fn handle(self: *BurstActor, turn: *Turn, msg: Delivery) !model.Argument {
-        if (std.mem.eql(u8, msg.verb, "oversized")) {
+        if (msg.is("oversized")) {
             const scratch = try turn.arena.alloc(u8, oversized_scratch_bytes);
             @memset(scratch, 0xaa);
             return .{ .void = {} };
         }
-        if (std.mem.eql(u8, msg.verb, "note")) {
+        if (msg.is("note")) {
             self.turns += 1;
             return .{ .void = {} };
         }
-        if (std.mem.eql(u8, msg.verb, "turns")) return .{ .integer = @intCast(self.turns) };
-        if (std.mem.eql(u8, msg.verb, "noop")) return .{ .void = {} };
+        if (msg.is("turns")) return .{ .integer = @intCast(self.turns) };
+        if (msg.is("noop")) return .{ .void = {} };
         return error.NoSuchMethod;
     }
 };

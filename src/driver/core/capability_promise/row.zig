@@ -93,7 +93,7 @@ pub const Row = struct {
 
         pub const OwnedMessage = struct {
             arena: std.heap.ArenaAllocator,
-            verb: []const u8,
+            verb: ?[]const u8,
             values: []const value_mod.Value,
             retained_capabilities: []capability.Ref,
             release_head: usize = 0,

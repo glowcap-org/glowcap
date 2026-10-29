@@ -137,7 +137,7 @@ const Stager = struct {
         _ = try turn.vat.sendOpaqueFromIngress(turn.ingress(), self.target, self.input.message(), self.input.trace.listener());
         try turn.vat.drive();
         try std.testing.expectEqual(@as(usize, 0), self.input.trace.calls);
-        if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
+        if (msg.is("fail")) return error.Refused;
         return .{ .void = {} };
     }
 };

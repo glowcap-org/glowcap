@@ -195,10 +195,10 @@ pub fn glowcap_host_session_resolve(
 /// transparently. A far argument foreign to the routed session is refused
 /// whole (`GLOWCAP_ERR_INVALID_ARGUMENT`) rather than mis-encoded. A retired
 /// token reports `GLOWCAP_ERR_NOT_FOUND`. `verb`/`args` are borrowed. The
-/// host copies what it queues. An empty verb (including `(NULL, 0)`, which
-/// the family's ptr+len contract admits) is a real message, not an error: it
-/// delivers positionally, the way Goblins invokes a capability. Legal inside
-/// a callback (the send encodes when the enclosing call unwinds).
+/// host copies what it queues. `(NULL, 0)` invokes positionally. A non-null
+/// verb contributes one leading symbol, even with length zero. Null with
+/// nonzero length is refused. Legal inside a callback (the send encodes when
+/// the enclosing call unwinds).
 pub fn glowcap_host_session_send(
     raw: ?*GlowcapHostSession,
     target: ?*const shared.GlowcapReference,

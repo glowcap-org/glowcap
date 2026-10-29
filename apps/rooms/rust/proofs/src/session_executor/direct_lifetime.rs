@@ -84,7 +84,7 @@ async fn run(boundary: Boundary) {
 						.unwrap();
 				}
 				let mut attachment = store.attach(&host, vec![owner.registration()]).unwrap();
-				attachment.start_live(None, 64).unwrap();
+				environment::start_live(&attachment, None, 64).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control).unwrap();
 				owner.initialize().await.unwrap();
@@ -113,6 +113,7 @@ async fn run(boundary: Boundary) {
 					.publish("peer", move || {
 						let announcements = announcements.clone();
 						Box::new(move |verb, _| {
+							let verb = verb.ok_or("fixture requires a method")?;
 							assert_eq!(verb, rooms_application::direct::READY);
 							announcements.set(announcements.get() + 1);
 							if matches!(boundary, Boundary::FailedReady) {

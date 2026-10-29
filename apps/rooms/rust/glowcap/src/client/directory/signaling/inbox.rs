@@ -26,6 +26,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Route<D> {
 			if state.borrow().ended {
 				return Err("the signaling inbox has ended".into());
 			}
+			let verb = verb.ok_or("unknown method")?;
 			let incoming = policy::incoming(verb, args.len(), |i| args.get(i).map(Value)).map_err(|e| e.to_string())?;
 			let (result, wake) = {
 				let mut state = state.borrow_mut();

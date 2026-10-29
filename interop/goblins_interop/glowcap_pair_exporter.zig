@@ -33,8 +33,8 @@ const opts: driver.SessionOptions = .{
 /// Answers with the name it was called with, so the driver can tell a reply
 /// from this actor apart from a reply from anything the gifter stood in with.
 const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
-        // A plain Goblins `(<- greeter "name")` arrives with an empty verb and
+    pub fn handle(_: *Greeter, ht: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
+        // A plain Goblins `(<- greeter "name")` arrives with an absent selector and
         // the caller's name as the one argument.
         _ = verb;
         if ((try args.len()) != 1) return error.BadInvocation;

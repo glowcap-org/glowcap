@@ -520,7 +520,7 @@ test "a queued local answer can defer and preserves a dynamic break across liste
 
     const Refuser = struct {
         pub fn handle(_: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
-            if (std.mem.eql(u8, msg.verb, "reset")) {
+            if (msg.is("reset")) {
                 @memset(try turn.arena.alloc(u8, 2048), 0xcc);
             } else {
                 var text = [_]u8{ 'e', 'x', 'a', 'c', 't' };

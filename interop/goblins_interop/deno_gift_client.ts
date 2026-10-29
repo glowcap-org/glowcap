@@ -94,7 +94,7 @@ try {
 	// tolerant: serve rejects when Bob hangs up, which ends this session normally, and the script's own calls report real failures.
 	toBob.serve().catch(() => {});
 	const vendor = await toBob.fetch(VENDOR_SWISS);
-	const greeter = await toBob.send(vendor, "", []);
+	const greeter = await toBob.send(vendor, null, []);
 	if (!(greeter instanceof Ref)) giftFail("the vendor reply was not a capability");
 	console.log("deno-goblins-gift: lifted goblins-bob's greeter from a reply");
 

@@ -25,7 +25,7 @@ async fn late_seat_and_interrupted_leave_keep_the_exact_receiver() {
 					let calls = calls.clone();
 					let answer = answer.clone();
 					move |verb, args| {
-						assert_eq!(verb, "leave");
+						assert_eq!(verb, Some("leave"));
 						assert!(args.is_empty());
 						calls.set(calls.get() + 1);
 						*answer.borrow_mut() = Some(host.defer_turn().unwrap());

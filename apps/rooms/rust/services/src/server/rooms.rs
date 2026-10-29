@@ -75,8 +75,9 @@ fn refusal(refusal: Refusal) -> String {
 pub(super) fn entrance(
 	shared: Shared,
 	entrance: Entrance,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if verb != SUBSCRIBE && args.iter().any(|arg| Value(arg).contains_capability()) {
 			return Err(format!("room {verb} does not take capability arguments"));
 		}

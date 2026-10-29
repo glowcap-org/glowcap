@@ -96,6 +96,7 @@ async fn retained_post_measures_request_and_callback_wire_bytes() {
 			let inbox = client
 				.session()
 				.spawn_owned(move |verb, _| {
+					let verb = verb.ok_or("fixture requires a method")?;
 					received.borrow_mut().push(verb.to_owned());
 					Ok(Argument::Void)
 				})

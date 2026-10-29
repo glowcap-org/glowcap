@@ -54,7 +54,7 @@ pub const HostTurn = struct {
         return lease.fork();
     }
 
-    pub fn localArguments(self: *HostTurn) !struct { verb: []const u8, args: args_mod.Args } {
+    pub fn localArguments(self: *HostTurn) !struct { verb: ?[]const u8, args: args_mod.Args } {
         const args = try @import("local_delivery.zig").arguments(self.turn);
         return .{ .verb = args.verb, .args = .fromValues(args.args, self.turn.arena) };
     }
@@ -97,9 +97,49 @@ pub const HostTurn = struct {
     }
 
     /// Consume the application retains acquired while lifting incoming values.
-    /// Call after storing/transferring any references the behavior keeps.
+    /// Release only observations the behavior neither keeps nor transfers.
     pub fn releaseValues(self: *HostTurn, values: []const value_mod.Value) void {
         @import("capabilities/lower.zig").releaseValueCapabilitiesTerminalAt(self.host, values, null);
+    }
+
+    /// Consume incoming capability observations without materializing a view.
+    /// Defer before validation when the handler keeps none of its arguments.
+    pub fn releaseArguments(self: *HostTurn, args: args_mod.Args) void {
+        switch (args.inner) {
+            .values => |values| self.releaseValues(values.items),
+            .views => {},
+        }
+    }
+
+    /// One capability-bearing input's borrowed-reply custody. The turn arena holds
+    /// this three-word payload beside its two-word cleanup link: no receipt array,
+    /// Value copy, or per-capability allocation. Early refusal clears it in place.
+    pub const ArgumentLease = struct {
+        host: *Host,
+        values: []const value_mod.Value = &.{},
+
+        pub fn release(self: *ArgumentLease) void {
+            const values = self.values;
+            self.values = &.{};
+            @import("capabilities/lower.zig").releaseValueCapabilitiesTerminalAt(self.host, values, null);
+        }
+    };
+
+    comptime {
+        if (@sizeOf(ArgumentLease) != 3 * @sizeOf(usize))
+            @compileError("borrowed argument lease exceeded its three-word payload");
+    }
+
+    /// Keep incoming identities valid while a callback releases its observations
+    /// and returns a borrowed reply. This lease borrows the stable argument tree,
+    /// not the callback's stack, and lasts through reply consumption.
+    pub fn retainArguments(self: *HostTurn, args: args_mod.Args) !?*ArgumentLease {
+        if (args.inner != .values or !value_views.carriesCapability(args.inner.values.items)) return null;
+        const values = args.inner.values.items;
+        const lease = try self.turn.allocResource(ArgumentLease, .{ .host = self.host }, ArgumentLease.release);
+        try @import("capabilities/completion.zig").retainValue(self.host, .{ .list = values });
+        lease.values = values;
+        return lease;
     }
 
     /// Transfer this answer to another capability. Local invocation uses the
@@ -109,7 +149,7 @@ pub const HostTurn = struct {
     pub fn forward(
         self: *HostTurn,
         target: capability.Ref,
-        verb: []const u8,
+        verb: ?[]const u8,
         values: []const value_mod.Value,
     ) !value_mod.Value {
         const session = self.session orelse {
@@ -127,13 +167,13 @@ pub const HostTurn = struct {
 
     /// Eventual-send from this callback through the same Host authority as an
     /// owning Session. The returned id is observed with the Host vow surface.
-    pub fn send(self: *HostTurn, target: capability.Ref, verb: []const u8, values: []const value_mod.Value) !u64 {
+    pub fn send(self: *HostTurn, target: capability.Ref, verb: ?[]const u8, values: []const value_mod.Value) !u64 {
         const session = self.session orelse return @import("local_delivery.zig").send(self.turn, target, verb, values);
         return self.host.sendValues(session, target, verb, values, self.turn.arena);
     }
 
     /// Fire-and-forget delivery from this callback.
-    pub fn tell(self: *HostTurn, target: capability.Ref, verb: []const u8, values: []const value_mod.Value) !void {
+    pub fn tell(self: *HostTurn, target: capability.Ref, verb: ?[]const u8, values: []const value_mod.Value) !void {
         const session = self.session orelse return @import("local_delivery.zig").tell(self.turn, target, verb, values);
         return self.host.tellValues(session, target, verb, values, self.turn.arena);
     }
@@ -144,7 +184,7 @@ pub const HostTurn = struct {
 /// declares
 ///
 /// ```zig
-/// pub fn handle(self: *B, ht: *HostTurn, verb: []const u8, args: Args) !Value
+/// pub fn handle(self: *B, ht: *HostTurn, verb: ?[]const u8, args: Args) !Value
 /// ```
 ///
 /// A wire deliver that session validation counted no reference or handoff
@@ -175,9 +215,16 @@ pub fn Hosting(comptime B: type) type {
                 .fromViews(msg.args, &host_turn)
             else
                 .fromValues(try host.liftValues(session, turn.arena, msg.args), turn.arena);
+            const lease = host_turn.retainArguments(args) catch |err| {
+                host_turn.releaseArguments(args);
+                return err;
+            };
+            errdefer if (lease) |held| held.release();
             const reply = try self.inner.handle(&host_turn, msg.verb, args);
-            if (turn.origin == .served and !value_views.carriesCapability(&.{reply}))
-                return .{ .viewed = try value_views.argument(&reply) };
+            if (!value_views.carriesCapability(&.{reply})) {
+                if (lease) |held| held.release();
+                if (turn.origin == .served) return .{ .viewed = try value_views.argument(&reply) };
+            }
             return .{ .returned = try host.lowerValue(session, turn.arena, reply) };
         }
 

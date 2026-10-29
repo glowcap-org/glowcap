@@ -46,7 +46,7 @@ pub(super) async fn run() {
 					std::num::NonZeroUsize::new(256 * 1024).unwrap(),
 				);
 				let mut attachment = store.attach(&host, vec![owner.registration()]).unwrap();
-				attachment.start_live(None, 64).unwrap();
+				environment::start_live(&attachment, None, 64).await;
 				let (root, root_control) = environment::restore(&attachment, resource).await;
 				owner.bind(root.clone(), root_control.clone()).unwrap();
 				owner.initialize().await.unwrap();
@@ -82,6 +82,7 @@ pub(super) async fn run() {
 							let refuse = refuse.clone();
 							let count = count.clone();
 							Box::new(move |verb, args| {
+								let verb = verb.ok_or("fixture requires a method")?;
 								let [Argument::Reference(observer)] = args else {
 									return Err("exact observer required".into());
 								};

@@ -289,8 +289,8 @@ mod tests {
 					let session = server.accept().await.unwrap();
 					session
 						.publish("svc", |verb, args| {
-							if verb != "greet" {
-								return Err(format!("no such method: {verb}"));
+							if verb != Some("greet") {
+								return Err(format!("no such method: {verb:?}"));
 							}
 							let who = match args.first() {
 								Some(Argument::String(s)) => s.as_str(),

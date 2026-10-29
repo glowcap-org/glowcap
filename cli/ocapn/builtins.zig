@@ -26,7 +26,8 @@ pub const demo_verbs = [_]DemoVerb{
 };
 
 const Greeter = struct {
-    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Greeter, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        const verb = selector orelse return error.NoSuchMethod;
         _ = self;
         if ((try args.len()) != 1) return error.BadInvocation;
         const who = try args.string(0);
@@ -92,7 +93,8 @@ fn formatSay(arena: std.mem.Allocator, msg: []const u8, figure: []const u8) ![]c
 }
 
 const Echo = struct {
-    pub fn handle(self: *Echo, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Echo, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        const verb = selector orelse return error.NoSuchMethod;
         const arg_values = try args.values();
         _ = self;
         _ = ht;

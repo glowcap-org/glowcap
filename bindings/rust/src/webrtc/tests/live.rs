@@ -79,10 +79,10 @@ fn live<F: Future<Output = ()>>(body: F) {
 
 fn greeter() -> crate::Behavior {
 	Box::new(|verb, _args| {
-		if verb == "greet" {
+		if verb == Some("greet") {
 			Ok(Argument::String(GREETING.to_string()))
 		} else {
-			Err(format!("no such method: {verb}"))
+			Err(format!("no such method: {verb:?}"))
 		}
 	})
 }

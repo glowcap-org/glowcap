@@ -381,12 +381,13 @@ pub fn typedProvider(
 pub fn widgetBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = .{ ctx, turn, args, args_len };
     if (!std.mem.eql(u8, verb[0..verb_len], "poke")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     out_reply.* = c_args.argStr("poked through the driver archive");
@@ -416,12 +417,13 @@ pub const CallbackRetirement = struct {
 pub fn callbackRetirementBehavior(
     raw_ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = .{ turn, args, args_len };
     if (!std.mem.eql(u8, verb[0..verb_len], "retire")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     const ctx: *CallbackRetirement = @ptrCast(@alignCast(raw_ctx.?));
@@ -434,12 +436,13 @@ pub fn callbackRetirementBehavior(
 pub fn reentrantSessionReleaseBehavior(
     raw_ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
-    verb: [*]const u8,
+    selector: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const c.GlowcapArgument,
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
+    const verb = selector orelse return @import("c_abi_shared").GLOWCAP_ERR_BROKEN;
     _ = turn;
     if (!std.mem.eql(u8, verb[0..verb_len], "probe")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     if (args_len != 1 or args.?[0].kind != c.GLOWCAP_ARG_REFERENCE) return c.GLOWCAP_ERR_INVALID_ARGUMENT;

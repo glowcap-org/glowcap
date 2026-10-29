@@ -24,12 +24,12 @@ pub async fn run() {
 		let state = captured.clone();
 		Box::new(move |verb, args| {
 			let mut state = state.borrow_mut();
-			if verb == "mutation-sequence" {
+			if verb == Some("mutation-sequence") {
 				assert!(args.is_empty());
 				state.queries += 1;
 				return Ok(state.sequence.clone().unwrap_or_else(|| 1i64.into()));
 			}
-			assert_eq!(verb, expected::CREATION_VERB);
+			assert_eq!(verb, Some(expected::CREATION_VERB));
 			assert_eq!(args, expected::creation_arguments().as_slice());
 			state.deliveries += 1;
 			state.effects = 1;

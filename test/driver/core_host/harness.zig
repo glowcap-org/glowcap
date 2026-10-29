@@ -32,7 +32,7 @@ pub const Widget = struct {
     pub fn handle(self: *Widget, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "poke")) return error.NoSuchMethod;
+        if (!msg.is("poke")) return error.NoSuchMethod;
         return .{ .string = "poked over fed bytes" };
     }
 };
@@ -42,7 +42,7 @@ pub const FairCounter = struct {
 
     pub fn handle(self: *FairCounter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
+        if (!msg.is("hit")) return error.NoSuchMethod;
         self.hits.* += 1;
         return .{ .integer = @intCast(self.hits.*) };
     }
@@ -56,7 +56,7 @@ pub const Vendor = struct {
     widget: model.Reference,
     pub fn handle(self: *Vendor, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
+        if (!msg.is("make")) return error.NoSuchMethod;
         return .{ .reference = self.widget };
     }
 };
@@ -67,7 +67,7 @@ pub const Introducer = struct {
     widget: model.Reference,
     pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "introduce")) return error.NoSuchMethod;
+        if (!msg.is("introduce")) return error.NoSuchMethod;
         return .{ .reference = self.widget };
     }
 };
@@ -287,9 +287,9 @@ pub const Tagged = struct {
 
     pub fn handle(self: *Tagged, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "mutate")) {
+        if (msg.is("mutate")) {
             self.row.tag = "mutated-original";
-        } else if (!std.mem.eql(u8, msg.verb, "tag")) return error.NoSuchMethod;
+        } else if (!msg.is("tag")) return error.NoSuchMethod;
         return .{ .string = self.row.tag };
     }
 
@@ -357,7 +357,7 @@ pub const TraceLog = struct {
             .message => |msg| std.fmt.bufPrint(
                 &self.buf[self.n],
                 "msg {s} {s}",
-                .{ if (msg.outbound) "out" else "in", msg.verb },
+                .{ if (msg.outbound) "out" else "in", msg.verb orelse "<direct>" },
             ) catch return,
             .session_close => std.fmt.bufPrint(&self.buf[self.n], "close", .{}) catch return,
         };
@@ -459,7 +459,7 @@ pub const PublicationProbe = struct {
 
     pub fn handle(self: *PublicationProbe, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "publish")) return error.NoSuchMethod;
+        if (!msg.is("publish")) return error.NoSuchMethod;
         _ = self.host.publish("nested", Widget, .{}) catch |err| {
             if (err == driver.core.HostError.ReenteredHost) {
                 self.refused.* = true;

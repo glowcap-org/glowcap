@@ -58,9 +58,9 @@ pub fn passToGoblins(io: std.Io, allocator: std.mem.Allocator, echo_swiss: []con
 
     // The echo reply is pending when the await call names it, so Goblins
     // receives a promise and settles through it.
-    const pending = try session.send(echo, "", &.{.{ .string = "promise-ping" }});
+    const pending = try session.send(echo, null, &.{.{ .string = "promise-ping" }});
     const as_capability = try pending.capability();
-    const awaited = session.call(awaiter, "", &.{.{ .capability = as_capability }}, arena);
+    const awaited = session.call(awaiter, null, &.{.{ .capability = as_capability }}, arena);
     try session.release(as_capability);
     try expectEcho(try awaited, "await");
     // Naming the question changed nothing about its own settlement.
@@ -128,7 +128,9 @@ const Shared = struct {
 const AnswerReader = struct {
     shared: *Shared,
 
-    pub fn handle(self: *AnswerReader, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *AnswerReader, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (std.mem.eql(u8, verb, "make")) {
             self.shared.make_resolver = try ht.deferAnswer();
             return .{ .void = {} };
@@ -145,7 +147,6 @@ const AnswerReader = struct {
 
     fn listen(self: *AnswerReader, ht: *driver.HostTurn, args: driver.Args) !void {
         const cap = try args.capability(0);
-        defer ht.releaseValues(&.{.{ .capability = cap }});
         switch (try ht.host.resolveCapability(ht.session.?, cap)) {
             .pending => |vow| try ht.host.vowOn(vow, .{ .ctx = self.shared, .func = Shared.record }),
             .resolved => |object| {

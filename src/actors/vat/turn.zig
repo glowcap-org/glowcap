@@ -88,6 +88,27 @@ pub const Turn = struct {
         }
     };
 
+    /// Allocate custody for a borrowed reply. A top-level wire serve releases
+    /// it after consuming the reply; near calls keep it until the next outermost
+    /// turn or Vat teardown. Nested calls share their outer reply's window.
+    /// One arena node holds both the resource and its cleanup link. The release
+    /// callback consumes custody without opening turns or registering resources.
+    pub fn allocResource(self: *Turn, comptime T: type, initial: T, comptime release: fn (*T) void) Error!*T {
+        const Node = struct {
+            cleanup: ResourceCleanup,
+            value: T,
+
+            fn destroy(cleanup: *ResourceCleanup) void {
+                const node: *@This() = @fieldParentPtr("cleanup", cleanup);
+                release(&node.value);
+            }
+        };
+        const node = try self.arena.create(Node);
+        node.* = .{ .cleanup = .{ .next = self.vat.turn_resources, .destroy = Node.destroy }, .value = initial };
+        self.vat.turn_resources = &node.cleanup;
+        return &node.value;
+    }
+
     /// The handled actor's own reference, for replying with itself or handing
     /// itself out as a callback.
     pub fn me(self: *const Turn) Ref {
@@ -369,3 +390,14 @@ pub const Turn = struct {
         }
     }
 };
+
+/// Intrusive cleanup link allocated beside a resource in the turn arena.
+pub const ResourceCleanup = struct {
+    next: ?*ResourceCleanup,
+    destroy: *const fn (*ResourceCleanup) void,
+};
+
+comptime {
+    if (@sizeOf(ResourceCleanup) != 2 * @sizeOf(usize))
+        @compileError("turn resource cleanup exceeded its two-word link");
+}

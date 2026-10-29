@@ -27,7 +27,7 @@ pub(in crate::server) fn entrance(
 	shared: Shared,
 	publication: Rc<Publication>,
 	kind: MembershipKind,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	gated_entrance(shared, publication, kind, None)
 }
 pub(super) fn gated_entrance(
@@ -35,8 +35,9 @@ pub(super) fn gated_entrance(
 	publication: Rc<Publication>,
 	kind: MembershipKind,
 	admission: Option<Rc<RefCell<rooms_application::server::invitation::Admission>>>,
-) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		if !publication.active.get() || shared.borrow().irc.stopping {
 			return Err(retired());
 		}

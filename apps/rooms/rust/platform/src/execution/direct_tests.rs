@@ -106,6 +106,7 @@ async fn scenario() {
 	let authority = client
 		.session()
 		.spawn_owned(move |verb, args| {
+			let verb = verb.ok_or("fixture requires a method")?;
 			assert_eq!(verb, "handed");
 			assert!(args.is_empty());
 			tx.try_send(()).unwrap();

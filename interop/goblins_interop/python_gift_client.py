@@ -103,7 +103,7 @@ async def run() -> None:
         to_bob = await gifter_runtime.connect(tcp.locator(HOST, PORT))
         to_bob.serve()
         vendor = await to_bob.fetch(VENDOR_SWISS)
-        greeter = await to_bob.send(vendor, "", [])
+        greeter = await to_bob.send(vendor, None, [])
         if not isinstance(greeter, Ref):
             fail("python-goblins-gift", "the vendor reply was not a capability")
         print("python-goblins-gift: lifted goblins-bob's greeter from a reply")

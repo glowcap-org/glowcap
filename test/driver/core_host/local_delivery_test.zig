@@ -11,7 +11,7 @@ const CapturedRef = @import("../../support/capture.zig").CapturedRef;
 
 const Echo = struct {
     calls: *usize,
-    pub fn handle(self: *Echo, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Echo, turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         try std.testing.expect(turn.session == null);
@@ -161,7 +161,7 @@ test "core host owning local refusal keeps effect and capability custody atomic"
 const Deferred = struct {
     resolver: *u64,
     fail: bool = false,
-    pub fn handle(self: *Deferred, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Deferred, turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         self.resolver.* = try turn.deferAnswer();
@@ -174,7 +174,7 @@ const Forwarder = struct {
     target: driver.Capability,
     fail: bool = false,
 
-    pub fn handle(self: *Forwarder, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Forwarder, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         try std.testing.expectEqual(@as(usize, 1), turn.host.vows.count());
@@ -330,7 +330,7 @@ test "core host owning local nested execution cannot publish before the outer tu
 
 const Becoming = struct {
     text: []u8,
-    pub fn handle(self: *Becoming, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+    pub fn handle(self: *Becoming, turn: *driver.HostTurn, _: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
         const next = try turn.turn.vat.allocator.dupe(u8, "after");

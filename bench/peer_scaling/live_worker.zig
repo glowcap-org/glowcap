@@ -31,7 +31,9 @@ const client_in_flight_per_shard: usize = 64;
 const greeting = "peer-scaling live";
 
 const Greeter = struct {
-    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
+    pub fn handle(_: *Greeter, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         return .{ .string = greeting };
     }

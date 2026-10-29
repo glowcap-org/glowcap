@@ -26,7 +26,7 @@ const SendThen = struct {
         const vow = try turn.send(self.target, .{ .verb = "increment" });
         if (self.broke) |flag| try turn.vat.on(vow, .{ .ctx = flag, .func = promise_capture.captureBroken });
         try turn.tell(self.target, .{ .verb = "increment" });
-        if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
+        if (msg.is("fail")) return error.Refused;
         return .{ .void = {} };
     }
 };
@@ -221,7 +221,7 @@ test "reply preservation failure retracts the turn before committing sends" {
         bytes: [8192]u8 = @splat('x'),
 
         pub fn handle(self: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
-            if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = 7 };
+            if (msg.is("get")) return .{ .integer = 7 };
             const vow = try turn.send(self.target, .{ .verb = "increment" });
             try turn.vat.on(vow, .{ .ctx = self.send_broken, .func = promise_capture.captureBroken });
             try turn.tell(self.target, .{ .verb = "increment" });
@@ -304,13 +304,13 @@ test "become promotion publishes replacement before destructor reentry" {
     const Replace = struct {
         cleanup: Cleanup,
         pub fn handle(self: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
-            if (std.mem.eql(u8, msg.verb, "inner")) {
+            if (msg.is("inner")) {
                 var cleanup = self.cleanup;
                 cleanup.subject = turn.me();
                 try turn.become(Cleanup, cleanup);
                 return .{ .void = {} };
             }
-            if (std.mem.eql(u8, msg.verb, "cleanup")) {
+            if (msg.is("cleanup")) {
                 try turn.become(Counter, .{ .n = 123 });
                 return .{ .void = {} };
             }

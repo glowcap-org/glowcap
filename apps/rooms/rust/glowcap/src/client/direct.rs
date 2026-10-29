@@ -8,11 +8,12 @@ use rooms_application::{archive::ShareKind, direct as policy};
 
 /// The receiver chooses which sibling verbs it supports and returns their real
 /// outcome. Deferred durable work must use the Host resolver, not an early ack.
-pub fn receiver<F>(mut receive: F) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String>
+pub fn receiver<F>(mut receive: F) -> impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String>
 where
 	F: for<'a> FnMut(policy::Notice<'a, Ref>, Session) -> Result<Argument, String> + 'static,
 {
 	move |verb, args| {
+		let verb = verb.ok_or("direct invocation is not supported")?;
 		// One bounded stack view, no second decoded argument vector. Only dm
 		// tolerates an excess suffix; every fixed-shape method still refuses it.
 		let mut fields = [Value(&Argument::Void); policy::MAX_ARGUMENTS];

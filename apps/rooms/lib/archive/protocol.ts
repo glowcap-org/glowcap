@@ -200,6 +200,7 @@ function archiveFacetBehavior(backend: ArchiveBackend, facet: ArchiveFacet, issu
 				new Error(`archive ${verb} does not take capability arguments`),
 			);
 		}
+		if (verb === null) throw new Error("archive has no positional invocation");
 		if (verb === ARCHIVE_PUT) {
 			if (args.length !== 1) throw new Error("archive put needs one record");
 			if (facet.access !== "read-write") throw new Error("archive facet is read-only");

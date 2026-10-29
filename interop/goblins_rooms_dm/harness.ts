@@ -148,7 +148,7 @@ function expectWireProvenance(
  * It records and then refuses. That gives the vat a completed negative delivery
  * result: the line demonstrably arrived, while `DM SENT` must remain absent. */
 const glowcapInbox: string[] = [];
-const recordOnlyDm: Behavior = (verb: string, args: Argument[]): never => {
+const recordOnlyDm: Behavior = (verb: string | null, args: Argument[]): never => {
 	if (verb !== DM) throw new Error(`dm has no method ${verb}`);
 	glowcapInbox.push(String(args[0]));
 	throw new Error("the glowcap inbox refused after observing the line");

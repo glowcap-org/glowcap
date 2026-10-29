@@ -25,7 +25,7 @@ const Recorder = struct {
     log: *std.ArrayList(u8),
     pub fn handle(self: *Recorder, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
-        try self.log.append(std.testing.allocator, msg.verb[0]);
+        try self.log.append(std.testing.allocator, msg.verb.?[0]);
         return .{ .void = {} };
     }
 };
@@ -42,7 +42,7 @@ const GiftThenPlain = struct {
         defer arena.deinit();
         _ = try self.host.queueSendValues(self.session, self.target, "gift", &.{.{ .capability = self.gift }}, arena.allocator());
         _ = try self.host.queueSendValues(self.session, self.target, "plain", &.{}, arena.allocator());
-        if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
+        if (msg.is("fail")) return error.Refused;
         return .{ .void = {} };
     }
 };
