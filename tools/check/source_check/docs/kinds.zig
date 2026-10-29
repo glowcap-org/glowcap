@@ -97,7 +97,7 @@ pub const temporary_homes = [_]Home{
 };
 
 /// Where docs live: these trees, plus the docs at the root.
-pub const doc_trees = [_][]const u8{ "docs", "apps", "bindings", "bench", "examples", "interop", "conformance", "site/content", ".agents" };
+pub const doc_trees = [_][]const u8{ "docs", "apps", "bindings", "bench", "examples", "interop", "conformance", "site/content", ".agents", "test", "tools" };
 pub const root_docs = [_][]const u8{ "README.md", "CONTRIBUTING.md", "SECURITY.md", "PROVENANCE.md", "AGENTS.md" };
 
 /// A doc we write. Vendored upstream checkouts are someone else's.

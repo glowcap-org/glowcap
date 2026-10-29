@@ -24,5 +24,5 @@ openssl x509 -in /tmp/glowcap-tls-fixture/tls_server.pem \
 
 Review and replace `tls_root.pem`, `tls_server.pem`, and `tls_server.key`
 together, then run `zig build relay-tls-build`. The generator does not retain
-the root private key, so a renewal creates a new authority and a leaf refresh
-alone cannot continue the old trust.
+the root private key, so a renewal creates a new authority, and a leaf cannot
+be refreshed under the existing root.
