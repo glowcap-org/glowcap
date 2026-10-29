@@ -385,6 +385,16 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		this._sessions.set(ptr, session);
 	}
 
+	/** Keep a session's running writer under Host release. Binding-internal:
+	 * the writer registers when its first FLUSH or CLOSE starts it. */
+	trackSessionWriter(writer: Promise<void>): void {
+		this._sessionWriters.add(writer);
+		const retire = () => {
+			this._sessionWriters.delete(writer);
+		};
+		void writer.then(retire, retire);
+	}
+
 	/** Retain one physical channel-close barrier independently of the FFI
 	 * Session address. Binding-internal: Session registers exactly once when it
 	 * creates the close promise. */

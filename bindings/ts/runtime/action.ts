@@ -95,31 +95,17 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 		cancelDial: async (a) => {
 			await host.cancelDialTask(a.ticket, a.routeIndex);
 		},
-		flush: async (a) => {
-			const session = host.getSession(a.session);
-			if (session == null) return;
-			try {
-				await session.flushOutbound();
-			} catch {
-				// Session.flushOutbound owns exact failure retention and retirement;
-				// this session-scoped fault must not fail an unrelated Host drain.
-			}
+		flush: (a) => {
+			// The session's writer owns the write, so this drain, and the serve
+			// loop running it, keeps reading while the partner is slow to. A
+			// write failure retires only that session, never this Host drain.
+			host.getSession(a.session)?.requestFlush();
 		},
-		close: async (a) => {
-			const session = host.getSession(a.session);
-			if (session == null) return;
-			try {
-				await session.flushOutbound();
-			} catch {
-				// Session.flushOutbound already retained the exact first cause.
-			}
-			// Commit FFI/wrapper retirement now, but leave the asynchronous
-			// Channel.close() barrier to Session.close() (or the serve pump),
-			// which already joins it. Awaiting that barrier inside this drain can
-			// deadlock with a pump that is itself waiting for CLOSE to drain.
-			const transportClose = session.closeTransport();
-			void transportClose.catch(() => {});
-			session.finishClose(a.result);
+		close: (a) => {
+			// The writer drains what the core queued ahead of this CLOSE, then
+			// commits retirement and settles an explicit close. The asynchronous
+			// Channel.close() barrier stays with Session.close() or the serve pump.
+			host.getSession(a.session)?.closeAfterFlush(a.result);
 		},
 		needGiftId: (a) => {
 			answerGiftId(

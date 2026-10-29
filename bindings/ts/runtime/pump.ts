@@ -3,6 +3,11 @@
 // and write what `take_packet` drains. CapTP verbs, hosting, and vows stay
 // on `Session`; this module owns only handshake, serve, feed-refusal, flush,
 // EOF, and `transport_closed` choreography.
+//
+// Reading and writing are separate tasks: the session's writer
+// (`session/writer.ts`) performs every write. The core bounds each session's
+// outbound queue and refuses input past its high-water mark, so the reader
+// needs no second bound of its own.
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
@@ -37,8 +42,15 @@ export interface PumpHandle {
 	recordWireFailure(error: unknown): void;
 	/** Retain an outbound failure before retiring the damaged stream. */
 	recordOutboundFailure(error: unknown): void;
-	writing: Promise<void>;
-	/** Session-owned metadata reused under `writing`'s serialized drain. */
+	/** The core delivered CLOSE, and the writer owns the transport close. */
+	readonly closeDelivered: boolean;
+	/** Wake the writer; returns the pass that takes every frame queued so far. */
+	requestFlush(): number;
+	/** Wait until that pass has finished. */
+	written(covering: number): Promise<void>;
+	/** Resolves once the session's writer has exited. */
+	readonly writerExited: Promise<void>;
+	/** Session-owned metadata reused by the writer's one drain at a time. */
 	readonly outboundScratch: {
 		readonly managedFrame: Uint8Array;
 		readonly prefix: Uint8Array;
@@ -108,7 +120,7 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 	try {
 		await resumeFeed(h);
 		while (true) {
-			if (h.released) break;
+			if (h.released || h.closeDelivered) break;
 			const chunk = await h.read();
 			// Leave the read loop, then run the shared transport-closed and
 			// release choreography below. Returning here would resolve serve()
@@ -117,12 +129,16 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 				h.markTransportLost();
 				break; // clean EOF
 			}
+			if (h.closeDelivered) break;
 			await feed(h, chunk);
 		}
 	} catch (err) {
-		// A read cancelled by our own close is a clean shutdown; any other
-		// failure is a real fault a caller's `serve().catch(...)` should see.
-		if (!h.closing) {
+		// A read cancelled by our own close, or one that fails after the core
+		// ended the session, is a clean shutdown; any other failure is a real
+		// fault a caller's `serve().catch(...)` should see.
+		if (h.closeDelivered) {
+			h.markTransportLost();
+		} else if (!h.closing) {
 			h.markTransportLost();
 			h.recordWireFailure(err);
 			failed = true;
@@ -134,7 +150,11 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 	// the core that the wire disappeared is itself the serve failure; it must
 	// not look like a successful end of stream. An application-driven close
 	// already has its own result path, so its redundant report remains cleanup.
-	if (!h.released) {
+	// A delivered CLOSE already retired the session, and its writer owns the
+	// transport close, so serve() resolves once that writer has released it.
+	if (h.closeDelivered) {
+		await h.writerExited;
+	} else if (!h.released) {
 		const wasClosing = h.closing;
 		h.closingFlag = true;
 		const msg = utf8Encoder.encode("connection closed");
@@ -195,12 +215,20 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 		h.signalCloseActivity();
 		if (rc === OK) break;
 		if (rc === WOULD_BLOCK) {
-			await h.kickActions();
+			await awaitOutboundRoom(h);
 			continue;
 		}
 		await raiseFeedRefusal(h, rc);
 	}
 	await h.kickActions();
+}
+
+/** The core refused input until its outbound queue drains below the
+ * high-water mark. Drain queued work into frames, then wait for the writer to
+ * take them before the caller feeds again. */
+async function awaitOutboundRoom(h: PumpHandle): Promise<void> {
+	await h.kickActions();
+	await h.written(h.requestFlush());
 }
 
 /** Resume input the Host retained during a prior feed. Byte-stream sessions
@@ -219,7 +247,7 @@ async function resumeFeed(h: PumpHandle): Promise<void> {
 		h.signalCloseActivity();
 		if (rc === OK) break;
 		if (rc === WOULD_BLOCK) {
-			await h.kickActions();
+			await awaitOutboundRoom(h);
 			continue;
 		}
 		await raiseFeedRefusal(h, rc);
@@ -264,7 +292,8 @@ export function lastAbort(h: PumpHandle): AbortDetail | null {
 /** Capture last_error / last_abort before another verb can clobber them,
  * then run the shared action drain so the projected op:abort (and any
  * CLOSE/FAIL queued with it) leave through the same spine as a steady
- * FLUSH, not a private `take_outbound` path. */
+ * FLUSH, not a private `take_outbound` path. The serve loop reports the
+ * transport closed next, so the abort must be written first. */
 export async function raiseFeedRefusal(
 	h: PumpHandle,
 	rc: number,
@@ -273,6 +302,7 @@ export async function raiseFeedRefusal(
 	err.abort = lastAbort(h);
 	try {
 		await h.kickActions();
+		await h.written(h.requestFlush());
 	} catch (drainFailure) {
 		// The local typed refusal remains primary, but projecting its abort and
 		// terminal effects is part of the same failed operation. Retain that
@@ -283,49 +313,45 @@ export async function raiseFeedRefusal(
 }
 
 /** Drain every transport-ready packet on this CapTP session and write its
- * prefix/body pair in order. Byte-stream sessions receive an outer-frame
- * prefix; message-framed sessions receive an empty prefix. */
-export async function flushOutbound(h: PumpHandle): Promise<void> {
-	const prior = h.writing;
-	let release!: () => void;
-	h.writing = new Promise<void>((r) => (release = r));
+ * prefix/body pair in order, resolving whether any frame left the core. Only
+ * the session's writer calls this, so one drain runs at a time. Byte-stream
+ * sessions receive an outer-frame prefix; message-framed sessions receive an
+ * empty prefix. */
+export async function flushOutbound(h: PumpHandle): Promise<boolean> {
+	let wrote = false;
 	try {
-		await prior;
-		try {
-			const { managedFrame: mf, prefix, prefixLen } = h.outboundScratch;
-			while (true) {
-				if (h.released) return;
-				const rc = hostS.glowcap_host_session_take_packet(
-					h.ptr,
-					ab(mf),
-					ab(prefix),
-					BigInt(prefix.length),
-					ab(prefixLen),
+		const { managedFrame: mf, prefix, prefixLen } = h.outboundScratch;
+		while (true) {
+			if (h.released) return wrote;
+			const rc = hostS.glowcap_host_session_take_packet(
+				h.ptr,
+				ab(mf),
+				ab(prefix),
+				BigInt(prefix.length),
+				ab(prefixLen),
+			);
+			if (rc === WOULD_BLOCK) return wrote;
+			checkHost(rc);
+			let frame: Uint8Array;
+			try {
+				const dv = new DataView(mf.buffer);
+				frame = readBytes(
+					L.getPtr(dv, L.MANAGED_FRAME_BYTES_OFF),
+					L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
 				);
-				if (rc === WOULD_BLOCK) return;
-				checkHost(rc);
-				let frame: Uint8Array;
-				try {
-					const dv = new DataView(mf.buffer);
-					frame = readBytes(
-						L.getPtr(dv, L.MANAGED_FRAME_BYTES_OFF),
-						L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
-					);
-				} finally {
-					releaseManagedFrame(mf);
-				}
-				const prefixBytes = prefix.subarray(0, Number(outUsize(prefixLen)));
-				if (prefixBytes.length > 0) await h.write(prefixBytes);
-				await h.write(frame);
+			} finally {
+				releaseManagedFrame(mf);
 			}
-		} catch (err) {
-			// The transferred frame cannot be replayed, and cancellation may
-			// have left a prefix on the stream. End this session and settle vows.
-			h.recordOutboundFailure(err);
-			h.closeTransport();
-			throw err;
+			wrote = true;
+			const prefixBytes = prefix.subarray(0, Number(outUsize(prefixLen)));
+			if (prefixBytes.length > 0) await h.write(prefixBytes);
+			await h.write(frame);
 		}
-	} finally {
-		release();
+	} catch (err) {
+		// The transferred frame cannot be replayed, and cancellation may
+		// have left a prefix on the stream. End this session and settle vows.
+		h.recordOutboundFailure(err);
+		h.closeTransport();
+		throw err;
 	}
 }

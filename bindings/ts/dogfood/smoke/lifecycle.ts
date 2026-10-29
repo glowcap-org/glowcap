@@ -241,21 +241,21 @@ export async function run(managed: Runtime): Promise<void> {
 		session.flushOutbound = async () => {
 			enteredFlush();
 			await flushGate;
-			await flushOutbound();
+			return await flushOutbound();
 		};
 		const reply = Promise.resolve(session.send(svc, "ping", [])).catch(() => null);
-		await within(flushEntered, 1_000, "action drain FLUSH");
+		await within(flushEntered, 1_000, "the session writer's FLUSH");
 		let released = false;
 		const releasing = host.close().then(() => released = true);
 		await Promise.resolve();
-		assert(!released, "Host close passed an in-flight action drain");
+		assert(!released, "Host close passed an in-flight session write");
 		finishFlush();
 		await releasing;
 		await reply;
 		listener.close();
 		await serverHost.close();
 		await Promise.all([servingServer, servingClient]);
-		ok("Host close joins admitted action drains");
+		ok("Host close joins in-flight session writes");
 	}
 
 	// FLUSH runs inside the Host action drain, where failing the drain itself

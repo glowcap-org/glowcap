@@ -239,10 +239,10 @@ pub fn checkBindingHostActionSpine(
             .markers = &.{
                 "dispatchHostAction",
                 "runDialTicket",
-                "flushOutbound",
+                "requestFlush",
                 "glowcap_host_provide_gift_id",
                 "settleVow",
-                "closeTransport",
+                "closeAfterFlush",
             },
         },
         .{

@@ -137,8 +137,8 @@ Runtime becomes the shutdown barrier for the Host it adopts.
 ## Where the languages differ
 
 - Rust sessions are `!Send`. Create and use them on one Tokio `LocalSet`.
-- Rust's `tell` returns after queueing the delivery. The other bindings wait
-  for that write to flush.
+- Rust's and TypeScript's `tell` return after queueing the delivery, and the
+  session's writer sends it. Python and Racket wait for that write to flush.
 - Rust reports a session abort through the promises it breaks rather than an
   error returned by `serve()`.
 - Stopping a serve from outside follows each runtime's idiom. A Racket break

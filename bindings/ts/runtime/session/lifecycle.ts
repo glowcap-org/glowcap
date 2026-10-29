@@ -22,6 +22,7 @@ import { traceDrainHost } from "../trace.ts";
 import { insideTurn } from "../trampoline.ts";
 import type { SessionProfile } from "../value.ts";
 import { readSessionProfile, readSessionTransportName } from "./metadata.ts";
+import { Outbound } from "./writer.ts";
 
 function isLoopChannel(transport: Channel): transport is LoopChannel {
 	return (transport as { driverLoop?: unknown }).driverLoop != null;
@@ -53,10 +54,8 @@ export abstract class SessionLifecycle {
 	// that own connection-indexed state use this instead of discovering a dead
 	// session through a later failed send.
 	readonly #closeListeners = new Set<() => void>();
-	// Serializes transport writes. `flushOutbound` runs from the action drain,
-	// the feed-failure choreography, and teardown; chaining each flush behind
-	// the last keeps every frame whole and in submission order.
-	#writing: Promise<void> = Promise.resolve();
+	// The writer task that owns every write to the transport.
+	readonly #outbound: Outbound;
 	readonly #outboundScratch = {
 		managedFrame: new Uint8Array(L.MANAGED_FRAME_SIZE),
 		prefix: new Uint8Array(HOST_OUTBOUND_PREFIX_CAP),
@@ -75,6 +74,13 @@ export abstract class SessionLifecycle {
 		this.#host = host;
 		this.#hosted = host.hosted;
 		this.#transport = transport;
+		this.#outbound = new Outbound({
+			flushOutbound: () => this.flushOutbound(),
+			closeTransport: () => this.closeTransport(),
+			finishClose: (result) => this.finishClose(result),
+			scheduleKick: () => host.scheduleKick(),
+			trackWriter: (writer) => host.trackSessionWriter(writer),
+		});
 		this.#pump = this.#makePump();
 		// The host's registry join happens in the concrete `Session`
 		// constructor, once `this` can be typed as the class it stores.
@@ -110,11 +116,13 @@ export abstract class SessionLifecycle {
 			markTransportLost: () => s.markTransportLost(),
 			recordWireFailure: (error) => s.recordWireFailure(error),
 			recordOutboundFailure: (error) => s.recordOutboundFailure(error),
-			get writing() {
-				return s.#writing;
+			get closeDelivered() {
+				return s.#outbound.closeDelivered;
 			},
-			set writing(p: Promise<void>) {
-				s.#writing = p;
+			requestFlush: () => s.#outbound.request(),
+			written: (covering) => s.#outbound.written(covering),
+			get writerExited() {
+				return s.#outbound.exited;
 			},
 			outboundScratch: s.#outboundScratch,
 			read: () => s.#transport.read(),
@@ -286,18 +294,31 @@ export abstract class SessionLifecycle {
 		return pumpLastAbort(this.#pump);
 	}
 
+	/** Wake this session's writer, how a FLUSH action lands. Returns before
+	 * any byte is written. Binding-internal. */
+	requestFlush(): number {
+		return this.#outbound.request();
+	}
+
+	/** Have the writer drain what the core queued ahead of a CLOSE action, then
+	 * retire the session and settle an explicit close with `result`.
+	 * Binding-internal. */
+	closeAfterFlush(result: number): void {
+		this.#outbound.closeAfterFlush(result);
+	}
+
 	/** Drain every transport-ready packet on this CapTP session and write it to
-	 * the transport, how a FLUSH action lands. Writes are serialized, so
-	 * packets stay whole and in submission order. On a loop-backed session one
-	 * loop step is the flush. Binding-internal. */
-	async flushOutbound(): Promise<void> {
+	 * the transport, resolving whether any frame left the core. The writer is
+	 * the one caller, so packets stay whole and in submission order. On a
+	 * loop-backed session one loop step is the flush. Binding-internal. */
+	async flushOutbound(): Promise<boolean> {
 		try {
 			const transport = this.#transport;
 			if (isLoopChannel(transport)) {
 				transport.driverLoop.stepNow();
-				return;
+				return false;
 			}
-			await pumpFlushOutbound(this.#pump);
+			return await pumpFlushOutbound(this.#pump);
 		} catch (error) {
 			// The pump records before retiring a byte stream; this also owns a
 			// loop-step refusal, where no byte pump exists. First-cause retention
@@ -365,7 +386,7 @@ export abstract class SessionLifecycle {
 	async close(options: CloseOptions = {}): Promise<void> {
 		const encoded = encodeCloseOptions(options);
 		if (this.#closePromise !== null) {
-			if (!this.#released) {
+			if (!this.#released && !this.#outbound.closeDelivered) {
 				this.#beginClose(encoded);
 				if (insideTurn()) {
 					void Promise.resolve().then(() => this.#host.scheduleKick());
@@ -377,6 +398,14 @@ export abstract class SessionLifecycle {
 			return;
 		}
 		if (this.#released) {
+			await this.#joinCloseBarrier();
+			return;
+		}
+		// The core already ended this session, and its writer is closing the
+		// transport after the final frames. Join that instead of asking the
+		// core to close a session it retired.
+		if (this.#outbound.closeDelivered) {
+			await this.#outbound.exited;
 			await this.#joinCloseBarrier();
 			return;
 		}
@@ -490,6 +519,7 @@ export abstract class SessionLifecycle {
 	ffiOwnerDidRelease(): Promise<void> {
 		if (this.#released) return this.#transportClose ?? Promise.resolve();
 		this.#closing = true;
+		this.#outbound.stop();
 		this.#released = true;
 		this.#releasePending = false;
 		const ptr = this.#ptr;
@@ -526,6 +556,7 @@ export abstract class SessionLifecycle {
 	 * drain, never dropped. Binding-internal. */
 	closeTransport(): Promise<void> {
 		this.#closing = true;
+		this.#outbound.stop();
 		if (this.#transportClose == null) {
 			for (const listener of this.#closeListeners) listener();
 			this.#closeListeners.clear();

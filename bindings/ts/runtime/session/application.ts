@@ -262,8 +262,8 @@ export abstract class SessionApplication extends SessionLifecycle {
 	/** Send `verb(args)` to `target` without awaiting a reply, the
 	 * fire-and-forget eventual-send (Goblins `<-np`). No answer is allocated
 	 * and none comes back, so it is the right call for a notification or a
-	 * broadcast: it costs one deliver, not a deliver plus a reply. Flushes
-	 * immediately. */
+	 * broadcast: it costs one deliver, not a deliver plus a reply. Returns once
+	 * the deliver is queued, and the session's writer sends it. */
 	async tell(target: Ref | RemotePromise, verb: string, args: Argument[] = []): Promise<void> {
 		this.guardOpen();
 		this.hostOwner.drainGc();

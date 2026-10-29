@@ -81,7 +81,11 @@ export abstract class HostLifecycle extends HostState {
 			await this.kickActions();
 			await this.waitCloseWake(activity);
 		}
-		await this._joinActionDrains();
+		// Writers finish the CLOSE passes the loop above queued, and a pass
+		// that wrote schedules another drain.
+		while (this._actionDrains.size !== 0 || this._sessionWriters.size !== 0) {
+			await Promise.allSettled([...this._actionDrains, ...this._sessionWriters]);
+		}
 		// Whatever the ring still holds reaches the sink before the ring dies
 		// with the host.
 		traceDrainHost(raw);

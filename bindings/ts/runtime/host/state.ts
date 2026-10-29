@@ -145,6 +145,11 @@ export abstract class HostState {
 	// every admitted drain under Host teardown so none can resume after FFI
 	// Host storage is released.
 	protected readonly _actionDrains: Set<Promise<void>> = new Set();
+	// Each session's writer task. A CLOSE leaves the transport close to its
+	// writer, so Host release waits for every writer to exit. Session teardown
+	// barriers never join them: a write blocked on a slow partner must not
+	// stop that partner's reader.
+	protected readonly _sessionWriters: Set<Promise<void>> = new Set();
 	// Explicit embedder-owned byte-channel authority, retained by transport so
 	// a later handoff redeem uses the same application-selected integration.
 	protected readonly _connectors: Map<string, Connector> = new Map();
