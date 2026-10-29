@@ -1,6 +1,6 @@
 """CI deadline, optional-cache and failure-artifact contracts.
 
-Loaded by publication_workflow_test.py under infrastructure-check. Shell
+Run by infrastructure-check. Shell
 steps run with disposable stores and stub disk measurements, never host caches.
 """
 

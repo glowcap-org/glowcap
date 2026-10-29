@@ -1,4 +1,4 @@
-"""Coverage selection contracts, loaded by publication_workflow_test.py."""
+"""Coverage selection contracts, for infrastructure-check."""
 
 import importlib.util
 import json

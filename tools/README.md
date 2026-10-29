@@ -1,8 +1,8 @@
 # tools/
 
 These are maintainer tools, not product APIs. Checks, generators, and operator
-scripts live here, and correctness scenarios live in top-level
-[`test/`](../test/).
+scripts live here. Protocol scenarios live in [`test/`](../test/), and CI
+behavior tests live with their owner in [`ci/test/`](../ci/test/).
 
 | Path | Owns |
 |------|------|

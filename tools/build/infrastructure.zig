@@ -30,7 +30,7 @@ pub fn register(b: *std.Build) void {
     const agent_hooks_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/agent_hooks_test.py" });
     agent_hooks_test.has_side_effects = true;
     infrastructure_check_step.dependOn(&agent_hooks_test.step);
-    const publication_workflow_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/publication_workflow_test.py" });
+    const publication_workflow_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "-m", "unittest", "discover", "-s", "ci/test", "-p", "*_test.py" });
     publication_workflow_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&publication_workflow_contracts.step);
     const publication_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/publication-integration-test.sh" });

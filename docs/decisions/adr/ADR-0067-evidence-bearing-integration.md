@@ -63,5 +63,5 @@ rule. Until then the integrator and the local checks are the only enforcement.
 author, the carried note, and the refusal without a key.
 `tools/check/publication-integration-test.sh` proves a contribution landing
 through the integrator and a fast-forward-only `main`.
-`tools/check/publication_workflow_test.py` holds the rulesets to signed,
+`ci/test/workflow_test.py` holds the rulesets to signed,
 linear, checked history. None of these shows the hosted rulesets are active.

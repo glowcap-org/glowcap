@@ -1,4 +1,4 @@
-"""CI image preparation contracts, collected by publication_workflow_test.py."""
+"""CI image preparation contracts, for infrastructure-check."""
 
 import importlib.util
 import json

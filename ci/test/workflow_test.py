@@ -21,11 +21,7 @@ import tomllib
 import unittest
 from unittest import mock
 
-from ci_runtime_test import RuntimeTest
-from ci_image_test import ImageTest
-from ci_plan_test import PlanTest  # unittest collects the coverage-selection contracts.
-from ci_phase_test import GateRecorder, PhaseTest  # unittest collects the phase contracts.
-from ci_transfer_test import TransferTest
+from gate_recorder import GateRecorder
 from workflow_expression import selected
 
 
