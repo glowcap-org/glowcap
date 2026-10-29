@@ -29,7 +29,9 @@ from ._errors import (
     _abort_domain_label,
     _check_host,
     _host_last_error,
+    _retain_cleanup_failure,
 )
+from ._lifecycle import _lifecycle_closed
 from ._ffi_host import _host
 from ._ffi_ocapn import _byte_buf, _copy_managed_frame, _LastAbort
 from ._trampoline import _enter_deliver, _exit_deliver
@@ -141,6 +143,7 @@ async def _feed(session, chunk: bytes) -> None:
     while True:
         if session.released:
             return
+        input_was_closed = _input_already_closed(session)
         prior = _enter_deliver(session)
         try:
             rc = _host.glowcap_host_session_feed_bytes(session.raw, ptr, n)
@@ -150,7 +153,9 @@ async def _feed(session, chunk: bytes) -> None:
         # The feed dispatched frames and may have advanced close-relevant
         # state even when it queued no action; wake any parked close driver.
         session.host.signal_close_activity()
-        if rc == _OK:
+        # Cancellation may seal ingress before its CLOSE action is delivered.
+        # A pre-existing close barrier is not a new wire failure.
+        if rc == _OK or (rc == _ERR_CLOSED and input_was_closed):
             break
         if rc == _WOULD_BLOCK:
             await _await_outbound_room(session)
@@ -165,6 +170,7 @@ async def _resume_feed(session) -> None:
     while True:
         if session.released:
             return
+        input_was_closed = _input_already_closed(session)
         prior = _enter_deliver(session)
         try:
             rc = _host.glowcap_host_session_resume_feed(session.raw)
@@ -172,7 +178,9 @@ async def _resume_feed(session) -> None:
             _exit_deliver(prior)
         session.host.drain_parked_releases()
         session.host.signal_close_activity()
-        if rc == _OK:
+        # Cancellation may seal ingress before its CLOSE action is delivered.
+        # A pre-existing close barrier is not a new wire failure.
+        if rc == _OK or (rc == _ERR_CLOSED and input_was_closed):
             break
         if rc == _WOULD_BLOCK:
             await _await_outbound_room(session)
@@ -189,23 +197,40 @@ async def _await_outbound_room(session) -> None:
     await session.written(session.request_flush())
 
 
+def _input_already_closed(session) -> bool:
+    # FINISH still admits input that can fail. Ask the core before dispatch,
+    # only during local close, with call-scoped storage (memory ledger).
+    if not session.is_closing:
+        return False
+    state = ctypes.c_uint32()
+    rc = _host.glowcap_host_session_lifecycle_state(session.raw, ctypes.byref(state))
+    if rc not in (_OK, _abi.ERR_TIMEOUT):
+        _check_host(rc)
+    return _lifecycle_closed(state.value) or state.value == _abi.LIFECYCLE_TERMINATING
+
+
 async def _raise_feed_refusal(session, rc: int) -> None:
     # Capture last_error / last_abort before another verb can clobber them,
     # then run the shared action drain so the projected op:abort (and any
     # CLOSE/FAIL queued with it) leave through the same spine as a steady
     # FLUSH: not a private take_outbound path. The serve loop reports the
     # transport closed next, so the abort must be written first.
-    message = _host_last_error()
-    abort = last_abort(session)
-    drain_failure: BaseException | None = None
+    refusal = GlowcapError(rc, _host_last_error())
+    # The feed already failed. Publish its cause before diagnostic lookup or
+    # abort delivery can fail and retire the Session on another task.
+    session.record_wire_failure(refusal)
+    try:
+        refusal.abort = last_abort(session)
+    except BaseException as error:
+        _retain_cleanup_failure(refusal, error)
+        session.record_wire_failure(error)
     try:
         await session.host.kick_actions()
         await session.written(session.request_flush())
     except BaseException as error:
-        drain_failure = error
-    refusal = GlowcapError(rc, message, abort=abort)
-    if drain_failure is not None:
-        raise refusal from drain_failure
+        _retain_cleanup_failure(refusal, error)
+        session.record_wire_failure(error)
+        raise refusal from error
     raise refusal
 
 

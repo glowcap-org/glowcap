@@ -11,6 +11,7 @@
          "test/zig-smoke/listeners.rkt"
          "test/zig-smoke/proxies.rkt"
          "test/zig-smoke/lifecycle.rkt"
+         "test/zig-smoke/close-input.rkt"
          "test/zig-smoke/callbacks-and-redeem.rkt"
          "test/zig-smoke/transports.rkt"
          "test/zig-smoke/backpressure.rkt")

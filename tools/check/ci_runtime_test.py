@@ -166,6 +166,10 @@ class RuntimeTest(unittest.TestCase):
             for index, output in enumerate(outputs):
                 self.assertEqual(output.read_text(), f'output {index}\n')
                 self.assertEqual(output.stat().st_mtime, 1700000100 + index)
+            # The passthrough compressor leaves format validation to tar.
+            # Give it a full invalid header, rather than an empty short read.
+            archive.write_bytes(b'\xff' * 1024)
+            self.assertNotEqual(state('unpack', str(archive)).returncode, 0)
 
     def test_test_jobs_find_every_shard_state_or_fail(self):
         # download-artifact extracts a lone match into `path` and gives each of

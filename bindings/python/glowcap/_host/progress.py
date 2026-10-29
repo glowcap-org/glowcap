@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from .._action import _Handlers, _park_actions, _run_action
 from .._errors import _check_host
@@ -12,6 +12,9 @@ from .._ffi_host import _host
 from .._trampoline import _enter_host_deliver, _exit_deliver, _inside_turn
 from .finalizer import _drain_deferred_finalizer_states, _parked_releases
 from .state import HostMixinBase
+
+if TYPE_CHECKING:
+    from .._session import Session
 
 
 async def _next_loop_turn() -> None:
@@ -147,6 +150,39 @@ class _ProgressMixin(HostMixinBase):
             await asyncio.gather(*pending, return_exceptions=True)
             self._session_writers.difference_update(pending)
             await self._join_action_drains()
+
+    def _own_session_retirement(self, session: "Session") -> None:
+        """Retain physical retirement after the native routing entry is gone."""
+        self._session_retirements.add(session)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # Synchronous release still registers the barrier. A later Host
+            # close on the owner loop starts and joins its async coordinator.
+            return
+        task = session._start_terminal_coordinator()
+
+        def done(finished: "asyncio.Task[None]") -> None:
+            self._session_retirements.discard(session)
+            if not finished.cancelled():
+                finished.exception()
+            for error in session.terminal_failures:
+                self._track_session_retirement_failure(error)
+
+        task.add_done_callback(done)
+
+    async def _join_session_retirements(self) -> None:
+        """Join each Session's shared outcome without cancelling its effects."""
+        while self._session_retirements:
+            pending = tuple(self._session_retirements)
+            await asyncio.gather(
+                *(session._await_terminal() for session in pending),
+                return_exceptions=True,
+            )
+            for session in pending:
+                for error in session.terminal_failures:
+                    self._record_terminal_failure(error)
+            self._session_retirements.difference_update(pending)
 
     async def _join_action_drains(self) -> None:
         current = asyncio.current_task()

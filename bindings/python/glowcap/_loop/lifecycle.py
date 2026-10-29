@@ -57,7 +57,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
 
     @property
     def terminal_failure_count(self) -> int:
-        """Total distinct terminal occurrences, including bounded overflow."""
+        """Observed terminal failures, including unretained overflow."""
         return self._terminal_failure_count
 
     def _ffi_session_release(self, ptr: ctypes.c_void_p) -> None:
@@ -244,5 +244,12 @@ class _LifecycleMixin(DriverLoopMixinBase):
     async def wait_closed(self) -> None:
         """Wait until driver loop and resident ownership have been released."""
         await self._closed_event.wait()
+        wrapper = self._wrapper
+        if wrapper is not None:
+            await wrapper._join_session_retirements()
+            for error in wrapper.terminal_failures:
+                self._record_terminal_failure(error)
         if self._close_error is not None:
             raise self._close_error
+        if self._terminal_failures:
+            raise self._terminal_failures[0]

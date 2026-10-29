@@ -62,6 +62,7 @@ zig build check                             # Run in-process Zig, static, genera
 zig build check-build                       # Compile everything check runs, so its deadline measures only the runs; part of check
 zig build runtime-check                     # Run deterministic process, application, and language-workspace checks without cross-step contention
 zig build runtime-check-build               # Compile everything runtime-check runs, so its deadline measures only the runs; part of runtime-check
+zig build runtime-check -Doptimize=ReleaseSafe # Run against CI's optimized product archives
 zig build check-external                    # Run outside-authority protocol conformance and every shipped Rooms page browser proof (needs uv + racket + goblins + cargo + deno + Playwright)
 zig build test                              # Run the unit and scenario test suite (test/all_test.zig); part of check
 zig build test -Dtest-filter=substring # only tests whose names match

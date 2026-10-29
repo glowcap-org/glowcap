@@ -121,6 +121,7 @@ unsafe extern "C" {
 		now_ms: i64,
 		out_state: *mut u32,
 	) -> c_int;
+	pub fn glowcap_host_session_lifecycle_state(session: *mut GlowcapHostSession, out_state: *mut u32) -> c_int;
 	pub fn glowcap_host_session_release(session: *mut GlowcapHostSession) -> c_int;
 	pub fn glowcap_host_session_is_open(session: *mut GlowcapHostSession) -> c_int;
 	pub fn glowcap_host_session_profile(

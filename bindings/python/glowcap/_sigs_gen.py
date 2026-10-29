@@ -114,6 +114,7 @@ def driver_sigs(
         "glowcap_host_reference_exporter": ([P, ctypes.POINTER(_Reference), ctypes.POINTER(P)], i32),
         "glowcap_host_session_close": ([P, ctypes.POINTER(_CloseOptions), i64], i32),
         "glowcap_host_session_close_progress": ([P, i64, u32_p], i32),
+        "glowcap_host_session_lifecycle_state": ([P, u32_p], i32),
         "glowcap_host_session_release": ([P], i32),
         "glowcap_host_session_is_open": ([P], i32),
         "glowcap_host_session_profile": ([P, u32_p, u32_p, u32_p], i32),

@@ -135,11 +135,11 @@ def _retain_cleanup_failure(
 def _retain_terminal_failure(
     retained: list[BaseException], total: int, error: BaseException
 ) -> int:
-    """Retain one distinct observed occurrence and return its saturated count.
+    """Retain bounded exact failures and return the saturated observation count.
 
-    Re-projecting the exact same exception object is idempotent. A different
-    exception is a different occurrence even when it came from the same
-    operation, so operation labels must never be used as deduplication keys.
+    Re-projecting a retained exception object is idempotent. Overflow objects
+    are not retained, so their repeated observations can count more than once.
+    Operation labels cannot deduplicate distinct failures of the same operation.
     """
     if any(previous is error for previous in retained):
         return total

@@ -37,12 +37,21 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
                 root.addImport("oracle", self.oracle);
                 root.addImport("engine_fixture", engine.fixture);
                 const executable = self.b.addExecutable(.{ .name = self.b.fmt("loam-{s}-crash-probe-{s}", .{ name, engine.name }), .root_module = root });
-                const run = execution.addSystemCommand(self.b, .{ .deterministic = probe.deadline }, &.{"python3"});
-                run.addFileArg(self.b.path("test/loam/engines/crash_test.py"));
-                run.addArtifactArg(executable);
-                for (probe.scenarios) |scenario| run.addArgs(&.{ "--scenario", scenario });
-                for (probe.boundaries) |boundary| run.addArgs(&.{ "--boundary", boundary });
-                step.dependOn(&run.step);
+                // Each scenario crosses every boundary in a fresh process.
+                // Bound batches so slower runners retain deadline margin;
+                // all batches share the same compiled probe per engine.
+                const batch_size = 6;
+                const batches = @max(1, (probe.scenarios.len + batch_size - 1) / batch_size);
+                for (0..batches) |batch| {
+                    const start = batch * batch_size;
+                    const end = @min(start + batch_size, probe.scenarios.len);
+                    const run = execution.addSystemCommand(self.b, .{ .deterministic = probe.deadline }, &.{"python3"});
+                    run.addFileArg(self.b.path("test/loam/engines/crash_test.py"));
+                    run.addArtifactArg(executable);
+                    for (probe.scenarios[start..end]) |scenario| run.addArgs(&.{ "--scenario", scenario });
+                    for (probe.boundaries) |boundary| run.addArgs(&.{ "--boundary", boundary });
+                    step.dependOn(&run.step);
+                }
             }
         }
     };

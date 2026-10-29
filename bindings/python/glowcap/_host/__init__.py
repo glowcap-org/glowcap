@@ -189,6 +189,9 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # action routes to the transport that owns the bytes and a dialed
         # exporter stays reachable for teardown.
         self._sessions: "dict[int, Session]" = {}
+        # Native release removes a session from routing before its async
+        # channel and workers finish. Keep that retirement under Host close.
+        self._session_retirements: "set[Session]" = set()
         # The vow table the drain's SETTLE/FAIL arms settle.
         self._vows = VowTable(self._gc)
         # Host-owned async behavior settlements, retained because the event
@@ -202,9 +205,8 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # release joins this barrier before invalidating FFI storage.
         self._action_drains: "set[asyncio.Task]" = set()
         # Each session's writer task. A CLOSE leaves the transport close to its
-        # writer, so Host release waits for every writer to exit. Session
-        # teardown barriers never join them: a write blocked on a slow partner
-        # must not stop that partner's reader.
+        # writer, so Host release waits for every writer to exit. Live inbound
+        # delivery does not join writes; terminal retirement joins both.
         self._session_writers: "set[asyncio.Task]" = set()
         # The shared close-activity event (wake-all): a close driver clears it
         # before reading FFI close progress, and every FFI verb that can

@@ -6,7 +6,6 @@ syntax. Run actual publication guard steps with a stub Actions API. This does
 not exercise GitHub runners or remote branch rules.
 """
 
-import ast
 import contextlib
 import importlib.util
 import io
@@ -26,6 +25,8 @@ from ci_runtime_test import RuntimeTest
 from ci_image_test import ImageTest
 from ci_plan_test import PlanTest  # unittest collects the coverage-selection contracts.
 from ci_phase_test import GateRecorder, PhaseTest  # unittest collects the phase contracts.
+from ci_transfer_test import TransferTest
+from workflow_expression import selected
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,35 +50,6 @@ def jobs(path):
             expression = " ".join(line.strip() for line in lines.group().splitlines())
         found[name] = (expression, body)
     return found
-
-
-def selected(expression, github):
-    expression = expression.replace("&&", " and ").replace("||", " or ")
-
-    def evaluate(node):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "always" and not node.args and not node.keywords:
-            return True
-        if isinstance(node, ast.Constant) and isinstance(node.value, (str, bool)):
-            return node.value
-        if isinstance(node, ast.Name) and node.id == "github":
-            return github
-        if isinstance(node, ast.Attribute):
-            return evaluate(node.value).get(node.attr, {})
-        if isinstance(node, ast.BoolOp):
-            values = (evaluate(value) for value in node.values)
-            if isinstance(node.op, ast.And):
-                return all(values)
-            if isinstance(node.op, ast.Or):
-                return any(values)
-        if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], (ast.Eq, ast.NotEq)):
-            left, right = evaluate(node.left), evaluate(node.comparators[0])
-            if isinstance(left, str) and isinstance(right, str):
-                left, right = left.casefold(), right.casefold()
-            equal = left == right
-            return equal if isinstance(node.ops[0], ast.Eq) else not equal
-        raise AssertionError(f"unsupported CI predicate: {ast.dump(node)}")
-
-    return bool(evaluate(ast.parse(expression, mode="eval").body))
 
 
 class PublicationWorkflow(unittest.TestCase):

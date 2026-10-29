@@ -1,6 +1,7 @@
 //! Embedder-owned transport I/O. Stream adapters retain their reusable read
 //! buffer. Packet adapters transfer each received message without flattening it.
 use std::{
+	future::Future,
 	future::poll_fn,
 	io,
 	task::{Context, Poll},
@@ -48,7 +49,7 @@ impl Channel {
 		let Self { reader, writer, close } = self;
 		drop((reader, writer));
 		if let Some(mut close) = close {
-			poll_fn(|cx| close.poll_close(cx)).await?;
+			catch_io_panic("channel close", poll_fn(|cx| close.poll_close(cx))).await?;
 		}
 		Ok(())
 	}
@@ -140,16 +141,18 @@ impl Reader {
 				if scratch.is_empty() {
 					scratch.resize(crate::session_shared::READ_CHUNK, 0);
 				}
-				let count = source.read(scratch).await?;
+				let count = catch_io_panic("channel read", source.read(scratch)).await?;
 				Ok((count != 0).then_some(&scratch[..count]))
 			}
-			Self::Packets { source, packet } => match poll_fn(|cx| source.poll_packet(cx)).await? {
-				Some(received) => {
-					*packet = received;
-					Ok(Some(packet))
+			Self::Packets { source, packet } => {
+				match catch_io_panic("channel read", poll_fn(|cx| source.poll_packet(cx))).await? {
+					Some(received) => {
+						*packet = received;
+						Ok(Some(packet))
+					}
+					None => Ok(None),
 				}
-				None => Ok(None),
-			},
+			}
 		}
 	}
 }
@@ -161,18 +164,90 @@ pub(crate) enum Writer {
 
 impl Writer {
 	pub(crate) async fn write(&mut self, prefix: &[u8], body: &[u8]) -> io::Result<()> {
-		match self {
-			Self::Stream(sink) => {
-				sink.write_all(prefix).await?;
-				sink.write_all(body).await
+		catch_io_panic("channel write", async {
+			match self {
+				Self::Stream(sink) => {
+					sink.write_all(prefix).await?;
+					sink.write_all(body).await
+				}
+				Self::Packets(sink) => poll_fn(|cx| sink.poll_packet(cx, prefix, body)).await,
 			}
-			Self::Packets(sink) => poll_fn(|cx| sink.poll_packet(cx, prefix, body)).await,
-		}
+		})
+		.await
 	}
 	pub(crate) async fn flush(&mut self) -> io::Result<()> {
-		match self {
-			Self::Stream(sink) => sink.flush().await,
-			Self::Packets(sink) => poll_fn(|cx| sink.poll_flush(cx)).await,
+		catch_io_panic("channel flush", async {
+			match self {
+				Self::Stream(sink) => sink.flush().await,
+				Self::Packets(sink) => poll_fn(|cx| sink.poll_flush(cx)).await,
+			}
+		})
+		.await
+	}
+}
+
+/// An unwinding transport callback must return through normal I/O failure
+/// handling so the Session retires and wakes observers. The future stays on
+/// the stack, with no allocation or payload copy on successful polls.
+pub(crate) async fn catch_io_panic<T>(
+	operation: &'static str,
+	future: impl Future<Output = io::Result<T>>,
+) -> io::Result<T> {
+	let mut future = std::pin::pin!(future);
+	poll_fn(
+		|cx| match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| future.as_mut().poll(cx))) {
+			Ok(outcome) => outcome,
+			Err(payload) => Poll::Ready(Err(io::Error::other(format!(
+				"{operation} callback panicked: {}",
+				crate::panic_message(payload.as_ref())
+			)))),
+		},
+	)
+	.await
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	struct Panicking;
+	impl PacketRead for Panicking {
+		fn poll_packet(&mut self, _cx: &mut Context<'_>) -> Poll<io::Result<Option<Vec<u8>>>> {
+			panic!("packet read refused");
 		}
+	}
+	impl PacketWrite for Panicking {
+		fn poll_packet(&mut self, _cx: &mut Context<'_>, _prefix: &[u8], _body: &[u8]) -> Poll<io::Result<()>> {
+			panic!("packet write refused");
+		}
+		fn poll_flush(&mut self, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+			panic!("packet flush refused");
+		}
+	}
+	impl ChannelClose for Panicking {
+		fn poll_close(&mut self, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+			panic!("channel close refused");
+		}
+	}
+
+	#[tokio::test]
+	async fn packet_callbacks_preserve_panics_as_io_failures() {
+		let mut channel = Channel::packets(Panicking, Panicking, Panicking);
+		assert_eq!(
+			channel.reader.read().await.unwrap_err().to_string(),
+			"channel read callback panicked: packet read refused"
+		);
+		assert_eq!(
+			channel.writer.write(&[], b"body").await.unwrap_err().to_string(),
+			"channel write callback panicked: packet write refused"
+		);
+		assert_eq!(
+			channel.writer.flush().await.unwrap_err().to_string(),
+			"channel flush callback panicked: packet flush refused"
+		);
+		assert_eq!(
+			channel.close().await.unwrap_err().to_string(),
+			"channel close callback panicked: channel close refused"
+		);
 	}
 }

@@ -43,11 +43,11 @@ its complexity.
 
 - Protocol modules take no sockets, scheduler, background tasks, `std.Io`, or
   adapter policy. `arch-check` enforces the ban, including in `driver_core`.
-- Adapters may use `std.Io`, transports, callbacks, and host scheduling, but
-  never invent semantics, lifecycle, ownership, or policy. If a binding needs a
-  second state machine, fix the core or C ABI. The C ABI and bindings marshal
-  values, execute core-selected effects, and project outcomes into each language's
-  idioms. Protocol, business, retry, and recovery policy stay out of them.
+- Adapters own I/O resources and coordinate the tasks that execute core-selected
+  effects. They marshal values and project outcomes into each language's idioms.
+  Protocol state and lifecycle decisions stay in shared Zig owners. Binding
+  glue adds no business rules or retry and recovery policy. If a binding needs
+  a second protocol state machine, fix the core or C ABI.
 - A nonblocking operation's cancel edge interrupts the effect and retires its
   worker before freeing state. Abandoning a result while I/O continues is not
   cancellation.

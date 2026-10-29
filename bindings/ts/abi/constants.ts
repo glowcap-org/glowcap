@@ -8,10 +8,12 @@
 
 export const OK = 0;
 export const INVALID_ARGUMENT = -2;
+export const CODEC = -4;
 export const INTERNAL = -5;
 export const WOULD_BLOCK = -6;
 export const CLOSED = -7;
 export const IO = -8;
+export const FRAME_TOO_LARGE = -10;
 export const BUFFER_TOO_SMALL = -14;
 export const NOT_FOUND = -13;
 export const UNSUPPORTED_VALUE = -11;
@@ -204,7 +206,7 @@ export const ABORT_DOMAIN_CODEC = 0;
 export const ABORT_DOMAIN_SESSION = 1;
 export const ABORT_DOMAIN_FOREIGN = 2;
 export const OCAPN_ARCHIVE_FINGERPRINT = 3601453451671594984n;
-export const HOST_ARCHIVE_FINGERPRINT = 10703559289958595411n;
+export const HOST_ARCHIVE_FINGERPRINT = 7479116209426934535n;
 export const DRIVER_ARCHIVE_FINGERPRINT = 5567622693206485650n;
 export const TCP_ARCHIVE_FINGERPRINT = 6275053571928175475n;
 export const INPROC_ARCHIVE_FINGERPRINT = 13018013058172539502n;

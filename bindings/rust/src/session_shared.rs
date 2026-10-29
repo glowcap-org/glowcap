@@ -402,6 +402,16 @@ impl SessionShared {
 		}
 	}
 
+	/// Record one new I/O consequence at its effect owner. Re-observation of
+	/// the terminal result uses `record_wire_failure` instead.
+	pub(crate) fn record_wire_consequence(&self, failure: crate::Error) {
+		let mut retained = self.wire_failure.borrow_mut();
+		*retained = Some(match retained.take() {
+			Some(primary) => primary.with_secondary(failure),
+			None => failure,
+		});
+	}
+
 	pub(crate) fn terminal_result(&self) -> crate::Result<()> {
 		if let Some(failure) = self.wire_failure.borrow().clone() {
 			return Err(failure);

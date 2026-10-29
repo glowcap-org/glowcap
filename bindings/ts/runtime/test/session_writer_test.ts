@@ -1,5 +1,6 @@
 // Session writes over bounded channels, retirement callbacks, and task failures.
-import { DESIGNATOR_SCHEME_ADDRESS } from "@glowcap/abi";
+import { CLOSED, CODEC, DESIGNATOR_SCHEME_ADDRESS, DESIGNATOR_SCHEME_KEY, FRAME_TOO_LARGE } from "@glowcap/abi";
+import { GlowcapError, secondaryFailures } from "../errors.ts";
 import { Host } from "../host.ts";
 import { bareLocator } from "../locator.ts";
 import { type Channel, Session } from "../session.ts";
@@ -91,6 +92,136 @@ async function within<T>(promise: Promise<T>, milliseconds: number, label: strin
 		clearTimeout(timer);
 	}
 }
+
+Deno.test("graceful finishing preserves a new sealed-channel failure", async () => {
+	const exporter = new Host();
+	const dialer = new Host();
+	let releaseTurn = () => {};
+	try {
+		const turn = new Promise<null>((resolve) => releaseTurn = () => resolve(null));
+		let entered = () => {};
+		const called = new Promise<void>((resolve) => entered = resolve);
+		exporter.publish("hold", () => {
+			entered();
+			return turn;
+		});
+		const [dialSide, acceptSide] = channelPair(4096);
+		const designator = exporter.designator();
+		exporter.setAdvertisedLocator(bareLocator("noise-tcp", designator));
+		dialer.setAdvertisedLocator(bareLocator("noise-tcp", dialer.designator()));
+		const [accepted, dialed] = await Promise.all([
+			Session.establishAccepted(exporter, {
+				transport: "noise-tcp",
+				designatorScheme: DESIGNATOR_SCHEME_KEY,
+				serverDesignator: designator,
+				channel: acceptSide,
+			}, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("noise-tcp", designator), dialSide, 5_000),
+		]);
+		const acceptedServing = accepted.serve().catch(() => {});
+		const hold = await dialed.fetch("hold");
+		const pending = dialed.send(hold, "wait", []).catch(() => {});
+		await within(called, 1_000, "pending call admitted");
+		const finishing = dialed.close({ pending: "finish", graceMs: null });
+		const observed = Promise.allSettled([finishing]);
+		// One complete record with an invalid authentication tag.
+		await acceptSide.write(Uint8Array.of(0, 16, ...new Uint8Array(16)));
+		const [result] = await within(observed, 1_000, "sealed failure during finish");
+		assert(
+			result.status === "rejected" && result.reason instanceof GlowcapError,
+			"graceful finishing hid a new sealed-channel failure",
+		);
+		assert(
+			result.reason.code === CLOSED && result.reason.message.includes("DecryptFailed"),
+			"finish lost the native sealed-channel cause",
+		);
+		await pending;
+		releaseTurn();
+		await accepted.close().catch(() => {});
+		await acceptedServing;
+	} finally {
+		releaseTurn();
+		await dialer.close().catch(() => {});
+		await exporter.close().catch(() => {});
+	}
+});
+
+Deno.test("local cancellation before the reader starts remains a clean close", async () => {
+	const exporter = new Host();
+	const dialer = new Host();
+	try {
+		const [dialSide, acceptSide] = channelPair(4096);
+		const designator = "127.0.0.1:9011";
+		const [accepted, dialed] = await Promise.all([
+			Session.establishAccepted(exporter, {
+				transport: "tcp",
+				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
+				serverDesignator: designator,
+				channel: acceptSide,
+			}, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+		]);
+		const acceptedServing = accepted.serve().catch(() => {});
+		const closing = dialed.close();
+		await within(Promise.all([closing, dialed.serve()]), 1_000, "local close with a late reader");
+		await dialed.close();
+		await accepted.close();
+		await acceptedServing;
+	} finally {
+		await dialer.close();
+		await exporter.close();
+	}
+});
+
+Deno.test("a feed refusal precedes failure to deliver its abort", async () => {
+	for (const [chunk, code] of [["this is not a frame", CODEC], ["2000000:", FRAME_TOO_LARGE]] as const) {
+		for (const failWrite of [false, true]) {
+			const exporter = new Host();
+			const dialer = new Host();
+			try {
+				const [dialSide, acceptSide] = channelPair(4096);
+				const designator = "127.0.0.1:9011";
+				const [accepted, dialed] = await Promise.all([
+					Session.establishAccepted(exporter, {
+						transport: "tcp",
+						designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
+						serverDesignator: designator,
+						channel: acceptSide,
+					}, 5_000),
+					Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+				]);
+				const acceptedServing = accepted.serve().catch(() => {});
+				const writeFailure = new Error("abort delivery failed");
+				dialSide.read = () => Promise.resolve(new TextEncoder().encode(chunk));
+				if (failWrite) dialSide.write = () => Promise.reject(writeFailure);
+				const serving = await Promise.allSettled([within(dialed.serve(), 1_000, "refused feed")]);
+				const result = serving[0];
+				assert(
+					result.status === "rejected" && result.reason instanceof GlowcapError,
+					"feed refusal lost its type",
+				);
+				const refusal = result.reason;
+				assert(refusal.code === code, "abort delivery replaced the refused feed");
+				if (code === CODEC) assert(refusal.abort?.errorName === "MalformedFrame", "typed abort disappeared");
+				for (let repeat = 0; repeat < 2; repeat++) {
+					const [closed] = await Promise.allSettled([within(dialed.close(), 1_000, "terminal close")]);
+					assert(
+						closed.status === "rejected" && closed.reason === refusal,
+						"close lost the exact feed refusal",
+					);
+				}
+				const secondary = secondaryFailures(refusal);
+				if (failWrite) assert(secondary[0] === writeFailure, "exact abort delivery failure disappeared");
+				else assert(secondary.length === 0, "successful abort delivery acquired a failure");
+				await accepted.close().catch(() => {});
+				await acceptedServing;
+			} finally {
+				await dialer.close().catch(() => {});
+				await exporter.close().catch(() => {});
+			}
+		}
+	}
+});
 
 Deno.test("a pipe smaller than a frame carries both directions at once", async () => {
 	const exporter = new Host();

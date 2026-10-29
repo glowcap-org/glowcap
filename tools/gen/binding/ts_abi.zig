@@ -138,10 +138,12 @@ const constants = [_]Const{
     // through `check` as thrown errors carrying the raw code).
     k("OK", "GLOWCAP_OK"),
     k("INVALID_ARGUMENT", "GLOWCAP_ERR_INVALID_ARGUMENT"),
+    k("CODEC", "GLOWCAP_ERR_CODEC"),
     k("INTERNAL", "GLOWCAP_ERR_INTERNAL"),
     k("WOULD_BLOCK", "GLOWCAP_ERR_WOULD_BLOCK"),
     k("CLOSED", "GLOWCAP_ERR_CLOSED"),
     k("IO", "GLOWCAP_ERR_IO"),
+    k("FRAME_TOO_LARGE", "GLOWCAP_ERR_FRAME_TOO_LARGE"),
     k("BUFFER_TOO_SMALL", "GLOWCAP_ERR_BUFFER_TOO_SMALL"),
     k("NOT_FOUND", "GLOWCAP_ERR_NOT_FOUND"),
     k("UNSUPPORTED_VALUE", "GLOWCAP_ERR_UNSUPPORTED_VALUE"),

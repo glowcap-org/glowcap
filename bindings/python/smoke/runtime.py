@@ -315,6 +315,14 @@ async def _runtime_open_is_transactional() -> None:
         )
     assert len(retained_occurrences) == 64
     assert occurrence_count == 65
+    assert _retain_terminal_failure(retained_occurrences, occurrence_count, retained_occurrences[0]) == 65
+    overflow = RuntimeError("unretained overflow")
+    occurrence_count = _retain_terminal_failure(retained_occurrences, occurrence_count, overflow)
+    occurrence_count = _retain_terminal_failure(retained_occurrences, occurrence_count, overflow)
+    assert occurrence_count == 67
+    assert len(retained_occurrences) == 64
+    saturated = (1 << 32) - 1
+    assert _retain_terminal_failure(retained_occurrences, saturated, overflow) == saturated
 
     def fail_install(host, _connectors) -> None:
         created.append(host)

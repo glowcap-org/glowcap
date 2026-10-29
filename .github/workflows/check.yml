@@ -124,6 +124,7 @@ jobs:
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
 
       - name: Restore Zig package downloads
+        timeout-minutes: 5
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: zig-pkg
@@ -163,6 +164,7 @@ jobs:
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
 
       - name: Restore Zig package downloads
+        timeout-minutes: 5
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: zig-pkg

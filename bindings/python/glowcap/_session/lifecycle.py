@@ -78,6 +78,7 @@ class _LifecycleMixin:
             retirement = asyncio.Event()
             self._retirement = retirement
         retirement.set()
+        self._host._own_session_retirement(cast("Session", self))
 
     async def closed(self) -> None:
         """Observe terminal session retirement without requesting close or
@@ -91,14 +92,9 @@ class _LifecycleMixin:
         if getattr(self, "_retirement", None) is None:
             self._retirement = asyncio.Event()
         await self._retirement.wait()
-        terminal = self._terminal_task
-        if terminal is not None:
-            await asyncio.shield(terminal)
-            return
-        failures = self.terminal_failures
-        if failures:
-            raise failures[0]
-        self.raise_wire_failure()
+        # FFI retirement can arrive without an explicit close. Its transport
+        # and worker outcome still belongs to the shared terminal coordinator.
+        await self._await_terminal()
 
     def last_abort(self) -> Optional[AbortDetail]:
         """The typed cause of the most recent local dispatch failure."""
@@ -142,7 +138,7 @@ class _LifecycleMixin:
 
     @property
     def terminal_failure_count(self) -> int:
-        """Total distinct terminal occurrences, including bounded overflow."""
+        """Observed terminal failures, including unretained overflow."""
         return getattr(self, "_terminal_failure_count", 0)
 
     def mark_transport_lost(self) -> None:
@@ -198,6 +194,7 @@ class _LifecycleMixin:
         wait_closed = getattr(self._transport, "wait_closed", None)
         if wait_closed is not None:
             await self._join_terminal_child(wait_closed())
+        await self._join_terminal_child(self._outbound.exited())
         task = self._serve_task
         if task is not None and task is not asyncio.current_task():
             await self._join_terminal_child(task)

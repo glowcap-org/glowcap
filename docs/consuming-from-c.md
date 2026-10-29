@@ -109,8 +109,8 @@ requests. Hosted behavior callbacks run synchronously while the Host is driven,
 so they must not block or re-enter the same Host.
 
 [`examples/c/host_embedder_pump.c`](../examples/c/host_embedder_pump.c) shows
-the feed, drain, refusal, and break-far-vows sequence the language bindings
-use, with the owned `GlowcapManagedFrame` values from `take_outbound`.
+how to feed and drain a session, surface a typed refusal, and retire the
+connection when its transport closes, using owned `GlowcapManagedFrame` values.
 [`examples/c/frame_view.c`](../examples/c/frame_view.c) shows a borrowed
 `GlowcapFrame` view over caller-owned bytes. `zig build examples` compiles and
 runs both.

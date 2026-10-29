@@ -2,7 +2,7 @@
 // `export` is module visibility; runtime/mod.ts does not expose this base.
 
 import { CLOSED, HANDSHAKE_TIMEOUT_MS, HOST_OUTBOUND_PREFIX_CAP, INVALID_ARGUMENT, OK, TIMEOUT } from "@glowcap/abi";
-import { type AbortDetail, checkHost, GlowcapError } from "../errors.ts";
+import { type AbortDetail, checkHost, GlowcapError, retainSecondaryFailure } from "../errors.ts";
 import type { Host } from "../host.ts";
 import { hostS } from "../internal/ffi/host.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
@@ -359,7 +359,8 @@ export abstract class SessionLifecycle {
 		// already released here, local teardown caused this late write refusal;
 		// the committed closed state remains authoritative.
 		if (!this.#released && this.#transportClose === null && !this.#transportLost) {
-			this.recordWireFailure(error);
+			if (this.#wireFailure === null) this.recordWireFailure(error);
+			else retainSecondaryFailure(this.#wireFailure.error, error);
 		}
 	}
 

@@ -1,18 +1,12 @@
 name: Start the CI devcontainer
-description: Free runner disk, then start the prepared toolchain image as the CI devcontainer.
+description: Start the prepared toolchain image after the workflow frees disk and stages any unpublished image archive.
 inputs:
   image:
     description: The image output of the devcontainer-image workflow.
     required: true
-  archive:
-    description: The archive output of the devcontainer-image workflow.
-    required: true
 runs:
   using: composite
   steps:
-    - name: Reclaim disk space for container builds
-      shell: bash
-      run: .devcontainer/ci/reclaim-disk.sh
     - name: Install the pinned Dev Containers CLI
       shell: bash
       run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
@@ -21,12 +15,6 @@ runs:
         GH_TOKEN: ${{ github.token }}
       shell: bash
       run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-    - name: Download the unpublished PR image
-      if: inputs.archive == 'true'
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-      with:
-        name: devcontainer-image
-        path: ${{ runner.temp }}
     - name: Start the prepared devcontainer
       env:
         IMAGE: ${{ inputs.image }}

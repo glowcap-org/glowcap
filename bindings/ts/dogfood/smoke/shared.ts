@@ -122,15 +122,21 @@ export async function run(): Promise<void> {
 
 	{
 		const projectionFailure = new Error("abort write failed");
+		let retained: unknown;
 		const handle = {
 			released: true,
-			kickActions: () => Promise.reject(projectionFailure),
+			recordWireFailure: (error: unknown) => retained = error,
+			kickActions: () => {
+				assert(retained instanceof GlowcapError, "feed refusal is retained before draining effects");
+				return Promise.reject(projectionFailure);
+			},
 		} as unknown as PumpHandle;
 		try {
 			await raiseFeedRefusal(handle, INVALID_ARGUMENT);
 			assert(false, "feed refusal must throw");
 		} catch (error) {
 			assert(error instanceof GlowcapError, "feed refusal stays typed");
+			assert(error === retained, "feed refusal preserves its retained identity");
 			assert(
 				error.cause === projectionFailure,
 				"feed refusal retains the exact effect-drain failure as its cause",

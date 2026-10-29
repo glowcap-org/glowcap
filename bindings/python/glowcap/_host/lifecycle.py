@@ -159,7 +159,7 @@ class _LifecycleMixin(HostMixinBase):
 
     @property
     def terminal_failure_count(self) -> int:
-        """Total distinct terminal occurrences, including bounded overflow."""
+        """Observed terminal failures, including unretained overflow."""
         return getattr(self, "_terminal_failure_count", 0)
 
     def _raise_terminal_failure(self) -> None:
@@ -309,6 +309,7 @@ class _LifecycleMixin(HostMixinBase):
             await self.wait_close_wake()
         await self._join_action_drains()
         await self._join_session_writers()
+        await self._join_session_retirements()
         await self._join_behavior_tasks()
         self._vows.clear()
         self._finish_release()
@@ -349,6 +350,17 @@ class _LifecycleMixin(HostMixinBase):
         self._release_task = task
         return task
 
+    async def _drive_driver_release(self, driver_loop: "DriverLoop") -> None:
+        """Retain adopted release after callers cancel or native ownership ends."""
+        try:
+            await driver_loop.wait_closed()
+        except BaseException as wait_error:
+            self._record_terminal_failure(wait_error)
+        for error in driver_loop.terminal_failures:
+            self._record_terminal_failure(error)
+        await self._join_behavior_tasks()
+        self._raise_terminal_failure()
+
     async def close(
         self,
         pending: PendingWork = PendingWork.CANCEL,
@@ -361,16 +373,14 @@ class _LifecycleMixin(HostMixinBase):
         driver_loop = self._driver_loop
         if driver_loop is not None:
             self._request_driver_release(driver_loop, options)
-            try:
-                await driver_loop.wait_closed()
-            except BaseException as wait_error:
-                self._record_terminal_failure(wait_error)
-            for index, error in enumerate(driver_loop.terminal_failures):
-                self._record_terminal_failure(error)
-            await self._join_behavior_tasks()
-            self._raise_terminal_failure()
-            return
-        task = self._start_release(options)
+            task = self._release_task
+            if task is None:
+                task = asyncio.get_running_loop().create_task(
+                    self._drive_driver_release(driver_loop)
+                )
+                self._release_task = task
+        else:
+            task = self._start_release(options)
         if task is not None:
             await asyncio.shield(task)
 
@@ -403,6 +413,7 @@ class _LifecycleMixin(HostMixinBase):
                         or self._behavior_tasks
                         or self._action_drains
                         or self._session_writers
+                        or self._session_retirements
                     ):
                         raise GlowcapError(
                             _ERR_INVALID_ARGUMENT,

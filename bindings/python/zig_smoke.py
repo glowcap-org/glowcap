@@ -500,11 +500,20 @@ def main() -> int:
     runtime.run_managed(lifecycle.partner_release_keeps_a_freed_handle_from_loop_close())
     print("python zig-smoke OK: a partner's release keeps the freed handle from loop close")
 
+    runtime.run_managed(lifecycle.passive_observers_join_physical_retirement())
+    runtime.run_managed(lifecycle.passive_observers_join_physical_retirement(pending_writer=True))
+    print("python zig-smoke OK: passive retirement joins the channel and its writer")
+
     runtime.run_managed(lifecycle._session_wire_failure_is_exact_and_retired())
     print("python zig-smoke OK: Session wire failure is exact and joins retirement")
 
     runtime.run_managed(lifecycle._host_close_joins_session_transport_failure())
+    runtime.run_managed(lifecycle._host_close_joins_session_transport_failure(asynchronous=True))
+    runtime.run_managed(lifecycle._host_close_joins_session_transport_failure(asynchronous=True, retired=True))
     print("python zig-smoke OK: Host close preserves a session transport-close failure")
+    runtime.run_managed(lifecycle._loop_close_joins_session_retirement(through_host=True))
+    runtime.run_managed(lifecycle._loop_close_joins_session_retirement(through_host=False))
+    print("python zig-smoke OK: adopted Host and driver close join session retirement")
 
     runtime.run_managed(
         lifecycle._cancelled_session_close_waiter_does_not_stop_driver()

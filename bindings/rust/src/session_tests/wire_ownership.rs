@@ -296,8 +296,8 @@ async fn a_refused_feed_writes_the_typed_abort_for_the_partner() {
 // surfaces the typed cause on the error, `Error::abort()` populated with
 // the refusing layer and the projected kind, not just the flat code the
 // wire-observing sibling above watches from the partner's side. Split from
-// that test because the refusal must reach a caller: the serve loop's feed
-// error has none, so this feeds the garbage through the pump directly.
+// that test so the direct pump caller and terminal observers can be held to
+// the same typed refusal.
 #[tokio::test]
 async fn a_refused_feed_surfaces_the_typed_abort_locally() {
 	let local = LocalSet::new();
@@ -337,7 +337,8 @@ async fn a_refused_feed_surfaces_the_typed_abort_locally() {
 			assert_eq!(abort.abort_delivery_error_name, None);
 			assert_eq!(abort.secondary_error_name, None);
 			assert_eq!(abort.secondary_error_count, 0);
-			session.close(crate::PendingWork::Cancel).await.unwrap();
+			assert_eq!(session.close(crate::PendingWork::Cancel).await.unwrap_err(), err);
+			assert_eq!(session.closed().await.unwrap_err(), err);
 			captp.close(crate::PendingWork::Cancel).await.unwrap();
 			host.await.unwrap();
 		})

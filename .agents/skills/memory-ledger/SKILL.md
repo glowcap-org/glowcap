@@ -531,6 +531,11 @@ session routing, and capability custody costs.
 These costs are named, not forbidden. Relocating one does not delete it, so
 the name stays here.
 
+- **Binding close-input observation**: `glowcap_host_session_lifecycle_state`
+  lends one call-scoped `u32` projection to a Python, TypeScript, or Racket pump
+  already closing. The query distinguishes condemned admission from a new failure
+  during FINISH. Active feeds skip it. Rust uses its stack, and no session
+  retains another field. The declaration owns the scratch-lifetime derivation.
 - **Binding dial OS-connect string**: each binding decodes `host` and
   `addresses` once after `glowcap_host_plan_dial`, because the OS connect API
   needs a language string. A second rematerialize of the same view through

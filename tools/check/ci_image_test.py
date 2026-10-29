@@ -174,7 +174,7 @@ class ImageTest(unittest.TestCase):
         # disk first, and the list of what goes lives in one script.
         script = ROOT / '.devcontainer/ci/reclaim-disk.sh'
         self.assertTrue(os.access(script, os.X_OK), script)
-        for path in ('.devcontainer/ci/start/action.yml', '.github/workflows/pages.yml',
+        for path in ('.github/workflows/check-group.yml', '.github/workflows/pages.yml',
                      '.github/workflows/agent-tools.yml', '.devcontainer/ci/action.yml'):
             source = (ROOT / path).read_text()
             with self.subTest(path=path):

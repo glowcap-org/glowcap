@@ -70,6 +70,7 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	glowcap_host_session_close: { parameters: [P, B, "i64"], result: I, outBuffers: [] },
 	glowcap_host_session_close_progress: { parameters: [P, "i64", B], result: I, outBuffers: [2] },
+	glowcap_host_session_lifecycle_state: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_host_session_release: { parameters: [P], result: I },
 	glowcap_host_session_is_open: { parameters: [P], result: I },
 	glowcap_host_session_profile: { parameters: [P, B, B, B], result: I, outBuffers: [1, 2, 3] },

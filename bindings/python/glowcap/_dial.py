@@ -128,7 +128,7 @@ class Runtime:
 
     @property
     def terminal_failure_count(self) -> int:
-        """Total distinct terminal occurrences, including bounded overflow."""
+        """Observed terminal failures, including unretained overflow."""
         return self._terminal_failure_count
 
     @classmethod

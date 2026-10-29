@@ -132,7 +132,7 @@ async fn write_loop(shared: Rc<SessionShared>) {
 		outbound.progress.notify_waiters();
 		match drained {
 			Err(error) => {
-				shared.record_wire_failure(error);
+				shared.record_wire_consequence(error);
 				shared.close_transport();
 				break;
 			}

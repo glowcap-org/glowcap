@@ -111,7 +111,7 @@ the unfiltered check for the affected area:
 | Change | Check |
 | --- | --- |
 | Zig implementation | `zig build check` |
-| Process or application behavior, language workspaces | Also `zig build runtime-check` |
+| Process or application behavior, language workspaces | Also `zig build runtime-check -Doptimize=ReleaseSafe` |
 | Documentation | `zig build source-check` |
 
 [Build steps](docs/build-steps.md) lists focused checks for bindings, examples,

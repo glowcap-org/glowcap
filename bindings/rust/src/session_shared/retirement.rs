@@ -21,16 +21,8 @@ impl SessionShared {
 				.borrow_mut()
 				.take()
 				.expect("one channel close owner");
-			let outcome = std::future::poll_fn(|cx| {
-				match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| close.poll_close(cx))) {
-					Ok(result) => result,
-					Err(payload) => std::task::Poll::Ready(Err(std::io::Error::other(format!(
-						"channel close callback panicked: {}",
-						crate::panic_message(payload.as_ref())
-					)))),
-				}
-			})
-			.await;
+			let outcome =
+				crate::channel::catch_io_panic("channel close", std::future::poll_fn(|cx| close.poll_close(cx))).await;
 			drop(close);
 			shared.channel_close_started.set(false);
 			if let Err(error) = outcome {

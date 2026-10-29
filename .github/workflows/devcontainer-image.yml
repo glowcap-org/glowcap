@@ -43,3 +43,23 @@ jobs:
           persist-credentials: false
       - uses: ./.devcontainer/ci
         id: prepare
+
+      - name: Share an unpublished PR image within this run
+        id: share
+        if: steps.prepare.outputs.archive == 'true'
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: &image-upload
+          name: devcontainer-image
+          path: ${{ runner.temp }}/devcontainer.tar
+          compression-level: 1
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+
+      - name: Share the unpublished PR image again
+        if: steps.share.outcome == 'failure'
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: *image-upload

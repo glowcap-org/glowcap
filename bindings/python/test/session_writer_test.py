@@ -7,12 +7,16 @@ from __future__ import annotations
 import asyncio
 import unittest
 from typing import Optional
+from unittest.mock import patch
 
+from glowcap import Host, Locator, PendingWork, tcp
 from glowcap import _constants as _abi
+from glowcap import _pump
 from glowcap._action import _Handlers
 from glowcap._errors import GlowcapError
 from glowcap._host_action_gen import Close, Flush
 from glowcap._session.writer import Outbound
+from glowcap._session import Session
 
 
 class _Owner:
@@ -66,7 +70,163 @@ class _Host:
         return self._session
 
 
+class _SilentTransport:
+    designator_scheme = _abi.DESIGNATOR_SCHEME_ADDRESS
+
+    async def read(self):
+        await asyncio.Future()
+
+    async def write(self, data):
+        pass
+
+    def close(self):
+        pass
+
+
 class SessionWriterTest(unittest.TestCase):
+    def test_finish_preserves_a_new_sealed_channel_failure(self) -> None:
+        async def run() -> None:
+            host, remote = Host(), Host()
+            host.set_advertised_locator(Locator(
+                _abi.TRANSPORT_NOISE_TCP, host.designator(), {}, "boolean-false"
+            ))
+            session = Session._open_dialed_locator(
+                host,
+                Locator(_abi.TRANSPORT_NOISE_TCP, remote.designator(), {}, "boolean-false"),
+                _SilentTransport(),
+            )
+            await host.kick_actions()
+            await session.written(session.request_flush())
+            closing = asyncio.create_task(session.close(pending=PendingWork.FINISH, grace=None))
+            try:
+                await asyncio.sleep(0)
+                self.assertTrue(session.is_closing)
+                # An all-zero responder handshake has an invalid identity element.
+                with self.assertRaises(GlowcapError) as caught:
+                    await _pump._feed(session, bytes(144))
+                refusal = caught.exception
+                self.assertEqual(refusal.code, _abi.ERR_CLOSED)
+                self.assertIn("IdentityElement", str(refusal))
+                for observe in (closing, session.closed()):
+                    with self.assertRaises(GlowcapError) as observed:
+                        await asyncio.wait_for(observe, 3)
+                    self.assertIs(observed.exception, refusal)
+            finally:
+                session.close_transport()
+                await asyncio.gather(closing, host.close(), remote.close(), return_exceptions=True)
+
+        asyncio.run(run())
+
+    def test_local_cancellation_does_not_become_a_wire_failure(self) -> None:
+        async def run(resume: bool) -> None:
+            host = Host()
+            session = Session._open_dialed_locator(
+                host,
+                Locator(
+                    _abi.TRANSPORT_TCP,
+                    tcp.address_designator("127.0.0.1", 1),
+                    {},
+                    "boolean-false",
+                ),
+                _SilentTransport(),
+            )
+            closing = asyncio.create_task(session.close())
+            try:
+                # Start cancellation before the reader, while its close driver
+                # and writer remain queued on the next event-loop turn.
+                await asyncio.sleep(0)
+                self.assertTrue(session.is_closing)
+                if resume:
+                    await _pump._resume_feed(session)
+                else:
+                    await _pump._feed(session, b"late bytes")
+                await asyncio.wait_for(closing, 3)
+                await asyncio.wait_for(session.closed(), 3)
+                self.assertEqual(session.terminal_failures, ())
+            finally:
+                session.close_transport()
+                await asyncio.gather(closing, host.close(), return_exceptions=True)
+
+        for resume in (False, True):
+            with self.subTest(resume=resume):
+                asyncio.run(run(resume))
+
+    def test_feed_refusal_precedes_abort_delivery_failure(self) -> None:
+        async def run(
+            chunk: bytes, code: int, fail_write: bool, fail_diagnostic: bool
+        ) -> None:
+            write_failure = OSError("abort delivery failed")
+            diagnostic_failure = RuntimeError("abort diagnostic failed")
+
+            class Transport:
+                designator_scheme = _abi.DESIGNATOR_SCHEME_ADDRESS
+                reading = False
+
+                async def read(self):
+                    self.reading = True
+                    return chunk
+
+                async def write(self, data):
+                    if self.reading and fail_write:
+                        raise write_failure
+
+                def close(self):
+                    pass
+
+            host = Host()
+            session = Session._open_dialed_locator(
+                host,
+                Locator(
+                    _abi.TRANSPORT_TCP,
+                    tcp.address_designator("127.0.0.1", 1),
+                    {},
+                    "boolean-false",
+                ),
+                Transport(),
+            )
+            try:
+                # The hello succeeds. Only the refusal's final drain may fail.
+                await host.kick_actions()
+                await session.written(session.request_flush())
+                with patch.object(_pump, "last_abort", wraps=_pump.last_abort) as last_abort:
+                    if fail_diagnostic:
+                        last_abort.side_effect = diagnostic_failure
+                    with self.assertRaises(GlowcapError) as caught:
+                        await asyncio.wait_for(session.serve(), 3)
+                refusal = caught.exception
+                self.assertEqual(refusal.code, code)
+                if fail_diagnostic:
+                    self.assertEqual(refusal.secondary, (diagnostic_failure,))
+                elif code == _abi.ERR_CODEC:
+                    self.assertIsNotNone(refusal.abort)
+                    self.assertEqual(refusal.abort.error_name, "MalformedFrame")
+                for observe in (session.closed, session.close, session.closed):
+                    with self.assertRaises(GlowcapError) as observed:
+                        await asyncio.wait_for(observe(), 3)
+                    self.assertIs(observed.exception, refusal)
+                expected = (refusal,)
+                if fail_diagnostic:
+                    expected += (diagnostic_failure,)
+                if fail_write:
+                    expected += (write_failure,)
+                self.assertEqual(session.terminal_failures, expected)
+            finally:
+                session.close_transport()
+                # Cleanup may observe the failure under test too. It must not
+                # replace a failing assertion with a second teardown exception.
+                await asyncio.gather(host.close(), return_exceptions=True)
+
+        for chunk, code in (
+            (b"this is not a frame", _abi.ERR_CODEC),
+            (b"2000000:", _abi.ERR_FRAME_TOO_LARGE),
+        ):
+            for fail_write in (False, True):
+                for fail_diagnostic in (False, True):
+                    with self.subTest(
+                        code=code, fail_write=fail_write, fail_diagnostic=fail_diagnostic
+                    ):
+                        asyncio.run(run(chunk, code, fail_write, fail_diagnostic))
+
     def test_the_drain_only_wakes_the_writer(self) -> None:
         session = _Session()
         handlers = _Handlers(_Host(session))

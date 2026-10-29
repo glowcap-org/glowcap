@@ -23,6 +23,7 @@
                      glowcap_host_session_open_accepted*
                      glowcap_host_reference_exporter*
                      glowcap_host_session_close_progress*
+                     glowcap_host_session_lifecycle_state*
                      glowcap_host_session_profile*
                      glowcap_host_session_transport_name*
                      glowcap_host_session_trace_id*
@@ -97,6 +98,10 @@
   (_fun _pointer _int64 _pointer -> _int32)
   #:c-id glowcap_host_session_close_progress)
 (define glowcap_host_session_close_progress (wrap-out1 glowcap_host_session_close_progress* _uint32 0))
+(define-host glowcap_host_session_lifecycle_state*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id glowcap_host_session_lifecycle_state)
+(define glowcap_host_session_lifecycle_state (wrap-out1 glowcap_host_session_lifecycle_state* _uint32 0))
 (define-host glowcap_host_session_release (_fun _pointer -> _int32))
 (define-host glowcap_host_session_is_open (_fun _pointer -> _int32))
 (define-host glowcap_host_session_profile*

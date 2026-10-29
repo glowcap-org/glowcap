@@ -120,7 +120,9 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
     await asyncio.gather(client_host.close(), server_host.close())
 
 
-async def _host_close_joins_session_transport_failure() -> None:
+async def _host_close_joins_session_transport_failure(
+    *, asynchronous: bool = False, retired: bool = False
+) -> None:
     """Host close owns physical channel retirement after consuming sessions."""
     from glowcap._session import Session
 
@@ -132,6 +134,8 @@ async def _host_close_joins_session_transport_failure() -> None:
             self.peer: "MemoryChannel | None" = None
             self.closed = False
             self.close_failure: BaseException | None = None
+            self.wait_started = asyncio.Event()
+            self.wait_finish = asyncio.Event()
 
         async def read(self) -> bytes | None:
             return await self.inbound.get()
@@ -147,7 +151,13 @@ async def _host_close_joins_session_transport_failure() -> None:
             self.inbound.put_nowait(None)
             if self.peer is not None:
                 self.peer.inbound.put_nowait(None)
-            if self.close_failure is not None:
+            if self.close_failure is not None and not asynchronous:
+                raise self.close_failure
+
+        async def wait_closed(self) -> None:
+            self.wait_started.set()
+            if asynchronous and self.close_failure is not None:
+                await self.wait_finish.wait()
                 raise self.close_failure
 
     client_channel = MemoryChannel()
@@ -168,16 +178,88 @@ async def _host_close_joins_session_transport_failure() -> None:
         Locator(TRANSPORT_TCP, designator, {}, "boolean-false"),
         client_channel,
     )
-    await asyncio.gather(accepted, dialed)
+    _, client_session = await asyncio.gather(accepted, dialed)
     close_failure = OSError("injected Host transport-close failure")
     client_channel.close_failure = close_failure
+    if retired:
+        client_session.close_transport()
+    closing = asyncio.create_task(client_host.close())
+    if asynchronous:
+        await asyncio.wait_for(client_channel.wait_started.wait(), timeout=1)
+        assert not closing.done(), "Host close completed before channel retirement"
+        closing.cancel()
+        try:
+            await closing
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("Host close waiter cancellation was not preserved")
+        client_channel.wait_finish.set()
     try:
-        await client_host.close()
+        if asynchronous:
+            await client_host.close()
+        else:
+            await closing
     except BaseException as error:
         assert error is close_failure, "Host close lost its session transport failure"
     else:
         raise AssertionError("Host close swallowed its session transport failure")
+    try:
+        await client_host.close()
+    except BaseException as error:
+        assert error is close_failure, "repeated Host close replaced the exact failure"
+    else:
+        raise AssertionError("repeated Host close discarded its failure")
     await server_host.close()
+
+
+async def _loop_close_joins_session_retirement(*, through_host: bool) -> None:
+    """Driver and adopted Host observers join cleanup after native release."""
+    from smoke.runtime import tcp_connect
+
+    host = Host()
+    server = await tcp.listen("127.0.0.1", 0, host=host)
+    accepting = asyncio.create_task(server.__anext__())
+    client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
+    session = await asyncio.wait_for(accepting, timeout=5)
+    driver = host.driver_loop
+    assert driver is not None
+    started, finish = asyncio.Event(), asyncio.Event()
+    cleanup = OSError("adopted Host asynchronous channel retirement failed")
+    original_wait = session.transport.wait_closed
+
+    async def wait_closed() -> None:
+        started.set()
+        await finish.wait()
+        await original_wait()
+        raise cleanup
+
+    session.transport.wait_closed = wait_closed
+    if not through_host:
+        driver.close()
+    observe = host.close if through_host else driver.wait_closed
+    closing = asyncio.create_task(observe())
+    await asyncio.wait_for(started.wait(), timeout=1)
+    assert not closing.done(), "adopted close skipped physical retirement"
+    closing.cancel()
+    try:
+        await closing
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("adopted close waiter cancellation was not preserved")
+    finish.set()
+    for _ in range(2):
+        try:
+            await asyncio.wait_for(observe(), timeout=1)
+        except BaseException as error:
+            assert error is cleanup, "adopted close replaced its exact cleanup failure"
+        else:
+            raise AssertionError("adopted close discarded its cleanup failure")
+    assert not host._session_retirements, "completed retirement stayed Host-owned"
+    assert asyncio.CancelledError not in tuple(type(e) for e in host.terminal_failures)
+    await client.close()
+    await server.close()
 
 
 async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:

@@ -108,10 +108,6 @@ pub const symbols = [_]Symbol{
     .{
         .name = "glowcap_host_session_lifecycle_state",
         .out_params = &.{1},
-        .rust_omit = "session_close_progress already returns the terminal state while supplying the clock; the Rust binding needs no second observation call",
-        .ts_omit = "session_close_progress already returns the terminal state while supplying the clock; the TypeScript binding needs no second observation call",
-        .python_omit = "session_close_progress already returns the terminal state while supplying the clock; the Python binding needs no second observation call",
-        .racket_omit = "session_close_progress already returns the terminal state while supplying the clock; the Racket binding needs no second observation call",
     },
     .{ .name = "glowcap_host_session_release" },
     .{ .name = "glowcap_host_session_is_open" },

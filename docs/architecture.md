@@ -331,9 +331,9 @@ descriptor allocate no metadata and copy no frame bytes (ADR-0013).
 Lifecycle, accepting connections, provider composition, protocol state, and failure
 classification stay in `driver_core` or `driver`. The C layer validates ABI
 layout and lossless representation, marshals values, owns opaque-handle and
-event-delivery storage, and passes on the Zig result. Bindings add host-language
-resource idioms and drive effects to the completion barrier. They keep
-no policy for a background worker and no second state machine.
+event-delivery storage, and passes on the Zig result. Bindings own host-language
+I/O tasks and resource idioms, and join their effects at completion barriers.
+Protocol state and lifecycle decisions remain in Zig.
 
 A failure that can be returned stays in ordinary control flow. When no caller
 or close barrier is left to receive it, the `diagnostics` layer turns it into a

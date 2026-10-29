@@ -307,14 +307,15 @@
           ;; Release and feed serialize on this same host lock. The guard must
           ;; live here, not before lock acquisition, or close can free the
           ;; FFI handle while this thread is waiting to feed it.
-          (guard-open 'session-serve c)
+          (guard-retained 'session-serve c)
+          (define input-was-closed? (input-already-closed? c))
           (define buf (pin-immobile got))
           (define rc
             (parameterize ([current-deliver-owner c])
               (glowcap_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))
           (host-drain-parked-releases! m)
           (cond
-            [(= rc OK)
+            [(or (= rc OK) (and (= rc ERR-CLOSED) input-was-closed?))
              (values (drain-host-actions! m) 'done)]
             [(= rc WOULD-BLOCK)
              (values (drain-host-actions! m) (cons 'retry (outbound-request! (session-outbound c))))]
@@ -333,13 +334,14 @@
     (define result
       (with-host-drain m
         (lambda ()
-          (guard-open 'session-serve c)
+          (guard-retained 'session-serve c)
+          (define input-was-closed? (input-already-closed? c))
           (define rc
             (parameterize ([current-deliver-owner c])
               (glowcap_host_session_resume_feed (session-ptr c))))
           (host-drain-parked-releases! m)
           (cond
-            [(= rc OK)
+            [(or (= rc OK) (and (= rc ERR-CLOSED) input-was-closed?))
              (values (drain-host-actions! m) 'done)]
             [(= rc WOULD-BLOCK)
              (values (drain-host-actions! m) (cons 'retry (outbound-request! (session-outbound c))))]
@@ -347,6 +349,15 @@
              (define captured (capture-feed-refusal c rc))
              (values (drain-effects '() #f #t) (cons captured (outbound-request! (session-outbound c))))]))))
     (feed-outcome! c result loop)))
+
+;; Observe the core before dispatch while holding its Host lock. FINISH
+;; still admits input and its new failures must not become clean cancellation.
+;; The call-scoped u32 projection is named in the memory ledger.
+(define (input-already-closed? c)
+  (and (session-closing? c)
+       (let-values ([(rc state) (glowcap_host_session_lifecycle_state (session-ptr c))])
+         (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/host rc))
+         (or (lifecycle-closed? state) (= state LIFECYCLE-TERMINATING)))))
 
 ;; Act on one feed's outcome outside the host lock. A refused input waits
 ;; until the core drains its outbound queue below the high-water mark, so the

@@ -173,7 +173,7 @@ The Zig version and every other toolchain are pinned, and
 ```sh
 zig build          # C ABI archives + headers + the glowcap CLI
 zig build check    # in-process tests, static checks, examples, fixtures, budgets
-zig build runtime-check # process, application, and language-workspace checks
+zig build runtime-check -Doptimize=ReleaseSafe # process, application, and language-workspace checks, matching CI
 ```
 
 To contribute, start with [a working checkout](CONTRIBUTING.md#get-a-working-checkout),

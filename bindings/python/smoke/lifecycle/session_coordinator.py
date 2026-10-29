@@ -13,6 +13,12 @@ class _HostStub:
     def _track_session_retirement_failure(self, _error) -> None:
         pass
 
+    def _own_session_writer(self, _task) -> None:
+        pass
+
+    def _own_session_retirement(self, _session) -> None:
+        pass
+
 
 def _stub_session(transport, *, released: bool, wire_failure=None):
     """A Session over a stub Host and transport, before any close began."""
@@ -172,3 +178,62 @@ async def partner_release_keeps_a_freed_handle_from_loop_close() -> None:
     await asyncio.wait_for(waiter, timeout=1)
     assert session._transport._driver_loop.calls == 0, "a released handle reached the FFI"
     assert session.terminal_failures == ()
+
+
+async def passive_observers_join_physical_retirement(*, pending_writer=False) -> None:
+    """An unsolicited retirement has the same barrier as explicit close."""
+    started, finish, retired = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    cleanup = LookupError("passive transport retirement failed")
+
+    class TransportStub:
+        calls = 0
+
+        def close(self) -> None:
+            pass
+
+        async def wait_closed(self) -> None:
+            self.calls += 1
+            started.set()
+            await finish.wait()
+            retired.set()
+            raise cleanup
+
+    session = _stub_session(TransportStub(), released=False)
+    writer_started, writer_finish = asyncio.Event(), asyncio.Event()
+
+    async def flush() -> bool:
+        writer_started.set()
+        await writer_finish.wait()
+        return False
+
+    if pending_writer:
+        session.flush_outbound = flush
+        session.request_flush()
+        await asyncio.wait_for(writer_started.wait(), timeout=1)
+    first = asyncio.create_task(session.closed())
+    second = asyncio.create_task(session.closed())
+    await asyncio.sleep(0)
+    session._ffi_owner_did_release()
+    await asyncio.wait_for(started.wait(), timeout=1)
+    assert not second.done(), "closed() completed before physical retirement"
+    first.cancel()
+    try:
+        await first
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("passive observer cancellation was not preserved")
+    assert not second.done(), "one cancelled observer retired the shared barrier"
+    finish.set()
+    if pending_writer:
+        await asyncio.wait_for(retired.wait(), timeout=1)
+        assert not session._terminal_task.done(), "physical close left an active writer unjoined"
+        writer_finish.set()
+    for observe in (lambda: second, session.closed, session.close):
+        try:
+            await observe()
+        except BaseException as error:
+            assert error is cleanup, "passive retirement lost its exact failure"
+        else:
+            raise AssertionError("passive retirement discarded the cleanup failure")
+    assert session._transport.calls == 1, "retirement ran once per observer"

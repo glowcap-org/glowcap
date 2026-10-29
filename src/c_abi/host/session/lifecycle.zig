@@ -88,6 +88,14 @@ pub fn glowcap_host_session_close_progress(
 /// Observe one byte-fed session's owner lifecycle. CLOSED means the retryable
 /// close action crossed its delivery boundary. Release remains separate and
 /// frees the retained shell.
+///
+/// Binding close-input observation names one call-scoped u32 projection in
+/// Python, TypeScript, and Racket. Only a locally closing pump asks before dispatch:
+/// FINISH still admits input that can fail, while TERMINATING does not. The
+/// storage dies before feed begins. Reusing writer scratch could overwrite a
+/// prefix borrowed across an asynchronous write, and retaining another field
+/// charges every live session for a close-only observation. Active feeds skip
+/// the query and Rust keeps its out slot on the stack.
 pub fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, out_state: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;

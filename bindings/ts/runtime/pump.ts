@@ -13,9 +13,17 @@ import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outUsize, readBytes, releaseManagedFrame } from "./internal/seam.ts";
 import { enterDeliver, exitDeliver, type TurnHostOwner } from "./trampoline.ts";
-import { type AbortDetail, abortDomainLabel, checkHost, GlowcapError, hostError } from "./errors.ts";
+import {
+	type AbortDetail,
+	abortDomainLabel,
+	checkHost,
+	GlowcapError,
+	hostError,
+	retainSecondaryFailure,
+} from "./errors.ts";
 import { L } from "./internal/layout.ts";
-import { CLOSED, OK, TIMEOUT, WOULD_BLOCK } from "@glowcap/abi";
+import { CLOSED, LIFECYCLE_TERMINATING, OK, TIMEOUT, WOULD_BLOCK } from "@glowcap/abi";
+import { lifecycleClosed } from "./lifecycle.ts";
 
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
@@ -195,6 +203,7 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 		// is equivalent to clearing. A redeem dial's own handshake feed is not
 		// nested inside this bracket: the action drain that runs it (kickActions)
 		// fires after exitDeliver, as a separate top-level feed.
+		const inputWasClosed = inputAlreadyClosed(h);
 		const prevDeliver = enterDeliver(h.deliverHost);
 		let rc: number;
 		try {
@@ -213,7 +222,9 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 		// The feed dispatched frames and may have advanced close-relevant state
 		// even when it queued no action; wake any parked close driver.
 		h.signalCloseActivity();
-		if (rc === OK) break;
+		// Cancellation can seal ingress before its CLOSE action is delivered.
+		// That pre-existing close barrier is not a new wire failure.
+		if (rc === OK || (rc === CLOSED && inputWasClosed)) break;
 		if (rc === WOULD_BLOCK) {
 			await awaitOutboundRoom(h);
 			continue;
@@ -236,6 +247,7 @@ async function awaitOutboundRoom(h: PumpHandle): Promise<void> {
 async function resumeFeed(h: PumpHandle): Promise<void> {
 	while (true) {
 		if (h.released) return;
+		const inputWasClosed = inputAlreadyClosed(h);
 		const prevDeliver = enterDeliver(h.deliverHost);
 		let rc: number;
 		try {
@@ -245,7 +257,9 @@ async function resumeFeed(h: PumpHandle): Promise<void> {
 		}
 		h.drainParkedReleases();
 		h.signalCloseActivity();
-		if (rc === OK) break;
+		// Cancellation can seal ingress before its CLOSE action is delivered.
+		// That pre-existing close barrier is not a new wire failure.
+		if (rc === OK || (rc === CLOSED && inputWasClosed)) break;
 		if (rc === WOULD_BLOCK) {
 			await awaitOutboundRoom(h);
 			continue;
@@ -253,6 +267,18 @@ async function resumeFeed(h: PumpHandle): Promise<void> {
 		await raiseFeedRefusal(h, rc);
 	}
 	await h.kickActions();
+}
+
+/** Observe the core's admission phase before dispatch, only during local
+ * close. FINISH still admits input that can fail. The u32 projection is
+ * call-scoped storage, named in the memory ledger, with no per-session field. */
+function inputAlreadyClosed(h: PumpHandle): boolean {
+	if (!h.closing) return false;
+	const state = new Uint8Array(4);
+	const rc = hostS.glowcap_host_session_lifecycle_state(h.ptr, ab(state));
+	if (rc !== OK && rc !== TIMEOUT) checkHost(rc);
+	const lifecycle = new DataView(state.buffer).getUint32(0, true);
+	return lifecycleClosed(lifecycle) || lifecycle === LIFECYCLE_TERMINATING;
 }
 
 /** The typed cause of this CapTP session's most recent local dispatch failure,
@@ -299,7 +325,14 @@ export async function raiseFeedRefusal(
 	rc: number,
 ): Promise<never> {
 	const err = hostError(rc);
-	err.abort = lastAbort(h);
+	// Publish before diagnostics or the final drain can retire the Session.
+	// Every terminal observer must retain the refusal which caused that work.
+	h.recordWireFailure(err);
+	try {
+		err.abort = lastAbort(h);
+	} catch (diagnosticFailure) {
+		retainSecondaryFailure(err, diagnosticFailure);
+	}
 	try {
 		await h.kickActions();
 		await h.written(h.requestFlush());
@@ -307,7 +340,7 @@ export async function raiseFeedRefusal(
 		// The local typed refusal remains primary, but projecting its abort and
 		// terminal effects is part of the same failed operation. Retain that
 		// secondary cause instead of making the diagnostic disappear.
-		err.cause = drainFailure;
+		retainSecondaryFailure(err, drainFailure);
 	}
 	throw err;
 }

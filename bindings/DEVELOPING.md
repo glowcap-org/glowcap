@@ -91,10 +91,16 @@ transport's buffer is full, and two peers doing that over one bounded channel
 each wait for the other to read. The feed refusal above already bounds each
 session's outbound queue, so the reader needs no second bound.
 
-When a feed fails, read the typed abort, drain again so the abort is written,
-then surface the error. On EOF, call
-`glowcap_host_session_break_far_vows` before releasing the session so pending
-calls fail instead of hanging.
+While closing locally, observe `glowcap_host_session_lifecycle_state` before
+feeding. `TERMINATING` or `CLOSED` already refuses ingress. `FINISHING` still
+admits input, so its failures remain new terminal causes.
+
+For a new failure, retain its typed refusal before looking up diagnostics or
+draining the abort. Those effects can themselves fail or retire the session.
+Retain their failures as consequences and preserve the original cause for all
+terminal observers. On EOF, call
+`glowcap_host_session_transport_closed` before releasing the session so the
+core retires the connection and settles pending calls.
 
 ## Shared module structure
 

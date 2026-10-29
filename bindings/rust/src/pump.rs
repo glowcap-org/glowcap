@@ -162,6 +162,7 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 		if shared.released.get() {
 			return Ok(());
 		}
+		let input_was_closed = input_already_closed(shared)?;
 		let _deliver = DeliverGuard::enter(shared);
 		// SAFETY: `shared.ptr.get()` is this `SessionShared`'s `GlowcapHostSession` handle, live because
 		// `shared.released` is false (checked above) and only the session's teardown releases it; `chunk` is a borrowed
@@ -184,7 +185,9 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 		// acknowledgment, a settle) even when the drain below finds nothing
 		// queued, so every feed wakes the parked close drivers itself.
 		shared.host.note_close_activity();
-		if rc == sys::OK {
+		// Cancellation can condemn ingress before its CLOSE action is delivered.
+		// That pre-existing admission barrier is not a new wire failure.
+		if rc == sys::OK || (rc == sys::ERR_CLOSED && input_was_closed) {
 			break;
 		}
 		if rc == sys::WOULD_BLOCK {
@@ -211,13 +214,16 @@ async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
 		if shared.released.get() {
 			return Ok(());
 		}
+		let input_was_closed = input_already_closed(shared)?;
 		let _deliver = DeliverGuard::enter(shared);
 		// SAFETY: as `feed` above, for the session handle; the call takes no other argument.
 		let rc = unsafe { ffi::glowcap_host_session_resume_feed(shared.ptr.get()) };
 		drop(_deliver);
 		crate::finalizer::drain();
 		shared.host.note_close_activity();
-		if rc == sys::OK {
+		// Cancellation can condemn ingress before its CLOSE action is delivered.
+		// That pre-existing admission barrier is not a new wire failure.
+		if rc == sys::OK || (rc == sys::ERR_CLOSED && input_was_closed) {
 			break;
 		}
 		if rc == sys::WOULD_BLOCK {
@@ -230,6 +236,22 @@ async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
 	Ok(())
 }
 
+/// Observe the core's admission phase before input, only during local close.
+/// FINISH still permits input and its new failures must remain observable.
+fn input_already_closed(shared: &SessionShared) -> Result<bool> {
+	if !shared.closing() {
+		return Ok(false);
+	}
+	let mut lifecycle = 0;
+	// SAFETY: feed/resume checked this SessionShared has not released its handle.
+	// No await separates that guard from this call; lifecycle is a stack out slot.
+	let rc = unsafe { ffi::glowcap_host_session_lifecycle_state(shared.ptr.get(), &mut lifecycle) };
+	if rc != sys::OK && rc != sys::ERR_TIMEOUT {
+		check_host(rc)?;
+	}
+	Ok(crate::failure::lifecycle_is_closed(lifecycle)? || lifecycle == sys::LIFECYCLE_TERMINATING)
+}
+
 /// The feed refusal choreography: capture last_error / last_abort before
 /// another verb can clobber them, then run the shared action drain so the
 /// projected op:abort (and any CLOSE/FAIL queued with it) leave through the
@@ -240,10 +262,13 @@ async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 		Ok(abort) => (abort, None),
 		Err(error) => (None, Some(error)),
 	};
-	// The local typed refusal remains primary; retain every diagnostic failure
-	// that happened while projecting it instead of silently dropping context.
-	// The serve loop reports the transport closed next, so the abort must be
-	// written first.
+	let mut primary = Error::with_transport_detail(rc, message).with_abort(abort);
+	if let Some(error) = abort_failure {
+		primary = primary.with_secondary(error);
+	}
+	// Publish before the final drain can retire the Session. Terminal observers
+	// must see this refusal even when abort delivery fails on the writer task.
+	shared.record_wire_failure(primary);
 	let drain_failure = match shared.host.kick_actions().await {
 		Ok(()) => match writer::request_flush(shared) {
 			Ok(covering) => writer::written(shared, covering).await.err(),
@@ -251,18 +276,12 @@ async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 		},
 		Err(error) => Some(error),
 	};
-	let mut details = Vec::new();
-	if let Some(primary) = message {
-		details.push(primary);
-	}
-	if let Some(error) = abort_failure {
-		details.push(format!("last-abort diagnostic also failed: {error}"));
-	}
 	if let Some(error) = drain_failure {
-		details.push(format!("action drain also failed: {error}"));
+		shared.record_wire_consequence(error);
 	}
-	let detail = (!details.is_empty()).then(|| details.join("; "));
-	Error::with_transport_detail(rc, detail).with_abort(abort)
+	shared
+		.terminal_result()
+		.expect_err("the refused feed recorded its cause")
 }
 
 /// The typed cause of this CapTP session's most recent local dispatch failure,

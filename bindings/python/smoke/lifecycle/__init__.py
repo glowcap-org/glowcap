@@ -34,6 +34,7 @@ from smoke.runtime import tcp_connect
 from .close import (
     _cancelled_session_close_waiter_does_not_stop_driver as _cancelled_session_close_waiter_does_not_stop_driver,
     _host_close_joins_session_transport_failure as _host_close_joins_session_transport_failure,
+    _loop_close_joins_session_retirement as _loop_close_joins_session_retirement,
     _host_close_shuts_a_still_open_listener as _host_close_shuts_a_still_open_listener,
     _loop_finish_close_reports_finite_grace_timeout as _loop_finish_close_reports_finite_grace_timeout,
     _repeated_host_close_observes_recorded_timeout as _repeated_host_close_observes_recorded_timeout,
@@ -45,6 +46,7 @@ from .session_coordinator import (
     cancelled_close_waiter_preserves_transport_coordinator as cancelled_close_waiter_preserves_transport_coordinator,
     cancelled_loop_close_waiter_preserves_terminal_chain as cancelled_loop_close_waiter_preserves_terminal_chain,
     partner_release_keeps_a_freed_handle_from_loop_close as partner_release_keeps_a_freed_handle_from_loop_close,
+    passive_observers_join_physical_retirement as passive_observers_join_physical_retirement,
 )
 
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(

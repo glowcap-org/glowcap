@@ -6,6 +6,9 @@ enum FlushMode {
 	Pending,
 	Ready,
 	Closed,
+	PanicRead,
+	PanicWrite,
+	PanicFlush,
 }
 
 pub(super) struct FlushStream {
@@ -28,6 +31,7 @@ impl AsyncRead for FlushStream {
 		_cx: &mut std::task::Context<'_>,
 		_buf: &mut tokio::io::ReadBuf<'_>,
 	) -> std::task::Poll<std::io::Result<()>> {
+		assert!(!matches!(self.mode.get(), FlushMode::PanicRead), "injected read panic");
 		std::task::Poll::Pending
 	}
 }
@@ -38,6 +42,10 @@ impl AsyncWrite for FlushStream {
 		_cx: &mut std::task::Context<'_>,
 		src: &[u8],
 	) -> std::task::Poll<std::io::Result<usize>> {
+		assert!(
+			!matches!(self.mode.get(), FlushMode::PanicWrite),
+			"injected write panic"
+		);
 		std::task::Poll::Ready(Ok(src.len()))
 	}
 
@@ -48,7 +56,8 @@ impl AsyncWrite for FlushStream {
 		self.flush_polled.set(true);
 		match self.mode.get() {
 			FlushMode::Pending => std::task::Poll::Pending,
-			FlushMode::Ready => std::task::Poll::Ready(Ok(())),
+			FlushMode::Ready | FlushMode::PanicRead | FlushMode::PanicWrite => std::task::Poll::Ready(Ok(())),
+			FlushMode::PanicFlush => panic!("injected flush panic"),
 			FlushMode::Closed => std::task::Poll::Ready(Err(std::io::Error::new(
 				std::io::ErrorKind::BrokenPipe,
 				"transport closed",
@@ -62,6 +71,234 @@ impl AsyncWrite for FlushStream {
 	) -> std::task::Poll<std::io::Result<()>> {
 		std::task::Poll::Ready(Ok(()))
 	}
+}
+
+#[tokio::test]
+async fn finishing_preserves_a_new_sealed_channel_failure() {
+	LocalSet::new()
+		.run_until(async {
+			let host = Host::new_host();
+			let remote = Host::new_host();
+			host.shared()
+				.set_advertised_locator(&crate::Locator::bare(
+					crate::TRANSPORT_NOISE_TCP,
+					&host.designator().unwrap(),
+				))
+				.unwrap();
+			let locator = crate::Locator::bare(crate::TRANSPORT_NOISE_TCP, &remote.designator().unwrap());
+			let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
+			let mut ptr = core::ptr::null_mut();
+			// SAFETY: the Host, owned locator and out slot stay live through the call.
+			// SessionShared takes ownership of the returned session below.
+			crate::host::check_host(unsafe {
+				ffi::glowcap_host_session_open_dialed_locator(
+					host.shared().raw(),
+					owned.borrow_view().unwrap(),
+					&mut ptr,
+				)
+			})
+			.unwrap();
+			let shared = SessionShared::new(
+				ptr,
+				host.shared(),
+				FlushStream {
+					flush_polled: Rc::new(Cell::new(false)),
+					mode: Rc::new(Cell::new(FlushMode::Ready)),
+				},
+			);
+			crate::pump::flush_outbound(&shared).await.unwrap();
+			let session = Session::owning(Rc::clone(&shared));
+			let closing = session.close(crate::PendingWork::Finish { grace: None });
+			tokio::pin!(closing);
+			std::future::poll_fn(|cx| {
+				assert!(std::future::Future::poll(closing.as_mut(), cx).is_pending());
+				std::task::Poll::Ready(())
+			})
+			.await;
+			// An all-zero responder handshake has an invalid identity element.
+			let refusal = crate::pump::feed(&shared, &[0; 144]).await.unwrap_err();
+			assert_eq!(refusal.code(), sys::ERR_CLOSED);
+			assert!(refusal.to_string().contains("IdentityElement"));
+			assert_eq!(closing.await.unwrap_err(), refusal);
+			assert_eq!(session.closed().await.unwrap_err(), refusal);
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+			remote.close(crate::PendingWork::Cancel).await.unwrap();
+		})
+		.await;
+}
+
+#[tokio::test]
+async fn local_cancellation_does_not_become_a_wire_failure() {
+	LocalSet::new()
+		.run_until(async {
+			for resume in [false, true] {
+				let host = Host::new_host();
+				let locator = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
+				let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
+				let mut ptr = core::ptr::null_mut();
+				// SAFETY: the Host, owned locator and out slot stay live through the call.
+				// SessionShared takes ownership of the returned session below.
+				crate::host::check_host(unsafe {
+					ffi::glowcap_host_session_open_dialed_locator(
+						host.shared().raw(),
+						owned.borrow_view().unwrap(),
+						&mut ptr,
+					)
+				})
+				.unwrap();
+				let shared = SessionShared::new(
+					ptr,
+					host.shared(),
+					FlushStream {
+						flush_polled: Rc::new(Cell::new(false)),
+						mode: Rc::new(Cell::new(FlushMode::Ready)),
+					},
+				);
+				let session = Session::owning(Rc::clone(&shared));
+				let closing = session.close(crate::PendingWork::Cancel);
+				tokio::pin!(closing);
+				// Admit cancellation before the reader runs, without polling the
+				// spawned close driver or writer until the pump observes it.
+				std::future::poll_fn(|cx| {
+					assert!(std::future::Future::poll(closing.as_mut(), cx).is_pending());
+					std::task::Poll::Ready(())
+				})
+				.await;
+				let pumping = async {
+					if resume {
+						crate::pump::serve_loop(Rc::clone(&shared)).await
+					} else {
+						crate::pump::feed(&shared, b"late bytes").await
+					}
+				};
+				tokio::time::timeout(Duration::from_secs(1), pumping)
+					.await
+					.unwrap()
+					.unwrap();
+				closing.await.unwrap();
+				session.closed().await.unwrap();
+				host.close(crate::PendingWork::Cancel).await.unwrap();
+			}
+		})
+		.await;
+}
+
+#[tokio::test]
+async fn refused_feed_precedes_abort_delivery_failure() {
+	LocalSet::new()
+		.run_until(async {
+			for (chunk, code) in [
+				(b"this is not a frame".as_slice(), sys::ERR_CODEC),
+				(b"2000000:".as_slice(), sys::ERR_FRAME_TOO_LARGE),
+			] {
+				let host = Host::new_host();
+				let locator = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
+				let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
+				let mut ptr = core::ptr::null_mut();
+				// SAFETY: the Host, owned locator and out slot stay live through the call.
+				// SessionShared takes ownership of the returned session below.
+				crate::host::check_host(unsafe {
+					ffi::glowcap_host_session_open_dialed_locator(
+						host.shared().raw(),
+						owned.borrow_view().unwrap(),
+						&mut ptr,
+					)
+				})
+				.unwrap();
+				let mode = Rc::new(Cell::new(FlushMode::Ready));
+				let shared = SessionShared::new(
+					ptr,
+					host.shared(),
+					FlushStream {
+						flush_polled: Rc::new(Cell::new(false)),
+						mode: Rc::clone(&mode),
+					},
+				);
+				// The hello succeeds. Only the refusal's final flush fails.
+				crate::pump::flush_outbound(&shared).await.unwrap();
+				mode.set(FlushMode::Closed);
+				let refusal =
+					tokio::time::timeout(std::time::Duration::from_secs(1), crate::pump::feed(&shared, chunk))
+						.await
+						.expect("refused feed must retire")
+						.unwrap_err();
+				assert_eq!(refusal.code(), code);
+				if code == sys::ERR_CODEC {
+					assert_eq!(refusal.abort().unwrap().error_name, "MalformedFrame");
+				}
+				for _ in 0..2 {
+					assert_eq!(
+						shared.terminal_result().unwrap_err(),
+						refusal,
+						"terminal observers lost the feed refusal"
+					);
+				}
+				assert_eq!(refusal.secondary_error_count(), 1);
+				assert!(refusal.secondary_errors()[0].to_string().contains("transport closed"));
+				host.close(crate::PendingWork::Cancel).await.unwrap();
+			}
+		})
+		.await;
+}
+
+#[tokio::test]
+async fn transport_panics_retire_the_session_and_wake_observers() {
+	LocalSet::new()
+		.run_until(async {
+			for (mode, detail) in [
+				(FlushMode::PanicRead, "injected read panic"),
+				(FlushMode::PanicWrite, "injected write panic"),
+				(FlushMode::PanicFlush, "injected flush panic"),
+			] {
+				let host = Host::new_host();
+				let locator = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
+				let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
+				let mut ptr = core::ptr::null_mut();
+				// SAFETY: the Host and owned locator stay live through the call. The returned
+				// session handle transfers to SessionShared below.
+				crate::host::check_host(unsafe {
+					ffi::glowcap_host_session_open_dialed_locator(
+						host.shared().raw(),
+						owned.borrow_view().unwrap(),
+						&mut ptr,
+					)
+				})
+				.unwrap();
+				let shared = SessionShared::new(
+					ptr,
+					host.shared(),
+					FlushStream {
+						flush_polled: Rc::new(Cell::new(false)),
+						mode: Rc::new(Cell::new(mode)),
+					},
+				);
+				if matches!(mode, FlushMode::PanicRead) {
+					shared.spawn_serve();
+					let serving = shared.take_serving().unwrap();
+					let _ = tokio::time::timeout(std::time::Duration::from_secs(1), serving)
+						.await
+						.expect("a panicking reader must wake its observers")
+						.expect("a transport panic must become a Session failure");
+				} else {
+					let covering = crate::pump::writer::request_flush(&shared).unwrap();
+					let _ = tokio::time::timeout(
+						std::time::Duration::from_secs(1),
+						crate::pump::writer::written(&shared, covering),
+					)
+					.await
+					.expect("a panicking writer must wake its observers");
+				}
+				assert!(shared.released.get(), "a panicking transport left its session live");
+				let failure = shared.terminal_result().unwrap_err();
+				assert!(
+					failure.to_string().contains(detail),
+					"transport panic lost its cause: {failure}"
+				);
+				assert_eq!(shared.terminal_result().unwrap_err().to_string(), failure.to_string());
+				host.close(crate::PendingWork::Cancel).await.unwrap();
+			}
+		})
+		.await;
 }
 
 #[tokio::test]
