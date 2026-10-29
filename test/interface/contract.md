@@ -1,9 +1,18 @@
+---
+type: static
+description: The interface description's Syrup encoding, target mappings, compiler limits, and acceptance cases.
+sources:
+  - resource: /test/interface/contracts.syrup
+  - resource: /test/interface/messages.syrup
+  - resource: /tools/interface/
+---
+
 # Interface description and fixture contract
 
 The authored [Syrup description](contracts.syrup) defines the Tasks and callback
 corpus. This reference specifies its encoding, mappings, and acceptance cases.
-The [execution plan](../../docs/planning/interface-definitions.md) owns progress
-and the order in which those cases are qualified.
+The [roadmap](../../docs/roadmap.md) item on interface definitions owns
+progress and the order in which those cases are qualified.
 
 ## Description version 1
 
@@ -19,7 +28,7 @@ names to declarations. All referenced definitions are included: imported
 libraries resolve into this graph, without machine paths or ambient lookup.
 
 This bundle authors the shared Loam definitions once, and Tasks references them.
-A future text frontend produces the same graph instead of adding a second
+A text frontend must produce the same graph rather than add a second
 maintained source.
 
 | Record | Fields in order |
@@ -51,7 +60,7 @@ position, even when that payload is a tuple.
 Method keys are exact wire names as strings. False denotes direct invocation.
 Empty string is a valid named method and differs from false. The current
 [actor API loses that distinction](../../docs/boundaries.md#invocation-shape),
-so that target qualification case remains unmet.
+so no target can qualify that case while it does.
 
 Conventions are
 `call`, `tell`, and `loam.receipt`. A tell result must be `undefined`, denoting
@@ -69,9 +78,13 @@ records, profiles, fields, conventions, unresolved names, contradictory bounds,
 ambiguous unions, and unproductive alias cycles. Recursive copied structures
 may contain references to themselves, but runtime copied values must be acyclic.
 
-Before emission, limit input to 1 MiB, 4,096 definitions, 65,536 graph nodes,
-64 nested type constructors, 256 parameters per method, and 16 MiB of output
-per target. These are initial compiler resource ceilings, not OCapN limits.
+Before emission, the compiler limits input to
+<!-- value ../../tools/interface/description.zig max_input_bytes bytes -->1 MiB<!-- /value -->,
+<!-- value ../../tools/interface/model.zig max_definitions -->4,096<!-- /value --> definitions,
+<!-- value ../../tools/interface/description.zig max_nodes -->65,536<!-- /value --> graph nodes,
+<!-- value ../../tools/interface/description.zig max_depth -->64<!-- /value --> nested type constructors, and
+<!-- value ../../tools/interface/model.zig max_parameters -->256<!-- /value --> parameters per method.
+These are compiler resource ceilings, not OCapN limits.
 Graph validation needs a visited set and explicit work budget. Canonical input
 is still untrusted. Reject duplicate dictionary keys while parsing, because decoding
 into an overwriting map is insufficient. The upstream fixture reader is used
@@ -196,8 +209,8 @@ profiles separately, including explicit unsupported-target diagnostics.
 
 ## Independent acceptance cases
 
-These cases constrain the compiler tests added in milestone 2, the current
-fixture check does not claim to execute them.
+These cases constrain the compiler and proof tests. The fixture check does
+not execute them.
 
 | Boundary | Accepted / refused cases |
 | --- | --- |

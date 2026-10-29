@@ -1,9 +1,12 @@
 //! First interface generation slice: one checked Syrup description feeds the
-//! Tasks creation server projection and its Rust retained-request client.
+//! Tasks creation projections (the Zig server check and the Rust
+//! retained-request client), the fixture callbacks in Rust and TypeScript, and
+//! the Rust message expectations.
 const std = @import("std");
 const Output = @import("output").Output;
 const description = @import("description.zig");
 const Model = @import("model.zig").Model;
+const creation_method = @import("model.zig").creation_method;
 const rust = @import("rust.zig");
 const zig = @import("zig.zig");
 const calls = @import("calls.zig");
@@ -29,7 +32,7 @@ fn generate(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     var model = try Model.init(try description.read(arena.allocator(), @embedFile("contract")));
-    const method = try model.creation("tasks.TaskList", "add");
+    const method = try model.creation("tasks.TaskList", creation_method);
     return emitter.emit(a, method);
 }
 
@@ -68,6 +71,9 @@ test "authored contract selects creation and rejects another method shape" {
     try std.testing.expectEqual(@as(usize, 4096), method.maximum);
     const other = try model.creation("tasks.Board", "add-list");
     try std.testing.expectEqual(@as(usize, 64), other.maximum);
+    // The templates spell `add`, so they refuse to name another method's request.
+    try std.testing.expectError(error.UnsupportedProjection, rust.emit(std.testing.allocator, other));
+    try std.testing.expectError(error.UnsupportedProjection, zig.emit(std.testing.allocator, other));
     try std.testing.expectError(error.UnsupportedProjection, model.creation("tasks.TaskList", "move"));
 }
 

@@ -18,21 +18,18 @@ fn cap(arg: &Argument) -> Result<Ref, String> {
 async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
 	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
 		.await
-		.map_err(|e| format!("runtime: {e:?}"))?;
+		.map_err(|e| format!("runtime: {e}"))?;
 	let session = runtime
 		.connect(locator, ConnectOptions::default())
 		.await
-		.map_err(|e| format!("connect: {e:?}"))?;
-	let tools = session
-		.fetch("tools")
-		.await
-		.map_err(|e| format!("fetch tools: {e:?}"))?;
+		.map_err(|e| format!("connect: {e}"))?;
+	let tools = session.fetch("tools").await.map_err(|e| format!("fetch tools: {e}"))?;
 	let mut ok = true;
 
 	let clock = cap(&session
 		.send(&tools, "grant", &["clock".into()])
 		.await
-		.map_err(|e| format!("grant clock: {e:?}"))?)?;
+		.map_err(|e| format!("grant clock: {e}"))?)?;
 	let now = session.send(&clock, "now", &[]).await;
 	ok &= tools_check::check(
 		nick,
@@ -43,7 +40,7 @@ async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
 	let files = cap(&session
 		.send(&tools, "grant", &["files-readonly".into()])
 		.await
-		.map_err(|e| format!("grant files: {e:?}"))?)?;
+		.map_err(|e| format!("grant files: {e}"))?)?;
 	let read = session.send(&files, "read", &["report.txt".into()]).await;
 	ok &= tools_check::check(
 		nick,
@@ -58,7 +55,7 @@ async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
 	let revocable = cap(&session
 		.send(&tools, "grant-revocable", &["clock".into()])
 		.await
-		.map_err(|e| format!("grant-revocable: {e:?}"))?)?;
+		.map_err(|e| format!("grant-revocable: {e}"))?)?;
 	ok &= tools_check::check(
 		nick,
 		"revocation: the handle works before revoke",
@@ -67,7 +64,7 @@ async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
 	session
 		.send(&tools, "revoke-last", &[])
 		.await
-		.map_err(|e| format!("revoke-last: {e:?}"))?;
+		.map_err(|e| format!("revoke-last: {e}"))?;
 	ok &= tools_check::check(
 		nick,
 		"revocation: the handle breaks after revoke",

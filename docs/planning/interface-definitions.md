@@ -310,8 +310,7 @@ Baseline at `25ae1ce6`: Tasks' Zig board is 147 lines, Zig client 140, Rust boar
 215, and TypeScript board 82. These whole-file counts include policy and workflow, so
 they are an upper bound on removable code, not promised savings. The existing
 Rooms generator and its seven emitter files total 1,461 lines, including 22
-lines of embedded tests. Tasks' server tests were 419 lines and are 456 with
-this leg's cases.
+lines of embedded tests. Tasks' server tests were 419 lines.
 
 These counts include blank lines and comments. The compiler
 ceilings below count nonblank lines. Generated output never offsets compiler
@@ -335,8 +334,9 @@ arity, bounds, and sequence handling.
 | Client copies of method names and return shapes | Session ownership, persistence, retry decisions, cancellation policy |
 
 Move `max_name_bytes`, `max_text_bytes`, `max_lists`, and `max_tasks` to the
-shared generated owner when their consumers migrate. `max_text_bytes` now comes from the generated creation projection. The other
-three constants remain in `board.zig` until their consumers migrate. Fixture
+shared generated owner when their consumers migrate. The generated creation
+projection owns `max_text_bytes`, and `board.zig` keeps the other three until
+their consumers migrate. Fixture
 limits remain independently checked expectations.
 Do not introduce a second production constants table during this leg.
 

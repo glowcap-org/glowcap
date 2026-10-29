@@ -5,6 +5,12 @@ const syrup = @import("syrup");
 const syntax = syrup.RecordSyntax;
 pub const Error = syrup.Error || std.mem.Allocator.Error || error{ InvalidDescription, ResourceLimit, UnsupportedProjection };
 
+// Compiler resource ceilings on an untrusted description, not OCapN limits.
+pub const max_input_bytes: usize = 1024 * 1024;
+pub const max_nodes: usize = 65_536;
+/// Nested Syrup values while reading, and nested type constructors in the model.
+pub const max_depth: usize = 64;
+
 pub const Node = struct {
     kind: enum { string, symbol, integer, boolean, list, dictionary, record },
     bytes: []const u8 = "",
@@ -44,7 +50,7 @@ pub const Node = struct {
 };
 
 pub fn read(arena: std.mem.Allocator, bytes: []const u8) Error!Node {
-    if (bytes.len > 1 << 20) return error.ResourceLimit;
+    if (bytes.len > max_input_bytes) return error.ResourceLimit;
     var reader: Reader = .{ .arena = arena, .bytes = bytes };
     const result = reader.node(0) catch |err| switch (err) {
         error.OutOfMemory, error.ResourceLimit => return err,
@@ -58,10 +64,10 @@ const Reader = struct {
     arena: std.mem.Allocator,
     bytes: []const u8,
     at: usize = 0,
-    remaining: usize = 65536,
+    remaining: usize = max_nodes,
 
     fn node(self: *Reader, depth: usize) Error!Node {
-        if (depth > 64 or self.remaining == 0) return error.ResourceLimit;
+        if (depth > max_depth or self.remaining == 0) return error.ResourceLimit;
         self.remaining -= 1;
         if (self.at == self.bytes.len) return error.InvalidDescription;
         const start = self.at;

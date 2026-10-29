@@ -5,6 +5,13 @@ const description = @import("description.zig");
 const Node = description.Node;
 const Error = description.Error;
 
+pub const max_definitions: usize = 4096;
+pub const max_parameters: usize = 256;
+
+/// The creation templates spell this method's names and Loam's receipt verbs,
+/// so their emitters refuse a creation projected from any other method.
+pub const creation_method = "add";
+
 pub const Creation = struct {
     wire_name: []const u8,
     minimum: usize,
@@ -18,7 +25,7 @@ pub const Model = struct {
     pub fn init(root: Node) Error!Model {
         const fields = try root.fields("glowcap:interface", 3);
         if (try fields[0].number() != 1 or fields[1].kind != .dictionary or fields[2].kind != .dictionary) return error.InvalidDescription;
-        if (fields[2].children.len > 8192) return error.ResourceLimit;
+        if (fields[2].children.len > 2 * max_definitions) return error.ResourceLimit;
         if (fields[1].children.len != 4 or try (try fields[1].get("glowcap.values")).number() != 1 or try (try fields[1].get("loam.receipt")).number() != 1) return error.InvalidDescription;
         var self: Model = .{ .definitions = fields[2] };
         var i: usize = 0;
@@ -68,7 +75,7 @@ pub const Model = struct {
             if (name.kind != .string and !(name.kind == .boolean and !name.boolean)) return error.InvalidDescription;
             const method = try methods.children[i + 1].fields("method", 3);
             const params = method[0];
-            if (params.kind != .list or params.children.len > 256) return error.InvalidDescription;
+            if (params.kind != .list or params.children.len > max_parameters) return error.InvalidDescription;
             if (!method[2].is("call") and !method[2].is("tell") and !method[2].is("loam.receipt")) return error.InvalidDescription;
             if (method[2].is("loam.receipt") and name.kind != .string) return error.InvalidDescription;
             if (method[2].is("tell") and !method[1].is("undefined")) return error.InvalidDescription;
@@ -95,7 +102,7 @@ pub const Model = struct {
 
     fn checkType(self: *Model, value: Node, depth: usize) Error!void {
         try self.spend(1);
-        if (depth > 64) return error.ResourceLimit;
+        if (depth > description.max_depth) return error.ResourceLimit;
         if (value.kind == .symbol) {
             for ([_][]const u8{ "undefined", "null", "bool", "integer", "float64", "string", "bytes", "symbol", "target", "value", "error", "keyword", "float32" }) |name| {
                 if (value.is(name)) return;

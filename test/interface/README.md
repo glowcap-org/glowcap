@@ -1,7 +1,7 @@
 # Interface qualification
 
 Run the generated Tasks and callback paths against independent raw peers.
-The [plan](../../docs/planning/interface-definitions.md#execution-map) owns status
+The [roadmap](../../docs/roadmap.md) item on interface definitions owns status
 and remaining work. The [contract reference](contract.md) owns the description
 format, target mappings, and acceptance cases.
 

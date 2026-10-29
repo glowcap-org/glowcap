@@ -67,7 +67,7 @@ impl Watcher {
 			.session
 			.send(&self.receiver, "poll", &args)
 			.await
-			.map_err(|e| format!("poll: {e:?}"))?;
+			.map_err(|e| format!("poll: {e}"))?;
 		let observation = || "the watcher sent no observation".to_string();
 		let Argument::Tagged { value, .. } = &reply else {
 			return Err(observation());
@@ -94,7 +94,7 @@ impl Watcher {
 			.session
 			.send(&self.canceller, "cancel", &[])
 			.await
-			.map_err(|e| format!("cancel: {e:?}"))?;
+			.map_err(|e| format!("cancel: {e}"))?;
 		closed
 			.as_bool()
 			.map(|_| ())
@@ -116,20 +116,20 @@ impl Board {
 	pub async fn join(locator: &Locator, name: &str) -> Result<Board, String> {
 		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
 			.await
-			.map_err(|e| format!("runtime: {e:?}"))?;
+			.map_err(|e| format!("runtime: {e}"))?;
 		let session = Rc::new(
 			runtime
 				.connect(locator, ConnectOptions::default())
 				.await
-				.map_err(|e| format!("connect: {e:?}"))?,
+				.map_err(|e| format!("connect: {e}"))?,
 		);
-		let board = session.fetch(name).await.map_err(|e| format!("fetch board: {e:?}"))?;
+		let board = session.fetch(name).await.map_err(|e| format!("fetch board: {e}"))?;
 		let mut lists = Vec::new();
 		for at in 0..2i64 {
 			let reply = session
 				.send(&board, "list", &[at.into()])
 				.await
-				.map_err(|e| format!("list {at}: {e:?}"))?;
+				.map_err(|e| format!("list {at}: {e}"))?;
 			lists.push(capability(&reply, "list")?);
 		}
 		let done = lists.pop().ok_or("missing done list")?;
@@ -147,7 +147,7 @@ impl Board {
 		self.session
 			.send(target, verb, args)
 			.await
-			.map_err(|e| format!("{verb}: {e:?}"))
+			.map_err(|error| format!("{verb}: {error}"))
 	}
 
 	/// One change with a fresh sequence number, so a retry applies once.
@@ -163,7 +163,7 @@ impl Board {
 		interface::add(self.session.clone(), self.todo.clone(), text)
 			.await
 			.map(Task)
-			.map_err(|error| format!("add: {error:?}"))
+			.map_err(|error| format!("add: {error}"))
 	}
 
 	/// Move `task` from "To do" to the end of "Done".
