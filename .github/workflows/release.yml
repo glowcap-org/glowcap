@@ -129,13 +129,11 @@ jobs:
 
       - name: Build the release tarball
         run: |
-          sdk_args=()
           if [[ "$RUNNER_OS" == macOS ]]; then
             SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
             export SDKROOT
-            sdk_args+=(--sysroot "$SDKROOT")
           fi
-          zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }} "${sdk_args[@]}"
+          zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }}
 
       - name: Verify the Zig source package
         run: zig build consumer-check --summary all

@@ -40,8 +40,7 @@ class ReleaseBuild(unittest.TestCase):
                     b.installArtifact(b.addExecutable(.{ .name = "probe", .root_module = module }));
                 }
                 '''))
-            result = subprocess.run(['zig', 'build', '--cache-dir', str(directory / 'cache'),
-                                     '--sysroot', str(sdk)], cwd=directory,
+            result = subprocess.run(['zig', 'build', '--cache-dir', str(directory / 'cache')], cwd=directory,
                                     env=dict(os.environ, SDKROOT=str(sdk)),
                                     capture_output=True, text=True, timeout=30)
             self.assertNotEqual(result.returncode, 0, 'the empty SDK must refuse linking')
@@ -83,7 +82,5 @@ class ReleaseBuild(unittest.TestCase):
                         continue
                     expected = ['build', '-Doptimize=ReleaseSafe', 'release-pack', 'glowcap-pack',
                                 '-Dcpu=baseline', '-Dtarget=' + target]
-                    if runner == 'macOS':
-                        expected += ['--sysroot', str(sdk)]
                     self.assertEqual(json.loads(log.read_text()),
                                      [expected, str(sdk) if runner == 'macOS' else None])
