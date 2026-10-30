@@ -61,13 +61,15 @@ def clean_close(conn: ssl.SSLSocket) -> None:
         raise RuntimeError(f"expected one masked empty WebSocket close: {header!r}")
     recv_exact(conn, 4)
     conn.sendall(b"\x88\x00")
+    # With ragged EOF suppression disabled, only authenticated close-notify
+    # yields an empty TLS read. A reset or EOF before that remains fatal.
+    if conn.recv(1) != b"":
+        raise RuntimeError("application data followed the WebSocket close")
     try:
         raw = conn.unwrap()
-    except BrokenPipeError:
-        # `unwrap` only reaches its reply write after accepting the peer's
-        # close-notify. Glowcap owns a one-way TLS shutdown barrier and may
-        # retire the TCP leg immediately after that record is delivered.
-        # Keep SSLEOFError fatal: an unnotified/truncated peer must not pass.
+    except (BrokenPipeError, ConnectionResetError):
+        # The peer's close-notify is proven above. Glowcap's one-way shutdown
+        # may retire TCP before this fixture finishes writing its reply.
         conn.close()
         return
     raw.close()
@@ -107,7 +109,7 @@ def serve_one(raw: socket.socket, args: argparse.Namespace) -> None:
         "peer-alert",
     }
     try:
-        conn = context.wrap_socket(raw, server_side=True)
+        conn = context.wrap_socket(raw, server_side=True, suppress_ragged_eofs=False)
     except ssl.SSLError:
         if expected_refusal:
             return
