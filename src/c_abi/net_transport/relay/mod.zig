@@ -20,6 +20,9 @@ const GlowcapContext = c.GlowcapContext;
 const Payload = runtime.Payload;
 
 pub const symbols = @import("symbols.zig");
+pub const white_box = if (@import("builtin").is_test) struct {
+    pub const ConnectionState = @import("connection/state.zig").State;
+} else struct {};
 
 pub const GlowcapRelayConfig = contract.GlowcapRelayConfig;
 pub const contract_layouts = [_]c.archive_contract.Layout{

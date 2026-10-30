@@ -527,7 +527,11 @@ pub const RelayStream = struct {
         const consumed = @min(bytes.len, max_staged_application_bytes);
         rs.writeFrame(.binary, bytes[0..consumed]) catch return -1;
         const flushed_after_write = rs.tryFlushPending();
-        if (flushed_after_write < 0) return flushed_after_write;
+        // The caller prefix belongs to this stream once framed. A full
+        // carrier delays its flush, not its admission; reporting WOULD_BLOCK
+        // here would make the caller send these same bytes a second time.
+        if (flushed_after_write < 0 and flushed_after_write != multiplexed_resident.would_block)
+            return flushed_after_write;
         return @intCast(consumed);
     }
 
@@ -551,7 +555,13 @@ pub const RelayStream = struct {
 
     /// Whether a nonblocking read can advance without another socket edge.
     pub fn hasBufferedReadWork(rs: *const RelayStream) bool {
-        return rs.read_closed or rs.source.reader.bufferedLen() != 0;
+        if (rs.read_closed) return true;
+        const buffered = rs.source.reader.buffered();
+        if (rs.remaining != 0) return buffered.len != 0;
+        // Partial headers and control payloads need a new carrier edge. A
+        // malformed header is ready for the reader to reject immediately.
+        const parsed = (parseHeaderBytes(buffered) catch return true) orelse return false;
+        return buffered.len >= parsed.header_len + protocol.controlPayloadLen(parsed.frame);
     }
 
     /// Advance the explicit close transaction without parking the provider

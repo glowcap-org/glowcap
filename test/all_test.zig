@@ -363,6 +363,7 @@ comptime {
         _ = @import("net/keyed_relay/alias_test.zig");
         _ = @import("net/keyed_relay/loop_test.zig");
         _ = @import("net/keyed_relay/close_test.zig");
+        _ = @import("net/keyed_relay/write_test.zig");
         _ = @import("net/keyed_relay/registration_test.zig");
         _ = @import("net/keyed_relay_completion_test.zig");
         _ = @import("net/keyed_relay_completion_dial_test.zig");
@@ -473,6 +474,7 @@ comptime {
         _ = @import("c_abi/onion_loopback/refusal_test.zig");
         _ = @import("c_abi/relay_provider_test.zig");
         _ = @import("c_abi/relay_provider/buffered_accept_test.zig");
+        _ = @import("c_abi/relay_provider/readiness_test.zig");
         _ = @import("c_abi/tcp_provider_options_test.zig");
         if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
             _ = @import("c_abi/driver_loop/close_test.zig");

@@ -456,15 +456,11 @@ pub fn Projection(
             };
             state.io_mutex.lock();
             runtime.mutex.unlock();
-            defer state.io_mutex.unlock();
-            if (state.raw_closed or state.closed.load(.acquire) or
-                state.release_requested.load(.acquire)) return -1;
-            const wrote = state.raw.tryWrite(source[0..len]);
-            if (wrote < 0 and wrote != c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK) state.noteFailure(
-                state.raw.takeFailure() orelse foundation.FailureChain.init(error.ConnectionLost),
-            );
-            if (state.raw.hasPendingWrite()) runtime.signalControl();
-            return wrote;
+            const outcome = state.tryWriteLocked(source[0..len]);
+            state.io_mutex.unlock();
+            if (outcome.signal_control) runtime.signalControl();
+            if (outcome.signal_ready) runtime.signalReady();
+            return outcome.count;
         }
 
         fn connTakeFailure(

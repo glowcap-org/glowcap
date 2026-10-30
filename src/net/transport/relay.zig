@@ -56,6 +56,8 @@ pub const validateConfigurationUrls = configuration.validateUrls;
 pub const Configuration = configuration.Options;
 
 pub const white_box = if (builtin.is_test) struct {
+    pub const Stream = stream.RelayStream;
+    pub const carrier = @import("keyed_relay/carrier/byte_stream.zig");
     pub const FailureLedger = address_race.FailureLedger;
     pub const max_resolved_addresses = address_race.max_resolved_addresses;
     pub const max_frames_per_read = stream.max_frames_per_read;
