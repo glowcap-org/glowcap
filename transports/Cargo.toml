@@ -1,0 +1,37 @@
+# One static link unit for the Rust transports selected by a Zig consumer.
+[package]
+name = "glowcap-sidecars"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
+
+[workspace]
+members = ["iroh", "webrtc", "sidecar-common"]
+resolver = "3"
+
+[lib]
+name = "glowcap_sidecars"
+crate-type = ["staticlib"]
+path = "sidecars.rs"
+
+[features]
+iroh = ["dep:iroh-sidecar"]
+webrtc = ["dep:webrtc-sidecar"]
+
+[dependencies]
+iroh-sidecar = { package = "glowcap-iroh", path = "iroh", version = "=0.1.0", optional = true }
+webrtc-sidecar = { package = "glowcap-webrtc", path = "webrtc", version = "=0.1.0", optional = true }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+lto = "thin"

@@ -33,15 +33,8 @@ apps/rooms/rust/proofs/browser/node_modules/
 bench/langs/clients/rust_bench/Cargo.lock
 bench/langs/clients/rust_bench/target/
 bench/capnp/rust/target/
-# transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
-# the sidecar's external dependency tree must resolve identically everywhere.
-transports/iroh/target/
-# transports/webrtc/Cargo.lock is likewise committed (ADR-0035): the webrtc
-# crate's large tree (DTLS, SCTP, ICE, STUN, SDP) must resolve identically.
-transports/webrtc/target/
-# transports/sidecar-common/Cargo.lock is committed too: the shared runtime
-# crate's own tests run with --locked, like the sidecars that depend on it.
-transports/sidecar-common/target/
+# The transport workspace commits Cargo.lock and keeps build outputs local.
+transports/**/target/
 
 # binding consumer caches
 **/__pycache__/

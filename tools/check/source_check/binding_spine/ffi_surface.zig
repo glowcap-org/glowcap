@@ -539,17 +539,17 @@ pub fn checkIrohAcceptQueueBound(
     });
 }
 
-/// The sidecar crates held to exact pins and a committed lockfile. The iroh
-/// sidecar wraps an external network stack (ADR-0021). The shared runtime
-/// crate carries the tokio pin both sidecars build against and is tested on
-/// its own with `--locked`.
+/// Every transport workspace crate uses exact direct pins and one committed
+/// lockfile. The shared runtime's tokio pin applies to both network stacks.
 const pinned_sidecar_crates = [_]struct { manifest: []const u8, lockfile: []const u8 }{
-    .{ .manifest = "transports/iroh/Cargo.toml", .lockfile = "transports/iroh/Cargo.lock" },
-    .{ .manifest = "transports/sidecar-common/Cargo.toml", .lockfile = "transports/sidecar-common/Cargo.lock" },
+    .{ .manifest = "transports/Cargo.toml", .lockfile = "transports/Cargo.lock" },
+    .{ .manifest = "transports/iroh/Cargo.toml", .lockfile = "transports/Cargo.lock" },
+    .{ .manifest = "transports/webrtc/Cargo.toml", .lockfile = "transports/Cargo.lock" },
+    .{ .manifest = "transports/sidecar-common/Cargo.toml", .lockfile = "transports/Cargo.lock" },
 };
 
 /// ADR-0021 commits the sidecar to reproducible dependency resolution: the
-/// crate's `Cargo.lock` is checked in and every direct dependency in its
+/// workspace's `Cargo.lock` is checked in and every direct dependency in its
 /// `Cargo.toml` is pinned to an exact `=x.y.z` version, making an intentional
 /// bump visible in the manifest rather than only in the lockfile. This check
 /// holds both halves for every crate in `pinned_sidecar_crates`, so the

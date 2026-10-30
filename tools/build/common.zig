@@ -133,6 +133,27 @@ pub fn rootPath(b: *std.Build, sub_path: []const u8) []const u8 {
     return b.root.joinString(b.allocator, sub_path) catch @panic("OOM");
 }
 
+pub const RustSidecar = struct {
+    build: *std.Build.Step.Run,
+    target_dir: std.Build.LazyPath,
+    archive: std.Build.LazyPath,
+};
+
+/// Cargo owns incremental compilation; its stable output directory is a graph
+/// path, so linking a published transport builds its sidecar on demand.
+pub fn rustSidecar(b: *std.Build, manifest: []const u8, library: []const u8) RustSidecar {
+    const run = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo", "build", "--locked", "--release", "--manifest-path", manifest,
+    });
+    const target_dir = run.addPrefixedOutputDirectoryArg("--target-dir=", "target");
+    run.has_side_effects = true;
+    return .{
+        .build = run,
+        .target_dir = target_dir,
+        .archive = target_dir.path(b, b.fmt("release/lib{s}.a", .{library})),
+    };
+}
+
 pub const AbiImport = struct { name: []const u8, module: *std.Build.Module };
 
 /// A module over a transport's public C ABI root (`src/c_abi/net_transport/<transport>/mod.zig`),
@@ -162,17 +183,9 @@ pub fn transportAbiModule(
     return m;
 }
 
-/// Link one Rust sidecar staticlib into `mod`, plus the native runtime its
-/// panic machinery and its crates' platform bindings need.
-///
-/// Both sidecars share this recipe because they share the problem: a Rust
-/// staticlib does not carry its own native link directives into Zig's final
-/// link, so every library the Rust side reaches for has to be named here. The
-/// Apple frameworks cover networking, TLS, and interface discovery, which both
-/// sidecars do; naming them once keeps the two from drifting into "one
-/// platform works and the other does not". The artifact consuming `mod` must
-/// `archive` is the staticlib as a build-graph path, so an artifact that links
-/// it depends on the cargo step that writes it without naming that step.
+/// Link Cargo's static archive and system dependencies into a Zig module.
+/// Cargo's native link directives do not reach Zig. The LazyPath ties linking
+/// to the Cargo build, and both backend families share the system libraries.
 pub fn linkRustSidecar(
     b: *std.Build,
     mod: *std.Build.Module,
@@ -184,11 +197,7 @@ pub fn linkRustSidecar(
     mod.link_libc = true;
     mod.linkSystemLibrary("unwind", .{});
     if (target.result.os.tag.isDarwin()) {
-        // Derived from the crates' own link requirements and not exercised by
-        // any check step: nothing links these on Darwin in CI, so the first
-        // Mac to build a sidecar is the check. A missing one surfaces as an
-        // undefined-symbol error from `zig build iroh-interop` or
-        // `webrtc-interop`; add it here.
+        // The native macOS release builds exercise these Rust dependencies.
         inline for (&.{
             "CoreFoundation",
             "CoreWLAN",

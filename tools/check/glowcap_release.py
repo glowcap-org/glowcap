@@ -219,7 +219,7 @@ def main():
         root.mkdir()
         unpack(archive, root)
         installed = glowcap_host.installation(root, Path(scratch))
-        glowcap_host.deployment(installed, root, Path(scratch))
+        glowcap_host.lifecycle(glowcap_host.Deployment(installed, Path(scratch)), root)
         root = installed.resolve().parent.parent
         assert sorted(path.name for path in (root / "bin").iterdir()) == ["glowcap"]
         for name in ("rooms-server", "rooms-session", "rooms-web", "rooms-chat", "rooms-archive", "rooms-irc-server", "rooms-irc-bridge"):

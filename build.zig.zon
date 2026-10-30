@@ -36,11 +36,14 @@
         "src",
         "include",
         "tools",
-        // `build()` names these from steps a package consumer never runs, but
-        // a manifest that omits a path its own build file references is a
-        // packaged build that cannot describe itself.
-        "cli",
-        "test",
+        // Optional transport modules compile their Rust sidecars by path.
+        "transports/iroh",
+        "transports/webrtc",
+        "transports/sidecar-common",
+        "transports/Cargo.toml",
+        "transports/Cargo.lock",
+        "transports/sidecars.rs",
+        // README links its checked Quick Start example.
         "examples",
         "LICENSE-THIRD-PARTY",
         "LICENSE-APACHE",

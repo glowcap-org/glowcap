@@ -7,7 +7,7 @@
 # C symbol; every sidecar keeps its own `#[repr(C)]` event layout and its own
 # `glowcap_*_sidecar_*` family.
 #
-# Cargo.lock is committed, like its siblings': `zig build sidecar-common-test`
+# The transport workspace commits Cargo.lock. `zig build sidecar-common-test`
 # runs this crate's own tests with `--locked`, and the tokio pin below is the
 # one both sidecars carry.
 [package]

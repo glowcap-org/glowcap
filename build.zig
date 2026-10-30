@@ -164,20 +164,6 @@ pub fn layerIndex(comptime name: []const u8) usize {
     @compileError("layer_table has no row named '" ++ name ++ "'");
 }
 
-/// Materialize one module per table row, in order, resolving each row's edges
-/// against the earlier rows. Every module is position-independent so each status-allow: event or source ordering
-/// static archive (`libglowcap_ocapn.a`, the transport archives) links cleanly
-/// into a PIE consumer (the Rust C ABI dogfood links a static archive into a
-/// position-independent test binary,
-/// without this, the archive's R_X86_64_32S relocations are rejected at link
-/// time). The shared library requires PIC regardless, so both artifacts share
-/// one PIC graph.
-///
-/// When `expose_root` is set, the `glowcap` row is registered through
-/// `b.addModule`, so a downstream package's
-/// `b.dependency("glowcap", ...).module("glowcap")` resolves to the same graph
-/// the artifacts are built from. The cross-target graphs pass false: they are
-/// compile-only gates, not the public module.
 pub const graphFromTable = @import("tools/build/module_graph.zig").create;
 
 const addInstalledSystemRun = build_common.addInstalledSystemRun;
@@ -195,6 +181,17 @@ pub fn build(b: *std.Build) void {
     const target = build_common.baselineTarget(b);
     const optimize = b.standardOptimizeOption(.{});
 
+    // ── Internal layer modules (ADR-0011) ─────────────────────────
+    // The DAG lives in `layer_table` above; materializing it makes every edge a
+    // compiler-checked law, a layer cannot even name a file outside its module
+    // root, and a new edge is a visible one-line table diff, not a review note.
+    // arch-check consumes the same table, so a granted edge no file imports
+    // fails the gate, and only the content bans a module graph cannot express
+    // (no `std.Io` / `std.Thread` in core, no platform syscall namespaces in
+    // portable code) live as prose checks.
+    const host_mods = graphFromTable(b, target, optimize, &layer_table, true);
+    if (!b.isRoot()) return @import("tools/build/package.zig").register(b, target, optimize, host_mods);
+
     // ── Port pinning for demo and interop steps ──────────────────────────────
     // Every demo orchestrator binds an ephemeral port by default, and every
     // live interop step pins its own fixed port so concurrent steps cannot
@@ -210,15 +207,6 @@ pub fn build(b: *std.Build) void {
         std.process.fatal("-Dattach requires -Dport: there is no server to join without a port", .{});
     }
 
-    // ── Internal layer modules (ADR-0011) ─────────────────────────
-    // The DAG lives in `layer_table` above; materializing it makes every edge a
-    // compiler-checked law, a layer cannot even name a file outside its module
-    // root, and a new edge is a visible one-line table diff, not a review note.
-    // arch-check consumes the same table, so a granted edge no file imports
-    // fails the gate, and only the content bans a module graph cannot express
-    // (no `std.Io` / `std.Thread` in core, no platform syscall namespaces in
-    // portable code) live as prose checks.
-    const host_mods = graphFromTable(b, target, optimize, &layer_table, true);
     const lib_mod = host_mods[layerIndex("glowcap")];
 
     // The secure relay dependency is an explicit, networked sibling step. The

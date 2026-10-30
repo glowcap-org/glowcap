@@ -1,21 +1,16 @@
-//! A throwaway downstream package that depends on glowcap exactly the way the
-//! README tells a consumer to, so the README's first instruction is a checked
-//! claim rather than an assertion.
-//!
-//! What it proves: `b.dependency("glowcap", …)` resolves; `.module("glowcap")`
-//! imports, and so do the optional modules the site's Zig tabs name,
-//! `glowcap_iroh` and `glowcap_webrtc` (which link cargo-built sidecars) and
-//! `glowcap_relay_tls` (which builds Mbed TLS from source), and a program
-//! over all of them compiles and links. Driven by `zig build consumer-check`
-//! from the repository root.
+//! Downstream fixture for `consumer-check`. Its driver fetches a source archive
+//! into this manifest before building core-only and all-public-module variants.
 
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const optional = b.option(bool, "optional", "Link every optional public module") orelse false;
+    const iroh = b.option(bool, "iroh", "Link the iroh module") orelse optional;
+    const webrtc = b.option(bool, "webrtc", "Link the WebRTC module") orelse optional;
 
-    const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimize });
+    const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimize, .iroh = iroh, .webrtc = webrtc });
 
     const exe = b.addExecutable(.{
         .name = "glowcap-consumer",
@@ -26,9 +21,25 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
-    exe.root_module.addImport("iroh", glowcap.module("glowcap_iroh"));
-    exe.root_module.addImport("relay_tls", glowcap.module("glowcap_relay_tls"));
-    exe.root_module.addImport("webrtc", glowcap.module("glowcap_webrtc"));
+    const options = b.addOptions();
+    options.addOption(bool, "optional", optional);
+    options.addOption(bool, "iroh", iroh);
+    options.addOption(bool, "webrtc", webrtc);
+    exe.root_module.addOptions("options", options);
+    if (optional) {
+        inline for (.{ "relay_tls", "loam_lmdb", "loam_sqlite" }) |name| {
+            exe.root_module.addImport(name, glowcap.module("glowcap_" ++ name));
+        }
+    }
+    if (iroh) exe.root_module.addImport("iroh", glowcap.module("glowcap_iroh"));
+    if (webrtc) exe.root_module.addImport("webrtc", glowcap.module("glowcap_webrtc"));
+    if (iroh or webrtc) {
+        const transport = glowcap.module(if (iroh) "glowcap_iroh" else "glowcap_webrtc");
+        const archive = for (transport.link_objects.items) |object| {
+            if (object == .static_path) break object.static_path;
+        } else @panic("transport has no sidecar archive");
+        b.getInstallStep().dependOn(&b.addInstallFile(archive, "sidecars.a").step);
+    }
     b.installArtifact(exe);
     b.getInstallStep().dependOn(&exe.step);
 }

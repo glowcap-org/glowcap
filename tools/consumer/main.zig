@@ -1,14 +1,11 @@
-//! The downstream consumer's whole program: import glowcap and the optional
-//! transport modules, touch the surface the README's Quick Start and
+//! The downstream consumer imports glowcap and, when selected, the optional
+//! transport and storage modules. Touch the surface the README's Quick Start and
 //! the Start page's tabs touch, and exit. It never opens a socket, the claim
 //! under test is that the package resolves and the library compiles and links
 //! for someone who fetched it, not that loopback works (the suite covers that).
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const iroh = @import("iroh");
-const relay_tls = @import("relay_tls");
-const webrtc = @import("webrtc");
 
 pub fn main() !void {
     // Reach the types the README's first code block names, so a consumer-side
@@ -19,13 +16,8 @@ pub fn main() !void {
     };
     std.mem.doNotOptimizeAway(&opts);
 
-    // The iroh, relay, and webrtc tabs on Start building import these modules.
-    const partner = iroh.locator("<64 lowercase hex characters from the server>");
-    std.mem.doNotOptimizeAway(&partner);
-    var relay: relay_tls.Provider = undefined;
-    std.mem.doNotOptimizeAway(&relay);
-    var endpoint: webrtc.Resident = undefined;
-    std.mem.doNotOptimizeAway(&endpoint);
+    const options = @import("options");
+    if (options.optional or options.iroh or options.webrtc) @import("optional.zig").exercise();
 
     const bytes = try std.heap.page_allocator.dupe(u8, "glowcap");
     var frame = try glowcap.foundation.Frame.initOwned(std.heap.page_allocator, bytes, .byte, .of(u8));

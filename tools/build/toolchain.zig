@@ -20,9 +20,9 @@ const execution = @import("execution.zig");
 const in_tree_runtimes = [_]toolchain_check.Runtime{
     .{
         .program = "python3",
-        .scripts = &.{ "tools/run-with-timeout.py", "tools/check/rooms_peer.py", "tools/check/glowcap_release.py", "tools/check/glowcap_release_test.py", "tools/check/glowcap_host.py", "test/loam/engines/io_fault/run.py" },
+        .scripts = &.{ "tools/run-with-timeout.py", "tools/check/rooms_peer.py", "tools/check/glowcap_release.py", "tools/check/glowcap_release_test.py", "tools/check/glowcap_host.py", "tools/check/zig_package.py", "test/loam/engines/io_fault/run.py" },
         .modules = &.{"py_compile"},
-        .why = "deterministic subprocesses use the shared deadline wrapper, orchestrators bound each child they start, and the Python benchmark client is compile-checked",
+        .why = "deterministic subprocesses use the shared deadline wrapper, orchestrators bound each child, the benchmark client is compile-checked, and the Zig package proof uses Git and nm and builds optional Cargo and TLS modules",
     },
     .{
         .program = "bash",
