@@ -243,11 +243,6 @@ pub fn register(
     bindings_step.dependOn(site_reg.python_examples_check);
     bindings_step.dependOn(site_reg.rust_examples_check);
     bindings_step.dependOn(site_reg.racket_examples_check);
-    const package_check = addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/binding_packages.py" });
-    package_check.step.dependOn(b.getInstallStep());
-    package_check.has_side_effects = true;
-    const package_step = b.step("bindings-package-check", "Build and exercise detached Rust, Python and Racket packages and dry-run JSR publication (needs cargo, uv, racket and deno)");
-    package_step.dependOn(&package_check.step);
     const bindings_onion_step = b.step("bindings-onion", "Run the onion provider proof in every language binding (needs cargo + deno + python3 + racket)");
 
     // Glowcap-only three-party handoff: glowcap is exporter, gifter, and
@@ -271,12 +266,13 @@ pub fn register(
     };
 }
 
-/// The formatting and per-scope check half, wired after the archives and
-/// dogfood runs it references exist.
+/// The formatting, per-scope check, and detached-package half, wired after
+/// the archives and dogfood runs it references exist.
 pub fn registerChecks(
     b: *std.Build,
     check_step: *std.Build.Step,
     onion_dynamic_install: *std.Build.Step,
+    companion_abi_steps: []const *std.Build.Step,
     rooms_browser: *std.Build.Step,
     reg: Registered,
 ) void {
@@ -523,4 +519,13 @@ pub fn registerChecks(
     bindings_onion_step.dependOn(&deno_onion_test.step);
     bindings_onion_step.dependOn(&dogfood_runs[3].step);
     bindings_onion_step.dependOn(&dogfood_runs[4].step);
+
+    // The detached Rust consumer enables every transport feature, so it links
+    // the iroh and WebRTC companions that the default install leaves out.
+    const package_check = addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/binding_packages.py" });
+    package_check.step.dependOn(b.getInstallStep());
+    for (companion_abi_steps) |abi_step| package_check.step.dependOn(abi_step);
+    package_check.has_side_effects = true;
+    const package_step = b.step("bindings-package-check", "Build and exercise detached Rust, Python and Racket packages and dry-run JSR publication (needs cargo, uv, racket and deno)");
+    package_step.dependOn(&package_check.step);
 }

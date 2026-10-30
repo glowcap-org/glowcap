@@ -624,9 +624,9 @@ pub fn build(b: *std.Build) void {
     // tools/build/apps_demos.zig.
     apps_demos_build.register(b, target, optimize, lib_mod, loam_engines.sqlite, check_step, runtime_gate, pin_port, attach, demo_usage_mod, demo_tools_check_mod);
 
-    // The formatting and per-scope checks register from
+    // The formatting, per-scope, and detached-package checks register from
     // tools/build/bindings_steps.zig, over the archives and dogfood runs.
-    bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, rooms.browser_application, bindings_reg);
+    bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, &.{ iroh_abi_step, webrtc_reg.abi_step }, rooms.browser_application, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
     ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, browser_preflight, rooms_services_install);
