@@ -19,7 +19,7 @@ class RoomsPeerTest(unittest.TestCase):
                 with patch.object(rooms_peer.time, "monotonic", side_effect=[0, elapsed]), \
                      patch.object(rooms_peer.subprocess, "run", return_value=
                                   subprocess.CompletedProcess([], 0, '{"ok":true}', '')):
-                    self.assertEqual(rooms_peer.cli(Path("peer"), "status"), {"ok": True})
+                    self.assertEqual(rooms_peer.cli(Path("peer"), "status", timeout=10), {"ok": True})
                 self.assertEqual("2x slower" in output.getvalue(), warning)
 
     def test_timeout_preserves_partial_evidence_without_retry(self):
@@ -27,7 +27,7 @@ class RoomsPeerTest(unittest.TestCase):
         with redirect_stderr(io.StringIO()) as output, \
              patch.object(rooms_peer.subprocess, "run", side_effect=failure) as run:
             with self.assertRaises(subprocess.TimeoutExpired):
-                rooms_peer.cli(Path("peer"), "status")
+                rooms_peer.cli(Path("peer"), "status", timeout=10)
         run.assert_called_once()
         self.assertIn("partial reply", output.getvalue())
         self.assertIn("peer error", output.getvalue())

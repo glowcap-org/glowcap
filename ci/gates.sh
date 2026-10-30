@@ -217,7 +217,7 @@ build zig build check-build
 gate zig build check
 phase memcheck
 build zig build test-memcheck-build
-gate zig build test-memcheck
+long zig build test-memcheck
 # The process, application, and language-workspace proofs, run against the
 # ReleaseSafe archives a release ships (tools/build/release.zig refuses Debug).
 # The core phase's Debug tests still meet Debug's undefined-memory fill on

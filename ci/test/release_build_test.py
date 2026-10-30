@@ -1,9 +1,11 @@
-"""Exercise release SDK selection at the workflow's actual shell boundary."""
+"""Exercise release rechecks and toolchain selection at their shell boundary."""
 
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import struct
 import tempfile
@@ -11,7 +13,8 @@ import textwrap
 import unittest
 from unittest import mock
 
-from workflow_test import ROOT, shell_step
+from workflow_test import ROOT, jobs, shell_step
+from workflow_expression import selected
 
 
 spec = importlib.util.spec_from_file_location('zig_package', ROOT / 'tools/check/zig_package.py')
@@ -20,6 +23,61 @@ spec.loader.exec_module(PACKAGE)
 
 
 class ReleaseBuild(unittest.TestCase):
+    def test_product_recheck_is_separate_from_build_and_publication(self):
+        declared = jobs('.github/workflows/release.yml')
+        for event, run, builds, rechecks in (
+            ('push', '', True, False), ('push', '123', True, False),
+            ('workflow_dispatch', '', True, False), ('workflow_dispatch', '123', False, True),
+        ):
+            with self.subTest(event=event, run=run):
+                context = {'inputs': {'recheck_run': run}}
+                self.assertEqual(selected(declared['archives'][0], {'event_name': event}, context=context), builds)
+                self.assertEqual(selected(declared['recheck'][0], {'event_name': event}, context=context), rechecks)
+        body = declared['recheck'][1]
+        self.assertIn('run-id: ${{ inputs.recheck_run }}', body)
+        self.assertIn('name: archives-${{ matrix.runner }}', body)
+        self.assertNotIn('zig build', body)
+        self.assertNotIn(': write', body)
+
+    def test_failed_product_archives_are_preserved_without_qualifying_them(self):
+        body = jobs('.github/workflows/release.yml')['archives'][1]
+        predicate = re.search(r'^        if: (.*hashFiles.*)$', body, re.M)[1]
+        for present in (False, True):
+            expression = predicate.replace("hashFiles('zig-out/glowcap-release/*.tar.gz')",
+                                           repr('digest' if present else ''))
+            for cancelled in (False, True):
+                self.assertEqual(selected(expression, success=False, cancelled=cancelled),
+                                 present and not cancelled)
+
+    def test_recheck_verifies_one_archive_and_preserves_proof_failure(self):
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        script = shell_step(workflow, 'Recheck the installed product')
+        for count, damaged, status in ((1, False, 0), (1, False, 37), (1, True, 0),
+                                       (0, False, 0), (2, False, 0)):
+            with self.subTest(count=count, damaged=damaged, status=status), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                directory = root / 'archive-artifact/glowcap-release'
+                directory.mkdir(parents=True)
+                for index in range(count):
+                    (directory / f'glowcap-v0.1.{index}-host.tar.gz').write_bytes(b'product')
+                product = directory / 'glowcap-v0.1.0-host.tar.gz'
+                digest = hashlib.sha256(b'damaged' if damaged else b'product').hexdigest()
+                (directory / 'SHA256SUMS').write_text(f'{digest}  {product.name}\n')
+                proof = root / 'tools/check/glowcap_release.py'
+                proof.parent.mkdir(parents=True)
+                proof.write_text('import json,os,sys\nfrom pathlib import Path\n'
+                                 'Path("proof-call").write_text(json.dumps(sys.argv[1:]))\n'
+                                 'raise SystemExit(int(os.environ["PROOF_STATUS"]))\n')
+                result = subprocess.run(['bash', '-ec', script], cwd=root,
+                                        env=dict(os.environ, PROOF_STATUS=str(status)),
+                                        capture_output=True, text=True, timeout=5)
+                called = count == 1 and not damaged
+                self.assertEqual((root / 'proof-call').exists(), called, result.stderr)
+                self.assertEqual(result.returncode, status if called else 1, result.stderr)
+                if called:
+                    self.assertEqual(json.loads((root / 'proof-call').read_text()),
+                                     ['archive-artifact/glowcap-release/' + product.name])
+
     def test_packaging_contracts_run_before_product_compilation(self):
         workflow = (ROOT / '.github/workflows/release.yml').read_text()
         before = workflow.index('      - name: Check release packaging contracts\n')

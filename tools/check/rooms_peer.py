@@ -19,10 +19,11 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONT = ROOT / "zig-out/bin/glowcap"
-COMMAND_SECONDS = 10
-# Startup composes peer launch, durable directory registration and room joins.
-# ARM macOS measured 6.75s; reserve headroom for the slower Intel runner.
-START_SECONDS = 30
+# Intel macOS measured 2.6s durable room replies and over 10s for first
+# private contact. Startup composes peer launch and membership settlement
+# (20.7s measured), and a team composes two such starts.
+COMMAND_SECONDS = 30
+START_SECONDS = 2 * COMMAND_SECONDS
 
 
 def failure_logs(root):

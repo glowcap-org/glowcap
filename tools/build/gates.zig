@@ -334,7 +334,9 @@ pub fn register(ctx: Context) Registered {
         .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
         .use_llvm = true,
     });
-    const run_memcheck = execution.addZigTest(b, memcheck_tests, .{ .memcheck = 900 });
+    // The hosted baseline-CPU Debug suite measured 672s under valgrind.
+    // Instrumentation needs at least 2x that time, independently of compilation.
+    const run_memcheck = execution.addZigTest(b, memcheck_tests, .{ .memcheck = 1800 });
     b.step("test-memcheck", "Run the protocol core and actors tests under valgrind, built for the baseline CPU (-Dtest-filter narrows it)").dependOn(&run_memcheck.step);
     b.step("test-memcheck-build", "Compile the test-memcheck suite without running it").dependOn(&memcheck_tests.step);
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
