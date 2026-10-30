@@ -142,21 +142,26 @@ jobs:
           while IFS= read -r store; do
             if [ -e "$store" ]; then present+=("$store"); fi
           done <<<"$names"
-          size=0
+          size_kib=0
           if [ "${#present[@]}" -gt 0 ]; then
             du -sh "${present[@]}"
-            size=$(du -s --block-size=1G "${present[@]}" | awk '{ total += $1 } END { print total + 0 }')
+            # Sum before converting units: rounding each small Deno store to
+            # a GiB can make a healthy cache appear several GiB too large.
+            size_kib=$(du -sk "${present[@]}" | awk '{ total += $1 } END { printf "%.0f", total }')
           fi
-          free=$(df --output=avail --block-size=1G / | tail -1 | tr -d ' ')
-          echo "Restored build state: ${size} GB of ${LIMIT_GB} GB, ${free} GB free"
+          free_kib=$(df --output=avail --block-size=1K / | tail -1 | tr -d ' ')
+          limit_kib=$((LIMIT_GB * 1024 * 1024))
+          floor_kib=$((FREE_FLOOR_GB * 1024 * 1024))
+          awk -v used="$size_kib" -v limit="$limit_kib" -v free="$free_kib" \
+            'BEGIN { printf "Restored build state: %.2f GiB of %.2f GiB, %.2f GiB free\n", used/1048576, limit/1048576, free/1048576 }'
           # The running container mounts the stores, so a drop empties each
           # in place: a removed directory leaves its mount on a deleted inode,
           # and every write through it fails.
-          if [ "$size" -gt "$LIMIT_GB" ] || [ "$free" -lt "$FREE_FLOOR_GB" ]; then
+          if [ "$size_kib" -gt "$limit_kib" ] || [ "$free_kib" -lt "$floor_kib" ]; then
             for store in ${present[@]+"${present[@]}"}; do
               find "$store" -mindepth 1 -delete
             done
-            echo "Dropped it; this run builds cold and saves a fresh state."
+            echo "Dropped it; this run builds cold."
           fi
 
       - name: Fetch pinned Zig dependencies

@@ -113,10 +113,15 @@ class RuntimeTest(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/check-group.yml').read_text()
         step = workflow.split('      - name: Bound the restored build state\n', 1)[1].split('\n      - name:', 1)[0]
         command = textwrap.dedent(step.split('        run: |\n', 1)[1])
-        cases = [(0, 40, 12, False), (1, 40, 12, False), (7, 40, 12, False),
-                 (7, 40, 2, True), (1, 5, 12, True)]
-        for count, free, limit, removed in cases:
-            with self.subTest(count=count, free=free, limit=limit), tempfile.TemporaryDirectory() as temporary:
+        gib = 1024 * 1024  # du/df use KiB, keeping comparisons integral.
+        cases = [(0, 40 * gib, 12, gib, False), (1, 40 * gib, 12, gib, False),
+                 (7, 40 * gib, 12, gib, False), (7, 40 * gib, 2, gib, True),
+                 (1, 5 * gib, 12, gib, True),
+                 (7, 40 * gib, 1, 1024, False),  # Seven MiB must not count as seven GiB.
+                 (1, 20 * gib - 1, 12, 1024, True),  # Free disk must not round up.
+                 (1, 20 * gib, 1, gib, False)]  # Exact limits keep the store.
+        for count, free, limit, store_kib, removed in cases:
+            with self.subTest(count=count, free=free, limit=limit, store_kib=store_kib), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 home = dict(os.environ, HOME=str(root))
                 names = subprocess.run(['bash', 'ci/state.sh', 'stores'], cwd=ROOT, env=home,
@@ -130,20 +135,30 @@ class RuntimeTest(unittest.TestCase):
                 binary = root / 'bin'
                 binary.mkdir()
                 (binary / 'du').write_text('#!/usr/bin/env python3\n' + textwrap.dedent('''\
-                    import pathlib, sys
+                    import os, pathlib, sys
+                    size = int(os.environ['STORE_KIB'])
+                    if '--block-size=1G' in sys.argv:
+                        size = (size + 1048575) // 1048576
                     missing = False
                     for arg in sys.argv[1:]:
                         if arg.startswith('-'): continue
-                        if pathlib.Path(arg).exists(): print('1\\t' + arg)
+                        if pathlib.Path(arg).exists(): print(str(size) + '\\t' + arg)
                         else: missing = True
                     sys.exit(1 if missing else 0)
                     '''))
-                (binary / 'df').write_text(f'#!/bin/sh\nprintf "Avail\\n{free}\\n"\n')
+                (binary / 'df').write_text('#!/usr/bin/env python3\n' + textwrap.dedent('''\
+                    import os, sys
+                    free = int(os.environ['FREE_KIB'])
+                    if '--block-size=1G' in sys.argv:
+                        free = (free + 1048575) // 1048576
+                    print('Avail')
+                    print(free)
+                    '''))
                 for path in binary.iterdir():
                     path.chmod(0o755)
                 result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', command], cwd=ROOT,
                                         env=dict(home, PATH=f"{binary}:{os.environ['PATH']}",
-                                                 LIMIT_GB=str(limit), FREE_FLOOR_GB='20'),
+                                                 LIMIT_GB=str(limit), FREE_FLOOR_GB='20', STORE_KIB=str(store_kib), FREE_KIB=str(free)),
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 # A drop keeps each directory, because the container mounts it.
