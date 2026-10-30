@@ -135,6 +135,11 @@ class PackageValidation(unittest.TestCase):
                     release.check_loader(self.destination)
 
     def test_macos_loader_batches_objects_under_one_deadline(self):
+        # macOS temporary paths can alias /private/var through /var. Exercise
+        # that shape on every platform, including spaces in the alias.
+        alias = self.root / "install alias"
+        alias.symlink_to(self.destination, target_is_directory=True)
+        self.destination = alias
         for name in ("bin", "libexec", "lib"):
             (self.destination / name).mkdir()
         for name in ("bin/glowcap", "libexec/rooms-session", "lib/library.dylib"):
@@ -147,7 +152,7 @@ class PackageValidation(unittest.TestCase):
         self.assertEqual(output.call_count, 2)
         libraries, rpath = output.call_args_list
         self.assertEqual(set(libraries.args[0][2:]), {
-            str(self.destination / name) for name in ("bin/glowcap", "libexec/rooms-session", "lib/library.dylib")})
+            str((self.destination / name).resolve()) for name in ("bin/glowcap", "libexec/rooms-session", "lib/library.dylib")})
         self.assertEqual(libraries.kwargs["timeout"], 27)
         self.assertEqual(rpath.kwargs["timeout"], 19)
 
