@@ -334,7 +334,9 @@ pub fn register(ctx: Context) Registered {
         .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
         .use_llvm = true,
     });
-    const run_memcheck = execution.addZigTest(b, memcheck_tests, .{ .memcheck = 900 });
+    // The hosted baseline-CPU Debug suite measured 672s under valgrind.
+    // Instrumentation needs at least 2x that time, independently of compilation.
+    const run_memcheck = execution.addZigTest(b, memcheck_tests, .{ .memcheck = 1800 });
     b.step("test-memcheck", "Run the protocol core and actors tests under valgrind, built for the baseline CPU (-Dtest-filter narrows it)").dependOn(&run_memcheck.step);
     b.step("test-memcheck-build", "Compile the test-memcheck suite without running it").dependOn(&memcheck_tests.step);
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
@@ -488,21 +490,13 @@ pub fn register(ctx: Context) Registered {
         .name = "glowcap-cross-wasm-core",
         .root_module = crossCoreModule(b, b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }), .Debug),
     });
-    // The README's first instruction, as a check: a throwaway downstream
-    // package under `tools/consumer/` depends on glowcap by path the way a
-    // consumer depends on it by URL, imports the `glowcap` module, and builds
-    // a program against the public surface. It is the one claim in the tree
-    // that every reader executes, so it gets a step rather than an assertion.
+    // A real fetched archive applies .paths, unlike a checkout dependency.
+    // Exercise core-only use and all optional modules outside the checkout.
     const consumer_check_step = b.step("consumer-check", "Build a downstream package against the glowcap module (the README's fetch/import path)");
     const consumer_build = execution.addSystemCommand(b, .build_tool, &.{
-        b.graph.zig_exe,
-        "build",
-        "--cache-dir",
-        common.rootPath(b, ".zig-cache/consumer"),
-        "--prefix",
-        common.rootPath(b, "zig-out/consumer"),
+        "python3", "tools/check/zig_package.py", "--zig", b.graph.zig_exe,
     });
-    consumer_build.setCwd(b.path("tools/consumer"));
+    consumer_build.setCwd(b.path("."));
     consumer_build.setName("consumer-check");
     consumer_check_step.dependOn(&consumer_build.step);
     check_step.dependOn(consumer_check_step);

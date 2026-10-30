@@ -20,7 +20,7 @@ A published binding must load compatible archives without assuming a monorepo ch
 
 A shipped machine-readable contract defines archive versions, targets, naming, cache layout and permitted resolution paths. Loaders apply the configured override, verified download cache, allowed in-tree output and operating-system lookup in the declared order.
 
-Downloads and extraction are language-native. The operator fetch script is a contributor tool, not an installation dependency. Checksums and safe extraction precede trust in a cache marker. Archive identity is checked before ordinary calls. Extraction rejects traversal, symlinks and hardlinks and uses a sanitized archive-tool environment. Caller-supplied tar options cannot change the checked extraction.
+Each binding owns its download and extraction path. The operator fetch script is a contributor tool, not an installation dependency. Checksums and safe extraction precede trust in a cache marker. Archive identity is checked before ordinary calls. Extraction rejects traversal, symlinks and hardlinks and uses a sanitized archive-tool environment. Caller-supplied tar options cannot change the checked extraction.
 
 ## Alternatives and consequences
 

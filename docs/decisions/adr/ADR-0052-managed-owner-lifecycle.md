@@ -34,4 +34,4 @@ A receipt is not authority to bypass present revocation or scope. The fixed-reso
 
 ## Evidence
 
-Managed owner, control, exact-replay and cold-inventory tests run through the shared suite. Native and browser consumer proofs establish their projections. [Storage integration](../../loam/access-storage.md) and [the roadmap](../../roadmap.md) own remaining application work.
+Managed owner, control, exact-replay and cold-inventory tests run through the shared suite. C, Rust, and browser consumer proofs establish their projections. [Storage integration](../../loam/access-storage.md) and [the roadmap](../../roadmap.md) own remaining application work.

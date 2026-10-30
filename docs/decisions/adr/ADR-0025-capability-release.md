@@ -14,7 +14,7 @@ amended_by: []
 
 ## Context
 
-A capability handle retains remote authority. Native deterministic destruction and language finalizers provide different guarantees and should not silently choose the same policy.
+A capability handle retains remote authority. Rust destruction and garbage-collector finalizers provide different guarantees and should not silently choose the same policy.
 
 ## Decision
 

@@ -80,15 +80,14 @@ jobs:
       group: ${{ matrix.group.name }}
       phases: ${{ toJSON(matrix.group.phases) }}
       shards: ${{ toJSON(matrix.group.shards) }}
-      full: ${{ needs.plan.outputs.full }}
       image: ${{ needs.image.outputs.image }}
       archive: ${{ needs.image.outputs.archive }}
 
   # Keep the branch-protection context stable. Missing, skipped, cancelled,
-  # or failed matrix work must never produce a successful aggregate.
+  # or failed Linux or macOS work must never produce a successful aggregate.
   gates:
     name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}
-    needs: [plan, image, linux]
+    needs: [plan, image, linux, macos-runtime]
     if: >-
       always() && (
       github.event_name == 'push' || github.event_name == 'pull_request' ||
@@ -96,13 +95,18 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
     steps:
-      - name: Require every Linux group to pass
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Summarize and require validation
         env:
-          IMAGE: ${{ needs.image.result }}
-          RESULT: ${{ needs.linux.result }}
-          PLAN: ${{ needs.plan.result }}
-        run: test "$PLAN" = success && test "$IMAGE" = success && test "$RESULT" = success
+          GH_TOKEN: ${{ github.token }}
+          VALIDATION_NEEDS: ${{ toJSON(needs) }}
+        run: python3 ci/report.py
 
   # Full validation searches each fuzz target for 25K runs. This job searches
   # ten times longer, nightly on dev, and fails on a find; a find is replayed

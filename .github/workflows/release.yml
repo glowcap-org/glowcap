@@ -1,11 +1,14 @@
 # The hosted product, C SDK, and Rooms image release. Matching host archives are
 # built first with `zig build -Doptimize=ReleaseSafe release-pack glowcap-pack
-# -Dcpu=baseline`. Each native Linux runner then builds and exercises its image
+# -Dcpu=baseline`. Each Linux runner then builds and exercises its image
 # from that exact product archive. A matching version tag on an exact commit
 # that passed full main checks authorizes publication of every tarball, one combined
 # SHA256SUMS, and the two-platform Rooms image. workflow_dispatch builds, tests,
 # and uploads archives and Docker image artifacts only — it publishes
-# nothing. Versioning is `abi_version` in
+# nothing. Its optional recheck_run input exercises a previous run's installed
+# product archives and container images without recompiling or qualifying
+# source packages.
+# Versioning is `abi_version` in
 # build.zig (reported by `glowcap_abi_version`); the tag records the release
 # point. This is the find leg's upstream named in bindings/README.md: a
 # runtime-download or per-platform packaging leg resolves archives from here.
@@ -17,6 +20,11 @@ name: release
 
 on:
   workflow_dispatch:
+    inputs:
+      recheck_run:
+        description: "Recheck installed products from this release run ID (no build or publication)"
+        type: string
+        default: ""
   push:
     tags: ["v*"]
 
@@ -70,6 +78,7 @@ jobs:
           python3 tools/check/require-main-check.py "$GITHUB_SHA"
 
   archives:
+    if: github.event_name != 'workflow_dispatch' || inputs.recheck_run == ''
     needs: contract
     permissions:
       contents: read
@@ -105,6 +114,7 @@ jobs:
           source .devcontainer/pins.sh
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
+          rustup component add llvm-tools
 
       - name: Read test and browser tool pins
         id: python
@@ -117,6 +127,20 @@ jobs:
         with:
           python-version: ${{ steps.python.outputs.version }}
 
+      - name: Restore Zig package downloads
+        timeout-minutes: 5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
+
+      - name: Fetch pinned Zig dependencies
+        run: |
+          bash ci/fetch-zig.sh
+
+      - name: Check release packaging contracts
+        run: zig build glowcap-package-test --summary all
+
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: ${{ steps.python.outputs.deno }}
@@ -128,9 +152,21 @@ jobs:
           cargo install wasm-bindgen-cli --version "$version" --locked
 
       - name: Build the release tarball
-        run: zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }}
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+            export SDKROOT
+          fi
+          zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }}
+
+      - name: Verify the Zig source package
+        run: zig build consumer-check --summary all
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        # Preserve the product when its proof fails, so a corrected harness can
+        # exercise that exact archive without another toolchain/product build.
+        if: ${{ !cancelled() && hashFiles('zig-out/glowcap-release/*.tar.gz') != '' }}
+        timeout-minutes: 5
         with:
           name: archives-${{ matrix.runner }}
           path: |
@@ -140,9 +176,65 @@ jobs:
             zig-out/glowcap-release/SHA256SUMS
           if-no-files-found: error
 
-  images:
-    needs: [contract, archives]
+  recheck:
+    if: github.event_name == 'workflow_dispatch' && inputs.recheck_run != ''
+    needs: contract
+    timeout-minutes: 30
     permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the recheck Python pin
+        id: python
+        run: |
+          source .devcontainer/pins.sh
+          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 5
+        with:
+          name: archives-${{ matrix.runner }}
+          path: archive-artifact
+          run-id: ${{ inputs.recheck_run }}
+          github-token: ${{ github.token }}
+
+      - name: Recheck the installed product
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          import subprocess
+          import sys
+          products = list(Path('archive-artifact/glowcap-release').glob('glowcap-v*.tar.gz'))
+          if len(products) != 1:
+              raise SystemExit(f'expected one product archive, found {len(products)}')
+          product = products[0]
+          with product.open('rb') as archive:
+              digest = hashlib.file_digest(archive, 'sha256').hexdigest()
+          if product.with_name('SHA256SUMS').read_text().split() != [digest, product.name]:
+              raise SystemExit('product archive checksum mismatch')
+          result = subprocess.run([sys.executable, 'tools/check/glowcap_release.py', str(product)])
+          raise SystemExit(result.returncode)
+          PY
+
+  images:
+    needs: [contract, archives, recheck]
+    if: ${{ !cancelled() && needs.contract.result == 'success' && (needs.archives.result == 'success' || needs.recheck.result == 'success') }}
+    permissions:
+      actions: read
       contents: read
     strategy:
       fail-fast: false
@@ -174,6 +266,8 @@ jobs:
         with:
           name: archives-${{ matrix.runner }}
           path: archive-artifact
+          run-id: ${{ inputs.recheck_run || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Extract the verified Linux product
         env:

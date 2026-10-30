@@ -195,23 +195,26 @@ sequence. Full validation includes bounded mutation fuzzing. Nightly runs also
 search deeper with the fuzzer, as does a manual `suite=fuzz` run. A fuzzer
 finding is retained as a downloadable artifact for reproduction.
 
-Pull requests into `dev` report `dev-gates`. Only complete validation reports
-`gates`, which the main ruleset requires. The ruleset reads it from the run the
-push to `dev` started, and that run's success moves `main` to the commit, as
+Selected validation reports `dev-gates`. Complete validation reports `gates`,
+including on pull requests that require every group. The main ruleset reads
+`gates` from the run the push to `dev` started. That run's success moves `main`
+to the commit, as
 described in [Maintaining glowcap](docs/maintaining.md#promoting-to-main).
 
 Linux validation runs in the groups [`ci/plan.py`](ci/plan.py) names. A group's
 build jobs each compile one shard of what its phases run and hand the compiled
 state to one test job per phase. Test jobs restore that state before running
-their phases side by side. The source group has no build job: its source checks, formatting
-among them, start with the run and report within minutes. Each test job reports gate durations in its summary and attaches
-JSON evidence as an artifact.
+their phases side by side. Source and infrastructure checks start without waiting
+for a product build, including package and TLS fixture regression tests. The
+live TLS proof has its own build group. Each test job reports gate durations
+and attaches JSON evidence.
 
 A failed job does not cancel its siblings, a failed build still hands its tests
 what it compiled, and a failed test does not stop its phase, so one run reports
 every failing test. A build that runs out of time ends its phase, because every
 later gate in that phase needs it. The aggregate check requires every selected
-group to pass.
+Linux group and macOS validation to pass. Its summary identifies the commit,
+links failing jobs, and lists the longest completed jobs.
 
 Superseded runs on the same branch and event are cancelled. Long gates report
 elapsed time once a minute without extending their deadlines.
@@ -220,10 +223,11 @@ A deadline holds on the slowest machine that runs it. Hosted runners compile
 cold, an order of magnitude slower than a warm workstation, and run tests
 slower too. Each job therefore carries only the phases that fit its time limit,
 and a phase opens with its shared build under a separate build allowance so a
-proof's deadline times the proof. A step that passes using more than half its
-deadline says so, locally too. A test step whose deadline fires reruns once,
-and the log names the miss, so a retry absorbs a stalled runner without
-hiding a slow test.
+proof's deadline times the proof.
+
+Tests that use more than half their deadline warn, locally too. A missed
+deadline fails the check without an automatic retry. Diagnose the stopped
+attempt before rerunning it. A later pass does not explain the failure.
 
 To reproduce CI's process checks locally, compile in ReleaseSafe first, then
 run the tests in the same mode. Run browser proofs separately from this sequence.
@@ -234,15 +238,14 @@ zig build runtime-check -Doptimize=ReleaseSafe
 ```
 
 Each Linux job starts one devcontainer and reuses it across phases. Dependency
-downloads and each job's Zig and Cargo compile state are cached between runs,
-and only pushes and nightly runs save them. Full qualification builds cold, so
-the result that qualifies `main` reuses no compiled state. Separate jobs have separate caches
-and ports.
+downloads are cached between runs. Pull requests can restore Zig and Cargo
+compile state even when all groups run. Pushes, nightly runs, and manual checks
+build cold and save state for later reviews. The push that qualifies `main`
+therefore reuses no compiled state. Separate jobs have separate caches and ports.
 
-Zig keys every object by its inputs and every process proof reruns, so a
-restored cache saves compile time without skipping a proof. A Zig unit-test
-run whose inputs are unchanged is reused. A toolchain change starts fresh, and
-state past a size limit is dropped. A Linux job removes the hosted runner's
+Zig and Cargo validate cached objects against compiler and source inputs.
+Process proofs rerun, while unchanged Zig unit-test results can be reused.
+State past a size limit is dropped. A Linux job removes the hosted runner's
 unused SDKs only when the runner has less free disk than a job needs, and
 Rust incremental compilation stays off to leave room for build outputs.
 

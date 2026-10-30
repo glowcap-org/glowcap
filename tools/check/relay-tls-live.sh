@@ -18,6 +18,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+python3 "${root}/tools/check/relay_tls_server_test.py"
+
 openssl verify \
 	-CAfile "${root}/test/net/fixtures/tls_root.pem" \
 	"${root}/test/net/fixtures/tls_server.pem"

@@ -18,6 +18,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     const test_step = b.step("glowcap-package-test", "Prove release rollback and reject damaged packages, broken skills, and loader fallbacks");
     test_step.dependOn(&tests.step);
     check_step.dependOn(test_step);
+    b.top_level_steps.get("infrastructure-check").?.step.dependOn(test_step);
 
     const sdk = staging.add(b, target, version, "sdk", manifest);
     sdk.step.dependOn(iroh_abi_step);

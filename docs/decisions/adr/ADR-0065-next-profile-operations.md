@@ -22,7 +22,7 @@ The next profile adopts the merged delivery and listen contracts and removes pro
 
 One fingerprinted manifest records adopted, deferred and pending sections and governs suite adaptation. Updating the specification reference does not silently change the implementation claim. Shared suite changes require fixture review.
 
-The next suite includes the baseline lane, fixture regressions, adapted upstream assertions and draft-native cases. The adapter implements those declared cases rather than promising compatibility with arbitrary future upstream changes.
+The next suite includes the baseline lane, fixture regressions, adapted upstream assertions and locally written draft cases. The adapter implements those declared cases rather than promising compatibility with arbitrary future upstream changes.
 
 ## Alternatives and consequences
 

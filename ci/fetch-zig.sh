@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Used by check.yml to acquire the pinned Zig dependency graph. Fetch packages only, never
-# execute tests. Retry bounded acquisition failures, preserving cancellation.
+# CI checks and releases use this to acquire the pinned Zig dependency graph.
+# Fetch packages only, never execute tests. Retry bounded acquisition failures,
+# preserving cancellation.
 # ZIG_FETCH_RETRY_DELAY controls seconds between attempts (default 5).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

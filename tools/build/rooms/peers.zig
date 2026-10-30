@@ -171,7 +171,9 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     process_run.step.dependOn(&server_install.step);
     test_step.dependOn(&process_run.step);
     runtime_gate.add(test_step);
-    const agent_run = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/rooms_peer.py" });
+    // The same finite journey runs against release archives on Intel macOS.
+    // Every command, readiness wait and shutdown owns its deadline.
+    const agent_run = execution.addSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/rooms_peer.py" });
     agent_run.setCwd(b.path("."));
     agent_run.step.dependOn(&session_install.step);
     agent_run.step.dependOn(&server_install.step);

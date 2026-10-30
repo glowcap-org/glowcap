@@ -337,13 +337,15 @@ fn relayAbiModule(
     });
 }
 
-pub fn addFamily(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    foundation: *std.Build.Module,
-    net: *std.Build.Module,
-) Family {
+pub const Modules = struct {
+    dependency: Dependency,
+    engine: *std.Build.Module,
+    tls: *std.Build.Module,
+    relay: *std.Build.Module,
+};
+
+/// The public relay and its TLS engine, with no test or live-probe setup.
+pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, foundation: *std.Build.Module, net: *std.Build.Module) Modules {
     const dependency = add(b);
     const engine = engineModule(b, target, optimize, dependency, foundation, net);
     const tls_mbedtls = tlsMbedtlsModule(b, target, optimize, net, engine);
@@ -355,6 +357,21 @@ pub fn addFamily(
     relay_tls.addImport("foundation", foundation);
     relay_tls.addImport("net", net);
     relay_tls.addImport("tls_mbedtls", tls_mbedtls);
+    return .{ .dependency = dependency, .engine = engine, .tls = tls_mbedtls, .relay = relay_tls };
+}
+
+pub fn addFamily(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    foundation: *std.Build.Module,
+    net: *std.Build.Module,
+) Family {
+    const modules = addModule(b, target, optimize, foundation, net);
+    const dependency = modules.dependency;
+    const engine = modules.engine;
+    const tls_mbedtls = modules.tls;
+    const relay_tls = modules.relay;
     const check_tls = b.createModule(.{
         .root_source_file = b.path("test/support/tls_stub.zig"),
         .target = target,

@@ -1,10 +1,8 @@
 .{
     .name = .glowcap_consumer,
     .version = "0.0.0",
-    .dependencies = .{
-        .glowcap = .{ .path = "../.." },
-    },
+    .dependencies = .{},
     .fingerprint = 0xb24b87d22c55f634,
     .minimum_zig_version = "0.17.0",
-    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "optional.zig" },
 }

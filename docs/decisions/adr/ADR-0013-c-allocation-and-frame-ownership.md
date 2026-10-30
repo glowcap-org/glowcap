@@ -26,7 +26,7 @@ Managed frame descriptors keep an owned frame in fixed opaque caller-owned words
 
 A Zig allocator vtable cannot be constructed portably by C. Per-handle allocation policy would leave nested frames and later buffers ambiguous. A realloc callback cannot promise preservation of every required alignment.
 
-Caller-owned metadata removes a failure point after a successful dequeue or read. Its size and alignment are ABI facts, so native and Wasm layout generation must agree before a binding calls into an archive.
+Caller-owned metadata removes a failure point after a successful dequeue or read. Its size and alignment are ABI facts that layout generation must derive for each target before a binding calls into an archive.
 
 ## Evidence
 

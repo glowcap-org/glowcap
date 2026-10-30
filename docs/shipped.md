@@ -39,6 +39,7 @@ conformance lane checks `next` beside the unchanged `1.0` suite
 
 The [Zig examples](../examples/README.md), [C guide](consuming-from-c.md), and [binding contract](../bindings/README.md)
 are the entry points for those surfaces.
+The Zig package includes optional iroh, WebRTC, relay TLS, LMDB, and SQLite modules.
 
 ### The C ABI
 

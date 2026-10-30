@@ -20,10 +20,6 @@ on:
         description: JSON array of the build shards, 1 to n; empty when the phases compile at run time and there is nothing to hand over.
         type: string
         required: true
-      full:
-        description: The plan's full output.
-        type: string
-        required: true
       image:
         type: string
         required: true
@@ -64,10 +60,12 @@ jobs:
         run: .devcontainer/ci/reclaim-disk.sh
 
       # Workflow steps own transfer deadlines; composite steps cannot set one.
+      # The 1.62 GB image measured 255s on hosted runners; allow at least
+      # twice that time for this transfer, independently of test deadlines.
       - name: Download the unpublished PR image
         id: receive_image
         if: inputs.archive == 'true'
-        timeout-minutes: 5
+        timeout-minutes: 10
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: &image-download
@@ -76,7 +74,7 @@ jobs:
 
       - name: Download the unpublished PR image again
         if: inputs.archive == 'true' && steps.receive_image.outcome == 'failure'
-        timeout-minutes: 5
+        timeout-minutes: 10
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *image-download
 
@@ -115,20 +113,21 @@ jobs:
       # hosted runner compiles cold an order of magnitude slower than a
       # workstation. Zig keys every object by its inputs and every proof
       # reruns in the test jobs, so a restore saves compile time and skips no
-      # proof. A toolchain change starts a new family. Full qualification
-      # builds cold: its result qualifies main, and it holds the cold build to
-      # its budgets.
+      # proof. Zig and Cargo validate each object against compiler and source
+      # inputs. A packaging manifest edit must not discard an otherwise valid
+      # store. Every PR may reuse state, including one requiring all groups.
+      # Push, nightly and manual qualification still build cold.
       - name: Restore build state
-        if: inputs.full != 'true'
+        if: github.event_name == 'pull_request'
         timeout-minutes: 5
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.stores.outputs.paths }}
-          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-
+          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-
 
       - name: Bound the restored build state
-        if: inputs.full != 'true'
+        if: github.event_name == 'pull_request'
         env:
           # The repository's cache quota is 10 GB compressed across every
           # shard, so a shard's state is held near its cold size instead of
@@ -145,21 +144,26 @@ jobs:
           while IFS= read -r store; do
             if [ -e "$store" ]; then present+=("$store"); fi
           done <<<"$names"
-          size=0
+          size_kib=0
           if [ "${#present[@]}" -gt 0 ]; then
             du -sh "${present[@]}"
-            size=$(du -s --block-size=1G "${present[@]}" | awk '{ total += $1 } END { print total + 0 }')
+            # Sum before converting units: rounding each small Deno store to
+            # a GiB can make a healthy cache appear several GiB too large.
+            size_kib=$(du -sk "${present[@]}" | awk '{ total += $1 } END { printf "%.0f", total }')
           fi
-          free=$(df --output=avail --block-size=1G / | tail -1 | tr -d ' ')
-          echo "Restored build state: ${size} GB of ${LIMIT_GB} GB, ${free} GB free"
+          free_kib=$(df --output=avail --block-size=1K / | tail -1 | tr -d ' ')
+          limit_kib=$((LIMIT_GB * 1024 * 1024))
+          floor_kib=$((FREE_FLOOR_GB * 1024 * 1024))
+          awk -v used="$size_kib" -v limit="$limit_kib" -v free="$free_kib" \
+            'BEGIN { printf "Restored build state: %.2f GiB of %.2f GiB, %.2f GiB free\n", used/1048576, limit/1048576, free/1048576 }'
           # The running container mounts the stores, so a drop empties each
           # in place: a removed directory leaves its mount on a deleted inode,
           # and every write through it fails.
-          if [ "$size" -gt "$LIMIT_GB" ] || [ "$free" -lt "$FREE_FLOOR_GB" ]; then
+          if [ "$size_kib" -gt "$limit_kib" ] || [ "$free_kib" -lt "$floor_kib" ]; then
             for store in ${present[@]+"${present[@]}"}; do
               find "$store" -mindepth 1 -delete
             done
-            echo "Dropped it; this run builds cold and saves a fresh state."
+            echo "Dropped it; this run builds cold."
           fi
 
       - name: Fetch pinned Zig dependencies
@@ -230,7 +234,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.stores.outputs.paths }}
-          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   test:
     needs: build
@@ -256,14 +260,14 @@ jobs:
       - name: Download the unpublished PR image
         id: receive_image
         if: inputs.archive == 'true'
-        timeout-minutes: 5
+        timeout-minutes: 10
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *image-download
 
       - name: Download the unpublished PR image again
         if: inputs.archive == 'true' && steps.receive_image.outcome == 'failure'
-        timeout-minutes: 5
+        timeout-minutes: 10
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *image-download
 

@@ -112,7 +112,6 @@ pub fn checkHumanDocVoice(
             const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
             try reader_voice.banReaderFlaws(gpa, violations, path, contents, .{
                 .insiders = kinds.classify(path, contents).audience == .human,
-                .labels = !std.mem.startsWith(u8, path, "docs/decisions/"),
             });
         }
     }

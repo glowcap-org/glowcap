@@ -100,6 +100,8 @@ Then rewrite:
   human guide says `audience: human` in its header.
 - Fix a generated block at its source, then run its `gen-*` step.
 - Add a word to `insider_words` only if no reader page could ever need it.
+- Apply this pass to PR titles, descriptions, and commit subjects before
+  publishing. Repository prose checks do not inspect those surfaces.
 - Plant a defect in a scratch copy to prove a new check catches it, then
   restore and `cmp` the file. Use `command cp -f`: an interactive `cp` alias
   skips the restore silently.

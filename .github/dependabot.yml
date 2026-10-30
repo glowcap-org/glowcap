@@ -25,9 +25,7 @@ updates:
       - /bindings/proofs/loam_browser/rust
       - /bindings/rust
       - /bindings/rust/relay
-      - /transports/iroh
-      - /transports/sidecar-common
-      - /transports/webrtc
+      - /transports
     schedule:
       interval: monthly
     open-pull-requests-limit: 2

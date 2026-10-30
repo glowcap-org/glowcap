@@ -1,12 +1,9 @@
 # The iroh netlayer sidecar (ADR-0021): a staticlib wrapping the iroh endpoint
 # behind the narrow C ABI in include/glowcap_iroh_sidecar.h. libglowcap stays
-# pure Zig; only the `iroh-*` build steps need cargo on PATH.
+# pure Zig; building this backend requires cargo on PATH.
 #
-# Cargo.lock is committed, unlike bindings/rust's: this crate pulls an external
-# network stack with a large transitive tree, and the lockfile is what makes
-# `zig build iroh-interop` resolve the same dependencies on every machine. The
-# direct dependencies are pinned exactly below as well, so an intentional bump
-# is visible here, not only in the lockfile.
+# The transport workspace's Cargo.lock pins transitive dependencies. Exact
+# direct versions below make intentional updates visible in this manifest.
 [package]
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
@@ -32,7 +29,7 @@ undocumented_unsafe_blocks = "deny"
 # public frame-level artifact `libglowcap_net_transport_iroh` that the `iroh-abi` build step
 # produces (ADR-0021).
 name = "glowcap_iroh_sidecar"
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 # The runtime owner, task barrier, and readiness channel both sidecars share
@@ -51,8 +48,3 @@ tokio = { version = "=1.54.1", features = ["rt-multi-thread"] }
 [dev-dependencies]
 # The same crate with its test helpers switched on for this crate's own tests.
 glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0", features = ["test-support"] }
-
-[profile.release]
-# The staticlib links into Zig-built gate executables; thin LTO keeps the
-# archive lean without cross-language LTO assumptions.
-lto = "thin"

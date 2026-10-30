@@ -58,12 +58,37 @@ def check_loader(root):
     root = root.resolve()
     session = root / "libexec/rooms-session"
     if sys.platform == "darwin":
-        for binary in [*list((root / "bin").iterdir()), *list((root / "libexec").iterdir()), *list((root / "lib").iterdir())]:
-            report = subprocess.check_output(["/usr/bin/otool", "-L", str(binary)], text=True, timeout=5)
-            for line in report.splitlines()[1:]:
-                name = line.strip().split(" (", 1)[0]
-                assert name.startswith(("@rpath/", "@loader_path/", "/usr/lib/", "/System/Library/")), report
-        report = subprocess.check_output(["/usr/bin/otool", "-l", str(session)], text=True, timeout=5)
+        binaries = [*(root / "bin").iterdir(), *(root / "libexec").iterdir(), *(root / "lib").iterdir()]
+        headers = {f"{binary}:": binary for binary in binaries}
+        # Inspect the whole installation in one invocation. Tool discovery and
+        # every object's metadata share one deadline, including the rpath read.
+        deadline = time.monotonic() + 30
+        report = subprocess.check_output(["/usr/bin/otool", "-L", *map(str, binaries)], text=True,
+                                         timeout=max(0, deadline - time.monotonic()))
+        binary, seen = None, set()
+        for line in report.splitlines():
+            if not line.strip():
+                continue
+            if not line[0].isspace():
+                assert line in headers and line not in seen, f"unexpected loader report: {line}"
+                binary = headers[line]
+                seen.add(line)
+                continue
+            assert binary is not None, "loader dependency without its binary"
+            name = line.strip().split(" (", 1)[0]
+            assert name.startswith(("@rpath/", "@loader_path/", "/usr/lib/", "/System/Library/")), report
+            if name.startswith("@rpath/"):
+                dependency = root / "lib" / name.removeprefix("@rpath/")
+            elif name.startswith("@loader_path/"):
+                dependency = binary.parent / name.removeprefix("@loader_path/")
+            else:
+                continue
+            dependency = dependency.resolve()
+            assert dependency.is_relative_to(root / "lib"), f"library escapes package: {name}"
+            assert dependency.is_file(), f"missing packaged library: {name}"
+        assert seen == headers.keys(), "loader report omitted a packaged binary"
+        report = subprocess.check_output(["/usr/bin/otool", "-l", str(session)], text=True,
+                                         timeout=max(0, deadline - time.monotonic()))
         assert "@loader_path/../lib" in report, "missing relocatable library lookup"
     else:
         for binary in [*(root / "bin").iterdir(), *(root / "libexec").iterdir()]:
@@ -219,7 +244,7 @@ def main():
         root.mkdir()
         unpack(archive, root)
         installed = glowcap_host.installation(root, Path(scratch))
-        glowcap_host.deployment(installed, root, Path(scratch))
+        glowcap_host.lifecycle(glowcap_host.Deployment(installed, Path(scratch)), root)
         root = installed.resolve().parent.parent
         assert sorted(path.name for path in (root / "bin").iterdir()) == ["glowcap"]
         for name in ("rooms-server", "rooms-session", "rooms-web", "rooms-chat", "rooms-archive", "rooms-irc-server", "rooms-irc-bridge"):

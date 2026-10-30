@@ -106,7 +106,7 @@ zig build timeout-runner-test               # Black-box the CI deadline wrapper:
 zig build c-abi-extract-check               # In-tree C-ABI extract hygiene matrix: refuse archive path escape/symlink, accept clean lib/ (ADR-0023); part of check
 zig build ocapn-adoption-check              # Validate adopted, deferred, and pending draft and upstream suite accounting without claiming behavioral conformance; part of ocapn-conformance, ocapn-conformance-onion
 zig build ocapn-findings-check              # Reproduce neutral protocol discrepancies across the pinned OCapN spec, suite, and Goblins sources; part of check-external
-zig build ocapn-conformance-next            # Run manifest-selected upstream cases and draft-native cases on negotiated next with the retained hello; part of check-external
+zig build ocapn-conformance-next            # Run manifest-selected upstream and local draft cases on negotiated next with the retained hello; part of check-external
 zig build ocapn-conformance                 # Run portable upstream OCapN modules plus the strict abort probe against glowcap (needs uv + the ocapn-conformance submodule); part of ocapn-conformance-next
 zig build fixture-gen-check                 # Regenerate Syrup fixtures via the upstream Racket Syrup encoder and diff against the committed corpus (needs racket + syrup); part of check-external
 zig build gen-capnp-fixtures                # Regenerate Cap'n Proto golden fixtures under test/codec/capnp_fixtures/
@@ -127,7 +127,7 @@ zig build glowcap-install-test              # Prove the source launcher serves R
 zig build glowcap-host-test                 # Prove verified host installation and Docker deployment commands without a daemon (needs python3); part of runtime-check
 zig build glowcap-pack                      # Package and exercise the complete relocatable glowcap product (explicit Release mode and baseline CPU required)
 zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
-zig build glowcap-package-test              # Prove release rollback and reject damaged packages, broken skills, and loader fallbacks; part of check
+zig build glowcap-package-test              # Prove release rollback and reject damaged packages, broken skills, and loader fallbacks; part of check, infrastructure-check
 zig build product-manifest-test             # Generate and parse a sealed staged product without a release package build; part of check
 zig build relay-tls-build                   # Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)
 ```

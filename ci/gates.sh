@@ -86,17 +86,22 @@ run_gate() {
     case "$compiled" in *$'\n'"${command[*]}"$'\n'*) return 0 ;; esac
     compiled+="${command[*]}"$'\n'
   elif [ "${1:-}" = zig ] && [ "${2:-}" = build ]; then
-    local has_test_timeout=false arg
+    local has_test_timeout=false has_summary=false arg
     for arg in "${@:3}"; do
       [ "$arg" = -- ] && break
-      if [ "$arg" = --test-timeout ]; then
-        has_test_timeout=true
-        break
-      fi
+      [ "$arg" != --test-timeout ] || has_test_timeout=true
+      [ "$arg" != --summary ] || has_summary=true
     done
+    command=(zig build)
     if [ "$has_test_timeout" = false ]; then
-      command=(zig build --test-timeout 30s "${@:3}")
+      command+=(--test-timeout 30s)
     fi
+    # New work is visible in test jobs too: unexpected recompilation after
+    # restoring a group's compiled state must not disappear into a quiet log.
+    if [ "$has_summary" = false ]; then
+      command+=(--summary new)
+    fi
+    command+=("${@:3}")
   fi
   local began=$SECONDS
   printf 'ci/gates.sh: starting: %s\n' "${command[*]}" >&2
@@ -212,7 +217,7 @@ build zig build check-build
 gate zig build check
 phase memcheck
 build zig build test-memcheck-build
-gate zig build test-memcheck
+long zig build test-memcheck
 # The process, application, and language-workspace proofs, run against the
 # ReleaseSafe archives a release ships (tools/build/release.zig refuses Debug).
 # The core phase's Debug tests still meet Debug's undefined-memory fill on
@@ -223,7 +228,9 @@ long zig build runtime-check -Doptimize=ReleaseSafe
 # The optional Mbed TLS relay composition is deliberately absent from the
 # base library graph, so `check` cannot prove it. Fetch the pinned Mbed TLS
 # release by checksum and run both pollable and completion carriers through the
-# real local certificate/refusal/close/resource matrix here.
+# real local certificate/refusal/close/resource matrix independently of the
+# product build, so a carrier failure reports without waiting for Rooms.
+phase tls
 gate zig build relay-tls-build
 phase shipped
 # Bound optimizer memory without dropping a test layer. The workflow contract

@@ -308,6 +308,7 @@ pub fn registerChecks(
         "tools/consumer/build.zig",
         "tools/consumer/build.zig.zon",
         "tools/consumer/main.zig",
+        "tools/consumer/optional.zig",
         "tools/fuzz",
         "tools/gen",
         "bench",
@@ -343,9 +344,7 @@ pub fn registerChecks(
         "apps/tasks/rust/Cargo.toml",
         "apps/rooms/rust/Cargo.toml",
         "apps/rooms/clients/rust/Cargo.toml",
-        "transports/iroh/Cargo.toml",
-        "transports/webrtc/Cargo.toml",
-        "transports/sidecar-common/Cargo.toml",
+        "transports/Cargo.toml",
         "test/interface/rust/Cargo.toml",
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
@@ -380,8 +379,10 @@ pub fn registerChecks(
             !std.mem.eql(u8, manifest, "bindings/proofs/loam_browser/rust/Cargo.toml"))
         {
             const lint = addRootedSystemCommand(b, .build_tool, &.{
-                "cargo", "clippy", "--all-targets", "--manifest-path", manifest, "--", "-D", "warnings",
+                "cargo", "clippy", "--all-targets", "--manifest-path", manifest,
             });
+            if (std.mem.eql(u8, manifest, "transports/Cargo.toml")) lint.addArgs(&.{ "--workspace", "--all-features" });
+            lint.addArgs(&.{ "--", "-D", "warnings" });
             lint.step.dependOn(b.getInstallStep());
             rust_lint_step.dependOn(&lint.step);
         }

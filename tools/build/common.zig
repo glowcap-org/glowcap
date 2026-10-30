@@ -133,6 +133,27 @@ pub fn rootPath(b: *std.Build, sub_path: []const u8) []const u8 {
     return b.root.joinString(b.allocator, sub_path) catch @panic("OOM");
 }
 
+pub const RustSidecar = struct {
+    build: *std.Build.Step.Run,
+    target_dir: std.Build.LazyPath,
+    archive: std.Build.LazyPath,
+};
+
+/// Cargo owns incremental compilation; its stable output directory is a graph
+/// path, so linking a published transport builds its sidecar on demand.
+pub fn rustSidecar(b: *std.Build, manifest: []const u8, library: []const u8) RustSidecar {
+    const run = addRootedSystemCommand(b, .build_tool, &.{
+        "cargo", "build", "--locked", "--release", "--manifest-path", manifest,
+    });
+    const target_dir = run.addPrefixedOutputDirectoryArg("--target-dir=", "target");
+    run.has_side_effects = true;
+    return .{
+        .build = run,
+        .target_dir = target_dir,
+        .archive = target_dir.path(b, b.fmt("release/lib{s}.a", .{library})),
+    };
+}
+
 pub const AbiImport = struct { name: []const u8, module: *std.Build.Module };
 
 /// A module over a transport's public C ABI root (`src/c_abi/net_transport/<transport>/mod.zig`),
@@ -162,33 +183,27 @@ pub fn transportAbiModule(
     return m;
 }
 
-/// Link one Rust sidecar staticlib into `mod`, plus the native runtime its
-/// panic machinery and its crates' platform bindings need.
-///
-/// Both sidecars share this recipe because they share the problem: a Rust
-/// staticlib does not carry its own native link directives into Zig's final
-/// link, so every library the Rust side reaches for has to be named here. The
-/// Apple frameworks cover networking, TLS, and interface discovery, which both
-/// sidecars do; naming them once keeps the two from drifting into "one
-/// platform works and the other does not". The artifact consuming `mod` must
-/// `archive` is the staticlib as a build-graph path, so an artifact that links
-/// it depends on the cargo step that writes it without naming that step.
+/// Link Cargo's static archive and system dependencies into a Zig module.
+/// Cargo's library and framework link directives do not reach Zig. The
+/// LazyPath ties linking to the Cargo build, and both backend families share
+/// the system libraries.
 pub fn linkRustSidecar(
     b: *std.Build,
     mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     archive: std.Build.LazyPath,
 ) void {
-    _ = b;
     mod.addObjectFile(archive);
     mod.link_libc = true;
     mod.linkSystemLibrary("unwind", .{});
     if (target.result.os.tag.isDarwin()) {
-        // Derived from the crates' own link requirements and not exercised by
-        // any check step: nothing links these on Darwin in CI, so the first
-        // Mac to build a sidecar is the check. A missing one surfaces as an
-        // undefined-symbol error from `zig build iroh-interop` or
-        // `webrtc-interop`; add it here.
+        // Explicit deployment targets do not inherit the host's SDK search
+        // paths. --sysroot alone does not supply -L or -F on this toolchain.
+        if (b.graph.environ_map.get("SDKROOT")) |sdk| {
+            mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr", "lib" }) });
+            mod.addFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System", "Library", "Frameworks" }) });
+        }
+        // The macOS release builds exercise these Rust dependencies.
         inline for (&.{
             "CoreFoundation",
             "CoreWLAN",
@@ -260,8 +275,8 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
 }
 
 /// Resolve `-Dtarget`/`-Dcpu` with the baseline CPU as the default, the one
-/// releases ship, and build every host tool for it too. A native CPU keys each
-/// compile on the model of whichever core ran the build process, so
+/// releases ship, and build every host tool for it too. Selecting the host's
+/// CPU keys each compile on the model of whichever core ran the build process, so
 /// heterogeneous cores and the separate machines of CI build and test jobs
 /// each miss the others' cache. Call it first in `build`, before any
 /// dependency configures, so their generators use the same host. Measure the
@@ -363,12 +378,18 @@ pub fn installIfChanged(b: *std.Build, artifact: *std.Build.Step.Compile, dir: s
     return &run.step;
 }
 
-/// ELF export visibility and version scripts require LLVM/lld. The native
-/// x86 backend leaks hidden exports and does not enforce version scripts.
+/// Shared archives use their ABI major as the runtime identity. ELF export
+/// visibility and version scripts require LLVM/lld; Zig's non-LLVM x86 backend
+/// leaks hidden exports and does not enforce version scripts.
 pub fn configureSharedArchive(artifact: *std.Build.Step.Compile) void {
-    if (artifact.root_module.resolved_target.?.result.ofmt != .elf) return;
-    artifact.use_llvm = true;
-    artifact.use_lld = true;
+    const target = artifact.root_module.resolved_target.?.result;
+    if (target.os.tag == .macos) {
+        const version = artifact.version orelse return;
+        artifact.install_name = artifact.step.owner.fmt("@rpath/lib{s}.{d}.dylib", .{ artifact.name, version.major });
+    } else if (target.ofmt == .elf) {
+        artifact.use_llvm = true;
+        artifact.use_lld = true;
+    }
 }
 
 pub fn installArchive(

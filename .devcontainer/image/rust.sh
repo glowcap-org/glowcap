@@ -26,7 +26,7 @@ chmod +x "${tmp}/rustup-init"
 
 rustup toolchain install "${RUST_VERSION}" --profile minimal
 rustup default "${RUST_VERSION}"
-rustup component add rust-src rustfmt clippy
+rustup component add rust-src rustfmt clippy llvm-tools
 
 mkdir -p "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 chmod -R a+rX "${RUSTUP_HOME}" "${CARGO_HOME}"

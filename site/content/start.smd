@@ -40,7 +40,10 @@ exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
 ```
 
 The `glowcap` module is pure Zig. The iroh, relay, and webrtc tabs below
-import a transport module that links outside code:
+import a transport module that links outside code.
+
+For the imports below, add `.iroh = true` and `.webrtc = true` to the dependency
+options above. Omit each flag when that transport is unused.
 
 ```zig
 // iroh: links a Rust library, so the build needs cargo on PATH.

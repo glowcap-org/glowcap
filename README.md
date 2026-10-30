@@ -79,6 +79,9 @@ const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimiz
 exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
 ```
 
+For Zig over iroh or WebRTC, enable `.iroh = true` or `.webrtc = true` in that
+dependency's options, then import `glowcap_iroh` or `glowcap_webrtc`.
+
 Then dial a peer over `noise-tcp`, fetch a capability by name, and call it. The
 caller supplies `io`, `allocator`, the peer's public key, and its `host:port`
 address. The complete program is

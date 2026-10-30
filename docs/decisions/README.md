@@ -58,6 +58,7 @@ record's id, filename and status.
 - [ADR-0020 Linux completion backends](adr/ADR-0020-linux-completion-backends.md)
 - [ADR-0021 Iroh transport sidecar](adr/ADR-0021-iroh-transport-sidecar.md)
 - [ADR-0022 Composable C archives](adr/ADR-0022-composable-c-archives.md)
+- [ADR-0074 Linking Rust transports from Zig](adr/ADR-0074-rust-transport-linkage.md)
 - [ADR-0023 Binding archive resolution](adr/ADR-0023-binding-archive-resolution.md)
 - [ADR-0024 Transport providers and archive contracts](adr/ADR-0024-transport-provider-and-abi-contracts.md)
 - [ADR-0025 Capability release](adr/ADR-0025-capability-release.md)

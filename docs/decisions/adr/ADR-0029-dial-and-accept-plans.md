@@ -14,7 +14,7 @@ amended_by: []
 
 ## Context
 
-The same locator can be consumed by a native driver or an embedding that owns its channel. Both need one interpretation of grammar and peer requirements without moving I/O into the core.
+The same locator can be consumed by the Zig driver or an embedding that owns its channel. Both need one interpretation of grammar and peer requirements without moving I/O into the core.
 
 ## Decision
 

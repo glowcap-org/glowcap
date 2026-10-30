@@ -166,6 +166,20 @@ fn addBrowserProof(
     ctx.b.step(proof.step_name, proof.description).dependOn(&run.step);
 }
 
+/// Publish the resident with its Cargo-built sidecar, without repository gates.
+pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, foundation: *std.Build.Module, model: *std.Build.Module, engine: *std.Build.Module, net: *std.Build.Module, archive: std.Build.LazyPath) void {
+    const published_webrtc_mod = b.addModule("glowcap_webrtc", .{
+        .root_source_file = b.path("src/net/transport/webrtc.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    published_webrtc_mod.addImport("foundation", foundation);
+    published_webrtc_mod.addImport("model", model);
+    published_webrtc_mod.addImport("engine", engine);
+    published_webrtc_mod.addImport("net", net);
+    linkSidecar(b, published_webrtc_mod, target, archive);
+}
+
 pub fn register(ctx: Context) Registered {
     const b = ctx.b;
     const target = ctx.target;
@@ -190,12 +204,11 @@ pub fn register(ctx: Context) Registered {
     // The target directory is a build output, as for the iroh sidecar: every
     // linker and the browser proof depend on the archive and probe by path, in
     // this tree and in a downstream package that imports `glowcap_webrtc`.
-    const webrtc_probe_build = common.addRootedSystemCommand(b, .build_tool, &.{
-        "cargo", "build", "--locked", "--release", "--manifest-path", "transports/webrtc/Cargo.toml",
-    });
-    const sidecar_target_dir = webrtc_probe_build.addPrefixedOutputDirectoryArg("--target-dir=", "target");
-    webrtc_probe_build.has_side_effects = true;
-    const sidecar_archive = sidecar_target_dir.path(b, "release/libglowcap_webrtc_sidecar.a");
+    const sidecar = common.rustSidecar(b, "transports/webrtc/Cargo.toml", "glowcap_webrtc_sidecar");
+    addModule(b, target, optimize, ctx.foundation_mod, ctx.model_mod, ctx.engine_mod, ctx.net_mod, sidecar.archive);
+    const webrtc_probe_build = sidecar.build;
+    const sidecar_target_dir = sidecar.target_dir;
+    const sidecar_archive = sidecar.archive;
     const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and probe binary (ADR-0035, needs cargo)");
     webrtc_lib_step.dependOn(&webrtc_probe_build.step);
 
@@ -234,21 +247,6 @@ pub fn register(ctx: Context) Registered {
     });
     check_step.dependOn(&webrtc_resident_check.step);
     b.step("webrtc-resident-check", "Type-check the WebRTC DataChannel netlayer resident (ADR-0035), compile-only, no cargo").dependOn(&webrtc_resident_check.step);
-
-    // The same resident published for a downstream package, with the sidecar
-    // attached, so `glowcap.module("glowcap_webrtc")` is the `webrtc` import
-    // the site's Zig tab names. A second module over the same source keeps the
-    // in-tree resident unlinked for the hermetic compile objects in `check`.
-    const published_webrtc_mod = b.addModule("glowcap_webrtc", .{
-        .root_source_file = b.path("src/net/transport/webrtc.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    published_webrtc_mod.addImport("foundation", ctx.foundation_mod);
-    published_webrtc_mod.addImport("model", ctx.model_mod);
-    published_webrtc_mod.addImport("engine", ctx.engine_mod);
-    published_webrtc_mod.addImport("net", ctx.net_mod);
-    linkSidecar(b, published_webrtc_mod, target, sidecar_archive);
 
     // The site's Zig dial tab: `driver.connect` over the completion resident,
     // with the application's signaling authority, as `webrtc_redeem` runs it.

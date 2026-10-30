@@ -60,16 +60,16 @@ pub const State = struct {
         return failure;
     }
 
-    /// One nonblocking application read plus the exact runtime wakes its state
+    /// One nonblocking application transfer plus the exact runtime wakes its state
     /// transition requires. The projection performs the wakes after releasing
     /// this connection's I/O lock. Readiness ownership stays here.
-    pub const ReadOutcome = struct {
+    pub const IoOutcome = struct {
         count: isize,
         signal_control: bool = false,
         signal_ready: bool = false,
     };
 
-    pub fn tryReadLocked(self: *State, dest: []u8) ReadOutcome {
+    pub fn tryReadLocked(self: *State, dest: []u8) IoOutcome {
         if (self.raw_closed or self.release_requested.load(.acquire))
             return .{ .count = -1 };
         const pending_before = self.raw.hasPendingWrite();
@@ -84,13 +84,35 @@ pub const State = struct {
             // returning WOULD_BLOCK/EOF. Rebuild the poll set immediately so
             // POLLOUT, not the recovery timeout, owns that write.
             .signal_control = !pending_before and pending_after,
-            // Successful application progress may leave another complete
-            // frame in the bounded reader. Preserve level-shaped readiness
-            // after the consumer claims the current event.
-            .signal_ready = count > 0 and !pending_after and
-                self.raw.hasBufferedReadWork() and
-                self.latchEvents(events.GLOWCAP_MULTIPLEXED_EV_READABLE),
+            // A control-only turn may exhaust its frame budget too. Buffered
+            // work stays readable even when no application byte was returned.
+            .signal_ready = (count >= 0 or count == c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK) and
+                self.latchEvents(self.bufferedReadEventsLocked()),
         };
+    }
+
+    pub fn tryWriteLocked(self: *State, source: []const u8) IoOutcome {
+        if (self.raw_closed or self.closed.load(.acquire) or
+            self.release_requested.load(.acquire)) return .{ .count = -1 };
+        const count = self.raw.tryWrite(source);
+        if (count < 0 and count != c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK) self.noteFailure(
+            self.raw.takeFailure() orelse foundation.FailureChain.init(error.ConnectionLost),
+        );
+        return .{
+            .count = count,
+            .signal_control = self.raw.hasPendingWrite(),
+            // A write can flush output that deferred a prior read. Its inline
+            // flush owes the same read readiness as the reactor's flush.
+            .signal_ready = (count >= 0 or count == c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK) and
+                self.latchEvents(self.bufferedReadEventsLocked()),
+        };
+    }
+
+    fn bufferedReadEventsLocked(self: *const State) u32 {
+        return if (!self.raw.hasPendingWrite() and self.raw.hasBufferedReadWork())
+            events.GLOWCAP_MULTIPLEXED_EV_READABLE
+        else
+            0;
     }
 
     fn latchEvents(self: *State, published: u32) bool {
@@ -113,12 +135,8 @@ pub const State = struct {
                 return self.latchEvents(events.GLOWCAP_MULTIPLEXED_EV_CLOSED);
             }
             if (!self.raw.hasPendingWrite()) {
-                var flushed_events = events.GLOWCAP_MULTIPLEXED_EV_WRITABLE;
-                // Control handling may already have consumed the kernel edge
-                // and left the following data frame in the bounded reader.
-                if (self.raw.hasBufferedReadWork())
-                    flushed_events |= events.GLOWCAP_MULTIPLEXED_EV_READABLE;
-                newly_latched = self.latchEvents(flushed_events);
+                newly_latched = self.latchEvents(events.GLOWCAP_MULTIPLEXED_EV_WRITABLE |
+                    self.bufferedReadEventsLocked());
             }
         }
         const fatal = revents & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0;

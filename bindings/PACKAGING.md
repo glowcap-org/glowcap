@@ -179,6 +179,13 @@ relay archive carry no TLS artifact or dependency.
 The release workflow uses the same archive set. A manual run builds artifacts
 without publishing a GitHub release.
 
+Product archives remain available when a release proof fails. To recheck those
+exact installed products with a corrected harness, run
+`gh workflow run release.yml --ref BRANCH -f recheck_run=RUN_ID`.
+This checks the four host products and builds and exercises their two Linux
+container images without recompiling, checking source packages, or publishing.
+A complete release rehearsal leaves `recheck_run` empty.
+
 ## Publishing C archives
 
 `releases_published` controls whether consumers try the hosted archive URL. It

@@ -196,7 +196,7 @@ are the authority. Emitters must not invent those operations on that profile.
 | target, interface | `.capability` / `Reference(Ref)` | Host-owned references, interface expectation adds no authority |
 | promise<T> | runtime pending reference / outbound `PromiseArgument` | Incoming reference can remain opaque, no forced await or promise-kind probe |
 | error | `.error` / `Error(String)` | Current message-bearing error form, arbitrary breaks stay on the outcome path |
-| value | complete public value union | Recurse through all supported forms, including references, not host-native objects |
+| value | complete public value union | Recurse through all supported forms, including references, not arbitrary language objects |
 | union, recursive type | generated checked projection | No new wire tag, require unambiguous discrimination and bounded traversal |
 
 The TypeScript probe maps this profile's void value to JavaScript `null`, as

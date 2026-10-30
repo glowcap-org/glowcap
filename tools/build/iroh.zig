@@ -70,9 +70,6 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
         .version = ctx.version,
     });
     common.configureSharedArchive(shared);
-    if (ctx.target.result.os.tag == .macos) {
-        shared.install_name = b.fmt("@rpath/libglowcap_net_transport_iroh.{d}.dylib", .{ctx.version.major});
-    }
     if (ctx.target.result.ofmt == .elf) {
         shared.version_script = b.path("tools/build/exports/iroh.map");
     }
@@ -135,6 +132,21 @@ fn residentModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
     return mod;
 }
 
+/// Publish the resident with its Cargo-built sidecar. Repository checks use
+/// a separate unlinked resident so compile-only gates do not invoke Cargo.
+pub fn addModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mods: []*std.Build.Module, archive: std.Build.LazyPath) void {
+    const published_iroh_mod = b.addModule("glowcap_iroh", .{
+        .root_source_file = b.path("src/net/transport/iroh.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    published_iroh_mod.addImport("foundation", mods[layerIndex("foundation")]);
+    published_iroh_mod.addImport("model", mods[layerIndex("model")]);
+    published_iroh_mod.addImport("engine", mods[layerIndex("engine")]);
+    published_iroh_mod.addImport("net", mods[layerIndex("net")]);
+    linkIrohSidecar(b, published_iroh_mod, target, archive);
+}
+
 pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const b = ctx.b;
     const target = ctx.target;
@@ -148,27 +160,10 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const check_step = ctx.check_step;
 
     // ── iroh netlayer (external siblings, plus hermetic Zig checks) ─────────
-    // The iroh netlayer sidecar (ADR-0021): cargo builds the
-    // `libglowcap_iroh_sidecar.a` staticlib, and the live gate runs two glowcap
-    // peers, each with its own
-    // real iroh endpoint, through the keyed handshake, a bootstrap fetch, and
-    // a deliver/resolve over an encrypted QUIC stream, dialed by endpoint id
-    // with direct-address hints. The Rust build is an explicit Cargo-requiring
-    // sibling, never part of the hermetic Zig compile checks below. `--locked`
-    // makes the committed lockfile authoritative while still allowing a clean
-    // release machine to fetch its exact packages; `--offline` made first use
-    // fail after every dependency bump unless some unrelated command happened
-    // to warm Cargo's cache. The target directory is a build output, so the
-    // staticlib is a graph path every linker depends on by using it, in this
-    // tree and in a downstream package that imports `glowcap_iroh`; cargo
-    // still runs on every build (it is its own incremental cache) into the
-    // one stable directory the runner keeps for a side-effect step.
-    const iroh_lib = addRootedSystemCommand(b, .build_tool, &.{
-        "cargo", "build", "--locked", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
-    });
-    const sidecar_target_dir = iroh_lib.addPrefixedOutputDirectoryArg("--target-dir=", "target");
-    iroh_lib.has_side_effects = true;
-    const sidecar_archive = sidecar_target_dir.path(b, "release/libglowcap_iroh_sidecar.a");
+    const sidecar = common.rustSidecar(b, "transports/iroh/Cargo.toml", "glowcap_iroh_sidecar");
+    addModule(b, target, optimize, host_mods, sidecar.archive);
+    const iroh_lib = sidecar.build;
+    const sidecar_archive = sidecar.archive;
     const iroh_lib_step = b.step("iroh-lib", "Build the iroh netlayer sidecar staticlib (needs cargo)");
     iroh_lib_step.dependOn(&iroh_lib.step);
 
@@ -197,23 +192,6 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     for ([_][]const u8{ "dial", "listen" }) |role| {
         common.addSiteZigExampleCompile(b, target, optimize, b.fmt("site-{s}-iroh", .{role}), b.fmt("site/examples/{s}/iroh.zig", .{role}), &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "iroh", .module = iroh_resident_mod } }, ctx.site_zig_examples_check);
     }
-
-    // The same resident published for a downstream package, with the sidecar
-    // attached, so `glowcap.module("glowcap_iroh")` is the `iroh` import the
-    // site's Zig tabs name and a program that links it needs nothing beyond
-    // cargo on PATH. It is a second module over the same source because the
-    // in-tree resident stays unlinked: the hermetic compile objects that ride
-    // `check` import that one and never start cargo.
-    const published_iroh_mod = b.addModule("glowcap_iroh", .{
-        .root_source_file = b.path("src/net/transport/iroh.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    published_iroh_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
-    published_iroh_mod.addImport("model", host_mods[layerIndex("model")]);
-    published_iroh_mod.addImport("engine", host_mods[layerIndex("engine")]);
-    published_iroh_mod.addImport("net", host_mods[layerIndex("net")]);
-    linkIrohSidecar(b, published_iroh_mod, target, sidecar_archive);
 
     // The iroh driver family, table-driven. Each row is both a runnable sibling
     // of `check` (linking the sidecar through `linkIrohSidecar`, so it needs

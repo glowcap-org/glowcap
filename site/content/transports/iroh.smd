@@ -257,7 +257,8 @@ iroh's QUIC stack is Rust, so glowcap ships it as a separate static library,
 The base archives stay pure Zig, and building this one requires `cargo`. Every
 language keeps it optional:
 
-- A Zig build imports `glowcap.module("glowcap_iroh")`, which links the
+- A Zig build enables `.iroh = true` in its dependency options, then imports
+  `glowcap.module("glowcap_iroh")`, which links the
   Rust library. A program that never imports it never runs cargo.
 - Each binding keeps iroh in its own module: the `@glowcap/iroh` package,
   `glowcap.iroh`, `glowcap-iroh.rkt`, and Rust's opt-in `iroh` feature.

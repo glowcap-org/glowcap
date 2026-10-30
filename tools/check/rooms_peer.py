@@ -19,15 +19,67 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONT = ROOT / "zig-out/bin/glowcap"
+# Intel macOS measured 2.6s durable room replies and over 10s for first
+# private contact. Startup composes peer launch and membership settlement
+# (20.7s measured), and a team composes two such starts.
+COMMAND_SECONDS = 30
+START_SECONDS = 2 * COMMAND_SECONDS
 
 
-def cli(state, verb, *args):
+def failure_logs(root):
+    """Keep bounded peer evidence before the temporary workspace is removed."""
+    for path in sorted(root.rglob("*.log"))[:8]:
+        try:
+            with path.open("rb") as log:
+                log.seek(0, 2)
+                log.seek(max(0, log.tell() - 8192))
+                tail = log.read().decode(errors="replace")
+            print(f"{path.relative_to(root)} (last 8192 bytes):\n{tail}", file=sys.stderr)
+        except OSError as error:
+            print(f"{path.relative_to(root)}: {error}", file=sys.stderr)
+    for path in sorted(root.rglob("peer-options.json"))[:8]:
+        state = path.parent
+        print(f"peer {state.relative_to(root)}: control socket exists={state.joinpath('control.sock').exists()}",
+              file=sys.stderr)
+        if not state.joinpath("control.sock").exists():
+            continue
+        try:
+            result = subprocess.run([str(FRONT), "apps", "rooms", "session", "status", "--dir", str(state)],
+                                    cwd="/tmp", capture_output=True, text=True, timeout=2)
+            status = json.loads(result.stdout)
+            workspace = status.get("workspace", {})
+            print(json.dumps({"peer": str(state.relative_to(root)), "revision": status.get("revision"),
+                "issues": status.get("issues"), "pending_effects": len(status.get("pending_effects", [])),
+                "directories": [{"name": row.get("name"), "registered":
+                                 isinstance(row.get("name"), str) and isinstance(row.get("inbox"), str)}
+                                for row in workspace.get("directories", [])],
+                "conversations": [{"name": row.get("name"), "reconnect": row.get("reconnect")}
+                                  for row in workspace.get("conversations", [])]}), file=sys.stderr)
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            print(f"status unavailable: {error}", file=sys.stderr)
+
+
+def cli(state, verb, *args, timeout=COMMAND_SECONDS):
     subject, action = ("team", verb[5:]) if verb.startswith("team-") else ("session", verb)
-    result = subprocess.run([str(FRONT), "apps", "rooms", subject, action, "--dir", str(state), *args],
-                            cwd="/tmp", text=True, capture_output=True, timeout=10)
+    started = time.monotonic()
+    try:
+        result = subprocess.run([str(FRONT), "apps", "rooms", subject, action, "--dir", str(state), *args],
+                                cwd="/tmp", text=True, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        print(f"{verb}: partial stdout={(error.stdout or b'')[-8192:]!r}, "
+              f"stderr={(error.stderr or b'')[-8192:]!r}", file=sys.stderr)
+        raise
+    finally:
+        elapsed = time.monotonic() - started
+        if elapsed >= 1:
+            print(f"{verb} ({state.name}): {elapsed:.2f}s", file=sys.stderr)
     if result.returncode:
         raise AssertionError(f"{verb}: {result.stdout}\n{result.stderr}")
-    return json.loads(result.stdout)
+    response = json.loads(result.stdout)
+    if elapsed * 2 >= timeout:
+        print(f"{verb} ({state.name}): passed in {elapsed:.2f}s of its {timeout}s deadline; "
+              "a runner 2x slower would stop it", file=sys.stderr)
+    return response
 
 
 def line_text(row):
@@ -134,9 +186,11 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 if transport == "iroh":
                     locator = services.enter_context(bootstrap(locator))
                 cli(alice, "start", "--transport", transport, "--reachability", "direct", "--locator", locator,
-                    "--nick", "Alice", "--room", "garden", "--room", "workshop")
+                    "--nick", "Alice", "--room", "garden", "--room", "workshop", timeout=START_SECONDS)
+                # Lead-first team startup composes two ordinary peer starts.
                 cli(team, "team-start", "--transport", transport, "--reachability", "direct", "--locator", locator,
-                    "--lead", "Bob", "--member", "Carol", "--room", "garden", "--room", "workshop")
+                    "--lead", "Bob", "--member", "Carol", "--room", "garden", "--room", "workshop",
+                    timeout=2 * START_SECONDS)
                 assert len(cli(team, "team-status")["members"]) == 2
                 rooms = {row["name"]: row["id"] for row in cli(alice, "status")["workspace"]["conversations"]
                          if row["kind"] == "room"}
@@ -195,7 +249,7 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 while (alice / "control.sock").exists():
                     assert time.monotonic() < deadline, "control socket not retired"
                     time.sleep(0.05)
-                cli(alice, "start")
+                cli(alice, "start", timeout=START_SECONDS)
                 assert cli(alice, "status")["inbox"]["gap"] is None
                 replay = until(alice, "garden-message")
                 assert replay["id"] == garden["id"]
@@ -291,11 +345,7 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 until(bob, "reply-to-later-page")
                 cli(team, "team-stop")
             except BaseException:
-                for state in (alice, bob, carol):
-                    if (state / "control.log").exists():
-                        print(f"{state.name}: {(state / 'control.log').read_text()}", file=sys.stderr)
-                log.seek(0)
-                print(log.read(), file=sys.stderr)
+                failure_logs(root)
                 raise
             finally:
                 for state in (alice, bob, carol):

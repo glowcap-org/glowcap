@@ -181,7 +181,15 @@ first step and `main` stays where it was.
    allow installation only on this account.
 2. Copy the client ID, generate a private key, and install the app on
    `glowcap-org/glowcap` only.
-3. Store both, then delete the downloaded key:
+3. In the glowcap repository's **Settings**, open **Secrets and variables**,
+   then **Actions**. Select **Variables** and choose **New repository variable**
+   under **Repository variables**. Name it `PROMOTE_APP_CLIENT_ID` and use the
+   app's client ID as its value.
+4. Select **Secrets** and choose **New repository secret** under **Repository
+   secrets**. Name it `PROMOTE_APP_PRIVATE_KEY` and paste the entire downloaded
+   `.pem` file as its value. Delete the downloaded key after saving it.
+
+The CLI equivalent is:
 
 ```sh
 gh variable set PROMOTE_APP_CLIENT_ID -R glowcap-org/glowcap --body "${client_id:?}"

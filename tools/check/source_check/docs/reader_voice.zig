@@ -22,13 +22,10 @@ const insider_words = [_][]const u8{
 /// Zig, the C library, the driver loop, a browser.
 pub const vague_labels = [_][]const u8{"native"};
 
-/// Which word lists a scan applies on top of the punctuation rule.
+/// Whether a scan also applies the product pages' insider-word list.
 pub const Words = struct {
     /// Glowcap's working words, refused on pages written for people using it.
     insiders: bool,
-    /// Vague labels, refused everywhere except decision records, which keep
-    /// the words of their time.
-    labels: bool = true,
 };
 
 /// Reader prose carries no semicolon, no em dash, and no insider word
@@ -261,9 +258,9 @@ pub fn proseFlaw(line: []const u8, words: Words) ProseFlaw {
             if (words.insiders) for (insider_words) |insider| {
                 if (std.ascii.eqlIgnoreCase(word, insider)) return .{ .insider = word };
             };
-            if (words.labels) for (vague_labels) |label| {
+            for (vague_labels) |label| {
                 if (std.ascii.eqlIgnoreCase(word, label)) return .{ .label = word };
-            };
+            }
             i = end;
         } else {
             i += 1;
@@ -272,10 +269,11 @@ pub fn proseFlaw(line: []const u8, words: Words) ProseFlaw {
     return .none;
 }
 
-test "a vague label is refused in prose and allowed in code and decision records" {
+test "vague labels are refused in prose and allowed in code and identifiers" {
     try std.testing.expect(proseFlaw("Every native binding dials it.", .{ .insiders = false }) == .label);
+    try std.testing.expect(proseFlaw("Native callbacks run here.", .{ .insiders = false }) == .label);
     try std.testing.expect(proseFlaw("Run `goblins-glowcap-pair-gift` first.", .{ .insiders = false }) == .none);
-    try std.testing.expect(proseFlaw("Every native binding dials it.", .{ .insiders = false, .labels = false }) == .none);
+    try std.testing.expect(proseFlaw("Measure with `-Dcpu=native`.", .{ .insiders = false }) == .none);
     try std.testing.expect(proseFlaw("A browser-native socket.", .{ .insiders = false }) == .none);
     try std.testing.expect(proseFlaw("at most <!-- value ffi_frame.ts max -->16<!-- /value --> writes", .{ .insiders = false }) == .none);
 }
