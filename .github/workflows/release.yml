@@ -82,10 +82,9 @@ jobs:
           - runner: ubuntu-24.04-arm # aarch64-linux
             target: aarch64-linux-gnu.2.39
           - runner: macos-15 # aarch64-macos
-            # Let Zig discover the host SDK while pinning the deployment floor.
-            target: aarch64-native.15.0
+            target: aarch64-macos.15.0
           - runner: macos-15-intel # x86_64-macos
-            target: x86_64-native.15.0
+            target: x86_64-macos.15.0
     runs-on: ${{ matrix.runner }}
     env:
       MACOSX_DEPLOYMENT_TARGET: "15.0"
@@ -129,7 +128,12 @@ jobs:
           cargo install wasm-bindgen-cli --version "$version" --locked
 
       - name: Build the release tarball
-        run: zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }}
+        run: |
+          sdk_args=()
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            sdk_args+=(--sysroot "$(xcrun --sdk macosx --show-sdk-path)")
+          fi
+          zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }} "${sdk_args[@]}"
 
       - name: Verify the Zig source package
         run: zig build consumer-check --summary all
