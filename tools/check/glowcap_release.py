@@ -63,6 +63,15 @@ def check_loader(root):
             for line in report.splitlines()[1:]:
                 name = line.strip().split(" (", 1)[0]
                 assert name.startswith(("@rpath/", "@loader_path/", "/usr/lib/", "/System/Library/")), report
+                if name.startswith("@rpath/"):
+                    dependency = root / "lib" / name.removeprefix("@rpath/")
+                elif name.startswith("@loader_path/"):
+                    dependency = binary.parent / name.removeprefix("@loader_path/")
+                else:
+                    continue
+                dependency = dependency.resolve()
+                assert dependency.is_relative_to(root / "lib"), f"library escapes package: {name}"
+                assert dependency.is_file(), f"missing packaged library: {name}"
         report = subprocess.check_output(["/usr/bin/otool", "-l", str(session)], text=True, timeout=5)
         assert "@loader_path/../lib" in report, "missing relocatable library lookup"
     else:

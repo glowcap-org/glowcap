@@ -96,14 +96,38 @@ class PackageValidation(unittest.TestCase):
             output.return_value = f"libglowcap_net_transport_iroh.so.0 => {self.destination}/lib/library.so (0x0)\n"
             release.check_loader(self.destination)
         with patch.object(release.sys, "platform", "darwin"), patch.object(release.subprocess, "check_output") as output:
+            (self.destination / "lib/library.dylib").touch()
             output.return_value = "binary:\n\t/build/library.dylib (compatibility version 1.0.0)\n"
             with self.assertRaises(AssertionError):
                 release.check_loader(self.destination)
             output.return_value = "binary:\n\t@rpath/library.dylib (compatibility version 1.0.0)\n"
             with self.assertRaisesRegex(AssertionError, "missing relocatable"):
                 release.check_loader(self.destination)
-            output.side_effect = [output.return_value, "path @loader_path/../lib (offset 12)"]
+            output.side_effect = lambda args, **_: (output.return_value if args[1] == "-L"
+                                                   else "path @loader_path/../lib (offset 12)")
             release.check_loader(self.destination)
+
+    def test_macos_loader_requires_packaged_library_names(self):
+        for name in ("bin", "libexec", "lib"):
+            (self.destination / name).mkdir()
+        (self.destination / "libexec/rooms-session").touch()
+        library = self.destination / "lib/library.0.dylib"
+        for name in ("@rpath/library.0.dylib", "@loader_path/../lib/library.0.dylib"):
+            with self.subTest(name=name), patch.object(release.sys, "platform", "darwin"), \
+                    patch.object(release.subprocess, "check_output") as output:
+                output.side_effect = lambda args, **_: (f"binary:\n\t{name} (compatibility version 1.0.0)\n"
+                                                       if args[1] == "-L" else "path @loader_path/../lib (offset 12)")
+                with self.assertRaisesRegex(AssertionError, "missing packaged library"):
+                    release.check_loader(self.destination)
+                library.touch()
+                release.check_loader(self.destination)
+                library.unlink()
+        for name in ("@rpath/../../outside.dylib", "@loader_path/../../outside.dylib"):
+            with self.subTest(name=name), patch.object(release.sys, "platform", "darwin"), \
+                    patch.object(release.subprocess, "check_output") as output:
+                output.return_value = f"binary:\n\t{name} (compatibility version 1.0.0)\n"
+                with self.assertRaisesRegex(AssertionError, "library escapes package"):
+                    release.check_loader(self.destination)
 
 
 class ImageInventory(unittest.TestCase):

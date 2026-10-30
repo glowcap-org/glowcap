@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import tempfile
 import textwrap
 import unittest
@@ -12,6 +13,45 @@ from workflow_test import ROOT, shell_step
 
 
 class ReleaseBuild(unittest.TestCase):
+    def test_macos_shared_archive_records_its_abi_major(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name in ('common.zig', 'execution.zig', 'shard.zig'):
+                (directory / name).write_bytes((ROOT / 'tools/build' / name).read_bytes())
+            (directory / 'library.zig').write_text('export fn answer() u32 { return 42; }\n')
+            (directory / 'build.zig').write_text(textwrap.dedent('''\
+                const std = @import("std");
+                const common = @import("common.zig");
+                pub fn build(b: *std.Build) void {
+                    const library = b.addLibrary(.{
+                        .name = "probe", .linkage = .dynamic,
+                        .version = .{ .major = 3, .minor = 2, .patch = 1 },
+                        .root_module = b.createModule(.{
+                            .root_source_file = b.path("library.zig"),
+                            .target = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .macos }),
+                            .optimize = .Debug,
+                        }),
+                    });
+                    common.configureSharedArchive(library);
+                    b.installArtifact(library);
+                }
+                '''))
+            result = subprocess.run(['zig', 'build', '--cache-dir', str(directory / 'cache')],
+                                    cwd=directory, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            binary = (directory / 'zig-out/lib/libprobe.3.2.1.dylib').read_bytes()
+            self.assertEqual(struct.unpack_from('<I', binary)[0], 0xfeedfacf)
+            offset = 32
+            for _ in range(struct.unpack_from('<I', binary, 16)[0]):
+                command, size = struct.unpack_from('<II', binary, offset)
+                if command == 0xd:  # LC_ID_DYLIB
+                    start = offset + struct.unpack_from('<I', binary, offset + 8)[0]
+                    self.assertEqual(binary[start:binary.index(b'\0', start)], b'@rpath/libprobe.3.dylib')
+                    break
+                offset += size
+            else:
+                self.fail('shared archive has no LC_ID_DYLIB')
+
     def test_transport_linker_searches_the_selected_sdk(self):
         # An empty SDK makes the linker report where it searched. Exercise the
         # real shared recipe: shell argument checks cannot prove SDK discovery.

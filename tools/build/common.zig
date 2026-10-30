@@ -378,12 +378,18 @@ pub fn installIfChanged(b: *std.Build, artifact: *std.Build.Step.Compile, dir: s
     return &run.step;
 }
 
-/// ELF export visibility and version scripts require LLVM/lld. Zig's non-LLVM
-/// x86 backend leaks hidden exports and does not enforce version scripts.
+/// Shared archives use their ABI major as the runtime identity. ELF export
+/// visibility and version scripts require LLVM/lld; Zig's non-LLVM x86 backend
+/// leaks hidden exports and does not enforce version scripts.
 pub fn configureSharedArchive(artifact: *std.Build.Step.Compile) void {
-    if (artifact.root_module.resolved_target.?.result.ofmt != .elf) return;
-    artifact.use_llvm = true;
-    artifact.use_lld = true;
+    const target = artifact.root_module.resolved_target.?.result;
+    if (target.os.tag == .macos) {
+        const version = artifact.version orelse return;
+        artifact.install_name = artifact.step.owner.fmt("@rpath/lib{s}.{d}.dylib", .{ artifact.name, version.major });
+    } else if (target.ofmt == .elf) {
+        artifact.use_llvm = true;
+        artifact.use_lld = true;
+    }
 }
 
 pub fn installArchive(

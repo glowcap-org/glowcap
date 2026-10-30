@@ -70,9 +70,6 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
         .version = ctx.version,
     });
     common.configureSharedArchive(shared);
-    if (ctx.target.result.os.tag == .macos) {
-        shared.install_name = b.fmt("@rpath/libglowcap_net_transport_iroh.{d}.dylib", .{ctx.version.major});
-    }
     if (ctx.target.result.ofmt == .elf) {
         shared.version_script = b.path("tools/build/exports/iroh.map");
     }
