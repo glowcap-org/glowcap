@@ -6,7 +6,8 @@
 # SHA256SUMS, and the two-platform Rooms image. workflow_dispatch builds, tests,
 # and uploads archives and Docker image artifacts only — it publishes
 # nothing. Its optional recheck_run input exercises a previous run's installed
-# product archives without rebuilding or qualifying source packages.
+# product archives and container images without recompiling or qualifying
+# source packages.
 # Versioning is `abi_version` in
 # build.zig (reported by `glowcap_abi_version`); the tag records the release
 # point. This is the find leg's upstream named in bindings/README.md: a
@@ -230,8 +231,10 @@ jobs:
           PY
 
   images:
-    needs: [contract, archives]
+    needs: [contract, archives, recheck]
+    if: ${{ !cancelled() && needs.contract.result == 'success' && (needs.archives.result == 'success' || needs.recheck.result == 'success') }}
     permissions:
+      actions: read
       contents: read
     strategy:
       fail-fast: false
@@ -263,6 +266,8 @@ jobs:
         with:
           name: archives-${{ matrix.runner }}
           path: archive-artifact
+          run-id: ${{ inputs.recheck_run || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Extract the verified Linux product
         env:

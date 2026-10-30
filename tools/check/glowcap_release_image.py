@@ -3,10 +3,10 @@
 
 The release workflow calls this after loading the exact single-platform image
 artifact it uploads. Docker is the host-side test driver; every command run in
-the distroless container is a public glowcap product command. The 192 MiB
-ceiling gives the roughly 118 MiB staged product room for the pinned base while
-still catching an accidentally duplicated runtime or SDK; CI measures the
-resulting image.
+the distroless container is a public glowcap product command. The 256 MiB filesystem
+ceiling covers the measured 206 MiB ReleaseSafe product plus the 27 MiB pinned
+base, while rejecting a duplicated runtime. The exact manifest inventory
+separately rejects extra files and SDK content.
 """
 
 import hashlib
@@ -23,8 +23,9 @@ import urllib.parse
 import urllib.request
 
 
-LIMIT_SECONDS = 30
-MAX_IMAGE_BYTES = 192 * 1024 * 1024
+# Compose the inventory export and two service journeys under one deadline.
+LIMIT_SECONDS = 60
+MAX_IMAGE_BYTES = 256 * 1024 * 1024
 FORBIDDEN_BASE_PROGRAMS = {
     "apk", "apt", "apt-get", "ash", "bash", "busybox", "dash", "dnf",
     "dpkg", "dpkg-deb", "dpkg-query", "microdnf", "rpm", "sh", "yum",
@@ -43,9 +44,9 @@ class Deadline:
         return max(0.1, min(cap, remaining))
 
 
-def run(deadline, *args, check=True, text=True):
+def run(deadline, *args, check=True, text=True, cap=10):
     return subprocess.run(args, check=check, capture_output=True, text=text,
-                          timeout=deadline.timeout())
+                          timeout=deadline.timeout(cap))
 
 
 def cleanup_run(*args):
@@ -80,9 +81,6 @@ def inspect_image(deadline, image, expected_arch):
     image_data = report[0]
     assert image_data["Architecture"] == expected_arch, image_data["Architecture"]
     assert image_data["Os"] == "linux", image_data["Os"]
-    assert image_data["Size"] <= MAX_IMAGE_BYTES, (
-        f"image is {image_data['Size']} bytes; budget is {MAX_IMAGE_BYTES}"
-    )
     assert not image_data["Config"].get("Volumes"), "image declares mutable volumes"
     assert image_data["Config"]["Entrypoint"] == [
         "/runtime/bin/glowcap", "apps", "rooms", "serve"
@@ -97,6 +95,10 @@ def normalized_path(name):
 
 def inspect_tar(rootfs):
     members = rootfs.getmembers()
+    # Docker's Size differs between classic and containerd image stores.
+    # Exported regular-file bytes describe the same filesystem on both.
+    size = sum(member.size for member in members if member.isfile())
+    assert size <= MAX_IMAGE_BYTES, f"image filesystem is {size} bytes; budget is {MAX_IMAGE_BYTES}"
     forbidden = sorted({
         normalized_path(member.name).as_posix()
         for member in members
@@ -174,7 +176,7 @@ def inspect_runtime_inventory(deadline, image, scratch):
     try:
         run(deadline, "docker", "container", "create", "--name", name,
             "--entrypoint", "/runtime/bin/glowcap", image, "--help")
-        run(deadline, "docker", "container", "export", "--output", str(exported), name)
+        run(deadline, "docker", "container", "export", "--output", str(exported), name, cap=30)
         exported_cleanly = True
     finally:
         remove_container(name, exported_cleanly)

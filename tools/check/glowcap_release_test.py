@@ -216,6 +216,19 @@ class ImageInventory(unittest.TestCase):
         with tarfile.open(fileobj=io.BytesIO(fixture), mode="r") as rootfs:
             image.inspect_tar(rootfs)
 
+    def test_image_budget_accepts_measured_product_but_refuses_a_duplicate(self):
+        # Hosted amd64 filesystem and its product bytes, including the base.
+        for size, accepted in ((243380743, True), (243380743 + 215669542, False)):
+            fixture = self.fixture(base_program="usr/lib/runtime-baseline")
+            with self.subTest(size=size), tarfile.open(fileobj=io.BytesIO(fixture)) as rootfs:
+                baseline = rootfs.getmember("usr/lib/runtime-baseline")
+                baseline.size += size - sum(member.size for member in rootfs.getmembers())
+                if accepted:
+                    image.inspect_tar(rootfs)
+                else:
+                    with self.assertRaisesRegex(AssertionError, "budget"):
+                        image.inspect_tar(rootfs)
+
     def test_exact_regular_inventory_passes(self):
         self.inspect(self.fixture())
 

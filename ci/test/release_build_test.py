@@ -39,6 +39,24 @@ class ReleaseBuild(unittest.TestCase):
         self.assertNotIn('zig build', body)
         self.assertNotIn(': write', body)
 
+    def test_images_require_verified_archives_or_a_successful_product_recheck(self):
+        predicate, body = jobs('.github/workflows/release.yml')['images']
+        for archives, recheck, allowed in (('success', 'skipped', True),
+                                           ('skipped', 'success', True),
+                                           ('failure', 'skipped', False),
+                                           ('skipped', 'failure', False),
+                                           ('skipped', 'skipped', False)):
+            for contract in ('success', 'failure'):
+                for cancelled in (False, True):
+                    context = {'needs': {'contract': {'result': contract},
+                                        'archives': {'result': archives},
+                                        'recheck': {'result': recheck}}}
+                    self.assertEqual(selected(predicate, context=context, success=False, cancelled=cancelled),
+                                     allowed and contract == 'success' and not cancelled)
+        self.assertIn('run-id: ${{ inputs.recheck_run || github.run_id }}', body)
+        self.assertIn('github-token: ${{ github.token }}', body)
+        self.assertNotIn(': write', body)
+
     def test_failed_product_archives_are_preserved_without_qualifying_them(self):
         body = jobs('.github/workflows/release.yml')['archives'][1]
         predicate = re.search(r'^        if: (.*hashFiles.*)$', body, re.M)[1]
