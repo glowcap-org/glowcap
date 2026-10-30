@@ -61,26 +61,23 @@ else
 fi
 expect_code 3 "heartbeat preserves child failure" python3 "$RWT" --heartbeat 0.01s 5s sh -c 'sleep 0.05; exit 3'
 
-# A deadline retry reruns only a stopped attempt, says so, and still warns on
-# the pass. The child stalls on its first run and passes on its second.
-retry_marker="$scratch/retry-marker"
-retry_output="$scratch/retry"
-retry_rc=0
-python3 "$RWT" --deadline-retries 1 --kill-after 0.2s 1s sh -c 'if [ -e "$1" ]; then exit 0; fi; : >"$1"; sleep 30' sh "$retry_marker" >"$retry_output" 2>&1 || retry_rc=$?
-if [ "$retry_rc" -eq 0 ] && grep -q 'attempt 1 of 2, retrying' "$retry_output" && grep -q 'passed only after 1 deadline retry' "$retry_output"; then
-	ok "a deadline retry reruns the stalled attempt and reports the miss"
-else
-	bad "deadline retry lost its pass or its report (got $retry_rc)"
-fi
-expect_code 124 "deadline retries run out" python3 "$RWT" --deadline-retries 1 --kill-after 0.2s 0.3s sh -c 'sleep 30'
+# A child that would pass on its next invocation must still fail this check.
+# The marker also proves that neither timeout nor ordinary failure reruns it.
 retry_count="$scratch/retry-count"
-expect_code 3 "an ordinary failure is never retried" python3 "$RWT" --deadline-retries 2 5s sh -c 'echo run >>"$1"; exit 3' sh "$retry_count"
+expect_code 124 "a deadline failure is final" python3 "$RWT" --kill-after 0.2s 0.3s sh -c 'echo run >>"$1"; if [ "$(wc -l <"$1")" -gt 1 ]; then exit 0; fi; sleep 30' sh "$retry_count"
+if [ "$(wc -l <"$retry_count" | tr -d ' ')" -eq 1 ]; then
+	ok "a timed-out child ran once"
+else
+	bad "a timed-out child ran $(wc -l <"$retry_count" | tr -d ' ') times"
+fi
+rm "$retry_count"
+expect_code 3 "an ordinary failure is final" python3 "$RWT" 5s sh -c 'echo run >>"$1"; exit 3' sh "$retry_count"
 if [ "$(wc -l <"$retry_count" | tr -d ' ')" -eq 1 ]; then
 	ok "an ordinary failure ran once"
 else
 	bad "an ordinary failure ran $(wc -l <"$retry_count" | tr -d ' ') times"
 fi
-expect_code 2 "deadline retries are bounded" python3 "$RWT" --deadline-retries 3 5s true
+expect_code 2 "automatic deadline retries are unavailable" python3 "$RWT" --deadline-retries 1 5s true
 headroom_said=$(python3 "$RWT" --quiet-success 0.4s sh -c 'sleep 0.3' 2>&1)
 case "$headroom_said" in
 *"of its 0.4s deadline"*) ok "a pass over half its deadline warns" ;;

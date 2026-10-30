@@ -84,7 +84,7 @@ pub fn addZigTest(
                 "--error-exitcode=1",
                 "--num-callers=50",
                 b.fmt("--suppressions={s}", .{repoPath(b, "tools/memcheck.supp")}),
-            }, seconds, .{ .quiet_success = true, .deadline_retry = false });
+            }, seconds, .{ .quiet_success = true });
             run.addArtifactArg(compile);
             return run;
         },
@@ -111,17 +111,12 @@ pub fn addSystemCommand(
 }
 
 /// Assert a test's child output before quiet-success can hide it. Zig captures
-/// checked stdout itself; the command still runs on every gate invocation. A
-/// deadline retry would append a stopped attempt's partial output to the
-/// checked stream, so a checked command runs once.
+/// checked stdout itself; the command still runs on every gate invocation.
 pub fn expectStdOutMatch(run: *std.Build.Step.Run, expected: []const u8) void {
     var index: usize = 0;
     while (index < run.argv.items.len) {
         const arg = run.argv.items[index];
         if (arg == .bytes and std.mem.eql(u8, arg.bytes, "--quiet-success")) {
-            _ = run.argv.orderedRemove(index);
-        } else if (arg == .bytes and std.mem.eql(u8, arg.bytes, "--deadline-retries")) {
-            _ = run.argv.orderedRemove(index);
             _ = run.argv.orderedRemove(index);
         } else {
             index += 1;
@@ -160,7 +155,7 @@ pub fn addArtifact(
                 "--instr-atstart=no",
                 "--collect-atstart=no",
                 b.fmt("--callgrind-out-file={s}", .{profileOutput(b, compile.name)}),
-            }, seconds, .{ .quiet_success = false, .deadline_retry = false });
+            }, seconds, .{ .quiet_success = false });
             // On 64-bit hosts, leave room below the first client mapping for
             // Zig's descending allocation hints. A large allocation after a
             // low mapping can wrap the hint, which Valgrind refuses as OOM.
@@ -432,7 +427,7 @@ fn boundedCommand(
     if (seconds == 0 or seconds > 30) {
         @panic("deterministic process deadline must be 1..30 seconds");
     }
-    return wrappedCommand(b, argv, seconds, .{ .quiet_success = true, .deadline_retry = true });
+    return wrappedCommand(b, argv, seconds, .{ .quiet_success = true });
 }
 
 fn browserBoundedCommand(
@@ -462,18 +457,13 @@ fn browserBoundedCommand(
         for (argv, 0..) |arg, i| {
             prefixed[5 + i] = arg;
         }
-        return wrappedCommand(b, prefixed, seconds, .{ .quiet_success = false, .deadline_retry = true });
+        return wrappedCommand(b, prefixed, seconds, .{ .quiet_success = false });
     }
-    return wrappedCommand(b, argv, seconds, .{ .quiet_success = false, .deadline_retry = true });
+    return wrappedCommand(b, argv, seconds, .{ .quiet_success = false });
 }
 
 const Wrap = struct {
     quiet_success: bool,
-    /// One rerun when the deadline alone fires absorbs a stalled runner, and
-    /// the wrapper reports the miss so a retry never hides a slow test. A
-    /// valgrind run is minutes long and a profile is a measurement, so
-    /// neither repeats.
-    deadline_retry: bool,
 };
 
 fn wrappedCommand(
@@ -489,7 +479,6 @@ fn wrappedCommand(
         "2s",
     });
     if (wrap.quiet_success) run.addArg("--quiet-success");
-    if (wrap.deadline_retry) run.addArgs(&.{ "--deadline-retries", "1" });
     run.addArg(b.fmt("{d}s", .{seconds}));
     // Every bounded command is a test or browser proof. Its descendants may
     // exercise IRC, but the transport rejects anything except an explicit

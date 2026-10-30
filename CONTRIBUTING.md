@@ -223,10 +223,11 @@ A deadline holds on the slowest machine that runs it. Hosted runners compile
 cold, an order of magnitude slower than a warm workstation, and run tests
 slower too. Each job therefore carries only the phases that fit its time limit,
 and a phase opens with its shared build under a separate build allowance so a
-proof's deadline times the proof. A step that passes using more than half its
-deadline says so, locally too. A test step whose deadline fires reruns once,
-and the log names the miss, so a retry absorbs a stalled runner without
-hiding a slow test.
+proof's deadline times the proof.
+
+Tests that use more than half their deadline warn, locally too. A missed
+deadline fails the check without an automatic retry. Diagnose the stopped
+attempt before rerunning it. A later pass does not explain the failure.
 
 To reproduce CI's process checks locally, compile in ReleaseSafe first, then
 run the tests in the same mode. Run browser proofs separately from this sequence.

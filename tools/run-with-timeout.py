@@ -22,12 +22,10 @@ a bare failure, indistinguishable from one that failed on its own.
 `--heartbeat <duration>` reports elapsed time while the child is running.
 It does not extend the deadline or imply that the child is making progress.
 
-`--deadline-retries <n>` reruns the command, up to n more times (at most 2),
-only when the deadline fires. Any other failure returns at once. Each stopped
-attempt replays its output and says so, so a retry absorbs a stalled runner
-without hiding the miss.
+A deadline failure is final. Retrying a timed-out test cannot distinguish a
+scheduling stall from a defect, so a later pass must not qualify the check.
 
-A pass that used more than half its deadline, or needed a retry, says so on
+A pass that used more than half its deadline says so on
 stderr. The slowest machine that runs a step sets its budget, and a pass with
 less than twice its time in hand is a failure waiting for a slower runner.
 
@@ -59,8 +57,6 @@ from typing import IO
 
 # A pass that used more than 1/HEADROOM of its deadline warns.
 HEADROOM = 2
-# A deadline retry is a backstop for a scheduling stall, never the budget.
-MAX_DEADLINE_RETRIES = 2
 
 
 def duration(value: str) -> float:
@@ -125,23 +121,14 @@ def main() -> int:
         help="replay combined child output only when the command fails",
     )
     parser.add_argument("--heartbeat", type=duration, default=0)
-    parser.add_argument(
-        "--deadline-retries",
-        type=int,
-        choices=range(MAX_DEADLINE_RETRIES + 1),
-        default=0,
-        metavar="N",
-        help="rerun up to N times when the deadline fires, never on any other failure",
-    )
     parser.add_argument("timeout", type=duration)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("missing command")
-    attempts = args.deadline_retries + 1
 
-    # Block the cancellation signals across each spawn. Arriving in that
+    # Block the cancellation signals across the spawn. Arriving in that
     # window, they would find no child to relay to and leave one running in the
     # session `start_new_session` just gave it. The child unblocks them for
     # itself before exec.
@@ -178,7 +165,7 @@ def main() -> int:
     # 128+N so the caller sees what killed it. SIGINT is relayed here rather
     # than left to raise `KeyboardInterrupt`, because returning from a handler
     # into `wait()` would let a child that ignores the signal defeat the
-    # cancellation entirely. Cancellation never starts another attempt.
+    # cancellation entirely.
     def relay(sig: int, _frame: object) -> None:
         if process is not None:
             signal_group(process, sig)
@@ -188,85 +175,68 @@ def main() -> int:
     for forwarded in relayed:
         signal.signal(forwarded, relay)
 
-    for attempt in range(1, attempts + 1):
-        capture = tempfile.TemporaryFile() if args.quiet_success else None
-        finishing = False
-        try:
-            process = subprocess.Popen(
-                command,
-                start_new_session=True,
-                preexec_fn=unblock_in_child,
-                stdout=capture,
-                stderr=subprocess.STDOUT if capture is not None else None,
-            )
-        except FileNotFoundError as exc:
-            print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
-            return finish(127)
-        except OSError as exc:
-            # GNU timeout separates these: 127 is "no such command", 126 is
-            # "found it, could not run it".
-            print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
-            return finish(126)
-        finally:
-            signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
+    capture = tempfile.TemporaryFile() if args.quiet_success else None
+    try:
+        process = subprocess.Popen(
+            command,
+            start_new_session=True,
+            preexec_fn=unblock_in_child,
+            stdout=capture,
+            stderr=subprocess.STDOUT if capture is not None else None,
+        )
+    except FileNotFoundError as exc:
+        print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
+        return finish(127)
+    except OSError as exc:
+        # GNU timeout separates these: 127 is "no such command", 126 is
+        # "found it, could not run it".
+        print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
+        return finish(126)
+    finally:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
 
-        started = time.monotonic()
-        deadline = started + args.timeout
-        try:
-            while True:
-                remaining = max(0, deadline - time.monotonic())
-                interval = min(remaining, args.heartbeat) if args.heartbeat else remaining
-                try:
-                    code = shell_code(process.wait(timeout=interval))
-                    break
-                except subprocess.TimeoutExpired:
-                    if time.monotonic() >= deadline:
-                        raise
-                    print(f"run-with-timeout: {shlex.join(command)} still running "
-                          f"({time.monotonic() - started:.0f}s elapsed, "
-                          f"{args.timeout:g}s deadline)", file=sys.stderr, flush=True)
-        except subprocess.TimeoutExpired:
-            signal_group(process, signal.SIGTERM)
-            escalate(process, args.kill_after)
-            signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
-            process = None
-            code = finish(124)
-            print(f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline "
-                  f"and was stopped{attempt_note(attempt, attempts)}", file=sys.stderr, flush=True)
-            if attempt < attempts:
-                continue
-            signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
-            return code
-        elapsed = time.monotonic() - started
+    started = time.monotonic()
+    deadline = started + args.timeout
+    try:
+        while True:
+            remaining = max(0, deadline - time.monotonic())
+            interval = min(remaining, args.heartbeat) if args.heartbeat else remaining
+            try:
+                code = shell_code(process.wait(timeout=interval))
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= deadline:
+                    raise
+                print(f"run-with-timeout: {shlex.join(command)} still running "
+                      f"({time.monotonic() - started:.0f}s elapsed, "
+                      f"{args.timeout:g}s deadline)", file=sys.stderr, flush=True)
+    except subprocess.TimeoutExpired:
+        signal_group(process, signal.SIGTERM)
+        escalate(process, args.kill_after)
         signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
         process = None
+        code = finish(124)
+        print(f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline "
+              "and was stopped", file=sys.stderr, flush=True)
         signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
-        code = finish(code)
-        if code == 0:
-            report_headroom(command, elapsed, args.timeout, attempt)
         return code
-    raise AssertionError("every attempt returns or continues")
+    elapsed = time.monotonic() - started
+    signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
+    process = None
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
+    code = finish(code)
+    if code == 0:
+        report_headroom(command, elapsed, args.timeout)
+    return code
 
 
-def attempt_note(attempt: int, attempts: int) -> str:
-    if attempts == 1:
-        return ""
-    if attempt < attempts:
-        return f" (attempt {attempt} of {attempts}, retrying)"
-    return f" (attempt {attempt} of {attempts})"
-
-
-def report_headroom(command: list[str], elapsed: float, timeout: float, attempt: int) -> None:
+def report_headroom(command: list[str], elapsed: float, timeout: float) -> None:
     """A pass is not quiet about a deadline it nearly missed. The slowest machine
     that runs a step sets its budget, and CI runners are slower than a
     workstation, so a pass that used most of its deadline is a failure on the
-    way. A pass after a retry already missed it once."""
+    way."""
     said = shlex.join(command)
-    if attempt > 1:
-        print(f"run-with-timeout: {said} passed only after {attempt - 1} deadline "
-              f"retr{'y' if attempt == 2 else 'ies'}; it does not fit its {timeout:g}s deadline",
-              file=sys.stderr, flush=True)
-    elif timeout > 0 and elapsed * HEADROOM > timeout:
+    if timeout > 0 and elapsed * HEADROOM > timeout:
         print(f"run-with-timeout: {said} passed in {elapsed:.0f}s of its {timeout:g}s deadline; "
               f"a runner {HEADROOM}x slower would stop it", file=sys.stderr, flush=True)
 
