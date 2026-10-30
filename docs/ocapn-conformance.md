@@ -120,7 +120,7 @@ pending source blocks the run, a deferred module reports its decision, and an
 adopted module must run without skips. The onion runner has its own exclusions.
 
 `zig build ocapn-conformance-next` first runs the baseline lane, then the
-adopted upstream assertions through a next wire fixture and local draft-native
+adopted upstream assertions through a next wire fixture and locally written draft
 cases. The fixture verifies a signed next offer using the retained hello,
 requires draft delivery shapes, and chooses 32-byte gift IDs before signing.
 

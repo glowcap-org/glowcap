@@ -18,7 +18,7 @@ A second disk engine should not require another implementation of read, commit, 
 
 ## Decision
 
-A storage engine supplies transactions over get, ordered-prefix next, put and remove, with commit and abort for writes. The shared core derives worker-facing operations from that contract once and checks native engines at compile time.
+A storage engine supplies transactions over get, ordered-prefix next, put and remove, with commit and abort for writes. The shared core derives worker-facing operations from that contract once and checks Zig engine implementations at compile time.
 
 Each concrete engine owns its physical opening arguments, archive and operations guide. It projects the same lifecycle into C and Rust and runs the shared durable test suite. An embedding-supplied callback engine uses the same derivation.
 
@@ -26,7 +26,7 @@ A failed commit is reported as refused only when the library's actual source est
 
 ## Alternatives and consequences
 
-Keeping the higher-level backend as the engine seam would copy transaction glue. A callback-only interface would remove native implementations and their direct tests. One tagged open call would make every archive know every optional engine.
+Keeping the higher-level backend as the engine seam would copy transaction glue. A callback-only interface would remove direct Zig implementations and their tests. One tagged open call would make every archive know every optional engine.
 
 The common contract supplies semantic parity, not identical physical costs or fault assumptions. Engine-specific maintenance remains explicitly owned rather than hidden behind a universal option structure.
 

@@ -18,7 +18,7 @@ A storage miss or abandoned future must not release memory while an engine or In
 
 ## Decision
 
-Optional C archives project the shared Loam lifecycle into the existing Host. Zig owns permission evaluation, transaction preparation and recovery. Rust and browser adapters supply storage effects and native ownership, not a second evaluator.
+Optional C archives project the shared Loam lifecycle into the existing Host. Zig owns permission evaluation, transaction preparation and recovery. Rust and browser adapters supply storage effects through that shared lifecycle.
 
 Fixed startup slots retain admitted operations until physical retirement. Dropping an observer is not proof that a worker stopped. Shared callback contexts and borrowed buffers remain alive until the effect actually retires.
 

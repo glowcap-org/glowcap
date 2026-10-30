@@ -28,7 +28,7 @@ A resident reports held completions through an explicit pending-work query. Hold
 
 A per-connection read buffer makes idle memory grow with the connection count. A pool above the backend cannot model kernel-selected buffers without another ownership translation. One thread per connection does not meet the intended density.
 
-The same ownership contract supports different platform mechanisms and sidecar readiness. It does not make io_uring, epoll, kqueue or a Rust executor identical in cost. Native stream and intrinsically message-framed transports keep their distinct framing rules.
+The same ownership contract supports different platform mechanisms and sidecar readiness. It does not make io_uring, epoll, kqueue or a Rust executor identical in cost. Byte-stream and intrinsically message-framed transports keep their distinct framing rules.
 
 ## Evidence
 

@@ -26,7 +26,7 @@ Bootstrap fetch construction and outcome matching belong to the engine. The sess
 
 Opening without exchanging the actual hello would bypass the protocol's admission point. Generating entropy in the core would break deterministic scenarios and browser compilation. A combined fetch-and-network call would force the engine to own an event loop.
 
-The division makes the same transition usable from an in-process scenario, a byte-fed Host and the native runtime. It does not make a self-signed session claim proof of durable peer identity.
+The division makes the same transition usable from an in-process scenario, a byte-fed Host and the Zig runtime. It does not make a self-signed session claim proof of durable peer identity.
 
 ## Evidence
 

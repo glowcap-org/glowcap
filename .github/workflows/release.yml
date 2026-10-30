@@ -1,6 +1,6 @@
 # The hosted product, C SDK, and Rooms image release. Matching host archives are
 # built first with `zig build -Doptimize=ReleaseSafe release-pack glowcap-pack
-# -Dcpu=baseline`. Each native Linux runner then builds and exercises its image
+# -Dcpu=baseline`. Each Linux runner then builds and exercises its image
 # from that exact product archive. A matching version tag on an exact commit
 # that passed full main checks authorizes publication of every tarball, one combined
 # SHA256SUMS, and the two-platform Rooms image. workflow_dispatch builds, tests,
@@ -82,7 +82,7 @@ jobs:
           - runner: ubuntu-24.04-arm # aarch64-linux
             target: aarch64-linux-gnu.2.39
           - runner: macos-15 # aarch64-macos
-            # Keep native SDK discovery while pinning the deployment floor.
+            # Let Zig discover the host SDK while pinning the deployment floor.
             target: aarch64-native.15.0
           - runner: macos-15-intel # x86_64-macos
             target: x86_64-native.15.0

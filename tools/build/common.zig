@@ -184,8 +184,9 @@ pub fn transportAbiModule(
 }
 
 /// Link Cargo's static archive and system dependencies into a Zig module.
-/// Cargo's native link directives do not reach Zig. The LazyPath ties linking
-/// to the Cargo build, and both backend families share the system libraries.
+/// Cargo's library and framework link directives do not reach Zig. The
+/// LazyPath ties linking to the Cargo build, and both backend families share
+/// the system libraries.
 pub fn linkRustSidecar(
     b: *std.Build,
     mod: *std.Build.Module,
@@ -197,7 +198,7 @@ pub fn linkRustSidecar(
     mod.link_libc = true;
     mod.linkSystemLibrary("unwind", .{});
     if (target.result.os.tag.isDarwin()) {
-        // The native macOS release builds exercise these Rust dependencies.
+        // The macOS release builds exercise these Rust dependencies.
         inline for (&.{
             "CoreFoundation",
             "CoreWLAN",
@@ -269,8 +270,8 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
 }
 
 /// Resolve `-Dtarget`/`-Dcpu` with the baseline CPU as the default, the one
-/// releases ship, and build every host tool for it too. A native CPU keys each
-/// compile on the model of whichever core ran the build process, so
+/// releases ship, and build every host tool for it too. Selecting the host's
+/// CPU keys each compile on the model of whichever core ran the build process, so
 /// heterogeneous cores and the separate machines of CI build and test jobs
 /// each miss the others' cache. Call it first in `build`, before any
 /// dependency configures, so their generators use the same host. Measure the
@@ -372,7 +373,7 @@ pub fn installIfChanged(b: *std.Build, artifact: *std.Build.Step.Compile, dir: s
     return &run.step;
 }
 
-/// ELF export visibility and version scripts require LLVM/lld. The native
+/// ELF export visibility and version scripts require LLVM/lld. Zig's non-LLVM
 /// x86 backend leaks hidden exports and does not enforce version scripts.
 pub fn configureSharedArchive(artifact: *std.Build.Step.Compile) void {
     if (artifact.root_module.resolved_target.?.result.ofmt != .elf) return;

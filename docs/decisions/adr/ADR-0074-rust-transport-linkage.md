@@ -10,7 +10,7 @@ amends: []
 amended_by: []
 ---
 
-# ADR-0074 Zig transport linkage
+# ADR-0074 Linking Rust transports from Zig
 
 ## Context
 

@@ -86,7 +86,7 @@ pub fn register(
     next_fixtures.has_side_effects = true;
     next_conformance.step.dependOn(&next_fixtures.step);
     if (pin_port) |p| next_conformance.addArg(b.fmt("--port={d}", .{p}));
-    const next_conformance_step = b.step("ocapn-conformance-next", "Run manifest-selected upstream cases and draft-native cases on negotiated next with the retained hello");
+    const next_conformance_step = b.step("ocapn-conformance-next", "Run manifest-selected upstream and local draft cases on negotiated next with the retained hello");
     next_conformance_step.dependOn(&next_conformance.step);
 
     // Dedicated upstream pressure over the standardized onion netlayer.
