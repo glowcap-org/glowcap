@@ -131,7 +131,9 @@ jobs:
         run: |
           sdk_args=()
           if [[ "$RUNNER_OS" == macOS ]]; then
-            sdk_args+=(--sysroot "$(xcrun --sdk macosx --show-sdk-path)")
+            SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+            export SDKROOT
+            sdk_args+=(--sysroot "$SDKROOT")
           fi
           zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }} "${sdk_args[@]}"
 

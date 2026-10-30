@@ -193,11 +193,16 @@ pub fn linkRustSidecar(
     target: std.Build.ResolvedTarget,
     archive: std.Build.LazyPath,
 ) void {
-    _ = b;
     mod.addObjectFile(archive);
     mod.link_libc = true;
     mod.linkSystemLibrary("unwind", .{});
     if (target.result.os.tag.isDarwin()) {
+        // Explicit deployment targets do not inherit the host's SDK search
+        // paths. --sysroot alone does not supply -L or -F on this toolchain.
+        if (b.graph.environ_map.get("SDKROOT")) |sdk| {
+            mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr", "lib" }) });
+            mod.addFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System", "Library", "Frameworks" }) });
+        }
         // The macOS release builds exercise these Rust dependencies.
         inline for (&.{
             "CoreFoundation",
