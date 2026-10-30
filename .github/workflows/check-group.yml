@@ -90,7 +90,7 @@ jobs:
       - name: Restore dependency downloads
         id: downloads
         timeout-minutes: 5
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/glowcap/ci/zig-pkg
@@ -121,7 +121,7 @@ jobs:
       - name: Restore build state
         if: inputs.full != 'true'
         timeout-minutes: 5
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.stores.outputs.paths }}
           key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -178,7 +178,7 @@ jobs:
       - name: Save dependency downloads
         if: ${{ !cancelled() && matrix.shard == 1 && steps.fetch.outcome == 'success' && steps.downloads.outputs.cache-hit != 'true' }}
         timeout-minutes: 5
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/glowcap/ci/zig-pkg
@@ -227,7 +227,7 @@ jobs:
       - name: Save build state
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && github.event_name != 'pull_request' }}
         timeout-minutes: 5
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.stores.outputs.paths }}
           key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -273,7 +273,7 @@ jobs:
 
       - name: Restore dependency downloads
         timeout-minutes: 5
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/glowcap/ci/zig-pkg
