@@ -85,6 +85,12 @@ class PackageValidation(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "broken packaged skill link"):
             release.check_skills(self.destination)
 
+    @staticmethod
+    def loader_report(args, dependency):
+        if args[1] == "-L":
+            return "".join(f"{binary}:\n\t{dependency} (compatibility version 1.0.0)\n" for binary in args[2:])
+        return "path @loader_path/../lib (offset 12)"
+
     def test_loader_cannot_fall_back_to_checkout(self):
         for name in ("bin", "libexec", "lib"):
             (self.destination / name).mkdir()
@@ -97,14 +103,14 @@ class PackageValidation(unittest.TestCase):
             release.check_loader(self.destination)
         with patch.object(release.sys, "platform", "darwin"), patch.object(release.subprocess, "check_output") as output:
             (self.destination / "lib/library.dylib").touch()
-            output.return_value = "binary:\n\t/build/library.dylib (compatibility version 1.0.0)\n"
+            output.side_effect = lambda args, **_: self.loader_report(args, "/build/library.dylib")
             with self.assertRaises(AssertionError):
                 release.check_loader(self.destination)
-            output.return_value = "binary:\n\t@rpath/library.dylib (compatibility version 1.0.0)\n"
+            output.side_effect = lambda args, **_: (self.loader_report(args, "@rpath/library.dylib")
+                                                   if args[1] == "-L" else "")
             with self.assertRaisesRegex(AssertionError, "missing relocatable"):
                 release.check_loader(self.destination)
-            output.side_effect = lambda args, **_: (output.return_value if args[1] == "-L"
-                                                   else "path @loader_path/../lib (offset 12)")
+            output.side_effect = lambda args, **_: self.loader_report(args, "@rpath/library.dylib")
             release.check_loader(self.destination)
 
     def test_macos_loader_requires_packaged_library_names(self):
@@ -115,8 +121,7 @@ class PackageValidation(unittest.TestCase):
         for name in ("@rpath/library.0.dylib", "@loader_path/../lib/library.0.dylib"):
             with self.subTest(name=name), patch.object(release.sys, "platform", "darwin"), \
                     patch.object(release.subprocess, "check_output") as output:
-                output.side_effect = lambda args, **_: (f"binary:\n\t{name} (compatibility version 1.0.0)\n"
-                                                       if args[1] == "-L" else "path @loader_path/../lib (offset 12)")
+                output.side_effect = lambda args, **_: self.loader_report(args, name)
                 with self.assertRaisesRegex(AssertionError, "missing packaged library"):
                     release.check_loader(self.destination)
                 library.touch()
@@ -125,8 +130,37 @@ class PackageValidation(unittest.TestCase):
         for name in ("@rpath/../../outside.dylib", "@loader_path/../../outside.dylib"):
             with self.subTest(name=name), patch.object(release.sys, "platform", "darwin"), \
                     patch.object(release.subprocess, "check_output") as output:
-                output.return_value = f"binary:\n\t{name} (compatibility version 1.0.0)\n"
+                output.side_effect = lambda args, **_: self.loader_report(args, name)
                 with self.assertRaisesRegex(AssertionError, "library escapes package"):
+                    release.check_loader(self.destination)
+
+    def test_macos_loader_batches_objects_under_one_deadline(self):
+        for name in ("bin", "libexec", "lib"):
+            (self.destination / name).mkdir()
+        for name in ("bin/glowcap", "libexec/rooms-session", "lib/library.dylib"):
+            (self.destination / name).touch()
+        with patch.object(release.sys, "platform", "darwin"), \
+                patch.object(release.subprocess, "check_output") as output, \
+                patch.object(release.time, "monotonic", side_effect=[100, 103, 111]):
+            output.side_effect = lambda args, **_: self.loader_report(args, "@rpath/library.dylib")
+            release.check_loader(self.destination)
+        self.assertEqual(output.call_count, 2)
+        libraries, rpath = output.call_args_list
+        self.assertEqual(set(libraries.args[0][2:]), {
+            str(self.destination / name) for name in ("bin/glowcap", "libexec/rooms-session", "lib/library.dylib")})
+        self.assertEqual(libraries.kwargs["timeout"], 27)
+        self.assertEqual(rpath.kwargs["timeout"], 19)
+
+    def test_macos_loader_rejects_incomplete_and_unowned_reports(self):
+        for name in ("bin", "libexec", "lib"):
+            (self.destination / name).mkdir()
+        (self.destination / "libexec/rooms-session").touch()
+        for report in ("", "unexpected:\n", "\t/usr/lib/libSystem.B.dylib\n"):
+            with self.subTest(report=report), patch.object(release.sys, "platform", "darwin"), \
+                    patch.object(release.subprocess, "check_output") as output:
+                output.side_effect = lambda args, **_: (report if args[1] == "-L"
+                                                       else "path @loader_path/../lib (offset 12)")
+                with self.assertRaises(AssertionError):
                     release.check_loader(self.destination)
 
 
