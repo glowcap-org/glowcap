@@ -540,6 +540,74 @@ else:
                     self.assertEqual(selected(condition, {"event_name": event,
                                                          "ref": f"refs/heads/{branch}"}), expected)
 
+    def promote(self, relation, status=0):
+        workflow = (ROOT / ".github/workflows/promote.yml").read_text()
+        script = textwrap.dedent(re.search(r"(?m)^        run: \|\n((?: {10}[^\n]*\n)+)", workflow)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            gh = directory / "gh"
+            gh.write_text("""#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ['PROMOTE_CALL'], 'a') as output:
+    output.write(json.dumps(sys.argv[1:]) + '\\n')
+if any('/compare/' in argument for argument in sys.argv):
+    if int(os.environ['PROMOTE_STATUS']):
+        sys.exit(int(os.environ['PROMOTE_STATUS']))
+    print(os.environ['PROMOTE_RELATION'])
+""")
+            gh.chmod(0o755)
+            call = directory / "call.json"
+            environment = dict(os.environ, PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
+                               GITHUB_REPOSITORY="owner/project", CANDIDATE="a" * 40, GH_TOKEN="test-token",
+                               PROMOTE_CALL=str(call), PROMOTE_RELATION=relation, PROMOTE_STATUS=str(status))
+            result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], cwd=directory,
+                                    env=environment, capture_output=True, text=True)
+            calls = [json.loads(line) for line in call.read_text().splitlines()] if call.exists() else []
+            return result, calls
+
+    def test_promotion_fast_forwards_main_to_a_checked_dev_push(self):
+        workflow = (ROOT / ".github/workflows/promote.yml").read_text()
+        self.assertIn("\non:\n  workflow_run:\n    workflows: [check]\n    types: [completed]\n"
+                      "    branches: [dev]\n\npermissions: {}\n", workflow)
+        self.assertNotIn("actions/checkout", workflow)
+        condition, body = jobs(".github/workflows/promote.yml")["main"]
+        # The workflow token holds nothing. The app token carries the two
+        # permissions a fast-forward across workflow-file changes needs.
+        self.assertNotIn("    permissions:", body)
+        self.assertIn("        with:\n          client-id: ${{ vars.PROMOTE_APP_CLIENT_ID }}\n"
+                      "          private-key: ${{ secrets.PROMOTE_APP_PRIVATE_KEY }}\n"
+                      "          permission-contents: write\n          permission-workflows: write\n", body)
+        self.assertIn("          GH_TOKEN: ${{ steps.app.outputs.token }}\n", body)
+        self.assertNotIn("github.token", workflow)
+        run = {"event": "push", "conclusion": "success", "head_repository": {"full_name": "owner/project"}}
+        context = lambda **change: {"repository": "owner/project", "event": {"workflow_run": dict(run, **change)}}
+        self.assertTrue(selected(condition, context()))
+        for change in ({"event": "pull_request"}, {"event": "schedule"}, {"event": "workflow_dispatch"},
+                       {"conclusion": "failure"}, {"conclusion": "cancelled"},
+                       {"head_repository": {"full_name": "fork/project"}}):
+            with self.subTest(change=change):
+                self.assertFalse(selected(condition, context(**change)))
+
+        # pages.yml deploys on the push this move makes.
+        self.assertIn("\non:\n  push:\n    branches: [main]\n", (ROOT / ".github/workflows/pages.yml").read_text())
+        result, calls = self.promote("ahead")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [
+            ["api", "repos/owner/project/compare/main..." + "a" * 40, "--jq", ".status"],
+            ["api", "--method", "PATCH", "repos/owner/project/git/refs/heads/main",
+             "-f", "sha=" + "a" * 40, "-F", "force=false"]])
+        # A rerun of an older run finds main past its commit and moves nothing.
+        for relation in ("identical", "behind"):
+            with self.subTest(relation=relation):
+                result, calls = self.promote(relation)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 1)
+        for relation, status in (("diverged", 0), ("", 0), ("ahead", 4)):
+            with self.subTest(relation=relation, status=status):
+                result, calls = self.promote(relation, status)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(calls), 1)
+
     def test_check_does_not_revalidate_main(self):
         for path in (".github/workflows/check.yml", ".github/workflows/agent-tools.yml"):
             with self.subTest(workflow=path):

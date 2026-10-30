@@ -1,13 +1,13 @@
-# Every update lands on dev through the ordinary checks. One grouped pull
-# request per ecosystem keeps the hosted-runner cost to one full run per
-# cycle. Toolchain pins (.devcontainer/pins.sh), the devcontainer and Rooms
-# deploy base images, Zig packages (build.zig.zon), Mbed TLS, and the
-# conformance submodules move through their own owners and are not watched here.
+# Every update targets dev, the default branch, and lands through the ordinary
+# checks. One grouped pull request per ecosystem keeps the hosted-runner cost
+# to one full run per cycle. Toolchain pins (.devcontainer/pins.sh), the
+# devcontainer and Rooms deploy base images, Zig packages (build.zig.zon), Mbed
+# TLS, and the conformance submodules move through their own owners and are not
+# watched here.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
-    target-branch: dev
     schedule:
       interval: weekly
     groups:
@@ -28,7 +28,6 @@ updates:
       - /transports/iroh
       - /transports/sidecar-common
       - /transports/webrtc
-    target-branch: dev
     schedule:
       interval: monthly
     open-pull-requests-limit: 2
@@ -40,7 +39,6 @@ updates:
     directories:
       - /bindings/python
       - /conformance/ocapn-conformance
-    target-branch: dev
     schedule:
       interval: monthly
     open-pull-requests-limit: 2

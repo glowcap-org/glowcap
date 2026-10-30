@@ -1,0 +1,56 @@
+# Move main to each dev commit whose push run of check passed, so main is always
+# the newest fully validated dev commit and nobody pushes it by hand. The move
+# deploys the site through pages.yml's push trigger. The main ruleset binds this
+# job like anyone else: it refuses a move that is not a signed, checked
+# fast-forward. The job runs no repository code, only API calls naming the
+# commit the push run validated. It acts as the promotion app, because the
+# workflow token may not move a branch across workflow-file changes.
+# Setup: docs/maintaining.md "Promotion app". Decision: ADR-0073.
+name: promote
+
+on:
+  workflow_run:
+    workflows: [check]
+    types: [completed]
+    branches: [dev]
+
+permissions: {}
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  main:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Mint the promotion app's token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PROMOTE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PROMOTE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Fast-forward main
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          CANDIDATE: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          relation="$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$CANDIDATE" --jq .status)"
+          case "$relation" in
+            ahead) ;;
+            identical|behind)
+              echo "main already contains $CANDIDATE"
+              exit 0 ;;
+            *)
+              echo "main and $CANDIDATE have $relation history; main moves only by fast-forward" >&2
+              exit 1 ;;
+          esac
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/main" -f sha="$CANDIDATE" -F force=false >/dev/null

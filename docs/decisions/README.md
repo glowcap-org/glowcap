@@ -118,6 +118,7 @@ record's id, filename and status.
 ### Maintainer workflow
 
 - [ADR-0067 Evidence-bearing integration](adr/ADR-0067-evidence-bearing-integration.md)
+- [ADR-0073 Hosted landing and promotion](adr/ADR-0073-hosted-landing-and-promotion.md)
 
 ### Proposed
 

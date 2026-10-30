@@ -1,7 +1,8 @@
 # Pull requests into dev select affected groups. Full validation runs for
-# pushes to dev and main, main PRs, CI/build changes, nightly, and manual
+# pushes to dev, PRs into main, CI/build changes, nightly, and manual
 # suite=check. Only full runs report the required gates context, and the main
-# ruleset reads it from the dev push run. Nightly also runs deep fuzzing.
+# ruleset reads it from the dev push run whose success starts promote.yml.
+# Nightly also runs deep fuzzing.
 # Topology: CONTRIBUTING.md "Continuous integration".
 #
 # One preparation job resolves or builds the toolchain before Linux fans out
@@ -104,7 +105,7 @@ jobs:
         run: test "$PLAN" = success && test "$IMAGE" = success && test "$RESULT" = success
 
   # Full validation searches each fuzz target for 25K runs. This job searches
-  # ten times longer, on main, and fails on a find; a find is replayed
+  # ten times longer, nightly on dev, and fails on a find; a find is replayed
   # into the layer's regression corpus by hand.
   scheduled-fuzz:
     if: >-

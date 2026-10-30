@@ -164,16 +164,10 @@ ownership.
 Each item is a maintainer action or a decision only the maintainer can make.
 None of them needs a plan until the decision is made.
 
-- **Publication.** Remain private and use
-  [local integration](maintaining.md#integrating-locally) until the
-  maintainer authorizes publication. Then verify hosted runner availability,
-  make the repository public, activate and verify
-  [main protection](maintaining.md#repository-protection), confirm the
-  checked `dev` commit and resulting fast-forward `main` push pass their
-  required checks, enable private vulnerability reporting, set Pages to deploy
-  from Actions and run `pages`. Done when the badge, run, and site are visible
-  without authentication and an unchecked promotion is refused. The items
-  under [waiting on publication](#waiting-on-publication) then take over
+- **Publication.** Confirm on GitHub that an unsigned or unchecked push to
+  `main` is refused ([repository protection](maintaining.md#repository-protection)).
+  Done when the refusal is observed. The items under
+  [waiting on publication](#waiting-on-publication) then take over
   ([plan to plan](planning/plan-to-plan.md)).
 - **Public release evidence.** Before an invite or release, run the exact
   release commit through the checks and macOS jobs, then verify the

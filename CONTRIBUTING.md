@@ -149,8 +149,8 @@ feedback.
 
 The maintainer reviews the diff and checks before accepting it. Keep
 follow-up changes on the same branch so the discussion and checks stay together.
-An accepted change lands on `dev` as one commit signed by the maintainer that
-keeps you as its author, and the pull request closes naming that commit.
+An accepted change lands on `dev` as one squash commit that keeps you as its
+author, and the pull request closes as merged.
 
 ## Tools and responsibility
 
@@ -197,7 +197,7 @@ finding is retained as a downloadable artifact for reproduction.
 
 Pull requests into `dev` report `dev-gates`. Only complete validation reports
 `gates`, which the main ruleset requires. The ruleset reads it from the run the
-push to `dev` started, so a candidate qualifies through its own push run, as
+push to `dev` started, and that run's success moves `main` to the commit, as
 described in [Maintaining glowcap](docs/maintaining.md#promoting-to-main).
 
 Linux validation runs in the groups [`ci/plan.py`](ci/plan.py) names. A group's

@@ -1,9 +1,10 @@
 ---
 type: static
-description: Reviewing and integrating changes locally as signed commits, then fast-forwarding main to a checked one.
+description: Landing changes on dev as signed commits, the workflow that fast-forwards main to each checked one, and release protection.
 sources:
   - resource: /.github/workflows/check.yml
   - resource: /.github/workflows/pages.yml
+  - resource: /.github/workflows/promote.yml
   - resource: /.github/workflows/release.yml
   - resource: /tools/check/publication-integration-test.sh
   - resource: /tools/check/require-main-check.py
@@ -13,11 +14,12 @@ sources:
 
 # Maintaining glowcap
 
-The maintainer reviews changes into `dev`. Local work reaches `dev` through
-the worktree integrator. Hosted pull requests and protected promotion to
-`main`, the publication branch, require GitHub checks and repository protection
-to be available. The [roadmap](roadmap.md#waiting-on-you)
-owns activation and outstanding hosted verification.
+Every change lands on `dev`, the default branch: a pull request by squash
+merge, a worktree branch through the integrator. `main`, the publication
+branch, is the newest `dev` commit whose full check passed, and a workflow
+moves it. A release is a maintainer-signed tag on `main`.
+[ADR-0073](decisions/adr/ADR-0073-hosted-landing-and-promotion.md) records
+the choice.
 
 ## Release status
 
@@ -56,8 +58,8 @@ git push origin refs/heads/dev:refs/heads/dev
 ```
 
 A rejected push needs reconciliation through the synchronization procedure
-below. Never force `dev`. Local integration does not publish to `main`, deploy
-Pages, or create a release.
+below. Never force `dev`. The push starts full validation, and its success
+promotes the commit to `main` and the site. Only a tag creates a release.
 
 ## Reviewing a contribution
 
@@ -70,30 +72,26 @@ Request changes for correctness, security, necessary coverage, or a documented
 constraint. Explain why and mark optional suggestions. Keep unrelated cleanup
 separate. Close out-of-scope work with a reason.
 
-An accepted contribution lands through the worktree integrator, never through
-the merge button, so `dev` keeps one signed commit per change. Fetch the
-reviewed head into a branch of its own and add a worktree on it:
+Accept a pull request with **Squash and merge**, pinned to the head you
+reviewed so a later push cannot land unreviewed:
 
 ```sh
-git fetch origin "refs/pull/${number:?}/head:refs/heads/review/${number}"
-git worktree add ".local/worktrees/review-${number}" "review/${number}"
+gh pr merge "${number:?}" --squash --match-head-commit "${reviewed:?}"
 ```
 
-Run the integrator from that worktree, then push `dev` as above.
-
-The landed commit keeps the contributor as author when every commit on the
-branch is theirs, and the maintainer's signature says who vouched for it.
-Close the pull request naming the landed commit, because GitHub cannot match
-a re-signed commit to the branch it came from.
+GitHub signs the squash commit and keeps the contributor as its author, so
+`dev` takes one signed commit per change and the pull request closes as
+merged. Fix a contribution's last details on its branch before merging, not in
+a follow-up commit.
 
 ## Synchronizing hosted and local work
 
-The worktree integrator is the only writer of `dev`, and `main` moves only by
-fast-forward from a commit on `dev`. The hosted and local copies of both
-branches can still drift when a push is interrupted or a second machine
-integrates. Adopt the hosted tips before resuming local integration: in the
-integration repository, ensure neither `main` nor `dev` is checked out in any
-worktree, then run:
+`main` moves only by fast-forward from a commit on `dev`, and it moves on
+GitHub, so local `main` falls behind until the next fetch. The hosted and local
+copies of both branches also drift when a push is interrupted or a second
+machine integrates. Adopt the hosted tips before resuming local integration:
+in the integration repository, ensure neither `main` nor `dev` is checked out
+in any worktree, then run:
 
 ```sh
 git fetch --atomic origin refs/heads/main:refs/heads/main refs/heads/dev:refs/heads/dev
@@ -116,47 +114,27 @@ repositories, including divergent and checked-out branches.
 
 `main` is a fast-forward of `dev`, so the commit the checks ran on is the
 commit that publishes: the same hash, signature, and evidence note. Every push
-to `dev` runs full validation, and the main ruleset judges a push to `main` by
-the `gates` and `macos-runtime` jobs of that push-triggered run. GitHub does
-not count a manually started run toward the ruleset, so retry a failed job in
-the push run with `gh run rerun <run-id> --failed` instead of starting a new
-one. A push to `dev` cancels any `dev` run still in progress, so only the
-newest `dev` commit becomes a candidate.
+to `dev` runs full validation, and a push to `dev` cancels any `dev` run still
+in progress, so only the newest `dev` commit becomes a candidate.
 
-Wait for the push run on the candidate to pass, then move `main` to it:
+When a push run on `dev` succeeds, the
+[promote workflow](../.github/workflows/promote.yml) fast-forwards `main` to
+its commit as the [promotion app](#promotion-app), and that push deploys the
+site. A rerun of an older run finds `main`
+past its commit and moves nothing. The main ruleset judges that move like any
+push: it accepts only a fast-forward of signed commits whose `gates` and
+`macos-runtime` checks passed, with no bypass. A merge, a squash, or a rewrite
+would replace the checked commit with one no check ran on, so none is
+accepted.
 
-```sh
-git fetch origin refs/heads/dev:refs/heads/dev
-candidate=$(git rev-parse refs/heads/dev)
-gh run list --commit "$candidate" --workflow check.yml --event push
-git push origin "${candidate}:refs/heads/main"
-git merge --ff-only "$candidate"
-```
+GitHub does not count a manually started run toward the ruleset, and only a
+push run starts promotion. Retry a failed job in the push run with
+`gh run rerun <run-id> --failed`, and its success promotes the commit.
 
-The braces keep zsh from reading `:r` in `$candidate:refs` as a modifier.
-
-The push goes first so the remote's rules judge the candidate, and the merge
-then moves local `main` in the checkout that holds it. A refused push leaves
-both where they were.
-
-The main ruleset accepts only a fast-forward of signed commits whose required
-checks passed, so the remote rejects a merge, a squash, a rewrite, or a
-candidate without a green `gates` and `macos-runtime` run. Nothing is
-squashed or merged on the way, because either would replace the checked
-commit with one no check ran on.
-
-The site is published at `glowcap.org`. The custom domain is set in the
-repository's Pages settings, because a Pages deployment from Actions ignores a
-`CNAME` file in its artifact. The DNS records live with the domain's DNS host
-and the domain verification in the maintainer's GitHub account settings.
-
-Only the maintainer moves `main`. A push to `main` runs no checks of its own,
-because the commit it moves to already passed them on `dev`.
-
-Pages deploys each commit `main` moves to, and a tagged release publishes its
-tagged commit. Both first run `tools/check/require-main-check.py`. It requires
-the commit to be on `main` and to have a successful `check.yml` run, either the
-push run on `dev` or a manual full check. Both `gates` and `macos-runtime` must complete
+Pages deploys `main`, and a tagged release publishes its tagged commit. Both
+first run `tools/check/require-main-check.py`. It requires the commit to be on
+`main` and to have a successful `check.yml` run, either the push run on `dev`
+or a manual full check. Both `gates` and `macos-runtime` must complete
 successfully in the same run attempt. The long fuzz search alone does not
 authorize publication.
 
@@ -168,7 +146,13 @@ gh workflow run check.yml --ref main -f suite=check
 
 Once both required jobs pass, run `gh workflow run pages.yml --ref main` to
 deploy. A release tag cannot move, so rerun its refused release run with
-`gh run rerun <run-id>`. A manual `check` defaults to full validation. Select `suite=fuzz` for the separate long fuzz search.
+`gh run rerun <run-id>`. A manual `check` defaults to full validation. Select
+`suite=fuzz` for the separate long fuzz search.
+
+The site is published at `glowcap.org`. The custom domain is set in the
+repository's Pages settings, because a Pages deployment from Actions ignores a
+`CNAME` file in its artifact. The DNS records live with the domain's DNS host
+and the domain verification in the maintainer's GitHub account settings.
 
 Each `ci/gates.sh` run records the commit, working-tree hash and dirty state,
 submodule revisions, toolchain pins, host, and each gate's exit status and
@@ -179,6 +163,34 @@ writes `zig-out/evidence/<phase>/<commit>.json` without attaching a note.
 CI uploads these records as `evidence-<commit>-<phase>` artifacts on success
 and failure. A green sequence whose record step fails exits 70. To publish
 notes from a full local run, use `git push origin refs/notes/evidence`.
+
+## Promotion app
+
+The promote workflow acts as an organization-owned GitHub App, because a
+workflow's own token may not move a branch across commits that change workflow
+files. The app holds two repository permissions, Contents and Workflows, both
+read and write, on this repository alone. Its client ID is the
+`PROMOTE_APP_CLIENT_ID` variable and its private key the
+`PROMOTE_APP_PRIVATE_KEY` secret. Until both exist, promotion fails at its
+first step and `main` stays where it was.
+
+1. Under the organization's **Settings**, **Developer settings**, **GitHub
+   Apps**, choose **New GitHub App**. Name it `glowcap-promote`, set the
+   homepage to `https://glowcap.org`, clear **Active** under webhooks, set the
+   Contents and Workflows repository permissions to **Read and write**, and
+   allow installation only on this account.
+2. Copy the client ID, generate a private key, and install the app on
+   `glowcap-org/glowcap` only.
+3. Store both, then delete the downloaded key:
+
+```sh
+gh variable set PROMOTE_APP_CLIENT_ID -R glowcap-org/glowcap --body "${client_id:?}"
+gh secret set PROMOTE_APP_PRIVATE_KEY -R glowcap-org/glowcap < "${key_file:?}"
+```
+
+Rerun a refused promotion with `gh run rerun <run-id>`. To rotate the key,
+generate a new one, store it the same way, then delete its predecessor in the
+app's settings.
 
 ## Repository protection
 

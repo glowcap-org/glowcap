@@ -7,7 +7,7 @@ decision: "Every commit on dev and main is signed by the maintainer at integrati
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0073]
 ---
 
 # ADR-0067 Evidence-bearing integration
