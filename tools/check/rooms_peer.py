@@ -19,6 +19,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONT = ROOT / "zig-out/bin/glowcap"
+COMMAND_SECONDS = 10
 
 
 def failure_logs(root):
@@ -53,10 +54,20 @@ def failure_logs(root):
             print(f"status unavailable: {error}", file=sys.stderr)
 
 
-def cli(state, verb, *args):
+def cli(state, verb, *args, timeout=COMMAND_SECONDS):
     subject, action = ("team", verb[5:]) if verb.startswith("team-") else ("session", verb)
-    result = subprocess.run([str(FRONT), "apps", "rooms", subject, action, "--dir", str(state), *args],
-                            cwd="/tmp", text=True, capture_output=True, timeout=10)
+    started = time.monotonic()
+    try:
+        result = subprocess.run([str(FRONT), "apps", "rooms", subject, action, "--dir", str(state), *args],
+                                cwd="/tmp", text=True, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        print(f"{verb}: partial stdout={(error.stdout or b'')[-8192:]!r}, "
+              f"stderr={(error.stderr or b'')[-8192:]!r}", file=sys.stderr)
+        raise
+    finally:
+        elapsed = time.monotonic() - started
+        if elapsed >= 1:
+            print(f"{verb} ({state.name}): {elapsed:.2f}s", file=sys.stderr)
     if result.returncode:
         raise AssertionError(f"{verb}: {result.stdout}\n{result.stderr}")
     return json.loads(result.stdout)
@@ -167,8 +178,10 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                     locator = services.enter_context(bootstrap(locator))
                 cli(alice, "start", "--transport", transport, "--reachability", "direct", "--locator", locator,
                     "--nick", "Alice", "--room", "garden", "--room", "workshop")
+                # Lead-first team startup composes two ordinary peer starts.
                 cli(team, "team-start", "--transport", transport, "--reachability", "direct", "--locator", locator,
-                    "--lead", "Bob", "--member", "Carol", "--room", "garden", "--room", "workshop")
+                    "--lead", "Bob", "--member", "Carol", "--room", "garden", "--room", "workshop",
+                    timeout=2 * COMMAND_SECONDS)
                 assert len(cli(team, "team-status")["members"]) == 2
                 rooms = {row["name"]: row["id"] for row in cli(alice, "status")["workspace"]["conversations"]
                          if row["kind"] == "room"}
