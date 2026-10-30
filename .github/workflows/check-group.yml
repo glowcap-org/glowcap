@@ -20,10 +20,6 @@ on:
         description: JSON array of the build shards, 1 to n; empty when the phases compile at run time and there is nothing to hand over.
         type: string
         required: true
-      full:
-        description: The plan's full output.
-        type: string
-        required: true
       image:
         type: string
         required: true
@@ -115,11 +111,11 @@ jobs:
       # hosted runner compiles cold an order of magnitude slower than a
       # workstation. Zig keys every object by its inputs and every proof
       # reruns in the test jobs, so a restore saves compile time and skips no
-      # proof. A toolchain change starts a new family. Full qualification
-      # builds cold: its result qualifies main, and it holds the cold build to
-      # its budgets.
+      # proof. A toolchain change starts a new family. Every PR may reuse this
+      # state, including a PR requiring all groups. Push, nightly and manual
+      # qualification still build cold before a commit can publish.
       - name: Restore build state
-        if: inputs.full != 'true'
+        if: github.event_name == 'pull_request'
         timeout-minutes: 5
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -128,7 +124,7 @@ jobs:
           restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-
 
       - name: Bound the restored build state
-        if: inputs.full != 'true'
+        if: github.event_name == 'pull_request'
         env:
           # The repository's cache quota is 10 GB compressed across every
           # shard, so a shard's state is held near its cold size instead of

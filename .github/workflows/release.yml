@@ -105,6 +105,7 @@ jobs:
           source .devcontainer/pins.sh
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
+          rustup component add llvm-tools
 
       - name: Read test and browser tool pins
         id: python
@@ -127,6 +128,9 @@ jobs:
       - name: Fetch pinned Zig dependencies
         run: |
           bash ci/fetch-zig.sh
+
+      - name: Check release packaging contracts
+        run: zig build glowcap-package-test --summary all
 
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:

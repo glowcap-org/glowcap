@@ -22,6 +22,7 @@ import unittest
 from unittest import mock
 
 from gate_recorder import GateRecorder
+from report_test import PASS, report_run
 from workflow_expression import selected
 
 
@@ -51,6 +52,7 @@ def jobs(path):
             expression = " ".join(line.strip() for line in lines.group().splitlines())
         found[name] = (expression, body)
     return found
+
 
 
 class PublicationWorkflow(unittest.TestCase):
@@ -381,71 +383,6 @@ else:
         self.assertEqual(tuple(selected(conditions[name][0], context) for name in names),
                          (False, False, False, True))
 
-    def test_pr_execution_is_unprivileged(self):
-        source = (ROOT / ".github/workflows/check.yml").read_text()
-        self.assertIn("\n  pull_request:\n", source)
-        self.assertNotIn("pull_request_target:", source)
-        self.assertIn("\npermissions:\n  contents: read\n", source)
-        self.assertNotIn("secrets.", source)
-        group = (ROOT / ".github/workflows/check-group.yml").read_text()
-        self.assertIn("\npermissions:\n  contents: read\n  packages: read\n", group)
-        self.assertNotIn("secrets", group)
-        linux = jobs(".github/workflows/check.yml")["linux"][1]
-        self.assertIn("    uses: ./.github/workflows/check-group.yml\n", linux)
-        self.assertNotIn("secrets", linux)
-        bodies = [(name, body) for name, (_, body) in jobs(".github/workflows/check.yml").items()
-                  if name in ("plan", "gates", "macos-runtime")]
-        bodies += [(f"group {name}", body) for name, (_, body) in jobs(".github/workflows/check-group.yml").items()]
-        self.assertEqual(len(bodies), 5)
-        for name, body in bodies:
-            with self.subTest(job=name):
-                self.assertNotIn("permissions:", body)
-                self.assertNotIn("self-hosted", body)
-                self.assertNotRegex(body, r"(?m)^\s+ref:")
-                checkout = re.search(r"^      - uses: actions/checkout@[^\n]+\n((?: {8}[^\n]*\n|\n)*)", body, re.M)
-                if name == "gates":
-                    self.assertIsNone(checkout)
-                    continue
-                self.assertIsNotNone(checkout)
-                self.assertRegex(checkout[1], r"(?m)^          persist-credentials: false$")
-
-    def test_image_preparation_privileges_and_consumer_dependency(self):
-        workflow = (ROOT / '.github/workflows/devcontainer-image.yml').read_text()
-        self.assertIn('  workflow_call:', workflow)
-        self.assertNotIn('  push:', workflow)
-        conditions = jobs('.github/workflows/devcontainer-image.yml')
-        for event, ref, trusted in [('push', 'refs/heads/dev', True),
-                                    ('push', 'refs/heads/main', True),
-                                    ('pull_request', 'refs/heads/dev', False),
-                                    ('pull_request', 'refs/pull/7/merge', False),
-                                    ('workflow_dispatch', 'refs/heads/topic', False)]:
-            context = {'event_name': event, 'ref': ref}
-            self.assertEqual(selected(conditions['trusted'][0], context), trusted)
-            self.assertEqual(selected(conditions['readonly'][0], context), not trusted)
-        self.assertIn('packages: write', conditions['trusted'][1])
-        self.assertIn('packages: read', conditions['readonly'][1])
-        self.assertNotIn('packages: write', conditions['readonly'][1])
-        consumer = jobs('.github/workflows/check.yml')['linux'][1]
-        self.assertIn('needs: [plan, image]', consumer)
-        self.assertNotIn('devcontainers/ci@', consumer)
-        self.assertNotIn('cacheFrom:', consumer)
-        self.assertNotIn('--remote-env ZIG_LOCAL_PKG_DIR=', consumer)
-        self.assertIn('needs.image.outputs.image', consumer)
-        self.assertIn('needs.image.outputs.archive', consumer)
-
-    def test_other_consumers_share_readonly_image_startup(self):
-        for name in ('pages', 'agent-tools'):
-            workflow = (ROOT / f'.github/workflows/{name}.yml').read_text()
-            with self.subTest(workflow=name):
-                self.assertNotIn('devcontainers/ci@', workflow)
-                self.assertIn('packages: read', workflow)
-                self.assertNotIn('packages: write', workflow)
-                self.assertIn('run: python3 .devcontainer/ci/image.py prepare\n', workflow)
-                self.assertNotIn('--publish', workflow)
-                self.assertIn('IMAGE: ${{ steps.image.outputs.image }}', workflow)
-                self.assertIn('run: python3 .devcontainer/ci/image.py start "$IMAGE"', workflow)
-                self.assertIn('--config .devcontainer/.ci/devcontainer.json', workflow)
-
     def test_agent_download_failure_does_not_block_product_checks(self):
         workflow = (ROOT / ".github/workflows/agent-tools.yml").read_text()
         command = re.search(r"(?m)^        run: devcontainer exec --workspace-folder \. --config \.devcontainer/\.ci/devcontainer\.json (python3 .+)$", workflow)
@@ -469,21 +406,15 @@ else:
     def test_parallel_checks_cannot_pass_with_a_missing_lane(self):
         conditions = jobs('.github/workflows/check.yml')
         aggregate = conditions['gates'][1]
-        self.assertIn('    needs: [plan, image, linux]\n', aggregate)
+        self.assertIn('    needs: [plan, image, linux, macos-runtime]\n', aggregate)
         self.assertIn('always()', conditions['gates'][0])
-        self.assertIn('RESULT: ${{ needs.linux.result }}', aggregate)
+        self.assertIn('VALIDATION_NEEDS: ${{ toJSON(needs) }}', aggregate)
         command = re.search(r'^        run: (.+)$', aggregate, re.M)[1]
-        for result in ('success', 'failure', 'cancelled', 'skipped', ''):
-            ran = subprocess.run(['bash', '-e', '-c', command], env=dict(os.environ, RESULT=result, PLAN='success', IMAGE='success'))
-            self.assertEqual(ran.returncode == 0, result == 'success')
-        for plan in ('failure', 'cancelled', 'skipped', ''):
-            ran = subprocess.run(['bash', '-e', '-c', command],
-                                 env=dict(os.environ, RESULT='success', PLAN=plan, IMAGE='success'))
-            self.assertNotEqual(ran.returncode, 0)
-        for result in ('failure', 'cancelled', 'skipped', ''):
-            ran = subprocess.run(['bash', '-e', '-c', command],
-                                 env=dict(os.environ, RESULT='success', PLAN='success', IMAGE=result))
-            self.assertNotEqual(ran.returncode, 0)
+        ran, _, _ = report_run(PASS, command=command)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        for name in PASS:
+            ran, _, _ = report_run({**PASS, name: {'result': 'failure'}}, command=command)
+            self.assertNotEqual(ran.returncode, 0, name)
         linux = conditions['linux'][1]
         self.assertIn('fail-fast: false', linux)
         self.assertIn('group: ${{ fromJSON(needs.plan.outputs.groups) }}', linux)

@@ -3,7 +3,7 @@
 Snapshot current Git-visible files, then let Zig apply the manifest's package
 filter through `fetch --save`. Core-only use must not execute optional build
 tools. Single-transport builds and an all-module build compile, link, and run.
-Requires Git, nm, Python, Zig, and the optional modules' toolchains. Temporary
+Requires Git, Python, Zig, Rust llvm-tools, and the optional modules' toolchains. Temporary
 consumers and archives are removed on exit; compiler/package caches are retained. Child build
 or fetch failures and deadlines fail the check and replay their output.
 """
@@ -28,14 +28,24 @@ def run(*args, cwd, env=None, timeout=1800):
     return result.stdout
 
 
-def sidecar_exports(consumer, selection):
+def rust_nm():
+    # Rust's standard library contains LLVM bitcode. The host's nm may be
+    # older than that producer (notably Xcode), even when linking works.
+    libdir = Path(run('rustc', '--print', 'target-libdir', cwd=ROOT, timeout=30).strip())
+    tool = libdir.parent / 'bin/llvm-nm'
+    if not tool.is_file():
+        raise SystemExit('consumer-check: install the active Rust toolchain component: rustup component add llvm-tools')
+    return str(tool)
+
+
+def sidecar_exports(consumer, selection, nm):
     expected = set()
     for transport in ('iroh', 'webrtc'):
         if selection in (transport, 'optional'):
             source = ROOT / f'src/net/transport/{transport}/sidecar.zig'
             expected.update(re.findall(r'extern fn (glowcap_\w+)\(', source.read_text()))
     assert expected, 'selected transport has no sidecar declarations'
-    symbols = run('nm', '-g', str(consumer / 'zig-out/sidecars.a'), cwd=consumer, timeout=30)
+    symbols = run(nm, '-g', str(consumer / 'zig-out/sidecars.a'), cwd=consumer, timeout=30)
     actual = set()
     for line in symbols.splitlines():
         fields = line.split()
@@ -47,6 +57,7 @@ def sidecar_exports(consumer, selection):
 
 
 def check(zig, work):
+    nm = rust_nm()
     # Read working files, not HEAD: local checks must include uncommitted fixes.
     files = subprocess.check_output(
         ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
@@ -74,7 +85,7 @@ def check(zig, work):
     run(str(consumer / 'zig-out/bin/glowcap-consumer'), cwd=consumer, timeout=30)
     for selection in ('iroh', 'webrtc', 'optional'):
         run(zig, 'build', f'-D{selection}=true', cwd=consumer)
-        sidecar_exports(consumer, selection)
+        sidecar_exports(consumer, selection, nm)
         run(str(consumer / 'zig-out/bin/glowcap-consumer'), cwd=consumer, timeout=30)
 
 

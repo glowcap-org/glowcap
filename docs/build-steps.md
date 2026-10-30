@@ -127,7 +127,7 @@ zig build glowcap-install-test              # Prove the source launcher serves R
 zig build glowcap-host-test                 # Prove verified host installation and Docker deployment commands without a daemon (needs python3); part of runtime-check
 zig build glowcap-pack                      # Package and exercise the complete relocatable glowcap product (explicit Release mode and baseline CPU required)
 zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
-zig build glowcap-package-test              # Prove release rollback and reject damaged packages, broken skills, and loader fallbacks; part of check
+zig build glowcap-package-test              # Prove release rollback and reject damaged packages, broken skills, and loader fallbacks; part of check, infrastructure-check
 zig build product-manifest-test             # Generate and parse a sealed staged product without a release package build; part of check
 zig build relay-tls-build                   # Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)
 ```

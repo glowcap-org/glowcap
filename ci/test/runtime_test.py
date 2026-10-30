@@ -14,10 +14,31 @@ import tempfile
 import textwrap
 import unittest
 
+from workflow_expression import selected
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class RuntimeTest(unittest.TestCase):
+    def test_review_reuses_build_state_without_weakening_cold_qualification(self):
+        workflow = (ROOT / '.github/workflows/check-group.yml').read_text()
+        for step, expected in (
+            ('Restore build state', {'pull_request'}),
+            ('Bound the restored build state', {'pull_request'}),
+            ('Save build state', {'push', 'schedule', 'workflow_dispatch'}),
+        ):
+            block = workflow.split(f'      - name: {step}\n', 1)[1].split('\n      - name:', 1)[0]
+            condition = re.search(r'^        if: (.+)$', block, re.M)[1]
+            for event in ('pull_request', 'push', 'schedule', 'workflow_dispatch'):
+                for full in ('true', 'false'):
+                    with self.subTest(step=step, event=event, full=full):
+                        allowed = selected(condition, {'event_name': event}, context={
+                            'inputs': {'full': full},
+                            'steps': {'fetch': {'outcome': 'success'}},
+                        })
+                        self.assertEqual(allowed, event in expected)
+            self.assertFalse(selected(condition, {'event_name': 'pull_request'}, cancelled=True))
+
     def test_ocapnviz_checks_test_types_before_timed_execution(self):
         cases = [
             ('export const main = 1;\n',

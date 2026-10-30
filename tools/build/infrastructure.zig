@@ -30,15 +30,42 @@ pub fn register(b: *std.Build) void {
     const agent_hooks_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/agent_hooks_test.py" });
     agent_hooks_test.has_side_effects = true;
     infrastructure_check_step.dependOn(&agent_hooks_test.step);
-    const publication_workflow_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "-m", "unittest", "discover", "-s", "ci/test", "-p", "*_test.py" });
-    publication_workflow_contracts.has_side_effects = true;
-    infrastructure_check_step.dependOn(&publication_workflow_contracts.step);
+    // Each subject owns its deadline. One timer for the growing collection
+    // makes unrelated tests compete for the same 30 seconds on slow hosts.
+    b.dependOnDirectoryContents(b.path("ci/test"));
+    const io = b.graph.io;
+    var ci_tests = b.root.root_dir.handle.openDir(io, "ci/test", .{ .iterate = true }) catch |err|
+        std.debug.panic("CI test directory: {s}", .{@errorName(err)});
+    defer ci_tests.close(io);
+    var names: std.ArrayList([]const u8) = .empty;
+    var entries = ci_tests.iterate();
+    while (entries.next(io) catch |err|
+        std.debug.panic("CI test discovery: {s}", .{@errorName(err)})) |entry|
+    {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, "_test.py")) continue;
+        names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
+    }
+    // Compile-shard ownership walks the graph in registration order.
+    std.mem.sort([]const u8, names.items, {}, struct {
+        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return std.mem.lessThan(u8, lhs, rhs);
+        }
+    }.lessThan);
+    for (names.items) |pattern| {
+        const contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "-m", "unittest", "discover", "-s", "ci/test", "-p", pattern });
+        contracts.setName(b.fmt("CI {s}", .{pattern}));
+        contracts.has_side_effects = true;
+        infrastructure_check_step.dependOn(&contracts.step);
+    }
     const publication_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/publication-integration-test.sh" });
     publication_integration_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&publication_integration_contracts.step);
     const evidence_record_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/evidence/record_test.py" });
     evidence_record_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&evidence_record_contracts.step);
+    const tls_fixture_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/relay_tls_server_test.py" });
+    tls_fixture_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&tls_fixture_contracts.step);
     const install_if_changed_tests = b.addTest(.{ .name = "install-if-changed", .root_module = common.installIfChangedExe(b).root_module });
     infrastructure_check_step.dependOn(&execution.addZigTest(b, install_if_changed_tests, .unit_test).step);
 

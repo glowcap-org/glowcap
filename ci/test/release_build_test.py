@@ -1,5 +1,6 @@
 """Exercise release SDK selection at the workflow's actual shell boundary."""
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -8,11 +9,59 @@ import struct
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 from workflow_test import ROOT, shell_step
 
 
+spec = importlib.util.spec_from_file_location('zig_package', ROOT / 'tools/check/zig_package.py')
+PACKAGE = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(PACKAGE)
+
+
 class ReleaseBuild(unittest.TestCase):
+    def test_packaging_contracts_run_before_product_compilation(self):
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        before = workflow.index('      - name: Check release packaging contracts\n')
+        self.assertLess(before, workflow.index('      - name: Install the matching browser compiler\n'))
+        self.assertLess(before, workflow.index('      - name: Build the release tarball\n'))
+        block = workflow[before:].split('\n      - ', 1)[0]
+        self.assertIn('run: zig build glowcap-package-test --summary all', block)
+        self.assertNotIn('continue-on-error', block)
+
+    def test_sidecar_inspection_uses_the_producing_rust_toolchain(self):
+        for path in ('.devcontainer/image/rust.sh', '.github/workflows/release.yml'):
+            self.assertRegex((ROOT / path).read_text(), r'rustup component add [^\n]*\bllvm-tools\b')
+        with tempfile.TemporaryDirectory(prefix='Rust toolchain ') as temporary:
+            host = Path(temporary) / 'lib/rustlib/host'
+            tool = host / 'bin/llvm-nm'
+            tool.parent.mkdir(parents=True)
+            tool.touch()
+            with mock.patch.object(PACKAGE, 'run', return_value=str(host / 'lib') + '\n') as run:
+                self.assertEqual(PACKAGE.rust_nm(), str(tool))
+                run.assert_called_once_with('rustc', '--print', 'target-libdir', cwd=ROOT, timeout=30)
+                tool.unlink()
+                with self.assertRaisesRegex(SystemExit, 'rustup component add llvm-tools'):
+                    PACKAGE.rust_nm()
+
+    def test_sidecar_export_inspection_remains_exact(self):
+        consumer = Path('/consumer with spaces')
+        nm = '/Rust toolchain/bin/llvm-nm'
+        expected = {'glowcap_iroh_sidecar_new', 'glowcap_iroh_sidecar_drop'}
+        declarations = '\n'.join(f'extern fn {name}(' for name in expected)
+        good = ('0000 T _glowcap_iroh_sidecar_new\n0000 T _glowcap_iroh_sidecar_drop\n'
+                '         U _glowcap_iroh_sidecar_undefined\n0000 T _unrelated\n')
+        for symbols, passes in ((good, True), (good.replace('T _glowcap_iroh_sidecar_drop', 'U _glowcap_iroh_sidecar_drop'), False),
+                                 (good + '0000 T _glowcap_iroh_sidecar_extra\n', False)):
+            with self.subTest(symbols=symbols), mock.patch.object(Path, 'read_text', return_value=declarations), \
+                    mock.patch.object(PACKAGE, 'run', return_value=symbols) as run:
+                if passes:
+                    PACKAGE.sidecar_exports(consumer, 'iroh', nm)
+                else:
+                    with self.assertRaisesRegex(AssertionError, 'sidecar exports differ'):
+                        PACKAGE.sidecar_exports(consumer, 'iroh', nm)
+                run.assert_called_once_with(nm, '-g', str(consumer / 'zig-out/sidecars.a'), cwd=consumer, timeout=30)
+
     def test_archive_acquisition_delegates_and_propagates_failure(self):
         script = shell_step((ROOT / '.github/workflows/release.yml').read_text(),
                             'Fetch pinned Zig dependencies')

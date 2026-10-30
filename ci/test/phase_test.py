@@ -48,7 +48,17 @@ class PhaseTest(unittest.TestCase):
         self.assertFalse(full)
         reduced_phases = [phase for name, group_phases, _ in PLAN.GROUPS if name in reduced
                           for phase in group_phases]
-        self.assertEqual(reduced_phases, ['source', 'infrastructure', 'core', 'memcheck', 'runtime', 'shipped', 'smoke'])
+        self.assertEqual(reduced_phases, ['source', 'infrastructure', 'core', 'memcheck', 'runtime', 'tls', 'shipped', 'smoke'])
+
+    def test_infrastructure_and_tls_report_without_product_builds(self):
+        owners = {phase: (name, shards, phases) for name, phases, shards in PLAN.GROUPS
+                  for phase in phases}
+        self.assertEqual(owners['infrastructure'][1], 0)
+        self.assertEqual(owners['source'][1], 0)
+        self.assertEqual(owners['tls'][2], ('tls',))
+        result, invoked = self.recorder.gates('tls', GATE_FAIL='relay-tls-build')
+        self.assertEqual(result.returncode, 37, result.stderr)
+        self.assertEqual(invoked, [['zig', 'build', '--test-timeout', '30s', '--summary', 'new', 'relay-tls-build']])
 
     def test_a_build_job_compiles_its_shard_and_runs_nothing(self):
         # Only `zig build` lines, each rewired to its compile half, and no

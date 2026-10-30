@@ -195,8 +195,9 @@ in [`checksums.sh`](checksums.sh). [Dependencies](../docs/dependencies.md) says
 what each tool is for. Each installer in [`image/`](image/) is named for its
 toolchain group, and the `Dockerfile` installs the system packages.
 
-The image installs the Rust browser target and the `wasm-bindgen` compiler,
-whose version comes from `apps/rooms/rust/Cargo.lock`. ZLS is built from the
+The image installs Rust’s `llvm-tools` to inspect sidecar archives with a
+matching LLVM reader. It also installs the Rust browser target and the
+`wasm-bindgen` compiler, whose version comes from `apps/rooms/rust/Cargo.lock`. ZLS is built from the
 checksummed source revision in `pins.sh` and must compile with the selected Zig
 before the image counts as verified.
 
