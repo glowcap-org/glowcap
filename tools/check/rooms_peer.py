@@ -21,6 +21,38 @@ ROOT = Path(__file__).resolve().parents[2]
 FRONT = ROOT / "zig-out/bin/glowcap"
 
 
+def failure_logs(root):
+    """Keep bounded peer evidence before the temporary workspace is removed."""
+    for path in sorted(root.rglob("*.log"))[:8]:
+        try:
+            with path.open("rb") as log:
+                log.seek(0, 2)
+                log.seek(max(0, log.tell() - 8192))
+                tail = log.read().decode(errors="replace")
+            print(f"{path.relative_to(root)} (last 8192 bytes):\n{tail}", file=sys.stderr)
+        except OSError as error:
+            print(f"{path.relative_to(root)}: {error}", file=sys.stderr)
+    for path in sorted(root.rglob("peer-options.json"))[:8]:
+        state = path.parent
+        print(f"peer {state.relative_to(root)}: control socket exists={state.joinpath('control.sock').exists()}",
+              file=sys.stderr)
+        if not state.joinpath("control.sock").exists():
+            continue
+        try:
+            result = subprocess.run([str(FRONT), "apps", "rooms", "session", "status", "--dir", str(state)],
+                                    cwd="/tmp", capture_output=True, text=True, timeout=2)
+            status = json.loads(result.stdout)
+            workspace = status.get("workspace", {})
+            print(json.dumps({"peer": str(state.relative_to(root)), "revision": status.get("revision"),
+                "issues": status.get("issues"), "pending_effects": len(status.get("pending_effects", [])),
+                "directories": [{"name": row.get("name"), "registered": isinstance(row.get("inbox"), str)}
+                                for row in workspace.get("directories", [])],
+                "conversations": [{"name": row.get("name"), "reconnect": row.get("reconnect")}
+                                  for row in workspace.get("conversations", [])]}), file=sys.stderr)
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            print(f"status unavailable: {error}", file=sys.stderr)
+
+
 def cli(state, verb, *args):
     subject, action = ("team", verb[5:]) if verb.startswith("team-") else ("session", verb)
     result = subprocess.run([str(FRONT), "apps", "rooms", subject, action, "--dir", str(state), *args],
@@ -291,11 +323,7 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 until(bob, "reply-to-later-page")
                 cli(team, "team-stop")
             except BaseException:
-                for state in (alice, bob, carol):
-                    if (state / "control.log").exists():
-                        print(f"{state.name}: {(state / 'control.log').read_text()}", file=sys.stderr)
-                log.seek(0)
-                print(log.read(), file=sys.stderr)
+                failure_logs(root)
                 raise
             finally:
                 for state in (alice, bob, carol):
