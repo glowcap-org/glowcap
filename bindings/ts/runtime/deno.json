@@ -12,6 +12,7 @@
 	},
 	"publish": {
 		"include": [
+			"LICENSE-APACHE",
 			"**/*.ts",
 			"**/c-abi-resolve.json",
 			"README.md"

@@ -28,6 +28,11 @@ from workflow_expression import selected
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def shell_step(source, name):
+    block = re.search(rf"(?m)^      - name: {re.escape(name)}\n((?: {{8}}[^\n]*\n|\n)*)", source)[1]
+    return textwrap.dedent(re.search(r"(?m)^        run: \|\n((?: {10}[^\n]*\n|\n)*)", block)[1])
+
+
 def jobs(path):
     """Read named job blocks and their scalar or folded `if` conditions."""
     source = (ROOT / path).read_text().split("\njobs:\n", 1)[1]
@@ -540,9 +545,24 @@ else:
                     self.assertEqual(selected(condition, {"event_name": event,
                                                          "ref": f"refs/heads/{branch}"}), expected)
 
+    def test_promotion_configuration_refuses_missing_credentials_without_exposing_them(self):
+        source = (ROOT / ".github/workflows/promote.yml").read_text()
+        command = shell_step(source, "Require promotion app configuration")
+        self.assertLess(source.index("Require promotion app configuration"),
+                        source.index("Mint the promotion app's token"))
+        for client, key in [("", ""), ("test-client", ""), ("", "private-test-key"),
+                            ("test-client", "private-test-key")]:
+            with self.subTest(client=bool(client), key=bool(key)):
+                result = subprocess.run(["bash", "-e", "-c", command], capture_output=True,
+                                        text=True, env=dict(os.environ, CLIENT_ID=client, PRIVATE_KEY=key))
+                self.assertEqual(result.returncode == 0, bool(client and key))
+                self.assertNotIn("private-test-key", result.stdout + result.stderr)
+                if result.returncode:
+                    self.assertIn("docs/maintaining.md#promotion-app", result.stdout)
+
     def promote(self, relation, status=0):
         workflow = (ROOT / ".github/workflows/promote.yml").read_text()
-        script = textwrap.dedent(re.search(r"(?m)^        run: \|\n((?: {10}[^\n]*\n)+)", workflow)[1])
+        script = shell_step(workflow, "Fast-forward main")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             gh = directory / "gh"

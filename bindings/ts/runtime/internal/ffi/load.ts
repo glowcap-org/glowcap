@@ -313,13 +313,14 @@ function softFail(msg: string): void {
 	console.error(`glowcap: ${msg} (soft-fail)`);
 }
 
-function curlDownload(
+export function curlDownload(
 	url: string,
 	dest: string,
 	userAgent: string,
 	maxBytes: number,
 ): boolean {
 	const args = [
+		"-q", // Ignore .curlrc: this loader owns transport and output policy.
 		"-fsSL",
 		...curlTransportArgs(url, envTruthy("GLOWCAP_ALLOW_INSECURE")),
 		"--max-filesize",

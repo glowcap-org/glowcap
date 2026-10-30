@@ -85,6 +85,8 @@ crate and Racket collection, and exercises installed consumers outside the
 checkout. It also builds Rust API docs without C libraries and checks
 all nine TypeScript packages with `deno publish --dry-run`. Nothing is uploaded.
 The bindings CI phase runs this rehearsal before qualification.
+Each package carries the repository's Apache license text. The rehearsal
+compares the packaged copy with its source.
 
 The C-library checks use the locally built SDK. Before publishing a
 language package, complete the [hosted archive checks](#publishing-c-archives)

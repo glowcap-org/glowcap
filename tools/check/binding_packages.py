@@ -17,12 +17,25 @@ import tarfile
 import tempfile
 import textwrap
 import tomllib
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def run(*args, cwd=ROOT, env=None):
     subprocess.run(args, cwd=cwd, env=env, check=True, timeout=600)
+
+
+def verify_license(archive):
+    expected = (ROOT / 'LICENSE-APACHE').read_bytes()
+    is_zip = zipfile.is_zipfile(archive)
+    with (zipfile.ZipFile(archive) if is_zip else tarfile.open(archive)) as package:
+        names = package.namelist() if is_zip else package.getnames()
+        matches = [name for name in names if name.endswith('/LICENSE-APACHE') or name == 'LICENSE-APACHE']
+        assert len(matches) == 1, f'{archive}: package needs exactly one Apache license'
+        name, = matches
+        actual = package.read(name) if is_zip else package.extractfile(name).read()
+    assert actual == expected, f'{archive}: package must contain the project Apache license'
 
 
 def python_package(work, env):
@@ -32,8 +45,10 @@ def python_package(work, env):
     distributions = work / 'dist'
     run('uv', 'build', '--sdist', '--out-dir', str(distributions), str(source))
     sdist, = distributions.glob('*.tar.gz')
+    verify_license(sdist)
     run('uv', 'build', '--wheel', '--out-dir', str(distributions), str(sdist))
     wheel, = distributions.glob('*.whl')
+    verify_license(wheel)
     venv = work / 'venv'
     run('uv', 'venv', '--python', shutil.which('python3'), str(venv))
     python = str(venv / 'bin/python')
@@ -59,6 +74,7 @@ def rust_package(work, env):
     run('cargo', 'package', '--manifest-path', str(ROOT / 'bindings/rust/Cargo.toml'),
         '--allow-dirty', '--no-verify', '--target-dir', str(target))
     archive, = (target / 'package').glob('*.crate')
+    verify_license(archive)
     with tarfile.open(archive) as package:
         package.extractall(work / 'crate', filter='data')
     crate, = (work / 'crate').iterdir()
@@ -90,6 +106,7 @@ def rust_package(work, env):
 def racket_package(work, env):
     run('raco', 'pkg', 'create', '--source', '--format', 'zip', '--dest', str(work),
         str(ROOT / 'bindings/racket'))
+    verify_license(work / 'racket.zip')
     scope = work / 'racket-pkgs'
     # The disposable scope has no dependency database. Use the devcontainer's
     # installed dependencies through the existing collection links at load time.
@@ -108,6 +125,10 @@ def racket_package(work, env):
 
 
 def typescript_package(work, env):
+    for manifest in (ROOT / 'bindings/ts').glob('*/deno.json'):
+        package = json.loads(manifest.read_text())
+        assert 'LICENSE-APACHE' in package['publish']['include'], manifest
+        assert (manifest.parent / 'LICENSE-APACHE').read_bytes() == (ROOT / 'LICENSE-APACHE').read_bytes(), manifest
     # Deno checks cross-package imports, public declaration generation and the
     # actual publish include/exclude lists. --allow-dirty permits review edits;
     # --dry-run is unconditional, so this command never uploads anything.

@@ -279,6 +279,10 @@ pub fn registerChecks(
     const bindings_fmt_deps = reg;
     const dogfood_runs = bindings_fmt_deps.dogfood_runs;
     const bindings_onion_step = bindings_fmt_deps.bindings_onion_step;
+    const downloads = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/c-abi/download_test.py" });
+    downloads.has_side_effects = true;
+    reg.bindings_step.dependOn(&downloads.step);
+    check_step.dependOn(&downloads.step);
     // ── Formatting ───────────────────────────────────────────────────────────
     // The formatting gate splits the same way the correctness gate does, and on
     // the same question: what a step needs on PATH. The Zig formatter needs only

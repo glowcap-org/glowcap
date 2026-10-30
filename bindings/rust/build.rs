@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 
 mod archive_hygiene;
+mod release_download;
 
 #[derive(Debug, Deserialize)]
 struct Contract {
@@ -380,34 +381,29 @@ fn fetch_into_cache(contract: &Contract, version: &str, target: &str, cache_lib:
 
 	let tarball_path = cache_root.join(&tarball);
 	eprintln!("glowcap build.rs: downloading {url}");
-	let max_s = contract.max_tarball_bytes.to_string();
-	let mut curl_args: Vec<&str> = vec!["-fsSL"];
-	curl_args.extend(curl_tls_args(&url));
-	curl_args.extend(["--max-filesize", &max_s, "-A", &contract.user_agent, "-o"]);
-	let status = Command::new("curl")
-		.args(&curl_args)
-		.arg(&tarball_path)
-		.arg(&url)
-		.status()
-		.map_err(|e| format!("curl: {e}"))?;
-	if !status.success() {
+	let downloaded = release_download::download(
+		&url,
+		&tarball_path,
+		&contract.user_agent,
+		contract.max_tarball_bytes,
+		&curl_tls_args(&url),
+	)
+	.map_err(|e| format!("curl: {e}"))?;
+	if !downloaded {
 		let _ = fs::remove_file(&tarball_path);
 		return soft_fail(&format!("download failed: {url}"));
 	}
 
 	let sums_url = format!("{base}/{tag}/SHA256SUMS");
 	let sums_path = cache_root.join("SHA256SUMS");
-	let max_sums_s = contract.max_sums_bytes.to_string();
-	let mut sums_args: Vec<&str> = vec!["-fsSL"];
-	sums_args.extend(curl_tls_args(&sums_url));
-	sums_args.extend(["--max-filesize", &max_sums_s, "-A", &contract.user_agent, "-o"]);
-	let sums_ok = Command::new("curl")
-		.args(&sums_args)
-		.arg(&sums_path)
-		.arg(&sums_url)
-		.status()
-		.map(|s| s.success())
-		.unwrap_or(false);
+	let sums_ok = release_download::download(
+		&sums_url,
+		&sums_path,
+		&contract.user_agent,
+		contract.max_sums_bytes,
+		&curl_tls_args(&sums_url),
+	)
+	.unwrap_or(false);
 	if !sums_ok {
 		let _ = fs::remove_file(&tarball_path);
 		let _ = fs::remove_file(&sums_path);

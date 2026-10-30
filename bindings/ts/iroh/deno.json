@@ -8,6 +8,7 @@
 	},
 	"publish": {
 		"include": [
+			"LICENSE-APACHE",
 			"**/*.ts",
 			"README.md"
 		],

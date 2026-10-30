@@ -164,7 +164,9 @@ ownership.
 Each item is a maintainer action or a decision only the maintainer can make.
 None of them needs a plan until the decision is made.
 
-- **Publication.** Confirm on GitHub that an unsigned or unchecked push to
+- **Publication.** Configure the [promotion app](maintaining.md#promotion-app)
+  and verify a checked `dev` push advances `main`.
+  Confirm on GitHub that an unsigned or unchecked push to
   `main` is refused ([repository protection](maintaining.md#repository-protection)).
   Done when the refusal is observed. The items under
   [waiting on publication](#waiting-on-publication) then take over
@@ -217,9 +219,6 @@ These follow the publication item above or a release decision. The
 engineering work under [what starts next](#what-starts-next) does not depend
 on them.
 
-- **Nightly fuzz.** Record a successful scheduled fuzz run from `check.yml`
-  on the published default branch. Done when one scheduled run on `main` is
-  green ([plan to plan](planning/plan-to-plan.md)).
 - **Evidence that travels with the change.** Each run of `ci/gates.sh`
   writes a record, a clean run notes it on the commit, and the integrator
   signs what lands on `dev`. A landing check has to refuse a `dev` commit

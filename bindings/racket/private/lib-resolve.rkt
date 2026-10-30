@@ -173,11 +173,15 @@
       '("--proto" "=https" "--tlsv1.2")))
 
 (define (curl-download curl url dest ua max-bytes)
-  (apply system* curl "-fsSL"
+  ;; -q must be first: user curl configuration cannot change loader policy.
+  (apply system* curl "-q" "-fsSL"
          (append (curl-tls-args url)
                  (list "--max-filesize" (number->string max-bytes)
                        "-A" ua
                        "-o" (path->string dest) url))))
+
+(module* download-test-support #f
+  (provide curl-download))
 
 ;; The whole line is parsed, including any " -> target" tail. Stripping that
 ;; tail first would truncate a regular file whose own name contains " -> ",

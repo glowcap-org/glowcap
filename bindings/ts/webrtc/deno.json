@@ -10,6 +10,7 @@
 	},
 	"publish": {
 		"include": [
+			"LICENSE-APACHE",
 			"**/*.ts"
 		],
 		"exclude": [

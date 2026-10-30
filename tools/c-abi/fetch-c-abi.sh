@@ -142,9 +142,9 @@ download() {
 	max_bytes=$3
 
 	if truthy "${GLOWCAP_ALLOW_INSECURE:-}" && ! printf '%s' "$url" | grep -q '^https://'; then
-		curl -fsSL --max-filesize "$max_bytes" -A "$UA" -o "$dest" "$url"
+		curl -q -fsSL --max-filesize "$max_bytes" -A "$UA" -o "$dest" "$url"
 	else
-		curl -fsSL --proto =https --tlsv1.2 \
+		curl -q -fsSL --proto =https --tlsv1.2 \
 			--max-filesize "$max_bytes" -A "$UA" -o "$dest" "$url"
 	fi
 }

@@ -6,7 +6,7 @@
 		".": "./mod.ts"
 	},
 	"publish": {
-		"include": ["**/*.ts"],
+		"include": ["LICENSE-APACHE", "**/*.ts"],
 		"exclude": ["test/**"]
 	},
 	"tasks": {

@@ -29,6 +29,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Require promotion app configuration
+        env:
+          CLIENT_ID: ${{ vars.PROMOTE_APP_CLIENT_ID }}
+          PRIVATE_KEY: ${{ secrets.PROMOTE_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$CLIENT_ID" ] || [ -z "$PRIVATE_KEY" ]; then
+            echo "::error::Configure PROMOTE_APP_CLIENT_ID and PROMOTE_APP_PRIVATE_KEY before promoting main. See docs/maintaining.md#promotion-app."
+            exit 1
+          fi
+
       - name: Mint the promotion app's token
         id: app
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
