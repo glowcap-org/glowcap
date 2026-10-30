@@ -15,7 +15,7 @@ DEBIAN_BASE_DIGEST="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c
 
 # --- Production service images ---
 # dep Distroless: The minimal base for the Rooms server image.
-DISTROLESS_BASE_DIGEST="sha256:159783207c2cd44c2aa5715961d13c8612368ac9bd450f887e3f08fc8ea461e3"
+DISTROLESS_BASE_DIGEST="sha256:d74d144baa124dd9defd01d71872bb56c49d4441dba6153ccf790364f97e64b1"
 
 # --- Zig ---
 # dep Zig: Builds the library, the C archives, the CLI and every check.
