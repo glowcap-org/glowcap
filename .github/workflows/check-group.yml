@@ -111,17 +111,18 @@ jobs:
       # hosted runner compiles cold an order of magnitude slower than a
       # workstation. Zig keys every object by its inputs and every proof
       # reruns in the test jobs, so a restore saves compile time and skips no
-      # proof. A toolchain change starts a new family. Every PR may reuse this
-      # state, including a PR requiring all groups. Push, nightly and manual
-      # qualification still build cold before a commit can publish.
+      # proof. Zig and Cargo validate each object against compiler and source
+      # inputs. A packaging manifest edit must not discard an otherwise valid
+      # store. Every PR may reuse state, including one requiring all groups.
+      # Push, nightly and manual qualification still build cold.
       - name: Restore build state
         if: github.event_name == 'pull_request'
         timeout-minutes: 5
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.stores.outputs.paths }}
-          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-
+          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-
 
       - name: Bound the restored build state
         if: github.event_name == 'pull_request'
@@ -226,7 +227,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.stores.outputs.paths }}
-          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   test:
     needs: build

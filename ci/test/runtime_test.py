@@ -39,6 +39,27 @@ class RuntimeTest(unittest.TestCase):
                         self.assertEqual(allowed, event in expected)
             self.assertFalse(selected(condition, {'event_name': 'pull_request'}, cancelled=True))
 
+    def test_compile_cache_identity_survives_unrelated_manifest_edits(self):
+        workflow = (ROOT / '.github/workflows/check-group.yml').read_text()
+        family = 'build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-'
+        keys = []
+        for name in ('Restore build state', 'Save build state'):
+            block = workflow.split(f'      - name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
+            key = re.search(r'^          key: (.+)$', block, re.M)[1]
+            self.assertTrue(key.startswith(family))
+            self.assertNotIn('hashFiles', key)
+            self.assertTrue(key.endswith('${{ github.run_id }}-${{ github.run_attempt }}'))
+            keys.append(key)
+            if name == 'Restore build state':
+                prefix = re.search(r'^          restore-keys: (.+)$', block, re.M)[1]
+                self.assertEqual(prefix, family)
+        self.assertEqual(keys[0], keys[1])
+        # Acquisition still follows the dependency manifests, independently
+        # of the compilers' own content-addressed object validation.
+        downloads = workflow.split('      - name: Restore dependency downloads\n', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn("hashFiles('build.zig.zon'", downloads)
+        self.assertIn("'**/Cargo.lock'", downloads)
+
     def test_ocapnviz_checks_test_types_before_timed_execution(self):
         cases = [
             ('export const main = 1;\n',

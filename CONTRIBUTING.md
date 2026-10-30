@@ -242,10 +242,9 @@ compile state even when all groups run. Pushes, nightly runs, and manual checks
 build cold and save state for later reviews. The push that qualifies `main`
 therefore reuses no compiled state. Separate jobs have separate caches and ports.
 
-Zig keys every object by its inputs and every process proof reruns, so a
-restored cache saves compile time without skipping a proof. A Zig unit-test
-run whose inputs are unchanged is reused. A toolchain change starts fresh, and
-state past a size limit is dropped. A Linux job removes the hosted runner's
+Zig and Cargo validate cached objects against compiler and source inputs.
+Process proofs rerun, while unchanged Zig unit-test results can be reused.
+State past a size limit is dropped. A Linux job removes the hosted runner's
 unused SDKs only when the runner has less free disk than a job needs, and
 Rust incremental compilation stays off to leave room for build outputs.
 
