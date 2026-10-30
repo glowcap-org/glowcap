@@ -20,6 +20,9 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 FRONT = ROOT / "zig-out/bin/glowcap"
 COMMAND_SECONDS = 10
+# Startup composes peer launch, durable directory registration and room joins.
+# ARM macOS measured 6.75s; reserve headroom for the slower Intel runner.
+START_SECONDS = 30
 
 
 def failure_logs(root):
@@ -46,7 +49,8 @@ def failure_logs(root):
             workspace = status.get("workspace", {})
             print(json.dumps({"peer": str(state.relative_to(root)), "revision": status.get("revision"),
                 "issues": status.get("issues"), "pending_effects": len(status.get("pending_effects", [])),
-                "directories": [{"name": row.get("name"), "registered": isinstance(row.get("inbox"), str)}
+                "directories": [{"name": row.get("name"), "registered":
+                                 isinstance(row.get("name"), str) and isinstance(row.get("inbox"), str)}
                                 for row in workspace.get("directories", [])],
                 "conversations": [{"name": row.get("name"), "reconnect": row.get("reconnect")}
                                   for row in workspace.get("conversations", [])]}), file=sys.stderr)
@@ -70,7 +74,11 @@ def cli(state, verb, *args, timeout=COMMAND_SECONDS):
             print(f"{verb} ({state.name}): {elapsed:.2f}s", file=sys.stderr)
     if result.returncode:
         raise AssertionError(f"{verb}: {result.stdout}\n{result.stderr}")
-    return json.loads(result.stdout)
+    response = json.loads(result.stdout)
+    if elapsed * 2 >= timeout:
+        print(f"{verb} ({state.name}): passed in {elapsed:.2f}s of its {timeout}s deadline; "
+              "a runner 2x slower would stop it", file=sys.stderr)
+    return response
 
 
 def line_text(row):
@@ -177,11 +185,11 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 if transport == "iroh":
                     locator = services.enter_context(bootstrap(locator))
                 cli(alice, "start", "--transport", transport, "--reachability", "direct", "--locator", locator,
-                    "--nick", "Alice", "--room", "garden", "--room", "workshop")
+                    "--nick", "Alice", "--room", "garden", "--room", "workshop", timeout=START_SECONDS)
                 # Lead-first team startup composes two ordinary peer starts.
                 cli(team, "team-start", "--transport", transport, "--reachability", "direct", "--locator", locator,
                     "--lead", "Bob", "--member", "Carol", "--room", "garden", "--room", "workshop",
-                    timeout=2 * COMMAND_SECONDS)
+                    timeout=2 * START_SECONDS)
                 assert len(cli(team, "team-status")["members"]) == 2
                 rooms = {row["name"]: row["id"] for row in cli(alice, "status")["workspace"]["conversations"]
                          if row["kind"] == "room"}
@@ -240,7 +248,7 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 while (alice / "control.sock").exists():
                     assert time.monotonic() < deadline, "control socket not retired"
                     time.sleep(0.05)
-                cli(alice, "start")
+                cli(alice, "start", timeout=START_SECONDS)
                 assert cli(alice, "status")["inbox"]["gap"] is None
                 replay = until(alice, "garden-message")
                 assert replay["id"] == garden["id"]

@@ -66,6 +66,9 @@ pub fn register(b: *std.Build) void {
     const tls_fixture_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/relay_tls_server_test.py" });
     tls_fixture_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&tls_fixture_contracts.step);
+    const rooms_peer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/rooms_peer_test.py" });
+    rooms_peer_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&rooms_peer_contracts.step);
     const install_if_changed_tests = b.addTest(.{ .name = "install-if-changed", .root_module = common.installIfChangedExe(b).root_module });
     infrastructure_check_step.dependOn(&execution.addZigTest(b, install_if_changed_tests, .unit_test).step);
 
