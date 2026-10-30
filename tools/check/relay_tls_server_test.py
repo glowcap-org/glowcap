@@ -94,6 +94,7 @@ class LiveCloseTest(unittest.TestCase):
 
                 worker = threading.Thread(target=accept)
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
                 context.load_verify_locations(cafile=str(fixtures / "tls_root.pem"))
                 worker.start()
                 try:
