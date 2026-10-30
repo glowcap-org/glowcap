@@ -117,6 +117,17 @@ jobs:
         with:
           python-version: ${{ steps.python.outputs.version }}
 
+      - name: Restore Zig package downloads
+        timeout-minutes: 5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
+
+      - name: Fetch pinned Zig dependencies
+        run: |
+          bash ci/fetch-zig.sh
+
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: ${{ steps.python.outputs.deno }}

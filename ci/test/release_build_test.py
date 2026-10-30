@@ -13,6 +13,24 @@ from workflow_test import ROOT, shell_step
 
 
 class ReleaseBuild(unittest.TestCase):
+    def test_archive_acquisition_delegates_and_propagates_failure(self):
+        script = shell_step((ROOT / '.github/workflows/release.yml').read_text(),
+                            'Fetch pinned Zig dependencies')
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / 'ci').mkdir()
+            (directory / 'ci/fetch-zig.sh').write_text(
+                '#!/bin/bash\nprintf "%s" "$*" > "$FETCH_LOG"\nexit "$FETCH_STATUS"\n')
+            log = directory / 'fetch-arguments'
+            for status in (0, 37, 143):
+                with self.subTest(status=status):
+                    log.unlink(missing_ok=True)
+                    result = subprocess.run(['bash', '-ec', script], cwd=directory,
+                                            env=dict(os.environ, FETCH_LOG=str(log), FETCH_STATUS=str(status)),
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertEqual(log.read_text(), '')
+
     def test_macos_shared_archive_records_its_abi_major(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
