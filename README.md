@@ -51,6 +51,14 @@ Build checks hold selected allocation, copy, and state-size budgets.
 [Performance measurements](https://glowcap.org/performance/) report protocol,
 transport, binding, and Loam costs with their workloads and methods.
 
+## Downloads
+
+For the CLI, Rooms, browser assets, and agent skills, download the **CLI + Rooms**
+product from [GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
+Choose `glowcap-vVERSION-ARCH-OS.tar.gz`. The `glowcap-c-` archives are the
+separate [C SDK](docs/c-sdk.md) for building applications.
+The [installation guide](apps/rooms/host.md) covers verification and installation.
+
 ## Quick start
 
 ### Try a local conversation

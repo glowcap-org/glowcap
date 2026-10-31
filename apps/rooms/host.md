@@ -20,13 +20,18 @@ nothing else needs to be installed.
 
 ## Install
 
-Choose the complete `glowcap-vVERSION-ARCH-OS.tar.gz` archive for the machine
-that will run it:
+Download the **CLI + Rooms product** from the
+[release page](https://github.com/glowcap-org/glowcap/releases).
+Its filename is `glowcap-vVERSION-ARCH-OS.tar.gz`. The `glowcap-c-` download is
+the separate [C SDK](https://github.com/glowcap-org/glowcap/blob/main/docs/c-sdk.md),
+with headers and libraries for building applications.
+
+Choose the product for the machine that will run it:
 
 | Target | Requires |
 | --- | --- |
 | `x86_64-linux`, `aarch64-linux` | glibc 2.39 or newer |
-| `x86_64-macos`, `aarch64-macos` | macOS 15 or newer |
+| `x86_64-macos` (Intel), `aarch64-macos` (Apple Silicon) | macOS 15 or newer |
 
 Linux archives do not run on macOS, even when both machines have ARM
 processors. A build from source may need newer system libraries than the
@@ -220,7 +225,7 @@ For direct messages with browsers:
 
 File events are descriptions only, and transferring file bytes needs an attached
 browser. The inbox reports a gap when it could
-not record some events. [Operating Rooms](operating.md#the-session-service)
+not record some events. [Operating Rooms](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/operating.md#the-session-service)
 explains how to clear one, and accepting a gap does not recover the missed
 events.
 

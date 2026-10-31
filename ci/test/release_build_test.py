@@ -30,7 +30,7 @@ class ReleaseBuild(unittest.TestCase):
             ('workflow_dispatch', '', True, False), ('workflow_dispatch', '123', False, True),
         ):
             with self.subTest(event=event, run=run):
-                context = {'inputs': {'recheck_run': run}}
+                context = {'inputs': {'recheck_run': run, 'publish_run': '', 'publish_tag': ''}}
                 self.assertEqual(selected(declared['archives'][0], {'event_name': event}, context=context), builds)
                 self.assertEqual(selected(declared['recheck'][0], {'event_name': event}, context=context), rechecks)
         body = declared['recheck'][1]
@@ -38,6 +38,38 @@ class ReleaseBuild(unittest.TestCase):
         self.assertIn('name: archives-${{ matrix.runner }}', body)
         self.assertNotIn('zig build', body)
         self.assertNotIn(': write', body)
+
+    def test_publication_survives_skipped_recheck_but_requires_all_producers(self):
+        predicate, _ = jobs('.github/workflows/release.yml')['release']
+        github = {'event_name': 'push', 'ref': 'refs/tags/v0.1.0'}
+        # This is the actual v0.1.0 failure: a skipped transitive recheck made
+        # implicit success() false, even though every required producer passed.
+        old = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+        self.assertFalse(selected(old, github, success=False))
+        for contract in ('success', 'failure', 'cancelled', 'skipped'):
+            for archives in ('success', 'failure', 'cancelled', 'skipped'):
+                for images in ('success', 'failure', 'cancelled', 'skipped'):
+                    context = {'needs': {name: {'result': result} for name, result in
+                               [('contract', contract), ('archives', archives), ('images', images)]}}
+                    self.assertEqual(selected(predicate, github, context=context, success=False),
+                                     contract == archives == images == 'success')
+                    self.assertFalse(selected(predicate, github, context=context, success=False, cancelled=True))
+
+    def test_recovery_publishes_without_selecting_builds(self):
+        declared = jobs('.github/workflows/release.yml')
+        github = {'event_name': 'workflow_dispatch', 'ref': 'refs/heads/fix/recovery'}
+        for run, tag, recheck, allowed in (('123', 'v0.1.0', '', True), ('', '', '', False),
+                                          ('123', '', '', False), ('', 'v0.1.0', '', False),
+                                          ('123', 'v0.1.0', '456', False), ('', '', '456', False)):
+            context = {'inputs': {'publish_run': run, 'publish_tag': tag, 'recheck_run': recheck},
+                       'needs': {'contract': {'result': 'success'}, 'archives': {'result': 'skipped'},
+                                 'images': {'result': 'skipped'}, 'recheck': {'result': 'skipped'}}}
+            self.assertEqual(selected(declared['release'][0], github, context=context, success=False), allowed)
+            if run or tag:
+                for job in ('archives', 'recheck', 'images'):
+                    self.assertFalse(selected(declared[job][0], github, context=context))
+            context['needs']['contract']['result'] = 'failure'
+            self.assertFalse(selected(declared['release'][0], github, context=context, success=False))
 
     def test_images_require_verified_archives_or_a_successful_product_recheck(self):
         predicate, body = jobs('.github/workflows/release.yml')['images']

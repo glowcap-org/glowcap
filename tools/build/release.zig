@@ -86,7 +86,12 @@ const archive_script = transaction.begin ++
     \\source="$2"
     \\name="$3"
     \\marker=SHA256SUMS
-    \\LC_ALL=C TAR_OPTIONS= COPYFILE_DISABLE=1 tar -czf "$stage/tree/$name" -C "$source" bin lib libexec include share README.md PROVENANCE.md LICENSE-APACHE LICENSE-THIRD-PARTY
+    \\set --
+    \\for directory in bin lib libexec include share; do
+    \\  contents=$(find "$source/$directory" -type f -print -quit)
+    \\  if [ -n "$contents" ]; then set -- "$@" "$directory"; fi
+    \\done
+    \\LC_ALL=C TAR_OPTIONS= COPYFILE_DISABLE=1 tar -czf "$stage/tree/$name" -C "$source" "$@" README.md PROVENANCE.md LICENSE-APACHE LICENSE-THIRD-PARTY
     \\(cd "$stage/tree"; if command -v sha256sum >/dev/null 2>&1; then sha256sum "$name"; else shasum -a 256 "$name"; fi) > "$stage/tree/SHA256SUMS"
     \\
 ++ transaction.commit ++

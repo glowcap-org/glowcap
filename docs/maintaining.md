@@ -145,9 +145,10 @@ gh workflow run check.yml --ref main -f suite=check
 ```
 
 Once both required jobs pass, run `gh workflow run pages.yml --ref main` to
-deploy. A release tag cannot move, so rerun its refused release run with
-`gh run rerun <run-id>`. A manual `check` defaults to full validation. Select
-`suite=fuzz` for the separate long fuzz search.
+deploy. Rerun a refused release with `gh run rerun <run-id>` when its workflow
+needs no correction. Reruns use the tagged workflow, including its defects.
+A manual `check` defaults to full validation. Select `suite=fuzz` for the
+separate long fuzz search.
 
 The site is published at `glowcap.org`. The custom domain is set in the
 repository's Pages settings, because a Pages deployment from Actions ignores a
@@ -163,6 +164,35 @@ writes `zig-out/evidence/<phase>/<commit>.json` without attaching a note.
 CI uploads these records as `evidence-<commit>-<phase>` artifacts on success
 and failure. A green sequence whose record step fails exits 70. To publish
 notes from a full local run, use `git push origin refs/notes/evidence`.
+
+## Release publication
+
+To recover publication after correcting the workflow, dispatch the corrected
+ref with the original tag run and signed tag:
+
+```sh
+gh workflow run release.yml --ref <corrected-ref> \
+  -f publish_run=<original-tag-run-id> -f publish_tag=v0.1.0
+```
+
+Recovery requires successful archive and image producer jobs, checks the
+original commit's full validation, and verifies GitHub artifact digests and
+packaged checksums before publishing. It reuses those archives and images
+without rebuilding or moving the tag. Attestations identify the original
+source and artifact run separately from the publication run. Uploads go into a
+draft that becomes public only after every asset matches. Recovery resumes a
+matching draft and refuses published releases, foreign drafts, and conflicting
+image tags. `recheck_run` tests installed products without publication.
+
+Release attestations record publication of verified artifacts. They identify
+the tagged source commit, original run, artifact digests, and publication
+workflow and commit. Verify the checksum file and each archive with:
+
+```sh
+gh attestation verify --repo glowcap-org/glowcap \
+  --signer-workflow glowcap-org/glowcap/.github/workflows/release.yml \
+  --predicate-type https://glowcap.org/attestations/release-publication/v1 <archive>
+```
 
 ## Promotion app
 

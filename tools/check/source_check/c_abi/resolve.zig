@@ -289,13 +289,6 @@ pub fn checkCAbiResolve(
     {
         try appendViolation(gpa, violations, "{s}: published archives and SHA256SUMS must receive GitHub artifact attestations", .{release_workflow});
     }
-    if (std.mem.indexOf(u8, workflow, "PROVENANCE.md") == null or
-        std.mem.indexOf(u8, workflow, "artifact attestation") == null or
-        std.mem.indexOf(u8, workflow, "verify build provenance") != null)
-    {
-        try appendViolation(gpa, violations, "{s}: release notes must link the authorship disclosure separately from the artifact attestation", .{release_workflow});
-    }
-
     const release_build_path = "tools/build/release.zig";
     const release_front = root.readFileAlloc(io, release_build_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ release_build_path, @errorName(err) });

@@ -202,8 +202,8 @@ only after the assets can be downloaded and verified.
 4. Push the tag and confirm the release workflow publishes the tarballs and
    `SHA256SUMS`, and records GitHub artifact attestations for both. Confirm each
    archive contains the tagged `PROVENANCE.md` disclosure.
-5. Download each archive, verify `SHA256SUMS`, then verify its artifact
-   attestation with `gh attestation verify --repo OWNER/REPO <archive>`.
+5. Download each archive, verify `SHA256SUMS`, then verify its
+   [release attestation](../docs/maintaining.md#release-publication).
 6. Set `releases_published` to true in `c-abi-resolve.json`, then copy the
    updated contract to every path in its `package_copies` list.
 7. Push that consumer-enablement commit and require `check.yml` to pass for its

@@ -167,10 +167,16 @@ class PublicationWorkflow(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
                     self.assertEqual(output.read_text(), f"value={version}\n" if accepted else "")
             gh = directory / "gh"
-            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$GITHUB_OUTPUT"\n')
+            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$GITHUB_OUTPUT"\n')
             gh.chmod(0o755)
+            (directory / "artifacts").mkdir()
+            (directory / "artifacts/release-state.json").write_text(
+                json.dumps({"draft_exists": False, "missing_assets": []}))
+            verifier = directory / "tools/check/release_recovery.py"
+            verifier.parent.mkdir(parents=True)
+            verifier.write_text("pass\n")
             environment.update(PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
-                               GITHUB_REF_NAME="v0.1.0", GITHUB_REPOSITORY="owner/project")
+                               GITHUB_REF_NAME="different-branch", RELEASE_TAG="v0.1.0", GITHUB_REPOSITORY="owner/project")
             result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
                                      command("Create the release with archives")],
                                     cwd=directory, env=environment, capture_output=True, text=True)
