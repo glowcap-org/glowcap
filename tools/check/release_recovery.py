@@ -5,7 +5,9 @@ RUN TAG checks the signed tag, original producer jobs, and artifact metadata.
 checks their exact inventory and packaged checksums, and assembles release-assets.
 Run from the checkout root with gh, GH_TOKEN and GITHUB_REPOSITORY. Outputs go
 to GITHUB_OUTPUT when supplied. --verify-draft checks the staged release against
-release-assets before release.yml makes it public. No builds or publication.
+release-assets before release.yml makes it public. --published TAG is
+publish.yml's contract: the signed tag's commit is on checked main and its
+GitHub release is public with every archive. No builds or publication.
 Errors stop the caller, preserving prepared files for inspection.
 """
 
@@ -56,13 +58,28 @@ def inventory(tag):
     return result
 
 
-def validate_source(repository, run_id, tag, *, current=False):
+def signed_commit(repository, tag):
     ref = api(repository, f'git/ref/tags/{tag}')['object']
     require(ref['type'] == 'tag', 'publication requires an annotated signed tag')
     signed = api(repository, f'git/tags/{ref["sha"]}')
     require(signed['verification']['verified'] is True and signed['object']['type'] == 'commit',
             'tag signature is unverified or tag does not point directly to a commit')
-    commit = signed['object']['sha']
+    return signed['object']['sha']
+
+
+def published_release(repository, tag):
+    """The public release at TAG, holding every archive and the checksum file."""
+    release = api(repository, f'releases/tags/{tag}')
+    require(release['draft'] is False and release['tag_name'] == tag, 'release is a draft')
+    names = {Path(name).name for group in inventory(tag).values() for name in group if name.endswith('.tar.gz')}
+    assets = [asset for asset in release['assets'] if asset['state'] == 'uploaded']
+    require(sorted(asset['name'] for asset in assets) == sorted(names | {'SHA256SUMS'}),
+            'public release does not hold exactly the archives and SHA256SUMS')
+    return release
+
+
+def validate_source(repository, run_id, tag, *, current=False):
+    commit = signed_commit(repository, tag)
     run = api(repository, f'actions/runs/{run_id}')
     require(run['event'] == 'push' and run['head_branch'] == tag
             and run['head_sha'] == commit and run['path'] == '.github/workflows/release.yml'
@@ -197,17 +214,28 @@ def release_state(repository, run_id, tag, *, complete=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('run')
+    parser.add_argument('run', nargs='?')
     parser.add_argument('tag')
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--prepare', action='store_true')
     modes.add_argument('--verify-draft', action='store_true')
+    modes.add_argument('--published', action='store_true', help='TAG only: verify the public release')
     parser.add_argument('--current', action='store_true')
     args = parser.parse_args()
     repository = os.environ.get('GITHUB_REPOSITORY', '')
     require(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository), 'invalid repository')
-    require(re.fullmatch(r'[1-9][0-9]*', args.run), 'invalid source run ID')
     require(re.fullmatch(r'v0\.[0-9]+\.[0-9]+', args.tag), 'invalid prerelease tag')
+    if args.published:
+        require(args.run is None, '--published takes the tag alone')
+        commit = signed_commit(repository, args.tag)
+        subprocess.run([sys.executable, 'tools/check/require-main-check.py', commit], check=True, timeout=180)
+        published_release(repository, args.tag)
+        if os.environ.get('GITHUB_OUTPUT'):
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                output.write(f'version={args.tag[1:]}\ntag={args.tag}\ncommit={commit}\n')
+        print(f'Verified the public release {args.tag} at {commit} on checked main')
+        return
+    require(args.run is not None and re.fullmatch(r'[1-9][0-9]*', args.run), 'invalid source run ID')
     if args.verify_draft:
         release_state(repository, args.run, args.tag, complete=True)
         print('Complete release draft matches every prepared asset')

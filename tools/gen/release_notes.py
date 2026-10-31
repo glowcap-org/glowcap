@@ -2,24 +2,50 @@
 
 Read --assets and --provenance produced by release_recovery.py, validate the
 archive labels and required entry points, and write --output before publishing.
-No extraction, builds, or remote effects. Python and the checkout cwd are owned
-by the release workflow. infrastructure-check exercises fixtures and refusals.
+The notes open with the version's CHANGELOG.md section, and --changelog VERSION
+alone prints that section so the release contract fails before any build when
+it is missing or the Unreleased section still holds entries. No extraction,
+builds, or remote effects. Python and the checkout cwd are owned by the release
+workflow. infrastructure-check exercises fixtures and refusals.
 """
 
 import argparse
 import json
 from pathlib import Path
 import re
+import sys
 import tarfile
 
 
 PREDICATE = 'https://glowcap.org/attestations/release-publication/v1'
+CHANGELOG = Path(__file__).resolve().parents[2] / 'CHANGELOG.md'
 PLATFORMS = {
     'aarch64-macos': 'macOS, Apple Silicon (M1 and later)',
     'x86_64-macos': 'macOS, Intel',
     'aarch64-linux': 'Linux, ARM64',
     'x86_64-linux': 'Linux, x86-64',
 }
+
+
+def changelog_section(version, path=CHANGELOG):
+    """The version's changelog body, with the Unreleased section already emptied."""
+    sections = {}
+    heading = None
+    for line in path.read_text().splitlines():
+        if line.startswith('## '):
+            match = re.fullmatch(r'## \[([^\]]+)\](?: - [0-9]{4}-[0-9]{2}-[0-9]{2})?', line)
+            if match is None:
+                raise ValueError(f'changelog heading is not a Keep a Changelog version: {line}')
+            heading = match[1]
+            sections[heading] = []
+        elif heading is not None and not re.fullmatch(r'\[[^\]]+\]: \S+', line):
+            sections[heading].append(line)
+    if any(line.strip() for line in sections.get('Unreleased', [])):
+        raise ValueError('CHANGELOG.md still lists Unreleased changes; move them under the version')
+    body = '\n'.join(sections.get(version, [])).strip()
+    if not body:
+        raise ValueError(f'CHANGELOG.md has no entry for {version}')
+    return body + '\n'
 
 
 def catalog(directory, source):
@@ -61,7 +87,7 @@ def catalog(directory, source):
     return result
 
 
-def render(directory, provenance):
+def render(directory, provenance, changelog=CHANGELOG):
     source = provenance['source']
     repository = source['repository']
     if not re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
@@ -70,6 +96,7 @@ def render(directory, provenance):
     if not re.fullmatch(re.escape(repository) + r'/actions/runs/[1-9][0-9]*', source['run']):
         raise ValueError('invalid source run')
     tag = source['tag']
+    version = tag[1:]
     packages = catalog(directory, source)
     base = f'{repository}/releases/download/{tag}'
     rows = []
@@ -78,7 +105,13 @@ def render(directory, provenance):
         rows.append(f'| {title} | [CLI + Rooms]({base}/{product["name"]}) | '
                     f'[C SDK]({base}/{sdk["name"]}) | {product["minimum"]} or newer |')
     table = '\n'.join(rows)
-    return f'''# Choose a download
+    changes = changelog_section(version, changelog)
+    return f'''# What changed in {version}
+
+{changes}
+Every release is listed in the [changelog]({repository}/blob/{tag}/CHANGELOG.md).
+
+# Choose a download
 
 For the **CLI, Rooms, browser assets, and agent skills**, choose **CLI + Rooms**.
 Its filename starts with `glowcap-{tag}-`. The **C SDK** starts with
@@ -95,7 +128,14 @@ They are separate from the compiled downloads above.
 
 # Verify and install the product
 
-Download your product archive and [SHA256SUMS]({base}/SHA256SUMS).
+One command downloads this release for your machine, verifies it against
+`SHA256SUMS`, and runs the product's installer:
+
+```sh
+curl -fsSL https://glowcap.org/install.sh | GLOWCAP_VERSION={version} sh
+```
+
+To do the same by hand, download your product archive and [SHA256SUMS]({base}/SHA256SUMS).
 For example, on an Apple Silicon Mac:
 
 ```sh
@@ -161,12 +201,33 @@ uses encrypted iroh discovery and can be reached by peers holding its locator.
 For persistent supervised hosting and HTTPS, use the
 [deployment guide]({repository}/blob/main/apps/rooms/web/deploy/README.md).
 
-# Libraries, source, and license
+The image carries the same signed publication attestation as the archives:
 
-Zig users can depend on the [{tag} source]({repository}/tree/{tag}). Rust,
-Python, TypeScript, and Racket users can build the tagged
-[language bindings]({repository}/tree/{tag}/bindings). The browser files in the
-product are the Rooms application, not a separately published binding package.
+```sh
+gh attestation verify oci://ghcr.io/{slug}-rooms:{tag} \\
+  --repo {slug} \\
+  --signer-workflow {slug}/.github/workflows/release.yml \\
+  --predicate-type {PREDICATE}
+```
+
+# Install a language package
+
+Each package is version {version} and downloads this release's C SDK for its
+platform on first use, verified against `SHA256SUMS`. Set `GLOWCAP_LIB_DIR` to
+an extracted SDK's `lib/` to use a local copy instead.
+
+```sh
+cargo add glowcap@={version}
+pip install glowcap=={version}
+deno add jsr:@glowcap/runtime@{version} jsr:@glowcap/tcp@{version}
+raco pkg install glowcap
+```
+
+The [bindings guide]({repository}/blob/{tag}/bindings/README.md) lists every
+package. Zig users depend on the [{tag} source]({repository}/tree/{tag}). The
+browser files in the product are the Rooms application, not a published package.
+
+# Source and license
 
 Apache-2.0 alpha software. APIs, ABIs, and storage formats may change before 1.0.
 Read the [project provenance]({repository}/blob/{tag}/PROVENANCE.md) and the
@@ -179,12 +240,23 @@ Source commit: `{source['commit']}`. [Original artifact run]({source['run']}).
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--assets', type=Path, required=True)
-    parser.add_argument('--provenance', type=Path, required=True)
-    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--changelog', metavar='VERSION', help='print this version\'s changelog section and stop')
+    parser.add_argument('--assets', type=Path)
+    parser.add_argument('--provenance', type=Path)
+    parser.add_argument('--output', type=Path)
     args = parser.parse_args()
+    if args.changelog:
+        if args.assets or args.provenance or args.output:
+            parser.error('--changelog takes the version alone')
+        print(changelog_section(args.changelog), end='')
+        return
+    if not (args.assets and args.provenance and args.output):
+        parser.error('--assets, --provenance, and --output are required')
     args.output.write_text(render(args.assets, json.loads(args.provenance.read_text())))
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except (ValueError, KeyError, OSError, tarfile.TarError) as error:
+        sys.exit(f'release-notes: {error}')

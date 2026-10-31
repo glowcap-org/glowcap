@@ -31,18 +31,9 @@ Build options:
   web front with the same state and grants. The default uses Vite Fast Refresh.
   Production compiler selection does not depend on this option.
 
-The Rooms operations capabilities are server flags, passed after `--`:
-
-- `--diagnostics` mints an inspect capability and prints its swiss number, as in
-  `zig build rooms-web -- --diagnostics`.
-- `--admin-listeners` mints the listener-admin capability.
-- `--operator` mints the stewardship authority.
-- `--peering` mints the directory-peering capability.
-- `--irc` mints the IRC gateway.
-- `--trace` serves the live timeline endpoint and mints its capability.
-  `--trace-port` sets its port.
-
-`rooms-dev` passes all six.
+The Rooms operations capabilities are server flags passed after `--`, as in
+`zig build rooms-web -- --diagnostics`, and `rooms-dev` passes all of them.
+[Operating Rooms](../apps/rooms/operating.md) lists each flag.
 
 ## Adding a step
 
@@ -129,6 +120,7 @@ zig build glowcap-pack                      # Package and exercise the complete 
 zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
 zig build glowcap-package-test              # Prove release rollback and reject damaged packages, broken skills, and loader fallbacks; part of check, infrastructure-check
 zig build product-manifest-test             # Generate and parse a sealed staged product without a release package build; part of check
+zig build set-version                       # Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants (needs the version's CHANGELOG.md section)
 zig build relay-tls-build                   # Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)
 ```
 

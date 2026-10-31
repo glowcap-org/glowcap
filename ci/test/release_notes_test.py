@@ -18,6 +18,19 @@ TAG = 'v0.1.0'
 COMMIT = 'a' * 40
 SOURCE = {'repository': 'https://github.com/owner/project', 'tag': TAG, 'commit': COMMIT,
           'run': 'https://github.com/owner/project/actions/runs/123'}
+CHANGELOG = """# Changelog
+
+## [Unreleased]
+
+## [0.1.0] - 2026-10-31
+
+### Added
+
+- The first tagged release.
+
+[Unreleased]: https://github.com/owner/project/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/owner/project/releases/tag/v0.1.0
+"""
 
 
 def fixture(directory, *, missing=None, dirty=False, revision=COMMIT, minimum=None):
@@ -47,9 +60,12 @@ def fixture(directory, *, missing=None, dirty=False, revision=COMMIT, minimum=No
 class ReleaseNotes(unittest.TestCase):
     def test_every_download_has_a_role_platform_and_minimum_runtime(self):
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
+            directory = Path(temporary) / 'release-assets'
+            directory.mkdir()
             fixture(directory)
-            notes = NOTES.render(directory, {'source': SOURCE})
+            changelog = Path(temporary) / 'CHANGELOG.md'
+            changelog.write_text(CHANGELOG)
+            notes = NOTES.render(directory, {'source': SOURCE}, changelog)
             for path in directory.iterdir():
                 self.assertIn(f'https://github.com/owner/project/releases/download/{TAG}/{path.name}', notes)
             self.assertIn('Apple Silicon', notes)
@@ -65,6 +81,48 @@ class ReleaseNotes(unittest.TestCase):
             self.assertIn('ghcr.io/owner/project-rooms:v0.1.0 --http-bind=0.0.0.0', notes)
             self.assertIn('127.0.0.1:8080:8080', notes)
             self.assertIn('<!-- glowcap-source-run: 123 -->', notes)
+            self.assertLess(notes.index('# What changed in 0.1.0'), notes.index('# Choose a download'))
+            self.assertIn('- The first tagged release.', notes)
+            self.assertIn(f'[changelog](https://github.com/owner/project/blob/{TAG}/CHANGELOG.md)', notes)
+            self.assertIn('gh attestation verify oci://ghcr.io/owner/project-rooms:v0.1.0', notes)
+            for install in ('cargo add glowcap@=0.1.0', 'pip install glowcap==0.1.0',
+                            'deno add jsr:@glowcap/runtime@0.1.0 jsr:@glowcap/tcp@0.1.0', 'raco pkg install glowcap'):
+                self.assertIn(install, notes)
+            self.assertIn(f'[bindings guide](https://github.com/owner/project/blob/{TAG}/bindings/README.md)', notes)
+
+    def test_release_needs_its_changelog_entry_and_an_empty_unreleased_section(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            changelog = Path(temporary) / 'CHANGELOG.md'
+            changelog.write_text(CHANGELOG)
+            self.assertEqual(NOTES.changelog_section('0.1.0', changelog), '### Added\n\n- The first tagged release.\n')
+            with self.assertRaises(ValueError):
+                NOTES.changelog_section('0.1.1', changelog)
+            changelog.write_text(CHANGELOG.replace('## [Unreleased]\n', '## [Unreleased]\n\n- A pending change.\n'))
+            with self.assertRaises(ValueError):
+                NOTES.changelog_section('0.1.0', changelog)
+            changelog.write_text(CHANGELOG.replace('## [0.1.0] - 2026-10-31', '## 0.1.0'))
+            with self.assertRaises(ValueError):
+                NOTES.changelog_section('0.1.0', changelog)
+        self.assertTrue((ROOT / 'CHANGELOG.md').is_file())
+        version = json.loads((ROOT / 'bindings/c-abi-resolve.json').read_text())['abi_version']
+        self.assertTrue(NOTES.changelog_section(version).strip())
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        contract = workflow.index("Require the version's changelog entry")
+        self.assertLess(contract, workflow.index('\n  archives:\n'))
+        self.assertIn('release_notes.py --changelog "$VERSION"', workflow)
+
+    def test_image_publication_is_attested_from_its_published_index(self):
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        publish = workflow.index('- name: Publish the versioned multi-platform Rooms image\n        id: image\n')
+        attest = workflow.index('- name: Attest the Rooms image')
+        self.assertLess(publish, attest)
+        self.assertLess(attest, workflow.index('- name: Create the release with archives'))
+        step = workflow[attest:workflow.index('- name: Create the release with archives')]
+        self.assertIn('subject-name: ghcr.io/glowcap-org/glowcap-rooms', step)
+        self.assertIn('subject-digest: ${{ steps.image.outputs.digest }}', step)
+        self.assertIn('push-to-registry: true', step)
+        self.assertIn('predicate-type: ' + NOTES.PREDICATE, step)
+        self.assertIn('echo "digest=sha256:$(sha256sum < published-index.json', shell_step(workflow, 'Publish the versioned multi-platform Rooms image'))
 
     def test_refuses_incomplete_or_mislabeled_artifacts_before_publication(self):
         for options in ({'missing': ('aarch64-macos', 'product')}, {'missing': 'bin/glowcap'},

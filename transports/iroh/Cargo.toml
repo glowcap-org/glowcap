@@ -9,7 +9,7 @@ repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
 documentation = "https://glowcap.org"
 name = "glowcap-iroh"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
@@ -35,7 +35,7 @@ crate-type = ["staticlib", "rlib"]
 # The runtime owner, task barrier, and readiness channel both sidecars share
 # (transports/sidecar-common). A path dependency still names its version so the
 # exact-pin check reads it like every other row.
-glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0" }
+glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.1" }
 # 1.1.0 is the first release whose relay shutdown drains cancelled tasks
 # without `JoinSet::join_all` panicking (n0-computer/iroh#4460). glowcap drops
 # one private runtime per endpoint, so that shutdown path is part of our
@@ -47,4 +47,4 @@ tokio = { version = "=1.54.1", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 # The same crate with its test helpers switched on for this crate's own tests.
-glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0", features = ["test-support"] }
+glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.1", features = ["test-support"] }

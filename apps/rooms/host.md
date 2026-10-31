@@ -20,7 +20,15 @@ nothing else needs to be installed.
 
 ## Install
 
-Download the **CLI + Rooms product** from the
+One command installs the newest release for this machine. It downloads the
+product and its checksums, verifies the archive, and runs the installer
+described below. Set `GLOWCAP_VERSION` to install a specific version.
+
+```sh
+curl -fsSL https://glowcap.org/install.sh | sh
+```
+
+To install by hand, download the **CLI + Rooms product** from the
 [release page](https://github.com/glowcap-org/glowcap/releases).
 Its filename is `glowcap-vVERSION-ARCH-OS.tar.gz`. The `glowcap-c-` download is
 the separate [C SDK](https://github.com/glowcap-org/glowcap/blob/main/docs/c-sdk.md),

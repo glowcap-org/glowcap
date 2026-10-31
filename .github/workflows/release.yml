@@ -8,6 +8,7 @@
 # exercises installed products without recompiling or qualifying source packages.
 # publish_run and publish_tag recover publication from a tested signed tag run,
 # without building products or moving the tag.
+# A public release dispatches publish.yml at its tag for the registry packages.
 # Versioning is `abi_version` in
 # build.zig (reported by `glowcap_abi_version`); the tag records the release
 # point. This is the find leg's upstream named in bindings/README.md: a
@@ -108,6 +109,12 @@ jobs:
           SOURCE_RUN: ${{ inputs.publish_run }}
           RELEASE_TAG: ${{ inputs.publish_tag }}
         run: python3 tools/check/release_recovery.py "$SOURCE_RUN" "$RELEASE_TAG"
+
+      - name: Require the version's changelog entry
+        if: inputs.recheck_run == ''
+        env:
+          VERSION: ${{ steps.recovery.outputs.version || steps.version.outputs.value }}
+        run: python3 tools/gen/release_notes.py --changelog "$VERSION"
 
   archives:
     if: github.event_name != 'workflow_dispatch' || (inputs.recheck_run == '' && inputs.publish_run == '' && inputs.publish_tag == '')
@@ -367,6 +374,7 @@ jobs:
        (github.event_name == 'workflow_dispatch' && inputs.publish_run != '' && inputs.publish_tag != '' && inputs.recheck_run == ''))
     permissions:
       actions: read
+      actions: write
       artifact-metadata: write
       attestations: write
       contents: write
@@ -408,6 +416,7 @@ jobs:
             release-assets/SHA256SUMS
 
       - name: Publish the versioned multi-platform Rooms image
+        id: image
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ghcr.io/glowcap-org/glowcap-rooms
@@ -459,8 +468,18 @@ jobs:
               "$amd64_source" \
               "$arm64_source"
           fi
-          docker buildx imagetools inspect --raw "$IMAGE:v$VERSION" | \
-            jq -e '[.manifests[].platform | (.os + "/" + .architecture)] | sort == ["linux/amd64", "linux/arm64"]'
+          docker buildx imagetools inspect --raw "$IMAGE:v$VERSION" > published-index.json
+          jq -e '[.manifests[].platform | (.os + "/" + .architecture)] | sort == ["linux/amd64", "linux/arm64"]' published-index.json
+          echo "digest=sha256:$(sha256sum < published-index.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the Rooms image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          predicate-type: https://glowcap.org/attestations/release-publication/v1
+          predicate-path: artifacts/publication-provenance.json
+          subject-name: ghcr.io/glowcap-org/glowcap-rooms
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
 
       - name: Create the release with archives
         env:
@@ -484,3 +503,10 @@ jobs:
           python3 tools/check/release_recovery.py "$SOURCE_RUN" "$RELEASE_TAG" --verify-draft
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false \
             --notes-file artifacts/release-notes.md
+
+      - name: Publish the language packages at the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.contract.outputs.tag }}
+        run: |
+          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"

@@ -68,14 +68,6 @@ pub fn checkCAbiResolve(
     } else {
         try appendViolation(gpa, violations, "{s}: missing `require_checksum`", .{contract_path});
     }
-    // Prerelease valve for hosted C archives (may be true after first publish).
-    if (getField(parsed.value, "releases_published")) |v| {
-        if (v != .bool) {
-            try appendViolation(gpa, violations, "{s}: `releases_published` must be a bool", .{contract_path});
-        }
-    } else {
-        try appendViolation(gpa, violations, "{s}: missing `releases_published`", .{contract_path});
-    }
     if (getField(parsed.value, "extract_prefix")) |v| {
         if (!jsonStringEquals(v, "lib")) {
             try appendViolation(gpa, violations, "{s}: `extract_prefix` must be `lib`", .{contract_path});
@@ -229,8 +221,8 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, readme, "GLOWCAP_STRICT") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `GLOWCAP_STRICT`", .{});
     }
-    if (std.mem.indexOf(u8, readme, "releases_published") == null) {
-        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `releases_published`", .{});
+    if (std.mem.indexOf(u8, readme, "GLOWCAP_SKIP_DOWNLOAD") == null) {
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `GLOWCAP_SKIP_DOWNLOAD`", .{});
     }
     if (std.mem.indexOf(u8, readme, "PROVENANCE.md") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: release contents must document the packaged `PROVENANCE.md` disclosure", .{});
@@ -246,18 +238,12 @@ pub fn checkCAbiResolve(
     }
 
     // A successful exact-SHA version tag authorizes archive publication.
-    // `releases_published` is a later consumer-availability decision; using it
-    // here would deadlock the first release because the flag cannot truthfully
-    // turn on until the assets exist.
     const release_workflow = ".github/workflows/release.yml";
     const workflow = root.readFileAlloc(io, release_workflow, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ release_workflow, @errorName(err) });
         return;
     };
     defer gpa.free(workflow);
-    if (std.mem.indexOf(u8, workflow, "releases_published") != null) {
-        try appendViolation(gpa, violations, "{s}: `releases_published` governs consumer downloads, not tagged archive publication", .{release_workflow});
-    }
     if (std.mem.indexOf(u8, workflow, "gh release create") == null) {
         try appendViolation(gpa, violations, "{s}: must still contain `gh release create` for the tag path", .{release_workflow});
     }

@@ -1,8 +1,9 @@
 # Language bindings
 
-glowcap has bindings for Rust, TypeScript, Python, and Racket. They live in
-this repository. Pin a checkout, run `zig build`, and follow the README for
-your language.
+glowcap has bindings for Rust, TypeScript, Python, and Racket. Each is a
+published package that downloads the C libraries of its version on first use,
+and each README below starts with its install command. In a checkout, run
+`zig build` and the bindings use the tree's libraries instead.
 
 | Language | Start here | Runtime |
 | --- | --- | --- |

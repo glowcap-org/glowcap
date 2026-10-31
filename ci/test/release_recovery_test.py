@@ -253,13 +253,49 @@ elif args[:3] == ['buildx', 'imagetools', 'inspect']:
                 result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script], cwd=directory,
                                         env=dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'],
                                                  GH_TOKEN='test', IMAGE='ghcr.io/owner/rooms', VERSION='0.1.0',
-                                                 GITHUB_ACTOR='actor', IMAGE_MODE=mode),
+                                                 GITHUB_ACTOR='actor', IMAGE_MODE=mode,
+                                                 GITHUB_OUTPUT=str(directory / 'output')),
                                         capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode == 0, mode in ('new', 'existing', 'partial'), result.stderr)
+                if result.returncode == 0:
+                    # The attestation subject is the digest of the index the registry serves.
+                    self.assertRegex((directory / 'output').read_text(), r'^digest=sha256:[0-9a-f]{64}\n$')
                 calls = [json.loads(line) for line in (directory / 'calls').read_text().splitlines()]
                 effects = [call for call in calls if call[:2] == ['image', 'push'] or
                            call[:3] == ['buildx', 'imagetools', 'create']]
                 self.assertEqual(len(effects), {'new': 3, 'partial': 2}.get(mode, 0), calls)
+
+    def test_published_release_requires_a_public_complete_release_of_the_signed_tag(self):
+        names = sorted({Path(name).name for group in RECOVERY.inventory(TAG).values()
+                        for name in group if name.endswith('.tar.gz')} | {'SHA256SUMS'})
+        release = {'draft': False, 'tag_name': TAG,
+                   'assets': [{'name': name, 'state': 'uploaded'} for name in names]}
+        answers = {**responses(), f'releases/tags/{TAG}': release}
+        with mock.patch.object(RECOVERY, 'api', lambda repository, endpoint, pages=False: answers[endpoint]):
+            self.assertEqual(RECOVERY.signed_commit(REPOSITORY, TAG), COMMIT)
+            self.assertEqual(RECOVERY.published_release(REPOSITORY, TAG), release)
+            for broken in ({'draft': True}, {'assets': release['assets'][1:]},
+                           {'assets': release['assets'] + [{'name': 'extra.tar.gz', 'state': 'uploaded'}]},
+                           {'assets': [dict(asset, state='starter') for asset in release['assets']]}):
+                with self.subTest(broken=broken):
+                    answers[f'releases/tags/{TAG}'] = {**release, **broken}
+                    with self.assertRaises(ValueError):
+                        RECOVERY.published_release(REPOSITORY, TAG)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'output'
+            output.write_text('')
+            with mock.patch.dict(os.environ, {'GITHUB_REPOSITORY': REPOSITORY, 'GITHUB_OUTPUT': str(output)}), \
+                    mock.patch.object(RECOVERY, 'signed_commit', return_value=COMMIT), \
+                    mock.patch.object(RECOVERY, 'published_release', return_value=release), \
+                    mock.patch.object(RECOVERY.subprocess, 'run') as run, \
+                    mock.patch.object(RECOVERY.sys, 'argv', ['release_recovery.py', '--published', TAG]):
+                RECOVERY.main()
+            self.assertEqual(run.call_args[0][0][1:], ['tools/check/require-main-check.py', COMMIT])
+            self.assertEqual(output.read_text(), f'version=0.1.0\ntag={TAG}\ncommit={COMMIT}\n')
+            with mock.patch.dict(os.environ, {'GITHUB_REPOSITORY': REPOSITORY}), \
+                    mock.patch.object(RECOVERY.sys, 'argv', ['release_recovery.py', '--published', '123', TAG]), \
+                    self.assertRaises(ValueError):
+                RECOVERY.main()
 
     def test_publication_predicate_identifies_original_source_and_publication(self):
         with mock.patch.dict(os.environ, {'GITHUB_RUN_ID': '456',

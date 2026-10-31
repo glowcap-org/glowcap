@@ -15,6 +15,26 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         .dependOn(&manifest_tests.step);
     const tests = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release_test.py" });
     tests.addArg(archive_script);
+    // The version a release states lives in build.zig and is mirrored into the
+    // C ABI, the manifests, the resolution contract, and the pages; one step
+    // moves them all, and source-check holds them in lockstep.
+    const set_version = b.step("set-version", "Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants (needs the version's CHANGELOG.md section)");
+    if (b.option([]const u8, "version", "The version set-version writes everywhere, such as 0.1.2")) |requested| {
+        const bump = common.addRootedSystemCommand(b, .build_tool, &.{ "python3", "tools/gen/set_version.py", requested });
+        bump.has_side_effects = true;
+        // The generated header and binding constants embed the version, so the
+        // bump regenerates them in the same command, from the same cache.
+        const regenerate = execution.addSystemCommand(b, .build_tool, &.{ b.graph.zig_exe, "build" });
+        regenerate.addArg("--cache-dir");
+        regenerate.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
+        regenerate.addArgs(&.{ "gen-header-ocapn", "gen-binding-constants", "gen-ts-abi", "gen-rust-wasm-layouts" });
+        regenerate.setCwd(b.path("."));
+        regenerate.has_side_effects = true;
+        regenerate.step.dependOn(&bump.step);
+        set_version.dependOn(&regenerate.step);
+    } else {
+        set_version.dependOn(&b.addFail("set-version needs -Dversion=X.Y.Z").step);
+    }
     const test_step = b.step("glowcap-package-test", "Prove release rollback and reject damaged packages, broken skills, and loader fallbacks");
     test_step.dependOn(&tests.step);
     check_step.dependOn(test_step);

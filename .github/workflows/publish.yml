@@ -1,0 +1,212 @@
+# Registry publication of the language packages at a released tag. release.yml
+# dispatches this workflow at the tag once the GitHub release is public, and a
+# maintainer dispatches it again to finish a publication an outage interrupted:
+# every registry step skips a version its registry already holds. Each
+# registry job authenticates with the run's OIDC token through that registry's
+# trusted-publisher binding (this filename plus the job's environment), uploads
+# from the tag's checkout, then installs the published version in a fresh
+# consumer that downloads the release's C archive. The Racket catalog entry is
+# maintained by hand (docs/maintaining.md#registry-publishers).
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Released tag whose packages to publish, such as v0.1.1"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.released.outputs.version }}
+      commit: ${{ steps.released.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the Python pin
+        id: python
+        run: |
+          source .devcontainer/pins.sh
+          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+
+      - name: Verify the public release behind the tag
+        id: released
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python3 tools/check/release_recovery.py --published "$RELEASE_TAG"
+
+  pypi:
+    needs: contract
+    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.contract.outputs.commit }}
+          persist-credentials: false
+
+      - name: Require the tag's version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "release tag $RELEASE_TAG does not match ABI tag $expected_tag" >&2
+            exit 1
+          fi
+
+      - name: Read the Python and uv pins
+        id: python
+        run: |
+          source .devcontainer/pins.sh
+          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
+          echo "uv=$UV_VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+
+      - name: Build the distributions
+        env:
+          UV_VERSION: ${{ steps.python.outputs.uv }}
+        run: |
+          python3 -m pip install "uv==$UV_VERSION"
+          uv build --sdist --wheel --out-dir dist bindings/python
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@aef6c9b6e301dc803e1bc9133e9ce67ae9b0906b # v1.14.3
+        with:
+          packages-dir: dist
+          skip-existing: true
+
+      - name: Install the published version in a fresh consumer
+        env:
+          VERSION: ${{ needs.contract.outputs.version }}
+        run: python3 tools/check/binding_packages.py --registry "$VERSION" python
+
+  crates-io:
+    needs: contract
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # Set only for the crate's first version: crates.io binds a trusted
+      # publisher to an existing crate. Delete the secret after that publish.
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.contract.outputs.commit }}
+          persist-credentials: false
+
+      - name: Require the tag's version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "release tag $RELEASE_TAG does not match ABI tag $expected_tag" >&2
+            exit 1
+          fi
+
+      - name: Install the pinned Rust
+        run: |
+          source .devcontainer/pins.sh
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Authenticate as the crates.io trusted publisher
+        if: env.CARGO_REGISTRY_TOKEN == ''
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+
+      - name: Publish the crate
+        env:
+          VERSION: ${{ needs.contract.outputs.version }}
+          CARGO_REGISTRY_TOKEN: ${{ env.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
+          # The verification build runs inside this checkout, where a binding
+          # downloads only on request. The archive it downloads is this release's.
+          GLOWCAP_DOWNLOAD: "1"
+          GLOWCAP_STRICT: "1"
+        run: |
+          status="$(curl -sS -o /dev/null -w '%{http_code}' -A "glowcap-publish ($GITHUB_REPOSITORY)" \
+            "https://crates.io/api/v1/crates/glowcap/$VERSION")"
+          case "$status" in
+            200) echo "crates.io already holds glowcap $VERSION" ;;
+            404) cargo publish --manifest-path bindings/rust/Cargo.toml ;;
+            *) echo "crates.io lookup for glowcap $VERSION answered $status" >&2; exit 1 ;;
+          esac
+
+      - name: Install the published version in a fresh consumer
+        env:
+          VERSION: ${{ needs.contract.outputs.version }}
+        run: python3 tools/check/binding_packages.py --registry "$VERSION" rust
+
+  jsr:
+    needs: contract
+    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    environment: jsr
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.contract.outputs.commit }}
+          persist-credentials: false
+
+      - name: Require the tag's version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "release tag $RELEASE_TAG does not match ABI tag $expected_tag" >&2
+            exit 1
+          fi
+
+      - name: Read the Deno pin
+        id: deno
+        run: |
+          source .devcontainer/pins.sh
+          echo "version=$DENO_VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: ${{ steps.deno.outputs.version }}
+
+      - name: Publish the workspace packages
+        # Every member publishes at the workspace's one version. A version JSR
+        # already holds is skipped, so a rerun finishes a partial publication.
+        working-directory: bindings/ts
+        run: deno publish
+
+      - name: Install the published version in a fresh consumer
+        env:
+          VERSION: ${{ needs.contract.outputs.version }}
+        run: python3 tools/check/binding_packages.py --registry "$VERSION" typescript

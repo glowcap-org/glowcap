@@ -6,7 +6,7 @@ sources: []
 
 # What ships
 
-glowcap's software version is **0.1.0 alpha**. CapTP `1.0` names the wire
+glowcap's software version is **0.1.1 alpha**. CapTP `1.0` names the wire
 protocol it speaks, independently of the project's release status.
 
 Everything on this page is implemented in this repository, and

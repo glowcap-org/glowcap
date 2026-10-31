@@ -11,4 +11,6 @@
     .content_dir_path = "content",
     .layouts_dir_path = "layouts",
     .assets_dir_path = "assets",
+    // Served whether or not a page links it: the one-command installer.
+    .static_assets = ["install.sh"],
 }),

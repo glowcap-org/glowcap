@@ -61,16 +61,14 @@
     (error 'glowcap "c-abi-resolve.json: require_https must be true"))
   (unless (eq? (hash-ref c 'require_checksum #f) #t)
     (error 'glowcap "c-abi-resolve.json: require_checksum must be true"))
-  (define releases-published (hash-ref c 'releases_published 'missing))
-  (unless (boolean? releases-published)
-    (error 'glowcap "c-abi-resolve.json: releases_published must be a bool"))
   c)
 
-;; Cold-cache network gate from contract releases_published.
-(define (want-release-fetch? contract)
-  (if (hash-ref contract 'releases_published)
-      (not (env-truthy? "GLOWCAP_SKIP_DOWNLOAD"))
-      (env-truthy? "GLOWCAP_DOWNLOAD")))
+;; Cold-cache network gate: a package outside a checkout downloads its version
+;; unless GLOWCAP_SKIP_DOWNLOAD. A checkout downloads only with GLOWCAP_DOWNLOAD.
+(define (want-release-fetch? root)
+  (if root
+      (env-truthy? "GLOWCAP_DOWNLOAD")
+      (not (env-truthy? "GLOWCAP_SKIP_DOWNLOAD"))))
 
 (define (apply-contract-template tmpl version target #:cache-base [cache-base ""])
   (string-replace
@@ -442,9 +440,8 @@
 
 (define (resolve-cache-lib! zig-out-dir)
   ;; Soft-fail download when the cache is cold (or when GLOWCAP_DOWNLOAD=1
-  ;; refreshes even with zig-out present, including when releases_published is
-  ;; false). Returns the cache lib path when the shared-lib marker is present
-  ;; afterwards, else #f.
+  ;; refreshes even with zig-out present). Returns the cache lib path when the
+  ;; shared-lib marker is present afterwards, else #f.
   (define contract (load-contract))
   (define root (find-dev-root))
   (define version (resolve-abi-version contract root))
@@ -459,7 +456,7 @@
      (try-download-into-cache! contract version target cache-lib)
      (and (file-exists? marker) cache-lib)]
     [(or (not zig-marker) (not (file-exists? zig-marker)))
-     (when (want-release-fetch? contract)
+     (when (want-release-fetch? root)
        (try-download-into-cache! contract version target cache-lib))
      (and (file-exists? marker) cache-lib)]
     [else #f]))

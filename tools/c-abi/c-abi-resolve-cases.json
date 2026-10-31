@@ -1,11 +1,11 @@
 {
 	"cases": [
 		{
-			"id": "prerelease-no-fetch",
+			"id": "checkout-no-fetch",
 			"version": "0.1.0",
 			"target": "x86_64-linux",
 			"cache_base": "/fixture/cache",
-			"releases_published": false,
+			"checkout": true,
 			"env": {},
 			"want_fetch": false,
 			"url": "https://github.com/glowcap-org/glowcap/releases/download/v0.1.0/glowcap-c-v0.1.0-x86_64-linux.tar.gz",
@@ -13,11 +13,11 @@
 			"sums_url": "https://github.com/glowcap-org/glowcap/releases/download/v0.1.0/SHA256SUMS"
 		},
 		{
-			"id": "prerelease-force-download",
+			"id": "checkout-force-download",
 			"version": "0.1.0",
 			"target": "aarch64-macos",
 			"cache_base": "/fixture/cache",
-			"releases_published": false,
+			"checkout": true,
 			"env": {
 				"GLOWCAP_DOWNLOAD": "1"
 			},
@@ -27,11 +27,11 @@
 			"sums_url": "https://github.com/glowcap-org/glowcap/releases/download/v0.1.0/SHA256SUMS"
 		},
 		{
-			"id": "published-default-fetch",
+			"id": "package-default-fetch",
 			"version": "0.1.0",
 			"target": "x86_64-linux",
 			"cache_base": "/fixture/cache",
-			"releases_published": true,
+			"checkout": false,
 			"env": {},
 			"want_fetch": true,
 			"url": "https://github.com/glowcap-org/glowcap/releases/download/v0.1.0/glowcap-c-v0.1.0-x86_64-linux.tar.gz",
@@ -39,11 +39,11 @@
 			"sums_url": "https://github.com/glowcap-org/glowcap/releases/download/v0.1.0/SHA256SUMS"
 		},
 		{
-			"id": "published-skip-download",
+			"id": "package-skip-download",
 			"version": "0.1.0",
 			"target": "x86_64-linux",
 			"cache_base": "/fixture/cache",
-			"releases_published": true,
+			"checkout": false,
 			"env": {
 				"GLOWCAP_SKIP_DOWNLOAD": "1"
 			},
@@ -57,7 +57,7 @@
 			"version": "0.1.0",
 			"target": "x86_64-linux",
 			"cache_base": "/fixture/cache",
-			"releases_published": false,
+			"checkout": true,
 			"env": {
 				"GLOWCAP_DOWNLOAD": "1",
 				"GLOWCAP_RELEASE_BASE_URL": "https://example.test/releases/download"

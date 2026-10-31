@@ -60,6 +60,7 @@ record's id, filename and status.
 - [ADR-0022 Composable C archives](adr/ADR-0022-composable-c-archives.md)
 - [ADR-0074 Linking Rust transports from Zig](adr/ADR-0074-rust-transport-linkage.md)
 - [ADR-0023 Binding archive resolution](adr/ADR-0023-binding-archive-resolution.md)
+- [ADR-0075 Release publication at the tag](adr/ADR-0075-release-publication-at-the-tag.md)
 - [ADR-0024 Transport providers and archive contracts](adr/ADR-0024-transport-provider-and-abi-contracts.md)
 - [ADR-0025 Capability release](adr/ADR-0025-capability-release.md)
 - [ADR-0026 Host-scoped capability identity](adr/ADR-0026-host-scoped-capability-identity.md)
