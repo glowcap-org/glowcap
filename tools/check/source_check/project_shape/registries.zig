@@ -312,6 +312,20 @@ fn isUrlTerminator(c: u8) bool {
     };
 }
 
+/// Whether the slug at `hit` follows the declared host behind a path or query
+/// delimiter: the form a page on another site takes when it names this
+/// repository, such as a Scorecard viewer (`?uri=github.com/<slug>`) or badge
+/// (`/projects/github.com/<slug>`). Such a URL points at the right place, and
+/// a host that merely ends in the declared one (`evilgithub.com`) does not pass.
+fn namesDeclaredHost(body: []const u8, hit: usize, host: []const u8) bool {
+    if (hit < host.len + 1) return false;
+    if (!std.mem.eql(u8, body[hit - host.len .. hit], host)) return false;
+    return switch (body[hit - host.len - 1]) {
+        '/', '=' => true,
+        else => false,
+    };
+}
+
 /// Gate that every link to this repository names the declared URL, in the
 /// declared form.
 ///
@@ -354,7 +368,8 @@ pub fn checkRepositoryUrl(
     // to contain. Matching on it rather than on a host finds a link to any
     // forge, including one nobody has thought of.
     const slug = repo_url["https://".len..];
-    const bare = slug[std.mem.indexOfScalar(u8, slug, '/').?..];
+    const host = slug[0..std.mem.indexOfScalar(u8, slug, '/').?];
+    const bare = slug[host.len..];
 
     var tracked_it = std.mem.splitScalar(u8, ls_files.stdout, 0);
     while (tracked_it.next()) |path| {
@@ -383,6 +398,7 @@ pub fn checkRepositoryUrl(
             const scheme = std.mem.lastIndexOf(u8, body[line_start..hit], "https://") orelse continue;
             const url_start = line_start + scheme;
             if (!std.mem.startsWith(u8, body[url_start..], repo_url)) {
+                if (namesDeclaredHost(body, hit, host)) continue;
                 const end = @min(url_start + repo_url.len + 16, body.len);
                 try appendViolation(gpa, violations, "{s}: links to this repository as `{s}…`, but the declared URL is `{s}` (tools/check/source_check/project_shape.zig)", .{ path, body[url_start..end], repo_url });
                 continue;

@@ -8,9 +8,13 @@ sources:
   - resource: /.github/workflows/release.yml
   - resource: /.github/workflows/publish.yml
   - resource: /.github/workflows/validate-release.yml
+  - resource: /.github/workflows/scorecard.yml
   - resource: /.github/zizmor.yml
+  - resource: /.github/repository-policy.json
   - resource: /tools/check/github_release.py
   - resource: /tools/release-tag.sh
+  - resource: /tools/release-publishers.py
+  - resource: /tools/repository-policy.py
   - resource: /tools/check/publication-integration-test.sh
   - resource: /tools/check/release-tag-test.sh
   - resource: /tools/gen/set_version.py
@@ -212,8 +216,9 @@ release itself is two commands and two workflows.
    It uploads the crate, the wheel, and the JSR packages as each registry's
    trusted publisher. Then it installs every published package in a fresh
    consumer that downloads the release's C SDK. Each registry job waits for
-   the maintainer's approval in its environment. Then update the Racket
-   catalog entry to the new tag by hand.
+   the maintainer's approval in its environment. Then run
+   `tools/release-publishers.py`, which names the Racket catalog entry when
+   it lags the release and walks through the change.
 
 A failed job is re-run from the run's page with **Re-run failed jobs**. The
 release job resumes its own draft, skips an image tag it already pushed, and
@@ -244,28 +249,25 @@ gh attestation verify --repo glowcap-org/glowcap <archive>
 
 Each registry trusts `publish.yml` in this repository through an OpenID
 Connect binding that names the workflow file and a GitHub environment. The
-environments `pypi`, `crates-io`, and `jsr` exist once the workflow has run,
-and a required reviewer on each holds publication for the maintainer's
-approval. A deployment branch policy on an environment must admit tags, or the
-dispatch at the tag cannot enter it.
+environments `pypi`, `crates-io`, and `jsr` hold the maintainer as a required
+reviewer, so each publication waits for approval, and a deployment branch
+policy admits `v*` tags, so the dispatch at the tag can enter them.
 
-The environments carry these settings. After a repository move, recreate them
-with the maintainer's GitHub user id as the reviewer:
+`tools/release-publishers.py` is the one command for this setup. It verifies
+each registry against what the registry and GitHub answer, and creates or
+repairs the environments itself. For a step only a person can take in a
+browser it prints the page and the exact values, opens the page, and verifies
+again once the step is confirmed. `--check` verifies without prompts or
+effects, so a script can run it. The names it enters come from the tree: the
+JSR scope and packages from the TypeScript workspace, the crate and the PyPI
+project from their manifests, and the repository from `gh`.
 
-```sh
-for environment in pypi crates-io jsr; do
-  gh api -X PUT "repos/glowcap-org/glowcap/environments/$environment" \
-    --input - <<<'{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}, "reviewers": [{"type": "User", "id": <user-id>}]}'
-  gh api -X POST "repos/glowcap-org/glowcap/environments/$environment/deployment-branch-policies" -f name='v*' -f type=tag
-done
-```
-
-| Registry | One-time setup |
+| Registry | What a person does once |
 | --- | --- |
-| PyPI | Add a pending trusted publisher for project `glowcap`: owner `glowcap-org`, repository `glowcap`, workflow `publish.yml`, environment `pypi`. The first publish creates the project. |
-| crates.io | The crate must exist before a trusted publisher can be added. For the first version, store an API token with publish scope as the `CARGO_REGISTRY_TOKEN` secret of the `crates-io` environment. After that publish, add the trusted publisher (owner `glowcap-org`, repository `glowcap`, workflow `publish.yml`, environment `crates-io`), then delete the secret and revoke the token. |
-| JSR | Every workspace member needs a package in the `@glowcap` scope linked to `glowcap-org/glowcap`. The workflow publishes the members `deno publish` finds, and refuses when a package is missing. |
-| Racket catalog | Register `glowcap` in the Racket package catalog with the source `https://github.com/glowcap-org/glowcap?path=bindings/racket#v<version>`, and change the version in that source on each release. |
+| PyPI | Registers a pending trusted publisher for the project. It becomes the project's publisher at the first upload, and the command reports it as waiting until then. |
+| crates.io | Stores a publish token as the `CARGO_REGISTRY_TOKEN` secret of the `crates-io` environment for the first upload, because a trusted publisher binds to an existing crate. After that upload, adds the trusted publisher, and the command deletes the secret. |
+| JSR | Creates each workspace package in the `@glowcap` scope and links it to this repository. |
+| Racket catalog | Creates the `glowcap` entry with the source the command prints, and moves its tag after each release. |
 
 ## Promotion app
 
@@ -305,44 +307,51 @@ app's settings.
 
 ## Repository protection
 
-The versioned [main ruleset](../.github/rulesets/main.json),
-[dev ruleset](../.github/rulesets/dev.json), and
-[release tag ruleset](../.github/rulesets/tags.json) define the settings to
-activate and verify on GitHub. Committing these files does not enable
-protection. Once activated, both branches take only signed commits in a linear
-history, and neither can be force-pushed or deleted. `main` also requires the
-`gates` and `macos-runtime` checks to have passed on the pushed commit. A `v*`
-tag must be signed, and once pushed it can neither move nor be deleted, so the
-commit a release names stays the commit that was checked. There is no bypass,
-so the maintainer's own push answers to the same rules.
+The repository's settings and rulesets are data in this tree, and one command
+holds GitHub to them.
+[`repository-policy.json`](../.github/repository-policy.json) states the
+settings: the merge method, secret scanning with push protection, Dependabot
+alerts and updates, private vulnerability reporting, immutable releases, code
+scanning, and the Actions policy. The Actions policy requires every action to
+be pinned to a commit, gives workflows a read-only token, and forbids them
+from approving pull requests. A workflow run from an outside contributor's
+fork waits for the maintainer's approval, who reads its workflow changes
+first. The [main ruleset](../.github/rulesets/main.json),
+[dev ruleset](../.github/rulesets/dev.json),
+[release tag ruleset](../.github/rulesets/tags.json), and
+[tag immutability ruleset](../.github/rulesets/tag-immutability.json) sit
+beside it.
 
-GitHub verifies a signature only against a signing key on the maintainer's
-account, so upload the public key as a signing key before activating the
-rulesets.
+`tools/repository-policy.py` reports every difference between GitHub and
+these files, and `--apply` makes GitHub match, creating a missing ruleset and
+updating a changed one. A ruleset on GitHub that no file describes is reported
+and left for a person to review. Change a setting in its file, run the command
+with `--apply`, and land the file in the same change.
 
-Immutable releases are a repository setting, not a ruleset. Once enabled, a
-published release and its assets can neither change nor be deleted, which is
-the policy the release workflow already follows. Enable it with:
+Both branches take only signed commits in a linear history, and neither can be
+force-pushed or deleted. `main` also requires the `gates` and `macos-runtime`
+checks to have passed on the pushed commit. Only the repository's
+administrator can create a `v*` tag. A pushed tag names a signed commit and
+can neither move nor be deleted, and that ruleset has no bypass, so the
+maintainer's own push answers to it. GitHub verifies a signature only against
+a signing key on the maintainer's account, so upload the public key before
+applying the rulesets.
 
-```sh
-gh api -X PUT repos/glowcap-org/glowcap/immutable-releases
-```
+Immutable releases hold a published release and its assets as they were, which
+is the policy the release workflow already follows.
 
-The `workflows` job of the check workflow audits every workflow file with
-[zizmor](https://docs.zizmor.sh). Run the same audit locally with
-`uvx zizmor .github/workflows`, and record a finding a design answers in
-`.github/zizmor.yml` with its reason.
+Three workflows watch the posture without being asked. The `workflows` job of
+the check workflow audits every workflow file with
+[zizmor](https://docs.zizmor.sh) on each push and pull request, and
+`.github/zizmor.yml` records a finding a design answers with its reason. The
+`dependencies` job reviews every pull request's dependency changes against the
+advisory database and fails on a known vulnerability at any severity. The
+[scorecard workflow](../.github/workflows/scorecard.yml) publishes the
+[OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/glowcap-org/glowcap)
+weekly and sends each finding to code scanning, where GitHub's own code
+scanning, secret scanning, and Dependabot alerts also arrive.
 
-To activate protection, inspect existing rulesets, then
-[import the missing rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/managing-rulesets-for-a-repository#importing-a-ruleset)
-under **Settings**, **Rulesets**. Review each imported rule before creating it.
-For later changes, update the existing ruleset and its versioned file together
-rather than creating a duplicate.
-
-Confirm on GitHub that an unsigned or unchecked push to `main` is refused and
-a checked fast-forward is accepted. Keep fork workflows on GitHub-hosted
-runners with a read-only token and no repository secrets. Review unfamiliar
-contributors' workflows before approving their execution.
+Run the zizmor audit locally with `uvx zizmor .github/workflows`.
 
 ## Relay TLS maintenance
 

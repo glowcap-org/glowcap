@@ -5,6 +5,7 @@
 [![Zig](https://img.shields.io/badge/language-Zig-f7a41d.svg)](https://ziglang.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 [![checks](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml/badge.svg)](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/glowcap-org/glowcap/badge)](https://scorecard.dev/viewer/?uri=github.com/glowcap-org/glowcap)
 
 glowcap is a low-level Zig library for capability-based communication and
 durable application state. It combines [OCapN](https://github.com/ocapn/ocapn)

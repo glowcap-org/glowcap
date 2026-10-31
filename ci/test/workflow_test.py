@@ -135,7 +135,7 @@ class PublicationWorkflow(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertFalse(log.exists())
-        for path, skipped in (('.github/workflows/check.yml', ('gates', 'plan', 'linux', 'workflows')),
+        for path, skipped in (('.github/workflows/check.yml', ('gates', 'plan', 'linux', 'workflows', 'dependencies')),
                               ('.github/workflows/check-group.yml', ())):
             for name, (_, body) in jobs(path).items():
                 if name not in skipped:
@@ -477,14 +477,21 @@ else:
                              {"gates", "macos-runtime"})
             self.assertIn("name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}",
                           conditions["gates"][1])
-        # A release tag names the commit release.yml publishes, so once pushed
-        # it can neither move nor disappear, and it carries a signature.
-        tags = json.loads((ROOT / ".github/rulesets/tags.json").read_text())
-        self.assertEqual(tags["target"], "tag")
-        self.assertEqual(tags["enforcement"], "active")
-        self.assertEqual(tags["bypass_actors"], [])
-        self.assertEqual(tags["conditions"]["ref_name"], {"include": ["refs/tags/v*"], "exclude": []})
-        self.assertEqual({rule["type"] for rule in tags["rules"]}, {"deletion", "update", "required_signatures"})
+        # Only the repository's administrator creates a release tag, and once
+        # pushed it names a signed commit that can neither move nor disappear,
+        # for the administrator too: the immutability ruleset has no bypass.
+        creation = json.loads((ROOT / ".github/rulesets/tags.json").read_text())
+        immutability = json.loads((ROOT / ".github/rulesets/tag-immutability.json").read_text())
+        for ruleset in (creation, immutability):
+            self.assertEqual(ruleset["target"], "tag")
+            self.assertEqual(ruleset["enforcement"], "active")
+            self.assertEqual(ruleset["conditions"]["ref_name"], {"include": ["refs/tags/v*"], "exclude": []})
+        self.assertEqual({rule["type"] for rule in creation["rules"]}, {"creation"})
+        self.assertEqual(creation["bypass_actors"],
+                         [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}])
+        self.assertEqual({rule["type"] for rule in immutability["rules"]},
+                         {"deletion", "update", "non_fast_forward", "required_signatures"})
+        self.assertEqual(immutability["bypass_actors"], [])
         self.assertIn('tags: ["v*"]', (ROOT / ".github/workflows/release.yml").read_text())
 
     def test_pages_builds_only_main(self):

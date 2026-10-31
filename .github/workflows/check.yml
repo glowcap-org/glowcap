@@ -106,6 +106,25 @@ jobs:
           min-severity: low
           advanced-security: true
 
+  # A pull request that adds or moves a dependency is compared with the
+  # dependency graph: a known vulnerability at any severity, or a package
+  # under an unexpected license, fails the review before a person reads it.
+  # The graph covers the Actions, Cargo, and Python manifests.
+  dependencies:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          comment-summary-in-pr: never
+
   # Keep the branch-protection context stable. Missing, skipped, cancelled,
   # or failed Linux, macOS, or workflow-audit work must never produce a
   # successful aggregate.
