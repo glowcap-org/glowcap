@@ -9,7 +9,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PASS = {name: {'result': 'success'} for name in ('plan', 'image', 'linux', 'macos-runtime')}
+PASS = {name: {'result': 'success'} for name in ('plan', 'image', 'linux', 'macos-runtime', 'workflows')}
 PASS['plan']['outputs'] = {'full': 'true'}
 
 
@@ -48,6 +48,16 @@ class ReportTest(unittest.TestCase):
                     self.assertIn('failed', summary)
             result, _, _ = report_run({key: value for key, value in PASS.items() if key != name})
             self.assertEqual(result.returncode, 1, name)
+
+    def test_the_workflow_audit_is_a_required_dependency(self):
+        for needs in ({**PASS, 'workflows': {'result': 'failure'}},
+                      {key: value for key, value in PASS.items() if key != 'workflows'}):
+            with self.subTest(workflows=needs.get('workflows')):
+                result, summary, _ = report_run(needs)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn('Validation dependency workflows', result.stderr)
+                self.assertIn('Full validation failed', summary)
+                self.assertIn('| workflows |', summary)
 
     def test_selected_coverage_is_not_full_qualification(self):
         needs = {**PASS, 'plan': {'result': 'success', 'outputs': {'full': 'false'}}}

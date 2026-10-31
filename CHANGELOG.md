@@ -19,8 +19,11 @@ and storage formats before 1.0.
   use and verifies them against the release checksums.
 - Release notes carry a platform download table, verification and install
   steps, a package install section, and this changelog's entry for the version.
-- The Rooms container image carries a signed publication attestation that
-  `gh attestation verify` checks against this repository.
+- Every release archive, the checksum file, and the Rooms container image
+  carry a build provenance attestation that `gh attestation verify` checks
+  against this repository. The provenance bundle of each download is published
+  beside it for offline checks, and the image's software bill of materials is
+  attested with the image.
 - The C SDK archive ships a README with a runnable C example.
 
 ### Changed

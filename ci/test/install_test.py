@@ -4,7 +4,9 @@ Serves a fake releases listing and a release directory over HTTP from this
 process, with a product archive whose bin/glowcap records its arguments, and
 runs the installer with its two mirror overrides pointed at that server. The
 ordinary path installs the newest release or a pinned version. Every refusal
-exits 1 before the product runs. Needs sh, curl, tar, and a checksum tool, as
+exits 1 before the product runs, and the checksum file is read before any
+archive is requested, so a missing release and a missing platform read
+differently. Needs sh, curl, tar, and a checksum tool, as
 the installer does.
 """
 
@@ -67,6 +69,10 @@ class Installer(unittest.TestCase):
         broken.mkdir()
         (broken / f'glowcap-v0.9.1-{TARGET}.tar.gz').write_bytes(archive)
         (broken / 'SHA256SUMS').write_text(f'{"f" * 64}  glowcap-v0.9.1-{TARGET}.tar.gz\n')
+        lacking = mirror / 'v0.9.2'
+        lacking.mkdir()
+        other = 'aarch64-linux' if TARGET != 'aarch64-linux' else 'x86_64-linux'
+        (lacking / 'SHA256SUMS').write_text(f'{"a" * 64}  glowcap-v0.9.2-{other}.tar.gz\n')
         handler = type('Handler', (QuietHandler,), {'directory': str(mirror)})
         handler.__init__ = lambda self, *args, **kwargs: QuietHandler.__init__(self, *args, directory=str(mirror), **kwargs)
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), handler)
@@ -95,7 +101,7 @@ class Installer(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(record.read_text(), 'install\n')
         self.assertIn(f'verified {ARCHIVE}', result.stdout)
-        self.assertEqual(QuietHandler.requests, ['/releases.json', f'/v{VERSION}/{ARCHIVE}', f'/v{VERSION}/SHA256SUMS'])
+        self.assertEqual(QuietHandler.requests, ['/releases.json', f'/v{VERSION}/SHA256SUMS', f'/v{VERSION}/{ARCHIVE}'])
         self.assertEqual(sorted(Path(self.temporary.name).glob('glowcap-install.*')), [], 'the temporary directory is removed')
 
     def test_pins_a_version_and_forwards_install_arguments(self):
@@ -110,15 +116,41 @@ class Installer(unittest.TestCase):
         self.assertIn('checksum mismatch', result.stderr)
         self.assertFalse(record.exists())
 
-    def test_refuses_a_release_without_this_platform_or_a_malformed_version(self):
+    def test_plans_before_it_downloads_and_ends_with_the_path_hint(self):
+        result, _ = self.run_installer(GLOWCAP_VERSION=VERSION)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = f'glowcap install: v{VERSION} for {TARGET} from {self.base}/v{VERSION}'
+        lines = result.stdout.splitlines()
+        self.assertIn(plan, lines)
+        self.assertLess(lines.index(plan), lines.index(f'glowcap install: downloading {ARCHIVE}'))
+        self.assertTrue(lines[-1].startswith('glowcap install: done.'), lines[-1])
+        self.assertIn('PATH', lines[-1])
+        self.assertTrue(result.stdout.endswith('to your PATH.\n'), result.stdout)
+
+    def test_a_missing_release_names_its_checksum_file_and_requests_no_archive(self):
         result, record = self.run_installer(GLOWCAP_VERSION='0.8.0')
         self.assertEqual(result.returncode, 1)
-        self.assertIn(f'no product for {TARGET} in release v0.8.0', result.stderr)
+        self.assertIn('SHA256SUMS', result.stderr)
+        self.assertIn('v0.8.0', result.stderr)
+        self.assertIn('release may not exist', result.stderr)
+        self.assertNotIn('has no product for', result.stderr)
+        self.assertEqual(QuietHandler.requests, ['/v0.8.0/SHA256SUMS'])
         self.assertFalse(record.exists())
-        result, _ = self.run_installer(GLOWCAP_VERSION='latest')
+
+    def test_refuses_a_release_without_this_platform_before_downloading_an_archive(self):
+        result, record = self.run_installer(GLOWCAP_VERSION='0.9.2')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f'release v0.9.2 has no product for {TARGET}', result.stderr)
+        self.assertEqual(QuietHandler.requests, ['/v0.9.2/SHA256SUMS'])
+        self.assertFalse(record.exists())
+        self.assertNotIn('downloading', result.stdout)
+
+    def test_refuses_a_malformed_version_without_any_request(self):
+        result, record = self.run_installer(GLOWCAP_VERSION='latest')
         self.assertEqual(result.returncode, 1)
         self.assertIn('unexpected version: latest', result.stderr)
         self.assertEqual(QuietHandler.requests, [], 'nothing is downloaded for a malformed version')
+        self.assertFalse(record.exists())
 
     def test_the_installer_is_the_documented_one_command(self):
         command = 'curl -fsSL https://glowcap.org/install.sh | sh'

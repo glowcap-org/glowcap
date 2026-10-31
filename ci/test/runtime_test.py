@@ -238,7 +238,7 @@ class RuntimeTest(unittest.TestCase):
         # several matches its own directory, so only merged, uniquely named
         # archives sit at one path for every shard count.
         workflow = (ROOT / '.github/workflows/check-group.yml').read_text()
-        self.assertIn('ci/state.sh pack "$RUNNER_TEMP/state-${{ matrix.shard }}.tar.zst"', workflow)
+        self.assertIn('          SHARD: ${{ matrix.shard }}\n        run: ci/state.sh pack "$RUNNER_TEMP/state-$SHARD.tar.zst"', workflow)
         self.assertIn('path: ${{ runner.temp }}/state-${{ matrix.shard }}.tar.zst', workflow)
         receive = workflow.split("      - name: Receive the group's compiled state\n", 1)[1].split('\n      - name:', 1)[0]
         self.assertIn('path: ${{ runner.temp }}/state\n', receive)

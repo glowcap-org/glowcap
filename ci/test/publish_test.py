@@ -44,7 +44,8 @@ class PublishWorkflow(unittest.TestCase):
                 self.assertIn('ref: ${{ needs.contract.outputs.commit }}', body)
                 self.assertIn('binding_packages.py --registry "$VERSION"', body)
         self.assertNotIn('id-token', found['contract'])
-        self.assertIn('release_recovery.py --published "$RELEASE_TAG"', found['contract'])
+        self.assertIn('python3 tools/check/github_release.py published "$RELEASE_TAG"', found['contract'])
+        self.assertIn('ref: refs/tags/${{ inputs.tag }}', found['contract'])
 
     def test_every_action_is_pinned_and_no_checkout_keeps_credentials(self):
         _, found = jobs()
@@ -84,8 +85,12 @@ class PublishWorkflow(unittest.TestCase):
                     self.assertIn('crates/glowcap/0.1.1', calls)
                     self.assertEqual('cargo publish' in calls, published)
 
-    def test_each_registry_job_requires_the_tag_of_its_checkout(self):
-        script = shell_step(WORKFLOW.read_text(), "Require the tag's version")
+    def test_the_contract_job_alone_requires_the_tag_of_its_checkout(self):
+        source = WORKFLOW.read_text()
+        self.assertEqual(source.count("Require the tag's version"), 1)
+        _, found = jobs()
+        self.assertIn("- name: Require the tag's version", found['contract'])
+        script = shell_step(source, "Require the tag's version")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / 'bindings').mkdir()
@@ -104,8 +109,8 @@ class PublishWorkflow(unittest.TestCase):
         publish = release.index('--draft=false')
         dispatch = release.index('gh workflow run publish.yml')
         self.assertLess(publish, dispatch)
-        script = shell_step(source, 'Publish the language packages at the tag')
-        self.assertIn('--ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"', script)
+        self.assertIn('- name: Publish the language packages at the tag\n        run: gh workflow run publish.yml', release)
+        self.assertIn('--ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"', release[dispatch:])
 
 
 if __name__ == '__main__':

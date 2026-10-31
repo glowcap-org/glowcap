@@ -247,8 +247,8 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, workflow, "gh release create") == null) {
         try appendViolation(gpa, violations, "{s}: must still contain `gh release create` for the tag path", .{release_workflow});
     }
-    if (std.mem.indexOf(u8, workflow, "expected_tag=\"v$(jq -r '.abi_version' bindings/c-abi-resolve.json)\"") == null or
-        std.mem.indexOf(u8, workflow, "GITHUB_REF_NAME\" != \"$expected_tag") == null)
+    if (std.mem.indexOf(u8, workflow, "jq -er '.abi_version") == null or
+        std.mem.indexOf(u8, workflow, "\"$GITHUB_REF_NAME\" != \"v$VERSION\"") == null)
     {
         try appendViolation(gpa, violations, "{s}: tag publication must require `v<abi_version>` from bindings/c-abi-resolve.json", .{release_workflow});
     }
@@ -266,14 +266,17 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, workflow, "actions: read") == null) {
         try appendViolation(gpa, violations, "{s}: tag publication must be able to read Actions check evidence", .{release_workflow});
     }
-    if (std.mem.indexOf(u8, workflow, "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == null or
+    // Each builder attests the archives it built, and the release job attests
+    // the combined checksum file and the image it pushes.
+    if (std.mem.indexOf(u8, workflow, "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8") == null or
         std.mem.indexOf(u8, workflow, "attestations: write") == null or
         std.mem.indexOf(u8, workflow, "id-token: write") == null or
         std.mem.indexOf(u8, workflow, "artifact-metadata: write") == null or
-        std.mem.indexOf(u8, workflow, "release-assets/*.tar.gz") == null or
+        std.mem.indexOf(u8, workflow, "zig-out/release/*.tar.gz") == null or
+        std.mem.indexOf(u8, workflow, "zig-out/glowcap-release/*.tar.gz") == null or
         std.mem.indexOf(u8, workflow, "release-assets/SHA256SUMS") == null)
     {
-        try appendViolation(gpa, violations, "{s}: published archives and SHA256SUMS must receive GitHub artifact attestations", .{release_workflow});
+        try appendViolation(gpa, violations, "{s}: release archives and SHA256SUMS must receive build provenance attestations", .{release_workflow});
     }
     const release_build_path = "tools/build/release.zig";
     const release_front = root.readFileAlloc(io, release_build_path, gpa, .limited(1 << 20)) catch |err| {

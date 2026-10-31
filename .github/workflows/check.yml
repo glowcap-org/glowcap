@@ -83,11 +83,35 @@ jobs:
       image: ${{ needs.image.outputs.image }}
       archive: ${{ needs.image.outputs.archive }}
 
+  # Static audit of every workflow file: injection, credential persistence,
+  # unpinned actions, cache poisoning on release paths. Findings a design
+  # answers are listed with their reason in .github/zizmor.yml.
+  workflows:
+    if: >-
+      github.event_name == 'push' || github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          persona: regular
+          min-severity: low
+          advanced-security: true
+
   # Keep the branch-protection context stable. Missing, skipped, cancelled,
-  # or failed Linux or macOS work must never produce a successful aggregate.
+  # or failed Linux, macOS, or workflow-audit work must never produce a
+  # successful aggregate.
   gates:
     name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}
-    needs: [plan, image, linux, macos-runtime]
+    needs: [plan, image, linux, macos-runtime, workflows]
     if: >-
       always() && (
       github.event_name == 'push' || github.event_name == 'pull_request' ||

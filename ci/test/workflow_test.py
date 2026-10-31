@@ -135,7 +135,7 @@ class PublicationWorkflow(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertFalse(log.exists())
-        for path, skipped in (('.github/workflows/check.yml', ('gates', 'plan', 'linux')),
+        for path, skipped in (('.github/workflows/check.yml', ('gates', 'plan', 'linux', 'workflows')),
                               ('.github/workflows/check-group.yml', ())):
             for name, (_, body) in jobs(path).items():
                 if name not in skipped:
@@ -169,24 +169,37 @@ class PublicationWorkflow(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
                     self.assertEqual(output.read_text(), f"value={version}\n" if accepted else "")
             gh = directory / "gh"
-            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$GITHUB_OUTPUT"\n')
+            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$GH_CALLS"\n')
             gh.chmod(0o755)
             (directory / "artifacts").mkdir()
-            (directory / "artifacts/release-state.json").write_text(
-                json.dumps({"draft_exists": False, "missing_assets": []}))
-            verifier = directory / "tools/check/release_recovery.py"
-            verifier.parent.mkdir(parents=True)
-            verifier.write_text("pass\n")
+            (directory / "artifacts/release-notes.md").write_text("notes\n")
+            (directory / "release-assets").mkdir()
+            checker = directory / "tools/check/github_release.py"
+            checker.parent.mkdir(parents=True)
+            checker.write_text("import json, os, sys\n"
+                               "with open(os.environ['CHECK_CALLS'], 'a') as log:\n"
+                               "    log.write(' '.join(sys.argv[1:]) + '\\n')\n"
+                               "if sys.argv[1] == 'draft-state':\n"
+                               "    print(json.dumps({'draft_exists': False, 'missing_assets': []}))\n")
+            gh_calls, check_calls = directory / "gh-calls", directory / "check-calls"
             environment.update(PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
+                               GH_CALLS=str(gh_calls), CHECK_CALLS=str(check_calls),
                                GITHUB_REF_NAME="different-branch", RELEASE_TAG="v0.1.0", GITHUB_REPOSITORY="owner/project")
             result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
-                                     command("Create the release with archives")],
-                                    cwd=directory, env=environment, capture_output=True, text=True)
+                                     command("Fill the draft release, then make it public")],
+                                    cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
-            arguments = output.read_text().splitlines()
-            self.assertIn("--prerelease", arguments)
-            self.assertIn("--latest=false", arguments)
-            self.assertIn("glowcap v0.1.0 alpha", arguments)
+            create, edit = [call.split() for call in gh_calls.read_text().splitlines()]
+            self.assertEqual(create[:3], ["release", "create", "v0.1.0"])
+            for flag in ("--prerelease", "--draft", "--latest=false", "--verify-tag"):
+                self.assertIn(flag, create)
+            self.assertIn("glowcap v0.1.0 alpha", " ".join(create))
+            self.assertEqual(edit[:3], ["release", "edit", "v0.1.0"])
+            self.assertIn("--draft=false", edit)
+            self.assertIn("--prerelease", edit)
+            self.assertIn("--latest=false", edit)
+            self.assertEqual(check_calls.read_text().splitlines(),
+                             ["draft-state v0.1.0", "verify-draft v0.1.0"])
 
     def evidence(self, runs, commit="a" * 40, repository="owner/project", status=0, raw=None,
                  command=None, current="a" * 40, job_records=None, relation="identical"):
@@ -329,6 +342,8 @@ else:
             step = re.search(rf"^      - name: {re.escape(name)}\n((?: {{8}}[^\n]*\n|\n)*)", source, re.M)
             self.assertIsNotNone(step, path)
             block = re.search(r"^        run: \|\n((?: {10}[^\n]*\n|\n)*)", step[1], re.M)
+            if block is None:
+                block = re.search(r"^        run: (.+)\n", step[1], re.M)
             self.assertIsNotNone(block, path)
             command = textwrap.dedent(block[1])
             with self.subTest(workflow=path):
@@ -355,7 +370,7 @@ else:
         top, release = bodies(".github/workflows/release.yml")
         self.assertRegex(release["release"], r"(?m)^    needs: \[contract, ")
         verifier = step(release["contract"], "Require this commit's successful check workflow")
-        self.assertIn("if: github.event_name == 'push' && github.ref_type == 'tag'\n", verifier)
+        self.assertIn("if: github.ref_type == 'tag'\n", verifier)
         top, pages = bodies(".github/workflows/pages.yml")
         self.assertRegex(pages["deploy"], r"(?m)^    needs: build$")
         step(pages["build"], "Verify the exact commit passed check")
@@ -414,7 +429,7 @@ else:
     def test_parallel_checks_cannot_pass_with_a_missing_lane(self):
         conditions = jobs('.github/workflows/check.yml')
         aggregate = conditions['gates'][1]
-        self.assertIn('    needs: [plan, image, linux, macos-runtime]\n', aggregate)
+        self.assertIn('    needs: [plan, image, linux, macos-runtime, workflows]\n', aggregate)
         self.assertIn('always()', conditions['gates'][0])
         self.assertIn('VALIDATION_NEEDS: ${{ toJSON(needs) }}', aggregate)
         command = re.search(r'^        run: (.+)$', aggregate, re.M)[1]

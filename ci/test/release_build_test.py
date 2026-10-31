@@ -1,13 +1,23 @@
-"""Exercise release rechecks and toolchain selection at their shell boundary."""
+"""The release workflow's job graph, attestation scope, and build steps at their boundaries.
+
+Reads release.yml for what each job needs, which events select it, and which job
+holds the attestation permissions. A tag push runs every job. A manual dispatch
+rehearses the builds and image proofs and publishes nothing. The shell steps that
+verify the archive checksums and select the macOS SDK run against stub tools and
+fixture archives. This does not reach GitHub runners, registries, or the signing
+service. The Zig and Rust packaging checks below it run the real recipes.
+"""
 
 import importlib.util
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import struct
+import tarfile
 import tempfile
 import textwrap
 import unittest
@@ -20,77 +30,109 @@ from workflow_expression import selected
 spec = importlib.util.spec_from_file_location('zig_package', ROOT / 'tools/check/zig_package.py')
 PACKAGE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(PACKAGE)
+WORKFLOW = ROOT / '.github/workflows/release.yml'
+
+
+def job_body(name):
+    """A job's block, including jobs that declare no `if`, which `jobs` skips."""
+    source = WORKFLOW.read_text().split('\njobs:\n', 1)[1]
+    return re.search(rf'(?m)^  {name}:\n((?: {{4}}[^\n]*\n|\n)*)', source)[1]
+
+
+def step_block(body, name):
+    return re.search(rf'(?m)^      - (?:name: {re.escape(name)}|uses: [^\n]*\n(?: {{8}}[^\n]*\n)*? {{8}}name: {re.escape(name)})\n((?: {{8,}}[^\n]*\n|\n)*)', body)[0]
 
 
 class ReleaseBuild(unittest.TestCase):
-    def test_product_recheck_is_separate_from_build_and_publication(self):
-        declared = jobs('.github/workflows/release.yml')
-        for event, run, builds, rechecks in (
-            ('push', '', True, False), ('push', '123', True, False),
-            ('workflow_dispatch', '', True, False), ('workflow_dispatch', '123', False, True),
-        ):
-            with self.subTest(event=event, run=run):
-                context = {'inputs': {'recheck_run': run, 'publish_run': '', 'publish_tag': ''}}
-                self.assertEqual(selected(declared['archives'][0], {'event_name': event}, context=context), builds)
-                self.assertEqual(selected(declared['recheck'][0], {'event_name': event}, context=context), rechecks)
-        body = declared['recheck'][1]
-        self.assertIn('run-id: ${{ inputs.recheck_run }}', body)
-        self.assertIn('name: archives-${{ matrix.runner }}', body)
-        self.assertNotIn('zig build', body)
-        self.assertNotIn(': write', body)
+    def test_a_tag_push_releases_and_a_dispatch_only_rehearses(self):
+        predicate, release = jobs('.github/workflows/release.yml')['release']
+        self.assertEqual(predicate, "github.ref_type == 'tag'")
+        self.assertRegex(release, r'(?m)^    needs: \[contract, archives, images\]$')
+        self.assertTrue(selected(predicate, {'event_name': 'push', 'ref_type': 'tag'}))
+        self.assertFalse(selected(predicate, {'event_name': 'workflow_dispatch', 'ref_type': 'branch'}))
+        self.assertFalse(selected(predicate, {'event_name': 'workflow_dispatch', 'ref_type': 'tag'}, success=False))
+        for name, needs in (('contract', None), ('archives', 'contract'), ('images', '[contract, archives]')):
+            with self.subTest(job=name):
+                body = job_body(name)
+                self.assertNotRegex(body, r'(?m)^    if:')
+                self.assertRegex(body, rf'(?m)^    needs: {re.escape(needs)}$' if needs else r'(?m)^    timeout-minutes')
+        self.assertNotIn('needs:', job_body('contract'))
+        self.assertEqual(set(re.findall(r'(?m)^  ([\w-]+):$', WORKFLOW.read_text().split('\njobs:\n', 1)[1])),
+                         {'contract', 'archives', 'images', 'release'})
 
-    def test_publication_survives_skipped_recheck_but_requires_all_producers(self):
-        predicate, _ = jobs('.github/workflows/release.yml')['release']
-        github = {'event_name': 'push', 'ref': 'refs/tags/v0.1.0'}
-        # This is the actual v0.1.0 failure: a skipped transitive recheck made
-        # implicit success() false, even though every required producer passed.
-        old = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
-        self.assertFalse(selected(old, github, success=False))
-        for contract in ('success', 'failure', 'cancelled', 'skipped'):
-            for archives in ('success', 'failure', 'cancelled', 'skipped'):
-                for images in ('success', 'failure', 'cancelled', 'skipped'):
-                    context = {'needs': {name: {'result': result} for name, result in
-                               [('contract', contract), ('archives', archives), ('images', images)]}}
-                    self.assertEqual(selected(predicate, github, context=context, success=False),
-                                     contract == archives == images == 'success')
-                    self.assertFalse(selected(predicate, github, context=context, success=False, cancelled=True))
+    def test_triggers_are_a_version_tag_and_a_bare_dispatch(self):
+        source = WORKFLOW.read_text()
+        triggers = source.split('\non:\n', 1)[1].split('\npermissions:', 1)[0]
+        self.assertEqual(triggers, '  push:\n    tags: ["v*"]\n  workflow_dispatch:\n')
+        self.assertNotIn('inputs', triggers)
+        self.assertNotIn('actions/cache', source)
+        self.assertNotIn('release_recovery', source)
 
-    def test_recovery_publishes_without_selecting_builds(self):
-        declared = jobs('.github/workflows/release.yml')
-        github = {'event_name': 'workflow_dispatch', 'ref': 'refs/heads/fix/recovery'}
-        for run, tag, recheck, allowed in (('123', 'v0.1.0', '', True), ('', '', '', False),
-                                          ('123', '', '', False), ('', 'v0.1.0', '', False),
-                                          ('123', 'v0.1.0', '456', False), ('', '', '456', False)):
-            context = {'inputs': {'publish_run': run, 'publish_tag': tag, 'recheck_run': recheck},
-                       'needs': {'contract': {'result': 'success'}, 'archives': {'result': 'skipped'},
-                                 'images': {'result': 'skipped'}, 'recheck': {'result': 'skipped'}}}
-            self.assertEqual(selected(declared['release'][0], github, context=context, success=False), allowed)
-            if run or tag:
-                for job in ('archives', 'recheck', 'images'):
-                    self.assertFalse(selected(declared[job][0], github, context=context))
-            context['needs']['contract']['result'] = 'failure'
-            self.assertFalse(selected(declared['release'][0], github, context=context, success=False))
+    def test_only_a_tag_attests_and_only_the_archives_and_release_may_attest(self):
+        archives = job_body('archives')
+        step = step_block(archives, "Attest the archives' build provenance")
+        condition = re.search(r'(?m)^        if: (.+)$', step)[1]
+        for ref_type, expected in (('tag', True), ('branch', False), ('', False)):
+            self.assertEqual(selected(condition, {'ref_type': ref_type}), expected)
+        self.assertIn('uses: actions/attest-build-provenance@', step)
+        self.assertRegex(archives, r'(?m)^      attestations: write$')
+        self.assertRegex(archives, r'(?m)^      id-token: write$')
+        for name in ('contract', 'images'):
+            with self.subTest(job=name):
+                body = job_body(name)
+                self.assertNotIn('attestations', body)
+                self.assertNotIn('id-token', body)
+                self.assertNotRegex(body, r'(?m)^      (contents|packages|actions): write$')
+                self.assertNotIn('attest', body)
 
-    def test_images_require_verified_archives_or_a_successful_product_recheck(self):
-        predicate, body = jobs('.github/workflows/release.yml')['images']
-        for archives, recheck, allowed in (('success', 'skipped', True),
-                                           ('skipped', 'success', True),
-                                           ('failure', 'skipped', False),
-                                           ('skipped', 'failure', False),
-                                           ('skipped', 'skipped', False)):
-            for contract in ('success', 'failure'):
-                for cancelled in (False, True):
-                    context = {'needs': {'contract': {'result': contract},
-                                        'archives': {'result': archives},
-                                        'recheck': {'result': recheck}}}
-                    self.assertEqual(selected(predicate, context=context, success=False, cancelled=cancelled),
-                                     allowed and contract == 'success' and not cancelled)
-        self.assertIn('run-id: ${{ inputs.recheck_run || github.run_id }}', body)
-        self.assertIn('github-token: ${{ github.token }}', body)
-        self.assertNotIn(': write', body)
+    def test_images_take_the_archives_of_their_own_run_and_check_them_before_extracting(self):
+        images = job_body('images')
+        extract = step_block(images, 'Extract the verified Linux product')
+        self.assertLess(extract.index('sha256sum --check SHA256SUMS'), extract.index('tar --extract'))
+        self.assertIn('name: archives-${{ matrix.runner }}', images)
+        self.assertNotIn('run-id', images)
+        self.assertNotIn('github-token', images)
+        script = shell_step(WORKFLOW.read_text(), 'Extract the verified Linux product')
+        good = b'product'
+        for label, content, name, accepted in (
+                ('intact', good, 'glowcap-v0.1.0-x86_64-linux.tar.gz', True),
+                ('wrong digest', b'damaged', 'glowcap-v0.1.0-x86_64-linux.tar.gz', False),
+                ('other architecture', good, 'glowcap-v0.1.0-aarch64-linux.tar.gz', False)):
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                directory = root / 'archive-artifact/glowcap-release'
+                directory.mkdir(parents=True)
+                with tarfile.open(directory / name, 'w:gz') as archive:
+                    member = tarfile.TarInfo('bin/glowcap')
+                    member.size = len(content)
+                    archive.addfile(member, io.BytesIO(content))
+                recorded = hashlib.sha256(b'other' if label == 'wrong digest' else (directory / name).read_bytes()).hexdigest()
+                (directory / 'SHA256SUMS').write_text(f'{recorded}  {name}\n')
+                result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script], cwd=root,
+                                        env=dict(os.environ, VERSION='0.1.0', ARCHIVE_ARCH='x86_64'),
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual((root / 'image-context/bin/glowcap').exists(), accepted)
+
+    def test_release_publishes_in_order_and_attests_before_it_fills_the_draft(self):
+        release = job_body('release')
+        order = ('Assemble the release assets',
+                 "Attest the checksum file's build provenance",
+                 'Publish the versioned multi-platform Rooms image',
+                 "Attest the image's build provenance",
+                 "Write the image's software bill of materials",
+                 "Attest the image's software bill of materials",
+                 'Render the release page and download every provenance bundle',
+                 'Fill the draft release, then make it public',
+                 'Publish the language packages at the tag')
+        positions = [release.index(f'      - name: {name}\n') for name in order]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(len(set(positions)), len(order))
+        self.assertIn('python3 tools/check/github_release.py assemble artifacts "$RELEASE_TAG"', release)
+        self.assertIn('subject-path: release-assets/SHA256SUMS', release)
 
     def test_failed_product_archives_are_preserved_without_qualifying_them(self):
-        body = jobs('.github/workflows/release.yml')['archives'][1]
+        body = job_body('archives')
         predicate = re.search(r'^        if: (.*hashFiles.*)$', body, re.M)[1]
         for present in (False, True):
             expression = predicate.replace("hashFiles('zig-out/glowcap-release/*.tar.gz')",
@@ -99,40 +141,11 @@ class ReleaseBuild(unittest.TestCase):
                 self.assertEqual(selected(expression, success=False, cancelled=cancelled),
                                  present and not cancelled)
 
-    def test_recheck_verifies_one_archive_and_preserves_proof_failure(self):
-        workflow = (ROOT / '.github/workflows/release.yml').read_text()
-        script = shell_step(workflow, 'Recheck the installed product')
-        for count, damaged, status in ((1, False, 0), (1, False, 37), (1, True, 0),
-                                       (0, False, 0), (2, False, 0)):
-            with self.subTest(count=count, damaged=damaged, status=status), tempfile.TemporaryDirectory() as temp:
-                root = Path(temp)
-                directory = root / 'archive-artifact/glowcap-release'
-                directory.mkdir(parents=True)
-                for index in range(count):
-                    (directory / f'glowcap-v0.1.{index}-host.tar.gz').write_bytes(b'product')
-                product = directory / 'glowcap-v0.1.0-host.tar.gz'
-                digest = hashlib.sha256(b'damaged' if damaged else b'product').hexdigest()
-                (directory / 'SHA256SUMS').write_text(f'{digest}  {product.name}\n')
-                proof = root / 'tools/check/glowcap_release.py'
-                proof.parent.mkdir(parents=True)
-                proof.write_text('import json,os,sys\nfrom pathlib import Path\n'
-                                 'Path("proof-call").write_text(json.dumps(sys.argv[1:]))\n'
-                                 'raise SystemExit(int(os.environ["PROOF_STATUS"]))\n')
-                result = subprocess.run(['bash', '-ec', script], cwd=root,
-                                        env=dict(os.environ, PROOF_STATUS=str(status)),
-                                        capture_output=True, text=True, timeout=5)
-                called = count == 1 and not damaged
-                self.assertEqual((root / 'proof-call').exists(), called, result.stderr)
-                self.assertEqual(result.returncode, status if called else 1, result.stderr)
-                if called:
-                    self.assertEqual(json.loads((root / 'proof-call').read_text()),
-                                     ['archive-artifact/glowcap-release/' + product.name])
-
     def test_packaging_contracts_run_before_product_compilation(self):
         workflow = (ROOT / '.github/workflows/release.yml').read_text()
         before = workflow.index('      - name: Check release packaging contracts\n')
         self.assertLess(before, workflow.index('      - name: Install the matching browser compiler\n'))
-        self.assertLess(before, workflow.index('      - name: Build the release tarball\n'))
+        self.assertLess(before, workflow.index('      - name: Build the release archives\n'))
         block = workflow[before:].split('\n      - ', 1)[0]
         self.assertIn('run: zig build glowcap-package-test --summary all', block)
         self.assertNotIn('continue-on-error', block)
@@ -171,8 +184,9 @@ class ReleaseBuild(unittest.TestCase):
                 run.assert_called_once_with(nm, '-g', str(consumer / 'zig-out/sidecars.a'), cwd=consumer, timeout=30)
 
     def test_archive_acquisition_delegates_and_propagates_failure(self):
-        script = shell_step((ROOT / '.github/workflows/release.yml').read_text(),
-                            'Fetch pinned Zig dependencies')
+        step = step_block(job_body('archives'), 'Fetch pinned Zig dependencies')
+        script = re.search(r'(?m)^        run: (.+)$', step)[1]
+        self.assertEqual(script, 'bash ci/fetch-zig.sh')
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / 'ci').mkdir()
@@ -265,7 +279,7 @@ class ReleaseBuild(unittest.TestCase):
 
     def test_archive_build_selects_the_sdk_only_on_macos(self):
         script = shell_step((ROOT / '.github/workflows/release.yml').read_text(),
-                            'Build the release tarball')
+                            'Build the release archives')
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             log = directory / 'arguments.json'
@@ -285,11 +299,11 @@ class ReleaseBuild(unittest.TestCase):
                     log.unlink(missing_ok=True)
                     target = 'aarch64-macos.15.0' if runner == 'macOS' else 'aarch64-linux-gnu.2.39'
                     env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'],
-                               RUNNER_OS=runner, SDK_FAIL=str(int(failed)), SDK_PATH=str(sdk),
+                               RUNNER_OS=runner, RELEASE_TARGET=target, SDK_FAIL=str(int(failed)), SDK_PATH=str(sdk),
                                ARGUMENT_LOG=str(log))
                     env.pop('SDKROOT', None)
                     result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c',
-                                             script.replace('${{ matrix.target }}', target)],
+                                             script],
                                             cwd=directory, env=env, capture_output=True, text=True)
                     self.assertEqual(result.returncode == 0, not failed, result.stderr)
                     if failed:

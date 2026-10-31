@@ -198,7 +198,9 @@ jobs:
       # failure in the group.
       - name: Pack the compiled state
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
-        run: ci/state.sh pack "$RUNNER_TEMP/state-${{ matrix.shard }}.tar.zst"
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: ci/state.sh pack "$RUNNER_TEMP/state-$SHARD.tar.zst"
 
       # A transfer finishes in seconds or stalls with no end of its own, so
       # each one is bounded. The handoff is required and a stalled transfer
@@ -348,7 +350,9 @@ jobs:
 
       - name: Run the phase
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
-        run: $EXEC bash ci/gates.sh ${{ matrix.phase }}
+        env:
+          PHASE: ${{ matrix.phase }}
+        run: $EXEC bash ci/gates.sh "$PHASE"
 
       # The evidence record is the run's product: what ran, on what, and how
       # each gate ended. It is kept on failure too, since a red run's record

@@ -1,12 +1,15 @@
 # Registry publication of the language packages at a released tag. release.yml
 # dispatches this workflow at the tag once the GitHub release is public, and a
 # maintainer dispatches it again to finish a publication an outage interrupted:
-# every registry step skips a version its registry already holds. Each
-# registry job authenticates with the run's OIDC token through that registry's
-# trusted-publisher binding (this filename plus the job's environment), uploads
-# from the tag's checkout, then installs the published version in a fresh
-# consumer that downloads the release's C archive. The Racket catalog entry is
-# maintained by hand (docs/maintaining.md#registry-publishers).
+# every registry step skips a version its registry already holds. The contract
+# job checks out the tag, requires the tree to state the tag's version, and
+# proves the signed commit passed full validation on main with a public and
+# complete release. Each registry job checks out that commit, authenticates
+# with the run's OIDC token through the registry's trusted-publisher binding
+# (this filename plus the job's environment), uploads, then installs the
+# published version in a fresh consumer that downloads the release's C
+# archive. The Racket catalog entry is maintained by hand
+# (docs/maintaining.md#registry-publishers).
 name: publish
 
 on:
@@ -33,7 +36,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
+
+      - name: Require the tag's version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "release tag $RELEASE_TAG does not match the tree's version tag $expected_tag" >&2
+            exit 1
+          fi
 
       - name: Read the Python pin
         id: python
@@ -50,7 +64,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: python3 tools/check/release_recovery.py --published "$RELEASE_TAG"
+        run: python3 tools/check/github_release.py published "$RELEASE_TAG"
 
   pypi:
     needs: contract
@@ -65,16 +79,6 @@ jobs:
         with:
           ref: ${{ needs.contract.outputs.commit }}
           persist-credentials: false
-
-      - name: Require the tag's version
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
-          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
-            echo "release tag $RELEASE_TAG does not match ABI tag $expected_tag" >&2
-            exit 1
-          fi
 
       - name: Read the Python and uv pins
         id: python
@@ -123,16 +127,6 @@ jobs:
           ref: ${{ needs.contract.outputs.commit }}
           persist-credentials: false
 
-      - name: Require the tag's version
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
-          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
-            echo "release tag $RELEASE_TAG does not match ABI tag $expected_tag" >&2
-            exit 1
-          fi
-
       - name: Install the pinned Rust
         run: |
           source .devcontainer/pins.sh
@@ -179,16 +173,6 @@ jobs:
         with:
           ref: ${{ needs.contract.outputs.commit }}
           persist-credentials: false
-
-      - name: Require the tag's version
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
-          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
-            echo "release tag $RELEASE_TAG does not match ABI tag $expected_tag" >&2
-            exit 1
-          fi
 
       - name: Read the Deno pin
         id: deno

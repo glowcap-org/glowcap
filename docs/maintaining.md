@@ -7,6 +7,9 @@ sources:
   - resource: /.github/workflows/promote.yml
   - resource: /.github/workflows/release.yml
   - resource: /.github/workflows/publish.yml
+  - resource: /.github/workflows/validate-release.yml
+  - resource: /.github/zizmor.yml
+  - resource: /tools/check/github_release.py
   - resource: /tools/release-tag.sh
   - resource: /tools/check/publication-integration-test.sh
   - resource: /tools/check/release-tag-test.sh
@@ -176,7 +179,8 @@ A release is a maintainer-signed `v<version>` tag on `main`. Its commit is the
 one source of that version's archives, container images, and language
 packages ([ADR-0075](decisions/adr/ADR-0075-release-publication-at-the-tag.md)).
 A published version is never replaced: a defect found after the tag takes the
-next patch version.
+next patch version, and the repository's immutable-releases setting holds every
+published release and its assets as they were.
 
 Each change lands with its entry under `Unreleased` in `CHANGELOG.md`. The
 release itself is two commands and two workflows.
@@ -196,48 +200,44 @@ release itself is two commands and two workflows.
    its one effect. Every refusal names what to land first.
 3. The [release workflow](../.github/workflows/release.yml) requires the
    commit's successful validation on `main` and the version's changelog
-   section before it builds. It checks the four host products and two
-   container images, publishes the GitHub release with its notes and the
-   attestations of every archive and the image, then dispatches the
+   section before it builds. Each host attests the build provenance of the
+   archives it builds, and each Linux host proves the Rooms image from its
+   exact product archive. One job then publishes the image by digest with its
+   provenance and software bill of materials, renders the release page from
+   the verified archives, and fills a draft release with every asset and its
+   provenance bundle. The draft becomes public only when it holds every asset,
+   and the public release dispatches the
    [publish workflow](../.github/workflows/publish.yml) at the tag.
-4. The publish workflow verifies the public release, uploads the crate, the
-   wheel, and the JSR packages as each registry's trusted publisher, and
-   installs every published package in a fresh consumer that downloads the
-   release's C SDK. Then update the Racket catalog entry's tag by hand.
+4. The publish workflow checks out the tag and verifies the public release.
+   It uploads the crate, the wheel, and the JSR packages as each registry's
+   trusted publisher. Then it installs every published package in a fresh
+   consumer that downloads the release's C SDK. Each registry job waits for
+   the maintainer's approval in its environment. Then update the Racket
+   catalog entry to the new tag by hand.
 
-To finish a package publication that a registry outage interrupted, dispatch
-the publish workflow again at the tag. Every registry step skips a version its
-registry already holds:
+A failed job is re-run from the run's page with **Re-run failed jobs**. The
+release job resumes its own draft, skips an image tag it already pushed, and
+refuses a published release or another run's draft. A registry outage is
+finished the same way, or by dispatching the publish workflow again at the
+tag, because every registry step skips a version its registry already holds:
 
 ```sh
 gh workflow run publish.yml --ref v0.1.1 -f tag=v0.1.1
 ```
 
-To recover the GitHub release after correcting the release workflow, dispatch
-the corrected ref with the original tag run and signed tag:
+A manual run of the release workflow rehearses the builds and the image proofs
+without attesting or publishing. The
+[validation workflow](../.github/workflows/validate-release.yml) runs weekly
+and on demand: it installs the newest release through the site's installer on
+each host and installs every published package from its registry, so a reader
+never finds the drift first.
+
+Every archive, the checksum file, and the image carry a build provenance
+attestation signed by the release workflow. The release page shows the
+verification commands. The one for an archive is:
 
 ```sh
-gh workflow run release.yml --ref <corrected-ref> \
-  -f publish_run=<original-tag-run-id> -f publish_tag=v0.1.1
-```
-
-Recovery requires successful archive and image producer jobs, checks the
-original commit's full validation, and verifies GitHub artifact digests and
-packaged checksums before publishing. It reuses those archives and images
-without rebuilding or moving the tag. Attestations identify the original
-source and artifact run separately from the publication run. Uploads go into a
-draft that becomes public only after every asset matches. Recovery resumes a
-matching draft and refuses published releases, foreign drafts, and conflicting
-image tags. `recheck_run` tests installed products without publication.
-
-Release attestations record publication of verified artifacts. They identify
-the tagged source commit, original run, artifact digests, and publication
-workflow and commit. Verify the checksum file and each archive with:
-
-```sh
-gh attestation verify --repo glowcap-org/glowcap \
-  --signer-workflow glowcap-org/glowcap/.github/workflows/release.yml \
-  --predicate-type https://glowcap.org/attestations/release-publication/v1 <archive>
+gh attestation verify --repo glowcap-org/glowcap <archive>
 ```
 
 ### Registry publishers
@@ -265,7 +265,7 @@ done
 | PyPI | Add a pending trusted publisher for project `glowcap`: owner `glowcap-org`, repository `glowcap`, workflow `publish.yml`, environment `pypi`. The first publish creates the project. |
 | crates.io | The crate must exist before a trusted publisher can be added. For the first version, store an API token with publish scope as the `CARGO_REGISTRY_TOKEN` secret of the `crates-io` environment. After that publish, add the trusted publisher (owner `glowcap-org`, repository `glowcap`, workflow `publish.yml`, environment `crates-io`), then delete the secret and revoke the token. |
 | JSR | Every workspace member needs a package in the `@glowcap` scope linked to `glowcap-org/glowcap`. The workflow publishes the members `deno publish` finds, and refuses when a package is missing. |
-| Racket catalog | Register `glowcap` in the Racket package catalog with the source `https://github.com/glowcap-org/glowcap?path=bindings/racket#v<version>`, and move the tag on each release. |
+| Racket catalog | Register `glowcap` in the Racket package catalog with the source `https://github.com/glowcap-org/glowcap?path=bindings/racket#v<version>`, and change the version in that source on each release. |
 
 ## Promotion app
 
@@ -319,6 +319,19 @@ so the maintainer's own push answers to the same rules.
 GitHub verifies a signature only against a signing key on the maintainer's
 account, so upload the public key as a signing key before activating the
 rulesets.
+
+Immutable releases are a repository setting, not a ruleset. Once enabled, a
+published release and its assets can neither change nor be deleted, which is
+the policy the release workflow already follows. Enable it with:
+
+```sh
+gh api -X PUT repos/glowcap-org/glowcap/immutable-releases
+```
+
+The `workflows` job of the check workflow audits every workflow file with
+[zizmor](https://docs.zizmor.sh). Run the same audit locally with
+`uvx zizmor .github/workflows`, and record a finding a design answers in
+`.github/zizmor.yml` with its reason.
 
 To activate protection, inspect existing rulesets, then
 [import the missing rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/managing-rulesets-for-a-repository#importing-a-ruleset)

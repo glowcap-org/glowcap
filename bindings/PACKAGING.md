@@ -168,14 +168,9 @@ client is linked privately into `libglowcap_net_transport_relay`, so a binding
 discovers and distributes no second runtime library. Packages that omit the
 relay archive carry no TLS artifact or dependency.
 
-The release workflow uses the same archive set. A manual run builds artifacts
-without publishing a GitHub release.
-
-Product archives remain available when a release proof fails. To recheck those
-exact installed products with a corrected harness, run
-`gh workflow run release.yml --ref BRANCH -f recheck_run=RUN_ID`.
-This checks the four host products and builds and exercises their two Linux
-container images without recompiling, checking source packages, or publishing.
-A complete release rehearsal leaves `recheck_run` empty.
+The release workflow uses the same archive set. A manual run rehearses the
+four host builds and the two Linux container images from their exact product
+archives without attesting or publishing anything, and keeps the archives of a
+failed proof as run artifacts.
 [Releasing a version](../docs/maintaining.md#releasing-a-version) describes
 the tag push that publishes the archives.

@@ -2,7 +2,9 @@
 # Distroless supplies glibc, the GCC runtime, and certificates without a shell
 # or package manager. Existing deployment volumes retain their ownership.
 FROM gcr.io/distroless/cc-debian13@sha256:d74d144baa124dd9defd01d71872bb56c49d4441dba6153ccf790364f97e64b1
-LABEL org.opencontainers.image.vendor="Glowcap LLC" \
+LABEL org.opencontainers.image.title="glowcap Rooms" \
+      org.opencontainers.image.description="The glowcap Rooms chat directory and web app" \
+      org.opencontainers.image.vendor="Glowcap LLC" \
       org.opencontainers.image.url="https://glowcap.org" \
       org.opencontainers.image.source="https://github.com/glowcap-org/glowcap" \
       org.opencontainers.image.licenses="Apache-2.0"

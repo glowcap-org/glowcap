@@ -26,7 +26,7 @@ class PhaseTest(unittest.TestCase):
         result, invoked = self.recorder.gates()
         self.assertEqual(result.returncode, 0, result.stderr)
         group = (ROOT / '.github/workflows/check-group.yml').read_text()
-        self.assertIn('run: $EXEC bash ci/gates.sh ${{ matrix.phase }}\n', group)
+        self.assertIn('          PHASE: ${{ matrix.phase }}\n        run: $EXEC bash ci/gates.sh "$PHASE"\n', group)
         names, full = PLAN.select('workflow_dispatch', 'refs/heads/dev', {}, [])
         self.assertTrue(full)
         self.assertEqual(names, list(PLAN.GROUP_NAMES))

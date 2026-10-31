@@ -1,41 +1,30 @@
-# The hosted product, C SDK, and Rooms image release. Matching host archives are
-# built first with `zig build -Doptimize=ReleaseSafe release-pack glowcap-pack
-# -Dcpu=baseline`. Each Linux runner then builds and exercises its image
-# from that exact product archive. A matching version tag on an exact commit
-# that passed full main checks authorizes publication of every tarball, one combined
-# SHA256SUMS, and the two-platform Rooms image. A normal workflow_dispatch
-# builds, tests, and uploads artifacts without publication. recheck_run
-# exercises installed products without recompiling or qualifying source packages.
-# publish_run and publish_tag recover publication from a tested signed tag run,
-# without building products or moving the tag.
-# A public release dispatches publish.yml at its tag for the registry packages.
-# Versioning is `abi_version` in
-# build.zig (reported by `glowcap_abi_version`); the tag records the release
-# point. This is the find leg's upstream named in bindings/README.md: a
-# runtime-download or per-platform packaging leg resolves archives from here.
+# The release of a maintainer-signed version tag: four host products and C SDKs,
+# the two-platform Rooms image, one GitHub release, and the registry packages.
 #
-# The devcontainer stays the canonical toolchain authority: this workflow reads
-# the same .devcontainer/pins.sh versions. macOS legs build on the GitHub
-# runners directly because macOS runners cannot host the devcontainer.
+# The tag names a main commit that passed full validation (contract). Each host
+# builds its archives with `zig build release-pack glowcap-pack` and attests
+# their build provenance (archives). Each Linux host builds and exercises the
+# Rooms image from its exact product archive (images). One job then assembles
+# the assets, publishes the image by digest, attests the image and its SBOM,
+# renders the release page, downloads every provenance bundle, fills a draft
+# release, and makes it public only when the draft holds every asset (release).
+# The public release dispatches publish.yml at the tag for the registries.
+#
+# A job that fails is re-run from the Actions page with "Re-run failed jobs":
+# the release job resumes its own draft and skips an image already pushed. A
+# published version is never replaced, so a defect takes the next patch version.
+# A workflow_dispatch run rehearses the builds and image proofs without
+# attesting or publishing anything.
+#
+# The version is `abi_version` in build.zig, mirrored by `zig build set-version`.
+# The devcontainer pins the toolchain; macOS hosts build on the runner directly
+# because they cannot host the devcontainer. Decision: ADR-0075.
 name: release
 
 on:
-  workflow_dispatch:
-    inputs:
-      recheck_run:
-        description: "Recheck installed products from this release run ID (no build or publication)"
-        type: string
-        default: ""
-      publish_run:
-        description: "Publish tested artifacts from this tag run ID (no builds)"
-        type: string
-        default: ""
-      publish_tag:
-        description: "Existing signed tag to recover; requires publish_run"
-        type: string
-        default: ""
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -43,44 +32,30 @@ permissions:
 jobs:
   contract:
     timeout-minutes: 5
-    outputs:
-      version: ${{ steps.recovery.outputs.version || steps.version.outputs.value }}
-      tag: ${{ steps.recovery.outputs.tag || github.ref_name }}
-      source_run: ${{ steps.recovery.outputs.source_run || github.run_id }}
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
       contents: read
-    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Validate dispatch mode
-        env:
-          RECHECK_RUN: ${{ inputs.recheck_run }}
-          PUBLISH_RUN: ${{ inputs.publish_run }}
-          PUBLISH_TAG: ${{ inputs.publish_tag }}
-        run: |
-          if { [ -n "$PUBLISH_RUN" ] || [ -n "$PUBLISH_TAG" ]; } &&
-             { [ -z "$PUBLISH_RUN" ] || [ -z "$PUBLISH_TAG" ] || [ -n "$RECHECK_RUN" ]; }; then
-            echo "publication recovery requires both publish_run and publish_tag, without recheck_run" >&2
-            exit 1
-          fi
-
       - name: Read the product version
-        if: inputs.publish_run == '' && inputs.publish_tag == ''
         id: version
         run: |
           version="$(jq -er '.abi_version | select(test("^0\\.[0-9]+\\.[0-9]+$"))' bindings/c-abi-resolve.json)"
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Require the ABI version tag
-        if: github.event_name == 'push' && github.ref_type == 'tag'
+      - name: Require the tag of this version
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
-          expected_tag="v$(jq -r '.abi_version' bindings/c-abi-resolve.json)"
-          if [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
-            echo "release tag $GITHUB_REF_NAME does not match ABI tag $expected_tag" >&2
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "release tag $GITHUB_REF_NAME does not match the tree's version v$VERSION" >&2
             exit 1
           fi
 
@@ -95,32 +70,23 @@ jobs:
           python-version: ${{ steps.python.outputs.version }}
 
       - name: Require this commit's successful check workflow
-        if: github.event_name == 'push' && github.ref_type == 'tag'
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 tools/check/require-main-check.py "$GITHUB_SHA"
-
-      - name: Verify publication recovery source
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_run != '' && inputs.publish_tag != ''
-        id: recovery
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ inputs.publish_run }}
-          RELEASE_TAG: ${{ inputs.publish_tag }}
-        run: python3 tools/check/release_recovery.py "$SOURCE_RUN" "$RELEASE_TAG"
+        run: python3 tools/check/require-main-check.py "$GITHUB_SHA"
 
       - name: Require the version's changelog entry
-        if: inputs.recheck_run == ''
         env:
-          VERSION: ${{ steps.recovery.outputs.version || steps.version.outputs.value }}
+          VERSION: ${{ steps.version.outputs.value }}
         run: python3 tools/gen/release_notes.py --changelog "$VERSION"
 
   archives:
-    if: github.event_name != 'workflow_dispatch' || (inputs.recheck_run == '' && inputs.publish_run == '' && inputs.publish_tag == '')
     needs: contract
+    timeout-minutes: 90
     permissions:
+      attestations: write
       contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -136,9 +102,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       MACOSX_DEPLOYMENT_TARGET: "15.0"
+      RELEASE_TARGET: ${{ matrix.target }}
     steps:
       # release-pack needs no conformance submodule, so no
-      # `submodules: recursive` here.
+      # `submodules: recursive` here. Nothing is restored from a cache: a
+      # release builds from the pinned downloads alone.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -166,16 +134,8 @@ jobs:
         with:
           python-version: ${{ steps.python.outputs.version }}
 
-      - name: Restore Zig package downloads
-        timeout-minutes: 5
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: zig-pkg
-          key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
-
       - name: Fetch pinned Zig dependencies
-        run: |
-          bash ci/fetch-zig.sh
+        run: bash ci/fetch-zig.sh
 
       - name: Check release packaging contracts
         run: zig build glowcap-package-test --summary all
@@ -190,16 +150,24 @@ jobs:
           version="$(python3 .devcontainer/image/rooms-toolchain-version.py)"
           cargo install wasm-bindgen-cli --version "$version" --locked
 
-      - name: Build the release tarball
+      - name: Build the release archives
         run: |
           if [[ "$RUNNER_OS" == macOS ]]; then
             SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
             export SDKROOT
           fi
-          zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline -Dtarget=${{ matrix.target }}
+          zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline "-Dtarget=$RELEASE_TARGET"
 
       - name: Verify the Zig source package
         run: zig build consumer-check --summary all
+
+      - name: Attest the archives' build provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            zig-out/release/*.tar.gz
+            zig-out/glowcap-release/*.tar.gz
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         # Preserve the product when its proof fails, so a corrected harness can
@@ -215,65 +183,10 @@ jobs:
             zig-out/glowcap-release/SHA256SUMS
           if-no-files-found: error
 
-  recheck:
-    if: github.event_name == 'workflow_dispatch' && inputs.recheck_run != '' && inputs.publish_run == '' && inputs.publish_tag == ''
-    needs: contract
+  images:
+    needs: [contract, archives]
     timeout-minutes: 30
     permissions:
-      actions: read
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Read the recheck Python pin
-        id: python
-        run: |
-          source .devcontainer/pins.sh
-          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: ${{ steps.python.outputs.version }}
-
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        timeout-minutes: 5
-        with:
-          name: archives-${{ matrix.runner }}
-          path: archive-artifact
-          run-id: ${{ inputs.recheck_run }}
-          github-token: ${{ github.token }}
-
-      - name: Recheck the installed product
-        run: |
-          python3 - <<'PY'
-          import hashlib
-          from pathlib import Path
-          import subprocess
-          import sys
-          products = list(Path('archive-artifact/glowcap-release').glob('glowcap-v*.tar.gz'))
-          if len(products) != 1:
-              raise SystemExit(f'expected one product archive, found {len(products)}')
-          product = products[0]
-          with product.open('rb') as archive:
-              digest = hashlib.file_digest(archive, 'sha256').hexdigest()
-          if product.with_name('SHA256SUMS').read_text().split() != [digest, product.name]:
-              raise SystemExit('product archive checksum mismatch')
-          result = subprocess.run([sys.executable, 'tools/check/glowcap_release.py', str(product)])
-          raise SystemExit(result.returncode)
-          PY
-
-  images:
-    needs: [contract, archives, recheck]
-    if: ${{ !cancelled() && needs.contract.result == 'success' && (needs.archives.result == 'success' || needs.recheck.result == 'success') }}
-    permissions:
-      actions: read
       contents: read
     strategy:
       fail-fast: false
@@ -286,6 +199,11 @@ jobs:
             archive_arch: aarch64
             image_arch: arm64
     runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.contract.outputs.version }}
+      ARCHIVE_ARCH: ${{ matrix.archive_arch }}
+      IMAGE_ARCH: ${{ matrix.image_arch }}
+      IMAGE: ghcr.io/glowcap-org/glowcap-rooms
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -302,16 +220,12 @@ jobs:
           python-version: ${{ steps.python.outputs.version }}
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 5
         with:
           name: archives-${{ matrix.runner }}
           path: archive-artifact
-          run-id: ${{ inputs.recheck_run || github.run_id }}
-          github-token: ${{ github.token }}
 
       - name: Extract the verified Linux product
-        env:
-          VERSION: ${{ needs.contract.outputs.version }}
-          ARCHIVE_ARCH: ${{ matrix.archive_arch }}
         run: |
           archive="$(find archive-artifact -type f -name "glowcap-v${VERSION}-${ARCHIVE_ARCH}-linux.tar.gz" -print -quit)"
           if [ -z "$archive" ]; then
@@ -323,10 +237,6 @@ jobs:
           tar --extract --gzip --file "$archive" --directory image-context --no-same-owner
 
       - name: Build the exact Docker image artifact
-        env:
-          VERSION: ${{ needs.contract.outputs.version }}
-          IMAGE_ARCH: ${{ matrix.image_arch }}
-          IMAGE: ghcr.io/glowcap-org/glowcap-rooms
         run: |
           mkdir image-artifact
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
@@ -347,31 +257,24 @@ jobs:
           (cd image-artifact && sha256sum *.docker.tar > SHA256SUMS)
 
       - name: Load and exercise the exact image artifact
-        env:
-          VERSION: ${{ needs.contract.outputs.version }}
-          IMAGE_ARCH: ${{ matrix.image_arch }}
-          IMAGE: ghcr.io/glowcap-org/glowcap-rooms
         run: |
           docker image load --input "image-artifact/glowcap-rooms-v$VERSION-$IMAGE_ARCH.docker.tar"
           python3 tools/check/glowcap_release_image.py "$IMAGE:v$VERSION-$IMAGE_ARCH" "$IMAGE_ARCH"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 5
         with:
           name: rooms-image-${{ matrix.image_arch }}
           path: image-artifact
           if-no-files-found: error
 
   release:
+    if: github.ref_type == 'tag'
     needs: [contract, archives, images]
     timeout-minutes: 25
     concurrency:
-      group: release-publication-${{ needs.contract.outputs.tag }}
+      group: release-${{ github.ref_name }}
       cancel-in-progress: false
-    if: >-
-      !cancelled() && needs.contract.result == 'success' &&
-      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') &&
-        needs.archives.result == 'success' && needs.images.result == 'success') ||
-       (github.event_name == 'workflow_dispatch' && inputs.publish_run != '' && inputs.publish_tag != '' && inputs.recheck_run == ''))
     permissions:
       actions: write
       artifact-metadata: write
@@ -380,12 +283,17 @@ jobs:
       id-token: write
       packages: write
     runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.contract.outputs.version }}
+      IMAGE: ghcr.io/glowcap-org/glowcap-rooms
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Read publication Python pin
+      - name: Read the Python pin
         id: python
         run: |
           source .devcontainer/pins.sh
@@ -395,31 +303,21 @@ jobs:
         with:
           python-version: ${{ steps.python.outputs.version }}
 
-      - name: Verify and assemble tested release artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ needs.contract.outputs.source_run }}
-          RELEASE_TAG: ${{ needs.contract.outputs.tag }}
-        run: |
-          python3 tools/check/release_recovery.py "$SOURCE_RUN" "$RELEASE_TAG" --prepare --current
-          python3 tools/gen/release_notes.py --assets release-assets \
-            --provenance artifacts/publication-provenance.json --output artifacts/release-notes.md
-
-      - name: Attest release archives and checksums
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 10
         with:
-          predicate-type: https://glowcap.org/attestations/release-publication/v1
-          predicate-path: artifacts/publication-provenance.json
-          subject-path: |
-            release-assets/*.tar.gz
-            release-assets/SHA256SUMS
+          path: artifacts
+
+      - name: Assemble the release assets
+        run: python3 tools/check/github_release.py assemble artifacts "$RELEASE_TAG"
+
+      - name: Attest the checksum file's build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-assets/SHA256SUMS
 
       - name: Publish the versioned multi-platform Rooms image
         id: image
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IMAGE: ghcr.io/glowcap-org/glowcap-rooms
-          VERSION: ${{ needs.contract.outputs.version }}
         run: |
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           for arch in amd64 arm64; do
@@ -431,61 +329,73 @@ jobs:
             (cd "$(dirname "$archive")" && sha256sum --check SHA256SUMS)
             docker image load --input "$archive"
             expected="$(docker image inspect --format '{{.Id}}' "$IMAGE:v$VERSION-$arch")"
+            # A re-run finds the tag it pushed before and requires the same image.
             if docker buildx imagetools inspect --raw "$IMAGE:v$VERSION-$arch" > remote-image.json 2> image-lookup-error; then
               jq -e --arg expected "$expected" '.config.digest == $expected' remote-image.json
             else
               grep -Eq 'manifest unknown|: not found$' image-lookup-error || { cat image-lookup-error >&2; exit 1; }
-              touch "push-$arch"
-            fi
-          done
-          if docker buildx imagetools inspect --raw "$IMAGE:v$VERSION" > remote-index.json 2> image-lookup-error; then
-            # An existing version must already have both matching platform tags.
-            if [ -e push-amd64 ] || [ -e push-arm64 ]; then
-              echo "existing version has a missing platform tag; refusing to alter it" >&2
-              exit 1
-            fi
-          else
-            grep -Eq 'manifest unknown|: not found$' image-lookup-error || { cat image-lookup-error >&2; exit 1; }
-            touch create-index
-          fi
-          for arch in amd64 arm64; do
-            if [ -e "push-$arch" ]; then
               docker image push "$IMAGE:v$VERSION-$arch"
             fi
             digest="$(docker buildx imagetools inspect --raw "$IMAGE:v$VERSION-$arch" | sha256sum | cut -d ' ' -f 1)"
-            case "$arch" in
-              amd64) amd64_source="$IMAGE@sha256:$digest" ;;
-              arm64) arm64_source="$IMAGE@sha256:$digest" ;;
-            esac
+            echo "$IMAGE@sha256:$digest" >> platform-images
           done
-          if [ ! -e create-index ]; then
-            jq -e --arg amd64 "${amd64_source#*@}" --arg arm64 "${arm64_source#*@}" \
-              '[.manifests[] | [(.platform.os + "/" + .platform.architecture), .digest]] | sort == [["linux/amd64", $amd64], ["linux/arm64", $arm64]]' remote-index.json
+          if docker buildx imagetools inspect --raw "$IMAGE:v$VERSION" > remote-index.json 2> image-lookup-error; then
+            jq -e --argjson sources "$(jq -R -s 'split("\n") | map(select(. != "") | split("@")[1])' platform-images)" \
+              '[.manifests[] | select(.platform.architecture != "unknown") | .digest] | sort == ($sources | sort)' remote-index.json
           else
+            grep -Eq 'manifest unknown|: not found$' image-lookup-error || { cat image-lookup-error >&2; exit 1; }
+            # shellcheck disable=SC2046
             docker buildx imagetools create \
               --tag "$IMAGE:v$VERSION" \
-              "$amd64_source" \
-              "$arm64_source"
+              --annotation "index:org.opencontainers.image.title=glowcap Rooms" \
+              --annotation "index:org.opencontainers.image.description=The glowcap Rooms chat directory and web app" \
+              --annotation "index:org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              --annotation "index:org.opencontainers.image.revision=$GITHUB_SHA" \
+              --annotation "index:org.opencontainers.image.version=v$VERSION" \
+              --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
+              $(cat platform-images)
           fi
           docker buildx imagetools inspect --raw "$IMAGE:v$VERSION" > published-index.json
-          jq -e '[.manifests[].platform | (.os + "/" + .architecture)] | sort == ["linux/amd64", "linux/arm64"]' published-index.json
+          jq -e '[.manifests[] | select(.platform.architecture != "unknown") | .platform | (.os + "/" + .architecture)] | sort == ["linux/amd64", "linux/arm64"]' published-index.json
           echo "digest=sha256:$(sha256sum < published-index.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
-      - name: Attest the Rooms image
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      - name: Attest the image's build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          predicate-type: https://glowcap.org/attestations/release-publication/v1
-          predicate-path: artifacts/publication-provenance.json
           subject-name: ghcr.io/glowcap-org/glowcap-rooms
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
-      - name: Create the release with archives
+      - name: Write the image's software bill of materials
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ghcr.io/glowcap-org/glowcap-rooms@${{ steps.image.outputs.digest }}
+          format: spdx-json
+          output-file: release-assets/glowcap-rooms-${{ github.ref_name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+
+      - name: Attest the image's software bill of materials
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/glowcap-org/glowcap-rooms
+          subject-digest: ${{ steps.image.outputs.digest }}
+          predicate-type: https://spdx.dev/Document/v2.3
+          predicate-path: release-assets/glowcap-rooms-${{ github.ref_name }}.spdx.json
+          push-to-registry: true
+
+      - name: Render the release page and download every provenance bundle
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.contract.outputs.tag }}
-          SOURCE_RUN: ${{ needs.contract.outputs.source_run }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
+          python3 tools/gen/release_notes.py --facts artifacts/release.json \
+            --image-digest "$IMAGE_DIGEST" --output artifacts/release-notes.md
+          python3 tools/check/github_release.py bundles "$RELEASE_TAG"
+
+      - name: Fill the draft release, then make it public
+        run: |
+          python3 tools/check/github_release.py draft-state "$RELEASE_TAG" > artifacts/release-state.json
           if ! jq -e '.draft_exists' artifacts/release-state.json > /dev/null; then
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
@@ -499,13 +409,9 @@ jobs:
           while IFS= read -r asset; do
             gh release upload "$RELEASE_TAG" "release-assets/$asset" --repo "$GITHUB_REPOSITORY"
           done < <(jq -r '.missing_assets[]' artifacts/release-state.json)
-          python3 tools/check/release_recovery.py "$SOURCE_RUN" "$RELEASE_TAG" --verify-draft
+          python3 tools/check/github_release.py verify-draft "$RELEASE_TAG"
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false \
             --notes-file artifacts/release-notes.md
 
       - name: Publish the language packages at the tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.contract.outputs.tag }}
-        run: |
-          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"

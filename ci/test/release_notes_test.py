@@ -1,12 +1,21 @@
-"""Newcomer release notes follow the shipped archives, not publishing internals."""
+"""The release page a stranger reads, rendered from the facts the assembly step records.
+
+Builds a facts dictionary shaped like artifacts/release.json and renders it with
+a fixture changelog. Checks every download link, the platform and runtime each
+row names, the verification and install commands, the image digest line, the run
+marker, and the refusal of facts that name a missing archive or a malformed
+repository, tag, commit, run, or digest. The command line is exercised as a
+subprocess. The workflow assertions read release.yml for the changelog contract
+and the attestation of the published image. Nothing here reaches GitHub.
+"""
 
 import importlib.util
-import io
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
-import tarfile
 
 from workflow_test import ROOT, shell_step
 
@@ -14,10 +23,11 @@ from workflow_test import ROOT, shell_step
 SPEC = importlib.util.spec_from_file_location('release_notes', ROOT / 'tools/gen/release_notes.py')
 NOTES = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(NOTES)
+SCRIPT = ROOT / 'tools/gen/release_notes.py'
 TAG = 'v0.1.0'
 COMMIT = 'a' * 40
-SOURCE = {'repository': 'https://github.com/owner/project', 'tag': TAG, 'commit': COMMIT,
-          'run': 'https://github.com/owner/project/actions/runs/123'}
+IMAGE_DIGEST = 'sha256:' + 'b' * 64
+REPOSITORY = 'https://github.com/owner/project'
 CHANGELOG = """# Changelog
 
 ## [Unreleased]
@@ -27,74 +37,80 @@ CHANGELOG = """# Changelog
 ### Added
 
 - The first tagged release.
+- See the [guide](docs/x.md).
 
 [Unreleased]: https://github.com/owner/project/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/owner/project/releases/tag/v0.1.0
 """
 
 
-def fixture(directory, *, missing=None, dirty=False, revision=COMMIT, minimum=None):
-    for target in NOTES.PLATFORMS:
-        for role in ('product', 'sdk'):
-            if missing == (target, role):
-                continue
-            metadata = {'version': TAG[1:], 'revision': revision, 'target': target, 'dirty': dirty,
-                        'minimum_runtime': minimum or ('macOS 15.0.0' if target.endswith('macos') else 'glibc 2.39.0')}
-            files = {'README.md': b'Use the product', 'PROVENANCE.md': b'Provenance',
-                     'LICENSE-APACHE': b'License', 'LICENSE-THIRD-PARTY': b'Licenses',
-                     'share/glowcap/release.json': json.dumps(metadata).encode()}
-            names = ('include/glowcap_ocapn.h', 'lib/libglowcap_ocapn.a') if role == 'sdk' else (
-                'bin/glowcap', 'libexec/rooms-server', 'libexec/rooms-session',
-                'share/glowcap/rooms/page.html', 'share/glowcap/rooms/page.js',
-                'share/glowcap/rooms/rooms_browser_bg.wasm',
-                'share/glowcap/skills/rooms-peer/SKILL.md', 'share/glowcap/skills/rooms-team/SKILL.md')
-            files.update({name: b'content' for name in names if missing != name})
-            filename = f'glowcap{"-c" if role == "sdk" else ""}-{TAG}-{target}.tar.gz'
-            with tarfile.open(directory / filename, 'w:gz') as archive:
-                for name, content in files.items():
-                    member = tarfile.TarInfo(name)
-                    member.size = len(content)
-                    archive.addfile(member, io.BytesIO(content))
+def facts(**changes):
+    archives = [{'name': f'glowcap{"-c" if role == "sdk" else ""}-{TAG}-{target}.tar.gz',
+                 'target': target, 'role': role,
+                 'minimum_runtime': 'macOS 15.0.0' if target.endswith('macos') else 'glibc 2.39.0'}
+                for target in NOTES.PLATFORMS for role in ('product', 'sdk')]
+    return {'repository': REPOSITORY, 'version': TAG[1:], 'tag': TAG, 'commit': COMMIT,
+            'run': REPOSITORY + '/actions/runs/123', 'archives': archives, **changes}
 
 
 class ReleaseNotes(unittest.TestCase):
+    def render(self, directory, release=None, digest=IMAGE_DIGEST):
+        changelog = Path(directory) / 'CHANGELOG.md'
+        changelog.write_text(CHANGELOG)
+        return NOTES.render(release or facts(), digest, changelog)
+
     def test_every_download_has_a_role_platform_and_minimum_runtime(self):
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary) / 'release-assets'
-            directory.mkdir()
-            fixture(directory)
-            changelog = Path(temporary) / 'CHANGELOG.md'
-            changelog.write_text(CHANGELOG)
-            notes = NOTES.render(directory, {'source': SOURCE}, changelog)
-            for path in directory.iterdir():
-                self.assertIn(f'https://github.com/owner/project/releases/download/{TAG}/{path.name}', notes)
-            self.assertIn('Apple Silicon', notes)
-            self.assertIn('macOS 15.0.0 or newer', notes)
-            self.assertIn('glibc 2.39.0 or newer', notes)
-            self.assertIn('The SDK does not contain the CLI or Rooms.', notes)
-            self.assertIn('archive=glowcap-v0.1.0-aarch64-macos.tar.gz', notes)
-            self.assertIn('./glowcap-unpacked/bin/glowcap install', notes)
-            self.assertIn('--predicate-type ' + NOTES.PREDICATE, notes)
-            self.assertIn('--signer-workflow owner/project/.github/workflows/release.yml', notes)
-            self.assertIn(f'[project provenance](https://github.com/owner/project/blob/{TAG}/PROVENANCE.md)', notes)
-            self.assertNotIn('verify build provenance', notes)
-            self.assertIn('ghcr.io/owner/project-rooms:v0.1.0 --http-bind=0.0.0.0', notes)
-            self.assertIn('127.0.0.1:8080:8080', notes)
-            self.assertIn('<!-- glowcap-source-run: 123 -->', notes)
-            self.assertLess(notes.index('# What changed in 0.1.0'), notes.index('# Choose a download'))
-            self.assertIn('- The first tagged release.', notes)
-            self.assertIn(f'[changelog](https://github.com/owner/project/blob/{TAG}/CHANGELOG.md)', notes)
-            self.assertIn('gh attestation verify oci://ghcr.io/owner/project-rooms:v0.1.0', notes)
-            for install in ('cargo add glowcap@=0.1.0', 'pip install glowcap==0.1.0',
-                            'deno add jsr:@glowcap/runtime@0.1.0 jsr:@glowcap/tcp@0.1.0', 'raco pkg install glowcap'):
-                self.assertIn(install, notes)
-            self.assertIn(f'[bindings guide](https://github.com/owner/project/blob/{TAG}/bindings/README.md)', notes)
+            notes = self.render(temporary)
+        base = f'{REPOSITORY}/releases/download/{TAG}'
+        for archive in facts()['archives']:
+            self.assertIn(f'{base}/{archive["name"]})', notes)
+        for text in ('Apple Silicon', 'macOS 15.0.0 or newer', 'glibc 2.39.0 or newer',
+                     'The SDK does not contain the CLI or Rooms.',
+                     'curl -fsSL https://glowcap.org/install.sh | GLOWCAP_VERSION=0.1.0 sh',
+                     'archive=glowcap-v0.1.0-aarch64-macos.tar.gz',
+                     'gh attestation verify "$archive" --repo owner/project\n',
+                     'gh attestation verify "$archive" --repo owner/project --bundle "$archive.sigstore.json"',
+                     './glowcap-unpacked/bin/glowcap install',
+                     'delete its directory under `~/.local/lib/glowcap/` and the\n`~/.local/bin/glowcap` link.',
+                     'ghcr.io/owner/project-rooms:v0.1.0 --http-bind=0.0.0.0',
+                     '127.0.0.1:8080:8080',
+                     f"The image's digest is `{IMAGE_DIGEST}`.",
+                     f'gh attestation verify oci://ghcr.io/owner/project-rooms@{IMAGE_DIGEST} --repo owner/project',
+                     f'[SPDX]({base}/glowcap-rooms-{TAG}.spdx.json)',
+                     'cargo add glowcap@=0.1.0', 'pip install glowcap==0.1.0',
+                     'deno add jsr:@glowcap/runtime@0.1.0 jsr:@glowcap/tcp@0.1.0', 'raco pkg install glowcap',
+                     f'[bindings guide]({REPOSITORY}/blob/{TAG}/bindings/README.md)',
+                     f'[project provenance]({REPOSITORY}/blob/{TAG}/PROVENANCE.md)',
+                     f'[changelog]({REPOSITORY}/blob/{TAG}/CHANGELOG.md)',
+                     '- The first tagged release.',
+                     f'Source commit: `{COMMIT}`. [Release run]({REPOSITORY}/actions/runs/123).',
+                     '<!-- glowcap-release-run: 123 -->'):
+            with self.subTest(text=text):
+                self.assertIn(text, notes)
+        self.assertLess(notes.index('# What changed in 0.1.0'), notes.index('# Choose a download'))
+        self.assertNotIn('--predicate-type', notes)
+        self.assertNotIn('--signer-workflow', notes)
+
+    def test_the_page_reads_without_the_release_machinery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            notes = self.render(temporary).lower()
+        for word in ('recheck', 'recovery', 'publish_run', 'recheck_run', 'publish_tag'):
+            self.assertNotIn(word, notes)
+
+    def test_changelog_links_name_the_tag_tree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            notes = self.render(temporary)
+        self.assertIn(f'- See the [guide]({REPOSITORY}/blob/{TAG}/docs/x.md).', notes)
+        links = NOTES.absolute_links('[guide](docs/x.md) [site](https://glowcap.org) [part](#anchor)', REPOSITORY, TAG)
+        self.assertEqual(links, f'[guide]({REPOSITORY}/blob/{TAG}/docs/x.md) [site](https://glowcap.org) [part](#anchor)')
+        self.assertEqual(NOTES.absolute_links('[a](http://example.org/x)', REPOSITORY, TAG), '[a](http://example.org/x)')
 
     def test_release_needs_its_changelog_entry_and_an_empty_unreleased_section(self):
         with tempfile.TemporaryDirectory() as temporary:
             changelog = Path(temporary) / 'CHANGELOG.md'
             changelog.write_text(CHANGELOG)
-            self.assertEqual(NOTES.changelog_section('0.1.0', changelog), '### Added\n\n- The first tagged release.\n')
+            self.assertEqual(NOTES.changelog_section('0.1.0', changelog), '### Added\n\n- The first tagged release.\n- See the [guide](docs/x.md).\n')
             with self.assertRaises(ValueError):
                 NOTES.changelog_section('0.1.1', changelog)
             changelog.write_text(CHANGELOG.replace('## [Unreleased]\n', '## [Unreleased]\n\n- A pending change.\n'))
@@ -114,31 +130,89 @@ class ReleaseNotes(unittest.TestCase):
     def test_image_publication_is_attested_from_its_published_index(self):
         workflow = (ROOT / '.github/workflows/release.yml').read_text()
         publish = workflow.index('- name: Publish the versioned multi-platform Rooms image\n        id: image\n')
-        attest = workflow.index('- name: Attest the Rooms image')
+        attest = workflow.index("- name: Attest the image's build provenance")
+        sbom = workflow.index("- name: Write the image's software bill of materials")
+        sbom_attest = workflow.index("- name: Attest the image's software bill of materials")
+        render = workflow.index('- name: Render the release page')
         self.assertLess(publish, attest)
-        self.assertLess(attest, workflow.index('- name: Create the release with archives'))
-        step = workflow[attest:workflow.index('- name: Create the release with archives')]
+        self.assertLess(attest, sbom)
+        self.assertLess(sbom, sbom_attest)
+        self.assertLess(sbom_attest, render)
+        step = workflow[attest:sbom]
         self.assertIn('subject-name: ghcr.io/glowcap-org/glowcap-rooms', step)
         self.assertIn('subject-digest: ${{ steps.image.outputs.digest }}', step)
         self.assertIn('push-to-registry: true', step)
-        self.assertIn('predicate-type: ' + NOTES.PREDICATE, step)
-        self.assertIn('echo "digest=sha256:$(sha256sum < published-index.json', shell_step(workflow, 'Publish the versioned multi-platform Rooms image'))
+        statement = workflow[sbom_attest:render]
+        self.assertIn('subject-digest: ${{ steps.image.outputs.digest }}', statement)
+        self.assertIn('predicate-type: https://spdx.dev/Document/v2.3', statement)
+        self.assertIn('push-to-registry: true', statement)
+        self.assertIn('echo "digest=sha256:$(sha256sum < published-index.json',
+                      shell_step(workflow, 'Publish the versioned multi-platform Rooms image'))
 
-    def test_refuses_incomplete_or_mislabeled_artifacts_before_publication(self):
-        for options in ({'missing': ('aarch64-macos', 'product')}, {'missing': 'bin/glowcap'},
-                        {'missing': 'share/glowcap/rooms/rooms_browser_bg.wasm'},
-                        {'dirty': True}, {'revision': 'b' * 40}, {'minimum': 'glibc 2.39.0'}):
-            with self.subTest(options=options), tempfile.TemporaryDirectory() as temporary:
-                directory = Path(temporary)
-                fixture(directory, **options)
-                with self.assertRaises((ValueError, KeyError)):
-                    NOTES.render(directory, {'source': SOURCE})
+    def test_refuses_facts_that_would_mislead_a_reader(self):
+        complete = facts()
+        for label, release, digest in (
+                ('missing sdk', facts(archives=[a for a in complete['archives']
+                                                if (a['target'], a['role']) != ('aarch64-macos', 'sdk')]), IMAGE_DIGEST),
+                ('missing product', facts(archives=[a for a in complete['archives']
+                                                    if (a['target'], a['role']) != ('x86_64-linux', 'product')]), IMAGE_DIGEST),
+                ('repository', facts(repository='https://example.org/owner/project'), IMAGE_DIGEST),
+                ('tag differs from version', facts(version='0.1.1'), IMAGE_DIGEST),
+                ('tag shape', facts(tag='0.1.0', version='0.1.0'), IMAGE_DIGEST),
+                ('short commit', facts(commit='a' * 39), IMAGE_DIGEST),
+                ('uppercase commit', facts(commit='A' * 40), IMAGE_DIGEST),
+                ('run of another repository', facts(run='https://github.com/other/project/actions/runs/123'), IMAGE_DIGEST),
+                ('run zero', facts(run=REPOSITORY + '/actions/runs/0'), IMAGE_DIGEST),
+                ('run not a number', facts(run=REPOSITORY + '/actions/runs/abc'), IMAGE_DIGEST),
+                ('short digest', complete, 'sha256:' + 'b' * 63),
+                ('digest algorithm', complete, 'sha512:' + 'b' * 64)):
+            with self.subTest(label), tempfile.TemporaryDirectory() as temporary:
+                with self.assertRaises(ValueError):
+                    self.render(temporary, release, digest)
 
-    def test_workflow_generates_instructions_before_remote_effects(self):
+    def test_command_line_renders_or_refuses_without_partial_output(self):
+        def run(*arguments):
+            return subprocess.run([sys.executable, str(SCRIPT), *arguments], cwd=ROOT,
+                                  capture_output=True, text=True, timeout=30)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            release = directory / 'release.json'
+            release.write_text(json.dumps(facts()))
+            output = directory / 'release-notes.md'
+            version = json.loads((ROOT / 'bindings/c-abi-resolve.json').read_text())['abi_version']
+            section = run('--changelog', version)
+            self.assertEqual(section.returncode, 0, section.stderr)
+            self.assertEqual(section.stdout, NOTES.changelog_section(version))
+            for label, arguments in (
+                    ('changelog with facts', ('--changelog', version, '--facts', str(release))),
+                    ('facts without a digest', ('--facts', str(release), '--output', str(output))),
+                    ('facts without an output', ('--facts', str(release), '--image-digest', IMAGE_DIGEST)),
+                    ('no arguments', ())):
+                with self.subTest(label):
+                    result = run(*arguments)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output.exists())
+            # The full form reads the repository changelog, so it renders the current version.
+            release.write_text(json.dumps(facts(version=version, tag='v' + version)))
+            result = run('--facts', str(release), '--image-digest', IMAGE_DIGEST, '--output', str(output))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f'# What changed in {version}', output.read_text())
+            self.assertIn('<!-- glowcap-release-run: 123 -->', output.read_text())
+            output.unlink()
+            release.write_text(json.dumps(facts(commit='nope')))
+            result = run('--facts', str(release), '--image-digest', IMAGE_DIGEST, '--output', str(output))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('release-notes: invalid source commit', result.stderr)
+            self.assertFalse(output.exists())
+
+    def test_workflow_renders_the_page_after_the_image_is_attested_and_before_the_draft(self):
         workflow = (ROOT / '.github/workflows/release.yml').read_text()
-        prepare = shell_step(workflow, 'Verify and assemble tested release artifacts')
-        self.assertIn('python3 tools/gen/release_notes.py --assets release-assets', prepare)
-        self.assertLess(workflow.index('python3 tools/gen/release_notes.py'), workflow.index('- name: Attest release'))
-        publish = shell_step(workflow, 'Create the release with archives')
+        render = shell_step(workflow, 'Render the release page and download every provenance bundle')
+        self.assertIn('--facts artifacts/release.json', render)
+        self.assertIn('--image-digest "$IMAGE_DIGEST"', render)
+        self.assertIn('--output artifacts/release-notes.md', render)
+        self.assertLess(workflow.index('python3 tools/gen/release_notes.py --facts'),
+                        workflow.index('- name: Fill the draft release'))
+        publish = shell_step(workflow, 'Fill the draft release, then make it public')
         self.assertIn('--notes-file artifacts/release-notes.md', publish)
         self.assertNotIn('--notes "', publish)
