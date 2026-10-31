@@ -120,7 +120,7 @@ zig build glowcap-pack                      # Package and exercise the complete 
 zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
 zig build glowcap-package-test              # Prove release rollback and reject damaged packages, broken skills, and loader fallbacks; part of check, infrastructure-check
 zig build product-manifest-test             # Generate and parse a sealed staged product without a release package build; part of check
-zig build set-version                       # Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants (needs the version's CHANGELOG.md section)
+zig build set-version                       # Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants, and dates the Unreleased changelog entries as the version's section
 zig build relay-tls-build                   # Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)
 ```
 

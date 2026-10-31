@@ -95,7 +95,7 @@ fails.
 ## Git Posture
 
 [`docs/maintaining.md`](../../docs/maintaining.md) owns the promotion and
-publication workflow. Local integration into `dev` is distinct from
+publication workflow, including the `tools/release-tag.sh` tag front. Local integration into `dev` is distinct from
 publication. Only the promote workflow moves `main`, and an agent review is
 never human approval. Remote actions still require the maintainer's direction.
 

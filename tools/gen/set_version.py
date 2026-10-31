@@ -5,15 +5,20 @@ it: the C ABI version constants, build.zig.zon, the archive-resolution
 contract and its package copies, every tracked Cargo.toml, deno.json, the
 Python and Racket manifests, the workspace entries in every tracked lock file,
 and the pages that state the release version. This rewrites all of them from
-the current version to the requested one, and the build step then regenerates
-the header and binding constants that embed it, so a release bump is one
-command and one diff. It edits the checkout in place from the repository root,
-lists files with git, and exits 1 without writing when the request is
-malformed, is the current version, lacks its CHANGELOG.md section, or a mirror
-does not state the current version exactly once. ci/test/set_version_test.py
-exercises it on a copy of the tree under infrastructure-check.
+the current version to the requested one, cuts the entries under Unreleased in
+CHANGELOG.md into the version's dated section with its compare link, and the
+build step then regenerates the header and binding constants that embed the
+version, so a release bump is one command and one diff. It edits the checkout
+in place from the repository root, lists files with git, and exits 1 without
+writing when the request is malformed, is the current version, Unreleased
+lists nothing, or a mirror does not state the current version exactly once.
+`--date` names the section's date, today by default.
+ci/test/set_version_test.py exercises it on a copy of the tree under
+infrastructure-check.
 """
 
+import argparse
+import datetime
 import json
 from pathlib import Path
 import re
@@ -44,7 +49,34 @@ def stated_pages(root, old):
                     yield str(page.relative_to(root)), token
 
 
-def edits(root, old, new):
+def changelog_edits(text, old, new, date):
+    """The two CHANGELOG.md replacements that release the Unreleased entries as `new`.
+
+    A section the maintainer wrote by hand for `new` stands when Unreleased is
+    empty. Otherwise the entries under Unreleased become the section, dated,
+    and the compare links gain the version.
+    """
+    unreleased = re.search(r'## \[Unreleased\]\n(.*?)(?=\n## \[)', text, re.S)
+    if unreleased is None:
+        raise ValueError('CHANGELOG.md has no Unreleased section ahead of a version section')
+    entries = unreleased[1].strip('\n')
+    if f'## [{new}]' in text:
+        if entries:
+            raise ValueError(f'CHANGELOG.md has both a [{new}] section and Unreleased entries; keep one')
+        return []
+    if not entries:
+        raise ValueError('CHANGELOG.md lists nothing under Unreleased; write the entries first')
+    link = re.search(r'^\[Unreleased\]: (\S+)/compare/v' + re.escape(old) + r'\.\.\.HEAD$', text, re.M)
+    if link is None:
+        raise ValueError(f'CHANGELOG.md has no [Unreleased] compare link from v{old}')
+    repository = link[1]
+    return [
+        (unreleased[0], f'## [Unreleased]\n\n## [{new}] - {date}\n\n{entries}\n'),
+        (link[0], f'[Unreleased]: {repository}/compare/v{new}...HEAD\n[{new}]: {repository}/compare/v{old}...v{new}'),
+    ]
+
+
+def edits(root, old, new, date='DATE'):
     """Every (path, old_text, new_text, once) the bump writes.
 
     A mirror marked once states the version exactly one time. Pages and lock
@@ -95,24 +127,34 @@ def edits(root, old, new):
                 yield (path, f'jsr:{package}@{old}', f'jsr:{package}@{new}', False)
     for page, token in stated_pages(root, old):
         yield (page, token, token.replace(old, new), False)
+    # Last, so a caller listing the mirrors sees every path before this refusal.
+    for old_text, new_text in changelog_edits((root / 'CHANGELOG.md').read_text(), old, new, date):
+        yield ('CHANGELOG.md', old_text, new_text, True)
 
 
 def main():
     root = Path.cwd()
-    if len(sys.argv) != 2 or not re.fullmatch(r'0\.[0-9]+\.[0-9]+', sys.argv[1]):
-        sys.exit('set-version: pass one prerelease version, such as 0.1.2')
-    new = sys.argv[1]
+    parser = argparse.ArgumentParser(prog='set-version', description=__doc__)
+    parser.add_argument('version', help='the prerelease version to set, such as 0.1.2')
+    parser.add_argument('--date', default=datetime.date.today().isoformat(), help='the changelog section date, YYYY-MM-DD')
+    args = parser.parse_args()
+    if not re.fullmatch(r'0\.[0-9]+\.[0-9]+', args.version):
+        sys.exit(f'set-version: {args.version} is not a prerelease version such as 0.1.2')
+    if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', args.date):
+        sys.exit(f'set-version: {args.date} is not a YYYY-MM-DD date')
+    new = args.version
     old = json.loads((root / 'bindings/c-abi-resolve.json').read_text())['abi_version']
     if old == new:
         sys.exit(f'set-version: {new} is the current version')
     planned = []
-    for path, old_text, new_text, once in edits(root, old, new):
-        count = (root / path).read_text().count(old_text)
-        if once and count != 1:
-            sys.exit(f'set-version: {path} states {old_text!r} {count} times, expected once; nothing written')
-        planned.append((path, old_text, new_text))
-    if f'## [{new}]' not in (root / 'CHANGELOG.md').read_text():
-        sys.exit(f'set-version: CHANGELOG.md has no "## [{new}]" section; add the entry first, nothing written')
+    try:
+        for path, old_text, new_text, once in edits(root, old, new, args.date):
+            count = (root / path).read_text().count(old_text)
+            if once and count != 1:
+                sys.exit(f'set-version: {path} states {old_text!r} {count} times, expected once; nothing written')
+            planned.append((path, old_text, new_text))
+    except ValueError as error:
+        sys.exit(f'set-version: {error}; nothing written')
     for path, old_text, new_text in planned:
         target = root / path
         target.write_text(target.read_text().replace(old_text, new_text))

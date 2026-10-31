@@ -6,7 +6,11 @@ sources:
   - resource: /.github/workflows/pages.yml
   - resource: /.github/workflows/promote.yml
   - resource: /.github/workflows/release.yml
+  - resource: /.github/workflows/publish.yml
+  - resource: /tools/release-tag.sh
   - resource: /tools/check/publication-integration-test.sh
+  - resource: /tools/check/release-tag-test.sh
+  - resource: /tools/gen/set_version.py
   - resource: /tools/check/require-main-check.py
   - resource: /.github/rulesets/
   - resource: /tools/deps/fetch-mbedtls.sh
@@ -174,22 +178,22 @@ packages ([ADR-0075](decisions/adr/ADR-0075-release-publication-at-the-tag.md)).
 A published version is never replaced: a defect found after the tag takes the
 next patch version.
 
-1. Write the version's section in `CHANGELOG.md`, moving every pending entry
-   under it, then run `zig build set-version -Dversion=<version>`. It moves
-   every stated version in one diff: `abi_version` in `build.zig`, the C ABI
-   constants and header, `build.zig.zon`, the archive-resolution contract
-   and its package copies, every tracked package manifest and lock file, and
-   the pages that state the release version. `source-check` and the locked
-   builds refuse a tree where one disagrees.
+Each change lands with its entry under `Unreleased` in `CHANGELOG.md`. The
+release itself is two commands and two workflows.
+
+1. Run `zig build set-version -Dversion=<version>`. One command moves every
+   stated version in one diff: `abi_version` in `build.zig`, the C ABI
+   constants and header, `build.zig.zon`, the archive-resolution contract and
+   its package copies, every tracked package manifest and lock file, the pages
+   that state the release version, and the binding constants that embed it.
+   It dates the `Unreleased` entries as the version's changelog section.
+   `source-check` and the locked builds refuse a tree where one disagrees.
    Land the bump on `dev` and let promotion move `main`.
-2. Sign and push the tag from the promoted commit:
-
-   ```sh
-   git fetch origin main
-   git tag -s "v$version" origin/main -m "glowcap $version"
-   git push origin "v$version"
-   ```
-
+2. Run `tools/release-tag.sh <version>` on the host that
+   holds the signing key. It requires that `main` states the version, carries
+   its changelog section, has no such tag on origin, and passed full
+   validation. Then it signs `v<version>` at that commit and pushes the tag,
+   its one effect. Every refusal names what to land first.
 3. The [release workflow](../.github/workflows/release.yml) requires the
    commit's successful validation on `main` and the version's changelog
    section before it builds. It checks the four host products and two
@@ -244,6 +248,17 @@ environments `pypi`, `crates-io`, and `jsr` exist once the workflow has run,
 and a required reviewer on each holds publication for the maintainer's
 approval. A deployment branch policy on an environment must admit tags, or the
 dispatch at the tag cannot enter it.
+
+The environments carry these settings. After a repository move, recreate them
+with the maintainer's GitHub user id as the reviewer:
+
+```sh
+for environment in pypi crates-io jsr; do
+  gh api -X PUT "repos/glowcap-org/glowcap/environments/$environment" \
+    --input - <<<'{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}, "reviewers": [{"type": "User", "id": <user-id>}]}'
+  gh api -X POST "repos/glowcap-org/glowcap/environments/$environment/deployment-branch-policies" -f name='v*' -f type=tag
+done
+```
 
 | Registry | One-time setup |
 | --- | --- |

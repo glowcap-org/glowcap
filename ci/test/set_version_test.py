@@ -24,13 +24,28 @@ CURRENT = json.loads((ROOT / 'bindings/c-abi-resolve.json').read_text())['abi_ve
 NEXT = '0.99.0'
 
 
+def mirrors(root):
+    """Every path the bump edits, whatever the changelog's state."""
+    paths = set()
+    try:
+        for path, _, _, _ in SET_VERSION.edits(root, CURRENT, NEXT):
+            paths.add(path)
+    except ValueError:
+        pass
+    return paths | {'CHANGELOG.md'}
+
+
 def copy_tree():
     temporary = tempfile.TemporaryDirectory()
     root = Path(temporary.name)
-    paths = {path for path, _, _, _ in SET_VERSION.edits(ROOT, CURRENT, NEXT)} | {'CHANGELOG.md'}
+    paths = mirrors(ROOT)
     for path in paths:
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / path, root / path)
+    # The checkout's Unreleased section is empty between releases, so the copy
+    # gets the entries a release would cut.
+    changelog = root / 'CHANGELOG.md'
+    changelog.write_text(changelog.read_text().replace('## [Unreleased]\n', '## [Unreleased]\n\n### Added\n\n- A test entry.\n', 1))
     # The script lists manifests and locks with git, so the copy is a repository.
     subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
     subprocess.run(['git', 'add', '-A'], cwd=root, check=True)
@@ -49,11 +64,15 @@ class SetVersion(unittest.TestCase):
     def test_moves_every_mirror_of_the_version(self):
         temporary, root, paths = copy_tree()
         with temporary:
-            changelog = root / 'CHANGELOG.md'
-            changelog.write_text(changelog.read_text().replace('## [Unreleased]\n', f'## [Unreleased]\n\n## [{NEXT}] - 2026-12-01\n\n### Added\n\n- A test entry.\n', 1))
-            result = run(root, NEXT)
+            result = run(root, NEXT, '--date', '2026-12-01')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(f'{CURRENT} -> {NEXT} across {len(paths) - 1} files', result.stdout)
+            self.assertIn(f'{CURRENT} -> {NEXT} across {len(paths)} files', result.stdout)
+            changelog = (root / 'CHANGELOG.md').read_text()
+            self.assertIn(f'## [Unreleased]\n\n## [{NEXT}] - 2026-12-01\n\n### Added\n\n- A test entry.\n\n## [{CURRENT}]', changelog)
+            self.assertIn(f'[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v{NEXT}...HEAD\n'
+                          f'[{NEXT}]: https://github.com/glowcap-org/glowcap/compare/v{CURRENT}...v{NEXT}\n[{CURRENT}]:', changelog)
+            # Every mirror now states NEXT exactly where a later bump looks.
+            (root / 'CHANGELOG.md').write_text(changelog.replace('## [Unreleased]\n', '## [Unreleased]\n\n- Next.\n', 1))
             for path, old_text, new_text, once in SET_VERSION.edits(root, NEXT, '0.100.0'):
                 self.assertIn(old_text, (root / path).read_text(), path)
             for lock, member in (('apps/rooms/rust/Cargo.lock', 'glowcap'), ('deno.lock', '@glowcap/runtime')):
@@ -73,12 +92,23 @@ class SetVersion(unittest.TestCase):
         temporary, root, _ = copy_tree()
         with temporary:
             before = snapshot(root)
-            for arguments, message in (((CURRENT,), 'is the current version'), (('1.0',), 'one prerelease version'),
-                                       (('v0.99.0',), 'one prerelease version'), ((), 'one prerelease version'),
-                                       ((NEXT,), f'no "## [{NEXT}]" section')):
+            changelog = root / 'CHANGELOG.md'
+            emptied = changelog.read_text().replace('\n### Added\n\n- A test entry.\n', '', 1)
+            with_section = emptied.replace('## [Unreleased]\n', f'## [Unreleased]\n\n## [{NEXT}] - 2026-12-01\n\n- By hand.\n', 1)
+            for arguments, message, text in (((CURRENT,), 'is the current version', None), (('1.0',), 'not a prerelease version', None),
+                                             (('v0.99.0',), 'not a prerelease version', None), ((), 'required: version', None),
+                                             ((NEXT, '--date', 'today'), 'not a YYYY-MM-DD date', None),
+                                             ((NEXT,), 'lists nothing under Unreleased', emptied),
+                                             ((NEXT,), f'both a [{NEXT}] section and Unreleased entries', before[changelog].decode().replace(
+                                                 '- A test entry.\n', f'- A test entry.\n\n## [{NEXT}] - 2026-12-01\n\n- By hand.\n', 1))):
+                if text is not None:
+                    changelog.write_text(text)
                 result = run(root, *arguments)
-                self.assertEqual(result.returncode, 1, arguments)
+                self.assertNotEqual(result.returncode, 0, arguments)
                 self.assertIn(message, result.stderr, arguments)
+                changelog.write_bytes(before[changelog])
+            self.assertEqual(SET_VERSION.changelog_edits(with_section, CURRENT, NEXT, 'D'), [],
+                             'a section written by hand stands when Unreleased is empty')
             manifest = root / 'bindings/rust/Cargo.toml'
             manifest.write_text(manifest.read_text() + f'\nversion = "{CURRENT}"\n')
             result = run(root, NEXT)
@@ -93,7 +123,7 @@ class SetVersion(unittest.TestCase):
         self.assertIn('"python3", "tools/gen/set_version.py", requested', build)
         self.assertLess(build.index('"tools/gen/set_version.py", requested'), build.index('"gen-header-ocapn", "gen-binding-constants", "gen-ts-abi", "gen-rust-wasm-layouts"'))
         tracked = subprocess.check_output(['git', 'ls-files', '*Cargo.toml', '*deno.json'], cwd=ROOT, text=True).split()
-        touched = {path for path, _, _, _ in SET_VERSION.edits(ROOT, CURRENT, NEXT)}
+        touched = mirrors(ROOT)
         for path in tracked:
             if f'version = "{CURRENT}"' in (ROOT / path).read_text() or f'"version": "{CURRENT}"' in (ROOT / path).read_text():
                 self.assertIn(path, touched)

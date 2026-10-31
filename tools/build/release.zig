@@ -18,7 +18,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     // The version a release states lives in build.zig and is mirrored into the
     // C ABI, the manifests, the resolution contract, and the pages; one step
     // moves them all, and source-check holds them in lockstep.
-    const set_version = b.step("set-version", "Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants (needs the version's CHANGELOG.md section)");
+    const set_version = b.step("set-version", "Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants, and dates the Unreleased changelog entries as the version's section");
     if (b.option([]const u8, "version", "The version set-version writes everywhere, such as 0.1.2")) |requested| {
         const bump = common.addRootedSystemCommand(b, .build_tool, &.{ "python3", "tools/gen/set_version.py", requested });
         bump.has_side_effects = true;

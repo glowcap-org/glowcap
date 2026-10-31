@@ -60,6 +60,9 @@ pub fn register(b: *std.Build) void {
     const publication_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/publication-integration-test.sh" });
     publication_integration_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&publication_integration_contracts.step);
+    const release_tag_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/release-tag-test.sh" });
+    release_tag_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&release_tag_contracts.step);
     const evidence_record_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/evidence/record_test.py" });
     evidence_record_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&evidence_record_contracts.step);
