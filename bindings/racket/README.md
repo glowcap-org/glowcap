@@ -1,17 +1,22 @@
 # Racket binding
 
 This binding lets Racket connect to OCapN peers, call their objects, and host
-objects of its own, using Racket threads and ports. It is not published, so use
-a checkout of the repository: run `zig build`, then `require` the modules from
-the tree. Terms such as locator and sturdyref are defined in the
-[glossary](../../docs/capabilities.md#glossary).
+objects of its own, using Racket threads and ports. Terms such as locator and
+sturdyref are defined in the [glossary](../../docs/capabilities.md#glossary).
 
-The example below belongs in `bindings/racket/`, beside the modules it
-requires. From another directory, adjust those relative module paths.
+```sh
+raco pkg install glowcap
+```
+
+The package installs the `glowcap` collection. On first load it downloads the
+C libraries of its version from the GitHub release and verifies them against
+its checksum file. Set `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/`
+directory to use a local copy. In a checkout of the repository, run `zig build`
+and `require` the modules from `bindings/racket/` by relative path instead.
 
 ```racket
-(require "glowcap.rkt"
-         "glowcap-tcp.rkt")
+(require glowcap/glowcap
+         glowcap/glowcap-tcp)
 
 (define peer-key "<64 lowercase hex characters from the server>")
 (define runtime (open-runtime #:providers (list (tcp-provider))))

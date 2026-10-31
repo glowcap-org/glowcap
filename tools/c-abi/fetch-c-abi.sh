@@ -18,15 +18,14 @@
 #   GLOWCAP_CACHE_DIR          cache base (default: ~/.cache/glowcap/c-abi,
 #                              else $TMPDIR/<fallback_cache_name from contract>)
 #   GLOWCAP_RELEASE_BASE_URL   override release download base URL
-#   GLOWCAP_DOWNLOAD=1         attempt fetch even when releases_published is false
 #   GLOWCAP_SKIP_DOWNLOAD=1    exit 0 without fetching
 #   GLOWCAP_STRICT=1           exit non-zero on soft-fail paths (network/tooling)
 #   GLOWCAP_ALLOW_INSECURE=1   allow a non-HTTPS release base URL
 #
 # Exit: 0 on success or soft-fail (network/tooling/unpublished); non-zero on
 # hard hygiene failure (HTTPS/checksum/extract), or when GLOWCAP_STRICT=1 and
-# a soft path fails. When the contract's releases_published is false, exit 0
-# without curling unless GLOWCAP_DOWNLOAD=1.
+# a soft path fails. A release that does not exist for the requested version is
+# a soft failure, so a checkout ahead of its release exits 0 without a cache.
 
 set -eu
 
@@ -226,14 +225,6 @@ need_cmd jq
 
 jq -e '.require_https == true and .require_checksum == true' "$CONTRACT" >/dev/null \
 	|| soft_fail "c-abi-resolve.json: require_https and require_checksum must be true"
-
-# Prerelease valve: skip network until releases_published flips, unless the
-# operator forces a rehearsal with GLOWCAP_DOWNLOAD=1.
-RELEASES_PUBLISHED=$(jq -r '.releases_published' "$CONTRACT")
-if [ "$RELEASES_PUBLISHED" != "true" ] && ! truthy "${GLOWCAP_DOWNLOAD:-}"; then
-	echo "glowcap fetch-c-abi: releases_published is false; set GLOWCAP_DOWNLOAD=1 to fetch" >&2
-	exit 0
-fi
 
 need_cmd curl
 need_cmd tar

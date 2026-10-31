@@ -12,7 +12,7 @@ extern "C" {
 #endif
 #define GLOWCAP_VERSION_MAJOR 0
 #define GLOWCAP_VERSION_MINOR 1
-#define GLOWCAP_VERSION_PATCH 0
+#define GLOWCAP_VERSION_PATCH 1
 /* Read the exact reflected callable and layout identity of this core archive. */
 uint64_t glowcap_ocapn_archive_fingerprint(void);
 /* Read the linked shared archive's ABI version. */

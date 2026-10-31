@@ -1,6 +1,6 @@
 ---
 .title = "Capability networking and durable state in Zig",
-.description = "OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library, Apache-2.0, 0.1.0 alpha.",
+.description = "OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library, Apache-2.0, 0.1.1 alpha.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "index.shtml",
 .draft = false,
@@ -12,7 +12,7 @@ communication and durable application state. It combines
 [Loam]($link.page('loam')), its transactional storage and durable actor system.
 Applications control memory, I/O, and scheduling.
 
-**0.1.0 alpha · Apache-2.0.** APIs, ABIs, and storage formats can change before
+**0.1.1 alpha · Apache-2.0.** APIs, ABIs, and storage formats can change before
 1.0. Read [Project & status]($link.page('project')) before depending on it.
 
 Peers exchange references to objects and call them across a network. Loam

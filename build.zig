@@ -44,7 +44,7 @@ const addRootedSystemCommand = build_common.addRootedSystemCommand;
 /// `include/glowcap_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
 /// in `build.zig.zon`, the source gate holds the zon triple to this one). Each
 /// archive's dynamic library soname tracks `major`.
-const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
+const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 1 };
 
 /// The layer DAG, the one authoritative statement of the architecture
 /// (ADR-0011 for the sibling-codec modules below the codec layer).

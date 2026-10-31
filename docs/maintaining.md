@@ -23,14 +23,15 @@ the choice.
 
 ## Release status
 
-glowcap 0.1.0 is an Apache-2.0 alpha. A public repository or a tagged archive
+glowcap is an Apache-2.0 alpha. A public repository or a tagged archive
 does not promise API, ABI, or storage compatibility. Release publication
 accepts only `0.x.y` versions and marks each GitHub release as a prerelease,
 without assigning it the latest stable release label. A stable release
 requires a deliberate change to this policy and its workflow checks.
 
-Registry identities and the corporate registration steps live in
-[binding packaging](../bindings/PACKAGING.md#package-ownership).
+Registry identities live in
+[binding packaging](../bindings/PACKAGING.md#package-ownership), and
+[releasing a version](#releasing-a-version) is the procedure.
 
 ## Integrating locally
 
@@ -145,9 +146,10 @@ gh workflow run check.yml --ref main -f suite=check
 ```
 
 Once both required jobs pass, run `gh workflow run pages.yml --ref main` to
-deploy. A release tag cannot move, so rerun its refused release run with
-`gh run rerun <run-id>`. A manual `check` defaults to full validation. Select
-`suite=fuzz` for the separate long fuzz search.
+deploy. Rerun a refused release with `gh run rerun <run-id>` when its workflow
+needs no correction. Reruns use the tagged workflow, including its defects.
+A manual `check` defaults to full validation. Select `suite=fuzz` for the
+separate long fuzz search.
 
 The site is published at `glowcap.org`. The custom domain is set in the
 repository's Pages settings, because a Pages deployment from Actions ignores a
@@ -163,6 +165,92 @@ writes `zig-out/evidence/<phase>/<commit>.json` without attaching a note.
 CI uploads these records as `evidence-<commit>-<phase>` artifacts on success
 and failure. A green sequence whose record step fails exits 70. To publish
 notes from a full local run, use `git push origin refs/notes/evidence`.
+
+## Releasing a version
+
+A release is a maintainer-signed `v<version>` tag on `main`. Its commit is the
+one source of that version's archives, container images, and language
+packages ([ADR-0075](decisions/adr/ADR-0075-release-publication-at-the-tag.md)).
+A published version is never replaced: a defect found after the tag takes the
+next patch version.
+
+1. Write the version's section in `CHANGELOG.md`, moving every pending entry
+   under it, then run `zig build set-version -Dversion=<version>`. It moves
+   every stated version in one diff: `abi_version` in `build.zig`, the C ABI
+   constants and header, `build.zig.zon`, the archive-resolution contract
+   and its package copies, every tracked package manifest and lock file, and
+   the pages that state the release version. `source-check` and the locked
+   builds refuse a tree where one disagrees.
+   Land the bump on `dev` and let promotion move `main`.
+2. Sign and push the tag from the promoted commit:
+
+   ```sh
+   git fetch origin main
+   git tag -s "v$version" origin/main -m "glowcap $version"
+   git push origin "v$version"
+   ```
+
+3. The [release workflow](../.github/workflows/release.yml) requires the
+   commit's successful validation on `main` and the version's changelog
+   section before it builds. It checks the four host products and two
+   container images, publishes the GitHub release with its notes and the
+   attestations of every archive and the image, then dispatches the
+   [publish workflow](../.github/workflows/publish.yml) at the tag.
+4. The publish workflow verifies the public release, uploads the crate, the
+   wheel, and the JSR packages as each registry's trusted publisher, and
+   installs every published package in a fresh consumer that downloads the
+   release's C SDK. Then update the Racket catalog entry's tag by hand.
+
+To finish a package publication that a registry outage interrupted, dispatch
+the publish workflow again at the tag. Every registry step skips a version its
+registry already holds:
+
+```sh
+gh workflow run publish.yml --ref v0.1.1 -f tag=v0.1.1
+```
+
+To recover the GitHub release after correcting the release workflow, dispatch
+the corrected ref with the original tag run and signed tag:
+
+```sh
+gh workflow run release.yml --ref <corrected-ref> \
+  -f publish_run=<original-tag-run-id> -f publish_tag=v0.1.1
+```
+
+Recovery requires successful archive and image producer jobs, checks the
+original commit's full validation, and verifies GitHub artifact digests and
+packaged checksums before publishing. It reuses those archives and images
+without rebuilding or moving the tag. Attestations identify the original
+source and artifact run separately from the publication run. Uploads go into a
+draft that becomes public only after every asset matches. Recovery resumes a
+matching draft and refuses published releases, foreign drafts, and conflicting
+image tags. `recheck_run` tests installed products without publication.
+
+Release attestations record publication of verified artifacts. They identify
+the tagged source commit, original run, artifact digests, and publication
+workflow and commit. Verify the checksum file and each archive with:
+
+```sh
+gh attestation verify --repo glowcap-org/glowcap \
+  --signer-workflow glowcap-org/glowcap/.github/workflows/release.yml \
+  --predicate-type https://glowcap.org/attestations/release-publication/v1 <archive>
+```
+
+### Registry publishers
+
+Each registry trusts `publish.yml` in this repository through an OpenID
+Connect binding that names the workflow file and a GitHub environment. The
+environments `pypi`, `crates-io`, and `jsr` exist once the workflow has run,
+and a required reviewer on each holds publication for the maintainer's
+approval. A deployment branch policy on an environment must admit tags, or the
+dispatch at the tag cannot enter it.
+
+| Registry | One-time setup |
+| --- | --- |
+| PyPI | Add a pending trusted publisher for project `glowcap`: owner `glowcap-org`, repository `glowcap`, workflow `publish.yml`, environment `pypi`. The first publish creates the project. |
+| crates.io | The crate must exist before a trusted publisher can be added. For the first version, store an API token with publish scope as the `CARGO_REGISTRY_TOKEN` secret of the `crates-io` environment. After that publish, add the trusted publisher (owner `glowcap-org`, repository `glowcap`, workflow `publish.yml`, environment `crates-io`), then delete the secret and revoke the token. |
+| JSR | Every workspace member needs a package in the `@glowcap` scope linked to `glowcap-org/glowcap`. The workflow publishes the members `deno publish` finds, and refuses when a package is missing. |
+| Racket catalog | Register `glowcap` in the Racket package catalog with the source `https://github.com/glowcap-org/glowcap?path=bindings/racket#v<version>`, and move the tag on each release. |
 
 ## Promotion app
 

@@ -154,7 +154,6 @@ type Contract = {
 	extract_prefix: string;
 	require_https: boolean;
 	require_checksum: boolean;
-	releases_published: boolean;
 };
 
 function packageDir(): string {
@@ -192,7 +191,6 @@ function loadContract(): Contract {
 		extract_prefix: requireField(raw, "extract_prefix"),
 		require_https: requireField(raw, "require_https"),
 		require_checksum: requireField(raw, "require_checksum"),
-		releases_published: requireField(raw, "releases_published"),
 	};
 	if (cachedContract.require_https !== true) {
 		throw new Error("c-abi-resolve.json: require_https must be true");
@@ -200,15 +198,15 @@ function loadContract(): Contract {
 	if (cachedContract.require_checksum !== true) {
 		throw new Error("c-abi-resolve.json: require_checksum must be true");
 	}
-	if (typeof cachedContract.releases_published !== "boolean") {
-		throw new Error("c-abi-resolve.json: releases_published must be a bool");
-	}
 	return cachedContract;
 }
 
-/** Cold-cache network gate from contract `releases_published`. */
-function wantReleaseFetch(contract: Contract): boolean {
-	if (contract.releases_published) {
+/**
+ * Cold-cache network gate: a package outside a checkout downloads its version
+ * unless GLOWCAP_SKIP_DOWNLOAD. A checkout downloads only with GLOWCAP_DOWNLOAD.
+ */
+function wantReleaseFetch(devRoot: string | null): boolean {
+	if (devRoot === null) {
 		return !envTruthy("GLOWCAP_SKIP_DOWNLOAD");
 	}
 	return envTruthy("GLOWCAP_DOWNLOAD");
@@ -549,8 +547,7 @@ function libDir(): string | null {
 	}
 
 	if (zigHasMarker) {
-		// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists,
-		// including when releases_published is false.
+		// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists.
 		if (cacheLib !== null && envTruthy("GLOWCAP_DOWNLOAD")) {
 			fetchIntoCache(contract, version, target, cacheLib);
 			try {
@@ -560,7 +557,7 @@ function libDir(): string | null {
 		return zigOut;
 	}
 
-	if (cacheLib !== null && wantReleaseFetch(contract)) {
+	if (cacheLib !== null && wantReleaseFetch(devRoot)) {
 		fetchIntoCache(contract, version, target, cacheLib);
 		try {
 			if (existsSync(markerPath(cacheLib, contract))) return cacheLib;

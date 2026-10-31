@@ -19,7 +19,12 @@ contexts, frames, arguments, locators, and URI helpers.
 Transport headers supply connections and listeners and add no second session
 API.
 
-## Build the libraries
+## Get the libraries
+
+Use the prebuilt [C SDK](c-sdk.md) for Linux or macOS. It includes the headers
+and libraries, so using it needs a C compiler and no Zig toolchain.
+
+To build from a source checkout instead:
 
 ```sh
 zig build

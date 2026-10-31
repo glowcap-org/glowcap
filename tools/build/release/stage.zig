@@ -120,7 +120,7 @@ pub fn add(b: *std.Build, target: std.Build.ResolvedTarget, version: std.Semanti
             \\  without_header apps/rooms/host.md > "$stage/tree/README.md"
             \\else
             \\  browser=''
-            \\  without_header bindings/PACKAGING.md > "$stage/tree/README.md"
+            \\  without_header docs/c-sdk.md > "$stage/tree/README.md"
             \\fi
             \\revision=$(git rev-parse HEAD)
             \\dirty=false

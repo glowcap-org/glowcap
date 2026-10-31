@@ -1,16 +1,19 @@
 ---
 type: static
-description: How bindings find the C archives in a checkout and how the archives are packaged for publishing.
+description: How bindings find the C archives, how the archives are packaged, and which registry identities the packages use.
 sources:
   - resource: /bindings/
   - resource: /bindings/c-abi-resolve.json
   - resource: /tools/c-abi/
 ---
 
-# Finding and publishing the C archives
+# Finding and packaging the C archives
 
-No binding package is published. In a checkout, run `zig build`. The
-bindings find the resulting libraries under `zig-out/lib`.
+A published package downloads the C archives of its own version from the
+GitHub release on first use. In a checkout, run `zig build`, and the bindings
+find the resulting libraries under `zig-out/lib` instead.
+[Releasing a version](../docs/maintaining.md#releasing-a-version) owns the
+publication procedure.
 
 The machine-readable contract is
 [`c-abi-resolve.json`](c-abi-resolve.json), as decided in
@@ -20,34 +23,21 @@ The machine-readable contract is
 
 Glowcap LLC maintains the project at
 [glowcap-org/glowcap](https://github.com/glowcap-org/glowcap), with documentation
-at [glowcap.org](https://glowcap.org). Packages use Apache-2.0 and version
-0.1.0, with alpha stability. Registry ownership must be established separately
-from GitHub organization membership.
+at [glowcap.org](https://glowcap.org). Every package uses Apache-2.0 and the
+`abi_version` in `build.zig`, with alpha stability. Registry ownership is
+established separately from GitHub organization membership.
 
-| Registry | Intended identity | Preparation before publication |
+| Registry | Identity | Published by |
 | --- | --- | --- |
-| crates.io | `glowcap` | Keep `publish = false` until the C archives and packaged crate work outside a checkout. |
-| PyPI | `glowcap` | Build and test the wheel with the hosted C archives. The Python import is also `glowcap`. |
-| JSR | `@glowcap/*` | Create the `glowcap` scope and connect its packages to the corporate repository. |
-| npm | `@glowcap/*` | Register the `glowcap` organization separately. Direct npm packages need their own tested packaging. |
-| Racket catalog | `glowcap` | Register the verified source package, which installs the `glowcap` collection. |
-| GHCR | `glowcap-org/glowcap/devcontainer`, `glowcap-org/glowcap-rooms` | Confirm organization package permissions for the image workflows. |
+| crates.io | `glowcap` | `publish.yml`, as the crates.io trusted publisher. |
+| PyPI | `glowcap` | `publish.yml`, as the PyPI trusted publisher. The Python import is also `glowcap`. |
+| JSR | `@glowcap/*`, one package per workspace member | `publish.yml`, through the packages linked to this repository. |
+| Racket catalog | `glowcap`, installing the `glowcap` collection | The maintainer, as a catalog entry pointing at the release tag. |
+| GHCR | `glowcap-org/glowcap-rooms` and `glowcap-org/glowcap/devcontainer` | `release.yml` publishes and attests the Rooms image. `devcontainer-image.yml` publishes the development image. |
+| npm | `@glowcap/*` | Not published. JSR's npm compatibility serves npm users and grants no npm scope. |
 
-These are intended identities, not a record of completed registrations. Local
-manifests and registry lookup results do not reserve names. JSR's npm
-compatibility does not grant ownership of an npm scope.
-
-The corporate administrator should:
-
-1. Create the JSR scope through [JSR's publishing setup](https://jsr.io/docs/publishing-packages), then link packages to the repository for CI publishing.
-2. Create the npm organization following [npm's scope guide](https://docs.npmjs.com/about-organization-scopes-and-packages/), and grant maintainers access.
-3. Set up [PyPI organization ownership](https://docs.pypi.org/organization-accounts/) and project publishing credentials for the working package.
-4. Publish the verified Rust crate through [Cargo's publication procedure](https://doc.rust-lang.org/cargo/reference/publishing.html), then add the company's actual maintainer team as an owner.
-
-Publish functional packages after the archive checks below pass. Do not upload
-empty placeholders to claim names. Keep `releases_published` false until the
-hosted archives are verified, and retain the Rust publication guard until a
-clean consumer install succeeds.
+The [registry publishers](../docs/maintaining.md#registry-publishers) section
+holds the one-time registry setup each row needs.
 
 ## Finding the archives
 
@@ -88,12 +78,11 @@ The bindings CI phase runs this rehearsal before qualification.
 Each package carries the repository's Apache license text. The rehearsal
 compares the packaged copy with its source.
 
-The C-library checks use the locally built SDK. Before publishing a
-language package, complete the [hosted archive checks](#publishing-c-archives)
-and repeat its consumer install against those assets with a cold cache.
-Keep the Rust publication guard until that succeeds. Rust documentation on
-docs.rs uses all features and skips C-library resolution, following
-[docs.rs's build contract](https://docs.rs/about/builds).
+The C-library checks use the locally built SDK. The same script with
+`--registry <version>` installs a published version from each registry in a
+fresh consumer with no local SDK, and `publish.yml` runs it after each upload.
+Rust documentation on docs.rs uses all features and skips C-library
+resolution, following [docs.rs's build contract](https://docs.rs/about/builds).
 
 JSR is the TypeScript publication path. Its npm compatibility is separate
 from publishing packages directly to npm. The browser Wasm artifact remains
@@ -103,9 +92,12 @@ describes. Racket installs as the `glowcap` collection, with imports such as
 
 ### Download behavior
 
-`releases_published` in `c-abi-resolve.json` is false. A cold cache
-therefore does not contact the network unless `GLOWCAP_DOWNLOAD=1` is set.
-Once releases are enabled, `GLOWCAP_SKIP_DOWNLOAD=1` disables fetching.
+A binding decides whether to download from where it runs. Outside a checkout,
+a cold cache downloads the binding's version unless `GLOWCAP_SKIP_DOWNLOAD=1`
+is set. Inside a checkout, found by `build.zig` beside
+`include/glowcap_ocapn.h`, the binding uses `zig-out/lib` and downloads only
+when `GLOWCAP_DOWNLOAD=1` is set, so a tree ahead of its release attempts no
+network.
 
 Downloads require HTTPS through redirects and a matching entry in `SHA256SUMS`.
 Extraction accepts regular files under `lib/` only. Links and path traversal are refused.
@@ -185,31 +177,5 @@ exact installed products with a corrected harness, run
 This checks the four host products and builds and exercises their two Linux
 container images without recompiling, checking source packages, or publishing.
 A complete release rehearsal leaves `recheck_run` empty.
-
-## Publishing C archives
-
-`releases_published` controls whether consumers try the hosted archive URL. It
-does not authorize the release workflow to create those archives. Change it
-only after the assets can be downloaded and verified.
-
-1. Run `zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline` for every published
-   target.
-2. Push the release commit and require its exact SHA to complete `check.yml`
-   successfully, including its macOS runtime jobs.
-3. Tag `v{abi_version}`, matching `include/glowcap_ocapn.h`. The release
-   workflow independently queries the successful exact-SHA check before it
-   builds archives.
-4. Push the tag and confirm the release workflow publishes the tarballs and
-   `SHA256SUMS`, and records GitHub artifact attestations for both. Confirm each
-   archive contains the tagged `PROVENANCE.md` disclosure.
-5. Download each archive, verify `SHA256SUMS`, then verify its artifact
-   attestation with `gh attestation verify --repo OWNER/REPO <archive>`.
-6. Set `releases_published` to true in `c-abi-resolve.json`, then copy the
-   updated contract to every path in its `package_copies` list.
-7. Push that consumer-enablement commit and require `check.yml` to pass for its
-   exact SHA.
-8. Test a cold-cache install against the live release URL without
-   `GLOWCAP_DOWNLOAD=1`.
-
-Before that switch, `GLOWCAP_DOWNLOAD=1` can rehearse the download path against
-staged assets.
+[Releasing a version](../docs/maintaining.md#releasing-a-version) describes
+the tag push that publishes the archives.

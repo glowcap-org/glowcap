@@ -1,6 +1,6 @@
 .{
     .name = .glowcap,
-    .version = "0.1.0",
+    .version = "0.1.1",
     .dependencies = .{
         // Lazy on purpose: libvaxis backs the CapTP lab REPL in the product
         // CLI and nothing in the `glowcap` library module. A consumer that

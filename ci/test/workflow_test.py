@@ -55,7 +55,54 @@ def jobs(path):
 
 
 
+def duplicate_mapping_keys(source):
+    """Keys repeated inside one YAML mapping, which GitHub refuses as an invalid workflow file.
+
+    Walks the indentation structure of the block-style workflows this
+    repository writes: a key at an indent closes every deeper mapping, a list
+    item opens a fresh mapping for its members, and the lines of a block
+    scalar (a `run: |` script) are text, not keys.
+    """
+    duplicates, levels, scalar_indent = [], [], None
+    for number, raw in enumerate(source.splitlines(), 1):
+        line = raw.split(' #', 1)[0].rstrip() if not raw.lstrip().startswith('#') else ''
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip(' '))
+        if scalar_indent is not None and indent > scalar_indent:
+            continue
+        scalar_indent = None
+        text = line.lstrip(' ')
+        if text.startswith('- '):
+            while levels and levels[-1][0] >= indent:
+                levels.pop()
+            levels.append((indent + 2, set()))
+            text, indent = text[2:], indent + 2
+        match = re.match(r'([A-Za-z0-9_.\-"\'$]+|\$\{\{[^}]*\}\}):(?:\s|$)', text)
+        if not match:
+            continue
+        while levels and levels[-1][0] > indent:
+            levels.pop()
+        if not levels or levels[-1][0] < indent:
+            levels.append((indent, set()))
+        keys = levels[-1][1]
+        if match[1] in keys:
+            duplicates.append((number, match[1]))
+        keys.add(match[1])
+        if re.fullmatch(r'[|>][-+]?', text[match.end():].strip()):
+            scalar_indent = indent
+    return duplicates
+
+
 class PublicationWorkflow(unittest.TestCase):
+    def test_workflows_repeat_no_mapping_key(self):
+        self.assertEqual(duplicate_mapping_keys('a:\n  b: 1\n  b: 2\nc:\n  - d: 1\n    d: 2\n  - d: 3\n'), [(3, 'b'), (6, 'd')])
+        self.assertEqual(duplicate_mapping_keys('a:\n  b: 1\nc:\n  b: 2\n  run: |\n    x: 1\n    x: 2\n  run: 3\n'), [(8, 'run')],
+                         'a block scalar holds text, and the key after it is still in its mapping')
+        for path in sorted((ROOT / '.github/workflows').glob('*.yml')):
+            with self.subTest(path=path.name):
+                self.assertEqual(duplicate_mapping_keys(path.read_text()), [])
+
     def test_package_metadata_matches_the_pre_one_release(self):
         version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
         self.assertRegex(version, r"^0\.[0-9]+\.[0-9]+$")
@@ -167,10 +214,16 @@ class PublicationWorkflow(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
                     self.assertEqual(output.read_text(), f"value={version}\n" if accepted else "")
             gh = directory / "gh"
-            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$GITHUB_OUTPUT"\n')
+            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$GITHUB_OUTPUT"\n')
             gh.chmod(0o755)
+            (directory / "artifacts").mkdir()
+            (directory / "artifacts/release-state.json").write_text(
+                json.dumps({"draft_exists": False, "missing_assets": []}))
+            verifier = directory / "tools/check/release_recovery.py"
+            verifier.parent.mkdir(parents=True)
+            verifier.write_text("pass\n")
             environment.update(PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
-                               GITHUB_REF_NAME="v0.1.0", GITHUB_REPOSITORY="owner/project")
+                               GITHUB_REF_NAME="different-branch", RELEASE_TAG="v0.1.0", GITHUB_REPOSITORY="owner/project")
             result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
                                      command("Create the release with archives")],
                                     cwd=directory, env=environment, capture_output=True, text=True)
