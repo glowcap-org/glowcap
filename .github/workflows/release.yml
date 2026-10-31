@@ -373,7 +373,6 @@ jobs:
         needs.archives.result == 'success' && needs.images.result == 'success') ||
        (github.event_name == 'workflow_dispatch' && inputs.publish_run != '' && inputs.publish_tag != '' && inputs.recheck_run == ''))
     permissions:
-      actions: read
       actions: write
       artifact-metadata: write
       attestations: write
