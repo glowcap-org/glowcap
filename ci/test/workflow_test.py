@@ -103,6 +103,32 @@ class PublicationWorkflow(unittest.TestCase):
             with self.subTest(path=path.name):
                 self.assertEqual(duplicate_mapping_keys(path.read_text()), [])
 
+    def test_lock_files_record_the_workspace_version(self):
+        """Every tracked lock file states the release version for each workspace package.
+
+        A `--locked` or frozen build refuses a lock that disagrees with its
+        manifest, so a bump that misses a lock fails there, late, on one CI
+        lane. A workspace entry is a Cargo package without a registry source,
+        a uv package that is editable, or a `jsr:@glowcap/*` link.
+        """
+        version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
+        locks = subprocess.check_output(["git", "ls-files", "*Cargo.lock", "*uv.lock", "*deno.lock"], cwd=ROOT, text=True).splitlines()
+        self.assertGreaterEqual(len(locks), 7)
+        entries = 0
+        for path in locks:
+            source = (ROOT / path).read_text()
+            with self.subTest(path=path):
+                if path.endswith("deno.lock"):
+                    stated = re.findall(r'"jsr:@glowcap/[^@"]+@([^"]+)"', source)
+                else:
+                    stated = [re.search(r'^version = "([^"]+)"', block, re.M)[1]
+                              for block in source.split("[[package]]")[1:]
+                              if (re.search(r'^source = \{ editable', block, re.M) if path.endswith("uv.lock")
+                                  else not re.search(r'^source = ', block, re.M))]
+                entries += len(stated)
+                self.assertEqual(set(stated), {version} if stated else set(), path)
+        self.assertGreaterEqual(entries, 10, "the lock files record workspace packages")
+
     def test_package_metadata_matches_the_pre_one_release(self):
         version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
         self.assertRegex(version, r"^0\.[0-9]+\.[0-9]+$")

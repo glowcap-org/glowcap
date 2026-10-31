@@ -75,9 +75,10 @@ class SetVersion(unittest.TestCase):
             (root / 'CHANGELOG.md').write_text(changelog.replace('## [Unreleased]\n', '## [Unreleased]\n\n- Next.\n', 1))
             for path, old_text, new_text, once in SET_VERSION.edits(root, NEXT, '0.100.0'):
                 self.assertIn(old_text, (root / path).read_text(), path)
-            for lock, member in (('apps/rooms/rust/Cargo.lock', 'glowcap'), ('deno.lock', '@glowcap/runtime')):
+            for lock, member in (('apps/rooms/rust/Cargo.lock', 'glowcap'), ('bindings/python/uv.lock', 'glowcap'), ('deno.lock', '@glowcap/runtime')):
                 text = (root / lock).read_text()
                 self.assertTrue(f'name = "{member}"\nversion = "{NEXT}"' in text or f'jsr:{member}@{NEXT}' in text, lock)
+                self.assertNotIn(f'name = "{member}"\nversion = "{CURRENT}"', text, lock)
             self.assertNotIn(f'version = "{CURRENT}"', (root / 'transports/Cargo.toml').read_text())
             self.assertIn(f'version = "={NEXT}"', (root / 'transports/webrtc/Cargo.toml').read_text())
             self.assertNotIn(f'"={CURRENT}"', (root / 'transports/webrtc/Cargo.toml').read_text())

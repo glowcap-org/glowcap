@@ -3,7 +3,8 @@
 `abi_version` in build.zig is the authority, and the checks hold each mirror to
 it: the C ABI version constants, build.zig.zon, the archive-resolution
 contract and its package copies, every tracked Cargo.toml, deno.json, the
-Python and Racket manifests, the workspace entries in every tracked lock file,
+Python and Racket manifests, the workspace entries in every tracked Cargo, uv,
+and Deno lock file,
 and the pages that state the release version. This rewrites all of them from
 the current version to the requested one, cuts the entries under Unreleased in
 CHANGELOG.md into the version's dated section with its compare link, and the
@@ -111,6 +112,8 @@ def edits(root, old, new, date='DATE'):
         if f'"version": "{old}"' in text:
             yield (path, f'"version": "{old}"', f'"version": "{new}"', True)
     yield ('bindings/python/pyproject.toml', f'\nversion = "{old}"\n', f'\nversion = "{new}"\n', True)
+    projects = [name[1] for path in tracked(root, '*pyproject.toml')
+                if (name := re.search(r'^name = "([^"]+)"', (root / path).read_text(), re.M))]
     yield ('bindings/racket/info.rkt', f'(define version "{old}")', f'(define version "{new}")', True)
     # A lock records each workspace package by name and version. Dependencies
     # from registries keep theirs, whatever version they happen to share.
@@ -120,6 +123,12 @@ def edits(root, old, new, date='DATE'):
             block = f'[[package]]\nname = "{crate}"\nversion = "{old}"\n'
             if block in text:
                 yield (path, block, f'[[package]]\nname = "{crate}"\nversion = "{new}"\n', False)
+    for path in tracked(root, '*uv.lock'):
+        text = (root / path).read_text()
+        for project in projects:
+            block = f'[[package]]\nname = "{project}"\nversion = "{old}"\n'
+            if block in text:
+                yield (path, block, f'[[package]]\nname = "{project}"\nversion = "{new}"\n', False)
     for path in tracked(root, '*deno.lock'):
         text = (root / path).read_text()
         for package in packages:
