@@ -66,18 +66,13 @@ case "${1:-}" in
     [ -e "$root/zig-out" ] && paths+=("$root/zig-out")
     [ "${#paths[@]}" -gt 0 ] || { echo "ci/state.sh: nothing to pack" >&2; exit 1; }
     du -sh "${paths[@]}"
-    # Cargo keys each workspace's build directory by a hash of its path, so
-    # name each profile directory by what it built: its dep-info files.
+    # Cargo keys each workspace's build directory by a hash of its path, and
+    # `cargo metadata` run in that workspace names the directory. Size each
+    # profile so the listing shows which build fills the store.
     for profile in "$cargo_build"/*/*/*/; do
       [ -d "$profile" ] || continue
-      built=
-      for dep in "$profile"*.d; do
-        [ -e "$dep" ] || continue
-        dep=${dep##*/}
-        built="$built${built:+ }${dep%.d}"
-      done
       size=$(du -sk "$profile" | cut -f1 | awk '{ printf "%.1fG", $1 / 1048576 }')
-      printf '%s\t%s\t%s\n' "$size" "${profile#"$cargo_build"/}" "${built:-no dep-info}"
+      printf '%s\t%s\n' "$size" "${profile#"$cargo_build"/}"
     done
     tar -P --use-compress-program='zstd -T0 -3' -cf "$2" "${paths[@]}"
     ls -l "$2"

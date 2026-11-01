@@ -218,19 +218,17 @@ class RuntimeTest(unittest.TestCase):
                 output.parent.mkdir(parents=True)
                 output.write_text(f'output {index}\n')
                 os.utime(output, (1700000100 + index, 1700000100 + index))
-            # Cargo names a workspace's build directory by a path hash, so the
-            # pack listing names each profile by the crates it built, and a
-            # profile without dep-info files says so instead of failing.
+            # Cargo names a workspace's build directory by a path hash, and the
+            # pack listing sizes each of its profiles, an empty one included.
             cargo = Path(stores[2]) / 'ab/cdef0123456789'
-            (cargo / 'debug').mkdir(parents=True)
+            (cargo / 'debug/deps').mkdir(parents=True)
             (cargo / 'release').mkdir()
-            for dep in ('rooms-session.d', 'librooms_product.d'):
-                (cargo / 'debug' / dep).write_text('deps\n')
+            (cargo / 'debug/deps/librooms_product.rlib').write_bytes(b'\0' * 2_097_152)
             archive = base / 'state.tar.zst'
             packed = state('pack', str(archive))
             self.assertEqual(packed.returncode, 0, packed.stderr)
-            self.assertIn('\tab/cdef0123456789/debug/\tlibrooms_product rooms-session\n', packed.stdout)
-            self.assertIn('\tab/cdef0123456789/release/\tno dep-info\n', packed.stdout)
+            self.assertIn('\nab/cdef0123456789/debug/\n', packed.stdout.replace('\t', '\n'))
+            self.assertRegex(packed.stdout, r'\n0\.0G\tab/cdef0123456789/release/\n')
             shutil.rmtree(home)
             shutil.rmtree(root / 'zig-out')
             unpacked = state('unpack', str(archive))
