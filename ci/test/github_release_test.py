@@ -27,7 +27,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from workflow_test import ROOT, shell_step
+from workflows import ROOT, shell_step
 
 
 SCRIPT = ROOT / 'tools/check/github_release.py'
@@ -456,6 +456,7 @@ else:
 
     def test_image_publication_reuses_matching_tags_and_refuses_conflicts(self):
         script = shell_step(self.RELEASE_YML, 'Publish the versioned multi-platform Rooms image')
+        self.assertEqual(script, 'python3 tools/release-image.py artifacts')
         docker = r'''#!/usr/bin/env python3
 import hashlib, json, os, sys
 from pathlib import Path
@@ -515,10 +516,11 @@ else:
                     name = f'glowcap-rooms-{TAG}-{arch}.docker.tar'
                     (image / name).write_bytes(b'image')
                     (image / 'SHA256SUMS').write_text(f'{hashlib.sha256(b"image").hexdigest()}  {name}\n')
-                result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script], cwd=directory,
+                result = subprocess.run([sys.executable, str(ROOT / 'tools/release-image.py'), 'artifacts'], cwd=directory,
                                         env=dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'],
                                                  GH_TOKEN='test', IMAGE='ghcr.io/owner/rooms', VERSION='0.1.0',
-                                                 GITHUB_ACTOR='actor', IMAGE_MODE=mode,
+                                                 GITHUB_ACTOR='actor', GITHUB_REPOSITORY=REPOSITORY,
+                                                 GITHUB_SHA='a' * 40, IMAGE_MODE=mode,
                                                  GITHUB_OUTPUT=str(directory / 'output')),
                                         capture_output=True, text=True, timeout=20)
                 self.assertEqual(result.returncode == 0, mode in ('new', 'existing', 'partial'), result.stderr)

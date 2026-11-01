@@ -17,7 +17,7 @@ import sys
 import tempfile
 import unittest
 
-from workflow_test import ROOT, shell_step
+from workflows import ROOT, shell_step
 
 
 SPEC = importlib.util.spec_from_file_location('release_notes', ROOT / 'tools/gen/release_notes.py')
@@ -146,8 +146,8 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn('subject-digest: ${{ steps.image.outputs.digest }}', statement)
         self.assertIn('predicate-type: https://spdx.dev/Document/v2.3', statement)
         self.assertIn('push-to-registry: true', statement)
-        self.assertIn('echo "digest=sha256:$(sha256sum < published-index.json',
-                      shell_step(workflow, 'Publish the versioned multi-platform Rooms image'))
+        self.assertEqual(shell_step(workflow, 'Publish the versioned multi-platform Rooms image'),
+                         'python3 tools/release-image.py artifacts')
 
     def test_refuses_facts_that_would_mislead_a_reader(self):
         complete = facts()
