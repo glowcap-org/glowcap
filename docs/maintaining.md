@@ -276,9 +276,11 @@ The promote workflow acts as an organization-owned GitHub App, because a
 workflow's own token may not move a branch across commits that change workflow
 files. The app holds four repository permissions on this repository alone:
 Contents and Workflows, both read and write, which promotion needs, and
-Administration and Code scanning alerts, both read-only, which the
-[repository policy workflow](../.github/workflows/repository-policy.yml) needs
-to read settings a workflow's own token cannot see. Its client ID is the
+Administration, read and write, and Code scanning alerts, read-only, which the
+[repository policy workflow](../.github/workflows/repository-policy.yml) needs.
+GitHub shows a ruleset's bypass actors and the merge settings only to an
+administrator, so reading them takes the write permission, and the workflow
+runs the command without `--apply`, which changes nothing. Its client ID is the
 `PROMOTE_APP_CLIENT_ID` variable and its private key the
 `PROMOTE_APP_PRIVATE_KEY` secret. Until both exist, promotion fails at its
 first step and `main` stays where it was.
@@ -286,8 +288,8 @@ first step and `main` stays where it was.
 1. Under the organization's **Settings**, **Developer settings**, **GitHub
    Apps**, choose **New GitHub App**. Name it `glowcap-promote`, set the
    homepage to `https://glowcap.org`, clear **Active** under webhooks, set the
-   Contents and Workflows repository permissions to **Read and write**, the
-   Administration and Code scanning alerts permissions to **Read-only**, and
+   Contents, Workflows, and Administration repository permissions to **Read
+   and write**, the Code scanning alerts permission to **Read-only**, and
    allow installation only on this account.
 2. Copy the client ID, generate a private key, and install the app on
    `glowcap-org/glowcap` only.
@@ -363,8 +365,8 @@ weekly and sends each finding to code scanning, where GitHub's own code
 scanning, secret scanning, and Dependabot alerts also arrive. The
 [repository policy workflow](../.github/workflows/repository-policy.yml) runs
 `tools/repository-policy.py` weekly and on every change to the policy files,
-with a read-only token of the [promotion app](#promotion-app), and fails on
-any drift, which the maintainer's `--apply` resolves.
+with the [promotion app](#promotion-app)'s token, and fails on any drift,
+which the maintainer's `--apply` resolves.
 
 Run the zizmor audit locally with `uvx zizmor .`.
 

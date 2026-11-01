@@ -498,7 +498,7 @@ else:
         self.assertEqual(immutability["bypass_actors"], [])
         self.assertIn('tags: ["v*"]', (ROOT / ".github/workflows/release.yml").read_text())
 
-    def test_repository_policy_is_read_weekly_with_a_read_only_token(self):
+    def test_repository_policy_is_read_weekly_and_only_reported(self):
         source = (ROOT / ".github/workflows/repository-policy.yml").read_text()
         self.assertIn("\npermissions: {}\n", source)
         self.assertIn("  schedule:\n    - cron: ", source)
@@ -506,11 +506,13 @@ else:
         for path in (".github/repository-policy.json", ".github/rulesets/**", "tools/repository-policy.py"):
             self.assertIn(f"      - {path}\n", source)
         body = source.split("\njobs:\n  drift:\n", 1)[1]
-        # The workflow token holds nothing, the app token only reads, and the
-        # command only reports: GitHub changes by the maintainer's --apply.
+        # The workflow token holds nothing. GitHub shows bypass actors and merge
+        # settings only to an administrator, so the app token holds that one
+        # write permission, and the command only reports: GitHub changes by
+        # the maintainer's --apply.
         self.assertNotIn("    permissions:", body)
-        self.assertIn("          permission-administration: read\n          permission-security-events: read\n", body)
-        self.assertNotIn("write", body)
+        self.assertIn("          permission-administration: write\n          permission-security-events: read\n", body)
+        self.assertEqual(body.count("write"), 1)
         self.assertIn("persist-credentials: false", body)
         self.assertIn("run: python3 tools/repository-policy.py\n", body)
         self.assertNotIn("--apply", body)
