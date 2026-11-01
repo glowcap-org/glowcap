@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from workflows import jobs, workflow
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("ci_image", ROOT / "ci/image.py")
 IMAGE = importlib.util.module_from_spec(SPEC)
@@ -207,10 +209,14 @@ class ImageTest(unittest.TestCase):
         # first, and what goes is listed once, in this module.
         for path in (".github/workflows/check-group.yml", ".github/actions/image/action.yml"):
             with self.subTest(path=path):
-                self.assertIn("run: python3 ci/image.py reclaim\n", (ROOT / path).read_text())
+                document = workflow(path)
+                owners = document["jobs"].values() if "jobs" in document else [document["runs"]]
+                scripts = [step.get("run") for owner in owners for step in owner["steps"]]
+                self.assertIn("python3 ci/image.py reclaim", scripts)
         for path in (".github/workflows/pages.yml", ".github/workflows/agent-tools.yml"):
             with self.subTest(path=path):
-                self.assertIn("      - uses: ./.github/actions/image\n", (ROOT / path).read_text())
+                steps = [step for job in jobs(path).values() for step in job["steps"]]
+                self.assertIn("./.github/actions/image", [step.get("uses") for step in steps])
         self.assertIn("/usr/share/dotnet", IMAGE.RUNNER_SDKS)
 
     def test_runner_disk_is_reclaimed_only_below_what_a_job_needs(self):
