@@ -2,8 +2,8 @@
 
 What runs on a commit, in one place. A workflow in `.github/workflows/`
 declares jobs and the transfers between them, and each step is one command.
-The commands are the Python here and `zig build`, so the logic has tests in
-[`test/`](test/) and the YAML reads as a list.
+The commands are the Python here and `zig build`, so each program has a test
+beside it and the YAML reads as a list.
 
 | Trigger | Workflow | Runs |
 | --- | --- | --- |
@@ -37,10 +37,14 @@ The commands are the Python here and `zig build`, so the logic has tests in
 | [`gates.py`](gates.py) | `fetch` the pinned dependencies, `compile` a shard, `run` a phase under its deadlines and record the evidence, `summary` the records | Inside the devcontainer, build and test jobs |
 | [`state.py`](state.py) | The compiled state a build job packs and a test job restores, bounded by size and free disk | Host, build and test jobs |
 | [`report.py`](report.py) | The one required result, from every job's outcome | Host, `gates` job |
-| [`.devcontainer/ci/`](../.devcontainer/ci/) | The toolchain image: reclaim runner disk, resolve or build the image, start it, read the pins | Host |
+| [`image.py`](image.py) | The toolchain image: reclaim runner disk, resolve or build the image, start it | Host, through the composite actions in [`.github/actions/`](../.github/actions/) |
+| [`evidence.py`](evidence.py) | The record a run leaves: commit, pins, host, each gate's exit and duration | Inside the devcontainer |
+| [`require_main_check.py`](require_main_check.py) | Whether a commit is on `main` with a successful full `check` run | Host, pages and release jobs, and the release tag front |
+| [`github_release.py`](github_release.py) | The GitHub release: assemble the archives, verify attestations, fill the draft, publish | Host, release and publish jobs |
+| [`release_notes.py`](release_notes.py) | The release page, from the assembled facts and the changelog | Host, release job |
+| [`release_image.py`](release_image.py) | The Rooms image publication: each platform's exact image and the versioned index | Host, release job |
 | [`tools/run-with-timeout.py`](../tools/run-with-timeout.py) | The deadline every gate runs under | Both |
-| [`tools/evidence/record.py`](../tools/evidence/record.py) | The record a run leaves: commit, pins, host, each gate's exit and duration | Inside the devcontainer |
 
 Reproduce a phase locally with `glowcap-dev python3 ci/gates.py run <phase>`.
-Each test in `test/` names the workflow or script it holds, and
-`zig build infrastructure-check` runs them all.
+Each program's test sits beside it as `<name>_test.py`, a workflow's test is
+named after the workflow, and `zig build infrastructure-check` runs them all.

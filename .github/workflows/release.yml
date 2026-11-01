@@ -59,7 +59,7 @@ jobs:
             exit 1
           fi
 
-      - uses: ./.devcontainer/ci/pins
+      - uses: ./.github/actions/pins
         id: pins
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -70,12 +70,12 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 tools/check/require-main-check.py "$GITHUB_SHA"
+        run: python3 ci/require_main_check.py "$GITHUB_SHA"
 
       - name: Require the version's changelog entry
         env:
           VERSION: ${{ steps.version.outputs.value }}
-        run: python3 tools/gen/release_notes.py --changelog "$VERSION"
+        run: python3 ci/release_notes.py --changelog "$VERSION"
 
   archives:
     needs: contract
@@ -113,7 +113,7 @@ jobs:
           ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
 
-      - uses: ./.devcontainer/ci/pins
+      - uses: ./.github/actions/pins
         id: pins
 
       - name: Install the pinned Rust
@@ -203,7 +203,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.devcontainer/ci/pins
+      - uses: ./.github/actions/pins
         id: pins
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -284,7 +284,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.devcontainer/ci/pins
+      - uses: ./.github/actions/pins
         id: pins
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -297,7 +297,7 @@ jobs:
           path: artifacts
 
       - name: Assemble the release assets
-        run: python3 tools/check/github_release.py assemble artifacts "$RELEASE_TAG"
+        run: python3 ci/github_release.py assemble artifacts "$RELEASE_TAG"
 
       - name: Attest the checksum file's build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -306,7 +306,7 @@ jobs:
 
       - name: Publish the versioned multi-platform Rooms image
         id: image
-        run: python3 tools/release-image.py artifacts
+        run: python3 ci/release_image.py artifacts
 
       - name: Attest the image's build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -338,13 +338,13 @@ jobs:
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
-          python3 tools/gen/release_notes.py --facts artifacts/release.json \
+          python3 ci/release_notes.py --facts artifacts/release.json \
             --image-digest "$IMAGE_DIGEST" --output artifacts/release-notes.md
-          python3 tools/check/github_release.py bundles "$RELEASE_TAG"
+          python3 ci/github_release.py bundles "$RELEASE_TAG"
 
       - name: Fill the draft release, then make it public
         run: |
-          python3 tools/check/github_release.py draft-state "$RELEASE_TAG" > artifacts/release-state.json
+          python3 ci/github_release.py draft-state "$RELEASE_TAG" > artifacts/release-state.json
           if ! jq -e '.draft_exists' artifacts/release-state.json > /dev/null; then
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
@@ -358,7 +358,7 @@ jobs:
           while IFS= read -r asset; do
             gh release upload "$RELEASE_TAG" "release-assets/$asset" --repo "$GITHUB_REPOSITORY"
           done < <(jq -r '.missing_assets[]' artifacts/release-state.json)
-          python3 tools/check/github_release.py verify-draft "$RELEASE_TAG"
+          python3 ci/github_release.py verify-draft "$RELEASE_TAG"
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false \
             --notes-file artifacts/release-notes.md
 

@@ -12,14 +12,14 @@ sources:
   - resource: /.github/workflows/repository-policy.yml
   - resource: /.github/zizmor.yml
   - resource: /.github/repository-policy.json
-  - resource: /tools/check/github_release.py
-  - resource: /tools/release-tag.sh
+  - resource: /ci/github_release.py
+  - resource: /tools/release-tag.py
   - resource: /tools/release-publishers.py
   - resource: /tools/repository-policy.py
   - resource: /tools/check/publication-integration-test.sh
-  - resource: /tools/check/release-tag-test.sh
+  - resource: /tools/release_tag_test.py
   - resource: /tools/gen/set_version.py
-  - resource: /tools/check/require-main-check.py
+  - resource: /ci/require_main_check.py
   - resource: /.github/rulesets/
   - resource: /tools/deps/fetch-mbedtls.sh
 ---
@@ -145,7 +145,7 @@ push run starts promotion. Retry a failed job in the push run with
 `gh run rerun <run-id> --failed`, and its success promotes the commit.
 
 Pages deploys `main`, and a tagged release publishes its tagged commit. Both
-first run `tools/check/require-main-check.py`. It requires the commit to be on
+first run `ci/require_main_check.py`. It requires the commit to be on
 `main` and to have a successful `check.yml` run, either the push run on `dev`
 or a manual full check. Both `gates` and `macos-runtime` must complete
 successfully in the same run attempt. The long fuzz search alone does not
@@ -198,7 +198,7 @@ release itself is two commands and two workflows.
    It dates the `Unreleased` entries as the version's changelog section.
    `source-check` and the locked builds refuse a tree where one disagrees.
    Land the bump on `dev` and let promotion move `main`.
-2. Run `tools/release-tag.sh <version>` on the host that
+2. Run `tools/release-tag.py <version>` on the host that
    holds the signing key. It requires that `main` states the version, carries
    its changelog section, has no such tag on origin, and passed full
    validation. Then it signs `v<version>` at that commit and pushes the tag,

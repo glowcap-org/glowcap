@@ -56,7 +56,7 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - run: python3 .devcontainer/ci/image.py reclaim
+      - run: python3 ci/image.py reclaim
 
       # Workflow steps own transfer deadlines, which composite steps cannot
       # set. A transfer finishes in seconds or stalls with no end of its own,
@@ -79,7 +79,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *image-download
 
-      - uses: ./.devcontainer/ci/start
+      - uses: ./.github/actions/start
         with:
           image: ${{ inputs.image }}
 
@@ -205,7 +205,7 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - run: python3 .devcontainer/ci/image.py reclaim
+      - run: python3 ci/image.py reclaim
 
       - name: Download the unpublished PR image
         id: receive_image
@@ -221,7 +221,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *image-download
 
-      - uses: ./.devcontainer/ci/start
+      - uses: ./.github/actions/start
         with:
           image: ${{ inputs.image }}
 

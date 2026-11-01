@@ -34,10 +34,10 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - uses: ./.devcontainer/ci
+      - uses: ./.github/actions/image
         id: image
 
-      - uses: ./.devcontainer/ci/start
+      - uses: ./.github/actions/start
         with:
           image: ${{ steps.image.outputs.image }}
 

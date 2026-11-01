@@ -31,7 +31,7 @@ STAGE names select a subset, still run in the order above. An unknown name is
 refused before any effect. A registry or gh that cannot be reached reports
 `cannot verify` for that stage and the rest still run. The command exits 1 when
 any selected stage ends incomplete or unverifiable, 2 on a bad argument, and 0
-otherwise. ci/test/release_publishers_test.py drives every stage against fake
+otherwise. tools/release_publishers_test.py drives every stage against fake
 registry answers and a fake gh.
 """
 

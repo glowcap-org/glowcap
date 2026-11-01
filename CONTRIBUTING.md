@@ -170,7 +170,7 @@ Repository instructions for coding agents live in [AGENTS.md](AGENTS.md).
 
 [`ci/README.md`](ci/README.md) maps every trigger to the workflow it runs and
 the command each step calls. The commands are Python under `ci/` and
-`zig build`, so each has a test in [`ci/test/`](ci/test/) and a workflow reads
+`zig build`, so each has a test in [`ci/`](ci/) and a workflow reads
 as a list of steps.
 
 Every pull request runs source checks, Zig tests in Debug and ReleaseSafe,

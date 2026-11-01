@@ -29,7 +29,7 @@ rulesets. Naming subjects runs only those. The repository comes from
 Exit status is 0 when every selected subject ends `ok`, unchecked fields
 included, and 1 otherwise, for drift, a failed read, or a failed write. A
 subject that fails does not stop
-the others. ci/test/repository_policy_test.py drives the command against a
+the others. tools/repository_policy_test.py drives the command against a
 fake gh with no network.
 """
 

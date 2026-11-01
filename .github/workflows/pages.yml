@@ -36,7 +36,7 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - uses: ./.devcontainer/ci/pins
+      - uses: ./.github/actions/pins
         id: pins
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -49,12 +49,12 @@ jobs:
         run: |
           current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
           test "$DEPLOY_SHA" = "$current"
-          python3 tools/check/require-main-check.py "$DEPLOY_SHA"
+          python3 ci/require_main_check.py "$DEPLOY_SHA"
 
-      - uses: ./.devcontainer/ci
+      - uses: ./.github/actions/image
         id: image
 
-      - uses: ./.devcontainer/ci/start
+      - uses: ./.github/actions/start
         with:
           image: ${{ steps.image.outputs.image }}
 

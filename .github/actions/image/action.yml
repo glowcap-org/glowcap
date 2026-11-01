@@ -1,0 +1,33 @@
+name: Prepare the CI image
+description: Resolve a toolchain image or build it once for this workflow run.
+inputs:
+  publish:
+    description: Whether a built image is pushed to the registry, which needs packages write.
+    default: "false"
+outputs:
+  image:
+    description: Immutable registry digest or local image ID.
+    value: ${{ steps.prepare.outputs.image }}
+  archive:
+    description: Whether consumers need the run-scoped image artifact.
+    value: ${{ steps.prepare.outputs.archive }}
+runs:
+  using: composite
+  steps:
+    - name: Reclaim disk space for the toolchain image
+      shell: bash
+      run: python3 ci/image.py reclaim
+    - name: Install the pinned Dev Containers CLI
+      shell: bash
+      run: . .devcontainer/pins.sh && npm install -g "@devcontainers/cli@$DEVCONTAINER_CLI_VERSION"
+    - name: Authenticate to the image registry
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+    - name: Resolve or build the toolchain image once
+      id: prepare
+      env:
+        PUBLISH: ${{ inputs.publish }}
+      shell: bash
+      run: python3 ci/image.py prepare --publish "$PUBLISH"

@@ -217,7 +217,7 @@ jobs:
       - name: Fetch pinned Zig dependencies
         run: python3 ci/gates.py fetch
 
-      - uses: ./.devcontainer/ci/pins
+      - uses: ./.github/actions/pins
         id: pins
 
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5

@@ -17,7 +17,7 @@ the first failure's status is the exit status. A build that runs out of time
 stops the phase, because every later gate needs it. Exit 124 or 137 from a
 gate means the deadline killed it (`wedged`).
 
-A run writes an evidence record (tools/evidence/record.py): under
+A run writes an evidence record (ci/evidence.py): under
 zig-out/evidence/<phase> for one phase, or attached to HEAD as a git note for
 a full run on a clean checkout. A green run whose record fails exits 70. A
 compile writes no record. Exit 2 names a malformed call.
@@ -26,7 +26,6 @@ compile writes no record. Exit 2 names a malformed call.
 (default 5) between them, and stops at once on an interrupt or termination.
 """
 
-import importlib.util
 import json
 import os
 import re
@@ -38,6 +37,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ci"))
+import evidence  # noqa: E402
 import groups  # noqa: E402
 
 NAME = "ci/gates.py"
@@ -143,24 +143,16 @@ class Run:
         return self.first_failure
 
 
-def evidence():
-    spec = importlib.util.spec_from_file_location("record", ROOT / "tools/evidence/record.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def finish(run, started, status, phase):
     """Write the run's evidence record. Returns the status the run exits with."""
-    record = evidence()
     try:
-        body = record.record(run.rows, started, "passed" if status == 0 else "failed")
+        body = evidence.record(run.rows, started, "passed" if status == 0 else "failed")
         if phase is None:
-            path = record.write(ROOT / "zig-out/evidence", body)
+            path = evidence.write(ROOT / "zig-out/evidence", body)
             if not body["dirty"]:
-                record.attach_note(path, body["commit"])
+                evidence.attach_note(path, body["commit"])
         else:
-            path = record.write(ROOT / "zig-out/evidence" / phase, body)
+            path = evidence.write(ROOT / "zig-out/evidence" / phase, body)
     except SystemExit as refusal:
         say(f"the evidence record failed (exit {refusal.code}), see above")
         return status or 70

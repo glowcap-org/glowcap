@@ -33,7 +33,7 @@ hash no check ran on and no signature covers.
 - The author field records who wrote the change, kept when the branch's
   commits share one author. The committer and signature record who vouched.
 - Every run of the gate sequence writes an evidence record
-  (`tools/evidence/record.py`), and a clean run attaches it to the commit as
+  (`ci/evidence.py`), and a clean run attaches it to the commit as
   a note under `refs/notes/evidence`. The integrator carries the note through
   its rebases onto the signed commit.
 - `main` moves only by fast-forward from a commit on `dev`
@@ -63,5 +63,5 @@ rule. Until then the integrator and the local checks are the only enforcement.
 author, the carried note, and the refusal without a key.
 `tools/check/publication-integration-test.sh` proves a contribution landing
 through the integrator and a fast-forward-only `main`.
-`ci/test/promote_test.py` holds the rulesets to signed,
+`ci/promote_test.py` holds the rulesets to signed,
 linear, checked history. None of these shows the hosted rulesets are active.

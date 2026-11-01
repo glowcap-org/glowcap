@@ -14,7 +14,7 @@ in place from the repository root, lists files with git, and exits 1 without
 writing when the request is malformed, is the current version, Unreleased
 lists nothing, or a mirror does not state the current version exactly once.
 `--date` names the section's date, today by default.
-ci/test/set_version_test.py exercises it on a copy of the tree under
+tools/gen/set_version_test.py exercises it on a copy of the tree under
 infrastructure-check.
 """
 

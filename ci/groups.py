@@ -63,7 +63,7 @@ GROUPS = (
             gate("bash .devcontainer/hooks/post-create.sh"),
             # The deadline wrapper bounds every gate, and ci/gates.py branches
             # on its codes, so it is proven before anything relies on it.
-            gate("bash tools/run-with-timeout-test.sh"),
+            gate("bash tools/run_with_timeout_test.py"),
             gate("zig build infrastructure-check"),
         ],
     }),
@@ -95,7 +95,7 @@ GROUPS = (
     }),
     Group("shipped", shards=2, phases={
         # One ReleaseSafe compile per layer partition bounds optimizer memory
-        # without dropping a layer. ci/test/gates_test.py holds the partition
+        # without dropping a layer. ci/gates_test.py holds the partition
         # to the Layer enum in test/all_test.zig.
         "shipped": [
             build("zig build test -Doptimize=ReleaseSafe -Dtest-layer=loam,root,foundation,codec,model"),
