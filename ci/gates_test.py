@@ -93,7 +93,12 @@ class InventoryTest(unittest.TestCase):
                 self.assertTrue(gates)
                 for kind, command in gates:
                     self.assertIn(kind, ('gate', 'build', 'long'))
-                    self.assertRegex(command, r'^(zig build|bash) \S')
+                    self.assertRegex(command, r'^(zig build|bash|python3) \S')
+                    if not command.startswith('zig build'):
+                        interpreter, path = command.split()[:2]
+                        self.assertEqual(path.rsplit('.', 1)[1], {'bash': 'sh', 'python3': 'py'}[interpreter],
+                                         'the interpreter matches the file it runs')
+                        self.assertTrue((ROOT / path).is_file(), path)
         commands = ' '.join(command for gates in GROUPS.PHASES.values() for _, command in gates)
         for step in ('check', 'runtime-check', 'goblins-interop', 'ocapn-conformance-next', 'bindings-package-check'):
             self.assertIn(f' {step}', commands + ' ')
@@ -102,7 +107,7 @@ class InventoryTest(unittest.TestCase):
 
     def test_the_wrapper_is_proven_before_the_gates_it_bounds(self):
         infrastructure = [command for _, command in GROUPS.PHASES['infrastructure']]
-        self.assertLess(infrastructure.index('bash tools/run_with_timeout_test.py'),
+        self.assertLess(infrastructure.index('python3 tools/run_with_timeout_test.py'),
                         infrastructure.index('zig build infrastructure-check'))
 
     def test_groups_without_shards_compile_nothing_ahead(self):

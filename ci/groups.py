@@ -63,7 +63,7 @@ GROUPS = (
             gate("bash .devcontainer/hooks/post-create.sh"),
             # The deadline wrapper bounds every gate, and ci/gates.py branches
             # on its codes, so it is proven before anything relies on it.
-            gate("bash tools/run_with_timeout_test.py"),
+            gate("python3 tools/run_with_timeout_test.py"),
             gate("zig build infrastructure-check"),
         ],
     }),
