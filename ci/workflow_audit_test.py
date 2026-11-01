@@ -13,7 +13,8 @@ import importlib.util
 import re
 import unittest
 
-from workflows import ROOT, WORKFLOWS, duplicate_mapping_keys, jobs, text
+import yaml
+from workflows import ROOT, WORKFLOWS, Loader, duplicate_mapping_keys, jobs, text, workflow
 
 AUDITED = sorted(WORKFLOWS.glob("*.yml")) + sorted(ROOT.glob(".github/actions/*/action.yml"))
 # An inline script is one command's flags or a few lines of glue. A longer
@@ -21,51 +22,37 @@ AUDITED = sorted(WORKFLOWS.glob("*.yml")) + sorted(ROOT.glob(".github/actions/*/
 MAX_SCRIPT_LINES = 20
 
 
-def script_blocks(source):
-    """The line count of each `run: |` block."""
-    counts, block_indent, count = [], None, 0
-    for line in source.splitlines() + ["end"]:
-        indent = len(line) - len(line.lstrip(" "))
-        if block_indent is not None:
-            if line.strip() and indent > block_indent:
-                count += 1
-                continue
-            counts.append(count)
-            block_indent = None
-        match = re.match(r"(\s*)(?:- )?run:\s*([|>][-+]?)$", line)
-        if match:
-            block_indent = len(match[1]) + (2 if line.lstrip().startswith("- ") else 0)
-            count = 0
-    return counts
+def scripts(path):
+    """Every step script of a workflow or composite action."""
+    document = workflow(path)
+    owners = document["jobs"].values() if "jobs" in document else [document["runs"]]
+    # A job that calls a reusable workflow has no steps.
+    return [step["run"] for owner in owners for step in owner.get("steps", ()) if "run" in step]
 
 
 class WorkflowAudit(unittest.TestCase):
     def test_the_audit_configuration_names_real_workflows(self):
-        source = text(".github/zizmor.yml")
-        self.assertRegex(source, r"(?m)^rules:$")
-        rules = dict(re.findall(r"(?m)^  ([\w-]+):\n((?:    [^\n]*\n)+)", source))
+        rules = workflow(".github/zizmor.yml")["rules"]
+        # The reasons are comments, which only the text holds.
+        blocks = dict(re.findall(r"(?m)^  ([\w-]+):\n((?:    [^\n]*\n)+)", text(".github/zizmor.yml")))
         self.assertTrue(rules)
-        self.assertIn("dangerous-triggers", rules)
         audited = {path.name for path in AUDITED}
         self.assertIn("action.yml", audited, "the composite actions zizmor audits beside the workflows")
-        listed = 0
         for rule, body in rules.items():
             with self.subTest(rule=rule):
-                self.assertRegex(body, r"(?m)^    (?:ignore:|disable: true|config:)$")
-                self.assertRegex(body, r"(?m)^ +#", "each exception or policy states its reason")
-                for name in re.findall(r"(?m)^      - (\S+)$", body):
-                    listed += 1
+                self.assertTrue({"ignore", "disable", "config"} & set(body))
+                self.assertRegex(blocks[rule], r"(?m)^ +#", "each exception or policy states its reason")
+                for name in body.get("ignore", ()):
                     self.assertIn(name, audited)
-        self.assertEqual(listed, len(re.findall(r"(?m)^\s+- ", source)), "every list item names an audited file")
-        self.assertIn("promote.yml", rules["dangerous-triggers"])
+        self.assertIn("promote.yml", rules["dangerous-triggers"]["ignore"])
 
     def test_the_audit_is_a_required_check(self):
         found = jobs(".github/workflows/check.yml")
-        self.assertRegex(
-            found["workflows"].body, r"(?m)^      - uses: zizmorcore/zizmor-action@[0-9a-f]{40} # v\d+\.\d+\.\d+$"
-        )
-        self.assertRegex(found["workflows"].body, r"(?m)^          persona: regular$")
-        self.assertRegex(found["gates"].body, r"(?m)^    needs: \[[^\]]*\bworkflows\b[^\]]*\]$")
+        audit = [step for step in found["workflows"]["steps"] if step.get("uses", "").startswith("zizmorcore/")]
+        self.assertEqual(len(audit), 1)
+        self.assertRegex(audit[0]["uses"], r"^zizmorcore/zizmor-action@[0-9a-f]{40}$")
+        self.assertEqual(audit[0]["with"]["persona"], "regular")
+        self.assertIn("workflows", found["gates"]["needs"])
         spec = importlib.util.spec_from_file_location("report", ROOT / "ci/report.py")
         report = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(report)
@@ -85,30 +72,41 @@ class WorkflowAudit(unittest.TestCase):
             [],
             "an anchored block scalar holds text too",
         )
+        with self.assertRaisesRegex(yaml.YAMLError, "repeated key 'b'"):
+            yaml.load("a:\n  b: 1\n  b: 2\n", Loader)
         for path in AUDITED:
             with self.subTest(path=path.name):
                 self.assertEqual(duplicate_mapping_keys(path.read_text()), [])
+                workflow(path.relative_to(ROOT))
 
     def test_ci_logic_is_python_called_by_short_steps(self):
         self.assertEqual(list(ROOT.glob("ci/**/*.sh")), [])
         for path in AUDITED:
             with self.subTest(path=path.relative_to(ROOT)):
-                self.assertLessEqual(max(script_blocks(path.read_text()), default=0), MAX_SCRIPT_LINES)
+                longest = max(
+                    (len(script.rstrip("\n").splitlines()) for script in scripts(path.relative_to(ROOT))), default=0
+                )
+                self.assertLessEqual(longest, MAX_SCRIPT_LINES)
 
     def test_release_validation_splits_hosts_by_cost(self):
-        source = text(".github/workflows/validate-release.yml")
-        self.assertRegex(source, r"(?m)^on:\n  schedule:\n(?:    [^\n]*\n)+  workflow_dispatch:$")
-        self.assertRegex(source, r"(?m)^permissions:\n  contents: read\n\njobs:$")
-        found = jobs(".github/workflows/validate-release.yml")
+        validation = workflow(".github/workflows/validate-release.yml")
+        self.assertEqual(list(validation["on"]), ["schedule", "workflow_dispatch"])
+        self.assertEqual(validation["permissions"], {"contents": "read"})
+        found = validation["jobs"]
         self.assertEqual(list(found), ["newest", "installer-linux", "installer-macos", "registries"])
-        self.assertEqual(found["installer-macos"].condition, "github.event_name == 'workflow_dispatch'")
-        self.assertIsNone(found["installer-linux"].condition)
+        self.assertEqual(found["installer-macos"]["if"], "github.event_name == 'workflow_dispatch'")
+        self.assertNotIn("if", found["installer-linux"])
         for name in ("installer-linux", "installer-macos"):
             with self.subTest(job=name):
-                self.assertIn("VERSION: ${{ needs.newest.outputs.version }}", found[name].body)
-                self.assertIn("glowcap version | tee version.txt", found[name].body)
-                self.assertIn('grep -Fx "glowcap $VERSION" version.txt', found[name].body)
-        self.assertIn("ref: refs/tags/v${{ needs.newest.outputs.version }}", found["registries"].body)
+                self.assertEqual(found[name]["env"]["VERSION"], "${{ needs.newest.outputs.version }}")
+                script = next(
+                    step["run"] for step in found[name]["steps"] if step["name"] == "Run the installed product"
+                )
+                self.assertIn("glowcap version | tee version.txt", script)
+                self.assertIn('grep -Fx "glowcap $VERSION" version.txt', script)
+        checkout = found["registries"]["steps"][0]
+        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["ref"], "refs/tags/v${{ needs.newest.outputs.version }}")
 
 
 if __name__ == "__main__":

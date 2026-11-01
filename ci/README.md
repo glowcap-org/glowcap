@@ -44,7 +44,10 @@ beside it and the YAML reads as a list.
 | [`release_notes.py`](release_notes.py) | The release page, from the assembled facts and the changelog | Host, release job |
 | [`release_image.py`](release_image.py) | The Rooms image publication: each platform's exact image and the versioned index | Host, release job |
 | [`tools/run-with-timeout.py`](../tools/run-with-timeout.py) | The deadline every gate runs under | Both |
+| [`workflows.py`](workflows.py) | The workflow files as mappings, and the Actions predicates they select by, for the tests | Imported |
+| [`pyproject.toml`](pyproject.toml) | The tests' one dependency, PyYAML, which [`uv.lock`](uv.lock) pins | `uv run --project ci --locked` |
 
 Reproduce a phase locally with `glowcap-dev python3 ci/gates.py run <phase>`.
 Each program's test sits beside it as `<name>_test.py`, a workflow's test is
-named after the workflow, and `zig build infrastructure-check` runs them all.
+named after the workflow, and `zig build infrastructure-check` runs them all
+through `uv run --project ci --locked`.

@@ -27,7 +27,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from workflows import ROOT, shell_step, stub
+from workflows import ROOT, jobs, run, stub
 
 SCRIPT = ROOT / "ci/github_release.py"
 SPEC = importlib.util.spec_from_file_location("github_release", SCRIPT)
@@ -471,7 +471,7 @@ class Arguments(unittest.TestCase):
 
 @needs_jq
 class Workflow(unittest.TestCase):
-    RELEASE_YML = (ROOT / ".github/workflows/release.yml").read_text()
+    RELEASE = jobs(".github/workflows/release.yml")["release"]
     GH = """#!/usr/bin/env python3
 import json, os, sys
 with open('calls', 'a') as log:
@@ -489,7 +489,7 @@ else:
 """
 
     def fill(self, draft_exists, *, upload=0, verify=0):
-        script = shell_step(self.RELEASE_YML, "Fill the draft release, then make it public")
+        script = run(self.RELEASE, "Fill the draft release, then make it public")
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             (directory / "artifacts").mkdir()
@@ -546,16 +546,20 @@ else:
                 self.assertEqual(verified, not upload)
 
     def test_the_release_job_and_publish_contract_call_the_script_modes(self):
-        publish = (ROOT / ".github/workflows/publish.yml").read_text()
-        self.assertIn('python3 ci/github_release.py published "$RELEASE_TAG"', publish)
+        self.assertEqual(
+            run(jobs(".github/workflows/publish.yml")["contract"], "Verify the public release behind the tag"),
+            'python3 ci/github_release.py published "$RELEASE_TAG"',
+        )
         for mode in (
             'assemble artifacts "$RELEASE_TAG"',
             'bundles "$RELEASE_TAG"',
             'draft-state "$RELEASE_TAG"',
             'verify-draft "$RELEASE_TAG"',
         ):
-            self.assertIn(f"python3 ci/github_release.py {mode}", self.RELEASE_YML)
-        script = shell_step(self.RELEASE_YML, "Fill the draft release, then make it public")
+            self.assertTrue(
+                any(f"python3 ci/github_release.py {mode}" in found.get("run", "") for found in self.RELEASE["steps"])
+            )
+        script = run(self.RELEASE, "Fill the draft release, then make it public")
         self.assertIn('gh release create "$RELEASE_TAG"', script)
         self.assertNotIn("GITHUB_REF_NAME", script)
 

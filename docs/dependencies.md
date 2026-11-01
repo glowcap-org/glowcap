@@ -241,6 +241,10 @@ From [`bindings/python/pyproject.toml`](../bindings/python/pyproject.toml):
 
 - **websockets**: The optional WebSocket client for relay rendezvous.
 
+From [`ci/pyproject.toml`](../ci/pyproject.toml):
+
+- **pyyaml**: Reads the workflow files in the CI tests.
+
 From [`conformance/ocapn-conformance/pyproject.toml`](../conformance/ocapn-conformance/pyproject.toml):
 
 - **cryptography**: Signing in the OCapN test suite.

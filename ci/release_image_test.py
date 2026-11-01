@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflows import ROOT, shell_step, stub
+from workflows import ROOT, jobs, run, stub
 
 REPOSITORY = "owner/project"
 TAG = "v0.1.0"
@@ -23,9 +23,8 @@ TAG = "v0.1.0"
 
 class ReleaseImage(unittest.TestCase):
     def test_image_publication_reuses_matching_tags_and_refuses_conflicts(self):
-        script = shell_step(
-            (ROOT / ".github/workflows/release.yml").read_text(), "Publish the versioned multi-platform Rooms image"
-        )
+        release = jobs(".github/workflows/release.yml")["release"]
+        script = run(release, "Publish the versioned multi-platform Rooms image")
         self.assertEqual(script, "python3 ci/release_image.py artifacts")
         docker = r"""#!/usr/bin/env python3
 import hashlib, json, os, sys

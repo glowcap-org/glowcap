@@ -17,7 +17,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflows import ROOT, shell_step
+from workflows import ROOT, jobs, run, step
 
 SPEC = importlib.util.spec_from_file_location("release_notes", ROOT / "ci/release_notes.py")
 NOTES = importlib.util.module_from_spec(SPEC)
@@ -147,34 +147,37 @@ class ReleaseNotes(unittest.TestCase):
         self.assertTrue((ROOT / "CHANGELOG.md").is_file())
         version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
         self.assertTrue(NOTES.changelog_section(version).strip())
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        contract = workflow.index("Require the version's changelog entry")
-        self.assertLess(contract, workflow.index("\n  archives:\n"))
-        self.assertIn('release_notes.py --changelog "$VERSION"', workflow)
+        workflow = jobs(".github/workflows/release.yml")
+        self.assertLess(list(workflow).index("contract"), list(workflow).index("archives"))
+        command = run(workflow["contract"], "Require the version's changelog entry")
+        self.assertIn('release_notes.py --changelog "$VERSION"', command)
 
     def test_image_publication_is_attested_from_its_published_index(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        publish = workflow.index("- name: Publish the versioned multi-platform Rooms image\n        id: image\n")
-        attest = workflow.index("- name: Attest the image's build provenance")
-        sbom = workflow.index("- name: Write the image's software bill of materials")
-        sbom_attest = workflow.index("- name: Attest the image's software bill of materials")
-        render = workflow.index("- name: Render the release page")
-        self.assertLess(publish, attest)
-        self.assertLess(attest, sbom)
-        self.assertLess(sbom, sbom_attest)
-        self.assertLess(sbom_attest, render)
-        step = workflow[attest:sbom]
-        self.assertIn("subject-name: ghcr.io/glowcap-org/glowcap-rooms", step)
-        self.assertIn("subject-digest: ${{ steps.image.outputs.digest }}", step)
-        self.assertIn("push-to-registry: true", step)
-        statement = workflow[sbom_attest:render]
-        self.assertIn("subject-digest: ${{ steps.image.outputs.digest }}", statement)
-        self.assertIn("predicate-type: https://spdx.dev/Document/v2.3", statement)
-        self.assertIn("push-to-registry: true", statement)
+        release = jobs(".github/workflows/release.yml")["release"]
+        names = [found.get("name") for found in release["steps"]]
+        publish = "Publish the versioned multi-platform Rooms image"
+        attest = "Attest the image's build provenance"
+        sbom = "Write the image's software bill of materials"
+        sbom_attest = "Attest the image's software bill of materials"
+        render = "Render the release page and download every provenance bundle"
+        self.assertEqual(step(release, publish)["id"], "image")
+        self.assertLess(names.index(publish), names.index(attest))
+        self.assertLess(names.index(attest), names.index(sbom))
+        self.assertLess(names.index(sbom), names.index(sbom_attest))
+        self.assertLess(names.index(sbom_attest), names.index(render))
         self.assertEqual(
-            shell_step(workflow, "Publish the versioned multi-platform Rooms image"),
-            "python3 ci/release_image.py artifacts",
+            step(release, attest)["with"],
+            {
+                "subject-name": "ghcr.io/glowcap-org/glowcap-rooms",
+                "subject-digest": "${{ steps.image.outputs.digest }}",
+                "push-to-registry": True,
+            },
         )
+        statement = step(release, sbom_attest)["with"]
+        self.assertEqual(statement["subject-digest"], "${{ steps.image.outputs.digest }}")
+        self.assertEqual(statement["predicate-type"], "https://spdx.dev/Document/v2.3")
+        self.assertIs(statement["push-to-registry"], True)
+        self.assertEqual(run(release, publish), "python3 ci/release_image.py artifacts")
 
     def test_refuses_facts_that_would_mislead_a_reader(self):
         complete = facts()
@@ -249,14 +252,16 @@ class ReleaseNotes(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_workflow_renders_the_page_after_the_image_is_attested_and_before_the_draft(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        render = shell_step(workflow, "Render the release page and download every provenance bundle")
+        release = jobs(".github/workflows/release.yml")["release"]
+        render = run(release, "Render the release page and download every provenance bundle")
         self.assertIn("--facts artifacts/release.json", render)
         self.assertIn('--image-digest "$IMAGE_DIGEST"', render)
         self.assertIn("--output artifacts/release-notes.md", render)
+        names = [found.get("name") for found in release["steps"]]
         self.assertLess(
-            workflow.index("python3 ci/release_notes.py --facts"), workflow.index("- name: Fill the draft release")
+            names.index("Render the release page and download every provenance bundle"),
+            names.index("Fill the draft release, then make it public"),
         )
-        publish = shell_step(workflow, "Fill the draft release, then make it public")
+        publish = run(release, "Fill the draft release, then make it public")
         self.assertIn("--notes-file artifacts/release-notes.md", publish)
         self.assertNotIn('--notes "', publish)

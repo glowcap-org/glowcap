@@ -1,142 +1,87 @@
-"""Read the hand-written workflow files and evaluate their predicates.
+"""Read the workflow files as the YAML they are, and evaluate their predicates.
 
-The workflows are block-style YAML written by hand, so these readers match
-lines and indentation and refuse a shape they do not know. `selected`
-interprets the boolean and string subset of Actions expressions the
-predicates use, with the job or step context the caller supplies. None of
-this runs on a GitHub runner.
+A workflow is a mapping: `on`, `permissions`, and `jobs`, each job a mapping
+with its `if`, `needs`, `permissions`, and `steps`. The tests assert on those
+mappings, so a change in the file's layout that keeps its meaning changes no
+test, and a repeated key (which GitHub refuses as an invalid workflow file)
+refuses to load. `selected` interprets the boolean and string subset of
+Actions expressions the predicates use, with the job or step context the
+caller supplies. None of this runs on a GitHub runner.
 """
 
 import ast
 import os
 import re
-import textwrap
 from pathlib import Path
-from typing import NamedTuple
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
+BOOL = "tag:yaml.org,2002:bool"
 
 
 def text(path):
     return (ROOT / path).read_text()
 
 
-class Job(NamedTuple):
-    condition: str  # The `if` expression, folded onto one line, or None.
-    body: str
+class Loader(yaml.SafeLoader):
+    """The safe loader, keeping the `on` key a string and refusing a repeated key."""
+
+    def construct_mapping(self, node, deep=False):
+        self.flatten_mapping(node)
+        mapping = {}
+        for key_node, value_node in node.value:
+            key = key_node.value if key_node.tag == BOOL and key_node.value == "on" else self.construct_object(key_node)
+            if key in mapping:
+                raise yaml.constructor.ConstructorError(None, None, f"repeated key {key!r}", key_node.start_mark)
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
+
+
+def workflow(path):
+    """A workflow, composite action, or other YAML file under the root, as a mapping."""
+    return yaml.load(text(path), Loader)
 
 
 def jobs(path):
-    """Every job of a workflow by name, with its `if` and indented body."""
-    source = text(path).split("\njobs:\n", 1)[1]
-    found = {}
-    for match in re.finditer(r"^  ([\w-]+):\n((?: {4}[^\n]*\n|\n)*)", source, re.M):
-        name, body = match.groups()
-        condition = re.search(r"^    if: (?:&[\w-]+ )?(.+)\n", body, re.M)
-        expression = condition and condition[1]
-        if expression == ">-":
-            lines = re.match(r"(?: {6}[^\n]*\n)+", body[condition.end() :])
-            if lines is None:
-                raise AssertionError(f"{path}: {name} has no folded predicate")
-            expression = " ".join(line.strip() for line in lines.group().splitlines())
-        found[name] = Job(expression, body)
-    anchors = {}
-    for job in found.values():
-        anchor = re.search(r"^    if: &([\w-]+) ", job.body, re.M)
-        if anchor:
-            anchors[anchor[1]] = job.condition
-    for name, job in found.items():
-        if job.condition and job.condition.startswith("*"):
-            found[name] = Job(anchors[job.condition[1:]], job.body)
-    return found
+    """A workflow's jobs by name."""
+    return workflow(path)["jobs"]
 
 
-def steps(source, indent=6):
-    """Each step's scalar fields, with anchored `with` mappings resolved to text.
-
-    `indent` is 6 for a workflow's jobs and 4 for a composite action's steps.
-    """
-    source = source.split("\njobs:\n" if indent == 6 else "\nruns:\n", 1)[-1]
-    anchors = {}
-    pattern = rf"^ {{{indent}}}- ([\w-]+): ([^\n]+)\n((?:(?: {{{indent + 2}}}[^\n]*|)\n)*)"
-    declarations = list(re.finditer(pattern, source, re.M))
-    if len(declarations) != len(re.findall(rf"^ {{{indent}}}- ", source, re.M)):
-        raise AssertionError("unsupported workflow step declaration")
-    for match in declarations:
-        body = match[3]
-        fields = dict(re.findall(rf"^ {{{indent + 2}}}([\w-]+):(?: ([^\n]*))?$", body, re.M))
-        fields[match[1]] = match[2]
-        if "uses" in fields:
-            fields["uses"] = fields["uses"].split(" #", 1)[0].strip("\"'")
-        if "with" in fields:
-            reference = fields["with"]
-            if reference.startswith("*"):
-                fields["with"] = anchors[reference[1:]]
-            else:
-                mapping = re.search(rf"^ {{{indent + 2}}}with:[^\n]*\n((?: {{{indent + 4}}}[^\n]*\n)*)", body, re.M)
-                fields["with"] = textwrap.dedent(mapping[1])
-                if reference.startswith("&"):
-                    anchors[reference[1:]] = fields["with"]
-        yield fields
+def step(job, name):
+    """The step named `name` in a job (or a composite action's `runs`)."""
+    for found in job["steps"]:
+        if found.get("name") == name:
+            return found
+    raise AssertionError(f"no step named {name!r}")
 
 
-def step(body, name):
-    """A named step's block within a job body or workflow, name line included."""
-    found = re.search(
-        rf"(?m)^      - (?:name: {re.escape(name)}|uses: [^\n]*\n(?: {{8}}[^\n]*\n)*? {{8}}name: {re.escape(name)})\n((?: {{8,}}[^\n]*\n|\n)*)",
-        body,
-    )
-    if found is None:
-        raise AssertionError(f"no step named {name!r}")
-    return found[0]
-
-
-def shell_step(source, name):
-    """The script a named step runs, dedented."""
-    block = step(source, name)
-    script = re.search(r"(?m)^        run: \|\n((?: {10}[^\n]*\n|\n)*)", block)
-    if script is not None:
-        return textwrap.dedent(script[1])
-    return re.search(r"(?m)^        run: (.+)$", block)[1]
+def run(job, name):
+    """The script the step named `name` runs."""
+    return step(job, name)["run"]
 
 
 def duplicate_mapping_keys(source):
-    """Keys repeated inside one YAML mapping, which GitHub refuses as an invalid workflow file.
+    """Each repeated key in a YAML document, as (line, key), in document order."""
+    duplicates, seen = [], set()
 
-    Walks the indentation structure of the block-style workflows this
-    repository writes: a key at an indent closes every deeper mapping, a list
-    item opens a fresh mapping for its members, and the lines of a block
-    scalar (a `run: |` script) are text, not keys.
-    """
-    duplicates, levels, scalar_indent = [], [], None
-    for number, raw in enumerate(source.splitlines(), 1):
-        line = raw.split(" #", 1)[0].rstrip() if not raw.lstrip().startswith("#") else ""
-        if not line.strip():
-            continue
-        indent = len(line) - len(line.lstrip(" "))
-        if scalar_indent is not None and indent > scalar_indent:
-            continue
-        scalar_indent = None
-        content = line.lstrip(" ")
-        if content.startswith("- "):
-            while levels and levels[-1][0] >= indent:
-                levels.pop()
-            levels.append((indent + 2, set()))
-            content, indent = content[2:], indent + 2
-        match = re.match(r'([A-Za-z0-9_.\-"\'$]+|\$\{\{[^}]*\}\}):(?:\s|$)', content)
-        if not match:
-            continue
-        while levels and levels[-1][0] > indent:
-            levels.pop()
-        if not levels or levels[-1][0] < indent:
-            levels.append((indent, set()))
-        keys = levels[-1][1]
-        if match[1] in keys:
-            duplicates.append((number, match[1]))
-        keys.add(match[1])
-        if re.fullmatch(r"(?:&[\w-]+ )?[|>][-+]?", content[match.end() :].strip()):
-            scalar_indent = indent
+    def walk(node):
+        if id(node) in seen:
+            return
+        seen.add(id(node))
+        if isinstance(node, yaml.MappingNode):
+            keys = set()
+            for key, value in node.value:
+                if key.value in keys:
+                    duplicates.append((key.start_mark.line + 1, key.value))
+                keys.add(key.value)
+                walk(value)
+        elif isinstance(node, yaml.SequenceNode):
+            for item in node.value:
+                walk(item)
+
+    walk(yaml.compose(source, yaml.SafeLoader))
     return duplicates
 
 
@@ -155,7 +100,9 @@ def on_path(directory, **extra):
 
 
 def selected(expression, github=None, *, context=None, success=True, cancelled=False):
-    """Evaluate an `if` expression. Refuses syntax the predicates do not use."""
+    """Evaluate an `if` expression (None for a job or step without one). Refuses syntax the predicates do not use."""
+    if expression is None:
+        return success and not cancelled
     expression = expression.strip().removeprefix("${{").removesuffix("}}").strip()
     expression = re.sub(r"!(?!=)", " not ", expression).replace("&&", " and ").replace("||", " or ").strip()
     root = ast.parse(expression, mode="eval").body

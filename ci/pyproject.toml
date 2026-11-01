@@ -1,0 +1,16 @@
+[project]
+name = "glowcap-ci-environment"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    # dep pyyaml: Reads the workflow files in the CI tests.
+    "pyyaml==6.0.3",
+]
+
+[tool.uv]
+package = false
+
+[project.urls]
+Repository = "https://github.com/glowcap-org/glowcap"
+Homepage = "https://glowcap.org"
+Documentation = "https://glowcap.org"

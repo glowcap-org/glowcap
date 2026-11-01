@@ -13,42 +13,45 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflows import ROOT, jobs, shell_step
+from workflows import jobs, run, step, text, workflow
 
-WORKFLOW = ROOT / ".github/workflows/publish.yml"
+PUBLISH = ".github/workflows/publish.yml"
+RELEASE = ".github/workflows/release.yml"
 REGISTRY_JOBS = {"pypi": "pypi", "crates-io": "crates-io", "jsr": "jsr"}
-
-
-PUBLISH = {name: job.body for name, job in jobs(".github/workflows/publish.yml").items()}
 
 
 class PublishWorkflow(unittest.TestCase):
     def test_registry_jobs_follow_the_contract_in_their_environments(self):
-        top = WORKFLOW.read_text().split("\njobs:\n", 1)[0]
-        self.assertEqual(set(PUBLISH), {"contract", *REGISTRY_JOBS})
-        self.assertRegex(top, r"(?m)^permissions:\n  contents: read\n$")
-        self.assertNotIn("id-token", top)
-        self.assertIn("workflow_dispatch:", top)
+        publish = workflow(PUBLISH)
+        found = publish["jobs"]
+        self.assertEqual(set(found), {"contract", *REGISTRY_JOBS})
+        self.assertEqual(publish["permissions"], {"contents": "read"})
+        self.assertIn("workflow_dispatch", publish["on"])
         for name, environment in REGISTRY_JOBS.items():
-            body = PUBLISH[name]
+            job = found[name]
             with self.subTest(job=name):
-                self.assertRegex(body, r"(?m)^    needs: contract$")
-                self.assertRegex(body, rf"(?m)^    environment: {environment}$")
-                self.assertRegex(body, r"(?m)^      id-token: write$")
-                self.assertNotRegex(body, r"(?m)^      (contents|packages|actions): write$")
-                self.assertIn("ref: ${{ needs.contract.outputs.commit }}", body)
-                self.assertIn('binding_packages.py --registry "$VERSION"', body)
-        self.assertNotIn("id-token", PUBLISH["contract"])
-        self.assertIn('python3 ci/github_release.py published "$RELEASE_TAG"', PUBLISH["contract"])
-        self.assertIn("ref: refs/tags/${{ inputs.tag }}", PUBLISH["contract"])
+                self.assertEqual(job["needs"], "contract")
+                self.assertEqual(job["environment"], environment)
+                self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"})
+                checkouts = [item for item in job["steps"] if item.get("uses", "").startswith("actions/checkout@")]
+                refs = [item["with"]["ref"] for item in checkouts]
+                self.assertEqual(refs, ["${{ needs.contract.outputs.commit }}"])
+                scripts = [item.get("run", "") for item in job["steps"]]
+                self.assertTrue([script for script in scripts if 'binding_packages.py --registry "$VERSION"' in script])
+        contract = found["contract"]
+        self.assertNotIn("id-token", json.dumps(contract))
+        verify = run(contract, "Verify the public release behind the tag")
+        self.assertEqual(verify, 'python3 ci/github_release.py published "$RELEASE_TAG"')
+        self.assertEqual(contract["steps"][0]["with"]["ref"], "refs/tags/${{ inputs.tag }}")
 
     def test_registry_steps_skip_a_version_the_registry_holds(self):
-        source = WORKFLOW.read_text()
-        self.assertIn("skip-existing: true", source)
-        self.assertIn("run: deno publish\n", source)
+        found = jobs(PUBLISH)
+        self.assertIs(step(found["pypi"], "Publish to PyPI")["with"]["skip-existing"], True)
+        self.assertEqual(run(found["jsr"], "Publish the workspace packages"), "deno publish")
+        source = text(PUBLISH)
         self.assertNotIn("--allow-dirty", source)
         self.assertNotIn("--dry-run", source)
-        script = shell_step(source, "Publish the crate")
+        script = run(found["crates-io"], "Publish the crate")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             log = directory / "calls"
@@ -84,10 +87,11 @@ class PublishWorkflow(unittest.TestCase):
                     self.assertEqual("cargo publish" in calls, published)
 
     def test_the_contract_job_alone_requires_the_tag_of_its_checkout(self):
-        source = WORKFLOW.read_text()
-        self.assertEqual(source.count("Require the tag's version"), 1)
-        self.assertIn("- name: Require the tag's version", PUBLISH["contract"])
-        script = shell_step(source, "Require the tag's version")
+        found = jobs(PUBLISH)
+        named = "Require the tag's version"
+        holders = [name for name, job in found.items() for item in job["steps"] if item.get("name") == named]
+        self.assertEqual(holders, ["contract"])
+        script = run(found["contract"], "Require the tag's version")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "bindings").mkdir()
@@ -105,15 +109,18 @@ class PublishWorkflow(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
 
     def test_release_dispatches_publication_after_the_release_is_public(self):
-        release = jobs(".github/workflows/release.yml")["release"].body
-        self.assertRegex(release, r"(?m)^      actions: write$")
-        publish = release.index("--draft=false")
-        dispatch = release.index("gh workflow run publish.yml")
-        self.assertLess(publish, dispatch)
-        self.assertIn(
-            "- name: Publish the language packages at the tag\n        run: gh workflow run publish.yml", release
-        )
-        self.assertIn('--ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"', release[dispatch:])
+        release = jobs(RELEASE)["release"]
+        self.assertEqual(release["permissions"]["actions"], "write")
+        scripts = [item.get("run", "") for item in release["steps"]]
+        publish = [index for index, script in enumerate(scripts) if "--draft=false" in script]
+        dispatch = [index for index, script in enumerate(scripts) if "gh workflow run publish.yml" in script]
+        self.assertEqual(len(publish), 1)
+        self.assertEqual(len(dispatch), 1)
+        self.assertLess(publish[0], dispatch[0])
+        script = run(release, "Publish the language packages at the tag")
+        self.assertEqual(script, scripts[dispatch[0]])
+        self.assertTrue(script.startswith("gh workflow run publish.yml"))
+        self.assertIn('--ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"', script)
 
 
 if __name__ == "__main__":

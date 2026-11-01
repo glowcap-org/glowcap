@@ -13,7 +13,6 @@ import importlib.util
 import io
 import json
 import os
-import re
 import struct
 import subprocess
 import tarfile
@@ -23,68 +22,67 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from workflows import ROOT, jobs, selected, shell_step, step
+from workflows import ROOT, jobs, run, selected, step, text, workflow
 
 spec = importlib.util.spec_from_file_location("zig_package", ROOT / "tools/check/zig_package.py")
 PACKAGE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(PACKAGE)
-WORKFLOW = ROOT / ".github/workflows/release.yml"
-
-
-RELEASE = jobs(".github/workflows/release.yml")
+WORKFLOW = ".github/workflows/release.yml"
+RELEASE = jobs(WORKFLOW)
 
 
 class ReleaseBuild(unittest.TestCase):
     def test_a_tag_push_releases_and_a_dispatch_only_rehearses(self):
-        predicate, release = RELEASE["release"]
+        release = RELEASE["release"]
+        predicate = release["if"]
         self.assertEqual(predicate, "github.ref_type == 'tag'")
-        self.assertRegex(release, r"(?m)^    needs: \[contract, archives, images\]$")
+        self.assertEqual(release["needs"], ["contract", "archives", "images"])
         self.assertTrue(selected(predicate, {"event_name": "push", "ref_type": "tag"}))
         self.assertFalse(selected(predicate, {"event_name": "workflow_dispatch", "ref_type": "branch"}))
         self.assertFalse(selected(predicate, {"event_name": "workflow_dispatch", "ref_type": "tag"}, success=False))
-        for name, needs in (("contract", None), ("archives", "contract"), ("images", "[contract, archives]")):
+        for name, needs in (("contract", None), ("archives", "contract"), ("images", ["contract", "archives"])):
             with self.subTest(job=name):
-                body = RELEASE[name].body
-                self.assertNotRegex(body, r"(?m)^    if:")
-                self.assertRegex(
-                    body, rf"(?m)^    needs: {re.escape(needs)}$" if needs else r"(?m)^    timeout-minutes"
-                )
-        self.assertNotIn("needs:", RELEASE["contract"].body)
+                job = RELEASE[name]
+                self.assertNotIn("if", job)
+                self.assertEqual(job.get("needs"), needs)
+                self.assertIn("timeout-minutes", job)
+        self.assertNotIn("needs", RELEASE["contract"])
         self.assertEqual(set(RELEASE), {"contract", "archives", "images", "release"})
 
     def test_triggers_are_a_version_tag_and_a_bare_dispatch(self):
-        source = WORKFLOW.read_text()
-        triggers = source.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-        self.assertEqual(triggers, '  push:\n    tags: ["v*"]\n  workflow_dispatch:\n')
-        self.assertNotIn("inputs", triggers)
+        triggers = workflow(WORKFLOW)["on"]
+        self.assertEqual(triggers, {"push": {"tags": ["v*"]}, "workflow_dispatch": None})
+        source = text(WORKFLOW)
         self.assertNotIn("actions/cache", source)
         self.assertNotIn("release_recovery", source)
 
     def test_only_a_tag_attests_and_only_the_archives_and_release_may_attest(self):
-        archives = RELEASE["archives"].body
+        archives = RELEASE["archives"]
         attest = step(archives, "Attest the archives' build provenance")
-        condition = re.search(r"(?m)^        if: (.+)$", attest)[1]
         for ref_type, expected in (("tag", True), ("branch", False), ("", False)):
-            self.assertEqual(selected(condition, {"ref_type": ref_type}), expected)
-        self.assertIn("uses: actions/attest-build-provenance@", attest)
-        self.assertRegex(archives, r"(?m)^      attestations: write$")
-        self.assertRegex(archives, r"(?m)^      id-token: write$")
+            self.assertEqual(selected(attest["if"], {"ref_type": ref_type}), expected)
+        self.assertTrue(attest["uses"].startswith("actions/attest-build-provenance@"))
+        self.assertEqual(archives["permissions"]["attestations"], "write")
+        self.assertEqual(archives["permissions"]["id-token"], "write")
         for name in ("contract", "images"):
             with self.subTest(job=name):
-                body = RELEASE[name].body
+                job = RELEASE[name]
+                body = json.dumps(job)
                 self.assertNotIn("attestations", body)
                 self.assertNotIn("id-token", body)
-                self.assertNotRegex(body, r"(?m)^      (contents|packages|actions): write$")
+                self.assertNotIn("write", job["permissions"].values())
                 self.assertNotIn("attest", body)
 
     def test_images_take_the_archives_of_their_own_run_and_check_them_before_extracting(self):
-        images = RELEASE["images"].body
-        extract = step(images, "Extract the verified Linux product")
-        self.assertLess(extract.index("sha256sum --check SHA256SUMS"), extract.index("tar --extract"))
-        self.assertIn("name: archives-${{ matrix.runner }}", images)
-        self.assertNotIn("run-id", images)
-        self.assertNotIn("github-token", images)
-        script = shell_step(WORKFLOW.read_text(), "Extract the verified Linux product")
+        images = RELEASE["images"]
+        script = run(images, "Extract the verified Linux product")
+        self.assertLess(script.index("sha256sum --check SHA256SUMS"), script.index("tar --extract"))
+        [download] = [
+            found for found in images["steps"] if found.get("uses", "").startswith("actions/download-artifact@")
+        ]
+        self.assertEqual(download["with"], {"name": "archives-${{ matrix.runner }}", "path": "archive-artifact"})
+        self.assertNotIn("run-id", json.dumps(images))
+        self.assertNotIn("github-token", json.dumps(images))
         good = b"product"
         for label, content, name, accepted in (
             ("intact", good, "glowcap-v0.1.0-x86_64-linux.tar.gz", True),
@@ -115,7 +113,7 @@ class ReleaseBuild(unittest.TestCase):
                 self.assertEqual((root / "image-context/bin/glowcap").exists(), accepted)
 
     def test_release_publishes_in_order_and_attests_before_it_fills_the_draft(self):
-        release = RELEASE["release"].body
+        release = RELEASE["release"]
         order = (
             "Assemble the release assets",
             "Attest the checksum file's build provenance",
@@ -127,15 +125,21 @@ class ReleaseBuild(unittest.TestCase):
             "Fill the draft release, then make it public",
             "Publish the language packages at the tag",
         )
-        positions = [release.index(f"      - name: {name}\n") for name in order]
+        names = [found.get("name") for found in release["steps"]]
+        positions = [names.index(name) for name in order]
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(len(set(positions)), len(order))
-        self.assertIn('python3 ci/github_release.py assemble artifacts "$RELEASE_TAG"', release)
-        self.assertIn("subject-path: release-assets/SHA256SUMS", release)
+        self.assertEqual(
+            run(release, "Assemble the release assets"),
+            'python3 ci/github_release.py assemble artifacts "$RELEASE_TAG"',
+        )
+        self.assertEqual(
+            step(release, "Attest the checksum file's build provenance")["with"]["subject-path"],
+            "release-assets/SHA256SUMS",
+        )
 
     def test_failed_product_archives_are_preserved_without_qualifying_them(self):
-        body = RELEASE["archives"].body
-        predicate = re.search(r"^        if: (.*hashFiles.*)$", body, re.M)[1]
+        [predicate] = [found["if"] for found in RELEASE["archives"]["steps"] if "hashFiles" in found.get("if", "")]
         for present in (False, True):
             expression = predicate.replace(
                 "hashFiles('zig-out/glowcap-release/*.tar.gz')", repr("digest" if present else "")
@@ -144,25 +148,26 @@ class ReleaseBuild(unittest.TestCase):
                 self.assertEqual(selected(expression, success=False, cancelled=cancelled), present and not cancelled)
 
     def test_packaging_contracts_run_before_product_compilation(self):
-        workflow = WORKFLOW.read_text()
-        before = workflow.index("      - name: Check release packaging contracts\n")
-        self.assertLess(before, workflow.index("      - name: Install the matching browser compiler\n"))
-        self.assertLess(before, workflow.index("      - name: Build the release archives\n"))
-        block = workflow[before:].split("\n      - ", 1)[0]
-        self.assertIn("run: zig build glowcap-package-test --summary all", block)
-        self.assertNotIn("continue-on-error", block)
+        archives = RELEASE["archives"]
+        names = [found.get("name") for found in archives["steps"]]
+        before = names.index("Check release packaging contracts")
+        self.assertLess(before, names.index("Install the matching browser compiler"))
+        self.assertLess(before, names.index("Build the release archives"))
+        packaging = step(archives, "Check release packaging contracts")
+        self.assertEqual(packaging["run"], "zig build glowcap-package-test --summary all")
+        self.assertNotIn("continue-on-error", packaging)
 
     def test_sidecar_inspection_uses_the_producing_rust_toolchain(self):
-        for path in (".devcontainer/image/rust.sh", ".github/workflows/release.yml"):
-            self.assertRegex((ROOT / path).read_text(), r"rustup component add [^\n]*\bllvm-tools\b")
+        for script in (text(".devcontainer/image/rust.sh"), run(RELEASE["archives"], "Install the pinned Rust")):
+            self.assertRegex(script, r"rustup component add [^\n]*\bllvm-tools\b")
         with tempfile.TemporaryDirectory(prefix="Rust toolchain ") as temporary:
             host = Path(temporary) / "lib/rustlib/host"
             tool = host / "bin/llvm-nm"
             tool.parent.mkdir(parents=True)
             tool.touch()
-            with mock.patch.object(PACKAGE, "run", return_value=str(host / "lib") + "\n") as run:
+            with mock.patch.object(PACKAGE, "run", return_value=str(host / "lib") + "\n") as package_run:
                 self.assertEqual(PACKAGE.rust_nm(), str(tool))
-                run.assert_called_once_with("rustc", "--print", "target-libdir", cwd=ROOT, timeout=30)
+                package_run.assert_called_once_with("rustc", "--print", "target-libdir", cwd=ROOT, timeout=30)
                 tool.unlink()
                 with self.assertRaisesRegex(SystemExit, "rustup component add llvm-tools"):
                     PACKAGE.rust_nm()
@@ -194,10 +199,10 @@ class ReleaseBuild(unittest.TestCase):
                 run.assert_called_once_with(nm, "-g", str(consumer / "zig-out/sidecars.a"), cwd=consumer, timeout=30)
 
     def test_archives_fetch_through_the_shared_front(self):
-        self.assertEqual(shell_step(WORKFLOW.read_text(), "Fetch pinned Zig dependencies"), "python3 ci/gates.py fetch")
+        self.assertEqual(run(RELEASE["archives"], "Fetch pinned Zig dependencies"), "python3 ci/gates.py fetch")
 
     def test_release_version_stays_pre_one(self):
-        source = WORKFLOW.read_text()
+        script = run(RELEASE["contract"], "Read the product version")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "bindings").mkdir()
@@ -215,7 +220,7 @@ class ReleaseBuild(unittest.TestCase):
                     (directory / "bindings/c-abi-resolve.json").write_text(json.dumps({"abi_version": version}))
                     output.write_text("")
                     result = subprocess.run(
-                        ["bash", "-e", "-o", "pipefail", "-c", shell_step(source, "Read the product version")],
+                        ["bash", "-e", "-o", "pipefail", "-c", script],
                         cwd=directory,
                         env=environment,
                         capture_output=True,
@@ -314,7 +319,7 @@ class ReleaseBuild(unittest.TestCase):
             self.assertNotIn("searched paths: none", result.stderr)
 
     def test_archive_build_selects_the_sdk_only_on_macos(self):
-        script = shell_step(WORKFLOW.read_text(), "Build the release archives")
+        script = run(RELEASE["archives"], "Build the release archives")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             log = directory / "arguments.json"

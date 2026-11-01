@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflows import jobs, on_path, selected, shell_step, stub, text
+from workflows import jobs, on_path, run, selected, step, stub, text, workflow
 
 CHECK = ".github/workflows/check.yml"
 PROMOTE = ".github/workflows/promote.yml"
@@ -52,12 +52,12 @@ class ProtectionTest(unittest.TestCase):
             for check in checks["required_status_checks"]:
                 self.assertGreater(check["integration_id"], 0)
                 self.assertIn(check["context"], found)
-                self.assertTrue(selected(found[check["context"]].condition, push_to_dev))
+                self.assertTrue(selected(found[check["context"]].get("if"), push_to_dev))
             self.assertEqual(
                 {check["context"] for check in checks["required_status_checks"]}, {"gates", "macos-runtime"}
             )
-            self.assertIn(
-                "name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}", found["gates"].body
+            self.assertEqual(
+                found["gates"]["name"], "${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}"
             )
         # Only the repository's administrator creates a release tag, and once
         # pushed it names a signed commit that can neither move nor disappear,
@@ -76,15 +76,16 @@ class ProtectionTest(unittest.TestCase):
             {"deletion", "update", "non_fast_forward", "required_signatures"},
         )
         self.assertEqual(immutability["bypass_actors"], [])
-        self.assertIn('tags: ["v*"]', text(".github/workflows/release.yml"))
+        self.assertEqual(workflow(".github/workflows/release.yml")["on"]["push"]["tags"], ["v*"])
 
 
 class PromoteTest(unittest.TestCase):
     def test_promotion_configuration_refuses_missing_credentials_without_exposing_them(self):
-        source = text(PROMOTE)
-        command = shell_step(source, "Require promotion app configuration")
+        job = jobs(PROMOTE)["main"]
+        command = run(job, "Require promotion app configuration")
+        names = [found["name"] for found in job["steps"]]
         self.assertLess(
-            source.index("Require promotion app configuration"), source.index("Mint the promotion app's token")
+            names.index("Require promotion app configuration"), names.index("Mint the promotion app's token")
         )
         for client, key in [
             ("", ""),
@@ -105,7 +106,7 @@ class PromoteTest(unittest.TestCase):
                     self.assertIn("docs/maintaining.md#promotion-app", result.stdout)
 
     def promote(self, relation, status=0):
-        script = shell_step(text(PROMOTE), "Fast-forward main")
+        script = run(jobs(PROMOTE)["main"], "Fast-forward main")
         with tempfile.TemporaryDirectory() as temporary:
             stub(
                 temporary,
@@ -141,25 +142,29 @@ if any('/compare/' in argument for argument in sys.argv):
             return result, calls
 
     def test_promotion_fast_forwards_main_to_a_checked_dev_push(self):
-        workflow = text(PROMOTE)
-        self.assertIn(
-            "\non:\n  workflow_run:\n    workflows: [check]\n    types: [completed]\n"
-            "    branches: [dev]\n\npermissions: {}\n",
-            workflow,
+        promote = workflow(PROMOTE)
+        self.assertEqual(
+            promote["on"], {"workflow_run": {"workflows": ["check"], "types": ["completed"], "branches": ["dev"]}}
         )
-        self.assertNotIn("actions/checkout", workflow)
-        condition, body = jobs(PROMOTE)["main"]
+        self.assertEqual(promote["permissions"], {})
+        self.assertEqual(list(promote["jobs"]), ["main"])
+        job = promote["jobs"]["main"]
+        condition = job["if"]
+        self.assertFalse([found for found in job["steps"] if "actions/checkout" in found.get("uses", "")])
         # The workflow token holds nothing. The app token carries the two
         # permissions a fast-forward across workflow-file changes needs.
-        self.assertNotIn("    permissions:", body)
-        self.assertIn(
-            "        with:\n          client-id: ${{ vars.PROMOTE_APP_CLIENT_ID }}\n"
-            "          private-key: ${{ secrets.PROMOTE_APP_PRIVATE_KEY }}\n"
-            "          permission-contents: write\n          permission-workflows: write\n",
-            body,
+        self.assertNotIn("permissions", job)
+        self.assertEqual(
+            step(job, "Mint the promotion app's token")["with"],
+            {
+                "client-id": "${{ vars.PROMOTE_APP_CLIENT_ID }}",
+                "private-key": "${{ secrets.PROMOTE_APP_PRIVATE_KEY }}",
+                "permission-contents": "write",
+                "permission-workflows": "write",
+            },
         )
-        self.assertIn("          GH_TOKEN: ${{ steps.app.outputs.token }}\n", body)
-        self.assertNotIn("github.token", workflow)
+        self.assertEqual(step(job, "Fast-forward main")["env"]["GH_TOKEN"], "${{ steps.app.outputs.token }}")
+        self.assertNotIn("github.token", text(PROMOTE))
         run = {"event": "push", "conclusion": "success", "head_repository": {"full_name": "owner/project"}}
 
         def context(**change):
@@ -178,7 +183,7 @@ if any('/compare/' in argument for argument in sys.argv):
                 self.assertFalse(selected(condition, context(**change)))
 
         # pages.yml deploys on the push this move makes.
-        self.assertIn("\non:\n  push:\n    branches: [main]\n", text(".github/workflows/pages.yml"))
+        self.assertEqual(workflow(".github/workflows/pages.yml")["on"]["push"], {"branches": ["main"]})
         result, calls = self.promote("ahead")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(

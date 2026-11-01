@@ -34,10 +34,16 @@ pub fn register(b: *std.Build) void {
     // tests never compete for the same 30 seconds on a slow host. A test sits
     // beside its subject, so these directories are the inventory. tools/check
     // tests are registered below by name, because some take arguments their
-    // owning step supplies.
+    // owning step supplies. The ci tests read the workflows with PyYAML, which
+    // ci/uv.lock supplies.
     for ([_][]const u8{ "ci", "tools", "tools/gen" }) |directory| {
+        const in_project = std.mem.eql(u8, directory, "ci");
         for (pythonTests(b, directory)) |name| {
-            const contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "-m", "unittest", "discover", "-s", directory, "-p", name });
+            const unittest = [_][]const u8{ "python3", "-m", "unittest", "discover", "-s", directory, "-p", name };
+            const contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, if (in_project)
+                &([_][]const u8{ "uv", "run", "--project", "ci", "--locked" } ++ unittest)
+            else
+                &unittest);
             contracts.setName(b.fmt("{s}/{s}", .{ directory, name }));
             contracts.has_side_effects = true;
             infrastructure_check_step.dependOn(&contracts.step);

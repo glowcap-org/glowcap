@@ -9,7 +9,6 @@ import importlib.util
 import io
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -17,7 +16,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from workflows import ROOT, jobs, on_path, selected, shell_step, step, stub, text
+from workflows import ROOT, jobs, on_path, run, selected, step, stub, workflow
 
 RUN = {
     "id": 42,
@@ -207,11 +206,11 @@ else:
             self.assertLessEqual(lookup.call_args.kwargs["timeout"], 30)
 
     def test_workflow_steps_enforce_publication_evidence(self):
-        for path, name in [
-            ("pages", "Verify the exact commit passed check"),
-            ("release", "Require this commit's successful check workflow"),
+        for path, job, name in [
+            ("pages", "build", "Verify the exact commit passed check"),
+            ("release", "contract", "Require this commit's successful check workflow"),
         ]:
-            command = shell_step(text(f".github/workflows/{path}.yml"), name)
+            command = run(jobs(f".github/workflows/{path}.yml")[job], name)
             with self.subTest(workflow=path):
                 accepted, _ = self.evidence([RUN], command=command)
                 self.assertEqual(accepted.returncode, 0, accepted.stderr)
@@ -223,29 +222,33 @@ else:
 
     def test_publication_cannot_skip_its_evidence(self):
         release = jobs(".github/workflows/release.yml")
-        self.assertRegex(release["release"].body, r"(?m)^    needs: \[contract, ")
-        verifier = step(release["contract"].body, "Require this commit's successful check workflow")
-        self.assertIn("if: github.ref_type == 'tag'\n", verifier)
-        pages = jobs(".github/workflows/pages.yml")
-        self.assertRegex(pages["deploy"].body, r"(?m)^    needs: build$")
-        step(pages["build"].body, "Verify the exact commit passed check")
-        top = text(".github/workflows/pages.yml").split("\njobs:\n", 1)[0]
-        self.assertNotRegex(top, r"(?m)^  (pages|id-token): write$")
-        self.assertNotRegex(pages["build"].body, r"(?m)^      (pages|id-token): write$")
+        needs = release["release"]["needs"]
+        self.assertEqual(needs[0], "contract")
+        self.assertGreater(len(needs), 1)
+        verifier = step(release["contract"], "Require this commit's successful check workflow")
+        self.assertEqual(verifier["if"], "github.ref_type == 'tag'")
+        pages_workflow = workflow(".github/workflows/pages.yml")
+        pages = pages_workflow["jobs"]
+        self.assertEqual(pages["deploy"]["needs"], "build")
+        step(pages["build"], "Verify the exact commit passed check")
+        for granted in (pages_workflow["permissions"], pages["build"]["permissions"]):
+            self.assertNotEqual(granted.get("pages"), "write")
+            self.assertNotEqual(granted.get("id-token"), "write")
         for path, found in (("release.yml", release), ("pages.yml", pages)):
             for name, job in found.items():
-                for checkout in re.finditer(
-                    r"^      - uses: actions/checkout@[^\n]+\n((?: {8}[^\n]*\n|\n)*)", job.body, re.M
-                ):
-                    with self.subTest(workflow=path, job=name):
-                        self.assertRegex(checkout[1], r"(?m)^          persist-credentials: false$")
+                for checkout in job.get("steps", []):
+                    if checkout.get("uses", "").startswith("actions/checkout@"):
+                        with self.subTest(workflow=path, job=name):
+                            self.assertIs(checkout["with"]["persist-credentials"], False)
 
     def test_pages_builds_only_main(self):
         # The verify step, not this condition, requires the commit's
         # successful check run.
-        source = text(".github/workflows/pages.yml")
-        self.assertIn("\non:\n  push:\n    branches: [main]\n  workflow_dispatch:\n", source)
-        condition = jobs(".github/workflows/pages.yml")["build"].condition
+        self.assertEqual(
+            workflow(".github/workflows/pages.yml")["on"],
+            {"push": {"branches": ["main"]}, "workflow_dispatch": None},
+        )
+        condition = jobs(".github/workflows/pages.yml")["build"]["if"]
         for event in ("push", "workflow_dispatch"):
             for branch, expected in [("main", True), ("dev", False)]:
                 with self.subTest(event=event, branch=branch):
