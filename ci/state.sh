@@ -70,7 +70,12 @@ case "${1:-}" in
     # name each profile directory by what it built: its dep-info files.
     for profile in "$cargo_build"/*/*/*/; do
       [ -d "$profile" ] || continue
-      built=$(cd "$profile" && ls ./*.d 2>/dev/null | sed 's|^\./||; s|\.d$||' | head -4 | tr '\n' ' ')
+      built=
+      for dep in "$profile"*.d; do
+        [ -e "$dep" ] || continue
+        dep=${dep##*/}
+        built="$built${built:+ }${dep%.d}"
+      done
       size=$(du -sk "$profile" | cut -f1 | awk '{ printf "%.1fG", $1 / 1048576 }')
       printf '%s\t%s\t%s\n' "$size" "${profile#"$cargo_build"/}" "${built:-no dep-info}"
     done

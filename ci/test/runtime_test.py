@@ -218,9 +218,19 @@ class RuntimeTest(unittest.TestCase):
                 output.parent.mkdir(parents=True)
                 output.write_text(f'output {index}\n')
                 os.utime(output, (1700000100 + index, 1700000100 + index))
+            # Cargo names a workspace's build directory by a path hash, so the
+            # pack listing names each profile by the crates it built, and a
+            # profile without dep-info files says so instead of failing.
+            cargo = Path(stores[2]) / 'ab/cdef0123456789'
+            (cargo / 'debug').mkdir(parents=True)
+            (cargo / 'release').mkdir()
+            for dep in ('rooms-session.d', 'librooms_product.d'):
+                (cargo / 'debug' / dep).write_text('deps\n')
             archive = base / 'state.tar.zst'
             packed = state('pack', str(archive))
             self.assertEqual(packed.returncode, 0, packed.stderr)
+            self.assertIn('\tab/cdef0123456789/debug/\tlibrooms_product rooms-session\n', packed.stdout)
+            self.assertIn('\tab/cdef0123456789/release/\tno dep-info\n', packed.stdout)
             shutil.rmtree(home)
             shutil.rmtree(root / 'zig-out')
             unpacked = state('unpack', str(archive))
