@@ -2,7 +2,7 @@
 
 Run by the maintainer from any directory, with gh signed in as a repository
 administrator, and read-only by .github/workflows/repository-policy.yml weekly
-and on each change to the policy, with the promotion app's token:
+and on each change to the policy, with the promotion app's read-only token:
 
   python3 tools/repository-policy.py [--apply] [SUBJECT ...]
 
@@ -14,13 +14,21 @@ it writes the committed value for every drifted subject, then reads that
 subject again and prints what remains. A ruleset live on GitHub that no
 committed file names is reported as unmanaged and never deleted.
 
+GitHub shows a few settings only to an administrator: the merge settings of
+the repository and the bypass actors of a ruleset. A reader without that right
+gets an answer without them, and the command prints one `unchecked:` line
+naming them instead of calling them drift, so the weekly run holds everything
+it can see and the maintainer's own run holds the rest. For an administrator
+an answer without a policy field is a failed read.
+
 Subjects, in the order they run: repository, security, vulnerability-alerts,
 private-vulnerability-reporting, immutable-releases, actions, code-scanning,
 rulesets. Naming subjects runs only those. The repository comes from
 `gh repo view`, and gh runs with the checkout root as its working directory.
 
-Exit status is 0 when every selected subject ends `ok` and 1 otherwise, for
-drift, a failed read, or a failed write. A subject that fails does not stop
+Exit status is 0 when every selected subject ends `ok`, unchecked fields
+included, and 1 otherwise, for drift, a failed read, or a failed write. A
+subject that fails does not stop
 the others. ci/test/repository_policy_test.py drives the command against a
 fake gh with no network.
 """
@@ -38,6 +46,15 @@ RULESET_KEYS = ('target', 'enforcement', 'bypass_actors', 'conditions', 'rules')
 PERMISSION_KEYS = ('enabled', 'allowed_actions', 'sha_pinning_required')
 WORKFLOW_KEYS = ('default_workflow_permissions', 'can_approve_pull_request_reviews')
 FORK_KEY = 'fork_pr_approval_policy'
+
+
+class Reading:
+    """What one subject found: its drift lines, the fix that writes the policy, and the fields the answer hid."""
+
+    def __init__(self, drifts, fix, hidden=()):
+        self.drifts = drifts
+        self.fix = fix
+        self.hidden = list(hidden)
 
 
 class Failure(Exception):
@@ -83,6 +100,18 @@ def show(value):
 def differences(live, wanted):
     """Every (field, live, wanted) where the live answer disagrees with the policy."""
     return [(field, live[field], value) for field, value in wanted.items() if live[field] != value]
+
+
+def compare(session, live, wanted):
+    """The differences, and the policy fields the answer leaves out.
+
+    GitHub omits administrator-only fields from a reader's answer. For an
+    administrator an omitted field is a failed read, raised as the KeyError
+    `differences` would have raised."""
+    hidden = [field for field in wanted if field not in live]
+    if hidden and session.administrator():
+        raise KeyError(hidden[0])
+    return differences(live, {field: value for field, value in wanted.items() if field not in hidden}), hidden
 
 
 def drift_lines(found):
@@ -139,6 +168,10 @@ class Session:
             self._repository = self.read()
         return self._repository
 
+    def administrator(self):
+        """Whether the caller administers the repository, read from the answer's own `permissions`."""
+        return self.repository().get('permissions', {}).get('admin') is True
+
     def write(self, method, suffix, body=None):
         self._repository = None
         return api(method, self.path(suffix), body)
@@ -148,12 +181,12 @@ class Session:
 
 
 def check_repository(session):
-    found = differences(session.repository(), session.policy['repository'])
+    found, hidden = compare(session, session.repository(), session.policy['repository'])
 
     def fix():
         session.write('PATCH', '', {field: wanted for field, _, wanted in found})
         return names(found)
-    return drift_lines(found), fix
+    return Reading(drift_lines(found), fix, hidden)
 
 
 def check_security(session):
@@ -164,7 +197,7 @@ def check_security(session):
     def fix():
         session.write('PATCH', '', {'security_and_analysis': {field: {'status': value} for field, _, value in found}})
         return names(found)
-    return drift_lines(found), fix
+    return Reading(drift_lines(found), fix)
 
 
 def toggle(key, endpoint, enabled_in):
@@ -176,7 +209,7 @@ def toggle(key, endpoint, enabled_in):
         def fix():
             session.write('PUT' if wanted else 'DELETE', endpoint)
             return f'{key} {"enabled" if wanted else "disabled"}'
-        return drift_lines(found), fix
+        return Reading(drift_lines(found), fix)
     return check
 
 
@@ -210,7 +243,7 @@ def check_actions(session):
         if FORK_KEY in changed:
             session.write('PUT', 'actions/permissions/fork-pr-contributor-approval', {'approval_policy': wanted[FORK_KEY]})
         return names(found)
-    return drift_lines(found), fix
+    return Reading(drift_lines(found), fix)
 
 
 def check_code_scanning(session):
@@ -220,7 +253,7 @@ def check_code_scanning(session):
     def fix():
         session.write('PATCH', 'code-scanning/default-setup', wanted)
         return names(found)
-    return drift_lines(found), fix
+    return Reading(drift_lines(found), fix)
 
 
 def form(value):
@@ -235,15 +268,17 @@ def normalize_rule(rule):
 
 
 def normalize(body):
-    """The parts of a ruleset the policy owns, in an order that does not depend on the answer."""
-    return {
-        'target': body['target'],
-        'enforcement': body['enforcement'],
-        'conditions': body['conditions'],
-        'bypass_actors': sorted(([actor.get('actor_id'), actor['actor_type'], actor['bypass_mode']]
-                                 for actor in body['bypass_actors']), key=form),
-        'rules': sorted((normalize_rule(rule) for rule in body['rules']), key=lambda rule: (rule['type'], form(rule))),
+    """The parts of a ruleset the policy owns that the answer holds, in an order that does not depend on the answer."""
+    forms = {
+        'target': lambda value: value,
+        'enforcement': lambda value: value,
+        'conditions': lambda value: value,
+        'bypass_actors': lambda actors: sorted(([actor.get('actor_id'), actor['actor_type'], actor['bypass_mode']]
+                                               for actor in actors), key=form),
+        'rules': lambda rules: sorted((normalize_rule(rule) for rule in rules),
+                                      key=lambda rule: (rule['type'], form(rule))),
     }
+    return {key: forms[key](body[key]) for key in RULESET_KEYS if key in body}
 
 
 def committed_rulesets(session):
@@ -266,16 +301,18 @@ def check_rulesets(session):
     # GitHub allows at most 75 rulesets, so one page of 100 lists them all.
     live = {entry['name']: entry['id'] for entry in session.read('rulesets?per_page=100') or []}
     drifts = []
+    hidden = []
     writes = []
     for name, body in committed.items():
         if name not in live:
             drifts.append(f'{name} missing')
             writes.append(('POST', 'rulesets', body, f'{name} created'))
             continue
-        wanted, current = normalize(body), normalize(session.read(f'rulesets/{live[name]}'))
-        changed = [key for key in RULESET_KEYS if wanted[key] != current[key]]
-        if changed:
-            drifts.append(f'{name} differs in {" and ".join(changed)}')
+        wanted = normalize(body)
+        found, unseen = compare(session, normalize(session.read(f'rulesets/{live[name]}')), wanted)
+        hidden += [f'{name} {key}' for key in unseen]
+        if found:
+            drifts.append(f'{name} differs in {" and ".join(field for field, _, _ in found)}')
             writes.append(('PUT', f'rulesets/{live[name]}', body, f'{name} updated'))
     drifts += [f'unmanaged {name}' for name in live if name not in committed]
 
@@ -283,7 +320,7 @@ def check_rulesets(session):
         for method, suffix, body, _ in writes:
             session.write(method, suffix, body)
         return ', '.join(done for *_, done in writes)
-    return drifts, fix
+    return Reading(drifts, fix, hidden)
 
 
 SUBJECTS = {
@@ -321,32 +358,33 @@ def inspect(subject, session):
         return None
 
 
-def report(subject, drifts):
-    if not drifts:
+def report(subject, reading):
+    if not reading.drifts:
         say(subject, 'ok')
-    for line in drifts:
+    for line in reading.drifts:
         say(subject, f'drift: {line}')
-    return not drifts
+    if reading.hidden:
+        say(subject, f'unchecked: {", ".join(reading.hidden)}, which GitHub shows only to an administrator')
+    return not reading.drifts
 
 
 def settle(subject, session, apply):
     """Report one subject, make it match first when asked, and return whether it ends ok."""
-    found = inspect(subject, session)
-    if found is None:
+    reading = inspect(subject, session)
+    if reading is None:
         return False
-    drifts, fix = found
-    if not apply or not drifts:
-        return report(subject, drifts)
+    if not apply or not reading.drifts:
+        return report(subject, reading)
     try:
-        done = fix()
+        done = reading.fix()
     except UNUSABLE as error:
         say(subject, f'cannot apply: {reason(error)}')
         return False
     if done:
         say(subject, f'applied {done}')
     session.forget()
-    found = inspect(subject, session)
-    return found is not None and report(subject, found[0])
+    reading = inspect(subject, session)
+    return reading is not None and report(subject, reading)
 
 
 def run(subjects, apply):

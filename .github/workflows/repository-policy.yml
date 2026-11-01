@@ -1,10 +1,11 @@
 # Reads GitHub's live settings and rulesets against .github/repository-policy.json
-# and .github/rulesets, weekly and on each change to them, with a token of the
-# promotion app. GitHub returns a ruleset's bypass actors and the merge settings
-# only to an administrator, so the token holds Administration read and write
-# for this job alone. The command changes nothing without --apply: a drift
-# fails the run, and the maintainer resolves it with
-# tools/repository-policy.py --apply.
+# and .github/rulesets, weekly and on each change to them, with a read-only
+# token of the promotion app. The command changes nothing: a drift fails the
+# run, and the maintainer resolves it with tools/repository-policy.py --apply.
+# GitHub shows the merge settings and a ruleset's bypass actors only to an
+# administrator, so this run reports them unchecked and the maintainer's own
+# run covers them: a token that could read them could also rewrite every
+# ruleset, and this job runs whatever dev holds.
 # Setup: docs/maintaining.md "Promotion app". Decision: ADR-0073.
 name: repository-policy
 
@@ -37,7 +38,7 @@ jobs:
         with:
           client-id: ${{ vars.PROMOTE_APP_CLIENT_ID }}
           private-key: ${{ secrets.PROMOTE_APP_PRIVATE_KEY }}
-          permission-administration: write
+          permission-administration: read
           permission-security-events: read
 
       - name: Compare GitHub with the committed policy
