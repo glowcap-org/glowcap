@@ -49,8 +49,7 @@ class ReleaseBuild(unittest.TestCase):
                 self.assertNotRegex(body, r'(?m)^    if:')
                 self.assertRegex(body, rf'(?m)^    needs: {re.escape(needs)}$' if needs else r'(?m)^    timeout-minutes')
         self.assertNotIn('needs:', RELEASE['contract'].body)
-        self.assertEqual(set(re.findall(r'(?m)^  ([\w-]+):$', WORKFLOW.read_text().split('\njobs:\n', 1)[1])),
-                         {'contract', 'archives', 'images', 'release'})
+        self.assertEqual(set(RELEASE), {'contract', 'archives', 'images', 'release'})
 
     def test_triggers_are_a_version_tag_and_a_bare_dispatch(self):
         source = WORKFLOW.read_text()
@@ -134,7 +133,7 @@ class ReleaseBuild(unittest.TestCase):
                                  present and not cancelled)
 
     def test_packaging_contracts_run_before_product_compilation(self):
-        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        workflow = WORKFLOW.read_text()
         before = workflow.index('      - name: Check release packaging contracts\n')
         self.assertLess(before, workflow.index('      - name: Install the matching browser compiler\n'))
         self.assertLess(before, workflow.index('      - name: Build the release archives\n'))
@@ -175,27 +174,10 @@ class ReleaseBuild(unittest.TestCase):
                         PACKAGE.sidecar_exports(consumer, 'iroh', nm)
                 run.assert_called_once_with(nm, '-g', str(consumer / 'zig-out/sidecars.a'), cwd=consumer, timeout=30)
 
-    def test_archive_acquisition_delegates_and_propagates_failure(self):
-        block = step(RELEASE['archives'].body, 'Fetch pinned Zig dependencies')
-        script = re.search(r'(?m)^        run: (.+)$', block)[1]
-        self.assertEqual(script, 'python3 ci/gates.py fetch')
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            (directory / 'ci').mkdir()
-            (directory / 'ci/gates.py').write_text(
-                'import os, sys\nopen(os.environ["FETCH_LOG"], "w").write(" ".join(sys.argv[1:]))\n'
-                'sys.exit(int(os.environ["FETCH_STATUS"]))\n')
-            log = directory / 'fetch-arguments'
-            for status in (0, 37, 143):
-                with self.subTest(status=status):
-                    log.unlink(missing_ok=True)
-                    result = subprocess.run(['bash', '-ec', script], cwd=directory,
-                                            env=dict(os.environ, FETCH_LOG=str(log), FETCH_STATUS=str(status)),
-                                            capture_output=True, text=True, timeout=10)
-                    self.assertEqual(result.returncode, status, result.stderr)
-                    self.assertEqual(log.read_text(), 'fetch')
+    def test_archives_fetch_through_the_shared_front(self):
+        self.assertEqual(shell_step(WORKFLOW.read_text(), 'Fetch pinned Zig dependencies'), 'python3 ci/gates.py fetch')
 
-    def test_release_version_and_publication_stay_pre_one(self):
+    def test_release_version_stays_pre_one(self):
         source = WORKFLOW.read_text()
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -213,37 +195,6 @@ class ReleaseBuild(unittest.TestCase):
                                             cwd=directory, env=environment, capture_output=True, text=True)
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
                     self.assertEqual(output.read_text(), f'value={version}\n' if accepted else '')
-            gh = directory / 'gh'
-            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$GH_CALLS"\n')
-            gh.chmod(0o755)
-            (directory / 'artifacts').mkdir()
-            (directory / 'artifacts/release-notes.md').write_text('notes\n')
-            (directory / 'release-assets').mkdir()
-            checker = directory / 'ci/github_release.py'
-            checker.parent.mkdir(parents=True)
-            checker.write_text('import json, os, sys\n'
-                               "with open(os.environ['CHECK_CALLS'], 'a') as log:\n"
-                               "    log.write(' '.join(sys.argv[1:]) + '\\n')\n"
-                               "if sys.argv[1] == 'draft-state':\n"
-                               "    print(json.dumps({'draft_exists': False, 'missing_assets': []}))\n")
-            gh_calls, check_calls = directory / 'gh-calls', directory / 'check-calls'
-            environment.update(PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
-                               GH_CALLS=str(gh_calls), CHECK_CALLS=str(check_calls),
-                               GITHUB_REF_NAME='different-branch', RELEASE_TAG='v0.1.0', GITHUB_REPOSITORY='owner/project')
-            result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c',
-                                     shell_step(source, 'Fill the draft release, then make it public')],
-                                    cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            create, edit = [call.split() for call in gh_calls.read_text().splitlines()]
-            self.assertEqual(create[:3], ['release', 'create', 'v0.1.0'])
-            for flag in ('--prerelease', '--draft', '--latest=false', '--verify-tag'):
-                self.assertIn(flag, create)
-            self.assertIn('glowcap v0.1.0 alpha', ' '.join(create))
-            self.assertEqual(edit[:3], ['release', 'edit', 'v0.1.0'])
-            self.assertIn('--draft=false', edit)
-            self.assertIn('--prerelease', edit)
-            self.assertIn('--latest=false', edit)
-            self.assertEqual(check_calls.read_text().splitlines(), ['draft-state v0.1.0', 'verify-draft v0.1.0'])
 
     def test_macos_shared_archive_records_its_abi_major(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -321,8 +272,7 @@ class ReleaseBuild(unittest.TestCase):
             self.assertNotIn('searched paths: none', result.stderr)
 
     def test_archive_build_selects_the_sdk_only_on_macos(self):
-        script = shell_step((ROOT / '.github/workflows/release.yml').read_text(),
-                            'Build the release archives')
+        script = shell_step(WORKFLOW.read_text(), 'Build the release archives')
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             log = directory / 'arguments.json'

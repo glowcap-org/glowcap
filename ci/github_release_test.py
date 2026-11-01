@@ -427,8 +427,10 @@ else:
                                                          ['release', 'upload'], ['release', 'edit']])
         for flag in ('--draft', '--prerelease', '--latest=false', '--verify-tag'):
             self.assertIn(flag, calls[0])
+        self.assertIn(f'glowcap {TAG} alpha', calls[0])
         self.assertEqual([call[3] for call in calls[1:3]], ['release-assets/a', 'release-assets/b'])
-        self.assertIn('--draft=false', calls[3])
+        for flag in ('--draft=false', '--prerelease', '--latest=false'):
+            self.assertIn(flag, calls[3])
         self.assertTrue(verified)
 
     def test_an_existing_draft_is_resumed_without_creating_another(self):

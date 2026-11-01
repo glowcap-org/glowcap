@@ -9,33 +9,29 @@ with stub curl and cargo. This does not reach a registry or GitHub runners.
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import tempfile
 import unittest
 
-from workflows import ROOT, shell_step
+from workflows import ROOT, jobs, shell_step
 
 
 WORKFLOW = ROOT / '.github/workflows/publish.yml'
 REGISTRY_JOBS = {'pypi': 'pypi', 'crates-io': 'crates-io', 'jsr': 'jsr'}
 
 
-def jobs():
-    source = WORKFLOW.read_text().split('\njobs:\n', 1)
-    found = dict(re.findall(r'^  ([\w-]+):\n((?: {4}[^\n]*\n|\n)*)', source[1], re.M))
-    return source[0], found
+PUBLISH = {name: job.body for name, job in jobs('.github/workflows/publish.yml').items()}
 
 
 class PublishWorkflow(unittest.TestCase):
     def test_registry_jobs_follow_the_contract_in_their_environments(self):
-        top, found = jobs()
-        self.assertEqual(set(found), {'contract', *REGISTRY_JOBS})
+        top = WORKFLOW.read_text().split('\njobs:\n', 1)[0]
+        self.assertEqual(set(PUBLISH), {'contract', *REGISTRY_JOBS})
         self.assertRegex(top, r'(?m)^permissions:\n  contents: read\n$')
         self.assertNotIn('id-token', top)
         self.assertIn('workflow_dispatch:', top)
         for name, environment in REGISTRY_JOBS.items():
-            body = found[name]
+            body = PUBLISH[name]
             with self.subTest(job=name):
                 self.assertRegex(body, r'(?m)^    needs: contract$')
                 self.assertRegex(body, rf'(?m)^    environment: {environment}$')
@@ -43,9 +39,9 @@ class PublishWorkflow(unittest.TestCase):
                 self.assertNotRegex(body, r'(?m)^      (contents|packages|actions): write$')
                 self.assertIn('ref: ${{ needs.contract.outputs.commit }}', body)
                 self.assertIn('binding_packages.py --registry "$VERSION"', body)
-        self.assertNotIn('id-token', found['contract'])
-        self.assertIn('python3 ci/github_release.py published "$RELEASE_TAG"', found['contract'])
-        self.assertIn('ref: refs/tags/${{ inputs.tag }}', found['contract'])
+        self.assertNotIn('id-token', PUBLISH['contract'])
+        self.assertIn('python3 ci/github_release.py published "$RELEASE_TAG"', PUBLISH['contract'])
+        self.assertIn('ref: refs/tags/${{ inputs.tag }}', PUBLISH['contract'])
 
     def test_registry_steps_skip_a_version_the_registry_holds(self):
         source = WORKFLOW.read_text()
@@ -78,8 +74,7 @@ class PublishWorkflow(unittest.TestCase):
     def test_the_contract_job_alone_requires_the_tag_of_its_checkout(self):
         source = WORKFLOW.read_text()
         self.assertEqual(source.count("Require the tag's version"), 1)
-        _, found = jobs()
-        self.assertIn("- name: Require the tag's version", found['contract'])
+        self.assertIn("- name: Require the tag's version", PUBLISH['contract'])
         script = shell_step(source, "Require the tag's version")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -93,8 +88,7 @@ class PublishWorkflow(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
 
     def test_release_dispatches_publication_after_the_release_is_public(self):
-        source = (ROOT / '.github/workflows/release.yml').read_text()
-        release = re.search(r'(?m)^  release:\n((?: {4}[^\n]*\n|\n)*)', source)[1]
+        release = jobs('.github/workflows/release.yml')['release'].body
         self.assertRegex(release, r'(?m)^      actions: write$')
         publish = release.index('--draft=false')
         dispatch = release.index('gh workflow run publish.yml')
