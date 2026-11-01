@@ -216,9 +216,12 @@ def ci_stores(work, environment):
 
 
 def start(image):
-    if not re.fullmatch(r"(ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+/devcontainer@)?sha256:[0-9a-f]{64}", image):
+    reference = re.fullmatch(
+        r"(?P<registry>ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+/devcontainer@)?sha256:[0-9a-f]{64}", image
+    )
+    if reference is None:
         raise ValueError("consumer requires an immutable image reference")
-    if image.startswith("ghcr.io/"):
+    if reference["registry"]:
         run("docker", "pull", image)
     else:
         archive = Path(os.environ["RUNNER_TEMP"]) / "devcontainer.tar"
