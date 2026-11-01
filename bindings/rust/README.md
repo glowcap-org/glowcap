@@ -1,12 +1,20 @@
 # Rust binding
 
-This crate lets Rust connect to OCapN peers, call their objects, and host objects of its own. It
-is not published, so use a checkout of the repository: run `zig build`, then add the crate by
-path. Terms such as locator, Host, and sturdyref are defined in the
+This crate lets Rust connect to OCapN peers, call their objects, and host objects of its own.
+Terms such as locator, Host, and sturdyref are defined in the
 [glossary](../../docs/capabilities.md#glossary).
 
-Add the checkout path to your application's `Cargo.toml`, with the `async`
-feature for the session API:
+Add the crate with the `async` feature for the session API:
+
+```sh
+cargo add glowcap --features async
+```
+
+The build script downloads the C libraries of the crate's version from the
+GitHub release and verifies them against its checksum file. Set
+`GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/` directory to build against a
+local copy. In a checkout of the repository, run `zig build` and depend on the
+crate by path instead:
 
 ```toml
 [dependencies]

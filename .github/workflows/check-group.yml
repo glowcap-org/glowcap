@@ -198,7 +198,9 @@ jobs:
       # failure in the group.
       - name: Pack the compiled state
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
-        run: ci/state.sh pack "$RUNNER_TEMP/state-${{ matrix.shard }}.tar.zst"
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: ci/state.sh pack "$RUNNER_TEMP/state-$SHARD.tar.zst"
 
       # A transfer finishes in seconds or stalls with no end of its own, so
       # each one is bounded. The handoff is required and a stalled transfer
@@ -292,11 +294,14 @@ jobs:
       # A pattern that matches one artifact extracts it into `path` itself, and
       # one that matches several gives each its own directory. Merging keeps
       # every shard's uniquely named archive in `path` either way.
-      # Bounded and retried once, like the build job's handoff.
+      # Bounded and retried once, like the build job's handoff. Artifact
+      # downloads run at 15 to 90 MB/s depending on the runner: the runtime
+      # group's 4.7 GB state measured 66 s on one and over five minutes on
+      # another. The bound is twice the slow runner's time for that state.
       - name: Receive the group's compiled state
         id: receive
         if: needs.build.result != 'skipped'
-        timeout-minutes: 5
+        timeout-minutes: 12
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: &receive
@@ -306,7 +311,7 @@ jobs:
 
       - name: Receive the group's compiled state again
         if: needs.build.result != 'skipped' && steps.receive.outcome == 'failure'
-        timeout-minutes: 5
+        timeout-minutes: 12
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *receive
 
@@ -316,6 +321,12 @@ jobs:
       # successful build packed, so a missing archive is a handoff defect. A
       # shard whose build failed before packing hands over nothing, and this
       # job compiles its share so the run still reports each phase.
+      # The transfer gives every cached file a new inode, and that alone makes
+      # Zig rerun each step whose input is a built artifact: the source
+      # generators and the archives that link C or Rust objects. Zig names
+      # anonymous symbols differently on each compile, so the rebuilt archives
+      # change bytes and Cargo relinks the Rooms peers. The first gate of a
+      # test job pays about four minutes for this.
       - name: Restore the group's compiled state
         if: needs.build.result != 'skipped'
         env:
@@ -348,7 +359,9 @@ jobs:
 
       - name: Run the phase
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
-        run: $EXEC bash ci/gates.sh ${{ matrix.phase }}
+        env:
+          PHASE: ${{ matrix.phase }}
+        run: $EXEC bash ci/gates.sh "$PHASE"
 
       # The evidence record is the run's product: what ran, on what, and how
       # each gate ended. It is kept on failure too, since a red run's record

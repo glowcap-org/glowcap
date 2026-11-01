@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "glowcap"
 authors = [{name = "Glowcap LLC"}]
-version = "0.1.0"
+version = "0.1.1"
 description = "Python ctypes binding for the glowcap C ABI archives (codec-neutral CapTP core for OCapN)."
 readme = "README.md"
 requires-python = ">=3.11"

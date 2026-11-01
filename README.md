@@ -5,13 +5,14 @@
 [![Zig](https://img.shields.io/badge/language-Zig-f7a41d.svg)](https://ziglang.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 [![checks](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml/badge.svg)](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/glowcap-org/glowcap/badge)](https://scorecard.dev/viewer/?uri=github.com/glowcap-org/glowcap)
 
 glowcap is a low-level Zig library for capability-based communication and
 durable application state. It combines [OCapN](https://github.com/ocapn/ocapn)
 and CapTP networking with [Loam](docs/loam.md), its transactional storage and
 durable actor system. Applications control memory, I/O, and scheduling.
 
-**0.1.0 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
+**0.1.1 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
 change before 1.0. glowcap has not received an independent security audit.
 Read [what ships](docs/shipped.md) and the [known limitations](docs/boundaries.md)
 before depending on it.
@@ -50,6 +51,24 @@ access, delegation, and revocation.
 Build checks hold selected allocation, copy, and state-size budgets.
 [Performance measurements](https://glowcap.org/performance/) report protocol,
 transport, binding, and Loam costs with their workloads and methods.
+
+## Downloads
+
+One command installs the newest release for this machine. It verifies the
+download against the release checksums before running the product's own
+installer:
+
+```sh
+curl -fsSL https://glowcap.org/install.sh | sh
+```
+
+To install by hand, download the **CLI + Rooms** product from
+[GitHub Releases](https://github.com/glowcap-org/glowcap/releases). It holds
+the CLI, Rooms, browser assets, and agent skills, in
+`glowcap-vVERSION-ARCH-OS.tar.gz`. The `glowcap-c-` archives are the separate
+[C SDK](docs/c-sdk.md) for building applications. The
+[installation guide](apps/rooms/host.md) covers verification and installation,
+and the [changelog](CHANGELOG.md) lists what each release changed.
 
 ## Quick start
 

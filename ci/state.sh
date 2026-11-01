@@ -26,11 +26,13 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
+cargo_build="$HOME/.cache/glowcap/ci/cargo-build"
+
 stores() {
   printf '%s\n' \
     "$HOME/.cache/glowcap/tool/zig" \
     "$HOME/.cache/glowcap/ci/zig-local" \
-    "$HOME/.cache/glowcap/ci/cargo-build" \
+    "$cargo_build" \
     "$HOME/.cache/glowcap/tool/deno/gen" \
     "$HOME/.cache/glowcap/tool/deno/check_cache_v2" \
     "$HOME/.cache/glowcap/tool/deno/dep_analysis_cache_v2" \
@@ -64,6 +66,14 @@ case "${1:-}" in
     [ -e "$root/zig-out" ] && paths+=("$root/zig-out")
     [ "${#paths[@]}" -gt 0 ] || { echo "ci/state.sh: nothing to pack" >&2; exit 1; }
     du -sh "${paths[@]}"
+    # Cargo keys each workspace's build directory by a hash of its path, and
+    # `cargo metadata` run in that workspace names the directory. Size each
+    # profile so the listing shows which build fills the store.
+    for profile in "$cargo_build"/*/*/*/; do
+      [ -d "$profile" ] || continue
+      size=$(du -sk "$profile" | cut -f1 | awk '{ printf "%.1fG", $1 / 1048576 }')
+      printf '%s\t%s\n' "$size" "${profile#"$cargo_build"/}"
+    done
     tar -P --use-compress-program='zstd -T0 -3' -cf "$2" "${paths[@]}"
     ls -l "$2"
     ;;

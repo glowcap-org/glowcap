@@ -63,7 +63,7 @@ pub const Audience = enum { human, agent, shared };
 /// Human docs by place: every `site/content` page, the front doors at the
 /// root, and the README that opens each tree, app and published package
 /// (`frontPage`). A new app or package is human from its first commit.
-pub const human_roots = [_][]const u8{ "README.md", "SECURITY.md", "PROVENANCE.md" };
+pub const human_roots = [_][]const u8{ "README.md", "SECURITY.md", "PROVENANCE.md", "CHANGELOG.md" };
 
 /// Trees whose direct subdirectories are apps or packages, each opened by its
 /// README.
@@ -98,7 +98,7 @@ pub const temporary_homes = [_]Home{
 
 /// Where docs live: these trees, plus the docs at the root.
 pub const doc_trees = [_][]const u8{ "docs", "apps", "bindings", "bench", "examples", "interop", "conformance", "site/content", ".agents", "test", "tools" };
-pub const root_docs = [_][]const u8{ "README.md", "CONTRIBUTING.md", "SECURITY.md", "PROVENANCE.md", "AGENTS.md" };
+pub const root_docs = [_][]const u8{ "README.md", "CONTRIBUTING.md", "SECURITY.md", "PROVENANCE.md", "AGENTS.md", "CHANGELOG.md" };
 
 /// A doc we write. Vendored upstream checkouts are someone else's.
 pub fn isDoc(path: []const u8) bool {

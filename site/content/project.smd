@@ -9,7 +9,7 @@
 Glowcap LLC, an Ohio limited liability company, maintains glowcap.
 The canonical source is [glowcap-org/glowcap](https://github.com/glowcap-org/glowcap).
 
-glowcap 0.1.0 is alpha software, licensed under Apache-2.0. It provides
+glowcap is alpha software, licensed under Apache-2.0. It provides
 capability-based networking and Loam transactional storage and durable actors.
 Public APIs, ABIs, and storage formats can change before 1.0. It has not
 received a security audit, and it should not carry data you cannot afford to lose.
@@ -17,7 +17,7 @@ received a security audit, and it should not carry data you cannot afford to los
 defines the security posture and the private reporting process.
 
 CapTP `1.0` names a wire protocol supported by glowcap. The software version
-is `0.1.0` alpha.
+is `0.1.1` alpha.
 
 # Where to go next
 

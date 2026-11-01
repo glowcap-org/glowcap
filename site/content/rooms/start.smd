@@ -12,25 +12,20 @@ another device.
 
 # Start Rooms
 
-From the glowcap checkout, run:
+Install the [CLI + Rooms product](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)
+for your machine from [GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
+Choose the `glowcap-vVERSION-ARCH-OS.tar.gz` download. It includes the services
+and prepared browser files, so it needs no compiler.
 
 ```sh
-zig build rooms-web
+glowcap apps rooms serve
 ```
 
-This builds the services, the browser's WebAssembly, and the interface, then
-serves the page at `http://localhost:8080`. Peers reach the server over
-encrypted [iroh]($link.page('transports/iroh')). The build needs Zig, Cargo,
-and Deno.
-
-To stay on your own machine with no iroh at all, use:
-
-```sh
-zig build rooms-web -Dtransport=tcp
-```
-
-That sends everything over plain TCP, with no encryption and no proof of who
-is on the other end. Use it to look around, never to put Rooms on a network.
+Open the browser URL it prints. Peers reach the directory over encrypted
+[iroh]($link.page('transports/iroh')). The web page listens on loopback by
+default. See the [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
+for Docker and public hosting, or [developing Rooms](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/developing.md)
+to build and run from a checkout.
 
 # Choose where your session lives
 

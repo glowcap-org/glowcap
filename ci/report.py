@@ -14,7 +14,7 @@ import subprocess
 import sys
 
 
-REQUIRED = ('plan', 'image', 'linux', 'macos-runtime')
+REQUIRED = ('plan', 'image', 'linux', 'macos-runtime', 'workflows')
 
 
 def qualification(needs):

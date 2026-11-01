@@ -1,0 +1,43 @@
+# Reads GitHub's live settings and rulesets against .github/repository-policy.json
+# and .github/rulesets, weekly and on each change to them, with a read-only token
+# of the promotion app. It changes nothing: a drift fails the run, and the
+# maintainer resolves it with tools/repository-policy.py --apply.
+# Setup: docs/maintaining.md "Promotion app". Decision: ADR-0073.
+name: repository-policy
+
+on:
+  schedule:
+    - cron: "53 6 * * 1"
+  push:
+    branches: [dev]
+    paths:
+      - .github/repository-policy.json
+      - .github/rulesets/**
+      - .github/workflows/repository-policy.yml
+      - tools/repository-policy.py
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Mint the promotion app's read-only token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PROMOTE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PROMOTE_APP_PRIVATE_KEY }}
+          permission-administration: read
+          permission-security-events: read
+
+      - name: Compare GitHub with the committed policy
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: python3 tools/repository-policy.py

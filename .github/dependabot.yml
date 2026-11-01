@@ -3,11 +3,14 @@
 # to one full run per cycle. Toolchain pins (.devcontainer/pins.sh), the
 # devcontainer and Rooms deploy base images, Zig packages (build.zig.zon), Mbed
 # TLS, and the conformance submodules move through their own owners and are not
-# watched here.
+# watched here. Every update waits a week after its release, so a version pulled
+# or compromised in its first days never reaches a pull request.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
     groups:
@@ -26,6 +29,8 @@ updates:
       - /bindings/rust
       - /bindings/rust/relay
       - /transports
+    cooldown:
+      default-days: 7
     schedule:
       interval: monthly
     open-pull-requests-limit: 2
@@ -37,6 +42,8 @@ updates:
     directories:
       - /bindings/python
       - /conformance/ocapn-conformance
+    cooldown:
+      default-days: 7
     schedule:
       interval: monthly
     open-pull-requests-limit: 2

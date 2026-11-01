@@ -306,6 +306,19 @@ class ArchivePublication(unittest.TestCase):
     def snapshot(self):
         return {path.name: path.read_bytes() for path in self.output.iterdir()}
 
+    def test_sdk_omits_empty_product_directories(self):
+        (self.source / "lib/library.a").write_bytes(b"library")
+        (self.source / "include/library.h").write_bytes(b"header")
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tarfile.open(self.output / "glowcap-test.tar.gz") as archive:
+            names = set(archive.getnames())
+        self.assertIn("lib/library.a", names)
+        self.assertIn("include/library.h", names)
+        self.assertNotIn("bin", names)
+        self.assertNotIn("libexec", names)
+        self.assertNotIn("share", names)
+
     def test_checksum_failure_preserves_the_previous_generation(self):
         result = self.publish("sha256sum() { return 81; }; shasum() { return 81; }")
         self.assertNotEqual(result.returncode, 0)

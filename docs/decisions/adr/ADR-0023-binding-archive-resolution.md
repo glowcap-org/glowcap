@@ -7,7 +7,7 @@ decision: "A shipped machine-readable contract defines archive versions, targets
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0075]
 ---
 
 # ADR-0023 Binding archive resolution
@@ -26,8 +26,8 @@ Each binding owns its download and extraction path. The operator fetch script is
 
 An implicit checkout search would make local development succeed while a package fails. A single shell downloader would add an undeclared runtime prerequisite. Independent undocumented loader formulas would drift across languages.
 
-Published-release lookup remains controlled by the contract's publication switch. A valid resolver implementation does not establish that release assets exist or are accessible. A release needs a cold-cache consumer check against its actual URL.
+A valid resolver implementation does not establish that release assets exist or are accessible. A release needs a cold-cache consumer check against its actual URL, which [ADR-0075](ADR-0075-release-publication-at-the-tag.md) places in the publication workflow.
 
 ## Evidence
 
-Resolution cases, target aliases, damaged archives and cache markers have shared contract tests. [The packaging guide](../../../bindings/PACKAGING.md) owns the transition to published assets.
+Resolution cases, target aliases, damaged archives and cache markers have shared contract tests. [The packaging guide](../../../bindings/PACKAGING.md) owns the resolution order and the download controls.

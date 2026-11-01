@@ -1,12 +1,15 @@
 //! Install one build output so a consumer sees a new file only when its bytes
-//! change. `common.installIfChanged` runs it for every archive a foreign build
+//! change. `common.installIfChanged` runs it for every archive a Rust build
 //! links by path. Cargo decides freshness by mtime, and Zig 0.17 rewrites a
 //! byte-identical output whenever an input's metadata changes: a fresh
 //! checkout or a cache restore gives every C source a new inode. The stock
 //! install step copies on any mtime difference, so each such rewrite would
-//! rerun every Rust build script that watches the archive. A GNU-format
-//! archive installs with its member names reduced to file names
-//! (`gnu_archive.zig` says why), and every other file installs as built.
+//! rerun every Rust build script that watches the archive. `common.rustSidecar`
+//! runs it the other way, on the staticlib Cargo hands Zig, because Cargo
+//! replaces that file on every build and Zig takes a new inode or mtime as a
+//! changed link input. A GNU-format archive installs with its member names
+//! reduced to file names (`gnu_archive.zig` says why), and every other file
+//! installs as built.
 //!
 //! Arguments: the source file, the destination directory, then the symlink
 //! chain a shared library carries, where the first link names the installed

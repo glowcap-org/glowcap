@@ -12,9 +12,10 @@ Publishable cascade (ADR-0023, see ``c-abi-resolve.json`` and
 
 Download posture (native C-ABI packaging practice): HTTPS-only base URL,
 required SHA256SUMS verification before extract, extract only the ``lib/``
-prefix with path-traversal rejection, size-capped transfer. When contract
-``releases_published`` is false, skip the network attempt unless
-``GLOWCAP_DOWNLOAD=1`` (in-tree dogfoods use ``zig-out``). Hygiene failures
+prefix with path-traversal rejection, size-capped transfer. A package outside
+a checkout downloads its own version unless ``GLOWCAP_SKIP_DOWNLOAD=1``. A
+checkout uses ``zig-out`` and downloads only with ``GLOWCAP_DOWNLOAD=1``, so a
+version with no release attempts no network inside the tree. Hygiene failures
 (non-HTTPS, checksum miss/mismatch, unsafe/link tar members, extract
 refusal) always hard-fail. ``GLOWCAP_STRICT=1`` fail-closes soft paths
 (network/tooling). ``GLOWCAP_ALLOW_INSECURE=1`` is the only escape from HTTPS.
@@ -71,15 +72,14 @@ def _contract() -> dict:
             raise RuntimeError("c-abi-resolve.json: require_https must be true")
         if loaded.get("require_checksum") is not True:
             raise RuntimeError("c-abi-resolve.json: require_checksum must be true")
-        if not isinstance(loaded.get("releases_published"), bool):
-            raise RuntimeError("c-abi-resolve.json: releases_published must be a bool")
         _CONTRACT = loaded
     return _CONTRACT
 
 
-def _want_release_fetch(contract: dict) -> bool:
-    """Cold-cache network gate from contract `releases_published`."""
-    if contract["releases_published"]:
+def _want_release_fetch(dev_root: pathlib.Path | None) -> bool:
+    """Cold-cache network gate: a package outside a checkout downloads its
+    version unless GLOWCAP_SKIP_DOWNLOAD; a checkout only with GLOWCAP_DOWNLOAD."""
+    if dev_root is None:
         return not _env_truthy("GLOWCAP_SKIP_DOWNLOAD")
     return _env_truthy("GLOWCAP_DOWNLOAD")
 
@@ -397,15 +397,14 @@ def _lib_dir() -> pathlib.Path | None:
         return cache_lib
 
     if zig_out is not None and (zig_out / marker).is_file():
-        # GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists,
-        # including when releases_published is false.
+        # GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists.
         if _env_truthy("GLOWCAP_DOWNLOAD"):
             _fetch_into_cache(contract, version, target, cache_lib)
             if (cache_lib / marker).is_file():
                 return cache_lib
         return zig_out
 
-    if _want_release_fetch(contract):
+    if _want_release_fetch(dev_root):
         _fetch_into_cache(contract, version, target, cache_lib)
         if (cache_lib / marker).is_file():
             return cache_lib

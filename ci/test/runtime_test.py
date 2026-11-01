@@ -218,9 +218,17 @@ class RuntimeTest(unittest.TestCase):
                 output.parent.mkdir(parents=True)
                 output.write_text(f'output {index}\n')
                 os.utime(output, (1700000100 + index, 1700000100 + index))
+            # Cargo names a workspace's build directory by a path hash, and the
+            # pack listing sizes each of its profiles, an empty one included.
+            cargo = Path(stores[2]) / 'ab/cdef0123456789'
+            (cargo / 'debug/deps').mkdir(parents=True)
+            (cargo / 'release').mkdir()
+            (cargo / 'debug/deps/librooms_product.rlib').write_bytes(b'\0' * 2_097_152)
             archive = base / 'state.tar.zst'
             packed = state('pack', str(archive))
             self.assertEqual(packed.returncode, 0, packed.stderr)
+            self.assertIn('\nab/cdef0123456789/debug/\n', packed.stdout.replace('\t', '\n'))
+            self.assertRegex(packed.stdout, r'\n0\.0G\tab/cdef0123456789/release/\n')
             shutil.rmtree(home)
             shutil.rmtree(root / 'zig-out')
             unpacked = state('unpack', str(archive))
@@ -238,7 +246,7 @@ class RuntimeTest(unittest.TestCase):
         # several matches its own directory, so only merged, uniquely named
         # archives sit at one path for every shard count.
         workflow = (ROOT / '.github/workflows/check-group.yml').read_text()
-        self.assertIn('ci/state.sh pack "$RUNNER_TEMP/state-${{ matrix.shard }}.tar.zst"', workflow)
+        self.assertIn('          SHARD: ${{ matrix.shard }}\n        run: ci/state.sh pack "$RUNNER_TEMP/state-$SHARD.tar.zst"', workflow)
         self.assertIn('path: ${{ runner.temp }}/state-${{ matrix.shard }}.tar.zst', workflow)
         receive = workflow.split("      - name: Receive the group's compiled state\n", 1)[1].split('\n      - name:', 1)[0]
         self.assertIn('path: ${{ runner.temp }}/state\n', receive)

@@ -35,7 +35,7 @@ const uri_record = @import("uri/record.zig");
 /// (see `glowcap_ocapn.h`). The shared library's soname tracks `major`.
 pub const GLOWCAP_VERSION_MAJOR: u32 = 0;
 pub const GLOWCAP_VERSION_MINOR: u32 = 1;
-pub const GLOWCAP_VERSION_PATCH: u32 = 0;
+pub const GLOWCAP_VERSION_PATCH: u32 = 1;
 
 /// The annotated symbol inventory (crossing semantics per export) the
 /// binding FFI-table generators reflect from. See `symbols.zig`.

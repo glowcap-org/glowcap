@@ -134,24 +134,36 @@ pub fn rootPath(b: *std.Build, sub_path: []const u8) []const u8 {
 }
 
 pub const RustSidecar = struct {
+    /// The cargo build. Flags such as `--features` go here.
     build: *std.Build.Step.Run,
+    /// Cargo's target directory, for the binaries it builds beside the archive.
     target_dir: std.Build.LazyPath,
+    /// The staticlib Zig links. It carries the step that installs it, so a
+    /// module that links it needs no further dependency.
     archive: std.Build.LazyPath,
 };
 
 /// Cargo owns incremental compilation; its stable output directory is a graph
-/// path, so linking a published transport builds its sidecar on demand.
+/// path, so linking a published transport builds its sidecar on demand. Cargo
+/// also replaces the uplifted `release/lib<name>.a` on every build, and where
+/// it cannot hard-link (the CI stores are separate mounts) the copy is a new
+/// inode with a new mtime, which Zig takes as a changed link input and
+/// relinks every consumer. `archive` is that file installed by
+/// `tools/build/install_if_changed.zig`, rewritten only when its bytes change.
 pub fn rustSidecar(b: *std.Build, manifest: []const u8, library: []const u8) RustSidecar {
     const run = addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "build", "--locked", "--release", "--manifest-path", manifest,
     });
     const target_dir = run.addPrefixedOutputDirectoryArg("--target-dir=", "target");
     run.has_side_effects = true;
-    return .{
-        .build = run,
-        .target_dir = target_dir,
-        .archive = target_dir.path(b, b.fmt("release/lib{s}.a", .{library})),
-    };
+    const name = b.fmt("lib{s}.a", .{library});
+    const install = execution.addArtifact(b, .build_tool, installIfChangedExe(b));
+    install.setName(b.fmt("install {s} (sidecar)", .{name}));
+    install.addFileArg(target_dir.path(b, b.fmt("release/{s}", .{name})));
+    const lib = install.addOutputDirectoryArg("lib");
+    // Only the program can see whether the destination holds the bytes.
+    install.has_side_effects = true;
+    return .{ .build = run, .target_dir = target_dir, .archive = lib.path(b, name) };
 }
 
 pub const AbiImport = struct { name: []const u8, module: *std.Build.Module };
@@ -272,6 +284,44 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
     run.step.dependOn(b.getInstallStep());
     run.has_side_effects = true;
     return run;
+}
+
+var goblins_peer_modules: ?*std.Build.Step.Run = null;
+
+/// Every module under `conformance/goblins-peer/racket/`, compiled once per
+/// graph. A Goblins harness spawns its vat from that directory with
+/// `racket -y`, which compiles a module a fresh checkout has not compiled,
+/// and its dependencies, inside the harness's own deadline. The run's argv
+/// never names the module, so `addCompilePreps` cannot see it: a run whose
+/// harness spawns a vat depends on this step instead.
+pub fn goblinsPeerModules(b: *std.Build) *std.Build.Step {
+    if (goblins_peer_modules) |run| return &run.step;
+    const dir_path = "conformance/goblins-peer/racket";
+    const run = addRootedSystemCommand(b, .build_tool, &.{ "raco", "make" });
+    run.setName(b.fmt("raco make {s}", .{dir_path}));
+    run.has_side_effects = true;
+    b.dependOnDirectoryContents(b.path(dir_path));
+    const io = b.graph.io;
+    var dir = b.root.root_dir.handle.openDir(io, dir_path, .{ .iterate = true }) catch |err|
+        std.debug.panic("Goblins peer modules: {s}", .{@errorName(err)});
+    defer dir.close(io);
+    var paths: std.ArrayList([]const u8) = .empty;
+    var entries = dir.iterate();
+    while (entries.next(io) catch |err|
+        std.debug.panic("Goblins peer module discovery: {s}", .{@errorName(err)})) |entry|
+    {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".rkt")) continue;
+        paths.append(b.allocator, b.fmt("{s}/{s}", .{ dir_path, entry.name })) catch @panic("OOM");
+    }
+    // Directory order is unspecified, and the step's argv should read the same on every host.
+    std.mem.sort([]const u8, paths.items, {}, struct {
+        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return std.mem.lessThan(u8, lhs, rhs);
+        }
+    }.lessThan);
+    for (paths.items) |path| run.addArg(path);
+    goblins_peer_modules = run;
+    return &run.step;
 }
 
 /// Resolve `-Dtarget`/`-Dcpu` with the baseline CPU as the default, the one

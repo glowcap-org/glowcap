@@ -94,7 +94,7 @@ pub fn checkCAbiResolveCases(
             .string => |s| s,
             else => continue,
         };
-        const releases_published = switch (case_obj.get("releases_published") orelse continue) {
+        const checkout = switch (case_obj.get("checkout") orelse continue) {
             .bool => |b| b,
             else => continue,
         };
@@ -124,7 +124,7 @@ pub fn checkCAbiResolveCases(
 
         const skip = envTruthyFromObject(env_obj, "GLOWCAP_SKIP_DOWNLOAD");
         const download = envTruthyFromObject(env_obj, "GLOWCAP_DOWNLOAD");
-        const got_fetch = if (releases_published) !skip else download;
+        const got_fetch = if (checkout) download else !skip;
         if (got_fetch != want_fetch) {
             try appendViolation(gpa, violations, "{s}: case `{s}` want_fetch mismatch", .{ cases_path, id });
         }
@@ -170,8 +170,8 @@ pub fn checkCAbiResolveCases(
             continue;
         };
         defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, "releases_published") == null) {
-            try appendViolation(gpa, violations, "{s}: resolve port must honor releases_published", .{path});
+        if (std.mem.indexOf(u8, contents, "GLOWCAP_SKIP_DOWNLOAD") == null) {
+            try appendViolation(gpa, violations, "{s}: resolve port must honor GLOWCAP_SKIP_DOWNLOAD", .{path});
         }
     }
 }

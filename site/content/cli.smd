@@ -12,9 +12,19 @@ assistants use to call tools), with the library's [Host]($link.page('modules')).
 The [CLI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md)
 is the complete reference.
 
+Install the [CLI + Rooms product](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)
+in one command. It verifies the download against the release checksums before
+running the product's installer:
+
 ```sh
-zig build
-export PATH="$PWD/zig-out/bin:$PATH"
+curl -fsSL https://glowcap.org/install.sh | sh
+```
+
+[GitHub Releases](https://github.com/glowcap-org/glowcap/releases) has the
+same `glowcap-vVERSION-ARCH-OS.tar.gz` archives to install by hand, and the
+`glowcap-c-` download contains the C SDK for building applications.
+
+```sh
 glowcap help
 ```
 

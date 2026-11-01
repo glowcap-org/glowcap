@@ -1,0 +1,119 @@
+# What a newcomer meets today: the installer on each supported host and the
+# newest release's packages on each registry. Runs weekly and on demand, and
+# fails when the site's installer, the release assets, or a registry no longer
+# serve the newest release, so drift is seen before a reader reports it. Nothing
+# is published. The macOS hosts run on demand only, because they cost ten times
+# a Linux minute.
+name: validate-release
+
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  newest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Read the newest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName | ltrimstr("v") | select(test("^0\\.[0-9]+\\.[0-9]+$"))')"
+          if [ -z "$version" ]; then
+            echo "no release with a version tag" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # The matrix cannot gate one job's rows by event, so the Linux and macOS
+  # installs are two jobs with one step list each.
+  installer-linux:
+    needs: newest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.newest.outputs.version }}
+    steps:
+      - name: Install the newest release through the site
+        run: curl -fsSL https://glowcap.org/install.sh | sh
+
+      - name: Run the installed product
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          glowcap version | tee version.txt
+          grep -Fx "glowcap $VERSION" version.txt
+          glowcap help > /dev/null
+
+  installer-macos:
+    needs: newest
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.newest.outputs.version }}
+    steps:
+      - name: Install the newest release through the site
+        run: curl -fsSL https://glowcap.org/install.sh | sh
+
+      - name: Run the installed product
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          glowcap version | tee version.txt
+          grep -Fx "glowcap $VERSION" version.txt
+          glowcap help > /dev/null
+
+  registries:
+    needs: newest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.newest.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/v${{ needs.newest.outputs.version }}
+          persist-credentials: false
+
+      - name: Read the toolchain pins
+        id: pins
+        run: |
+          source .devcontainer/pins.sh
+          {
+            echo "python=$PYTHON_VERSION"
+            echo "deno=$DENO_VERSION"
+            echo "rust=$RUST_VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ steps.pins.outputs.python }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: ${{ steps.pins.outputs.deno }}
+
+      - name: Install the pinned Rust
+        env:
+          RUST_VERSION: ${{ steps.pins.outputs.rust }}
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Install every published package in a fresh consumer
+        run: python3 tools/check/binding_packages.py --registry "$VERSION"

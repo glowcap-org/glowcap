@@ -69,9 +69,6 @@ pub fn checkCAbiResolvePorts(
         if (std.mem.indexOf(u8, contents, "require_https") == null) {
             try appendViolation(gpa, violations, "{s}: must read contract `require_https`", .{path});
         }
-        if (std.mem.indexOf(u8, contents, "releases_published") == null) {
-            try appendViolation(gpa, violations, "{s}: must read contract `releases_published`", .{path});
-        }
         if (std.mem.indexOf(u8, contents, "GLOWCAP_ALLOW_INSECURE") == null) {
             try appendViolation(gpa, violations, "{s}: must gate downloads with GLOWCAP_ALLOW_INSECURE escape (ADR-0023)", .{path});
         }
@@ -349,9 +346,6 @@ pub fn checkCAbiResolvePorts(
     }
     if (std.mem.indexOf(u8, script, "operator") == null and std.mem.indexOf(u8, script, "Operator") == null) {
         try appendViolation(gpa, violations, "{s}: must document that it is an operator/CI tool, not a binding dependency", .{expected_operator_script});
-    }
-    if (std.mem.indexOf(u8, script, "releases_published") == null) {
-        try appendViolation(gpa, violations, "{s}: must honor contract `releases_published`", .{expected_operator_script});
     }
     if (std.mem.indexOf(u8, script, ".require_https") == null or
         std.mem.indexOf(u8, script, ".require_checksum") == null)

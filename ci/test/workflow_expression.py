@@ -19,6 +19,11 @@ def selected(expression, github=None, *, context=None, success=True, cancelled=F
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.args and not node.keywords:
             if node.func.id in status:
                 return status[node.func.id]
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == 'startsWith' and len(node.args) == 2 and not node.keywords):
+            value, prefix = (evaluate(argument) for argument in node.args)
+            if isinstance(value, str) and isinstance(prefix, str):
+                return value.casefold().startswith(prefix.casefold())
         if isinstance(node, ast.Constant) and isinstance(node.value, (str, bool)):
             return node.value
         if isinstance(node, ast.Name) and node.id in values:

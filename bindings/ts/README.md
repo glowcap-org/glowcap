@@ -3,12 +3,18 @@
 These packages let TypeScript and JavaScript connect to OCapN peers, call their
 objects, and host objects of their own. Deno supports the full session API,
 with a WebAssembly entry for browsers. Bun supports synchronous Host and locator
-calls and byte-fed clients, but cannot run the driver loop or blocking transports. The packages are
-not published.
+calls and byte-fed clients, but cannot run the driver loop or blocking transports.
 
-Run `zig build` in a checkout, then import them from the tree.
-The checkout's `deno.json` maps the package names below to local sources.
-Save your client in the repository root and run `deno run --allow-all client.ts`.
+```sh
+deno add jsr:@glowcap/runtime jsr:@glowcap/tcp
+```
+
+On first use the runtime package downloads the C libraries of its version from
+the GitHub release and verifies them against its checksum file. Set
+`GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/` directory to use a local copy.
+Run your client with `deno run --allow-all client.ts`. In a checkout of the
+repository, run `zig build` and save the client in the repository root, where
+the checkout's `deno.json` maps the package names to the tree's sources.
 
 ```ts
 import { Runtime } from "@glowcap/runtime";

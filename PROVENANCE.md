@@ -8,7 +8,7 @@ Each commit is a development checkpoint rather than every intermediate edit.
 Commits carry no per-tool trailers, because tools differ in what they emit
 and some emit none. This disclosure describes maintainer-led development.
 Contributions may be written with or without AI assistance. Pull requests
-record assistance under the [contribution policy](CONTRIBUTING.md#tools-and-responsibility).
+record assistance under the [contribution policy](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#tools-and-responsibility).
 
 The illustration in `site/assets/glowcap-goblin-512.png` was generated with an
 AI image tool for this project and refined by the maintainer in Pixelmator
@@ -61,7 +61,7 @@ Codeberg's donation-funded resources.
 protocol fixtures, and allocation budgets written inside this repository, so
 they measure glowcap against its own expectations.
 
-[Community review](docs/community-review.md) lists each check against the upstream OCapN suite and live
+[Community review](https://github.com/glowcap-org/glowcap/blob/main/docs/community-review.md) lists each check against the upstream OCapN suite and live
 [Spritely Goblins](https://spritely.institute/goblins/) peers, and what each
 one proves.
 
@@ -79,6 +79,6 @@ The external checks pin their direct inputs:
   comment is kept beside each one only to help review, and an upgrade
   changes both together.
 
-[Known limitations](docs/boundaries.md) records what the checks do not
+[Known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md) records what the checks do not
 establish. If a named check does not support the claim attached
 to it, please report that as a bug.

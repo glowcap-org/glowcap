@@ -18,6 +18,9 @@ behavior tests live with their owner in [`ci/test/`](../ci/test/).
 | [`consumer/`](consumer/) | A throwaway downstream package that depends on glowcap the way the README says to, so `zig build consumer-check` tests that first instruction |
 | [`deps/`](deps/) | Fetch scripts for pinned third-party sources the build vendors (Mbed TLS) |
 | [`run-with-timeout.py`](run-with-timeout.py) | Portable wall-clock deadline for check commands (GNU `timeout` is not on macOS) |
+| [`release-tag.sh`](release-tag.sh) | The maintainer's release front: signs and pushes the `v<version>` tag of a promoted `main` commit after checking what the release workflow will require |
+| [`release-publishers.py`](release-publishers.py) | The registry setup `publish.yml` needs: verifies each registry and the publication environments, and walks the maintainer through the browser steps |
+| [`repository-policy.py`](repository-policy.py) | Holds GitHub to `.github/repository-policy.json` and the rulesets: reports drift, and `--apply` makes GitHub match |
 
 Product code belongs in [`apps/`](../apps/) or [`cli/`](../cli/).
 

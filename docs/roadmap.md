@@ -226,18 +226,13 @@ on them.
   a release ships as an evidence bundle, and a ledger page generated from the
   records. Change stacks on Jujutsu and a community front door on Rooms
   follow ([plan to plan](planning/plan-to-plan.md)).
-- **Published C archives.** No versioned assets are live. Publication needs
-  green packages for every target, a tagged exact-SHA release, verified live
-  assets, then the `releases_published` consumer switch in
-  [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json) and a
-  cold-cache smoke against the real release URL. The order is fixed by the
-  [packaging guide](../bindings/PACKAGING.md#publishing-c-archives)
-  ([plan to plan](planning/plan-to-plan.md)).
-- **Language package publication.** Local package rehearsals run through
-  `zig build bindings-package-check`. Registry ownership, first publication,
-  and cold-cache installs against hosted C archives remain release work.
-  The [packaging guide](../bindings/PACKAGING.md) owns the order and intended
-  names. Direct npm publication needs its own package and consumer proof
+- **First registry publication.** `publish.yml` publishes the crate, wheel,
+  and JSR packages at each release tag and installs each from its registry.
+  The first release through it needs the
+  [registry publishers](maintaining.md#registry-publishers) set up: the PyPI
+  pending publisher, the crates.io first-version token, the missing
+  `@glowcap/relay` JSR package, and the Racket catalog entry. Direct npm
+  publication needs its own package and consumer proof
   ([plan to plan](planning/plan-to-plan.md)).
 
 ## Waiting on upstream

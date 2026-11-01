@@ -13,6 +13,8 @@ const parseJsonFile = util.parseJsonFile;
 const getField = util.getField;
 const jsonStringEquals = util.jsonStringEquals;
 
+const Triple = struct { major: i64, minor: i64, patch: i64 };
+
 /// The ABI version triple is stated four times: `abi_version` in `build.zig`,
 /// `.version` in `build.zig.zon`, `GLOWCAP_VERSION_*` in `src/c_abi/ocapn/mod.zig`,
 /// and the generated `#define GLOWCAP_VERSION_*` macros in `include/glowcap_ocapn.h`.
@@ -25,7 +27,6 @@ pub fn checkAbiVersionLockstep(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const Triple = struct { major: i64, minor: i64, patch: i64 };
     const sources = [_]struct {
         path: []const u8,
         keys: [3][]const u8,
@@ -110,6 +111,45 @@ pub fn checkAbiVersionLockstep(
             try appendViolation(gpa, violations, "build.zig.zon: .version {d}.{d}.{d} drifts from build.zig abi_version {d}.{d}.{d}", .{
                 triple.major, triple.minor, triple.patch, anchor.major, anchor.minor, anchor.patch,
             });
+        }
+    }
+    try checkStatedReleaseVersions(io, gpa, root, violations, anchor);
+}
+
+/// Human pages state the release as `<version> alpha`. Each statement follows
+/// `abi_version`, so a bump that misses a page fails here instead of telling
+/// readers a stale version.
+fn checkStatedReleaseVersions(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    anchor: Triple,
+) !void {
+    const pages = [_][]const u8{ "README.md", "SECURITY.md", "docs/shipped.md", "site/content/index.smd", "site/content/project.smd" };
+    const want = try std.fmt.allocPrint(gpa, "{d}.{d}.{d}", .{ anchor.major, anchor.minor, anchor.patch });
+    defer gpa.free(want);
+    for (pages) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for the stated release version check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        var stated: usize = 0;
+        var at: usize = 0;
+        while (std.mem.indexOfPos(u8, contents, at, " alpha")) |hit| {
+            at = hit + " alpha".len;
+            var start = hit;
+            while (start > 0 and (std.ascii.isDigit(contents[start - 1]) or contents[start - 1] == '.' or contents[start - 1] == '`')) start -= 1;
+            const version = std.mem.trim(u8, contents[start..hit], "`");
+            if (std.mem.indexOfScalar(u8, version, '.') == null) continue;
+            stated += 1;
+            if (!std.mem.eql(u8, version, want)) {
+                try appendViolation(gpa, violations, "{s}: states release version {s} alpha, but build.zig abi_version is {s}", .{ path, version, want });
+            }
+        }
+        if (stated == 0) {
+            try appendViolation(gpa, violations, "{s}: states no `<version> alpha` release version for the lockstep check", .{path});
         }
     }
 }

@@ -24,7 +24,6 @@ struct Contract {
 	extract_prefix: String,
 	require_https: bool,
 	require_checksum: bool,
-	releases_published: bool,
 }
 
 fn load_contract() -> Contract {
@@ -200,8 +199,7 @@ fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
 	if let Some(ref zig) = zig_out
 		&& zig.join(&contract.marker_static).is_file()
 	{
-		// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists,
-		// including when releases_published is false.
+		// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists.
 		if env_truthy("GLOWCAP_DOWNLOAD") {
 			let _ = fetch_into_cache(&contract, &version, &target, &cache_lib);
 			if cache_lib.join(&contract.marker_static).is_file() {
@@ -211,7 +209,7 @@ fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
 		return zig.clone();
 	}
 
-	if want_release_fetch(&contract) {
+	if want_release_fetch(dev_root.as_deref()) {
 		let _ = fetch_into_cache(&contract, &version, &target, &cache_lib);
 		if cache_lib.join(&contract.marker_static).is_file() {
 			return cache_lib;
@@ -239,10 +237,10 @@ fn env_truthy(name: &str) -> bool {
 	}
 }
 
-/// Cold-cache network gate: when `releases_published` is true, fetch unless
-/// `GLOWCAP_SKIP_DOWNLOAD`. When false, fetch only if `GLOWCAP_DOWNLOAD`.
-fn want_release_fetch(contract: &Contract) -> bool {
-	if contract.releases_published {
+/// Cold-cache network gate: a package outside a checkout downloads its version
+/// unless `GLOWCAP_SKIP_DOWNLOAD`. A checkout downloads only with `GLOWCAP_DOWNLOAD`.
+fn want_release_fetch(dev_root: Option<&Path>) -> bool {
+	if dev_root.is_none() {
 		!env_truthy("GLOWCAP_SKIP_DOWNLOAD")
 	} else {
 		env_truthy("GLOWCAP_DOWNLOAD")

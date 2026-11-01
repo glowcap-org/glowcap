@@ -1,16 +1,20 @@
 # Python binding
 
 This package lets Python connect to OCapN peers, call their objects, and host
-objects of its own. It is not published, so use a checkout of the repository:
-run `zig build`, then import the package from the tree. It uses `ctypes`,
-`asyncio`, and the standard library, and needs the CPython version
-`pyproject.toml` declares on an LP64 (64-bit Unix)
-platform. Terms such as
-locator, vat, and sturdyref are defined in the
+objects of its own. It uses `ctypes`, `asyncio`, and the standard library, and
+needs the CPython version `pyproject.toml` declares on an LP64 (64-bit Unix)
+platform. Terms such as locator, vat, and sturdyref are defined in the
 [glossary](../../docs/capabilities.md#glossary).
 
-From the repository root, make the local package importable before running
-your client:
+```sh
+pip install glowcap
+```
+
+On first import the package downloads the C libraries of its version from the
+GitHub release and verifies them against its checksum file. Set
+`GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/` directory to use a local copy.
+In a checkout of the repository, run `zig build` and make the tree's package
+importable instead:
 
 ```sh
 export PYTHONPATH="$PWD/bindings/python${PYTHONPATH:+:$PYTHONPATH}"

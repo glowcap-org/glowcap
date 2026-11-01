@@ -83,11 +83,65 @@ jobs:
       image: ${{ needs.image.outputs.image }}
       archive: ${{ needs.image.outputs.archive }}
 
+  # Static audit of every workflow and action file: injection, credential
+  # persistence, unpinned actions, cache poisoning on release paths. Findings
+  # a design answers are listed with their reason in .github/zizmor.yml.
+  workflows:
+    if: >-
+      github.event_name == 'push' || github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        id: zizmor
+        with:
+          version: 1.31.1
+          persona: regular
+          min-severity: low
+          advanced-security: true
+      # SARIF mode sends the findings to code scanning and exits 0 on them, so
+      # the verdict is read from the report: one finding fails this job.
+      - name: Refuse findings
+        env:
+          REPORT: ${{ steps.zizmor.outputs.output-file }}
+        run: |
+          jq -r '.runs[].results[] | "\(.ruleId) \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.message.text)"' "$REPORT" > findings
+          cat findings
+          test ! -s findings
+
+  # A pull request that adds or moves a dependency is compared with the
+  # dependency graph: a known vulnerability at any severity, or a package
+  # under an unexpected license, fails the review before a person reads it.
+  # The graph covers the Actions, Cargo, and Python manifests.
+  dependencies:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          comment-summary-in-pr: never
+
   # Keep the branch-protection context stable. Missing, skipped, cancelled,
-  # or failed Linux or macOS work must never produce a successful aggregate.
+  # or failed Linux, macOS, or workflow-audit work must never produce a
+  # successful aggregate.
   gates:
     name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}
-    needs: [plan, image, linux, macos-runtime]
+    needs: [plan, image, linux, macos-runtime, workflows]
     if: >-
       always() && (
       github.event_name == 'push' || github.event_name == 'pull_request' ||

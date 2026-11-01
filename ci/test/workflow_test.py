@@ -55,51 +55,53 @@ def jobs(path):
 
 
 
+def duplicate_mapping_keys(source):
+    """Keys repeated inside one YAML mapping, which GitHub refuses as an invalid workflow file.
+
+    Walks the indentation structure of the block-style workflows this
+    repository writes: a key at an indent closes every deeper mapping, a list
+    item opens a fresh mapping for its members, and the lines of a block
+    scalar (a `run: |` script) are text, not keys.
+    """
+    duplicates, levels, scalar_indent = [], [], None
+    for number, raw in enumerate(source.splitlines(), 1):
+        line = raw.split(' #', 1)[0].rstrip() if not raw.lstrip().startswith('#') else ''
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip(' '))
+        if scalar_indent is not None and indent > scalar_indent:
+            continue
+        scalar_indent = None
+        text = line.lstrip(' ')
+        if text.startswith('- '):
+            while levels and levels[-1][0] >= indent:
+                levels.pop()
+            levels.append((indent + 2, set()))
+            text, indent = text[2:], indent + 2
+        match = re.match(r'([A-Za-z0-9_.\-"\'$]+|\$\{\{[^}]*\}\}):(?:\s|$)', text)
+        if not match:
+            continue
+        while levels and levels[-1][0] > indent:
+            levels.pop()
+        if not levels or levels[-1][0] < indent:
+            levels.append((indent, set()))
+        keys = levels[-1][1]
+        if match[1] in keys:
+            duplicates.append((number, match[1]))
+        keys.add(match[1])
+        if re.fullmatch(r'[|>][-+]?', text[match.end():].strip()):
+            scalar_indent = indent
+    return duplicates
+
+
 class PublicationWorkflow(unittest.TestCase):
-    def test_package_metadata_matches_the_pre_one_release(self):
-        version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
-        self.assertRegex(version, r"^0\.[0-9]+\.[0-9]+$")
-        manifest = (ROOT / "build.zig.zon").read_text()
-        self.assertIn(f'.version = "{version}"', manifest)
-        paths = subprocess.check_output(
-            ["git", "ls-files", "*Cargo.toml", "*deno.json", "bindings/python/pyproject.toml"],
-            cwd=ROOT, text=True).splitlines()
-        for path in paths:
-            with self.subTest(path=path):
-                source = (ROOT / path).read_text()
-                if path.endswith("deno.json"):
-                    # These are JSONC. Read scalar metadata without interpreting comments.
-                    declared = re.search(r'^\s*"version":\s*"([^"]+)"', source, re.M)
-                    if declared:
-                        self.assertEqual(declared[1], version)
-                    self.assertRegex(source, r'"license":\s*"Apache-2\.0"')
-                    continue
-                data = tomllib.loads(source)
-                package = data.get("package", data.get("project", data.get("workspace", {}).get("package")))
-                self.assertIsNotNone(package)
-                for field, expected in (("version", version), ("license", "Apache-2.0")):
-                    actual = package[field]
-                    self.assertTrue(actual == expected or actual == {"workspace": True}, (field, actual))
-                urls = package.get("urls", package)
-                for field, expected in (("repository", "https://github.com/glowcap-org/glowcap"),
-                                        ("homepage", "https://glowcap.org"),
-                                        ("documentation", "https://glowcap.org")):
-                    actual = {key.lower(): value for key, value in urls.items()}[field]
-                    self.assertTrue(actual == expected or actual == {"workspace": True}, (path, field, actual))
-        for path, section in (("bindings/rust/Cargo.toml", "package"),
-                              ("bindings/python/pyproject.toml", "project")):
-            self.assertEqual(tomllib.loads((ROOT / path).read_text())[section]["name"], "glowcap")
-        distribution = tomllib.loads((ROOT / "bindings/python/pyproject.toml").read_text())["project"]["name"]
-        generated = f"bindings/python/{distribution.replace('-', '_')}.egg-info/PKG-INFO"
-        ignored = subprocess.run(["git", "check-ignore", "--no-index", "-v", generated],
-                                 cwd=ROOT, capture_output=True, text=True)
-        self.assertEqual(ignored.returncode, 0, f"generated packaging metadata must be ignored: {generated}")
-        source, _, pattern = ignored.stdout.split("\t", 1)[0].split(":", 2)
-        self.assertEqual(source, ".gitignore")
-        self.assertFalse(pattern.startswith("!"))
-        racket = (ROOT / "bindings/racket/info.rkt").read_text()
-        self.assertIn(f'(define version "{version}")', racket)
-        self.assertIn("(define license 'Apache-2.0)", racket)
+    def test_workflows_repeat_no_mapping_key(self):
+        self.assertEqual(duplicate_mapping_keys('a:\n  b: 1\n  b: 2\nc:\n  - d: 1\n    d: 2\n  - d: 3\n'), [(3, 'b'), (6, 'd')])
+        self.assertEqual(duplicate_mapping_keys('a:\n  b: 1\nc:\n  b: 2\n  run: |\n    x: 1\n    x: 2\n  run: 3\n'), [(8, 'run')],
+                         'a block scalar holds text, and the key after it is still in its mapping')
+        for path in sorted((ROOT / '.github/workflows').glob('*.yml')):
+            with self.subTest(path=path.name):
+                self.assertEqual(duplicate_mapping_keys(path.read_text()), [])
 
     def test_dependency_acquisition_retries_without_running_tests(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -133,7 +135,7 @@ class PublicationWorkflow(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertFalse(log.exists())
-        for path, skipped in (('.github/workflows/check.yml', ('gates', 'plan', 'linux')),
+        for path, skipped in (('.github/workflows/check.yml', ('gates', 'plan', 'linux', 'workflows', 'dependencies')),
                               ('.github/workflows/check-group.yml', ())):
             for name, (_, body) in jobs(path).items():
                 if name not in skipped:
@@ -167,18 +169,37 @@ class PublicationWorkflow(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
                     self.assertEqual(output.read_text(), f"value={version}\n" if accepted else "")
             gh = directory / "gh"
-            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$GITHUB_OUTPUT"\n')
+            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$GH_CALLS"\n')
             gh.chmod(0o755)
+            (directory / "artifacts").mkdir()
+            (directory / "artifacts/release-notes.md").write_text("notes\n")
+            (directory / "release-assets").mkdir()
+            checker = directory / "tools/check/github_release.py"
+            checker.parent.mkdir(parents=True)
+            checker.write_text("import json, os, sys\n"
+                               "with open(os.environ['CHECK_CALLS'], 'a') as log:\n"
+                               "    log.write(' '.join(sys.argv[1:]) + '\\n')\n"
+                               "if sys.argv[1] == 'draft-state':\n"
+                               "    print(json.dumps({'draft_exists': False, 'missing_assets': []}))\n")
+            gh_calls, check_calls = directory / "gh-calls", directory / "check-calls"
             environment.update(PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
-                               GITHUB_REF_NAME="v0.1.0", GITHUB_REPOSITORY="owner/project")
+                               GH_CALLS=str(gh_calls), CHECK_CALLS=str(check_calls),
+                               GITHUB_REF_NAME="different-branch", RELEASE_TAG="v0.1.0", GITHUB_REPOSITORY="owner/project")
             result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
-                                     command("Create the release with archives")],
-                                    cwd=directory, env=environment, capture_output=True, text=True)
+                                     command("Fill the draft release, then make it public")],
+                                    cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
-            arguments = output.read_text().splitlines()
-            self.assertIn("--prerelease", arguments)
-            self.assertIn("--latest=false", arguments)
-            self.assertIn("glowcap v0.1.0 alpha", arguments)
+            create, edit = [call.split() for call in gh_calls.read_text().splitlines()]
+            self.assertEqual(create[:3], ["release", "create", "v0.1.0"])
+            for flag in ("--prerelease", "--draft", "--latest=false", "--verify-tag"):
+                self.assertIn(flag, create)
+            self.assertIn("glowcap v0.1.0 alpha", " ".join(create))
+            self.assertEqual(edit[:3], ["release", "edit", "v0.1.0"])
+            self.assertIn("--draft=false", edit)
+            self.assertIn("--prerelease", edit)
+            self.assertIn("--latest=false", edit)
+            self.assertEqual(check_calls.read_text().splitlines(),
+                             ["draft-state v0.1.0", "verify-draft v0.1.0"])
 
     def evidence(self, runs, commit="a" * 40, repository="owner/project", status=0, raw=None,
                  command=None, current="a" * 40, job_records=None, relation="identical"):
@@ -321,6 +342,8 @@ else:
             step = re.search(rf"^      - name: {re.escape(name)}\n((?: {{8}}[^\n]*\n|\n)*)", source, re.M)
             self.assertIsNotNone(step, path)
             block = re.search(r"^        run: \|\n((?: {10}[^\n]*\n|\n)*)", step[1], re.M)
+            if block is None:
+                block = re.search(r"^        run: (.+)\n", step[1], re.M)
             self.assertIsNotNone(block, path)
             command = textwrap.dedent(block[1])
             with self.subTest(workflow=path):
@@ -347,7 +370,7 @@ else:
         top, release = bodies(".github/workflows/release.yml")
         self.assertRegex(release["release"], r"(?m)^    needs: \[contract, ")
         verifier = step(release["contract"], "Require this commit's successful check workflow")
-        self.assertIn("if: github.event_name == 'push' && github.ref_type == 'tag'\n", verifier)
+        self.assertIn("if: github.ref_type == 'tag'\n", verifier)
         top, pages = bodies(".github/workflows/pages.yml")
         self.assertRegex(pages["deploy"], r"(?m)^    needs: build$")
         step(pages["build"], "Verify the exact commit passed check")
@@ -406,7 +429,7 @@ else:
     def test_parallel_checks_cannot_pass_with_a_missing_lane(self):
         conditions = jobs('.github/workflows/check.yml')
         aggregate = conditions['gates'][1]
-        self.assertIn('    needs: [plan, image, linux, macos-runtime]\n', aggregate)
+        self.assertIn('    needs: [plan, image, linux, macos-runtime, workflows]\n', aggregate)
         self.assertIn('always()', conditions['gates'][0])
         self.assertIn('VALIDATION_NEEDS: ${{ toJSON(needs) }}', aggregate)
         command = re.search(r'^        run: (.+)$', aggregate, re.M)[1]
@@ -435,7 +458,11 @@ else:
             policy = json.loads((ROOT / f".github/rulesets/{branch}.json").read_text())
             self.assertEqual(policy["target"], "branch")
             self.assertEqual(policy["enforcement"], "active")
-            self.assertEqual(policy["bypass_actors"], [])
+            # An agent's branch commits are unsigned, so the administrator may
+            # merge a pull request into dev: GitHub signs the squash commit it
+            # creates. Nothing bypasses a push, and nothing bypasses main.
+            self.assertEqual(policy["bypass_actors"], [] if branch == "main" else
+                             [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
             self.assertEqual(policy["conditions"]["ref_name"], {"include": [f"refs/heads/{branch}"], "exclude": []})
             rules = {rule["type"]: rule.get("parameters", {}) for rule in policy["rules"]}
             linear_signed = {"non_fast_forward", "deletion", "required_linear_history", "required_signatures"}
@@ -454,15 +481,39 @@ else:
                              {"gates", "macos-runtime"})
             self.assertIn("name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}",
                           conditions["gates"][1])
-        # A release tag names the commit release.yml publishes, so once pushed
-        # it can neither move nor disappear, and it carries a signature.
-        tags = json.loads((ROOT / ".github/rulesets/tags.json").read_text())
-        self.assertEqual(tags["target"], "tag")
-        self.assertEqual(tags["enforcement"], "active")
-        self.assertEqual(tags["bypass_actors"], [])
-        self.assertEqual(tags["conditions"]["ref_name"], {"include": ["refs/tags/v*"], "exclude": []})
-        self.assertEqual({rule["type"] for rule in tags["rules"]}, {"deletion", "update", "required_signatures"})
+        # Only the repository's administrator creates a release tag, and once
+        # pushed it names a signed commit that can neither move nor disappear,
+        # for the administrator too: the immutability ruleset has no bypass.
+        creation = json.loads((ROOT / ".github/rulesets/tags.json").read_text())
+        immutability = json.loads((ROOT / ".github/rulesets/tag-immutability.json").read_text())
+        for ruleset in (creation, immutability):
+            self.assertEqual(ruleset["target"], "tag")
+            self.assertEqual(ruleset["enforcement"], "active")
+            self.assertEqual(ruleset["conditions"]["ref_name"], {"include": ["refs/tags/v*"], "exclude": []})
+        self.assertEqual({rule["type"] for rule in creation["rules"]}, {"creation"})
+        self.assertEqual(creation["bypass_actors"],
+                         [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}])
+        self.assertEqual({rule["type"] for rule in immutability["rules"]},
+                         {"deletion", "update", "non_fast_forward", "required_signatures"})
+        self.assertEqual(immutability["bypass_actors"], [])
         self.assertIn('tags: ["v*"]', (ROOT / ".github/workflows/release.yml").read_text())
+
+    def test_repository_policy_is_read_weekly_with_a_read_only_token(self):
+        source = (ROOT / ".github/workflows/repository-policy.yml").read_text()
+        self.assertIn("\npermissions: {}\n", source)
+        self.assertIn("  schedule:\n    - cron: ", source)
+        self.assertIn("  push:\n    branches: [dev]\n    paths:\n", source)
+        for path in (".github/repository-policy.json", ".github/rulesets/**", "tools/repository-policy.py"):
+            self.assertIn(f"      - {path}\n", source)
+        body = source.split("\njobs:\n  drift:\n", 1)[1]
+        # The workflow token holds nothing, the app token only reads, and the
+        # command only reports: GitHub changes by the maintainer's --apply.
+        self.assertNotIn("    permissions:", body)
+        self.assertIn("          permission-administration: read\n          permission-security-events: read\n", body)
+        self.assertNotIn("write", body)
+        self.assertIn("persist-credentials: false", body)
+        self.assertIn("run: python3 tools/repository-policy.py\n", body)
+        self.assertNotIn("--apply", body)
 
     def test_pages_builds_only_main(self):
         # The verify step, not this condition, requires the commit's

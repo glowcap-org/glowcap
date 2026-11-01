@@ -154,24 +154,50 @@ export async function pythonCanImport(moduleImport: string): Promise<boolean> {
 }
 
 /** Run a child to completion and answer with its exit code and everything it
- * said on both pipes. `env` is added to the environment this process already
- * has, so a caller names only what the child needs to be told. */
+ * said on both pipes, stdout first. `env` is added to the environment this
+ * process already has, so a caller names only what the child needs to be
+ * told. With `echo`, each line is also printed as it arrives under that name,
+ * so a run stopped at its deadline leaves what the child had said in the log. */
 export async function runChild(
 	cmd: string,
 	args: string[],
 	root: string,
-	env: Record<string, string> = {},
+	options: { env?: Record<string, string>; echo?: string } = {},
 ): Promise<{ code: number; out: string }> {
-	const out = await new Deno.Command(cmd, {
+	const child = new Deno.Command(cmd, {
 		args,
 		stdout: "piped",
 		stderr: "piped",
 		cwd: root,
-		env,
-	}).output();
-	const text = new TextDecoder().decode(out.stdout) +
-		new TextDecoder().decode(out.stderr);
-	return { code: out.code, out: text };
+		env: options.env,
+	}).spawn();
+	const [stdout, stderr, status] = await Promise.all([
+		readAll(child.stdout, options.echo),
+		readAll(child.stderr, options.echo),
+		child.status,
+	]);
+	return { code: status.code, out: stdout + stderr };
+}
+
+/** Read a pipe to its end. With `echo`, print each complete line as it
+ * arrives, prefixed with that name, and the unterminated tail at the end. */
+async function readAll(stream: ReadableStream<Uint8Array>, echo?: string): Promise<string> {
+	const decoder = new TextDecoder();
+	let text = "";
+	let pending = "";
+	for await (const chunk of stream) {
+		const piece = decoder.decode(chunk, { stream: true });
+		text += piece;
+		if (echo == null) continue;
+		pending += piece;
+		const lines = pending.split("\n");
+		pending = lines.pop() ?? "";
+		for (const line of lines) console.log(`${echo}: ${line}`);
+	}
+	const tail = decoder.decode();
+	text += tail;
+	if (echo != null && (pending + tail).length > 0) console.log(`${echo}: ${pending + tail}`);
+	return text;
 }
 
 export async function stopSpawnedServer(

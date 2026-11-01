@@ -76,9 +76,17 @@ class TransferTest(unittest.TestCase):
                     found.append(step)
                     with self.subTest(path=path, name=step.get('name', step['uses'])):
                         self.assertEqual(indent, 6, 'transfer deadlines belong to workflow steps, not composites')
-                        # Large image downloads measured 255s; other transfers
-                        # retain the tighter five-minute cap.
-                        ceiling = 10 if 'name: devcontainer-image\n' in step.get('with', '') else 5
+                        # Downloads are bounded by what they carry at the slowest
+                        # runner rate measured: the 1.62 GB image took 255 s, and
+                        # the largest group's 4.7 GB compiled state took over
+                        # five minutes. Every other transfer finishes in seconds.
+                        with_ = step.get('with', '')
+                        if 'name: devcontainer-image\n' in with_:
+                            ceiling = 10
+                        elif 'pattern: state-' in with_:
+                            ceiling = 12
+                        else:
+                            ceiling = 5
                         budget = step.get('timeout-minutes', '')
                         self.assertRegex(budget, r'^[1-9][0-9]*$')
                         self.assertLessEqual(int(budget), ceiling)

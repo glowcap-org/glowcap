@@ -74,3 +74,7 @@ an ahead commit fast-forwards `main`, a commit `main` already contains moves
 nothing, and diverged history or an API failure stops before any write. None
 of this shows the hosted ruleset accepting the app's push or that push
 deploying the site. The first promotion after this record lands is that proof.
+
+`ci/test/repository_policy_test.py` drives `tools/repository-policy.py`, which
+holds the repository's settings and rulesets to `.github/repository-policy.json`
+and `.github/rulesets/` and reports every difference, against a fake `gh`.
