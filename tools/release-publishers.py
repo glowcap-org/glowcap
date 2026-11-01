@@ -52,7 +52,9 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = 'publish.yml'
 ENVIRONMENTS = ('pypi', 'crates-io', 'jsr')
 TAG_POLICY = 'v*'
-SECRET = 'CARGO_REGISTRY_TOKEN'
+# The crates-io environment secret publish.yml reads for the first publish, before
+# the trusted publisher takes over. This is its name, which the messages print.
+FIRST_PUBLISH_VARIABLE = 'CARGO_REGISTRY_TOKEN'
 RACKET_PACKAGE = 'glowcap'
 STAGES = ('github', 'jsr', 'pypi', 'crates-io', 'racket')
 COMPLETE, WAITING, INCOMPLETE, CANNOT = 'complete', 'waiting', 'incomplete', 'cannot verify'
@@ -361,15 +363,16 @@ def verify_crates(context):
     crate, slug = context.facts['crate'], context.slug()
     url = f'https://crates.io/api/v1/crates/{crate}'
     exists = present(fetch(url, slug)[0], url)
-    secret = SECRET in gh('api', f'repos/{slug}/environments/crates-io/secrets', '--jq', '.secrets[].name').split()
+    names = gh('api', f'repos/{slug}/environments/crates-io/secrets', '--jq', '.secrets[].name').split()
+    secret = FIRST_PUBLISH_VARIABLE in names
     if not exists and secret:
-        return Verdict(WAITING, [f'the first publish of {crate} will use the {SECRET} secret'])
+        return Verdict(WAITING, [f'the first publish of {crate} will use the {FIRST_PUBLISH_VARIABLE} secret'])
     if not exists:
-        return Verdict(INCOMPLETE, [f'{crate} is not on crates.io and the crates-io environment has no {SECRET} secret '
+        return Verdict(INCOMPLETE, [f'{crate} is not on crates.io and the crates-io environment has no {FIRST_PUBLISH_VARIABLE} secret '
                                     'for the first publish'], ('first',))
     if secret:
         return Verdict(INCOMPLETE, [f'{crate} is on crates.io, so its trusted publisher must take over and the '
-                                    f'{SECRET} secret must be deleted'], ('handover',))
+                                    f'{FIRST_PUBLISH_VARIABLE} secret must be deleted'], ('handover',))
     return Verdict(COMPLETE, [])
 
 
@@ -380,10 +383,10 @@ def hand_over_crates(context, verdict):
         say('crates-io', 'page: https://crates.io/settings/tokens/new')
         open_page('https://crates.io/settings/tokens/new')
         token = ask_secret('release-publishers: crates-io: paste the token (input is hidden): ').strip()
-        if not token or not confirm(f'Store it as {SECRET} on the crates-io environment of {slug}?'):
+        if not token or not confirm(f'Store it as {FIRST_PUBLISH_VARIABLE} on the crates-io environment of {slug}?'):
             say('crates-io', 'nothing was written')
             return False
-        gh('secret', 'set', SECRET, '--env', 'crates-io', '-R', slug, input=token)
+        gh('secret', 'set', FIRST_PUBLISH_VARIABLE, '--env', 'crates-io', '-R', slug, input=token)
         return True
     owner, name = context.owner_and_name()
     page = f'https://crates.io/crates/{crate}/settings/new-trusted-publisher'
@@ -395,10 +398,10 @@ def hand_over_crates(context, verdict):
     open_page(page)
     if not confirm('Is the trusted publisher added?'):
         return False
-    if not confirm(f'Delete the {SECRET} secret from the crates-io environment of {slug}?'):
-        say('crates-io', f'the {SECRET} secret was kept')
+    if not confirm(f'Delete the {FIRST_PUBLISH_VARIABLE} secret from the crates-io environment of {slug}?'):
+        say('crates-io', f'the {FIRST_PUBLISH_VARIABLE} secret was kept')
         return False
-    gh('secret', 'delete', SECRET, '--env', 'crates-io', '-R', slug)
+    gh('secret', 'delete', FIRST_PUBLISH_VARIABLE, '--env', 'crates-io', '-R', slug)
     say('crates-io', 'revoke the token at https://crates.io/settings/tokens')
     return True
 

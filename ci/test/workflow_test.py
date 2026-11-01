@@ -458,7 +458,11 @@ else:
             policy = json.loads((ROOT / f".github/rulesets/{branch}.json").read_text())
             self.assertEqual(policy["target"], "branch")
             self.assertEqual(policy["enforcement"], "active")
-            self.assertEqual(policy["bypass_actors"], [])
+            # An agent's branch commits are unsigned, so the administrator may
+            # merge a pull request into dev: GitHub signs the squash commit it
+            # creates. Nothing bypasses a push, and nothing bypasses main.
+            self.assertEqual(policy["bypass_actors"], [] if branch == "main" else
+                             [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}])
             self.assertEqual(policy["conditions"]["ref_name"], {"include": [f"refs/heads/{branch}"], "exclude": []})
             rules = {rule["type"]: rule.get("parameters", {}) for rule in policy["rules"]}
             linear_signed = {"non_fast_forward", "deletion", "required_linear_history", "required_signatures"}
@@ -493,6 +497,23 @@ else:
                          {"deletion", "update", "non_fast_forward", "required_signatures"})
         self.assertEqual(immutability["bypass_actors"], [])
         self.assertIn('tags: ["v*"]', (ROOT / ".github/workflows/release.yml").read_text())
+
+    def test_repository_policy_is_read_weekly_with_a_read_only_token(self):
+        source = (ROOT / ".github/workflows/repository-policy.yml").read_text()
+        self.assertIn("\npermissions: {}\n", source)
+        self.assertIn("  schedule:\n    - cron: ", source)
+        self.assertIn("  push:\n    branches: [dev]\n    paths:\n", source)
+        for path in (".github/repository-policy.json", ".github/rulesets/**", "tools/repository-policy.py"):
+            self.assertIn(f"      - {path}\n", source)
+        body = source.split("\njobs:\n  drift:\n", 1)[1]
+        # The workflow token holds nothing, the app token only reads, and the
+        # command only reports: GitHub changes by the maintainer's --apply.
+        self.assertNotIn("    permissions:", body)
+        self.assertIn("          permission-administration: read\n          permission-security-events: read\n", body)
+        self.assertNotIn("write", body)
+        self.assertIn("persist-credentials: false", body)
+        self.assertIn("run: python3 tools/repository-policy.py\n", body)
+        self.assertNotIn("--apply", body)
 
     def test_pages_builds_only_main(self):
         # The verify step, not this condition, requires the commit's

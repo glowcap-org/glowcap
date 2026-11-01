@@ -47,7 +47,9 @@ import sys
 from html.parser import HTMLParser
 from pathlib import Path
 
-HEADER_ROW = re.compile(r"<table><tr>((?:<th>(?:(?!</th>).)*</th>)+)</tr>")
+# Each cell body is read one character at a time with disjoint alternatives, so
+# a long row of cells costs linear time (CodeQL py/redos).
+HEADER_ROW = re.compile(r"<table><tr>((?:<th>(?:[^<\n]|<(?!/th>))*</th>)+)</tr>")
 THEME_FIGURES = re.compile(
     r'<figure><img alt="" src="(?P<dark>[^" ]*/rooms-(?P<stem>[^" ]+)-dark\.webp)">\n?'
     r"<figcaption>(?P<caption>.*?)</figcaption></figure>"

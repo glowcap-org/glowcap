@@ -21,6 +21,7 @@ import tempfile
 import unittest
 from unittest import mock
 import urllib.error
+from urllib.parse import urlsplit
 
 from workflow_test import ROOT
 
@@ -54,12 +55,13 @@ class World:
         for fragment, error in self.fetch_errors.items():
             if fragment in url:
                 raise error
-        if 'api.jsr.io' in url:
+        host = urlsplit(url).netloc
+        if host == 'api.jsr.io':
             items = [{'name': name, 'githubRepository': link} for name, link in self.jsr.items()]
             return 200, json.dumps({'items': items, 'total': self.jsr_total or len(items)})
-        if 'pypi.org' in url:
+        if host == 'pypi.org':
             return self.pypi, '{}'
-        if 'crates.io' in url:
+        if host == 'crates.io':
             return self.crate, '{}'
         status, source = self.racket
         return status, json.dumps({'source': source})
@@ -367,7 +369,7 @@ class CratesTest(unittest.TestCase):
             with self.subTest(exists=exists, secret=secret):
                 world = World()
                 world.crate = 200 if exists else 404
-                world.secrets = {MODULE.SECRET} if secret else set()
+                world.secrets = {MODULE.FIRST_PUBLISH_VARIABLE} if secret else set()
                 result = run(world, '--check', 'crates-io')
                 self.assertRegex(result.lines('crates-io')[0], f'crates-io: {expected}')
                 self.assertEqual(result.code, 1 if expected == 'incomplete' else 0)
@@ -394,9 +396,9 @@ class CratesTest(unittest.TestCase):
         for answers, deleted, code in ((['y', 'y'], True, 0), (['y', 'n'], False, 1), (['n'], False, 1)):
             with self.subTest(answers=answers):
                 world = World()
-                world.secrets = {MODULE.SECRET}
+                world.secrets = {MODULE.FIRST_PUBLISH_VARIABLE}
                 result = run(world, 'crates-io', answers=answers, tty=True)
-                self.assertEqual(MODULE.SECRET in world.secrets, not deleted)
+                self.assertEqual(MODULE.FIRST_PUBLISH_VARIABLE in world.secrets, not deleted)
                 self.assertEqual(result.code, code)
                 self.assertEqual(result.opened, ['https://crates.io/crates/glowcap/settings/new-trusted-publisher'])
                 for line in ('Repository owner: owner', 'Repository name: project', 'Workflow filename: publish.yml',

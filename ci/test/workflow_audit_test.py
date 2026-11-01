@@ -59,6 +59,9 @@ class WorkflowAudit(unittest.TestCase):
         rules = dict(re.findall(r'(?m)^  ([\w-]+):\n((?:    [^\n]*\n)+)', source))
         self.assertTrue(rules)
         self.assertIn('dangerous-triggers', rules)
+        audited = {path.name for path in WORKFLOWS.glob('*.yml')}
+        audited |= {path.name for path in ROOT.glob('.devcontainer/**/action.yml')}
+        self.assertIn('action.yml', audited, 'the composite actions zizmor audits beside the workflows')
         listed = 0
         for rule, body in rules.items():
             with self.subTest(rule=rule):
@@ -66,8 +69,8 @@ class WorkflowAudit(unittest.TestCase):
                 self.assertRegex(body, r'(?m)^ +#', 'each exception states its reason')
                 for name in re.findall(r'(?m)^      - (\S+)$', body):
                     listed += 1
-                    self.assertTrue((WORKFLOWS / name).is_file(), name)
-        self.assertEqual(listed, len(re.findall(r'(?m)^\s+- ', source)), 'every list item is a workflow name')
+                    self.assertIn(name, audited)
+        self.assertEqual(listed, len(re.findall(r'(?m)^\s+- ', source)), 'every list item names an audited file')
         self.assertIn('promote.yml', rules['dangerous-triggers'])
 
     def test_the_audit_is_a_required_check(self):

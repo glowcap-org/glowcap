@@ -9,6 +9,7 @@ sources:
   - resource: /.github/workflows/publish.yml
   - resource: /.github/workflows/validate-release.yml
   - resource: /.github/workflows/scorecard.yml
+  - resource: /.github/workflows/repository-policy.yml
   - resource: /.github/zizmor.yml
   - resource: /.github/repository-policy.json
   - resource: /tools/check/github_release.py
@@ -273,8 +274,11 @@ project from their manifests, and the repository from `gh`.
 
 The promote workflow acts as an organization-owned GitHub App, because a
 workflow's own token may not move a branch across commits that change workflow
-files. The app holds two repository permissions, Contents and Workflows, both
-read and write, on this repository alone. Its client ID is the
+files. The app holds four repository permissions on this repository alone:
+Contents and Workflows, both read and write, which promotion needs, and
+Administration and Code scanning alerts, both read-only, which the
+[repository policy workflow](../.github/workflows/repository-policy.yml) needs
+to read settings a workflow's own token cannot see. Its client ID is the
 `PROMOTE_APP_CLIENT_ID` variable and its private key the
 `PROMOTE_APP_PRIVATE_KEY` secret. Until both exist, promotion fails at its
 first step and `main` stays where it was.
@@ -282,7 +286,8 @@ first step and `main` stays where it was.
 1. Under the organization's **Settings**, **Developer settings**, **GitHub
    Apps**, choose **New GitHub App**. Name it `glowcap-promote`, set the
    homepage to `https://glowcap.org`, clear **Active** under webhooks, set the
-   Contents and Workflows repository permissions to **Read and write**, and
+   Contents and Workflows repository permissions to **Read and write**, the
+   Administration and Code scanning alerts permissions to **Read-only**, and
    allow installation only on this account.
 2. Copy the client ID, generate a private key, and install the app on
    `glowcap-org/glowcap` only.
@@ -303,7 +308,8 @@ gh secret set PROMOTE_APP_PRIVATE_KEY -R glowcap-org/glowcap < "${key_file:?}"
 
 Rerun a refused promotion with `gh run rerun <run-id>`. To rotate the key,
 generate a new one, store it the same way, then delete its predecessor in the
-app's settings.
+app's settings. An installed app gains a permission under its own settings, and
+the organization then accepts the change under **Installed GitHub Apps**.
 
 ## Repository protection
 
@@ -337,11 +343,16 @@ maintainer's own push answers to it. GitHub verifies a signature only against
 a signing key on the maintainer's account, so upload the public key before
 applying the rulesets.
 
+A pull request's branch usually carries unsigned commits, because agents do
+not sign, so the repository's administrator may merge one into `dev` past the
+signature rule, and GitHub signs the squash commit it creates. No push bypasses
+the rule, and nothing bypasses `main`.
+
 Immutable releases hold a published release and its assets as they were, which
 is the policy the release workflow already follows.
 
-Three workflows watch the posture without being asked. The `workflows` job of
-the check workflow audits every workflow file with
+Four workflows watch the posture without being asked. The `workflows` job of
+the check workflow audits every workflow and action file with
 [zizmor](https://docs.zizmor.sh) on each push and pull request, and
 `.github/zizmor.yml` records a finding a design answers with its reason. The
 `dependencies` job reviews every pull request's dependency changes against the
@@ -349,9 +360,13 @@ advisory database and fails on a known vulnerability at any severity. The
 [scorecard workflow](../.github/workflows/scorecard.yml) publishes the
 [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/glowcap-org/glowcap)
 weekly and sends each finding to code scanning, where GitHub's own code
-scanning, secret scanning, and Dependabot alerts also arrive.
+scanning, secret scanning, and Dependabot alerts also arrive. The
+[repository policy workflow](../.github/workflows/repository-policy.yml) runs
+`tools/repository-policy.py` weekly and on every change to the policy files,
+with a read-only token of the [promotion app](#promotion-app), and fails on
+any drift, which the maintainer's `--apply` resolves.
 
-Run the zizmor audit locally with `uvx zizmor .github/workflows`.
+Run the zizmor audit locally with `uvx zizmor .`.
 
 ## Relay TLS maintenance
 

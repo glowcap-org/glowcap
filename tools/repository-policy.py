@@ -1,7 +1,8 @@
 """The maintainer's check that GitHub holds this repository to its committed protection policy.
 
 Run by the maintainer from any directory, with gh signed in as a repository
-administrator:
+administrator, and read-only by .github/workflows/repository-policy.yml weekly
+and on each change to the policy, with the promotion app's token:
 
   python3 tools/repository-policy.py [--apply] [SUBJECT ...]
 

@@ -83,9 +83,9 @@ jobs:
       image: ${{ needs.image.outputs.image }}
       archive: ${{ needs.image.outputs.archive }}
 
-  # Static audit of every workflow file: injection, credential persistence,
-  # unpinned actions, cache poisoning on release paths. Findings a design
-  # answers are listed with their reason in .github/zizmor.yml.
+  # Static audit of every workflow and action file: injection, credential
+  # persistence, unpinned actions, cache poisoning on release paths. Findings
+  # a design answers are listed with their reason in .github/zizmor.yml.
   workflows:
     if: >-
       github.event_name == 'push' || github.event_name == 'pull_request' ||
@@ -101,10 +101,21 @@ jobs:
         with:
           persist-credentials: false
       - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        id: zizmor
         with:
+          version: 1.31.1
           persona: regular
           min-severity: low
           advanced-security: true
+      # SARIF mode sends the findings to code scanning and exits 0 on them, so
+      # the verdict is read from the report: one finding fails this job.
+      - name: Refuse findings
+        env:
+          REPORT: ${{ steps.zizmor.outputs.output-file }}
+        run: |
+          jq -r '.runs[].results[] | "\(.ruleId) \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.message.text)"' "$REPORT" > findings
+          cat findings
+          test ! -s findings
 
   # A pull request that adds or moves a dependency is compared with the
   # dependency graph: a known vulnerability at any severity, or a package
