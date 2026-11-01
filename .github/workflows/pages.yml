@@ -36,15 +36,12 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Read the Python pin
-        id: python
-        run: |
-          source .devcontainer/pins.sh
-          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
+      - uses: ./.devcontainer/ci/pins
+        id: pins
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: ${{ steps.python.outputs.version }}
+          python-version: ${{ steps.pins.outputs.python }}
 
       - name: Verify the exact commit passed check
         env:
@@ -54,25 +51,12 @@ jobs:
           test "$DEPLOY_SHA" = "$current"
           python3 tools/check/require-main-check.py "$DEPLOY_SHA"
 
-      - name: Reclaim disk space for the toolchain image
-        run: .devcontainer/ci/reclaim-disk.sh
-
-      - name: Install the pinned Dev Containers CLI
-        run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
-
-      - name: Authenticate to the image cache
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-
-      - name: Resolve or build the toolchain image
+      - uses: ./.devcontainer/ci
         id: image
-        run: python3 .devcontainer/ci/image.py prepare
 
-      - name: Start the prepared devcontainer
-        env:
-          IMAGE: ${{ steps.image.outputs.image }}
-        run: python3 .devcontainer/ci/image.py start "$IMAGE"
+      - uses: ./.devcontainer/ci/start
+        with:
+          image: ${{ steps.image.outputs.image }}
 
       - name: Build the site in the devcontainer
         run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json zig build site

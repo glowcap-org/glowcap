@@ -72,6 +72,9 @@ pub fn register(b: *std.Build) void {
     const rooms_peer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/rooms_peer_test.py" });
     rooms_peer_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&rooms_peer_contracts.step);
+    const ocapnviz_check_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/ocapnviz_test.py" });
+    ocapnviz_check_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&ocapnviz_check_contracts.step);
     const install_if_changed_tests = b.addTest(.{ .name = "install-if-changed", .root_module = common.installIfChangedExe(b).root_module });
     infrastructure_check_step.dependOn(&execution.addZigTest(b, install_if_changed_tests, .unit_test).step);
 
@@ -79,8 +82,9 @@ pub fn register(b: *std.Build) void {
     // rather than by its source text: a check that greps the file for
     // `return 124` proves the string is present, not that a timed-out child
     // reports 124. Not a member of `check` or `infrastructure-check`: it
-    // spends seconds on real deadline waits, and `ci/gates.sh` runs it first
-    // because the wrapper has to be proven before the sequence under it.
+    // spends seconds on real deadline waits, and the infrastructure phase in
+    // `ci/groups.py` runs it before `infrastructure-check`, because the
+    // wrapper has to be proven before the gates under it.
     const timeout_runner_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/run-with-timeout-test.sh" });
     timeout_runner_test.has_side_effects = true;
     const timeout_runner_step = b.step("timeout-runner-test", "Black-box the CI deadline wrapper: exit codes, relayed signal, no survivors (needs python3)");

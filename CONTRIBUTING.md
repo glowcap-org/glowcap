@@ -168,12 +168,15 @@ Repository instructions for coding agents live in [AGENTS.md](AGENTS.md).
 
 ## Continuous integration
 
-Every pull request runs core, memory, runtime, infrastructure, and
-browser/interoperability smoke checks, plus macOS tests. Core validation
-includes source checks and Zig tests in Debug and ReleaseSafe. ReleaseSafe
-compiles in groups to bound memory use, with every test layer covered. For a
-pull request into `dev`, the [coverage selector](ci/plan.py) adds deeper jobs
-for changed subsystems:
+[`ci/README.md`](ci/README.md) maps every trigger to the workflow it runs and
+the command each step calls. The commands are Python under `ci/` and
+`zig build`, so each has a test in [`ci/test/`](ci/test/) and a workflow reads
+as a list of steps.
+
+Every pull request runs source checks, Zig tests in Debug and ReleaseSafe,
+process proofs, infrastructure checks, and macOS tests. For a pull request into
+`dev`, the [group selector](ci/plan.py) adds the groups its changed paths
+reach:
 
 | Changed files | Additional Linux groups |
 | --- | --- |
@@ -182,99 +185,56 @@ for changed subsystems:
 | Python or Racket bindings | Bindings and interoperability |
 | Conformance fixtures | Interoperability |
 | Shared protocol, runtime, C ABI, Rust, TypeScript, or applications | All |
-| Build, CI, fuzz tests, or unclassified files | All, with full qualification |
+| Build, CI, fuzz tests, or unclassified files | All, with full validation |
 
-Shared-code changes exercise all consumers but leave mutation fuzzing to full
-qualification. Missing comparison history selects full validation. Renames
-account for both source and destination paths.
-Selection uses the complete push diff or the pull request's merge result.
+Missing comparison history selects full validation, and a rename counts both
+its paths. Pushes to `dev`, pull requests into `main`, nightly runs, and manual
+`suite=check` runs always run full validation, which includes bounded mutation
+fuzzing and reports `gates`. A selected run reports `dev-gates`. The main
+ruleset reads `gates` from the run the push to `dev` started, and that run's
+success moves `main` to the commit, as described in
+[Maintaining glowcap](docs/maintaining.md#promoting-to-main). Nightly runs and
+a manual `suite=fuzz` run search deeper with the fuzzer and keep a finding as a
+downloadable artifact.
 
-Pushes to `dev`, pull requests targeting main, nightly runs, and manual
-`suite=check` runs always execute the complete [`ci/gates.sh`](ci/gates.sh)
-sequence. Full validation includes bounded mutation fuzzing. Nightly runs also
-search deeper with the fuzzer, as does a manual `suite=fuzz` run. A fuzzer
-finding is retained as a downloadable artifact for reproduction.
+Linux validation runs in groups. A group's build jobs each compile one shard of
+what its phases run and hand the compiled state to one test job per phase,
+which run side by side. Source and infrastructure checks compile only their
+checkers, so they report within minutes. A failed job does not cancel its
+siblings, a failed build still hands its tests what it compiled, and a failed
+test does not stop its phase, so one run reports every failing test. A build
+that runs out of time ends its phase, because every later gate needs it. The
+aggregate check requires every selected group and macOS to pass, and its
+summary links each failing job.
 
-Selected validation reports `dev-gates`. Complete validation reports `gates`,
-including on pull requests that require every group. The main ruleset reads
-`gates` from the run the push to `dev` started. That run's success moves `main`
-to the commit, as
-described in [Maintaining glowcap](docs/maintaining.md#promoting-to-main).
-
-Linux validation runs in the groups [`ci/plan.py`](ci/plan.py) names. A group's
-build jobs each compile one shard of what its phases run and hand the compiled
-state to one test job per phase. Test jobs restore that state before running
-their phases side by side. Source and infrastructure checks start without waiting
-for a product build, including package and TLS fixture regression tests. The
-live TLS proof has its own build group. Each test job reports gate durations
-and attaches JSON evidence.
-
-A failed job does not cancel its siblings, a failed build still hands its tests
-what it compiled, and a failed test does not stop its phase, so one run reports
-every failing test. A build that runs out of time ends its phase, because every
-later gate in that phase needs it. The aggregate check requires every selected
-Linux group and macOS validation to pass. Its summary identifies the commit,
-links failing jobs, and lists the longest completed jobs.
-
-Superseded runs on the same branch and event are cancelled. Long gates report
-elapsed time once a minute without extending their deadlines.
-
-A deadline holds on the slowest machine that runs it. Hosted runners compile
-cold, an order of magnitude slower than a warm workstation, and run tests
-slower too. Each job therefore carries only the phases that fit its time limit,
-and a phase opens with its shared build under a separate build allowance so a
-proof's deadline times the proof.
-
-Tests that use more than half their deadline warn, locally too. A missed
-deadline fails the check without an automatic retry. Diagnose the stopped
-attempt before rerunning it. A later pass does not explain the failure.
-
-To reproduce CI's process checks locally, compile in ReleaseSafe first, then
-run the tests in the same mode. Run browser proofs separately from this sequence.
+A deadline holds on the slowest machine that runs it: a hosted runner compiles
+cold, an order of magnitude slower than a warm workstation. Tests that use
+more than half their deadline warn, locally too. A missed deadline fails the
+check without a retry. Diagnose the stopped attempt before rerunning it,
+because a later pass does not explain the failure. Reproduce a phase locally
+with `glowcap-dev python3 ci/gates.py run <phase>`, or CI's process checks
+alone:
 
 ```sh
 zig build runtime-check-build -Doptimize=ReleaseSafe
 zig build runtime-check -Doptimize=ReleaseSafe
 ```
 
-Each Linux job starts one devcontainer and reuses it across phases. Dependency
-downloads are cached between runs. Pull requests can restore Zig and Cargo
-compile state even when all groups run. Pushes, nightly runs, and manual checks
-build cold and save state for later reviews. The push that qualifies `main`
-therefore reuses no compiled state. Separate jobs have separate caches and ports.
+Every Linux job runs in the same immutable toolchain image, which the
+[image workflow](.github/workflows/devcontainer-image.yml) resolves or builds
+once per run. Only trusted `dev` and `main` runs publish an image, and a pull
+request with new image inputs hands its build to its jobs as a run-scoped
+artifact. Dependency downloads are cached between runs. A pull request restores
+Zig and Cargo compile state saved by the last run of its review. Pushes,
+nightly runs, and manual checks build cold and save state for later reviews,
+so the push that validates `main` reuses nothing compiled. State past a size
+limit is dropped, and a job frees the hosted runner's unused SDKs only when it
+has less free disk than it needs.
 
-Zig and Cargo validate cached objects against compiler and source inputs.
-Process proofs rerun, while unchanged Zig unit-test results can be reused.
-State past a size limit is dropped. A Linux job removes the hosted runner's
-unused SDKs only when the runner has less free disk than a job needs, and
-Rust incremental compilation stays off to leave room for build outputs.
-
-Zig packages are fetched in a named setup step on Linux and macOS, with three
-bounded attempts for download failures. Tests are never retried by that step.
-Package caches are keyed by platform and pinned dependency inputs. Linux
-checks use Ubuntu 24.04 to avoid an implicit runner OS migration.
-
-The [image preparation workflow](.github/workflows/devcontainer-image.yml) runs
-once before Linux jobs start. It reuses a toolchain image keyed by container
-inputs, or builds one on a miss. Every Linux job uses the same immutable image.
-Only trusted `main` and `dev` runs publish images. A pull request with new image
-inputs shares its build through a temporary artifact within that run.
-
-The container keeps the environment declared in Compose. CI mounts its cached
-Zig package and compile stores at their declared paths, so startup checks and build
-commands see the same environment. Pages and agent-tool jobs use the same
-startup helper and image key with read-only registry access. On a cache miss,
-they build and consume a local image without publishing it.
-
-Coding-agent installation has a [separate workflow](.github/workflows/agent-tools.yml)
-for devcontainer changes and manual runs. Product checks do not wait for
-coding-agent downloads.
-
-Execution requires available GitHub-hosted runners. Local checks remain the
-way to validate a change when hosted runs are unavailable.
-The commands are in the [checks workflow](.github/workflows/check.yml).
-[Maintaining glowcap](docs/maintaining.md) covers how `dev` reaches `main` and
-how releases are published.
+Coding-agent installation has a
+[separate workflow](.github/workflows/agent-tools.yml) for devcontainer
+changes, so product checks never wait for agent downloads. When hosted runners
+are unavailable, local checks remain the way to validate a change.
 
 ## License
 

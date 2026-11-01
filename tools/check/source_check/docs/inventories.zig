@@ -71,7 +71,7 @@ pub fn checkResidentRoster(
     }
 }
 
-/// The stability page points at `ci/gates.sh` for which checks recur, and
+/// The stability page points at `ci/groups.py` for which checks recur, and
 /// names the macOS job's command. Hold the workflow to the cancel policy and
 /// the macOS job the page describes.
 pub fn checkStabilityWorkflow(
@@ -130,7 +130,7 @@ pub fn checkCommunityReviewCiMatrix(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const doc_path = "docs/community-review.md";
-    const ci_path = "ci/gates.sh";
+    const ci_path = ci_inventory_path;
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -145,11 +145,10 @@ pub fn checkCommunityReviewCiMatrix(
         return;
     };
 
-    // One parser of `ci/gates.sh`, shared with the stability area check: two
+    // One parser of the inventory, shared with the stability area check: two
     // would be two definitions of "runs in CI".
     var running: std.ArrayList([]const u8) = .empty;
-    try collectBuildSteps(arena, ci, "\ngate zig build ", &running);
-    try collectBuildSteps(arena, ci, "\nbuild zig build ", &running);
+    try collectBuildSteps(arena, ci, ci_gate_prefix, &running);
 
     const header = "| Evidence | CI | Proves | Does not prove |";
     const hit = std.mem.indexOf(u8, doc, header) orelse {
@@ -250,6 +249,12 @@ pub fn checkCommunityReviewCiMatrix(
 
 /// Collect the build-step names that follow each occurrence of `prefix`, up to
 /// the next backtick or end of line.
+/// The gate inventory every "runs in CI" claim is derived from, and the text
+/// that opens each `zig build` row in it: the opening quote of the command
+/// string, so a step named in a comment is not a gate.
+pub const ci_inventory_path = "ci/groups.py";
+pub const ci_gate_prefix = "\"zig build ";
+
 pub fn collectBuildSteps(
     arena: std.mem.Allocator,
     haystack: []const u8,
@@ -260,14 +265,15 @@ pub fn collectBuildSteps(
     while (std.mem.indexOfPos(u8, haystack, at, prefix)) |hit| {
         const start = hit + prefix.len;
         var stop = start;
-        // A space ends the name as surely as a backtick or a newline does: a
-        // build step never contains one, so anything past it is arguments. A
-        // gate that passes an option (`zig build fuzz -Dfuzz-runs=25K`) is
-        // still running that step, and a doc row saying CI runs `fuzz` is
-        // still true: without this the option becomes part of the name and
-        // every such row reads as stale.
+        // A space ends the name as surely as a backtick, a quote, or a newline
+        // does: a build step never contains one, so anything past it is
+        // arguments. A gate that passes an option (`zig build fuzz
+        // -Dfuzz-runs=25K`) is still running that step, and a doc row saying
+        // CI runs `fuzz` is still true: without this the option becomes part
+        // of the name and every such row reads as stale.
         while (stop < haystack.len and
             haystack[stop] != '`' and
+            haystack[stop] != '"' and
             haystack[stop] != '\n' and
             haystack[stop] != ' ') stop += 1;
         const name = std.mem.trim(u8, haystack[start..stop], " \t\r");

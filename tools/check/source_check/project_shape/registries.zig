@@ -180,7 +180,7 @@ fn isWireTokenChar(c: u8) bool {
 
 /// Hold the gate sequence to the exit codes it must recognize.
 ///
-/// `tools/run-with-timeout.py` bounds every gate, and `ci/gates.sh` branches on
+/// `tools/run-with-timeout.py` bounds every gate, and `ci/gates.py` branches on
 /// what it returns to tell a wedged socket from an ordinary failure. The two
 /// files never import each other, so nothing but this connects them.
 ///

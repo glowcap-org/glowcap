@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Black-box test for tools/run-with-timeout.py.
 #
-# The wrapper bounds every gate in ci/gates.sh, and ci/gates.sh branches on the
-# codes it returns, so the contract is its observable behaviour: the exit code
-# a shell sees, the signal the child receives, and whether anything
-# survives the wrapper. A source-string check cannot see any of that.
+# The wrapper bounds every CI gate, and ci/gates.py branches on the codes it
+# returns (ci/test/gates_test.py holds that half), so the contract is its
+# observable behaviour: the exit code a shell sees, the signal the child
+# receives, and whether anything survives the wrapper. A source-string check
+# cannot see any of that.
 set -eu
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -194,73 +195,6 @@ else
 	bad "a descendant outlived its terminated process group"
 fi
 
-# The other half of the contract: the sequence that reads these codes must
-# actually classify them. Sourced, so this exercises the real function rather
-# than looking for its text, a literal can survive in a branch nobody takes.
-EVIDENCE_ROWS="$scratch/gates.tsv"
-# shellcheck disable=SC1091
-GATES_SOURCE_ONLY=1 . ci/gates.sh
-for code in 124 137; do
-	if wedged_rc "$code"; then ok "ci/gates.sh classifies $code as wedged"; else bad "ci/gates.sh does not classify $code as wedged"; fi
-done
-for code in 0 1 2 126 127 143; do
-	if wedged_rc "$code"; then bad "ci/gates.sh misclassifies $code as wedged"; fi
-done
-ok "ci/gates.sh leaves ordinary failures unclassified"
-
-# CI owns the same per-test timeout as the devcontainer front. Exercise its
-# argv rewrite with a fake Zig so a later explicit override cannot become two
-# conflicting flags.
-fake_bin="$scratch/bin"
-fake_args="$scratch/zig-args"
-mkdir -p "$fake_bin"
-cat >"$fake_bin/zig" <<'FAKE_ZIG'
-#!/bin/sh
-printf '%s\n' "$@" >"$GLOWCAP_TEST_ZIG_ARGS"
-sleep "${GLOWCAP_TEST_DELAY:-0}"
-FAKE_ZIG
-chmod +x "$fake_bin/zig"
-GLOWCAP_TEST_ZIG_ARGS="$fake_args" PATH="$fake_bin:$PATH" GATE_TIMEOUT=5s gate zig build test
-if [ "$(grep -c -- '--test-timeout' "$fake_args")" -eq 1 ] && grep -qx 30s "$fake_args"; then
-	ok "ci adds one default per-test timeout"
-else
-	bad "ci did not add exactly one default per-test timeout"
-fi
-GLOWCAP_TEST_ZIG_ARGS="$fake_args" PATH="$fake_bin:$PATH" GATE_TIMEOUT=5s gate zig build test --test-timeout 7s
-if [ "$(grep -c -- '--test-timeout' "$fake_args")" -eq 1 ] && grep -qx 7s "$fake_args" && ! grep -qx 30s "$fake_args"; then
-	ok "ci preserves one explicit per-test timeout"
-else
-	bad "ci duplicated or replaced the explicit per-test timeout"
-fi
-# A `build` line gets the cold-build allowance; an ordinary gate keeps its
-# own. Both still receive the same per-test deadline above.
-GLOWCAP_TEST_ZIG_ARGS="$fake_args" GLOWCAP_TEST_DELAY=0.2 PATH="$fake_bin:$PATH" GATE_TIMEOUT=0.1s BUILD_TIMEOUT=2s build zig build check
-ok "ci gives a build line its build allowance"
-ordinary_said=$(GLOWCAP_TEST_ZIG_ARGS="$fake_args" GLOWCAP_TEST_DELAY=0.2 PATH="$fake_bin:$PATH" GATE_TIMEOUT=0.1s BUILD_TIMEOUT=2s gate zig build test 2>/dev/null; echo "first=$first_failure")
-if [ "$ordinary_said" = "first=124" ]; then
-	ok "ci retains the ordinary gate deadline"
-else
-	bad "ci widened the ordinary gate deadline (got $ordinary_said)"
-fi
-# A failed gate or build lets the sequence go on and keeps the first failure.
-continued=$( (GATE_TIMEOUT=5s gate sh -c 'exit 3'; BUILD_TIMEOUT=5s build sh -c 'exit 5'; echo "reached first=$first_failure") 2>/dev/null)
-if [ "$continued" = "reached first=3" ]; then
-	ok "a failed gate continues the sequence and keeps the first failure"
-else
-	bad "a failed gate stopped the sequence or lost its code (got $continued)"
-fi
-# A build that ran out of time stops the run with the deadline's code.
-stopped=$( (BUILD_TIMEOUT=0.2s build sh -c 'sleep 5'; GATE_TIMEOUT=5s gate echo after-the-build) 2>/dev/null; echo "rc=$?")
-if [ "$stopped" = "rc=124" ]; then
-	ok "a build past its deadline stops the run"
-else
-	bad "a timed-out build let the run continue (got $stopped)"
-fi
-if [ "$(wc -l < "$EVIDENCE_ROWS" | tr -d ' ')" -eq 7 ]; then
-	ok "ci records all exercised gates"
-else
-	bad "ci did not record all exercised gates"
-fi
 if [ "$fail" -ne 0 ]; then
 	echo "run-with-timeout-test: FAILED" >&2
 	exit 1

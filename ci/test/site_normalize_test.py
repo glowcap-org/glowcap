@@ -7,7 +7,7 @@ site` on rendered pages, and this is the focused proof of its header-row regex.
 import importlib.util
 import unittest
 
-from workflow_test import ROOT
+from workflows import ROOT
 
 SCRIPT = ROOT / 'tools/gen/site_normalize.py'
 SPEC = importlib.util.spec_from_file_location('site_normalize', SCRIPT)

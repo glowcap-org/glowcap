@@ -24,14 +24,13 @@ pub fn checkStabilityAreaTableRecurringClaims(
         return;
     };
 
-    const ci_path = "ci/gates.sh";
+    const ci_path = inventories.ci_inventory_path;
     const ci = root.readFileAlloc(io, ci_path, arena, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for area-table recurring check with {s}", .{ ci_path, @errorName(err) });
         return;
     };
     var listed: std.ArrayList([]const u8) = .empty;
-    try inventories.collectBuildSteps(arena, ci, "\ngate zig build ", &listed);
-    try inventories.collectBuildSteps(arena, ci, "\nbuild zig build ", &listed);
+    try inventories.collectBuildSteps(arena, ci, inventories.ci_gate_prefix, &listed);
 
     const header = "| Area | Evidence | What remains |";
     const hit = std.mem.indexOf(u8, doc, header) orelse {

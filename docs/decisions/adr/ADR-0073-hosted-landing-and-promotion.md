@@ -67,7 +67,7 @@ longer scales with run length, would justify revisiting this.
 
 ## Evidence
 
-`ci/test/workflow_test.py` holds the promote workflow to a successful push run
+`ci/test/promote_test.py` holds the promote workflow to a successful push run
 on `dev` from this repository, no workflow-token permissions, the app token's
 two permissions, and no checkout. It runs the job's script against a stub API:
 an ahead commit fast-forwards `main`, a commit `main` already contains moves

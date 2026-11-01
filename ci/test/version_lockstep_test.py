@@ -13,7 +13,7 @@ import subprocess
 import tomllib
 import unittest
 
-from workflow_test import ROOT
+from workflows import ROOT
 
 
 class VersionLockstep(unittest.TestCase):

@@ -1,9 +1,13 @@
-"""Prepare one CI toolchain image, or start a consumer without a toolchain build.
+"""Prepare one CI toolchain image, start a consumer, or free runner disk.
 
 Called by the CI workflows at the checkout root. Requires
 Docker and the pinned Dev Containers CLI. Registry writes require --publish;
 read-only misses use a run-scoped Docker archive in RUNNER_TEMP. Outputs go to
 GITHUB_OUTPUT. Subprocess failures stop the job; workflow timeouts bound builds.
+
+    image.py reclaim [--need-gb N]   free hosted-runner disk before the image lands
+    image.py prepare [--publish]     resolve the toolchain image or build it once
+    image.py start IMAGE             start the prepared devcontainer
 """
 
 import argparse
@@ -12,14 +16,42 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# SDKs the disposable hosted runner ships for other ecosystems. Every product
+# tool comes from the devcontainer. The runner's node, python3, docker, and
+# git stay, because the Dev Containers CLI and the workflow steps run on them,
+# and the hosted toolcache keeps its Python and Node trees for setup-python.
+RUNNER_SDKS = (
+    '/usr/share/dotnet', '/usr/local/lib/android', '/opt/ghc', '/usr/local/.ghcup',
+    '/opt/hostedtoolcache/CodeQL', '/opt/hostedtoolcache/go', '/opt/hostedtoolcache/Ruby',
+    '/opt/hostedtoolcache/PyPy', '/usr/share/swift', '/usr/lib/jvm', '/usr/share/miniconda',
+    '/usr/local/share/powershell', '/usr/local/share/chromium', '/opt/az', '/usr/local/aws-cli',
+    '/usr/local/aws-sam-cli', '/usr/lib/google-cloud-sdk', '/usr/share/kotlinc',
+)
 
 
 def run(*args, capture=False):
     return subprocess.run(args, cwd=ROOT, check=True, text=True,
                           stdout=subprocess.PIPE if capture else None).stdout
+
+
+def reclaim(need_gb):
+    """Remove the runner's SDKs and images when the root filesystem has less
+    free space than a job needs. Removal takes minutes, so the default is
+    several times what a compile or test job adds, restored state and the
+    container image included."""
+    free_gb = shutil.disk_usage('/').free // 1_000_000_000
+    if free_gb >= need_gb:
+        print(f"{free_gb} GB free of the {need_gb} GB a job needs; keeping the runner's SDKs.")
+        return
+    print(f"{free_gb} GB free of the {need_gb} GB a job needs; removing the runner's SDKs.")
+    run('sudo', 'rm', '-rf', *RUNNER_SDKS, *map(str, Path('/usr/local').glob('julia*')))
+    run('docker', 'image', 'prune', '--all', '--force')
+    print(f"{shutil.disk_usage('/').free // 1_000_000_000} GB free now.")
 
 
 def fingerprint():
@@ -176,10 +208,13 @@ def start(image):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('reclaim').add_argument('--need-gb', type=int, default=60)
     commands.add_parser('prepare').add_argument('--publish', action='store_true')
     commands.add_parser('start').add_argument('image')
     args = parser.parse_args()
-    if args.command == 'prepare':
+    if args.command == 'reclaim':
+        reclaim(args.need_gb)
+    elif args.command == 'prepare':
         prepare(args.publish)
     else:
         start(args.image)

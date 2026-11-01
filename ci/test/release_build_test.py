@@ -23,8 +23,7 @@ import textwrap
 import unittest
 from unittest import mock
 
-from workflow_test import ROOT, jobs, shell_step
-from workflow_expression import selected
+from workflows import ROOT, jobs, selected, shell_step, step
 
 
 spec = importlib.util.spec_from_file_location('zig_package', ROOT / 'tools/check/zig_package.py')
@@ -33,19 +32,12 @@ spec.loader.exec_module(PACKAGE)
 WORKFLOW = ROOT / '.github/workflows/release.yml'
 
 
-def job_body(name):
-    """A job's block, including jobs that declare no `if`, which `jobs` skips."""
-    source = WORKFLOW.read_text().split('\njobs:\n', 1)[1]
-    return re.search(rf'(?m)^  {name}:\n((?: {{4}}[^\n]*\n|\n)*)', source)[1]
-
-
-def step_block(body, name):
-    return re.search(rf'(?m)^      - (?:name: {re.escape(name)}|uses: [^\n]*\n(?: {{8}}[^\n]*\n)*? {{8}}name: {re.escape(name)})\n((?: {{8,}}[^\n]*\n|\n)*)', body)[0]
+RELEASE = jobs('.github/workflows/release.yml')
 
 
 class ReleaseBuild(unittest.TestCase):
     def test_a_tag_push_releases_and_a_dispatch_only_rehearses(self):
-        predicate, release = jobs('.github/workflows/release.yml')['release']
+        predicate, release = RELEASE['release']
         self.assertEqual(predicate, "github.ref_type == 'tag'")
         self.assertRegex(release, r'(?m)^    needs: \[contract, archives, images\]$')
         self.assertTrue(selected(predicate, {'event_name': 'push', 'ref_type': 'tag'}))
@@ -53,10 +45,10 @@ class ReleaseBuild(unittest.TestCase):
         self.assertFalse(selected(predicate, {'event_name': 'workflow_dispatch', 'ref_type': 'tag'}, success=False))
         for name, needs in (('contract', None), ('archives', 'contract'), ('images', '[contract, archives]')):
             with self.subTest(job=name):
-                body = job_body(name)
+                body = RELEASE[name].body
                 self.assertNotRegex(body, r'(?m)^    if:')
                 self.assertRegex(body, rf'(?m)^    needs: {re.escape(needs)}$' if needs else r'(?m)^    timeout-minutes')
-        self.assertNotIn('needs:', job_body('contract'))
+        self.assertNotIn('needs:', RELEASE['contract'].body)
         self.assertEqual(set(re.findall(r'(?m)^  ([\w-]+):$', WORKFLOW.read_text().split('\njobs:\n', 1)[1])),
                          {'contract', 'archives', 'images', 'release'})
 
@@ -69,25 +61,25 @@ class ReleaseBuild(unittest.TestCase):
         self.assertNotIn('release_recovery', source)
 
     def test_only_a_tag_attests_and_only_the_archives_and_release_may_attest(self):
-        archives = job_body('archives')
-        step = step_block(archives, "Attest the archives' build provenance")
-        condition = re.search(r'(?m)^        if: (.+)$', step)[1]
+        archives = RELEASE['archives'].body
+        attest = step(archives, "Attest the archives' build provenance")
+        condition = re.search(r'(?m)^        if: (.+)$', attest)[1]
         for ref_type, expected in (('tag', True), ('branch', False), ('', False)):
             self.assertEqual(selected(condition, {'ref_type': ref_type}), expected)
-        self.assertIn('uses: actions/attest-build-provenance@', step)
+        self.assertIn('uses: actions/attest-build-provenance@', attest)
         self.assertRegex(archives, r'(?m)^      attestations: write$')
         self.assertRegex(archives, r'(?m)^      id-token: write$')
         for name in ('contract', 'images'):
             with self.subTest(job=name):
-                body = job_body(name)
+                body = RELEASE[name].body
                 self.assertNotIn('attestations', body)
                 self.assertNotIn('id-token', body)
                 self.assertNotRegex(body, r'(?m)^      (contents|packages|actions): write$')
                 self.assertNotIn('attest', body)
 
     def test_images_take_the_archives_of_their_own_run_and_check_them_before_extracting(self):
-        images = job_body('images')
-        extract = step_block(images, 'Extract the verified Linux product')
+        images = RELEASE['images'].body
+        extract = step(images, 'Extract the verified Linux product')
         self.assertLess(extract.index('sha256sum --check SHA256SUMS'), extract.index('tar --extract'))
         self.assertIn('name: archives-${{ matrix.runner }}', images)
         self.assertNotIn('run-id', images)
@@ -115,7 +107,7 @@ class ReleaseBuild(unittest.TestCase):
                 self.assertEqual((root / 'image-context/bin/glowcap').exists(), accepted)
 
     def test_release_publishes_in_order_and_attests_before_it_fills_the_draft(self):
-        release = job_body('release')
+        release = RELEASE['release'].body
         order = ('Assemble the release assets',
                  "Attest the checksum file's build provenance",
                  'Publish the versioned multi-platform Rooms image',
@@ -132,7 +124,7 @@ class ReleaseBuild(unittest.TestCase):
         self.assertIn('subject-path: release-assets/SHA256SUMS', release)
 
     def test_failed_product_archives_are_preserved_without_qualifying_them(self):
-        body = job_body('archives')
+        body = RELEASE['archives'].body
         predicate = re.search(r'^        if: (.*hashFiles.*)$', body, re.M)[1]
         for present in (False, True):
             expression = predicate.replace("hashFiles('zig-out/glowcap-release/*.tar.gz')",
@@ -184,14 +176,15 @@ class ReleaseBuild(unittest.TestCase):
                 run.assert_called_once_with(nm, '-g', str(consumer / 'zig-out/sidecars.a'), cwd=consumer, timeout=30)
 
     def test_archive_acquisition_delegates_and_propagates_failure(self):
-        step = step_block(job_body('archives'), 'Fetch pinned Zig dependencies')
-        script = re.search(r'(?m)^        run: (.+)$', step)[1]
-        self.assertEqual(script, 'bash ci/fetch-zig.sh')
+        block = step(RELEASE['archives'].body, 'Fetch pinned Zig dependencies')
+        script = re.search(r'(?m)^        run: (.+)$', block)[1]
+        self.assertEqual(script, 'python3 ci/gates.py fetch')
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / 'ci').mkdir()
-            (directory / 'ci/fetch-zig.sh').write_text(
-                '#!/bin/bash\nprintf "%s" "$*" > "$FETCH_LOG"\nexit "$FETCH_STATUS"\n')
+            (directory / 'ci/gates.py').write_text(
+                'import os, sys\nopen(os.environ["FETCH_LOG"], "w").write(" ".join(sys.argv[1:]))\n'
+                'sys.exit(int(os.environ["FETCH_STATUS"]))\n')
             log = directory / 'fetch-arguments'
             for status in (0, 37, 143):
                 with self.subTest(status=status):
@@ -200,7 +193,57 @@ class ReleaseBuild(unittest.TestCase):
                                             env=dict(os.environ, FETCH_LOG=str(log), FETCH_STATUS=str(status)),
                                             capture_output=True, text=True, timeout=10)
                     self.assertEqual(result.returncode, status, result.stderr)
-                    self.assertEqual(log.read_text(), '')
+                    self.assertEqual(log.read_text(), 'fetch')
+
+    def test_release_version_and_publication_stay_pre_one(self):
+        source = WORKFLOW.read_text()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / 'bindings').mkdir()
+            output = directory / 'output'
+            environment = dict(os.environ, GITHUB_OUTPUT=str(output))
+            for version, accepted in [('0.1.0', True), ('0.2.3', True),
+                                      ('1.0.0', False), ('1.0.0-alpha.1', False),
+                                      ('10.0.0', False), ('garbage', False)]:
+                with self.subTest(version=version):
+                    (directory / 'bindings/c-abi-resolve.json').write_text(json.dumps({'abi_version': version}))
+                    output.write_text('')
+                    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c',
+                                             shell_step(source, 'Read the product version')],
+                                            cwd=directory, env=environment, capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                    self.assertEqual(output.read_text(), f'value={version}\n' if accepted else '')
+            gh = directory / 'gh'
+            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$GH_CALLS"\n')
+            gh.chmod(0o755)
+            (directory / 'artifacts').mkdir()
+            (directory / 'artifacts/release-notes.md').write_text('notes\n')
+            (directory / 'release-assets').mkdir()
+            checker = directory / 'tools/check/github_release.py'
+            checker.parent.mkdir(parents=True)
+            checker.write_text('import json, os, sys\n'
+                               "with open(os.environ['CHECK_CALLS'], 'a') as log:\n"
+                               "    log.write(' '.join(sys.argv[1:]) + '\\n')\n"
+                               "if sys.argv[1] == 'draft-state':\n"
+                               "    print(json.dumps({'draft_exists': False, 'missing_assets': []}))\n")
+            gh_calls, check_calls = directory / 'gh-calls', directory / 'check-calls'
+            environment.update(PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
+                               GH_CALLS=str(gh_calls), CHECK_CALLS=str(check_calls),
+                               GITHUB_REF_NAME='different-branch', RELEASE_TAG='v0.1.0', GITHUB_REPOSITORY='owner/project')
+            result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c',
+                                     shell_step(source, 'Fill the draft release, then make it public')],
+                                    cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            create, edit = [call.split() for call in gh_calls.read_text().splitlines()]
+            self.assertEqual(create[:3], ['release', 'create', 'v0.1.0'])
+            for flag in ('--prerelease', '--draft', '--latest=false', '--verify-tag'):
+                self.assertIn(flag, create)
+            self.assertIn('glowcap v0.1.0 alpha', ' '.join(create))
+            self.assertEqual(edit[:3], ['release', 'edit', 'v0.1.0'])
+            self.assertIn('--draft=false', edit)
+            self.assertIn('--prerelease', edit)
+            self.assertIn('--latest=false', edit)
+            self.assertEqual(check_calls.read_text().splitlines(), ['draft-state v0.1.0', 'verify-draft v0.1.0'])
 
     def test_macos_shared_archive_records_its_abi_major(self):
         with tempfile.TemporaryDirectory() as temporary:

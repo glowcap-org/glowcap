@@ -18,7 +18,7 @@ glowcap is written with AI coding assistants under one maintainer
 ([`PROVENANCE.md`](../../../PROVENANCE.md)). The question a reader of its
 history asks is not who typed a change but who vouched for it and what was
 checked. Draft commits are made in linked worktrees by agents that hold no
-signing key. The CI sequence (`ci/gates.sh`) is long, so what it proved about
+signing key. The CI sequence (`ci/groups.py`) is long, so what it proved about
 a commit must stay attached to that commit rather than to a run page. A squash
 or merge on the way to `main` would replace the checked commit with a new
 hash no check ran on and no signature covers.
@@ -63,5 +63,5 @@ rule. Until then the integrator and the local checks are the only enforcement.
 author, the carried note, and the refusal without a key.
 `tools/check/publication-integration-test.sh` proves a contribution landing
 through the integrator and a fast-forward-only `main`.
-`ci/test/workflow_test.py` holds the rulesets to signed,
+`ci/test/promote_test.py` holds the rulesets to signed,
 linear, checked history. None of these shows the hosted rulesets are active.

@@ -1,8 +1,9 @@
-"""Select checks for check.yml from its event and the local checkout.
+"""Select the groups check.yml runs, from its event and the changed paths.
 
-No network access. Unknown paths or unavailable diff history select the full
-suite. Outputs go to GITHUB_OUTPUT and a readable GITHUB_STEP_SUMMARY. The
-workflow checks out complete history and supplies the standard Actions env.
+Called by the plan job at the checkout root, with complete history and the
+standard Actions environment. No network access. Unknown paths or missing
+diff history select full validation. Outputs go to GITHUB_OUTPUT and a
+readable GITHUB_STEP_SUMMARY.
 """
 
 import json
@@ -10,30 +11,10 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
-
-# A group compiles once and then tests in parallel: `shards` build jobs each
-# compile one slice of what its ci/gates.sh phases run, then one test job per
-# phase runs it on their combined state. A shard count of zero runs no build
-# job, for phases whose gates compile in a nested build at run time. Shards
-# split the group's slowest cold build across hosted runners; phases split its
-# runs. Only compiles no Cargo or Deno build reaches can leave the first shard
-# (execution.zig compileOnly), so a count above one pays only where those
-# compiles are many. Every gates.sh phase belongs to exactly one group.
-GROUPS = (
-    ("source", ("source", "infrastructure"), 0),
-    ("core", ("core", "memcheck"), 2),
-    ("runtime", ("runtime",), 2),
-    ("tls", ("tls",), 1),
-    ("shipped", ("shipped", "smoke"), 2),
-    ("fuzz", ("fuzz-1", "fuzz-2", "fuzz-3", "fuzz-4"), 0),
-    ("bindings", ("sidecars", "bindings"), 1),
-    ("browser", ("browser", "browser-proofs-1", "browser-proofs-2", "browser-proofs-3",
-                 "browser-proofs-4"), 1),
-    ("interop", ("rooms-interop", "interop"), 1),
-    ("transports", ("transports",), 1),
-)
-GROUP_NAMES = tuple(name for name, _, _ in GROUPS)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from groups import GROUPS, GROUP_NAMES
 
 
 def select(event_name, ref, event, paths):
@@ -63,8 +44,8 @@ def select(event_name, ref, event, paths):
         elif path.startswith(("src/", "test/", "apps/", "bindings/")):
             selected.update(GROUP_NAMES)
         else:
-            # Build graph, CI, dependencies, and unclassified paths also
-            # exercise the full search and qualification machinery.
+            # Build graph, CI, dependencies, and unclassified paths reach
+            # everything, the fuzz search included.
             return list(GROUP_NAMES), True
     ordered = [name for name in GROUP_NAMES if name in selected and name != "fuzz"]
     return ordered, False
@@ -90,8 +71,8 @@ def main():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     selected, full = select(os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"],
                             event, changed_paths(event, root))
-    groups = [{"name": name, "phases": list(phases), "shards": list(range(1, shards + 1))}
-              for name, phases, shards in GROUPS if name in selected]
+    groups = [{"name": group.name, "phases": list(group.phases), "shards": list(range(1, group.shards + 1))}
+              for group in GROUPS if group.name in selected]
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"groups={json.dumps(groups)}\nfull={str(full).lower()}\n")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
@@ -100,8 +81,8 @@ def main():
         for group in groups:
             summary.write(f"| {group['name']} | {len(group['shards'])} | {', '.join(group['phases'])} |\n")
         summary.write("\nmacOS runs separately.\n\n")
-        summary.write("Full validation supplies `gates` for promotion. Development validation "
-                      "supplies `dev-gates` and cannot qualify a commit for main.\n")
+        summary.write("Full validation reports `gates`, which promotion requires. A development "
+                      "run reports `dev-gates` and cannot promote a commit to main.\n")
 
 
 if __name__ == "__main__":

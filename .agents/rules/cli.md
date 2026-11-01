@@ -31,7 +31,7 @@ every step is documented. Choose evidence by the boundary that changed:
   changed signature needs every layer that implements it.
 - Run the bare suite once before the final gate, then combine compatible final
   gates in one invocation.
-- Take options from the owning phase in `ci/gates.sh`; gates with different
+- Take options from the owning phase in `ci/groups.py`; gates with different
   optimization modes need separate invocations.
 - Before running, name the changed boundary and the prior evidence it
   invalidates. After a review, compaction, or gate failure, rerun only the

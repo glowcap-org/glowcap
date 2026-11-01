@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -169,36 +170,30 @@ class ImageTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     IMAGE.start('ghcr.io/glowcap-org/glowcap/devcontainer:ci')
 
-    def test_runner_disk_is_reclaimed_by_one_script(self):
-        # Every job that starts the devcontainer frees the hosted runner's
-        # disk first, and the list of what goes lives in one script.
-        script = ROOT / '.devcontainer/ci/reclaim-disk.sh'
-        self.assertTrue(os.access(script, os.X_OK), script)
-        for path in ('.github/workflows/check-group.yml', '.github/workflows/pages.yml',
-                     '.github/workflows/agent-tools.yml', '.devcontainer/ci/action.yml'):
-            source = (ROOT / path).read_text()
+    def test_runner_disk_is_reclaimed_before_the_image_starts(self):
+        # Every job that starts the devcontainer frees the hosted runner's disk
+        # first, and what goes is listed once, in this module.
+        for path in ('.github/workflows/check-group.yml', '.devcontainer/ci/action.yml'):
             with self.subTest(path=path):
-                self.assertIn('run: .devcontainer/ci/reclaim-disk.sh', source)
-                self.assertNotIn('rm -rf /usr/share/dotnet', source)
+                self.assertIn('run: python3 .devcontainer/ci/image.py reclaim\n', (ROOT / path).read_text())
+        for path in ('.github/workflows/pages.yml', '.github/workflows/agent-tools.yml'):
+            with self.subTest(path=path):
+                self.assertIn('      - uses: ./.devcontainer/ci\n', (ROOT / path).read_text())
+        self.assertIn('/usr/share/dotnet', IMAGE.RUNNER_SDKS)
+        self.assertFalse(list(ROOT.glob('.devcontainer/ci/*.sh')))
 
     def test_runner_disk_is_reclaimed_only_below_what_a_job_needs(self):
-        script = ROOT / '.devcontainer/ci/reclaim-disk.sh'
-        for free, need, removed in ((86, None, False), (60, None, False), (59, None, True), (86, '90', True)):
-            with self.subTest(free=free, need=need), tempfile.TemporaryDirectory() as temporary:
-                binary = Path(temporary)
-                (binary / 'df').write_text(f'#!/bin/sh\nprintf "Avail\\n{free}\\n"\n')
-                (binary / 'sudo').write_text('#!/bin/sh\necho "$@" >> "$(dirname "$0")/removed"\n')
-                (binary / 'docker').write_text('#!/bin/sh\nexit 0\n')
-                for path in binary.iterdir():
-                    path.chmod(0o755)
-                environment = dict(os.environ, PATH=f"{binary}:{os.environ['PATH']}")
-                if need is not None:
-                    environment['NEED_GB'] = need
-                result = subprocess.run(['bash', str(script)], env=environment, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual((binary / 'removed').exists(), removed)
+        for free, need, removed in ((86, None, False), (60, None, False), (59, None, True), (86, 90, True)):
+            with self.subTest(free=free, need=need), \
+                    mock.patch.object(IMAGE.shutil, 'disk_usage', return_value=mock.Mock(free=free * 1_000_000_000)), \
+                    mock.patch.object(IMAGE, 'run') as run, mock.patch('builtins.print'), \
+                    mock.patch.object(sys, 'argv', ['image.py', 'reclaim'] + ([] if need is None else ['--need-gb', str(need)])):
+                IMAGE.main()
+                self.assertEqual(bool(run.call_args_list), removed)
                 if removed:
-                    self.assertIn('/usr/share/dotnet', (binary / 'removed').read_text())
+                    self.assertEqual(run.call_args_list[0].args[:3], ('sudo', 'rm', '-rf'))
+                    self.assertIn('/usr/share/dotnet', run.call_args_list[0].args)
+                    self.assertEqual(run.call_args_list[1].args, ('docker', 'image', 'prune', '--all', '--force'))
 
     def test_fingerprint_covers_contents_names_and_modes(self):
         with tempfile.TemporaryDirectory() as temporary:

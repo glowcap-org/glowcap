@@ -90,15 +90,8 @@ jobs:
           ref: refs/tags/v${{ needs.newest.outputs.version }}
           persist-credentials: false
 
-      - name: Read the toolchain pins
+      - uses: ./.devcontainer/ci/pins
         id: pins
-        run: |
-          source .devcontainer/pins.sh
-          {
-            echo "python=$PYTHON_VERSION"
-            echo "deno=$DENO_VERSION"
-            echo "rust=$RUST_VERSION"
-          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:

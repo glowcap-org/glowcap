@@ -3,7 +3,7 @@
 
 macOS ships no GNU `timeout`, so the gate sequence and the conformance runner
 call this instead. The exit codes a caller can act on match GNU timeout, because
-ci/gates.sh reads them: 124 when the deadline fires, 126 when the command cannot
+ci/gates.py reads them: 124 when the deadline fires, 126 when the command cannot
 be executed, 127 when it does not exist, and 128+N when a signal kills the
 child. One does not match, and it is the one nothing reads: a bad argument list
 exits 2, argparse's code, where GNU uses 125. Nothing branches on it. A gate
@@ -108,7 +108,7 @@ def escalate(process: subprocess.Popen[bytes], kill_after: float | None) -> None
 def shell_code(returncode: int) -> int:
     """A child's wait status as a shell reports it: 128+N when a signal killed
     it. Python hands back -N there, and `sys.exit(-N)` would truncate to an
-    unrelated code, so ci/gates.sh would stop recognizing 137 (SIGKILL)."""
+    unrelated code, so ci/gates.py would stop recognizing 137 (SIGKILL)."""
     return 128 - returncode if returncode < 0 else returncode
 
 

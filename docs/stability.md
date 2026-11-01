@@ -88,7 +88,7 @@ missing measurements. No managed-owner 500,000-session result is established.
 
 ## Which checks recur
 
-[`ci/gates.sh`](../ci/gates.sh) owns the full validation sequence.
+[`ci/groups.py`](../ci/groups.py) lists every check full validation runs.
 The [CI guide](../CONTRIBUTING.md#continuous-integration) explains when the
 workflow runs the full sequence and how development runs select checks by
 changed files. A successful development run covers only its selected jobs.

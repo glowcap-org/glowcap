@@ -1,4 +1,4 @@
-"""Coverage selection contracts, for infrastructure-check."""
+"""ci/plan.py, which selects the groups a run needs, for infrastructure-check."""
 
 import importlib.util
 import json
@@ -50,9 +50,9 @@ class PlanTest(unittest.TestCase):
             (None, list(PLAN.GROUP_NAMES), True),
             ([], ["source", "core", "runtime", "tls", "shipped"], False),
         ]
-        for paths, lanes, full in cases:
+        for paths, selected, full in cases:
             with self.subTest(paths=paths):
-                self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV, paths), (lanes, full))
+                self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV, paths), (selected, full))
         self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV,
                                      ["src/loam/core/mod.zig", "bindings/rust/src/lib.rs"]),
                          (DEVELOPMENT, False))
@@ -92,8 +92,8 @@ class PlanTest(unittest.TestCase):
             values = dict(line.split("=", 1) for line in (root / "output").read_text().splitlines())
             groups = json.loads(values["groups"])
             self.assertEqual([group["name"] for group in groups], list(PLAN.GROUP_NAMES))
-            for group, (name, phases, shards) in zip(groups, PLAN.GROUPS):
-                self.assertEqual(group, {"name": name, "phases": list(phases),
-                                         "shards": list(range(1, shards + 1))})
+            for rendered, group in zip(groups, PLAN.GROUPS):
+                self.assertEqual(rendered, {"name": group.name, "phases": list(group.phases),
+                                            "shards": list(range(1, group.shards + 1))})
             self.assertEqual(values["full"], "true")
             self.assertIn("**full**", (root / "summary").read_text())

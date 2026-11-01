@@ -24,7 +24,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from workflow_test import ROOT
+from workflows import ROOT, text
 
 
 SCRIPT = ROOT / 'tools/repository-policy.py'
@@ -67,6 +67,7 @@ class FakeGitHub:
     def __init__(self):
         wanted = policy()
         self.repo = {'id': 1, 'full_name': SLUG, **wanted['repository'],
+                     'permissions': {'admin': True, 'push': True, 'pull': True},
                      'security_and_analysis': {key: {'status': status}
                                                for key, status in wanted['security_and_analysis'].items()}}
         self.alerts = wanted['vulnerability_alerts']
@@ -199,6 +200,22 @@ def remove_ruleset(github):
 
 def add_stray(github):
     github.add_ruleset({**committed_rulesets()[first_ruleset()], 'name': 'stray'})
+
+
+# The merge settings and a ruleset's bypass actors are the fields GitHub shows
+# only to an administrator.
+ADMINISTRATOR_FIELDS = ('delete_branch_on_merge', 'allow_squash_merge', 'allow_merge_commit', 'allow_rebase_merge',
+                        'allow_auto_merge', 'allow_update_branch', 'squash_merge_commit_title',
+                        'squash_merge_commit_message')
+
+
+def read_as_the_promotion_app(github):
+    """GitHub's answers to a token that may read but not administer the repository."""
+    github.repo['permissions'] = {'admin': False, 'push': True, 'pull': True}
+    for field in ADMINISTRATOR_FIELDS:
+        del github.repo[field]
+    for body in github.rulesets.values():
+        del body['bypass_actors']
 
 
 # subject: (drift, the line it must print)
@@ -424,6 +441,55 @@ class FailureTest(unittest.TestCase):
         status, lines = run_command(github, 'repository')
         self.assertEqual((status, lines), (1, [line('repository', 'cannot read: the policy or the answer has no has_wiki')]))
 
+    def test_an_administrator_missing_an_administrator_field_is_a_failed_read(self):
+        github = FakeGitHub()
+        del github.repo['delete_branch_on_merge']
+        del github.rulesets[github.ruleset_id(first_ruleset())]['bypass_actors']
+        status, lines = run_command(github, 'repository', 'rulesets')
+        self.assertEqual(status, 1)
+        self.assertEqual(lines, [line('repository', 'cannot read: the policy or the answer has no delete_branch_on_merge'),
+                                 line('rulesets', 'cannot read: the policy or the answer has no bypass_actors')])
+
+
+class ReaderTest(unittest.TestCase):
+    """The weekly run reads with the promotion app's token, which administers nothing."""
+
+    def test_hidden_fields_are_named_as_unchecked_and_the_rest_is_ok(self):
+        github = FakeGitHub()
+        read_as_the_promotion_app(github)
+        status, lines = run_command(github)
+        self.assertEqual(status, 0)
+        self.assertEqual(github.writes(), [])
+        expected = []
+        for subject in SUBJECTS:
+            expected.append(line(subject, 'ok'))
+            if subject == 'repository':
+                expected.append(line(subject, f'unchecked: {", ".join(ADMINISTRATOR_FIELDS)}, '
+                                             'which GitHub shows only to an administrator'))
+            if subject == 'rulesets':
+                hidden = ', '.join(f'{name} bypass_actors' for name in committed_rulesets())
+                expected.append(line(subject, f'unchecked: {hidden}, which GitHub shows only to an administrator'))
+        self.assertEqual(lines, expected)
+
+    def test_a_reader_still_sees_drift_in_what_it_can_read(self):
+        github = FakeGitHub()
+        read_as_the_promotion_app(github)
+        github.repo.update(has_wiki=True)
+        drop_a_rule(github)
+        status, lines = run_command(github, 'repository', 'rulesets')
+        self.assertEqual(status, 1)
+        self.assertIn(line('repository', 'drift: has_wiki is true and the policy says false'), lines)
+        self.assertIn(line('rulesets', f'drift: {first_ruleset()} differs in rules'), lines)
+
+    def test_an_answer_without_permissions_reads_as_no_administrator(self):
+        github = FakeGitHub()
+        read_as_the_promotion_app(github)
+        del github.repo['permissions']
+        status, lines = run_command(github, 'repository')
+        self.assertEqual(status, 0)
+        self.assertEqual(lines[0], line('repository', 'ok'))
+        self.assertTrue(lines[1].startswith(line('repository', 'unchecked: ')))
+
     def test_unnamed_repository_is_reported_per_subject(self):
         def refuse(*args, input=None):
             raise subprocess.CalledProcessError(1, ['gh'], stderr='gh: not logged in')
@@ -462,6 +528,26 @@ class GhTest(unittest.TestCase):
         with mock.patch.object(COMMAND, 'gh', return_value='') as gh:
             COMMAND.api('PATCH', 'repos/x', {'a': 1})
         gh.assert_called_once_with('api', '-X', 'PATCH', 'repos/x', '--input', '-', input='{"a": 1}')
+
+
+    def test_the_workflow_reads_weekly_and_only_reports(self):
+        source = text('.github/workflows/repository-policy.yml')
+        self.assertIn('\npermissions: {}\n', source)
+        self.assertIn('  schedule:\n    - cron: ', source)
+        self.assertIn('  push:\n    branches: [dev]\n    paths:\n', source)
+        for path in ('.github/repository-policy.json', '.github/rulesets/**', 'tools/repository-policy.py'):
+            self.assertIn(f'      - {path}\n', source)
+        body = source.split('\njobs:\n  drift:\n', 1)[1]
+        # The workflow token holds nothing, and the app token reads. GitHub
+        # shows bypass actors and merge settings only to an administrator, so
+        # the weekly reading reports those as unchecked, and a change on
+        # GitHub is the maintainer's --apply.
+        self.assertNotIn('    permissions:', body)
+        self.assertIn('          permission-administration: read\n          permission-security-events: read\n', body)
+        self.assertEqual(body.count('write'), 0)
+        self.assertIn('persist-credentials: false', body)
+        self.assertIn('run: python3 tools/repository-policy.py\n', body)
+        self.assertNotIn('--apply', body)
 
 
 if __name__ == '__main__':

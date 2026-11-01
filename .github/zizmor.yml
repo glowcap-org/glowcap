@@ -12,11 +12,9 @@ rules:
       - promote.yml
   adhoc-packages:
     ignore:
-      # Each installs the devcontainer CLI at the version .devcontainer/ci/cli-version
-      # states, so the install is pinned without an npm lockfile. action.yml is
-      # the two composite actions under .devcontainer/ci.
-      - agent-tools.yml
-      - pages.yml
+      # The composite actions under .devcontainer/ci install the devcontainer
+      # CLI at the version .devcontainer/ci/cli-version states, so the install
+      # is pinned without an npm lockfile.
       - action.yml
   self-repository:
     # Local actions and reusable workflows are referenced by path, which runs

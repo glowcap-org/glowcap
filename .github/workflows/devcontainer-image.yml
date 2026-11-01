@@ -26,6 +26,8 @@ jobs:
           persist-credentials: false
       - uses: ./.devcontainer/ci
         id: prepare
+        with:
+          publish: true
 
   readonly:
     if: github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev')

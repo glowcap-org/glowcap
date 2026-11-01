@@ -262,7 +262,7 @@ fn checkGraph(
         gpa,
         \\
         \\Either give the step its own `zig build` step and sequence it from
-        \\`ci/gates.sh`, or add a row to `in_tree_runtimes` in tools/build/toolchain.zig saying
+        \\`ci/groups.py`, or add a row to `in_tree_runtimes` in tools/build/toolchain.zig saying
         \\which member needs the program and why it belongs in this gate. A new
         \\row raises what a contributor must install, so its reason is reviewed.
         ,

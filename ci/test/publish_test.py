@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import unittest
 
-from workflow_test import ROOT, shell_step
+from workflows import ROOT, shell_step
 
 
 WORKFLOW = ROOT / '.github/workflows/publish.yml'
@@ -52,7 +52,8 @@ class PublishWorkflow(unittest.TestCase):
         for name, body in found.items():
             for action in re.finditer(r'(?m)^      - (?:\n|.*\n)?\s*uses: ([^\n]+)\n', body):
                 with self.subTest(job=name, action=action[1]):
-                    self.assertRegex(action[1], r'^[\w.-]+/[\w.-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$')
+                    if not action[1].startswith('./'):
+                        self.assertRegex(action[1], r'^[\w.-]+/[\w.-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$')
             for checkout in re.finditer(r'^      - uses: actions/checkout@[^\n]+\n((?: {8}[^\n]*\n|\n)*)', body, re.M):
                 with self.subTest(job=name):
                     self.assertRegex(checkout[1], r'(?m)^          persist-credentials: false$')

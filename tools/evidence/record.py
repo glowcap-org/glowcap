@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write the evidence record for one run of the CI gate sequence.
 
-Caller: `ci/gates.sh`, from its exit trap, after it has entered the
+Caller: `ci/gates.py`, when a run ends, after it has entered the
 repository root. The record says what ran, on what, and how it ended.
 
     --gates <tsv>      one row per gate: exit, seconds, command, tab-separated

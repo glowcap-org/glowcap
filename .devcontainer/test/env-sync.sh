@@ -326,7 +326,7 @@ require_named_paths() {
 require_named_paths "${dockerfile}" "Dockerfile"
 require_named_paths "${devcontainer_json}" "devcontainer.json"
 require_named_paths "${compose_file}" "docker-compose.yml"
-require_named_paths "${dir}/../ci/gates.sh" "ci/gates.sh"
+require_named_paths "${dir}/../ci/groups.py" "ci/groups.py"
 require_named_paths "${dir}/../build.zig" "build.zig"
 for devcontainer_workflow in "${dir}"/../.github/workflows/*.yml; do
     require_named_paths "${devcontainer_workflow}" "$(basename "${devcontainer_workflow}")"

@@ -1,5 +1,9 @@
 name: Prepare the CI image
 description: Resolve a toolchain image or build it once for this workflow run.
+inputs:
+  publish:
+    description: Whether a built image is pushed to the registry, which needs packages write.
+    default: "false"
 outputs:
   image:
     description: Immutable registry digest or local image ID.
@@ -12,7 +16,7 @@ runs:
   steps:
     - name: Reclaim disk space for the toolchain image
       shell: bash
-      run: .devcontainer/ci/reclaim-disk.sh
+      run: python3 .devcontainer/ci/image.py reclaim
     - name: Install the pinned Dev Containers CLI
       shell: bash
       run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
@@ -24,9 +28,8 @@ runs:
     - name: Resolve or build the toolchain image once
       id: prepare
       env:
-        PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}
+        PUBLISH: ${{ inputs.publish }}
       shell: bash
       run: |
-        args=()
-        if [ "$PUBLISH" = true ]; then args+=(--publish); fi
-        python3 .devcontainer/ci/image.py prepare "${args[@]}"
+        if [ "$PUBLISH" = true ]; then set -- --publish; fi
+        python3 .devcontainer/ci/image.py prepare "$@"

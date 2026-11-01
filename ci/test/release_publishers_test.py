@@ -23,7 +23,7 @@ from unittest import mock
 import urllib.error
 from urllib.parse import urlsplit
 
-from workflow_test import ROOT
+from workflows import ROOT
 
 
 SCRIPT = ROOT / 'tools/release-publishers.py'

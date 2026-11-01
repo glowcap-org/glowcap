@@ -203,7 +203,7 @@ pub fn register(ctx: Context) Registered {
     // tool set `in_tree_runtimes` declares in toolchain.zig. The container has it.
     // CI: the checks workflow (.github/workflows/)
     // runs `check` and the sibling gates inside the committed devcontainer
-    // image via ci/gates.sh.
+    // image, as ci/groups.py lists them.
     // Each section below wires its gated runs into `check` where the artifacts
     // are built.
     const check_step = b.step("check", "Run in-process Zig, static, generated, performance, and compile-time checks");

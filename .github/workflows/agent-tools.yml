@@ -34,25 +34,12 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Reclaim disk space for the toolchain image
-        run: .devcontainer/ci/reclaim-disk.sh
-
-      - name: Install the pinned Dev Containers CLI
-        run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
-
-      - name: Authenticate to the image cache
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-
-      - name: Resolve or build the toolchain image
+      - uses: ./.devcontainer/ci
         id: image
-        run: python3 .devcontainer/ci/image.py prepare
 
-      - name: Start the prepared devcontainer
-        env:
-          IMAGE: ${{ steps.image.outputs.image }}
-        run: python3 .devcontainer/ci/image.py start "$IMAGE"
+      - uses: ./.devcontainer/ci/start
+        with:
+          image: ${{ steps.image.outputs.image }}
 
       - name: Cold-install the pinned coding agents
         run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json python3 tools/run-with-timeout.py --kill-after 30s 20m bash .devcontainer/test/tool-install.sh claude codex cursor-agent opencode

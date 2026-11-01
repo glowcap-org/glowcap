@@ -140,8 +140,8 @@ pub fn register(
     // are the baseline that can contradict it, the upstream OCapN suite, a live
     // Goblins vat in both handoff roles, the pinned-source finding checks, and
     // the upstream Syrup encoder re-deriving the committed corpus. Run this
-    // before believing a protocol claim; the checks workflow runs
-    // `ci/gates.sh` on main-branch pushes and pull requests.
+    // before believing a protocol claim; the check workflow runs it
+    // (`ci/groups.py`) on every dev push.
     const check_external_step = b.step("check-external", "Run outside-authority protocol conformance and every shipped Rooms page browser proof (needs uv + racket + goblins + cargo + deno + Playwright)");
     check_external_step.dependOn(next_conformance_step);
     check_external_step.dependOn(&b.top_level_steps.get("goblins-glowcap-pair-gift").?.step);
