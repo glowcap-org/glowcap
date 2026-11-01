@@ -8,9 +8,8 @@ Re-exported from the :mod:`glowcap` package. Import from there.
 
 from __future__ import annotations
 
-from typing import Callable
-
 import ctypes
+from collections.abc import Callable
 
 from . import _constants as _abi
 from ._errors import GlowcapError, _check, last_error
@@ -22,8 +21,8 @@ from ._failure import (
     _scope,
 )
 from ._ffi_ocapn import (
-    _AllocFn,
     _Allocator,
+    _AllocFn,
     _FailureEvent,
     _FailureReport,
     _FreeFn,
@@ -58,9 +57,9 @@ class Context:
     @classmethod
     def with_allocator(
         cls,
-        alloc: "Callable[[int, int], int]",
-        free: "Callable[[int, int, int], None]",
-    ) -> "Context":
+        alloc: Callable[[int, int], int],
+        free: Callable[[int, int, int], None],
+    ) -> Context:
         """A context that routes every allocation through host callables.
 
         ``alloc(size, alignment)`` returns the address of a fresh block (or 0 on
@@ -102,15 +101,11 @@ class Context:
         allocator = _Allocator(alloc_cb, free_cb, None)
 
         out = ctypes.c_void_p()
-        _check(
-            _lib.glowcap_context_new_with_allocator(
-                ctypes.byref(allocator), ctypes.byref(out)
-            )
-        )
+        _check(_lib.glowcap_context_new_with_allocator(ctypes.byref(allocator), ctypes.byref(out)))
         self._raw = out
         return self
 
-    def __enter__(self) -> "Context":
+    def __enter__(self) -> Context:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -176,9 +171,7 @@ class Context:
             primary_name=text(event.primary_name, event.primary_name_len),
             primary_message=text(event.primary_message, event.primary_message_len),
             secondary_name=text(event.secondary_name, event.secondary_name_len),
-            secondary_message=text(
-                event.secondary_message, event.secondary_message_len
-            ),
+            secondary_message=text(event.secondary_message, event.secondary_message_len),
         )
 
     def take_failures(self) -> tuple[FailureEvent, ...]:
@@ -215,15 +208,9 @@ class Context:
 
         operation_buf, operation_ptr, operation_len = encoded(operation)
         primary_name_buf, primary_name_ptr, primary_name_len = encoded(primary_name)
-        primary_message_buf, primary_message_ptr, primary_message_len = encoded(
-            primary_message
-        )
-        secondary_name_buf, secondary_name_ptr, secondary_name_len = encoded(
-            secondary_name
-        )
-        secondary_message_buf, secondary_message_ptr, secondary_message_len = encoded(
-            secondary_message
-        )
+        primary_message_buf, primary_message_ptr, primary_message_len = encoded(primary_message)
+        secondary_name_buf, secondary_name_ptr, secondary_name_len = encoded(secondary_name)
+        secondary_message_buf, secondary_message_ptr, secondary_message_len = encoded(secondary_message)
         keepalive = (
             operation_buf,
             primary_name_buf,

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Bound an ELF C ABI library's per-thread storage before installation."""
 
 import struct
@@ -20,7 +19,7 @@ def tls_size(path):
         word = "Q" if wide else "I"
         offset = struct.unpack_from(endian + word, header, 32 if wide else 28)[0]
         stride, count = struct.unpack_from(endian + "HH", header, 54 if wide else 42)
-        if count == 0xffff:
+        if count == 0xFFFF:
             raise ValueError("extended program-header counts are unsupported")
         total = 0
         for index in range(count):

@@ -15,9 +15,9 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 
+from blake3 import blake3
 from nacl.signing import SigningKey
 
-from blake3 import blake3
 
 def b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()

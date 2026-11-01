@@ -8,8 +8,9 @@ channel. This module never names a concrete transport.
 from __future__ import annotations
 
 import inspect
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING
 
 from ._errors import _retain_cleanup_failure
 from ._failure import FailureLayer, _record_runtime_failure
@@ -42,9 +43,7 @@ async def _rollback_failed_transport(primary: BaseException, transport) -> None:
         _retain_cleanup_failure(primary, cleanup_error)
 
 
-def _rollback_failed_provider(
-    primary: BaseException, cleanup: Callable[[], None]
-) -> None:
+def _rollback_failed_provider(primary: BaseException, cleanup: Callable[[], None]) -> None:
     """Retire rejected provider state and attach any cleanup consequence."""
     try:
         cleanup()
@@ -61,13 +60,13 @@ class Provider:
     authority.
     """
 
-    installer: Callable[["DriverLoop"], Awaitable[object] | object]
+    installer: Callable[[DriverLoop], Awaitable[object] | object]
 
     def __post_init__(self) -> None:
         if not callable(self.installer):
             raise TypeError("provider installer must be callable")
 
-    async def install(self, loop: "DriverLoop"):
+    async def install(self, loop: DriverLoop):
         """Install this configured package exactly once on ``loop``."""
         return await _await_maybe(self.installer(loop))
 
@@ -82,9 +81,7 @@ class Connector:
     """
 
     transports: tuple[str, ...]
-    realize: Callable[
-        ["Host", "Locator", Optional[int]], Awaitable["Session"]
-    ]
+    realize: Callable[[Host, Locator, int | None], Awaitable[Session]]
 
     def __post_init__(self) -> None:
         symbols = tuple(self.transports)
@@ -101,12 +98,10 @@ class Connector:
 
     async def connect(
         self,
-        host: "Host",
-        locator: "Locator",
-        handshake_timeout_ms: Optional[int],
-    ) -> "Session":
+        host: Host,
+        locator: Locator,
+        handshake_timeout_ms: int | None,
+    ) -> Session:
         if not self.handles(locator.transport):
-            raise ValueError(
-                f"connector does not advertise locator transport {locator.transport!r}"
-            )
+            raise ValueError(f"connector does not advertise locator transport {locator.transport!r}")
         return await self.realize(host, locator, handshake_timeout_ms)

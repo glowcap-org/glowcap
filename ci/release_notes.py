@@ -13,19 +13,18 @@ rendered sections and the refusals.
 
 import argparse
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
-
-CHANGELOG = Path(__file__).resolve().parents[1] / 'CHANGELOG.md'
+CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
 PLATFORMS = {
-    'aarch64-macos': 'macOS, Apple Silicon',
-    'x86_64-macos': 'macOS, Intel',
-    'aarch64-linux': 'Linux, ARM64',
-    'x86_64-linux': 'Linux, x86-64',
+    "aarch64-macos": "macOS, Apple Silicon",
+    "x86_64-macos": "macOS, Intel",
+    "aarch64-linux": "Linux, ARM64",
+    "x86_64-linux": "Linux, x86-64",
 }
-EXAMPLE_TARGET = 'aarch64-macos'
+EXAMPLE_TARGET = "aarch64-macos"
 
 
 def changelog_section(version, path=CHANGELOG):
@@ -33,53 +32,54 @@ def changelog_section(version, path=CHANGELOG):
     sections = {}
     heading = None
     for line in path.read_text().splitlines():
-        if line.startswith('## '):
-            match = re.fullmatch(r'## \[([^\]]+)\](?: - [0-9]{4}-[0-9]{2}-[0-9]{2})?', line)
+        if line.startswith("## "):
+            match = re.fullmatch(r"## \[([^\]]+)\](?: - [0-9]{4}-[0-9]{2}-[0-9]{2})?", line)
             if match is None:
-                raise ValueError(f'changelog heading is not a Keep a Changelog version: {line}')
+                raise ValueError(f"changelog heading is not a Keep a Changelog version: {line}")
             heading = match[1]
             sections[heading] = []
-        elif heading is not None and not re.fullmatch(r'\[[^\]]+\]: \S+', line):
+        elif heading is not None and not re.fullmatch(r"\[[^\]]+\]: \S+", line):
             sections[heading].append(line)
-    if any(line.strip() for line in sections.get('Unreleased', [])):
-        raise ValueError('CHANGELOG.md still lists Unreleased changes; move them under the version')
-    body = '\n'.join(sections.get(version, [])).strip()
+    if any(line.strip() for line in sections.get("Unreleased", [])):
+        raise ValueError("CHANGELOG.md still lists Unreleased changes; move them under the version")
+    body = "\n".join(sections.get(version, [])).strip()
     if not body:
-        raise ValueError(f'CHANGELOG.md has no entry for {version}')
-    return body + '\n'
+        raise ValueError(f"CHANGELOG.md has no entry for {version}")
+    return body + "\n"
 
 
 def absolute_links(markdown, repository, tag):
     """Repository-relative links in a changelog entry point at the tag's tree."""
-    return re.sub(r'\]\((?!https?://|#)([^)\s]+)\)', rf']({repository}/blob/{tag}/\1)', markdown)
+    return re.sub(r"\]\((?!https?://|#)([^)\s]+)\)", rf"]({repository}/blob/{tag}/\1)", markdown)
 
 
 def render(facts, image_digest, changelog=CHANGELOG):
-    repository, tag, version = facts['repository'], facts['tag'], facts['version']
-    if not re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
-        raise ValueError('invalid source repository')
-    if not re.fullmatch(r'v0\.[0-9]+\.[0-9]+', tag) or tag[1:] != version:
-        raise ValueError('invalid release tag')
-    if not re.fullmatch(r'[0-9a-f]{40}', facts['commit']):
-        raise ValueError('invalid source commit')
-    if not re.fullmatch(re.escape(repository) + r'/actions/runs/[1-9][0-9]*', facts['run']):
-        raise ValueError('invalid release run')
-    if not re.fullmatch(r'sha256:[0-9a-f]{64}', image_digest):
-        raise ValueError('invalid image digest')
-    archives = {(archive['target'], archive['role']): archive for archive in facts['archives']}
-    if set(archives) != {(target, role) for target in PLATFORMS for role in ('product', 'sdk')}:
-        raise ValueError('release facts do not name a product and an SDK for every platform')
-    slug = repository.removeprefix('https://github.com/')
-    tree = f'{repository}/blob/{tag}'
-    base = f'{repository}/releases/download/{tag}'
-    image = f'ghcr.io/{slug}-rooms'
-    example = archives[(EXAMPLE_TARGET, 'product')]['name']
-    rows = '\n'.join(
-        f'| {title} | [CLI + Rooms]({base}/{archives[(target, "product")]["name"]}) | '
-        f'[C SDK]({base}/{archives[(target, "sdk")]["name"]}) | {archives[(target, "product")]["minimum_runtime"]} or newer |'
-        for target, title in PLATFORMS.items())
+    repository, tag, version = facts["repository"], facts["tag"], facts["version"]
+    if not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("invalid source repository")
+    if not re.fullmatch(r"v0\.[0-9]+\.[0-9]+", tag) or tag[1:] != version:
+        raise ValueError("invalid release tag")
+    if not re.fullmatch(r"[0-9a-f]{40}", facts["commit"]):
+        raise ValueError("invalid source commit")
+    if not re.fullmatch(re.escape(repository) + r"/actions/runs/[1-9][0-9]*", facts["run"]):
+        raise ValueError("invalid release run")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
+        raise ValueError("invalid image digest")
+    archives = {(archive["target"], archive["role"]): archive for archive in facts["archives"]}
+    if set(archives) != {(target, role) for target in PLATFORMS for role in ("product", "sdk")}:
+        raise ValueError("release facts do not name a product and an SDK for every platform")
+    slug = repository.removeprefix("https://github.com/")
+    tree = f"{repository}/blob/{tag}"
+    base = f"{repository}/releases/download/{tag}"
+    image = f"ghcr.io/{slug}-rooms"
+    example = archives[(EXAMPLE_TARGET, "product")]["name"]
+    rows = "\n".join(
+        f"| {title} | [CLI + Rooms]({base}/{archives[(target, 'product')]['name']}) | "
+        f"[C SDK]({base}/{archives[(target, 'sdk')]['name']}) | {archives[(target, 'product')]['minimum_runtime']} or newer |"
+        for target, title in PLATFORMS.items()
+    )
     changes = absolute_links(changelog_section(version, changelog), repository, tag)
-    return f'''glowcap is a Zig library for capability-based networking (OCapN and CapTP) and
+    return f"""glowcap is a Zig library for capability-based networking (OCapN and CapTP) and
 durable application state, with a CLI, the Rooms chat app, and packages for
 Rust, Python, TypeScript, and Racket. This page is the complete release: every
 download, how to verify it, and how to install each piece. Read the
@@ -224,31 +224,31 @@ product are the Rooms application, not a published package.
 Apache-2.0 alpha software. APIs, ABIs, and storage formats may change before 1.0.
 Read the [project provenance]({tree}/PROVENANCE.md) and the `LICENSE-APACHE`
 and `LICENSE-THIRD-PARTY` files included in each archive.
-Source commit: `{facts['commit']}`. [Release run]({facts['run']}).
+Source commit: `{facts["commit"]}`. [Release run]({facts["run"]}).
 
-<!-- glowcap-release-run: {facts['run'].rsplit('/', 1)[1]} -->
-'''
+<!-- glowcap-release-run: {facts["run"].rsplit("/", 1)[1]} -->
+"""
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--changelog', metavar='VERSION', help="print this version's changelog section and stop")
-    parser.add_argument('--facts', type=Path, help='artifacts/release.json from github_release.py assemble')
-    parser.add_argument('--image-digest', help='the published Rooms image index digest')
-    parser.add_argument('--output', type=Path)
+    parser.add_argument("--changelog", metavar="VERSION", help="print this version's changelog section and stop")
+    parser.add_argument("--facts", type=Path, help="artifacts/release.json from github_release.py assemble")
+    parser.add_argument("--image-digest", help="the published Rooms image index digest")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.changelog:
         if args.facts or args.image_digest or args.output:
-            parser.error('--changelog takes the version alone')
-        print(changelog_section(args.changelog), end='')
+            parser.error("--changelog takes the version alone")
+        print(changelog_section(args.changelog), end="")
         return
     if not (args.facts and args.image_digest and args.output):
-        parser.error('--facts, --image-digest, and --output are required')
+        parser.error("--facts, --image-digest, and --output are required")
     args.output.write_text(render(json.loads(args.facts.read_text()), args.image_digest))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except (ValueError, KeyError, OSError) as error:
-        sys.exit(f'release-notes: {error}')
+        sys.exit(f"release-notes: {error}")

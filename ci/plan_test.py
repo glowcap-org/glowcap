@@ -3,10 +3,10 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("ci_plan", ROOT / "ci/plan.py")
@@ -27,15 +27,22 @@ class PlanTest(unittest.TestCase):
             ("pull_request", "refs/pull/7/merge", {"pull_request": {"base": {"ref": "main"}}}),
         ):
             with self.subTest(event=event):
-                self.assertEqual(PLAN.select(event, ref, payload, ["README.md"]),
-                                 (list(PLAN.GROUP_NAMES), True))
+                self.assertEqual(PLAN.select(event, ref, payload, ["README.md"]), (list(PLAN.GROUP_NAMES), True))
 
     def test_development_selects_consumers_and_fails_closed(self):
         cases = [
             (["README.md", "docs/shipped.md"], ["source", "core", "runtime", "tls", "shipped"], False),
             (["src/loam/core/mod.zig"], ["source", "core", "runtime", "tls", "shipped", "browser"], False),
-            (["bindings/python/glowcap/__init__.py"], ["source", "core", "runtime", "tls", "shipped", "bindings", "interop", "transports"], False),
-            (["conformance/goblins-peer/peer.rkt"], ["source", "core", "runtime", "tls", "shipped", "interop", "transports"], False),
+            (
+                ["bindings/python/glowcap/__init__.py"],
+                ["source", "core", "runtime", "tls", "shipped", "bindings", "interop", "transports"],
+                False,
+            ),
+            (
+                ["conformance/goblins-peer/peer.rkt"],
+                ["source", "core", "runtime", "tls", "shipped", "interop", "transports"],
+                False,
+            ),
             (["apps/rooms/lib/peer.ts"], DEVELOPMENT, False),
             (["bindings/rust/src/lib.rs"], DEVELOPMENT, False),
             (["bindings/proofs/scenario.ts"], DEVELOPMENT, False),
@@ -53,16 +60,22 @@ class PlanTest(unittest.TestCase):
         for paths, selected, full in cases:
             with self.subTest(paths=paths):
                 self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV, paths), (selected, full))
-        self.assertEqual(PLAN.select("pull_request", "refs/pull/7/merge", INTO_DEV,
-                                     ["src/loam/core/mod.zig", "bindings/rust/src/lib.rs"]),
-                         (DEVELOPMENT, False))
+        self.assertEqual(
+            PLAN.select(
+                "pull_request", "refs/pull/7/merge", INTO_DEV, ["src/loam/core/mod.zig", "bindings/rust/src/lib.rs"]
+            ),
+            (DEVELOPMENT, False),
+        )
 
     def test_diff_includes_deletions_and_both_sides_of_renames(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+
             def git(*args):
-                return subprocess.check_output(["git", "-c", "commit.gpgsign=false", *args],
-                                               cwd=root, stderr=subprocess.DEVNULL, text=True).strip()
+                return subprocess.check_output(
+                    ["git", "-c", "commit.gpgsign=false", *args], cwd=root, stderr=subprocess.DEVNULL, text=True
+                ).strip()
+
             git("init", "-q")
             git("config", "user.name", "CI fixture")
             git("config", "user.email", "ci@example.invalid")
@@ -84,16 +97,23 @@ class PlanTest(unittest.TestCase):
     def test_actions_output_from_an_unrelated_working_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "event.json").write_text('{}')
-            env = dict(os.environ, GITHUB_EVENT_PATH=str(root / "event.json"),
-                       GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_REF="refs/heads/dev",
-                       GITHUB_OUTPUT=str(root / "output"), GITHUB_STEP_SUMMARY=str(root / "summary"))
+            (root / "event.json").write_text("{}")
+            env = dict(
+                os.environ,
+                GITHUB_EVENT_PATH=str(root / "event.json"),
+                GITHUB_EVENT_NAME="workflow_dispatch",
+                GITHUB_REF="refs/heads/dev",
+                GITHUB_OUTPUT=str(root / "output"),
+                GITHUB_STEP_SUMMARY=str(root / "summary"),
+            )
             subprocess.run(["python3", str(ROOT / "ci/plan.py")], cwd=root, env=env, check=True)
             values = dict(line.split("=", 1) for line in (root / "output").read_text().splitlines())
             groups = json.loads(values["groups"])
             self.assertEqual([group["name"] for group in groups], list(PLAN.GROUP_NAMES))
             for rendered, group in zip(groups, PLAN.GROUPS):
-                self.assertEqual(rendered, {"name": group.name, "phases": list(group.phases),
-                                            "shards": list(range(1, group.shards + 1))})
+                self.assertEqual(
+                    rendered,
+                    {"name": group.name, "phases": list(group.phases), "shards": list(range(1, group.shards + 1))},
+                )
             self.assertEqual(values["full"], "true")
             self.assertIn("**full**", (root / "summary").read_text())

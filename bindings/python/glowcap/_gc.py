@@ -7,15 +7,15 @@ finalizer scheduler but is mandatory.
 
 from __future__ import annotations
 
-import weakref
 import ctypes
 import threading
-from typing import Callable, Optional, Protocol
+import weakref
+from collections.abc import Callable
+from typing import Protocol
 
-from ._errors import _check_host
 from ._abi_value import _ref_to_c
+from ._errors import _check_host
 from ._ffi_host import _host
-
 from ._value import Argument, Ref, Set, Struct, Tagged, _ref_from_id
 
 
@@ -69,7 +69,7 @@ class _HostGcHandle:
             host.abandon_vow(vow)
 
 
-def bind_host(gc: "HostGc", host) -> None:
+def bind_host(gc: HostGc, host) -> None:
     """Bind HostGc to its Host through the narrow finalizer-safe seam."""
     gc.bind(_HostGcHandle(host))
 
@@ -85,8 +85,8 @@ class HostGc:
         self.pending: list[int] = []
         self.pending_vows: list[int] = []
         self._pending_vow_ids: set[int] = set()
-        self._h: Optional[GcHandle] = None
-        self._background_failure: Optional[BaseException] = None
+        self._h: GcHandle | None = None
+        self._background_failure: BaseException | None = None
         self._lock = threading.Lock()
 
     def bind(self, h: GcHandle) -> None:
@@ -103,7 +103,7 @@ class HostGc:
             self._pending_vow_ids.clear()
             self._background_failure = None
 
-    def track_ref(self, ref: "Ref") -> "Ref":
+    def track_ref(self, ref: Ref) -> Ref:
         # Register one projected capability occurrence for GC. The id is an
         # opaque Host-scoped identity (ADR-0026), the application projection
         # seam scopes tracking, never an id-range branch, and the host
@@ -122,7 +122,7 @@ class HostGc:
         object.__setattr__(ref, "_gc_finalizer", finalizer)
         return ref
 
-    def track_argument(self, value: "Argument") -> "Argument":
+    def track_argument(self, value: Argument) -> Argument:
         """Track every capability occurrence in an FFI-projected value.
 
         Containers stay intact. Only ``Ref`` leaves receive finalizers. FFI
@@ -142,12 +142,12 @@ class HostGc:
                 self.track_argument(item)
         return value
 
-    def track_arguments(self, values: "list[Argument]") -> "list[Argument]":
+    def track_arguments(self, values: list[Argument]) -> list[Argument]:
         for value in values:
             self.track_argument(value)
         return values
 
-    def disarm(self, ref: "Ref") -> None:
+    def disarm(self, ref: Ref) -> None:
         """Disarm a tracked ref after deterministic release committed."""
         finalizer = getattr(ref, "_gc_finalizer", None)
         if finalizer is not None:
@@ -209,9 +209,7 @@ class HostGc:
             # the already-coalesced next pass.
             for token in refs:
                 ref = _ref_to_c(_ref_from_id(token))
-                _check_host(
-                    _host.glowcap_host_ref_release(h.host_raw, ctypes.byref(ref), 1)
-                )
+                _check_host(_host.glowcap_host_ref_release(h.host_raw, ctypes.byref(ref), 1))
                 refs_committed += 1
             for vow in vows:
                 h.abandon_vow(vow)

@@ -11,27 +11,26 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import secrets
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .._host import Host
 
 from .. import _constants as _c
 from .._abi_value import _DEFAULT_CODEC, _codec_id
-from .._errors import (
-    _check_host,
-    _retain_cleanup_failure,
-    GlowcapError,
-)
-from .._driver_failure import _add_provider
 from .._driver.release import _DriverReleaseOwner
 from .._driver_event import LoopEvent as LoopEvent
-from .._listener import ListenerOwner
+from .._driver_failure import _add_provider
+from .._errors import (
+    GlowcapError,
+    _check_host,
+    _retain_cleanup_failure,
+)
 from .._ffi_driver import _driver, _TransportProvider
 from .._ffi_host import _host
+from .._listener import ListenerOwner
 from .._locator import Locator
 from .._trampoline import _enter_host_deliver, _exit_deliver
-
 from .configuration import _driver_options
 from .dialing import _DialingMixin
 from .errors import _as_driver_error, _check
@@ -41,9 +40,7 @@ from .progress import _ProgressMixin
 from .sessions import _SessionsMixin
 
 
-class DriverLoop(
-    _LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin, _ListenersMixin
-):
+class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin, _ListenersMixin):
     """One stepping driver loop over one multi-session host.
 
     Construct with :meth:`open` on the asyncio thread that will drive it,
@@ -55,13 +52,13 @@ class DriverLoop(
     def __init__(self, handle: int, host: int, context=None) -> None:
         self._h = ctypes.c_void_p(handle)
         self._host = ctypes.c_void_p(host)
-        self._aio: Optional[asyncio.AbstractEventLoop] = None
-        self._fd: Optional[int] = None
+        self._aio: asyncio.AbstractEventLoop | None = None
+        self._fd: int | None = None
         self._stepping = False
         self._pending_dials: dict[int, asyncio.Future[int]] = {}
-        self._progress_timer: Optional[asyncio.TimerHandle] = None
+        self._progress_timer: asyncio.TimerHandle | None = None
         self._completions: dict[int, asyncio.Future[bool]] = {}
-        self._accepts: "dict[int, asyncio.Queue[Union[int, object]]]" = {}
+        self._accepts: dict[int, asyncio.Queue[int | object]] = {}
         self._listeners: dict[int, ListenerOwner] = {}
         self._listener_waiters: dict[int, asyncio.Future[None]] = {}
         self._closing_listeners: set[int] = set()
@@ -69,20 +66,20 @@ class DriverLoop(
         # Event-delivered handles not yet wrapped. The pair preserves both status-allow: pending state or quoted runtime label
         # terminal state and its exact failure when SESSION_CLOSED follows an
         # OPENED/ACCEPTED event in the same drain.
-        self._unclaimed_sessions: dict[int, tuple[bool, Optional[GlowcapError]]] = {}
+        self._unclaimed_sessions: dict[int, tuple[bool, GlowcapError | None]] = {}
         self._session_closes: dict[int, asyncio.Future[None]] = {}
-        self._wrapper: "Optional[Host]" = None
-        self._seed_material: Optional[bytes] = None
+        self._wrapper: Host | None = None
+        self._seed_material: bytes | None = None
         self._codec = _DEFAULT_CODEC
         self._released = False
         self._release_attempted = False
-        self._terminal_failure: "Optional[GlowcapError]" = None
-        self._terminal_failures: "list[BaseException]" = []
-        self._retained: "list[object]" = []
+        self._terminal_failure: GlowcapError | None = None
+        self._terminal_failures: list[BaseException] = []
+        self._retained: list[object] = []
         self._terminal_failure_count = 0
         self._closing = False
-        self._close_task: "Optional[asyncio.Task[None]]" = None
-        self._close_error: "Optional[BaseException]" = None
+        self._close_task: asyncio.Task[None] | None = None
+        self._close_error: BaseException | None = None
         self._started = False
         self._closed_event = asyncio.Event()
         # The shared loop-activity notifier (wake-all): a close driver clears
@@ -92,7 +89,7 @@ class DriverLoop(
         self._loop_activity = asyncio.Event()
         # Session close drivers, retained strongly for their lifetime because
         # asyncio holds tasks weakly.
-        self._session_close_tasks: set["asyncio.Task[None]"] = set()
+        self._session_close_tasks: set[asyncio.Task[None]] = set()
         self._release_owner = _DriverReleaseOwner(self, handle, context)
 
     def _adopt_host_finalizer_state(self, state) -> None:
@@ -107,7 +104,7 @@ class DriverLoop(
     @classmethod
     def open(
         cls,
-        seed: Optional[bytes] = None,
+        seed: bytes | None = None,
         *,
         codec: str = _DEFAULT_CODEC,
         frame_cap: int = _c.DEFAULT_FRAME_CAP,
@@ -117,7 +114,7 @@ class DriverLoop(
         listener_setup_ms: int = _c.DRIVER_DEFAULT_LISTENER_SETUP_MS,
         settle_ms: int = _c.DRIVER_DEFAULT_SETTLE_MS,
         busy_poll_ns: int = _c.DRIVER_DEFAULT_BUSY_POLL_NS,
-    ) -> "DriverLoop":
+    ) -> DriverLoop:
         """Create the loop. ``seed`` is the host constructor's 64-byte
         contract (durable identity, then a fresh session-key root). ``None``
         draws both halves fresh."""
@@ -182,7 +179,7 @@ class DriverLoop(
     @classmethod
     def take_host(
         cls,
-        host: "Host",
+        host: Host,
         *,
         wire_buffer_bytes: int = _c.DRIVER_DEFAULT_WIRE_BUFFER_BYTES,
         max_pending_opens: int = _c.DRIVER_DEFAULT_MAX_PENDING_OPENS,
@@ -190,7 +187,7 @@ class DriverLoop(
         listener_setup_ms: int = _c.DRIVER_DEFAULT_LISTENER_SETUP_MS,
         settle_ms: int = _c.DRIVER_DEFAULT_SETTLE_MS,
         busy_poll_ns: int = _c.DRIVER_DEFAULT_BUSY_POLL_NS,
-    ) -> "DriverLoop":
+    ) -> DriverLoop:
         """Transfer a byte-fed Host into an FFI driver transactionally.
 
         ``glowcap_driver_take_host`` is called before the Python Host changes
@@ -199,9 +196,7 @@ class DriverLoop(
         loop becomes its sole FFI release authority.
         """
         if host.driver_loop is not None:
-            raise GlowcapError(
-                _c.ERR_INVALID_ARGUMENT, "host already belongs to a driver loop"
-            )
+            raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "host already belongs to a driver loop")
         raw = host.raw
         options = _driver_options(
             wire_buffer_bytes,
@@ -303,9 +298,7 @@ class DriverLoop(
             self._closed_event.set()
             return
         self._release_attempted = True
-        release_attempt = self._release_owner.release(
-            "driver-loop.background.release", self._retire_ffi_release
-        )
+        release_attempt = self._release_owner.release("driver-loop.background.release", self._retire_ffi_release)
         if release_attempt.error is not None and not release_attempt.consumed:
             release_error = release_attempt.error
             self._record_terminal_failure(release_error)
@@ -367,15 +360,11 @@ class DriverLoop(
         finally:
             active = False
 
-    def _has_transport(self, transport: Union[str, bytes]) -> bool:
+    def _has_transport(self, transport: str | bytes) -> bool:
         """Ask the FFI provider registry whether ``transport`` is owned."""
         name = transport.encode() if isinstance(transport, str) else transport
         present = ctypes.c_uint8(0)
-        _check(
-            _driver.glowcap_driver_has_transport(
-                self._h, name, len(name), ctypes.byref(present)
-            )
-        )
+        _check(_driver.glowcap_driver_has_transport(self._h, name, len(name), ctypes.byref(present)))
         return present.value != 0
 
     # ── Parking and stepping ─────────────────────────────────────────────────
@@ -386,7 +375,7 @@ class DriverLoop(
 
 
 async def dial_shared_loop(
-    driver_loop: "DriverLoop",
+    driver_loop: DriverLoop,
     locator: Locator,
 ):
     """Begin one dial through an already-composed provider package."""

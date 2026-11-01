@@ -8,94 +8,113 @@ with stub curl and cargo. This does not reach a registry or GitHub runners.
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 from workflows import ROOT, jobs, shell_step
 
+WORKFLOW = ROOT / ".github/workflows/publish.yml"
+REGISTRY_JOBS = {"pypi": "pypi", "crates-io": "crates-io", "jsr": "jsr"}
 
-WORKFLOW = ROOT / '.github/workflows/publish.yml'
-REGISTRY_JOBS = {'pypi': 'pypi', 'crates-io': 'crates-io', 'jsr': 'jsr'}
 
-
-PUBLISH = {name: job.body for name, job in jobs('.github/workflows/publish.yml').items()}
+PUBLISH = {name: job.body for name, job in jobs(".github/workflows/publish.yml").items()}
 
 
 class PublishWorkflow(unittest.TestCase):
     def test_registry_jobs_follow_the_contract_in_their_environments(self):
-        top = WORKFLOW.read_text().split('\njobs:\n', 1)[0]
-        self.assertEqual(set(PUBLISH), {'contract', *REGISTRY_JOBS})
-        self.assertRegex(top, r'(?m)^permissions:\n  contents: read\n$')
-        self.assertNotIn('id-token', top)
-        self.assertIn('workflow_dispatch:', top)
+        top = WORKFLOW.read_text().split("\njobs:\n", 1)[0]
+        self.assertEqual(set(PUBLISH), {"contract", *REGISTRY_JOBS})
+        self.assertRegex(top, r"(?m)^permissions:\n  contents: read\n$")
+        self.assertNotIn("id-token", top)
+        self.assertIn("workflow_dispatch:", top)
         for name, environment in REGISTRY_JOBS.items():
             body = PUBLISH[name]
             with self.subTest(job=name):
-                self.assertRegex(body, r'(?m)^    needs: contract$')
-                self.assertRegex(body, rf'(?m)^    environment: {environment}$')
-                self.assertRegex(body, r'(?m)^      id-token: write$')
-                self.assertNotRegex(body, r'(?m)^      (contents|packages|actions): write$')
-                self.assertIn('ref: ${{ needs.contract.outputs.commit }}', body)
+                self.assertRegex(body, r"(?m)^    needs: contract$")
+                self.assertRegex(body, rf"(?m)^    environment: {environment}$")
+                self.assertRegex(body, r"(?m)^      id-token: write$")
+                self.assertNotRegex(body, r"(?m)^      (contents|packages|actions): write$")
+                self.assertIn("ref: ${{ needs.contract.outputs.commit }}", body)
                 self.assertIn('binding_packages.py --registry "$VERSION"', body)
-        self.assertNotIn('id-token', PUBLISH['contract'])
-        self.assertIn('python3 ci/github_release.py published "$RELEASE_TAG"', PUBLISH['contract'])
-        self.assertIn('ref: refs/tags/${{ inputs.tag }}', PUBLISH['contract'])
+        self.assertNotIn("id-token", PUBLISH["contract"])
+        self.assertIn('python3 ci/github_release.py published "$RELEASE_TAG"', PUBLISH["contract"])
+        self.assertIn("ref: refs/tags/${{ inputs.tag }}", PUBLISH["contract"])
 
     def test_registry_steps_skip_a_version_the_registry_holds(self):
         source = WORKFLOW.read_text()
-        self.assertIn('skip-existing: true', source)
-        self.assertIn('run: deno publish\n', source)
-        self.assertNotIn('--allow-dirty', source)
-        self.assertNotIn('--dry-run', source)
-        script = shell_step(source, 'Publish the crate')
+        self.assertIn("skip-existing: true", source)
+        self.assertIn("run: deno publish\n", source)
+        self.assertNotIn("--allow-dirty", source)
+        self.assertNotIn("--dry-run", source)
+        script = shell_step(source, "Publish the crate")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            log = directory / 'calls'
-            for tool in ('curl', 'cargo'):
+            log = directory / "calls"
+            for tool in ("curl", "cargo"):
                 stub = directory / tool
-                stub.write_text(f'#!/bin/sh\necho "{tool} $*" >> "$CALL_LOG"\n'
-                                + ('printf "%s" "$CURL_STATUS"\n' if tool == 'curl' else ''))
+                stub.write_text(
+                    f'#!/bin/sh\necho "{tool} $*" >> "$CALL_LOG"\n'
+                    + ('printf "%s" "$CURL_STATUS"\n' if tool == "curl" else "")
+                )
                 stub.chmod(0o755)
-            for status, published, accepted in (('200', False, True), ('404', True, True), ('500', False, False)):
+            for status, published, accepted in (("200", False, True), ("404", True, True), ("500", False, False)):
                 with self.subTest(status=status):
-                    log.write_text('')
-                    environment = dict(os.environ, PATH=f'{directory}{os.pathsep}{os.environ["PATH"]}',
-                                       CALL_LOG=str(log), CURL_STATUS=status, VERSION='0.1.1',
-                                       GITHUB_REPOSITORY='owner/project')
-                    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script], cwd=directory,
-                                            env=environment, capture_output=True, text=True, timeout=20)
+                    log.write_text("")
+                    environment = dict(
+                        os.environ,
+                        PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
+                        CALL_LOG=str(log),
+                        CURL_STATUS=status,
+                        VERSION="0.1.1",
+                        GITHUB_REPOSITORY="owner/project",
+                    )
+                    result = subprocess.run(
+                        ["bash", "-e", "-o", "pipefail", "-c", script],
+                        cwd=directory,
+                        env=environment,
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                    )
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
                     calls = log.read_text()
-                    self.assertIn('crates/glowcap/0.1.1', calls)
-                    self.assertEqual('cargo publish' in calls, published)
+                    self.assertIn("crates/glowcap/0.1.1", calls)
+                    self.assertEqual("cargo publish" in calls, published)
 
     def test_the_contract_job_alone_requires_the_tag_of_its_checkout(self):
         source = WORKFLOW.read_text()
         self.assertEqual(source.count("Require the tag's version"), 1)
-        self.assertIn("- name: Require the tag's version", PUBLISH['contract'])
+        self.assertIn("- name: Require the tag's version", PUBLISH["contract"])
         script = shell_step(source, "Require the tag's version")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            (directory / 'bindings').mkdir()
-            (directory / 'bindings/c-abi-resolve.json').write_text(json.dumps({'abi_version': '0.1.1'}))
-            for tag, accepted in (('v0.1.1', True), ('v0.1.0', False), ('0.1.1', False)):
+            (directory / "bindings").mkdir()
+            (directory / "bindings/c-abi-resolve.json").write_text(json.dumps({"abi_version": "0.1.1"}))
+            for tag, accepted in (("v0.1.1", True), ("v0.1.0", False), ("0.1.1", False)):
                 with self.subTest(tag=tag):
-                    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script], cwd=directory,
-                                            env=dict(os.environ, RELEASE_TAG=tag), capture_output=True,
-                                            text=True, timeout=20)
+                    result = subprocess.run(
+                        ["bash", "-e", "-o", "pipefail", "-c", script],
+                        cwd=directory,
+                        env=dict(os.environ, RELEASE_TAG=tag),
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                    )
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
 
     def test_release_dispatches_publication_after_the_release_is_public(self):
-        release = jobs('.github/workflows/release.yml')['release'].body
-        self.assertRegex(release, r'(?m)^      actions: write$')
-        publish = release.index('--draft=false')
-        dispatch = release.index('gh workflow run publish.yml')
+        release = jobs(".github/workflows/release.yml")["release"].body
+        self.assertRegex(release, r"(?m)^      actions: write$")
+        publish = release.index("--draft=false")
+        dispatch = release.index("gh workflow run publish.yml")
         self.assertLess(publish, dispatch)
-        self.assertIn('- name: Publish the language packages at the tag\n        run: gh workflow run publish.yml', release)
+        self.assertIn(
+            "- name: Publish the language packages at the tag\n        run: gh workflow run publish.yml", release
+        )
         self.assertIn('--ref "refs/tags/$RELEASE_TAG" -f tag="$RELEASE_TAG"', release[dispatch:])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

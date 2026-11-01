@@ -94,5 +94,5 @@ inventory. Update it in the same change as any scaffolding move.
 
 | Hook | Purpose |
 | --- | --- |
-| [format-edited-file](hooks/format-edited-file.sh) | Format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript). |
+| [format-edited-file](hooks/format-edited-file.sh) | Format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript, Python). |
 <!-- /agent-index -->

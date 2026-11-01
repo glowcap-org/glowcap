@@ -22,23 +22,23 @@ from __future__ import annotations
 
 import ctypes
 
-from ._ffi_ocapn import (
-    _Argument,
-    _bind,
-    _LastAbort,
-    _LocatorHintView,
-    _LocatorView,
-    _Lib,
-    _ManagedFrame,
-    _Reference,
-)
-from ._pin import pin_struct
+from ._archive_contract import require_archive_fingerprint
 
 # The trace record's digest is a fixed-width array, so its width is the
 # reflected constant rather than a number retyped here.
 from ._constants_gen import HOST_ARCHIVE_FINGERPRINT, TRACE_DIGEST_BYTES
-from ._archive_contract import require_archive_fingerprint
+from ._ffi_ocapn import (
+    _Argument,
+    _bind,
+    _LastAbort,
+    _Lib,
+    _LocatorHintView,
+    _LocatorView,
+    _ManagedFrame,
+    _Reference,
+)
 from ._lib_resolve import _lib_path
+from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
 # inventory (``zig build gen-binding-python-ffi``); this module hands it the

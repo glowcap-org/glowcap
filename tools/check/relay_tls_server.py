@@ -34,9 +34,7 @@ def upgrade(conn: ssl.SSLSocket) -> None:
     key = headers.get(b"sec-websocket-key")
     if key is None:
         raise RuntimeError("missing Sec-WebSocket-Key")
-    accept = base64.b64encode(
-        hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest()
-    )
+    accept = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
     conn.sendall(
         b"HTTP/1.1 101 Switching Protocols\r\n"
         b"Upgrade: websocket\r\n"

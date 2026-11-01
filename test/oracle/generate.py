@@ -21,13 +21,45 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from syrup import Record, Symbol, syrup_encode  # type: ignore[import-not-found]
-
 # The operation and signed-handoff record builders live beside this entry in
-# ``records.py``; the star import is what lets the fixture table below name
-# every builder the way it always has.
-from records import *  # noqa: F401,F403
-
+# ``records.py``.
+from records import (
+    op_abort_connection_lost,
+    op_abort_crossed_hellos,
+    op_abort_graceful_shutdown,
+    op_abort_resource_exhausted,
+    op_abort_shutting_down,
+    op_abort_typed,
+    op_deliver_arg_answer,
+    op_deliver_arg_answer_in_list,
+    op_deliver_arg_answer_in_set,
+    op_deliver_arg_answer_in_tagged,
+    op_deliver_arg_big_integer,
+    op_deliver_arg_float64,
+    op_deliver_arg_keyword,
+    op_deliver_arg_set,
+    op_deliver_arg_tagged,
+    op_deliver_arg_void,
+    op_deliver_listen_break_notification,
+    op_deliver_minimal,
+    op_deliver_v1_0_with_resolve_me_desc,
+    op_deliver_withdraw_gift,
+    op_gc_answers,
+    op_gc_exports,
+    op_listen_export_target,
+    op_listen_promise_target,
+    op_listen_v1_0_wants_partial_false,
+    op_listen_v1_0_wants_partial_true,
+    op_resolve_break,
+    op_resolve_fulfill_far,
+    op_resolve_fulfill_import_promise,
+    op_resolve_fulfill_near,
+    op_resolve_fulfill_promise,
+    op_start_session_v1_0,
+    signed_handoff_give,
+    signed_handoff_receive,
+)
+from syrup import Record, Symbol, syrup_encode  # type: ignore[import-not-found]
 
 # ── ADR-0003 / op:get + op:index field-projection ops ─────────────
 #

@@ -8,10 +8,9 @@ every wrapper routes a return code through. Re-exported from the
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
-
 import ctypes
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from . import _constants as _abi
 from ._ffi_host import _host
@@ -28,13 +27,11 @@ def abi_version() -> tuple[int, int, int]:
     major = ctypes.c_uint32()
     minor = ctypes.c_uint32()
     patch = ctypes.c_uint32()
-    _lib.glowcap_abi_version(
-        ctypes.byref(major), ctypes.byref(minor), ctypes.byref(patch)
-    )
+    _lib.glowcap_abi_version(ctypes.byref(major), ctypes.byref(minor), ctypes.byref(patch))
     return (major.value, minor.value, patch.value)
 
 
-def last_error() -> Optional[str]:
+def last_error() -> str | None:
     """The calling thread's last error message, or ``None`` when there is none."""
     return _read_last_error(_lib.glowcap_last_error)
 
@@ -65,11 +62,11 @@ class AbortDetail:
     cleanup or consequence failures that followed the originating error."""
 
     domain: str
-    kind: Optional[str]
+    kind: str | None
     message: str
     error_name: str
-    abort_delivery_error_name: Optional[str]
-    secondary_error_name: Optional[str]
+    abort_delivery_error_name: str | None
+    secondary_error_name: str | None
     secondary_error_count: int
 
 
@@ -87,8 +84,8 @@ class GlowcapError(Exception):
     def __init__(
         self,
         code: int,
-        message: Optional[str] = None,
-        abort: Optional[AbortDetail] = None,
+        message: str | None = None,
+        abort: AbortDetail | None = None,
     ):
         if message:
             super().__init__(f"glowcap error {code}: {message}")
@@ -97,7 +94,7 @@ class GlowcapError(Exception):
         self.code = code
         self.message = message
         self.abort = abort
-        self.carrier_failure: Optional[CarrierFailure] = None
+        self.carrier_failure: CarrierFailure | None = None
         self.secondary: tuple[BaseException, ...] = ()
         self.secondary_count = 0
 
@@ -105,9 +102,7 @@ class GlowcapError(Exception):
 _FAILURE_CHAIN_CAP = _abi.BINDING_SECONDARY_FAILURE_CAP
 
 
-def _retain_cleanup_failure(
-    primary: BaseException, cleanup: BaseException
-) -> BaseException:
+def _retain_cleanup_failure(primary: BaseException, cleanup: BaseException) -> BaseException:
     """Retain a later FFI cleanup failure without replacing its cause."""
     try:
         total = getattr(primary, "secondary_count", 0)
@@ -124,17 +119,13 @@ def _retain_cleanup_failure(
         # standard exception note remains a truthful, if less structured,
         # fallback while the original object stays authoritative.
         try:
-            BaseException.add_note(
-                primary, f"additional glowcap cleanup failure: {cleanup}"
-            )
+            BaseException.add_note(primary, f"additional glowcap cleanup failure: {cleanup}")
         except BaseException:
             pass  # attachment cannot replace the authoritative primary
     return primary
 
 
-def _retain_terminal_failure(
-    retained: list[BaseException], total: int, error: BaseException
-) -> int:
+def _retain_terminal_failure(retained: list[BaseException], total: int, error: BaseException) -> int:
     """Retain bounded exact failures and return the saturated observation count.
 
     Re-projecting a retained exception object is idempotent. Overflow objects
@@ -155,7 +146,7 @@ def _check(code: int) -> None:
         raise GlowcapError(code, last_error())
 
 
-def _host_last_error() -> Optional[str]:
+def _host_last_error() -> str | None:
     """The calling thread's last ``glowcap_host_*`` error message, or ``None``
     when there is none. The driver archive keeps its own thread-local slot, so
     a host call's diagnostic is read here and never from the core family's
@@ -202,7 +193,5 @@ class FetchFailed(GlowcapError):
     is ``ERR_BROKEN``, matching the other bindings."""
 
     def __init__(self, name: str):
-        super().__init__(
-            _abi.ERR_BROKEN, f'fetch("{name}") did not resolve to a capability'
-        )
+        super().__init__(_abi.ERR_BROKEN, f'fetch("{name}") did not resolve to a capability')
         self.name = name

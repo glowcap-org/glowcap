@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """rooms-agent-test: exercise the skill front and installed session on loopback.
 
 The public front owns all participant actions. Temporary TCP peers prove
@@ -6,16 +5,17 @@ multi-room observation, DM isolation, acknowledgements, restart, and shutdown.
 The restart assertion was validated by injecting an automatic inbox
 acknowledgement into start: it failed on the missing unanswered garden line.
 """
+
 import json
-from contextlib import ExitStack, contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 import selectors
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from contextlib import ExitStack, contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONT = ROOT / "zig-out/bin/glowcap"
@@ -39,22 +39,44 @@ def failure_logs(root):
             print(f"{path.relative_to(root)}: {error}", file=sys.stderr)
     for path in sorted(root.rglob("peer-options.json"))[:8]:
         state = path.parent
-        print(f"peer {state.relative_to(root)}: control socket exists={state.joinpath('control.sock').exists()}",
-              file=sys.stderr)
+        print(
+            f"peer {state.relative_to(root)}: control socket exists={state.joinpath('control.sock').exists()}",
+            file=sys.stderr,
+        )
         if not state.joinpath("control.sock").exists():
             continue
         try:
-            result = subprocess.run([str(FRONT), "apps", "rooms", "session", "status", "--dir", str(state)],
-                                    cwd="/tmp", capture_output=True, text=True, timeout=2)
+            result = subprocess.run(
+                [str(FRONT), "apps", "rooms", "session", "status", "--dir", str(state)],
+                cwd="/tmp",
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
             status = json.loads(result.stdout)
             workspace = status.get("workspace", {})
-            print(json.dumps({"peer": str(state.relative_to(root)), "revision": status.get("revision"),
-                "issues": status.get("issues"), "pending_effects": len(status.get("pending_effects", [])),
-                "directories": [{"name": row.get("name"), "registered":
-                                 isinstance(row.get("name"), str) and isinstance(row.get("inbox"), str)}
-                                for row in workspace.get("directories", [])],
-                "conversations": [{"name": row.get("name"), "reconnect": row.get("reconnect")}
-                                  for row in workspace.get("conversations", [])]}), file=sys.stderr)
+            print(
+                json.dumps(
+                    {
+                        "peer": str(state.relative_to(root)),
+                        "revision": status.get("revision"),
+                        "issues": status.get("issues"),
+                        "pending_effects": len(status.get("pending_effects", [])),
+                        "directories": [
+                            {
+                                "name": row.get("name"),
+                                "registered": isinstance(row.get("name"), str) and isinstance(row.get("inbox"), str),
+                            }
+                            for row in workspace.get("directories", [])
+                        ],
+                        "conversations": [
+                            {"name": row.get("name"), "reconnect": row.get("reconnect")}
+                            for row in workspace.get("conversations", [])
+                        ],
+                    }
+                ),
+                file=sys.stderr,
+            )
         except (OSError, ValueError, subprocess.TimeoutExpired) as error:
             print(f"status unavailable: {error}", file=sys.stderr)
 
@@ -63,11 +85,18 @@ def cli(state, verb, *args, timeout=COMMAND_SECONDS):
     subject, action = ("team", verb[5:]) if verb.startswith("team-") else ("session", verb)
     started = time.monotonic()
     try:
-        result = subprocess.run([str(FRONT), "apps", "rooms", subject, action, "--dir", str(state), *args],
-                                cwd="/tmp", text=True, capture_output=True, timeout=timeout)
+        result = subprocess.run(
+            [str(FRONT), "apps", "rooms", subject, action, "--dir", str(state), *args],
+            cwd="/tmp",
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
     except subprocess.TimeoutExpired as error:
-        print(f"{verb}: partial stdout={(error.stdout or b'')[-8192:]!r}, "
-              f"stderr={(error.stderr or b'')[-8192:]!r}", file=sys.stderr)
+        print(
+            f"{verb}: partial stdout={(error.stdout or b'')[-8192:]!r}, stderr={(error.stderr or b'')[-8192:]!r}",
+            file=sys.stderr,
+        )
         raise
     finally:
         elapsed = time.monotonic() - started
@@ -77,8 +106,11 @@ def cli(state, verb, *args, timeout=COMMAND_SECONDS):
         raise AssertionError(f"{verb}: {result.stdout}\n{result.stderr}")
     response = json.loads(result.stdout)
     if elapsed * 2 >= timeout:
-        print(f"{verb} ({state.name}): passed in {elapsed:.2f}s of its {timeout}s deadline; "
-              "a runner 2x slower would stop it", file=sys.stderr)
+        print(
+            f"{verb} ({state.name}): passed in {elapsed:.2f}s of its {timeout}s deadline; "
+            "a runner 2x slower would stop it",
+            file=sys.stderr,
+        )
     return response
 
 
@@ -147,10 +179,29 @@ def bootstrap(locator, content_type="text/plain"):
 def rejected_bootstrap(root):
     state = root / "rejected-login"
     with bootstrap("<html>login</html>" * 3000, "text/html") as locator:
-        result = subprocess.run([str(FRONT), "apps", "rooms", "session", "start",
-            "--dir", str(state), "--nick", "Alice", "--room", "garden",
-            "--transport", "tcp", "--locator", locator],
-            cwd="/tmp", text=True, capture_output=True, timeout=15)
+        result = subprocess.run(
+            [
+                str(FRONT),
+                "apps",
+                "rooms",
+                "session",
+                "start",
+                "--dir",
+                str(state),
+                "--nick",
+                "Alice",
+                "--room",
+                "garden",
+                "--transport",
+                "tcp",
+                "--locator",
+                locator,
+            ],
+            cwd="/tmp",
+            text=True,
+            capture_output=True,
+            timeout=15,
+        )
         try:
             assert result.returncode != 0
             error = json.loads(result.stdout)["error"]
@@ -171,9 +222,21 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
         alice, team = root / "alice", root / "team"
         bob, carol = team / "Bob", team / "Carol"
         with (root / "server.log").open("w+") as log:
-            server = subprocess.Popen([str(FRONT), "apps", "rooms", "directory", "serve",
-                f"--transport={transport}", "--reachability=direct", "--port=0"],
-                stdout=subprocess.PIPE, stderr=log, text=True)
+            server = subprocess.Popen(
+                [
+                    str(FRONT),
+                    "apps",
+                    "rooms",
+                    "directory",
+                    "serve",
+                    f"--transport={transport}",
+                    "--reachability=direct",
+                    "--port=0",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=log,
+                text=True,
+            )
             try:
                 with selectors.DefaultSelector() as selector:
                     selector.register(server.stdout, selectors.EVENT_READ)
@@ -185,15 +248,49 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                     locator = f"127.0.0.1:{locator}"
                 if transport == "iroh":
                     locator = services.enter_context(bootstrap(locator))
-                cli(alice, "start", "--transport", transport, "--reachability", "direct", "--locator", locator,
-                    "--nick", "Alice", "--room", "garden", "--room", "workshop", timeout=START_SECONDS)
+                cli(
+                    alice,
+                    "start",
+                    "--transport",
+                    transport,
+                    "--reachability",
+                    "direct",
+                    "--locator",
+                    locator,
+                    "--nick",
+                    "Alice",
+                    "--room",
+                    "garden",
+                    "--room",
+                    "workshop",
+                    timeout=START_SECONDS,
+                )
                 # Lead-first team startup composes two ordinary peer starts.
-                cli(team, "team-start", "--transport", transport, "--reachability", "direct", "--locator", locator,
-                    "--lead", "Bob", "--member", "Carol", "--room", "garden", "--room", "workshop",
-                    timeout=2 * START_SECONDS)
+                cli(
+                    team,
+                    "team-start",
+                    "--transport",
+                    transport,
+                    "--reachability",
+                    "direct",
+                    "--locator",
+                    locator,
+                    "--lead",
+                    "Bob",
+                    "--member",
+                    "Carol",
+                    "--room",
+                    "garden",
+                    "--room",
+                    "workshop",
+                    timeout=2 * START_SECONDS,
+                )
                 assert len(cli(team, "team-status")["members"]) == 2
-                rooms = {row["name"]: row["id"] for row in cli(alice, "status")["workspace"]["conversations"]
-                         if row["kind"] == "room"}
+                rooms = {
+                    row["name"]: row["id"]
+                    for row in cli(alice, "status")["workspace"]["conversations"]
+                    if row["kind"] == "room"
+                }
                 # Both inactive and active conversations deliver; no @mention.
                 cli(bob, "reply", "--room", "garden", "--text", "garden-message")
                 cli(bob, "reply", "--room", "workshop", "--text", "workshop-message")
@@ -209,16 +306,18 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 assert target(private)["kind"] == "direct", private
                 cli(alice, "reply", "--id", str(private["id"]), "--text", "private-answer")
                 assert target(until(bob, "private-answer"))["kind"] == "direct"
-                assert not any(line_text(row).startswith("private-")
-                               for row in cli(carol, "tick", "--wait", "0")["pending"])
+                assert not any(
+                    line_text(row).startswith("private-") for row in cli(carol, "tick", "--wait", "0")["pending"]
+                )
                 cli(carol, "reply", "--dm", "Alice", "--text", "second-private-question")
                 second_private = until(alice, "second-private-question")
                 assert target(second_private)["kind"] == "direct"
                 assert target(second_private)["id"] != target(private)["id"]
                 cli(alice, "reply", "--id", str(second_private["id"]), "--text", "second-private-answer")
                 assert target(until(carol, "second-private-answer"))["kind"] == "direct"
-                assert not any(line_text(row).startswith("second-private-")
-                               for row in cli(bob, "tick", "--wait", "0")["pending"])
+                assert not any(
+                    line_text(row).startswith("second-private-") for row in cli(bob, "tick", "--wait", "0")["pending"]
+                )
                 answer = until(bob, "private-answer")
                 cli(bob, "leave", "--conversation", target(answer)["id"])
                 assert target(until(bob, "private-answer"))["kind"] == "direct"
@@ -229,18 +328,30 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 assert marker(edited)["id"] == marker(garden)["id"] and marker(edited)["change"] == "edited"
                 sent = cli(bob, "reply", "--dm", "Alice", "--text", "private-unread")
                 unread_dm = until(alice, "private-unread")
-                cli(alice, "reply", "--conversation", target(unread_dm)["id"],
-                    "--text", "private-reopened-answer")
+                cli(alice, "reply", "--conversation", target(unread_dm)["id"], "--text", "private-reopened-answer")
                 assert target(until(bob, "private-reopened-answer"))["kind"] == "direct"
-                assert not any(line_text(row) == "private-reopened-answer"
-                               for row in cli(carol, "tick", "--wait", "0")["pending"])
-                bob_direct = next(row["id"] for row in cli(bob, "status")["workspace"]["conversations"]
-                                  if row["kind"] == "direct" and row["peer"] == "Alice" and not row["closed"])
-                replay_args = ("--conversation", bob_direct, "--operation", sent["operation"],
-                               "--base", str(sent["base"]), "--text", "private-unread")
+                assert not any(
+                    line_text(row) == "private-reopened-answer" for row in cli(carol, "tick", "--wait", "0")["pending"]
+                )
+                bob_direct = next(
+                    row["id"]
+                    for row in cli(bob, "status")["workspace"]["conversations"]
+                    if row["kind"] == "direct" and row["peer"] == "Alice" and not row["closed"]
+                )
+                replay_args = (
+                    "--conversation",
+                    bob_direct,
+                    "--operation",
+                    sent["operation"],
+                    "--base",
+                    str(sent["base"]),
+                    "--text",
+                    "private-unread",
+                )
                 cli(bob, "reply", *replay_args)
-                unread_rows = [row for row in cli(alice, "tick", "--wait", "0")["pending"]
-                               if line_text(row) == "private-unread"]
+                unread_rows = [
+                    row for row in cli(alice, "tick", "--wait", "0")["pending"] if line_text(row) == "private-unread"
+                ]
                 assert [row["id"] for row in unread_rows] == [unread_dm["id"]], "exact replay sent twice"
                 # A new process keeps the same unanswered IDs and memberships.
                 cli(alice, "dismiss", "--id", str(workshop["id"]))
@@ -255,8 +366,7 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 assert replay["id"] == garden["id"]
                 replay_dm = until(alice, "private-unread")
                 assert replay_dm["id"] == unread_dm["id"] and target(replay_dm)["kind"] == "direct"
-                assert not any(row["id"] == workshop["id"]
-                               for row in cli(alice, "tick", "--wait", "0")["pending"])
+                assert not any(row["id"] == workshop["id"] for row in cli(alice, "tick", "--wait", "0")["pending"])
                 cli(alice, "join", "--room", "garden", "--room", "workshop")
                 cli(alice, "leave", "--room", "garden")
                 # Old messages keep their room context even after leaving.
@@ -267,8 +377,12 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 # once each, without scripts, filtering, or acknowledging them.
                 output = root / "listener.jsonl"
                 with output.open("wb") as sink:
-                    listener = subprocess.Popen([str(FRONT), "apps", "rooms", "session", "listen", "--dir", str(alice)],
-                                                stdout=sink, stderr=subprocess.PIPE, cwd="/tmp")
+                    listener = subprocess.Popen(
+                        [str(FRONT), "apps", "rooms", "session", "listen", "--dir", str(alice)],
+                        stdout=sink,
+                        stderr=subprocess.PIPE,
+                        cwd="/tmp",
+                    )
                     try:
                         cli(bob, "reply", "--room", "workshop", "--text", "continuous-listener")
                         deadline = time.monotonic() + 5
@@ -281,10 +395,15 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                         deadline = time.monotonic() + 5
                         while True:
                             # The producer may be partway through a JSONL record.
-                            batches = [json.loads(line) for line in output.read_text().splitlines(keepends=True)
-                                       if line.endswith("\n")]
+                            batches = [
+                                json.loads(line)
+                                for line in output.read_text().splitlines(keepends=True)
+                                if line.endswith("\n")
+                            ]
                             delivered = [event for batch in batches for event in batch["pending"]]
-                            if {"listener-private-message", "listener-own-echo"} <= {line_text(event) for event in delivered}:
+                            if {"listener-private-message", "listener-own-echo"} <= {
+                                line_text(event) for event in delivered
+                            }:
                                 break
                             assert time.monotonic() < deadline, "listen missed a DM or own echo"
                             assert listener.poll() is None, "listener exited"
@@ -321,13 +440,20 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
                 # A restarted listener replays every retained page without
                 # dismissing the prefix or needing a new journal mutation.
                 with output.open("wb") as sink:
-                    listener = subprocess.Popen([str(FRONT), "apps", "rooms", "session", "listen", "--dir", str(alice)],
-                                                stdout=sink, stderr=subprocess.PIPE, cwd="/tmp")
+                    listener = subprocess.Popen(
+                        [str(FRONT), "apps", "rooms", "session", "listen", "--dir", str(alice)],
+                        stdout=sink,
+                        stderr=subprocess.PIPE,
+                        cwd="/tmp",
+                    )
                     try:
                         deadline = time.monotonic() + 5
                         while True:
-                            batches = [json.loads(line) for line in output.read_text().splitlines(keepends=True)
-                                       if line.endswith("\n")]
+                            batches = [
+                                json.loads(line)
+                                for line in output.read_text().splitlines(keepends=True)
+                                if line.endswith("\n")
+                            ]
                             delivered = [event for batch in batches for event in batch["pending"]]
                             if any(line_text(event) == "after-resume" for event in delivered):
                                 break

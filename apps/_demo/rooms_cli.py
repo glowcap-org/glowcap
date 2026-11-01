@@ -16,12 +16,12 @@ async def enter_or_open(directory, name: str):
     """Enter ``name``, opening the room when it does not exist yet."""
     try:
         return await directory.enter(name)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         if error_code(err) != NO_SUCH_ROOM:
             raise
     try:
         return await directory.open(name)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         if error_code(err) != ROOM_EXISTS:
             raise
         return await directory.enter(name)

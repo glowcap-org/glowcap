@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from typing import Optional
 
 from glowcap import Host, Session, tcp
 from glowcap import _constants as _abi
@@ -39,7 +38,7 @@ class _Pipe:
                 offset = end
                 self._changed.notify_all()
 
-    async def read(self) -> Optional[bytes]:
+    async def read(self) -> bytes | None:
         async with self._changed:
             while True:
                 if self._chunks:
@@ -67,7 +66,7 @@ class _End:
         self._inbound = inbound
         self._outbound = outbound
 
-    async def read(self) -> Optional[bytes]:
+    async def read(self) -> bytes | None:
         return await self._inbound.read()
 
     async def write(self, data: bytes) -> None:
@@ -88,11 +87,16 @@ async def _exchange(capacity: int) -> None:
         backward = _Pipe(capacity)
         accepted, dialed = await asyncio.gather(
             Session.establish_accepted(
-                exporter, "tcp", "127.0.0.1:9011", _End(forward, backward),
+                exporter,
+                "tcp",
+                "127.0.0.1:9011",
+                _End(forward, backward),
                 handshake_timeout_ms=5_000,
             ),
             Session.establish_dialed_locator(
-                dialer, tcp.locator("127.0.0.1", 9011), _End(backward, forward),
+                dialer,
+                tcp.locator("127.0.0.1", 9011),
+                _End(backward, forward),
                 handshake_timeout_ms=5_000,
             ),
         )

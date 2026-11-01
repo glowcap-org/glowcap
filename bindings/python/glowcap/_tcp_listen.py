@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import ipaddress
 import secrets
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from . import _constants as _abi
 from ._abi_value import _DEFAULT_CODEC
 from ._errors import GlowcapError
 from ._host import Host
 from ._locator import Locator, designator_host_port
+from ._server import DriverServer, _rollback_listener_construction, prepare_driver_loop
 from ._socket_address import address_designator
-from ._server import DriverServer, prepare_driver_loop, _rollback_listener_construction
 
 if TYPE_CHECKING:
     from ._listener import ListenerOwner
@@ -39,17 +39,15 @@ def _wildcard(host: str) -> bool:
 def _direct_address(locator: Locator, who: str) -> str:
     direct = locator.hints.get(_abi.HINT_DIRECT_ADDRESSES, locator.designator)
     if not isinstance(direct, str):
-        raise GlowcapError(
-            _ERR_INVALID_ARGUMENT, f"{who} listener has a non-string address"
-        )
+        raise GlowcapError(_ERR_INVALID_ARGUMENT, f"{who} listener has a non-string address")
     return direct
 
 
 def _advertise_loop_listener(
-    loop: "DriverLoop",
-    listener: "ListenerOwner",
+    loop: DriverLoop,
+    listener: ListenerOwner,
     locator: Locator,
-    advertised_host: Optional[str],
+    advertised_host: str | None,
     who: str,
 ) -> None:
     direct = _direct_address(locator, who)
@@ -60,9 +58,7 @@ def _advertise_loop_listener(
             "a wildcard bind has no dialable address; provide advertised_host",
         )
     if advertised_host is not None and _wildcard(advertised_host):
-        raise GlowcapError(
-            _ERR_INVALID_ARGUMENT, "an advertised host must be dialable"
-        )
+        raise GlowcapError(_ERR_INVALID_ARGUMENT, "an advertised host must be dialable")
     if advertised_host is None:
         advertised = direct
     else:
@@ -77,12 +73,8 @@ def _advertise_loop_listener(
             listener,
             Locator(
                 locator.transport,
-                advertised
-                if locator.transport == _abi.TRANSPORT_TCP
-                else locator.designator,
-                {}
-                if locator.transport == _abi.TRANSPORT_TCP
-                else {_abi.HINT_DIRECT_ADDRESSES: advertised},
+                advertised if locator.transport == _abi.TRANSPORT_TCP else locator.designator,
+                {} if locator.transport == _abi.TRANSPORT_TCP else {_abi.HINT_DIRECT_ADDRESSES: advertised},
             ),
         )
     loop.select_listener(listener)
@@ -101,11 +93,11 @@ async def _listen_tcp_profile(
     transport: str,
     bind_host: str,
     port: int,
-    seed: Optional[bytes],
-    codec: Optional[str],
-    advertised_host: Optional[str],
-    host: Optional[Host],
-    config: "Optional[Config]",
+    seed: bytes | None,
+    codec: str | None,
+    advertised_host: str | None,
+    host: Host | None,
+    config: Config | None,
 ) -> Server:
     who = f"listen_{transport.replace('-', '_')}"
     if seed is not None and len(seed) != 32:
@@ -143,10 +135,10 @@ async def listen(
     bind_host: str,
     port: int = 0,
     *,
-    host: Optional[Host] = None,
-    codec: Optional[str] = None,
-    advertised_host: Optional[str] = None,
-    config: "Optional[Config]" = None,
+    host: Host | None = None,
+    codec: str | None = None,
+    advertised_host: str | None = None,
+    config: Config | None = None,
 ) -> Server:
     """Bind a driver-owned TCP listener, optionally adopting ``host``."""
     return await _listen_tcp_profile(
@@ -165,11 +157,11 @@ async def listen_keyed(
     bind_host: str,
     port: int = 0,
     *,
-    seed: Optional[bytes] = None,
-    codec: Optional[str] = None,
-    advertised_host: Optional[str] = None,
-    host: Optional[Host] = None,
-    config: "Optional[Config]" = None,
+    seed: bytes | None = None,
+    codec: str | None = None,
+    advertised_host: str | None = None,
+    host: Host | None = None,
+    config: Config | None = None,
 ) -> Server:
     """Bind a driver-owned keyed-TCP listener, optionally adopting ``host``."""
     return await _listen_tcp_profile(
@@ -188,11 +180,11 @@ async def listen_noise(
     bind_host: str,
     port: int = 0,
     *,
-    seed: Optional[bytes] = None,
-    codec: Optional[str] = None,
-    advertised_host: Optional[str] = None,
-    host: Optional[Host] = None,
-    config: "Optional[Config]" = None,
+    seed: bytes | None = None,
+    codec: str | None = None,
+    advertised_host: str | None = None,
+    host: Host | None = None,
+    config: Config | None = None,
 ) -> Server:
     """Bind a driver-owned noise-TCP listener, optionally adopting ``host``."""
     return await _listen_tcp_profile(

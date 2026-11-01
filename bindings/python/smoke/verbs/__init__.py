@@ -5,24 +5,23 @@ projections, forwarding proxies, and mid-turn refusals."""
 from __future__ import annotations
 
 import asyncio
-from contextvars import ContextVar
 import re
-
+from contextvars import ContextVar
 
 from glowcap import (
-    tcp,
-    FetchFailed,
     ErrorValue,
-    Host,
+    FetchFailed,
     GlowcapError,
+    Host,
     Ref,
+    Runtime,
     Set,
     Struct,
     Symbol,
     Tagged,
     VowBroken,
-    Runtime,
     format_locator_uri,
+    tcp,
 )
 from glowcap._constants import (
     ERR_INVALID_ARGUMENT,
@@ -30,16 +29,22 @@ from glowcap._constants import (
 
 from smoke.conversation import _start_relay
 from smoke.runtime import tcp_connect
+
 from .authority import (
     _forwarding_proxies_over_the_wire as _forwarding_proxies_over_the_wire,
+)
+from .authority import (
     _forwarding_proxy_local_call as _forwarding_proxy_local_call,
+)
+from .authority import (
     _mid_turn_driving_verb_breaks_the_answer as _mid_turn_driving_verb_breaks_the_answer,
+)
+from .authority import (
     _mid_turn_host_release_orders_sessions_before_host as _mid_turn_host_release_orders_sessions_before_host,
 )
 
-
-
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+
 
 async def _structured_args_round_trip() -> None:
     """``Set`` and ``Struct`` cross the typed application surface, a capability nested in a Set or Tagged arrives as a sendable
@@ -96,7 +101,16 @@ async def _structured_args_round_trip() -> None:
         local_args[0] = "after"
         await asyncio.wait_for(published.wait(), timeout=5)
         svc_ref = await session.fetch("svc")
-        reply = await session.send(svc_ref, "probe", [Set([1, inbox]), Tagged("note", [inbox]), Struct([("count", 7), ("name", "widget")]), ErrorValue("failure is a value")])
+        reply = await session.send(
+            svc_ref,
+            "probe",
+            [
+                Set([1, inbox]),
+                Tagged("note", [inbox]),
+                Struct([("count", 7), ("name", "widget")]),
+                ErrorValue("failure is a value"),
+            ],
+        )
         assert isinstance(reply, list) and type(reply[0]) is Set, reply
         assert isinstance(reply[1], Struct), reply
         assert reply[2] == ErrorValue("failure is a value"), reply
@@ -117,6 +131,7 @@ async def _structured_args_round_trip() -> None:
 
     finally:
         await server.close()
+
 
 async def _enliven_round_trips_then_caches() -> None:
     """Sturdyref enliven (ADR-0007): the requester brings a durable
@@ -217,7 +232,7 @@ async def _distributed_release_reaches_each_capability_home() -> None:
         combined = gc_tails[to_server] + chunk
         found = combined.count(needle)
         gc_counts[to_server] += found
-        gc_tails[to_server] = combined[-(len(needle) - 1):]
+        gc_tails[to_server] = combined[-(len(needle) - 1) :]
         if found:
             gc_seen[to_server].set()
 
@@ -402,7 +417,7 @@ async def _turn_spawn_survives_originating_port_close() -> None:
 
                     def root(verb, args):
                         assert verb == "create", verb
-                        return origin.spawn(lambda child_verb, child_args: ("alive" if child_verb == "ping" else None))
+                        return origin.spawn(lambda child_verb, child_args: "alive" if child_verb == "ping" else None)
 
                     root_ref = origin.spawn(root)
                     continue

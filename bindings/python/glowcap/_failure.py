@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 from collections import deque
 from dataclasses import dataclass, replace
 from enum import Enum
-import threading
 
 from ._constants_gen import (
     DEFAULT_FAILURE_CAPACITY,
@@ -199,9 +199,7 @@ class _RuntimeFailureQueue:
 _runtime_failures = _RuntimeFailureQueue()
 
 
-def _record_runtime_failure(
-    layer: FailureLayer, operation: str, error: BaseException
-) -> None:
+def _record_runtime_failure(layer: FailureLayer, operation: str, error: BaseException) -> None:
     _runtime_failures.record(layer, operation, error)
 
 

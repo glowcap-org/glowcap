@@ -3,20 +3,25 @@
 The host product proof supplies an installed CLI and recording Docker fixture.
 This module owns terminal input, confirmation, interruption and cleanup.
 """
+
 import fcntl
 import json
 import os
-from pathlib import Path
 import pty
 import selectors
 import subprocess
 import termios
 import time
+from pathlib import Path
 
 
 def reset_prompt(binary, scratch):
-    env = dict(PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin", HOME=str(scratch),
-               DOCKER_LOG=str(scratch / "docker.log"), EXISTING_VOLUME="1")
+    env = dict(
+        PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin",
+        HOME=str(scratch),
+        DOCKER_LOG=str(scratch / "docker.log"),
+        EXISTING_VOLUME="1",
+    )
     log = Path(env["DOCKER_LOG"])
     workspace = scratch / "deployment config"
 
@@ -27,9 +32,14 @@ def reset_prompt(binary, scratch):
     for answer in (b"yes\n", b"no\n", b"\n", b"\x04", b"\x03"):
         before = len(log.read_text())
         master, slave = pty.openpty()
-        child = subprocess.Popen([str(binary), "apps", "rooms", "deployment", "reset", "all",
-                                  "--dir", str(workspace)], env=env, stdin=slave,
-                                 stdout=slave, stderr=slave, preexec_fn=controlling_terminal)
+        child = subprocess.Popen(
+            [str(binary), "apps", "rooms", "deployment", "reset", "all", "--dir", str(workspace)],
+            env=env,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            preexec_fn=controlling_terminal,
+        )
         os.close(slave)
         pending = bytearray()
         transcript = bytearray()
@@ -51,7 +61,7 @@ def reset_prompt(binary, scratch):
                     transcript.extend(chunk)
             assert b"all Rooms data, identities, grants, and access links" in transcript, bytes(transcript)
             assert b"deployment restart" in transcript, bytes(transcript)
-            del pending[:pending.index(marker) + len(marker)]
+            del pending[: pending.index(marker) + len(marker)]
             calls = [json.loads(line) for line in log.read_text()[before:].splitlines()]
             assert not any("down" in a or "up" in a or a[:2] == ["volume", "rm"] for a in calls)
 

@@ -168,6 +168,8 @@ if require_pin "python" PYTHON_VERSION; then
     expect_contains "python" "${PYTHON_VERSION}" uv python find "${PYTHON_VERSION}"
 fi
 expect_pin_contains "serena" SERENA_AGENT_VERSION serena --version
+expect_pin_contains "ruff" RUFF_VERSION ruff --version
+expect_pin_contains "mypy" MYPY_VERSION mypy --version
 
 # The pane runtime docker-execs /bin/zsh, and the workspace user's login shell
 # is that same path. It is an image package so a Dockerfile-only build still

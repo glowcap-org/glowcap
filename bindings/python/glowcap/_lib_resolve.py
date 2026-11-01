@@ -87,9 +87,7 @@ def _want_release_fetch(dev_root: pathlib.Path | None) -> bool:
 def _find_dev_root() -> pathlib.Path | None:
     here = _package_dir()
     for candidate in [here, *here.parents]:
-        if (candidate / "build.zig").is_file() and (
-            candidate / "include" / "glowcap_ocapn.h"
-        ).is_file():
+        if (candidate / "build.zig").is_file() and (candidate / "include" / "glowcap_ocapn.h").is_file():
             return candidate
     return None
 
@@ -114,14 +112,8 @@ def _abi_version(dev_root: pathlib.Path | None, contract: dict) -> str:
     return str(contract["abi_version"])
 
 
-def _apply_contract_template(
-    tmpl: str, *, version: str, target: str, cache_base: str = ""
-) -> str:
-    return (
-        tmpl.replace("{version}", version)
-        .replace("{target}", target)
-        .replace("{cache_base}", cache_base)
-    )
+def _apply_contract_template(tmpl: str, *, version: str, target: str, cache_base: str = "") -> str:
+    return tmpl.replace("{version}", version).replace("{target}", target).replace("{cache_base}", cache_base)
 
 
 # All host aliases from tools/c-abi/c-abi-host-aliases.json (source_check per-port presence).
@@ -180,11 +172,7 @@ def _cache_base(contract: dict) -> pathlib.Path:
 def _cache_lib_dir(contract: dict, version: str, target: str) -> pathlib.Path:
     base = _cache_base(contract)
     layout = str(contract["cache_layout"])
-    return pathlib.Path(
-        _apply_contract_template(
-            layout, version=version, target=target, cache_base=str(base)
-        )
-    )
+    return pathlib.Path(_apply_contract_template(layout, version=version, target=target, cache_base=str(base)))
 
 
 def _soft_fail(msg: str) -> None:
@@ -223,9 +211,7 @@ def _download(url: str, dest: pathlib.Path, *, max_bytes: int, user_agent: str) 
     with opener.open(req, timeout=60) as resp:
         length = resp.headers.get("Content-Length")
         if length is not None and int(length) > max_bytes:
-            raise OSError(
-                f"Content-Length {length} exceeds max_tarball_bytes {max_bytes}"
-            )
+            raise OSError(f"Content-Length {length} exceeds max_tarball_bytes {max_bytes}")
         written = 0
         with dest.open("wb") as out:
             while True:
@@ -280,17 +266,12 @@ def _safe_extract_lib(
             if not (member.isfile() or member.isdir()):
                 raise OSError(f"refusing non-file tar member: {member.name}")
             dest = (stage / name).resolve()
-            if (
-                not str(dest).startswith(str(stage_resolved) + os.sep)
-                and dest != stage_resolved
-            ):
+            if not str(dest).startswith(str(stage_resolved) + os.sep) and dest != stage_resolved:
                 raise OSError(f"tar member escapes stage: {member.name}")
             tf.extract(member, path=stage, set_attrs=False)
 
 
-def _fetch_into_cache(
-    contract: dict, version: str, target: str, cache_lib: pathlib.Path
-) -> None:
+def _fetch_into_cache(contract: dict, version: str, target: str, cache_lib: pathlib.Path) -> None:
     base = os.environ.get(
         "GLOWCAP_RELEASE_BASE_URL",
         contract["default_release_base_url"],
@@ -299,12 +280,8 @@ def _fetch_into_cache(
     max_bytes = int(contract["max_tarball_bytes"])
     max_sums = int(contract["max_sums_bytes"])
     user_agent = str(contract["user_agent"])
-    tag = _apply_contract_template(
-        str(contract["release_tag_template"]), version=version, target=target
-    )
-    tarball = _apply_contract_template(
-        str(contract["tarball_template"]), version=version, target=target
-    )
+    tag = _apply_contract_template(str(contract["release_tag_template"]), version=version, target=target)
+    tarball = _apply_contract_template(str(contract["tarball_template"]), version=version, target=target)
     extract_prefix = str(contract["extract_prefix"])
     url = f"{base}/{tag}/{tarball}"
     cache_root = cache_lib.parent
@@ -344,9 +321,7 @@ def _fetch_into_cache(
         except (urllib.error.URLError, OSError) as err:
             tarball_path.unlink(missing_ok=True)
             sums_path.unlink(missing_ok=True)
-            _hard_fail(
-                f"checksum required before extract: SHA256SUMS download failed ({err})"
-            )
+            _hard_fail(f"checksum required before extract: SHA256SUMS download failed ({err})")
 
         try:
             _verify_sha256(sums_path.read_text(encoding="utf-8"), tarball, tarball_path)

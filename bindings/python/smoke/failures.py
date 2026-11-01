@@ -5,44 +5,38 @@ seam, finalizer and allocator-callback exceptions stay nonfatal."""
 from __future__ import annotations
 
 import asyncio
-from contextvars import ContextVar
-import gc
-
 import ctypes
+import gc
+from contextvars import ContextVar
+
 import glowcap
 import glowcap._driver.finalizer as _driver_finalizer
 import glowcap._host as _host_module
+from glowcap import (
+    FailureLayer,
+    GlowcapError,
+    Host,
+    Runtime,
+)
 from glowcap._action import _answer_gift_id
 from glowcap._archive_contract import require_archive_fingerprint
-from glowcap._errors import _retain_cleanup_failure
-from glowcap._failure import _RuntimeFailureQueue
-from glowcap._ffi_driver import _DriverFailure
-from glowcap._driver_failure import _decode as _decode_driver_failure
 from glowcap._constants import (
     CARRIER_DETAIL_ENGINE_CODE,
     CARRIER_DETAIL_PEER_ALERT,
     CARRIER_PHASE_SECURE_HANDSHAKE,
-)
-
-from glowcap import (
-    FailureLayer,
-    Host,
-    GlowcapError,
-    Runtime,
-)
-from glowcap._ffi import FfiHandle
-from glowcap._ws import _WebSocketTransport
-from glowcap._constants import (
     DEFAULT_FAILURE_PAYLOAD_CAP,
-    ERR_INVALID_ARGUMENT,
     ERR_INTERNAL,
+    ERR_INVALID_ARGUMENT,
     ERR_IO,
 )
+from glowcap._driver_failure import _decode as _decode_driver_failure
+from glowcap._errors import _retain_cleanup_failure
+from glowcap._failure import _RuntimeFailureQueue
+from glowcap._ffi import FfiHandle
+from glowcap._ffi_driver import _DriverFailure
+from glowcap._ws import _WebSocketTransport
 
-
-_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
-    "scenario_runtimes", default=None
-)
+_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
 
 
 def _gift_id_completion_preserves_ffi_refusal() -> None:
@@ -357,9 +351,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
     unicode_queue = _RuntimeFailureQueue(1)
     unicode_queue.record(FailureLayer.BINDING, "☃" * 600, RuntimeError("unretained"))
     unicode_truncated = unicode_queue.claim()[0]
-    assert len(unicode_truncated.operation.encode()) <= DEFAULT_FAILURE_PAYLOAD_CAP, (
-        unicode_truncated
-    )
+    assert len(unicode_truncated.operation.encode()) <= DEFAULT_FAILURE_PAYLOAD_CAP, unicode_truncated
     assert "�" not in unicode_truncated.operation, unicode_truncated
 
     typed_queue = _RuntimeFailureQueue(1)
@@ -397,9 +389,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
     def fail_release(_raw) -> None:
         raise release_failure
 
-    explicit = FfiHandle(
-        object(), fail_release, fail_shutdown, label="explicit-test"
-    )
+    explicit = FfiHandle(object(), fail_release, fail_shutdown, label="explicit-test")
     try:
         explicit.close()
     except BaseException as observed:
@@ -416,9 +406,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
         assert observed is explicit_failure, "repeated close replaced its first failure"
     else:
         raise AssertionError("repeated explicit close forgot its failure")
-    assert not glowcap.take_runtime_failures(), (
-        "explicit close leaked into finalizer diagnostics"
-    )
+    assert not glowcap.take_runtime_failures(), "explicit close leaked into finalizer diagnostics"
 
     finalizer_failure = RuntimeError("finalizer FFI release failed")
 
@@ -467,9 +455,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
     _driver_finalizer._driver.glowcap_driver_release = refuse_once
     try:
         _driver_finalizer._release_driver_finalizer_state(refused_state)
-        assert refused_state.handle is not None, (
-            "refused final release lost its FFI lease"
-        )
+        assert refused_state.handle is not None, "refused final release lost its FFI lease"
         assert len(reports) == 1, reports
         assert reports[0]["operation"] == "driver-loop.finalize.release", reports
         assert reports[0]["primary_result"] == ERR_INVALID_ARGUMENT, reports
@@ -480,9 +466,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
         # drains the claimed driver-finalizer batch without a private retry.
         boundary = Host()
         asyncio.run(boundary.close())
-        assert refused_state.handle is None, (
-            "successful retry retained the FFI lease"
-        )
+        assert refused_state.handle is None, "successful retry retained the FFI lease"
         assert len(reports) == 1, "release retry duplicated its diagnostic"
     finally:
         _driver_finalizer._driver.glowcap_driver_release = original_release
@@ -503,9 +487,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
     _driver_finalizer._driver.glowcap_driver_release = consumed_failure
     try:
         _driver_finalizer._release_driver_finalizer_state(consumed_state)
-        assert consumed_state.handle is None, (
-            "consumed release failure retained a dangling lease"
-        )
+        assert consumed_state.handle is None, "consumed release failure retained a dangling lease"
         assert len(reports) == 2, reports
         assert reports[1]["primary_result"] == ERR_IO, reports
         with _driver_finalizer._deferred_driver_finalizers_lock:

@@ -8,15 +8,14 @@ import time
 import unittest
 from pathlib import Path
 
-
 HERE = Path(__file__).resolve().parent
 UPSTREAM = HERE / "upstream"
 sys.path.insert(0, str(UPSTREAM))
 
-from contrib.syrup import Symbol
-from netlayers.onion import OnionNetlayer, Socks5Proxy
-from utils.ocapn_uris import OCapNPeer
-from utils.test_suite import CapTPTestRunner
+from contrib.syrup import Symbol  # noqa: E402
+from netlayers.onion import OnionNetlayer, Socks5Proxy  # noqa: E402
+from utils.ocapn_uris import OCapNPeer  # noqa: E402
+from utils.test_suite import CapTPTestRunner  # noqa: E402
 
 
 class PublishedOnionNetlayer(OnionNetlayer):
@@ -55,9 +54,7 @@ class PublishedOnionNetlayer(OnionNetlayer):
             except Exception as error:  # Tor reports unpublished services as SOCKS failures.
                 last_error = error
                 if time.monotonic() >= deadline:
-                    raise RuntimeError(
-                        "upstream onion service did not become reachable"
-                    ) from last_error
+                    raise RuntimeError("upstream onion service did not become reachable") from last_error
                 time.sleep(0.5)
             finally:
                 self._incoming_control_socket.settimeout(None)

@@ -25,13 +25,13 @@ import ctypes
 import secrets
 import threading
 import weakref
+from collections.abc import Awaitable
 from typing import (
     TYPE_CHECKING,
-    Awaitable,
-    Optional,
 )
 
 from .. import _constants as _abi
+from .. import _trace
 from .._abi_value import (
     _DEFAULT_CAPTP_VERSION,
     _DEFAULT_CODEC,
@@ -49,24 +49,23 @@ from .._errors import (
     _check_host,
     _retain_cleanup_failure,
 )
-from .. import _trace
+from .finalizer import (
+    _drain_deferred_finalizer_states,
+    _HostFinalizerState,
+    _release_finalizer_state,
+    _release_unpublished_host,
+)
 from .lifecycle import _LifecycleMixin
 from .progress import _ProgressMixin
 from .publication import _PublicationMixin
 from .vows import VowTable
-from .finalizer import (
-    _HostFinalizerState,
-    _drain_deferred_finalizer_states,
-    _release_finalizer_state,
-    _release_unpublished_host,
-)
 
 if TYPE_CHECKING:
     from .._context import Context
     from .._loop import DriverLoop
     from .._session import Session
-    from .._transport import Connector
     from .._trampoline import _BehaviorEntry
+    from .._transport import Connector
 from .._ffi_host import _host
 from .._ffi_ocapn import _byte_buf
 from .._gc import HostGc, bind_host
@@ -105,16 +104,16 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
 
     def __init__(
         self,
-        seed: Optional[bytes] = None,
+        seed: bytes | None = None,
         *,
-        profile: Optional[str] = None,
-        codec: Optional[str] = None,
-        captp_version: Optional[str] = None,
+        profile: str | None = None,
+        codec: str | None = None,
+        captp_version: str | None = None,
         features=_DEFAULT_FEATURES,
-        context: "Optional[Context]" = None,
+        context: Context | None = None,
         local_turn_budget: int = 0,
-        _adopt_raw: Optional[int] = None,
-        _driver_loop: "Optional[DriverLoop]" = None,
+        _adopt_raw: int | None = None,
+        _driver_loop: DriverLoop | None = None,
     ):
         # `_adopt_raw` plus `_driver_loop` is the loop tier's adoption seam
         # (ADR-0024): the FFI driver archive owns the host handle, and this
@@ -122,13 +121,9 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # is the action drain, the kick verbs nudge a loop step instead of
         # running the Python drain, and close belongs to `DriverLoop.close`.
         if _adopt_raw is not None and _driver_loop is None:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT, "loop adoption requires the DriverLoop"
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "loop adoption requires the DriverLoop")
         if profile not in (None, "interop", "glowcap"):
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT, f"unknown Host profile {profile!r}"
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, f"unknown Host profile {profile!r}")
         if profile is not None and (codec is not None or captp_version is not None):
             raise GlowcapError(
                 _ERR_INVALID_ARGUMENT,
@@ -148,13 +143,11 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             if profile == "interop"
             else (_DEFAULT_CAPTP_VERSION if captp_version is None else captp_version)
         )
-        self._driver_loop: "Optional[DriverLoop]" = _driver_loop
+        self._driver_loop: DriverLoop | None = _driver_loop
         _drain_deferred_finalizer_states()
         self._raw: ctypes.c_void_p | None = None
         try:
-            durable_seed = (
-                bytes(memoryview(seed)) if seed is not None else secrets.token_bytes(32)
-            )
+            durable_seed = bytes(memoryview(seed)) if seed is not None else secrets.token_bytes(32)
         except (BufferError, TypeError, ValueError):
             raise GlowcapError(_ERR_INVALID_ARGUMENT, "seed must be 32 bytes") from None
         if len(durable_seed) != 32:
@@ -169,9 +162,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # finalizer queue therefore belongs here, beside the authority registry.
         self._gc = HostGc()
         try:
-            self._loop: "Optional[asyncio.AbstractEventLoop]" = (
-                asyncio.get_running_loop()
-            )
+            self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
             self._loop = None
         self._owner_thread = threading.get_ident()
@@ -188,26 +179,26 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # Every live session by its GlowcapHostSession address, so a FLUSH
         # action routes to the transport that owns the bytes and a dialed
         # exporter stays reachable for teardown.
-        self._sessions: "dict[int, Session]" = {}
+        self._sessions: dict[int, Session] = {}
         # Native release removes a session from routing before its async
         # channel and workers finish. Keep that retirement under Host close.
-        self._session_retirements: "set[Session]" = set()
+        self._session_retirements: set[Session] = set()
         # The vow table the drain's SETTLE/FAIL arms settle.
         self._vows = VowTable(self._gc)
         # Host-owned async behavior settlements, retained because the event
         # loop holds tasks only weakly.
-        self._behavior_tasks: "set[asyncio.Task]" = set()
+        self._behavior_tasks: set[asyncio.Task] = set()
         # Exact terminal occurrences in observation order. The shared helper
         # bounds retained objects while preserving the total count.
-        self._terminal_failures: "list[BaseException]" = []
+        self._terminal_failures: list[BaseException] = []
         self._terminal_failure_count = 0
         # Every admitted action drain, including directly awaited drains. Host
         # release joins this barrier before invalidating FFI storage.
-        self._action_drains: "set[asyncio.Task]" = set()
+        self._action_drains: set[asyncio.Task] = set()
         # Each session's writer task. A CLOSE leaves the transport close to its
         # writer, so Host release waits for every writer to exit. Live inbound
         # delivery does not join writes; terminal retirement joins both.
-        self._session_writers: "set[asyncio.Task]" = set()
+        self._session_writers: set[asyncio.Task] = set()
         # The shared close-activity event (wake-all): a close driver clears it
         # before reading FFI close progress, and every FFI verb that can
         # advance close-relevant state sets it after the verb returns, so a
@@ -216,39 +207,37 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # A popped DIAL is not in the C action queue. Its executor is
         # therefore Host-owned until it reports success/failure or teardown
         # cancels it; caller cancellation of one drain must not strand a ticket.
-        self._dial_tasks: "dict[tuple[int, int], asyncio.Task]" = {}
+        self._dial_tasks: dict[tuple[int, int], asyncio.Task] = {}
         # Async teardown retains one join task so a second owner cannot free the
         # FFI Host while the first owner is still joining its DIAL tasks.
-        self._release_task: "Optional[asyncio.Task]" = None
+        self._release_task: asyncio.Task | None = None
         self._release_started = False
         # Trampoline ctx of each Host publication, by published name, so
         # `Session.published_ref` can find the one it must bind. The registry is
         # process-global, not host-scoped, so nothing drops these when the host
         # dies: close() frees them, or one row leaks per Host publication per Host
         # generation.
-        self._publications: "dict[str, int]" = {}
+        self._publications: dict[str, int] = {}
         # Every ordinary Session.spawn/publish trampoline on this Host. Actors
         # live in the Host Vat, so closing the Port that first projected one
         # must not unregister behavior another Port can still call.
-        self._hosted: "dict[int, int]" = {}
+        self._hosted: dict[int, int] = {}
         # Ctx ids a re-publish displaced. Existing capabilities and gifts still
         # reach the old Host-Vat actor, so its trampoline stays registered until status-allow: replacement state identity
         # close() drops it with the rest.
-        self._displaced_publications: "list[int]" = []
+        self._displaced_publications: list[int] = []
         # Strong ownership of process-global callback entries belongs to the
         # Host, not the global lookup. This map may contain a behavior that
         # captures this Host; Python's collector can reclaim that local cycle.
-        self._behavior_entries: "dict[int, _BehaviorEntry]" = {}
+        self._behavior_entries: dict[int, _BehaviorEntry] = {}
         # Explicit byte-fed connectors retained by transport symbol. A Host
         # never derives one from locator shape; this table is the authority
         # used by handoff redemption after the original connect registered it.
-        self._connectors: "dict[str, Connector]" = {}
+        self._connectors: dict[str, Connector] = {}
         if _adopt_raw is not None:
             self._raw = ctypes.c_void_p(_adopt_raw)
             diagnostic_id = ctypes.c_uint64()
-            _check_host(
-                _host.glowcap_host_diagnostic_id(self._raw, ctypes.byref(diagnostic_id))
-            )
+            _check_host(_host.glowcap_host_diagnostic_id(self._raw, ctypes.byref(diagnostic_id)))
             self._diagnostic_id = diagnostic_id.value
             self._finalizer_state = _HostFinalizerState(
                 self._raw,
@@ -296,9 +285,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         self._raw = out
         diagnostic_id = ctypes.c_uint64()
         try:
-            _check_host(
-                _host.glowcap_host_diagnostic_id(out, ctypes.byref(diagnostic_id))
-            )
+            _check_host(_host.glowcap_host_diagnostic_id(out, ctypes.byref(diagnostic_id)))
         except BaseException as error:
             cleanup = _release_unpublished_host(out, context)
             self._raw = None
@@ -480,7 +467,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         if not self.schedule_on_loop(scheduled):
             self._trace_refresh_pending = True
 
-    def _defer_turn_to_awaitable(self, turn: int, pending: "Awaitable[object]") -> bool:
+    def _defer_turn_to_awaitable(self, turn: int, pending: Awaitable[object]) -> bool:
         """Binding-internal (the trampoline's async-behavior arm): defer
         ``turn``'s answer onto a fresh resolver vow and settle it when
         ``pending`` does. The settle runs as its own task on the running
@@ -507,7 +494,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             except asyncio.CancelledError:
                 self._break_resolver(resolver, "async behavior cancelled")
                 return
-            except Exception as error:  # noqa: BLE001 - a raise breaks the answer
+            except Exception as error:
                 self._break_resolver(resolver, str(error) or type(error).__name__)
                 return
             self._settle_resolver(resolver, value)
@@ -515,11 +502,11 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         self._own_behavior_task(loop.create_task(settle()))
         return True
 
-    def _own_behavior_task(self, task: "asyncio.Task") -> None:
+    def _own_behavior_task(self, task: asyncio.Task) -> None:
         """Retain one admitted async behavior settlement through shutdown."""
         self._behavior_tasks.add(task)
 
-        def done(finished: "asyncio.Task") -> None:
+        def done(finished: asyncio.Task) -> None:
             self._behavior_tasks.discard(finished)
             if finished.cancelled():
                 return

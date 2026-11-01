@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run CI gates: one phase, every phase, or one build shard's compile.
 
 Called from the repository root, inside the devcontainer in CI and under
@@ -68,7 +67,7 @@ def with_defaults(argv):
     if argv[:2] != ["zig", "build"]:
         return argv
     options = argv[2:]
-    given = set(options[:options.index("--")] if "--" in options else options)
+    given = set(options[: options.index("--")] if "--" in options else options)
     extra = []
     if "--test-timeout" not in given:
         extra += ["--test-timeout", "30s"]
@@ -79,8 +78,7 @@ def with_defaults(argv):
 
 def execute(argv, timeout):
     """Run one command under the deadline wrapper and return its status."""
-    wrapper = ["python3", "tools/run-with-timeout.py", "--kill-after", "30s",
-               "--heartbeat", "60s", timeout]
+    wrapper = ["python3", "tools/run-with-timeout.py", "--kill-after", "30s", "--heartbeat", "60s", timeout]
     return subprocess.run(wrapper + argv, cwd=ROOT).returncode
 
 
@@ -104,8 +102,10 @@ class Run:
             return None
         say(f"gate failed (exit {status}): {command}")
         if wedged(status):
-            say(f"  It exceeded {timeout} and was killed. Inspect the gate's last output"
-                " and any process still holding its port before retrying.")
+            say(
+                f"  It exceeded {timeout} and was killed. Inspect the gate's last output"
+                " and any process still holding its port before retrying."
+            )
             if kind == "build":
                 say("  Every later gate in this phase needs this build, so the phase stops here.")
                 return status
@@ -132,8 +132,7 @@ class Run:
                 argv = shlex.split(command)
                 if argv[:2] != ["zig", "build"]:
                     continue
-                argv = ["zig", "build", "-Dcompile-only", f"-Dcompile-shard={shard}",
-                        "--summary", "new", *argv[2:]]
+                argv = ["zig", "build", "-Dcompile-only", f"-Dcompile-shard={shard}", "--summary", "new", *argv[2:]]
                 if tuple(argv) in seen:
                     continue
                 seen.add(tuple(argv))
@@ -179,8 +178,20 @@ def fetch():
     for attempt in range(1, FETCH_ATTEMPTS + 1):
         say(f"dependency acquisition attempt {attempt}/{FETCH_ATTEMPTS}")
         status = subprocess.run(
-            ["python3", "tools/run-with-timeout.py", "--kill-after", "5s", "--heartbeat", "30s",
-             "3m", "zig", "build", "--fetch=all"], cwd=ROOT).returncode
+            [
+                "python3",
+                "tools/run-with-timeout.py",
+                "--kill-after",
+                "5s",
+                "--heartbeat",
+                "30s",
+                "3m",
+                "zig",
+                "build",
+                "--fetch=all",
+            ],
+            cwd=ROOT,
+        ).returncode
         if status == 0 or status in INTERRUPTED or attempt == FETCH_ATTEMPTS:
             return status
         time.sleep(int(delay))

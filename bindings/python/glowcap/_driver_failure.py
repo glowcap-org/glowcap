@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import ctypes
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
 from . import _constants as _c
-from ._carrier_failure import CarrierFailure, _decode as _decode_carrier
+from ._carrier_failure import CarrierFailure
+from ._carrier_failure import _decode as _decode_carrier
 from ._errors import GlowcapError
 from ._ffi_driver import _driver, _DriverFailure
 
@@ -19,44 +20,34 @@ class _Failure:
     secondary_result: int
     secondary_count: int
     secondary_name: str
-    carrier_failure: Optional[CarrierFailure]
+    carrier_failure: CarrierFailure | None
 
 
 @dataclass(frozen=True)
 class _Outcome:
     code: int
-    failure: Optional[_Failure]
-    error: Optional[GlowcapError]
+    failure: _Failure | None
+    error: GlowcapError | None
 
 
-def _text(pointer: Optional[int], length: int, field: str) -> str:
+def _text(pointer: int | None, length: int, field: str) -> str:
     if length == 0:
         return ""
     if not pointer:
-        raise GlowcapError(
-            _c.ERR_INTERNAL, f"driver returned null {field} with nonzero length"
-        )
+        raise GlowcapError(_c.ERR_INTERNAL, f"driver returned null {field} with nonzero length")
     try:
         return ctypes.string_at(pointer, length).decode("utf-8", "strict")
     except UnicodeDecodeError as cause:
-        raise GlowcapError(
-            _c.ERR_INTERNAL, f"driver returned non-UTF-8 {field}"
-        ) from cause
+        raise GlowcapError(_c.ERR_INTERNAL, f"driver returned non-UTF-8 {field}") from cause
 
 
 def _error(failure: _Failure, operation: str) -> GlowcapError:
-    detail = (
-        f"{operation} failed: {failure.primary_name}"
-        if failure.primary_name
-        else f"{operation} failed"
-    )
+    detail = f"{operation} failed: {failure.primary_name}" if failure.primary_name else f"{operation} failed"
     error = GlowcapError(failure.primary_result, detail)
     error.carrier_failure = failure.carrier_failure
     error.secondary_count = failure.secondary_count
     if failure.secondary_count:
-        error.secondary = (
-            GlowcapError(failure.secondary_result, failure.secondary_name),
-        )
+        error.secondary = (GlowcapError(failure.secondary_result, failure.secondary_name),)
     return error
 
 
@@ -78,19 +69,11 @@ def _decode(code: int, raw: _DriverFailure, operation: str) -> _Outcome:
     if code == _c.OK:
         if failure == _Failure(_c.OK, "", _c.OK, 0, "", None):
             return _Outcome(code, None, None)
-        raise GlowcapError(
-            _c.ERR_INTERNAL, f"{operation} returned success with failure data"
-        )
+        raise GlowcapError(_c.ERR_INTERNAL, f"{operation} returned success with failure data")
     if failure.primary_result != code or not failure.primary_name:
-        raise GlowcapError(
-            _c.ERR_INTERNAL, f"{operation} returned an inconsistent failure record"
-        )
-    if (
-        failure.secondary_count == 0
-        and (failure.secondary_result != _c.OK or failure.secondary_name)
-    ) or (
-        failure.secondary_count > 0
-        and (failure.secondary_result == _c.OK or not failure.secondary_name)
+        raise GlowcapError(_c.ERR_INTERNAL, f"{operation} returned an inconsistent failure record")
+    if (failure.secondary_count == 0 and (failure.secondary_result != _c.OK or failure.secondary_name)) or (
+        failure.secondary_count > 0 and (failure.secondary_result == _c.OK or not failure.secondary_name)
     ):
         raise GlowcapError(
             _c.ERR_INTERNAL,
@@ -111,17 +94,13 @@ def _call_driver(operation: str, call: Callable[[object], int]) -> _Outcome:
 
 
 def _release(driver, handle, operation: str) -> _Outcome:
-    return _call_driver(
-        operation, lambda out: driver.glowcap_driver_release(handle, out)
-    )
+    return _call_driver(operation, lambda out: driver.glowcap_driver_release(handle, out))
 
 
 def _add_provider(driver, handle, package) -> None:
     outcome = _call_driver(
         "driver add_provider",
-        lambda out: driver.glowcap_driver_add_provider(
-            handle, ctypes.byref(package), out
-        ),
+        lambda out: driver.glowcap_driver_add_provider(handle, ctypes.byref(package), out),
     )
     if outcome.error is not None:
         raise outcome.error

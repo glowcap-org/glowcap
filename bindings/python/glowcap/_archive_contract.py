@@ -7,9 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 
-def require_archive_fingerprint(
-    resolve: Callable[[], Any], stem: str, expected: int
-) -> None:
+def require_archive_fingerprint(resolve: Callable[[], Any], stem: str, expected: int) -> None:
     """Resolve and compare one archive fingerprint before ordinary use."""
     try:
         read = resolve()

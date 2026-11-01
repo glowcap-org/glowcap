@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import threading
 import weakref
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import partial
-from typing import Callable, Iterator
 
 from ._failure import FailureLayer, _record_runtime_failure
 
@@ -25,9 +25,7 @@ def _release_finalized(label: str, release_once: Callable[[], None]) -> None:
         _record_runtime_failure(FailureLayer.BINDING, f"{label}.finalize", error)
 
 
-def _release_retaining_parent(
-    release: Callable[[object], None], raw: object, _keepalive: object
-) -> None:
+def _release_retaining_parent(release: Callable[[object], None], raw: object, _keepalive: object) -> None:
     """Release a raw handle while its finalizer state retains the parent."""
     release(raw)
 
@@ -60,13 +58,9 @@ class FfiHandle:
         self._terminal_failures: list[BaseException] = []
         self._condition = threading.Condition()
         release_once: Callable[[], None] = (
-            partial(release, raw)
-            if keepalive is None
-            else partial(_release_retaining_parent, release, raw, keepalive)
+            partial(release, raw) if keepalive is None else partial(_release_retaining_parent, release, raw, keepalive)
         )
-        self._finalizer = weakref.finalize(
-            self, _release_finalized, label, release_once
-        )
+        self._finalizer = weakref.finalize(self, _release_finalized, label, release_once)
 
     @contextmanager
     def lease(self) -> Iterator[object]:

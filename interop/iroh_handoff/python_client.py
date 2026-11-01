@@ -34,16 +34,16 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+from helpers import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
 
 from glowcap import (  # noqa: E402
     HINT_DIRECT_ADDRESSES,
-    Ref,
-    Runtime,
     TRANSPORT_IROH,
     Locator,
+    Ref,
+    Runtime,
     format_peer_uri,
 )
 from glowcap.iroh import (  # noqa: E402
@@ -66,7 +66,7 @@ async def accept_loop_with_served(server, served: list) -> None:
         served.append(session)
 
 
-async def dialable(server) -> "tuple[str, str]":
+async def dialable(server) -> tuple[str, str]:
     """An iroh endpoint reports its direct addresses asynchronously after bind;
     wait for at least one before reading the dialable id+addresses, a give with
     no direct-addresses hint is not dialable under the relay-less Direct posture."""
@@ -99,22 +99,20 @@ async def run() -> None:
     # ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
     gifter = await listen(IrohConfig(Reachability.DIRECT))
     gifter_id, gifter_addrs = await dialable(gifter)
-    exporter_uri = format_peer_uri(
-        TRANSPORT_IROH, exporter_id, {HINT_DIRECT_ADDRESSES: exporter_addrs}
-    )
-    gifter_runtime = await Runtime.open(
-        provider=provider(IrohConfig(Reachability.DIRECT)), adopt_host=gifter.host
-    )
+    exporter_uri = format_peer_uri(TRANSPORT_IROH, exporter_id, {HINT_DIRECT_ADDRESSES: exporter_addrs})
+    gifter_runtime = await Runtime.open(provider=provider(IrohConfig(Reachability.DIRECT)), adopt_host=gifter.host)
     to_exporter = await gifter_runtime.connect(exporter_uri)
     greeter_ref = await to_exporter.fetch("greeter")
     # The exporter's own signed session record names it by node id alone, not
     # dialable under the relay-less Direct posture, so record its full dialable
     # location (id + direct-addresses) as the give's exporter location.
-    to_exporter.set_exporter_locator(Locator(
-        "iroh",
-        exporter_id,
-        {HINT_DIRECT_ADDRESSES: exporter_addrs},
-    ))
+    to_exporter.set_exporter_locator(
+        Locator(
+            "iroh",
+            exporter_id,
+            {HINT_DIRECT_ADDRESSES: exporter_addrs},
+        )
+    )
 
     def introducer(verb: str, args: list):
         if verb == "get-greeter":
@@ -127,12 +125,8 @@ async def run() -> None:
     print(f"python-iroh-handoff: gifter published introducer on {gifter_id}")
 
     # ── Recipient: dials the gifter, redeems the give by dialing the exporter ─────
-    gifter_uri = format_peer_uri(
-        TRANSPORT_IROH, gifter_id, {HINT_DIRECT_ADDRESSES: gifter_addrs}
-    )
-    recipient_runtime = await Runtime.open(
-        provider=provider(IrohConfig(Reachability.DIRECT))
-    )
+    gifter_uri = format_peer_uri(TRANSPORT_IROH, gifter_id, {HINT_DIRECT_ADDRESSES: gifter_addrs})
+    recipient_runtime = await Runtime.open(provider=provider(IrohConfig(Reachability.DIRECT)))
     recipient = await recipient_runtime.connect(gifter_uri)
     introducer_ref = await recipient.fetch("introducer")
     granted = await recipient.send(introducer_ref, "get-greeter", [])

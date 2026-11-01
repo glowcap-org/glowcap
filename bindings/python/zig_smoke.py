@@ -9,25 +9,23 @@ from __future__ import annotations
 
 import array
 import asyncio
-from contextvars import ContextVar
 import gc
-import sys
 import socket
+import sys
 import threading
-
-from glowcap._lifecycle import _lifecycle_closed
+from contextvars import ContextVar
 
 from glowcap import (
-    tcp,
     Context,
     FailureLayer,
     FailureScope,
     GlowcapError,
     Ref,
-    abi_version,
     Runtime,
+    abi_version,
     format_sturdyref,
     parse_sturdyref,
+    tcp,
 )
 from glowcap._constants import (
     ERR_INTERNAL,
@@ -36,12 +34,11 @@ from glowcap._constants import (
     FAILURE_SCOPE_LISTENER,
     LIFECYCLE_ACTIVE,
     LIFECYCLE_CLOSED,
+    _provenance_from_abi,
 )
-from glowcap._constants import _provenance_from_abi
+from glowcap._lifecycle import _lifecycle_closed
 from glowcap.inproc import InprocNetlayer
 from glowcap.tcp import TcpNetlayer
-
-
 from smoke import (
     allocator_failures,
     conversation,
@@ -58,9 +55,7 @@ from smoke import (
 from smoke.runtime import tcp_connect
 from smoke.verbs import pipeline
 
-_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
-    "scenario_runtimes", default=None
-)
+_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
 
 
 async def _typed_integer_array_sends_as_a_list() -> None:
@@ -126,18 +121,14 @@ def main() -> int:
     failures._ffi_finalizer_failure_is_nonfatal_and_observable()
     print("python zig-smoke OK: FFI finalizer failures stay nonfatal and observable")
     allocator_failures._callback_exceptions_are_contained()
-    print(
-        "python zig-smoke OK: allocator callback exceptions stay nonfatal and observable"
-    )
+    print("python zig-smoke OK: allocator callback exceptions stay nonfatal and observable")
     driver_release.run()
     print("python zig-smoke OK: refused live driver releases stay owned and recur")
     runtime.run_managed(runtime._connector_install_is_transactional())
     runtime.run_managed(runtime._cancelled_dial_does_not_report_failure())
     runtime.run_managed(runtime._driver_completion_preserves_failure_category())
     runtime.run_managed(runtime._runtime_open_is_transactional())
-    print(
-        "python zig-smoke OK: Runtime.open preserves caller-owned Hosts across failed provider setup"
-    )
+    print("python zig-smoke OK: Runtime.open preserves caller-owned Hosts across failed provider setup")
     print("python zig-smoke OK: connector installation is transactional")
     sturdyref = parse_sturdyref(
         "ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/"
@@ -153,10 +144,7 @@ def main() -> int:
         b"durable:0123456789abcdef",
         "next",
     )
-    assert (
-        parse_sturdyref(formatted_sturdyref, "next").swissnum
-        == b"durable:0123456789abcdef"
-    )
+    assert parse_sturdyref(formatted_sturdyref, "next").swissnum == b"durable:0123456789abcdef"
 
     try:
         Ref(1)
@@ -202,9 +190,7 @@ def main() -> int:
         assert failure.secondary_name == "ReleaseFailed", failure
         assert failure.secondary_message == "descriptor remained live", failure
         assert diagnostic_context.next_failure() is None
-    print(
-        "python zig-smoke OK: Context preserves the cross-language FFI failure vector exactly once"
-    )
+    print("python zig-smoke OK: Context preserves the cross-language FFI failure vector exactly once")
 
     host_lifecycle.run()
     # Run a real frame over a TCP socket: one frame, loopback. The blocking TCP
@@ -387,14 +373,10 @@ def main() -> int:
     assert not accepter.is_alive(), "inproc owner release did not join a blocked accept"
     assert accept_errors, "inproc listener shutdown did not interrupt a blocked accept"
 
-    print(
-        "python zig-smoke OK: the blocking TCP and in-process transports shuttled a frame"
-    )
+    print("python zig-smoke OK: the blocking TCP and in-process transports shuttled a frame")
 
     transports._onion_against_a_fake_daemon()
-    print(
-        "python zig-smoke OK: the onion transport reached a fake Tor and reported its service"
-    )
+    print("python zig-smoke OK: the onion transport reached a fake Tor and reported its service")
 
     transports._loop_archive_stepping_parity()
     print(
@@ -402,63 +384,43 @@ def main() -> int:
     )
 
     runtime.run_managed(conversation._allocator_context_round_trip())
-    print(
-        "python zig-smoke OK: drove a published counter round-trip from a context-backed Host"
-    )
+    print("python zig-smoke OK: drove a published counter round-trip from a context-backed Host")
 
     runtime.run_managed(conversation._live_trace_produces_timeline())
-    print(
-        "python zig-smoke OK: the live trace produced the timeline schema for a whole conversation"
-    )
+    print("python zig-smoke OK: the live trace produced the timeline schema for a whole conversation")
 
     runtime.run_managed(conversation._async_behavior_defers())
-    print(
-        "python zig-smoke OK: an async behavior deferred its answer onto a resolver vow and settled off-turn"
-    )
+    print("python zig-smoke OK: an async behavior deferred its answer onto a resolver vow and settled off-turn")
 
     runtime.run_managed(conversation._capnp_codec_round_trip())
-    print(
-        "python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip"
-    )
+    print("python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip")
 
     runtime.run_managed(_typed_integer_array_sends_as_a_list())
     print("python zig-smoke OK: an array.array('q') argument arrives as a list of integers")
 
     runtime.run_managed(conversation._empty_codec_is_not_the_default())
-    print(
-        "python zig-smoke OK: an empty codec offer is refused, not rewritten as Syrup"
-    )
+    print("python zig-smoke OK: an empty codec offer is refused, not rewritten as Syrup")
 
     runtime.run_managed(conversation._feed_refusals_are_typed())
-    print(
-        "python zig-smoke OK: an over-cap frame refuses typed and a refused frame carries its abort cause"
-    )
+    print("python zig-smoke OK: an over-cap frame refuses typed and a refused frame carries its abort cause")
 
     runtime.run_managed(conversation._tightened_admission_cap_refuses())
-    print(
-        "python zig-smoke OK: a tightened session limit refuses a frame the default cap admits"
-    )
+    print("python zig-smoke OK: a tightened session limit refuses a frame the default cap admits")
 
     runtime.run_managed(conversation._disconnect_rejects_pending_send())
     print("python zig-smoke OK: an outstanding send rejects on disconnect")
 
     runtime.run_managed(lifecycle._listen_surfaces_bound_port())
-    print(
-        "python zig-smoke OK: high-level listen() surfaces the bound port and accepts"
-    )
+    print("python zig-smoke OK: high-level listen() surfaces the bound port and accepts")
 
     runtime.run_managed(lifecycle._rude_probe_cannot_close_the_listener())
     print("python zig-smoke OK: a rude probe cannot close the listener")
 
     runtime.run_managed(lifecycle._supplied_host_tcp_listener_ownership())
-    print(
-        "python zig-smoke OK: supplied TCP Hosts transfer to the driver transactionally"
-    )
+    print("python zig-smoke OK: supplied TCP Hosts transfer to the driver transactionally")
 
     runtime.run_managed(lifecycle._failed_listener_preserves_supplied_host())
-    print(
-        "python zig-smoke OK: failed listener setup preserves its supplied Host for retry"
-    )
+    print("python zig-smoke OK: failed listener setup preserves its supplied Host for retry")
 
     runtime.run_managed(lifecycle._listener_close_preserves_sibling())
     print("python zig-smoke OK: closing one listener preserves a sibling listener")
@@ -487,14 +449,10 @@ def main() -> int:
     runtime.run_managed(lifecycle._session_close_retains_every_terminal_failure())
     print("python zig-smoke OK: Session.close retains every terminal failure in order")
 
-    runtime.run_managed(
-        lifecycle.cancelled_close_waiter_preserves_transport_coordinator()
-    )
+    runtime.run_managed(lifecycle.cancelled_close_waiter_preserves_transport_coordinator())
     print("python zig-smoke OK: canceled close waiter preserves transport retirement")
 
-    runtime.run_managed(
-        lifecycle.cancelled_loop_close_waiter_preserves_terminal_chain()
-    )
+    runtime.run_managed(lifecycle.cancelled_loop_close_waiter_preserves_terminal_chain())
     print("python zig-smoke OK: canceled loop close waiter preserves terminal evidence")
 
     runtime.run_managed(lifecycle.partner_release_keeps_a_freed_handle_from_loop_close())
@@ -515,62 +473,38 @@ def main() -> int:
     runtime.run_managed(lifecycle._loop_close_joins_session_retirement(through_host=False))
     print("python zig-smoke OK: adopted Host and driver close join session retirement")
 
-    runtime.run_managed(
-        lifecycle._cancelled_session_close_waiter_does_not_stop_driver()
-    )
-    print(
-        "python zig-smoke OK: canceled Session.close waiter leaves the shared close driver running"
-    )
+    runtime.run_managed(lifecycle._cancelled_session_close_waiter_does_not_stop_driver())
+    print("python zig-smoke OK: canceled Session.close waiter leaves the shared close driver running")
 
-    runtime.run_managed(
-        lifecycle._observe_session_retirement_without_serve_or_close()
-    )
-    print(
-        "python zig-smoke OK: Session.closed observes retirement without serve or close"
-    )
+    runtime.run_managed(lifecycle._observe_session_retirement_without_serve_or_close())
+    print("python zig-smoke OK: Session.closed observes retirement without serve or close")
 
     runtime.run_managed(lifecycle._repeated_host_close_observes_recorded_timeout())
-    print(
-        "python zig-smoke OK: repeated Host.close observes the recorded finish timeout"
-    )
+    print("python zig-smoke OK: repeated Host.close observes the recorded finish timeout")
 
     runtime.run_managed(lifecycle._loop_finish_close_reports_finite_grace_timeout())
-    print(
-        "python zig-smoke OK: a loop finish close that outlives its finite grace reports the typed timeout"
-    )
+    print("python zig-smoke OK: a loop finish close that outlives its finite grace reports the typed timeout")
 
     runtime.run_managed(lifecycle._silent_loop_dial_reaches_ffi_handshake_deadline())
-    print(
-        "python zig-smoke OK: a silent loop dial reaches glowcap's FFI handshake deadline"
-    )
+    print("python zig-smoke OK: a silent loop dial reaches glowcap's FFI handshake deadline")
 
     runtime.run_managed(lifecycle._host_close_shuts_a_still_open_listener())
-    print(
-        "python zig-smoke OK: Host.close completes over an open listener and ends its accept stream"
-    )
+    print("python zig-smoke OK: Host.close completes over an open listener and ends its accept stream")
 
     runtime.run_managed(verbs._structured_args_round_trip())
-    print(
-        "python zig-smoke OK: a Set round-trips as a Set, a nested capability stays sendable, a break is typed"
-    )
+    print("python zig-smoke OK: a Set round-trips as a Set, a nested capability stays sendable, a break is typed")
 
     runtime.run_managed(verbs._enliven_round_trips_then_caches())
-    print(
-        "python zig-smoke OK: a sturdyref enlivens to a live capability, and a repeat enliven hits the cache"
-    )
+    print("python zig-smoke OK: a sturdyref enlivens to a live capability, and a repeat enliven hits the cache")
 
     runtime.run_managed(verbs._distributed_release_reaches_each_capability_home())
-    print(
-        "python zig-smoke OK: distributed release reaches fetched, replied, and delivered capability homes"
-    )
+    print("python zig-smoke OK: distributed release reaches fetched, replied, and delivered capability homes")
 
     runtime.run_managed(verbs._fetch_failed_is_typed())
     print("python zig-smoke OK: a non-capability fetch raises the typed FetchFailed")
 
     runtime.run_managed(pipeline.drives_chain())
-    print(
-        "python zig-smoke OK: promise pipelining drives one batch and refuses a colliding vow from another Host"
-    )
+    print("python zig-smoke OK: promise pipelining drives one batch and refuses a colliding vow from another Host")
 
     runtime.run_managed(pipeline.passes_a_pending_promise())
     print(
@@ -578,14 +512,10 @@ def main() -> int:
     )
 
     runtime.run_managed(verbs._turn_spawn_survives_originating_port_close())
-    print(
-        "python zig-smoke OK: turn-time spawn uses the Host after the originating Port closes"
-    )
+    print("python zig-smoke OK: turn-time spawn uses the Host after the originating Port closes")
 
     runtime.run_managed(pipeline.unawaited_break_stays_silent())
-    print(
-        "python zig-smoke OK: an unawaited send is an asyncio.Future whose far break stays silent"
-    )
+    print("python zig-smoke OK: an unawaited send is an asyncio.Future whose far break stays silent")
 
     runtime.run_managed(pipeline.projections_reach_a_field())
     print(
@@ -593,19 +523,13 @@ def main() -> int:
     )
 
     runtime.run_managed(verbs._forwarding_proxies_over_the_wire())
-    print(
-        "python zig-smoke OK: forwarding proxies forward, attenuate, and revoke over the wire"
-    )
+    print("python zig-smoke OK: forwarding proxies forward, attenuate, and revoke over the wire")
 
     runtime.run_managed(verbs._forwarding_proxy_local_call())
-    print(
-        "python zig-smoke OK: a forwarding proxy answers its host's own local call (local and far target)"
-    )
+    print("python zig-smoke OK: a forwarding proxy answers its host's own local call (local and far target)")
 
     runtime.run_managed(verbs._mid_turn_driving_verb_breaks_the_answer())
-    print(
-        "python zig-smoke OK: a behavior's mid-turn driving verb is refused and breaks its own answer"
-    )
+    print("python zig-smoke OK: a behavior's mid-turn driving verb is refused and breaks its own answer")
 
     runtime.run_managed(verbs._mid_turn_host_release_orders_sessions_before_host())
     print("python zig-smoke OK: callback-time Host close records FFI intent")

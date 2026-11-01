@@ -511,7 +511,7 @@ def signed_handoff_receive() -> Record:
         (
             bytes([0xDD] * 32),  # receiving-session
             bytes([0x22] * 32),  # receiving-side
-            1,                    # handoff-count
+            1,  # handoff-count
             nested_signed_give,
         ),
     )
@@ -561,7 +561,7 @@ def op_deliver_withdraw_gift() -> Record:
         (
             bytes([0xDD] * 32),  # receiving-session
             bytes([0x22] * 32),  # receiving-side
-            1,                    # handoff-count
+            1,  # handoff-count
             nested_signed_give,
         ),
     )

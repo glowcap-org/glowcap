@@ -7,11 +7,10 @@ import argparse
 import ast
 import os
 import shutil
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "site" / "examples"
@@ -76,12 +75,8 @@ def check_python() -> None:
                 decorator_list=[],
                 returns=ast.Constant(value=None),
             )
-            module = ast.fix_missing_locations(
-                ast.Module(body=[wrapper], type_ignores=[])
-            )
-            output = (
-                Path(directory) / f"{source_path.parent.name}_{source_path.stem}.py"
-            )
+            module = ast.fix_missing_locations(ast.Module(body=[wrapper], type_ignores=[]))
+            output = Path(directory) / f"{source_path.parent.name}_{source_path.stem}.py"
             output.write_text(ast.unparse(module) + "\n")
             generated.append(str(output))
 

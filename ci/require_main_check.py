@@ -16,15 +16,25 @@ import re
 import subprocess
 import sys
 
-
 VALIDATING = {("push", "dev"), ("workflow_dispatch", "dev"), ("workflow_dispatch", "main")}
 
 
 def lookup(endpoint, key, kind, *fields):
     try:
-        response = subprocess.run([
-            "gh", "api", "--method", "GET", endpoint, *fields,
-        ], stdout=subprocess.PIPE, text=True, check=False, timeout=30)
+        response = subprocess.run(
+            [
+                "gh",
+                "api",
+                "--method",
+                "GET",
+                endpoint,
+                *fields,
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=30,
+        )
     except subprocess.TimeoutExpired:
         print("require-main-check: Actions lookup exceeded 30 seconds; rerun when GitHub responds.", file=sys.stderr)
         return 124, []
@@ -59,12 +69,22 @@ def main():
     if status:
         return status
     if relation not in ("identical", "ahead"):
-        print(f"require-main-check: {args.commit} is not on main ({relation}); "
-              "publish only a commit main contains.", file=sys.stderr)
+        print(
+            f"require-main-check: {args.commit} is not on main ({relation}); publish only a commit main contains.",
+            file=sys.stderr,
+        )
         return 1
     status, runs = lookup(
-        f"repos/{repository}/actions/workflows/check.yml/runs", "workflow_runs", list,
-        "-f", f"head_sha={args.commit}", "-f", "status=completed", "-f", "per_page=100")
+        f"repos/{repository}/actions/workflows/check.yml/runs",
+        "workflow_runs",
+        list,
+        "-f",
+        f"head_sha={args.commit}",
+        "-f",
+        "status=completed",
+        "-f",
+        "per_page=100",
+    )
     if status:
         return status
     for run in runs:
@@ -73,29 +93,43 @@ def main():
         origin = run.get("head_repository")
         url = run.get("html_url")
         run_id, attempt = run.get("id"), run.get("run_attempt")
-        if not (run.get("head_sha") == args.commit
-                and (run.get("event"), run.get("head_branch")) in VALIDATING
-                and run.get("status") == "completed"
-                and run.get("conclusion") == "success"
-                and isinstance(origin, dict)
-                and origin.get("full_name") == repository
-                and isinstance(url, str) and url
-                and type(run_id) is int and run_id > 0
-                and type(attempt) is int and attempt > 0):
+        if not (
+            run.get("head_sha") == args.commit
+            and (run.get("event"), run.get("head_branch")) in VALIDATING
+            and run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+            and isinstance(origin, dict)
+            and origin.get("full_name") == repository
+            and isinstance(url, str)
+            and url
+            and type(run_id) is int
+            and run_id > 0
+            and type(attempt) is int
+            and attempt > 0
+        ):
             continue
         status, jobs = lookup(
-            f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100", "jobs", list)
+            f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100", "jobs", list
+        )
         if status:
             return status
-        passed = {job.get("name") for job in jobs if isinstance(job, dict)
-                  and isinstance(job.get("name"), str)
-                  and job.get("status") == "completed" and job.get("conclusion") == "success"}
+        passed = {
+            job.get("name")
+            for job in jobs
+            if isinstance(job, dict)
+            and isinstance(job.get("name"), str)
+            and job.get("status") == "completed"
+            and job.get("conclusion") == "success"
+        }
         if {"gates", "macos-runtime"} <= passed:
             print(url)
             return 0
-    print(f"require-main-check: {args.commit} has no successful full check. "
-          "Run `gh workflow run check.yml --ref main -f suite=check`, wait for gates and "
-          "macos-runtime to pass, then rerun publication.", file=sys.stderr)
+    print(
+        f"require-main-check: {args.commit} has no successful full check. "
+        "Run `gh workflow run check.yml --ref main -f suite=check`, wait for gates and "
+        "macos-runtime to pass, then rerun publication.",
+        file=sys.stderr,
+    )
     return 1
 
 

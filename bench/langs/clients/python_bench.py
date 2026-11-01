@@ -20,7 +20,8 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "bindings" / "python"))
 
-from glowcap import Ref, Runtime, Session, tcp  # noqa: E402
+from glowcap import Ref, Runtime, Session, tcp
+
 CLIENT = "python"
 RUNTIME = f"cpython/{platform.python_version()}"
 
@@ -113,12 +114,21 @@ async def run_latency(runtime: Runtime, host: str, port: int, n: int) -> None:
     await conn.close()
     lats.sort()
     mean = sum(lats) / max(1, n)
-    emit({
-        "v": 1, "metric": "latency", "client": CLIENT, "suite": "taskboard", "n": n,
-        "p50_ms": round(percentile_ms(lats, 0.5), 4), "p99_ms": round(percentile_ms(lats, 0.99), 4),
-        "p999_ms": round(percentile_ms(lats, 0.999), 4), "mean_ms": round(mean, 4),
-        "runtime": RUNTIME, "warmup_n": warmup_count(n),
-    })
+    emit(
+        {
+            "v": 1,
+            "metric": "latency",
+            "client": CLIENT,
+            "suite": "taskboard",
+            "n": n,
+            "p50_ms": round(percentile_ms(lats, 0.5), 4),
+            "p99_ms": round(percentile_ms(lats, 0.99), 4),
+            "p999_ms": round(percentile_ms(lats, 0.999), 4),
+            "mean_ms": round(mean, 4),
+            "runtime": RUNTIME,
+            "warmup_n": warmup_count(n),
+        }
+    )
 
 
 async def run_throughput(runtime: Runtime, host: str, port: int, n: int) -> None:
@@ -130,11 +140,19 @@ async def run_throughput(runtime: Runtime, host: str, port: int, n: int) -> None
         await run_unit_pipelined(conn, root)
     total = now() - t0
     await conn.close()
-    emit({
-        "v": 1, "metric": "throughput", "client": CLIENT, "suite": "taskboard", "n": n,
-        "total_ms": round(total, 2), "rps": round(0 if total <= 0 else n / (total / 1000)),
-        "runtime": RUNTIME, "warmup_n": warmup_count(n),
-    })
+    emit(
+        {
+            "v": 1,
+            "metric": "throughput",
+            "client": CLIENT,
+            "suite": "taskboard",
+            "n": n,
+            "total_ms": round(total, 2),
+            "rps": round(0 if total <= 0 else n / (total / 1000)),
+            "runtime": RUNTIME,
+            "warmup_n": warmup_count(n),
+        }
+    )
 
 
 async def run_connections(runtime: Runtime, host: str, port: int, n: int) -> None:
@@ -150,10 +168,18 @@ async def run_connections(runtime: Runtime, host: str, port: int, n: int) -> Non
     for _ in range(n):
         handles.append(await open_held_connection(host, port))
     total = now() - t0
-    emit({
-        "v": 1, "metric": "connections", "client": CLIENT, "suite": "taskboard", "conns": n,
-        "total_ms": round(total, 2), "per_conn_ms": round(total / max(1, n), 4), "runtime": RUNTIME,
-    })
+    emit(
+        {
+            "v": 1,
+            "metric": "connections",
+            "client": CLIENT,
+            "suite": "taskboard",
+            "conns": n,
+            "total_ms": round(total, 2),
+            "per_conn_ms": round(total / max(1, n), 4),
+            "runtime": RUNTIME,
+        }
+    )
     sys.stdout.flush()
     await asyncio.sleep(2.5)
     for held in handles:
@@ -243,13 +269,22 @@ async def run_local(runtime: Runtime, n: int) -> None:
 
     in_mean = sum(in_lang) / max(1, n)
     via_mean = sum(via_host) / max(1, n)
-    emit({
-        "v": 1, "metric": "local", "client": CLIENT, "suite": "local-turn", "n": n,
-        "in_lang_ns": round(in_mean, 1), "in_lang_p99_ns": round(percentile_ms(in_lang, 0.99), 1),
-        "via_host_ns": round(via_mean, 1), "via_host_p99_ns": round(percentile_ms(via_host, 0.99), 1),
-        "ratio": round(via_mean / in_mean, 2) if in_mean > 0 else 0,
-        "runtime": RUNTIME, "warmup_n": warmup_count(n),
-    })
+    emit(
+        {
+            "v": 1,
+            "metric": "local",
+            "client": CLIENT,
+            "suite": "local-turn",
+            "n": n,
+            "in_lang_ns": round(in_mean, 1),
+            "in_lang_p99_ns": round(percentile_ms(in_lang, 0.99), 1),
+            "via_host_ns": round(via_mean, 1),
+            "via_host_p99_ns": round(percentile_ms(via_host, 0.99), 1),
+            "ratio": round(via_mean / in_mean, 2) if in_mean > 0 else 0,
+            "runtime": RUNTIME,
+            "warmup_n": warmup_count(n),
+        }
+    )
 
 
 async def main() -> None:

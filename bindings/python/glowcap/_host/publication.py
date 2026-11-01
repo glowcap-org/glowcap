@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import ctypes
 import secrets
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from .. import _constants as _abi
 from .._abi_value import _ref_to_c
+from .._constants_gen import SESSION_LIMIT_OPTIONS_ABI_VERSION
 from .._errors import GlowcapError, _check_host
 from .._ffi_host import _host, _SessionLimitOptions
-from .._constants_gen import SESSION_LIMIT_OPTIONS_ABI_VERSION
 from .._ffi_ocapn import _byte_buf
 from .._trampoline import (
-    _BehaviorEntry,
     _TRAMPOLINE,
+    _BehaviorEntry,
+)
+from .._trampoline import (
     _register_behavior as _register_global_behavior,
+)
+from .._trampoline import (
     _unregister_behavior as _unregister_global_behavior,
 )
 from .._value import Behavior, Ref
@@ -29,7 +33,7 @@ if TYPE_CHECKING:
 
 
 class _PublicationMixin(HostMixinBase):
-    def register_connector(self, connector: "Connector") -> None:
+    def register_connector(self, connector: Connector) -> None:
         """Retain an explicit byte-fed connector for future handoff dials.
 
         Registration is keyed by the connector's advertised symbols. Replacing
@@ -50,9 +54,7 @@ class _PublicationMixin(HostMixinBase):
         pending: dict[str, Connector] = {}
         for connector in connectors:
             if not isinstance(connector, Connector):
-                raise TypeError(
-                    "connectors must contain glowcap transport Connector values"
-                )
+                raise TypeError("connectors must contain glowcap transport Connector values")
             for transport in connector.transports:
                 prior = self._connectors.get(transport)
                 if prior is not None and prior is not connector:
@@ -69,12 +71,10 @@ class _PublicationMixin(HostMixinBase):
                 pending[transport] = connector
         self._connectors.update(pending)
 
-    def _connector_for(self, transport: str) -> "Optional[Connector]":
+    def _connector_for(self, transport: str) -> Connector | None:
         return self._connectors.get(transport)
 
-    async def enliven(
-        self, sturdyref: str, *, captp_version: "Optional[str]" = None
-    ) -> "Ref":
+    async def enliven(self, sturdyref: str, *, captp_version: str | None = None) -> Ref:
         """Enliven a complete sturdyref without naming a session (ADR-0007):
         the host enlivens it over a live session it already dialed to that
         peer, or dials one itself through this host's own DIAL action and
@@ -85,9 +85,7 @@ class _PublicationMixin(HostMixinBase):
         buf, ptr = _byte_buf(swiss)
         out = ctypes.c_uint64()
         if captp_version is None:
-            code = _host.glowcap_host_enliven(
-                self.raw, ptr, len(swiss), ctypes.byref(out)
-            )
+            code = _host.glowcap_host_enliven(self.raw, ptr, len(swiss), ctypes.byref(out))
         else:
             from .._abi_value import _captp_version_id
 
@@ -101,9 +99,10 @@ class _PublicationMixin(HostMixinBase):
         _check_host(code)
         return await self._await_host_capability(out.value, sturdyref)
 
-    async def fetch_at(self, locator, name: str) -> "Ref":
+    async def fetch_at(self, locator, name: str) -> Ref:
         """Fetch ``name`` at a typed locator through this Host's profile."""
         from .._locator import _OwnedLocator
+
         encoded = name.encode()
         _buf, ptr = _byte_buf(encoded)
         out = ctypes.c_uint64()
@@ -135,17 +134,13 @@ class _PublicationMixin(HostMixinBase):
         from .._locator import _OwnedLocator
 
         with _OwnedLocator.create(locator) as owned:
-            _check_host(
-                _host.glowcap_host_set_advertised_locator(self.raw, owned.borrow_view())
-            )
+            _check_host(_host.glowcap_host_set_advertised_locator(self.raw, owned.borrow_view()))
 
     def remove_advertised_locator(self, transport: str) -> None:
         """Remove this Host's retained locator for ``transport``."""
         data = transport.encode()
         buf, ptr = _byte_buf(data)
-        _check_host(
-            _host.glowcap_host_remove_advertised_locator(self.raw, ptr, len(data))
-        )
+        _check_host(_host.glowcap_host_remove_advertised_locator(self.raw, ptr, len(data)))
 
     def set_session_limits(
         self,
@@ -169,23 +164,16 @@ class _PublicationMixin(HostMixinBase):
             max_retained_sent_answer_bytes,
             max_sessions,
         )
-        if any(
-            isinstance(value, bool) or not isinstance(value, int) or value < 0
-            for value in values
-        ):
+        if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in values):
             raise ValueError("session limits must be non-negative integers")
         options = _SessionLimitOptions(
             SESSION_LIMIT_OPTIONS_ABI_VERSION,
             ctypes.sizeof(_SessionLimitOptions),
             *values,
         )
-        _check_host(
-            _host.glowcap_host_set_session_limits(self.raw, ctypes.byref(options))
-        )
+        _check_host(_host.glowcap_host_set_session_limits(self.raw, ctypes.byref(options)))
 
-    def set_ingress_limits(
-        self, *, max_pending_turns: int, max_pending_bytes: int, max_chunk_bytes: int
-    ) -> None:
+    def set_ingress_limits(self, *, max_pending_turns: int, max_pending_bytes: int, max_chunk_bytes: int) -> None:
         """Configure queue bounds before any session or eventual send.
 
         Byte bounds include message spines and queue rows. Configuration
@@ -193,10 +181,7 @@ class _PublicationMixin(HostMixinBase):
         """
         values = (max_pending_turns, max_pending_bytes, max_chunk_bytes)
         if any(
-            isinstance(value, bool)
-            or not isinstance(value, int)
-            or not 0 < value <= 0xFFFFFFFF
-            for value in values
+            isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= 0xFFFFFFFF for value in values
         ):
             raise ValueError("ingress limits must be positive uint32 integers")
         _check_host(_host.glowcap_host_set_ingress_limits(self.raw, *values))
@@ -245,7 +230,7 @@ class _PublicationMixin(HostMixinBase):
             self._displaced_publications.append(prior)
         self._publications[name] = ctx
 
-    def publish_reference(self, reference: Ref, entropy: Optional[bytes] = None) -> str:
+    def publish_reference(self, reference: Ref, entropy: bytes | None = None) -> str:
         """Publish the exact held reference, preserving its original authority.
 
         The publication owns an independent root until ``remove_durable``.
@@ -287,9 +272,7 @@ class _PublicationMixin(HostMixinBase):
         self.schedule_kick()
         return True
 
-    def publish_durable(
-        self, behavior: Behavior, entropy: Optional[bytes] = None
-    ) -> str:
+    def publish_durable(self, behavior: Behavior, entropy: bytes | None = None) -> str:
         """Publish ``behavior`` under a freshly minted durable swiss name and
         return that name: the swiss to place in a sturdyref beside this
         host's own locator (ADR-0007).
@@ -367,7 +350,7 @@ class _PublicationMixin(HostMixinBase):
         self.schedule_kick()
         return True
 
-    def register_session(self, ptr: int, session: "Session") -> None:
+    def register_session(self, ptr: int, session: Session) -> None:
         """Track a live session by its session address. Binding-internal: the
         :class:`Session` constructor calls it."""
         self._sessions[ptr] = session
@@ -376,7 +359,7 @@ class _PublicationMixin(HostMixinBase):
         """Stop tracking a released session. Binding-internal."""
         self._sessions.pop(ptr, None)
 
-    def exporter_for(self, ref: Ref) -> "Optional[Session]":
+    def exporter_for(self, ref: Ref) -> Session | None:
         """The live :class:`Session` homing remote ``ref``, or ``None`` for a
         local, stale, foreign-Host, or closed-session capability.
 

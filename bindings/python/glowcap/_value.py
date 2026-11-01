@@ -12,9 +12,9 @@ There is one value vocabulary from application through FFI. Re-exported from the
 from __future__ import annotations
 
 import array
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, TypeAlias
-
+from typing import TypeAlias
 
 _REF_MINT = object()
 
@@ -43,11 +43,12 @@ class Ref:
     def released(self) -> bool:
         """True once :meth:`Session.release` has given this capability back."""
         return getattr(self, "_released_flag", False)
+
     def _mark_released(self) -> None:
         """Mark this handle spent. Called by :meth:`Session.release`."""
         object.__setattr__(self, "_released_flag", True)
 
-    def _live(self) -> "Ref":
+    def _live(self) -> Ref:
         """Return this capability for ABI marshalling.
 
         Refused once the capability has been released. Release
@@ -56,9 +57,7 @@ class Ref:
         this occurrence before use.
         """
         if self.released:
-            raise ValueError(
-                "this capability was released and is no longer usable"
-            )
+            raise ValueError("this capability was released and is no longer usable")
         return self
 
 
@@ -102,7 +101,7 @@ class Tagged:
 class Struct:
     """An OCapN Struct: unordered, uniquely named String fields."""
 
-    entries: list[tuple[str, "Argument"]]
+    entries: list[tuple[str, Argument]]
 
 
 class Forward:
@@ -117,7 +116,7 @@ class Forward:
 
     __slots__ = ("target", "verb", "args")
 
-    def __init__(self, target: "Ref", verb: str | None, args=None):
+    def __init__(self, target: Ref, verb: str | None, args=None):
         self.target = target
         self.verb = verb
         self.args = list(args or [])
@@ -132,7 +131,21 @@ class Forward:
 #   A peer's promise arrives as a Ref, and an object this side hosts receives
 #   the RemotePromise itself.
 Argument: TypeAlias = (
-    int | float | bool | bytes | str | Symbol | Keyword | ErrorValue | None | Ref | list | Set | Tagged | Struct | array.array[int]
+    int
+    | float
+    | bool
+    | bytes
+    | str
+    | Symbol
+    | Keyword
+    | ErrorValue
+    | None
+    | Ref
+    | list
+    | Set
+    | Tagged
+    | Struct
+    | array.array[int]
 )
 
 # The verb is None for direct invocation and "" for an empty-symbol selector.

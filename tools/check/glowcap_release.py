@@ -1,31 +1,30 @@
-#!/usr/bin/env python3
 """glowcap-pack: prove the extracted host product without checkout tooling.
 
 The package check rejects missing runtimes, unsafe members, broken skill links,
 and build-directory loader dependencies. The shared process proof then drives
 the extracted command through rooms, DMs, listener retirement and restart.
 """
+
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
-import urllib.request
 import urllib.parse
+import urllib.request
+from pathlib import Path, PurePosixPath
 
-import rooms_peer
 import glowcap_host
+import rooms_peer
 
 
 def unpack(archive, destination):
     sums = archive.with_name("SHA256SUMS").read_text().splitlines()
-    matches = [line.split()[0] for line in sums
-               if len(line.split()) == 2 and line.split()[1] == archive.name]
+    matches = [line.split()[0] for line in sums if len(line.split()) == 2 and line.split()[1] == archive.name]
     assert len(matches) == 1, "archive needs one checksum entry"
     with archive.open("rb") as content:
         assert hashlib.file_digest(content, "sha256").hexdigest() == matches[0], "checksum mismatch"
@@ -63,8 +62,9 @@ def check_loader(root):
         # Inspect the whole installation in one invocation. Tool discovery and
         # every object's metadata share one deadline, including the rpath read.
         deadline = time.monotonic() + 30
-        report = subprocess.check_output(["/usr/bin/otool", "-L", *map(str, binaries)], text=True,
-                                         timeout=max(0, deadline - time.monotonic()))
+        report = subprocess.check_output(
+            ["/usr/bin/otool", "-L", *map(str, binaries)], text=True, timeout=max(0, deadline - time.monotonic())
+        )
         binary, seen = None, set()
         for line in report.splitlines():
             if not line.strip():
@@ -87,13 +87,16 @@ def check_loader(root):
             assert dependency.is_relative_to(root / "lib"), f"library escapes package: {name}"
             assert dependency.is_file(), f"missing packaged library: {name}"
         assert seen == headers.keys(), "loader report omitted a packaged binary"
-        report = subprocess.check_output(["/usr/bin/otool", "-l", str(session)], text=True,
-                                         timeout=max(0, deadline - time.monotonic()))
+        report = subprocess.check_output(
+            ["/usr/bin/otool", "-l", str(session)], text=True, timeout=max(0, deadline - time.monotonic())
+        )
         assert "@loader_path/../lib" in report, "missing relocatable library lookup"
     else:
         for binary in [*(root / "bin").iterdir(), *(root / "libexec").iterdir()]:
             try:
-                report = subprocess.check_output(["/usr/bin/ldd", str(binary)], text=True, stderr=subprocess.STDOUT, timeout=5)
+                report = subprocess.check_output(
+                    ["/usr/bin/ldd", str(binary)], text=True, stderr=subprocess.STDOUT, timeout=5
+                )
             except subprocess.CalledProcessError as error:
                 assert "not a dynamic executable" in error.output or "statically linked" in error.output, error.output
                 continue
@@ -109,9 +112,12 @@ def check_web(root, scratch, transport="iroh", executable=None):
     front = [str(binary), "apps", "rooms"]
     with (Path(scratch) / "web.log").open("w+") as log:
         options = [] if transport == "iroh" else ["--transport", transport]
-        child = subprocess.Popen([*front, "serve", "--http-port", "0",
-                                  "--reachability", "direct", *options], stdout=log, stderr=log,
-                                 env={**os.environ, "GLOWCAP_ROOMS_SERVER_BIN": str(Path(scratch) / "unrelated-server")})
+        child = subprocess.Popen(
+            [*front, "serve", "--http-port", "0", "--reachability", "direct", *options],
+            stdout=log,
+            stderr=log,
+            env={**os.environ, "GLOWCAP_ROOMS_SERVER_BIN": str(Path(scratch) / "unrelated-server")},
+        )
         try:
             deadline = time.monotonic() + 10
             url = None
@@ -131,18 +137,26 @@ def check_web(root, scratch, transport="iroh", executable=None):
             # Generic CapTP registers stream transports, while Rooms
             # also composes the multiplexed iroh provider. Exercise both the
             # supported call and the explicit refusal, without implying parity.
-            called = subprocess.run([str(binary), "ocapn", "call", locator,
-                                     "directory", "list", "--json"],
-                                    capture_output=True, text=True, timeout=6)
+            called = subprocess.run(
+                [str(binary), "ocapn", "call", locator, "directory", "list", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=6,
+            )
             if transport == "tcp":
                 assert called.returncode == 0, (called.returncode, called.stdout, called.stderr)
                 assert json.loads(called.stdout) == {"ok": True, "value_kind": "list"}, called.stdout
             else:
-                assert called.returncode == 4 and "transport 'iroh' is not available here" in called.stderr, called.stderr
+                assert called.returncode == 4 and "transport 'iroh' is not available here" in called.stderr, (
+                    called.stderr
+                )
             revision = subprocess.check_output([*front, "revision", "--url", url], text=True, timeout=6).strip()
             assets_root = root / "share/glowcap/rooms"
             assert revision == (assets_root / "revision").read_text().strip()
-            assert json.loads((root / "share/glowcap/release.json").read_text())["browser"] == (assets_root / "source.version").read_text().strip()
+            assert (
+                json.loads((root / "share/glowcap/release.json").read_text())["browser"]
+                == (assets_root / "source.version").read_text().strip()
+            )
             with urllib.request.urlopen(url, timeout=5) as response:
                 html = response.read().decode()
                 assert response.status == 200 and "<html" in html
@@ -174,9 +188,13 @@ def check_installation(root, scratch):
     try:
         fallback.write_text("#!/bin/sh\nexit 99\n")
         fallback.chmod(0o700)
-        result = subprocess.run([str(link), "apps", "rooms", "session", "status", "--dir", str(Path(scratch) / "unused")],
-                                capture_output=True, text=True, timeout=5,
-                                env={**os.environ, "PATH": str(root / "bin") + ":" + os.environ["PATH"]})
+        result = subprocess.run(
+            [str(link), "apps", "rooms", "session", "status", "--dir", str(Path(scratch) / "unused")],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env={**os.environ, "PATH": str(root / "bin") + ":" + os.environ["PATH"]},
+        )
         assert result.returncode not in (0, 99) and "missing installed runtime" in result.stderr, result
     finally:
         fallback.unlink()
@@ -188,14 +206,17 @@ def check_completion(root):
     # here, exercising the emitted completion with only builtins and an empty PATH.
     script = subprocess.check_output([str(root / "bin/glowcap"), "completion", "bash"], text=True, timeout=5)
     for arguments in ("", "--dir /tmp/me", "--dir=rooms", "--dir session"):
-        proof = script + f'''\nCOMP_WORDS=(glowcap apps rooms session listen {arguments} --)
+        proof = (
+            script
+            + f"""\nCOMP_WORDS=(glowcap apps rooms session listen {arguments} --)
 COMP_CWORD=$((${{#COMP_WORDS[@]}}-1))
 _glowcap
 printf '%s\\n' "${{COMPREPLY[@]}}"
-'''
+"""
+        )
         result = subprocess.check_output(["/bin/bash", "-c", proof], text=True, timeout=5)
         assert set(result.splitlines()) == {"--dir", "--help"}, (arguments, result)
-    proof = script + '\n_glowcap_path --identity apps ocapn dial --repl ocapn://locator\n'
+    proof = script + "\n_glowcap_path --identity apps ocapn dial --repl ocapn://locator\n"
     assert subprocess.check_output(["/bin/bash", "-c", proof], text=True, timeout=5).strip() == "ocapn dial"
 
 
@@ -247,7 +268,15 @@ def main():
         glowcap_host.lifecycle(glowcap_host.Deployment(installed, Path(scratch)), root)
         root = installed.resolve().parent.parent
         assert sorted(path.name for path in (root / "bin").iterdir()) == ["glowcap"]
-        for name in ("rooms-server", "rooms-session", "rooms-web", "rooms-chat", "rooms-archive", "rooms-irc-server", "rooms-irc-bridge"):
+        for name in (
+            "rooms-server",
+            "rooms-session",
+            "rooms-web",
+            "rooms-chat",
+            "rooms-archive",
+            "rooms-irc-server",
+            "rooms-irc-bridge",
+        ):
             assert os.access(root / "libexec" / name, os.X_OK), f"missing private executable {name}"
         for name in ("README.md", "PROVENANCE.md", "LICENSE-APACHE", "LICENSE-THIRD-PARTY"):
             assert (root / name).is_file(), f"missing {name}"
@@ -263,14 +292,21 @@ def main():
         check_installation(root, scratch)
         check_completion(root)
         check_command_refusal(root, scratch)
-        for command in ([], ["apps", "rooms"], ["apps", "rooms", "session"], ["apps", "rooms", "team"],
-                        ["apps", "rooms", "irc", "bridge"], ["apps", "rooms", "irc", "serve"]):
-            subprocess.run([str(root / "bin/glowcap"), *command, "--help"], check=True,
-                           capture_output=True, timeout=5)
+        for command in (
+            [],
+            ["apps", "rooms"],
+            ["apps", "rooms", "session"],
+            ["apps", "rooms", "team"],
+            ["apps", "rooms", "irc", "bridge"],
+            ["apps", "rooms", "irc", "serve"],
+        ):
+            subprocess.run([str(root / "bin/glowcap"), *command, "--help"], check=True, capture_output=True, timeout=5)
         check_web(root, scratch)
         check_web(root, scratch, transport="tcp")
         rooms_peer.main(root / "bin", transport="iroh")
-        print("glowcap-pack: extracted CLI, browser serving, skills, HTTP bootstrap, iroh, rooms, DMs and restart passed")
+        print(
+            "glowcap-pack: extracted CLI, browser serving, skills, HTTP bootstrap, iroh, rooms, DMs and restart passed"
+        )
 
 
 if __name__ == "__main__":

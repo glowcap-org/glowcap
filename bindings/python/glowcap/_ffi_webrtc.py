@@ -16,7 +16,9 @@ import ctypes
 
 from ._archive_contract import require_archive_fingerprint
 from ._constants import WEBRTC_ARCHIVE_FINGERPRINT
+from ._ffi_driver import _TransportProvider
 from ._lib_resolve import _lib_file, _lib_path
+from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol inventory
 # (``zig build gen-binding-python-ffi``). The webrtc archive keeps its own
@@ -24,8 +26,6 @@ from ._lib_resolve import _lib_file, _lib_path
 # its concrete cause there, read through ``glowcap_webrtc_last_error`` rather
 # than the core ``glowcap_last_error``.
 from ._sigs_gen import webrtc_sigs
-from ._pin import pin_struct
-from ._ffi_driver import _TransportProvider
 
 _WEBRTC_LIB_PATH = _lib_path("glowcap_net_transport_webrtc")
 _WEBRTC_LIB_FILE = _lib_file("glowcap_net_transport_webrtc")
@@ -137,9 +137,7 @@ def _load_webrtc():
         "webrtc",
         WEBRTC_ARCHIVE_FINGERPRINT,
     )
-    for name, (argtypes, restype) in webrtc_sigs(
-        _WebrtcReadyEvent, _WebrtcConfig, _TransportProvider
-    ).items():
+    for name, (argtypes, restype) in webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider).items():
         fn = getattr(lib, name)
         fn.argtypes = argtypes
         fn.restype = restype
@@ -161,7 +159,6 @@ def _webrtc():
             raise RuntimeError(
                 f"webrtc transport unavailable: could not load {_WEBRTC_LIB_FILE} from "
                 "GLOWCAP_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system "
-                "library path. Build it with `zig build webrtc-abi` (needs cargo). "
-                + str(exc)
+                "library path. Build it with `zig build webrtc-abi` (needs cargo). " + str(exc)
             ) from exc
     return _webrtc_lib_cache

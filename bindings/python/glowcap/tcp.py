@@ -28,13 +28,12 @@ import ctypes
 import threading
 import weakref
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ._host import Host
 
 from ._abi_value import _DEFAULT_CODEC, _codec_id
-from ._constants import OK as _OK
 from ._constants import (
     BINDING_STREAM_READ_CHUNK_BYTES,
     HINT_DIRECT_ADDRESSES,
@@ -43,7 +42,9 @@ from ._constants import (
     TRANSPORT_NOISE_TCP,
     TRANSPORT_TCP,
 )
+from ._constants import OK as _OK
 from ._errors import GlowcapError
+from ._ffi import FfiHandle, _FfiHandleOwner
 from ._ffi_ocapn import (
     _borrowed_byte_frame,
     _copy_managed_frame,
@@ -51,8 +52,7 @@ from ._ffi_ocapn import (
     _read_last_error,
     _str_buf,
 )
-from ._ffi_tcp import _TcpConfig, _TcpStreamOptions, _tcp_lib
-from ._ffi import FfiHandle, _FfiHandleOwner
+from ._ffi_tcp import _tcp_lib, _TcpConfig, _TcpStreamOptions
 from ._locator import Locator, designator_host_port
 from ._socket_address import address_designator
 from ._transport import (
@@ -93,7 +93,7 @@ class Keepalive:
 class StreamOptions:
     """Policy for one stream. ``None`` at an operation inherits the provider."""
 
-    keepalive: "Optional[Keepalive]" = None
+    keepalive: Keepalive | None = None
 
 
 @dataclass(frozen=True)
@@ -114,7 +114,7 @@ def _stream_options(value: StreamOptions) -> _TcpStreamOptions:
     )
 
 
-def _stream_options_ptr(value: "Optional[StreamOptions]"):
+def _stream_options_ptr(value: StreamOptions | None):
     if value is None:
         return None, None
     raw = _stream_options(value)
@@ -124,13 +124,11 @@ def _stream_options_ptr(value: "Optional[StreamOptions]"):
 class _TcpByteChannel:
     """One asyncio TCP stream as the byte-fed Host transport."""
 
-    def __init__(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._reader = reader
         self._writer = writer
 
-    async def read(self) -> "Optional[bytes]":
+    async def read(self) -> bytes | None:
         chunk = await self._reader.read(BINDING_STREAM_READ_CHUNK_BYTES)
         return chunk or None
 
@@ -181,20 +179,16 @@ class _KeyAddressedProfile:
         bind_host: str,
         port: int = 0,
         *,
-        seed: "Optional[bytes]" = None,
-        codec: "Optional[str]" = None,
-        advertised_host: "Optional[str]" = None,
-        host: "Optional[Host]" = None,
+        seed: bytes | None = None,
+        codec: str | None = None,
+        advertised_host: str | None = None,
+        host: Host | None = None,
         config: Config = Config(),
-    ) -> "Server":
+    ) -> Server:
         """Bind this key-addressed profile through the TCP provider."""
         from ._tcp_listen import listen_keyed, listen_noise
 
-        bind = (
-            listen_keyed
-            if self._transport == TRANSPORT_KEYED_TCP
-            else listen_noise
-        )
+        bind = listen_keyed if self._transport == TRANSPORT_KEYED_TCP else listen_noise
         return await bind(
             bind_host,
             port,
@@ -210,7 +204,7 @@ keyed = _KeyAddressedProfile(TRANSPORT_KEYED_TCP)
 noise = _KeyAddressedProfile(TRANSPORT_NOISE_TCP)
 
 
-def _tcp_last_error() -> Optional[str]:
+def _tcp_last_error() -> str | None:
     """The calling thread's last error message from the TCP transport archive
     (``libglowcap_net_transport_tcp``), or ``None`` when there is none. The
     transport keeps its own thread-local slot, so a tcp call's diagnostic is
@@ -245,7 +239,7 @@ class TcpConnection(_FfiHandleOwner):
     """A blocking TCP connection: the ``glowcap_tcp_*`` frame shuttle over one
     socket. Closed on release / context exit."""
 
-    def __init__(self, raw, netlayer: "TcpNetlayer"):
+    def __init__(self, raw, netlayer: TcpNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
             raw,
@@ -260,7 +254,7 @@ class TcpConnection(_FfiHandleOwner):
             self._ffi.close()
             raise RuntimeError("TCP netlayer is released")
 
-    def __enter__(self) -> "TcpConnection":
+    def __enter__(self) -> TcpConnection:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -274,27 +268,19 @@ class TcpConnection(_FfiHandleOwner):
         """Block for one whole frame. Raises GlowcapError(ERR_CLOSED) on clean EOF."""
         with self._reads, self._ffi.lease() as raw:
             frame = _ManagedFrame()
-            _check_tcp(
-                _tcp_lib.glowcap_tcp_conn_read_frame(
-                    raw, ctypes.byref(frame), None, 0, None
-                )
-            )
+            _check_tcp(_tcp_lib.glowcap_tcp_conn_read_frame(raw, ctypes.byref(frame), None, 0, None))
             return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
         f, _borrowed = _borrowed_byte_frame(frame)
         with self._writes, self._ffi.lease() as raw:
-            _check_tcp(
-                _tcp_lib.glowcap_tcp_conn_write_frame(
-                    raw, ctypes.byref(f), None, 0, None
-                )
-            )
+            _check_tcp(_tcp_lib.glowcap_tcp_conn_write_frame(raw, ctypes.byref(f), None, 0, None))
 
 
 class TcpListener(_FfiHandleOwner):
     """A bound TCP listener. Closed on release / context exit."""
 
-    def __init__(self, raw, netlayer: "TcpNetlayer"):
+    def __init__(self, raw, netlayer: TcpNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
             raw,
@@ -308,7 +294,7 @@ class TcpListener(_FfiHandleOwner):
             self._ffi.close()
             raise RuntimeError("TCP netlayer is released")
 
-    def __enter__(self) -> "TcpListener":
+    def __enter__(self) -> TcpListener:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -332,9 +318,7 @@ class TcpListener(_FfiHandleOwner):
         """
         out = ctypes.c_int32()
         with self._ffi.lease() as raw:
-            _check_tcp(
-                _tcp_lib.glowcap_tcp_listener_readiness_fd(raw, ctypes.byref(out))
-            )
+            _check_tcp(_tcp_lib.glowcap_tcp_listener_readiness_fd(raw, ctypes.byref(out)))
         return out.value
 
     def accept(
@@ -342,7 +326,7 @@ class TcpListener(_FfiHandleOwner):
         codec: str = _DEFAULT_CODEC,
         max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
         *,
-        options: "Optional[StreamOptions]" = None,
+        options: StreamOptions | None = None,
     ) -> TcpConnection:
         raw_options, options_ptr = _stream_options_ptr(options)
         with self._accepts, self._ffi.lease() as raw:
@@ -370,11 +354,7 @@ class TcpNetlayer(_FfiHandleOwner):
     def __init__(self, config: Config = Config()):
         out = ctypes.c_void_p()
         raw_config = _TcpConfig(_stream_options(config.stream))
-        _check_tcp(
-            _tcp_lib.glowcap_tcp_netlayer_new(
-                ctypes.byref(raw_config), ctypes.byref(out)
-            )
-        )
+        _check_tcp(_tcp_lib.glowcap_tcp_netlayer_new(ctypes.byref(raw_config), ctypes.byref(out)))
         self._ffi = FfiHandle(
             out,
             _release_netlayer,
@@ -384,14 +364,12 @@ class TcpNetlayer(_FfiHandleOwner):
         # Children borrow this netlayer's pinned std.Io backend. A weak set
         # lets each child retain the owner without forming an ownership cycle;
         # explicit release still retires every child before the backend.
-        self._children: "weakref.WeakSet[TcpConnection | TcpListener]" = (
-            weakref.WeakSet()
-        )
+        self._children: weakref.WeakSet[TcpConnection | TcpListener] = weakref.WeakSet()
         self._children_lock = threading.Lock()
         self._release_lock = threading.Lock()
         self._release_requested = False
 
-    def __enter__(self) -> "TcpNetlayer":
+    def __enter__(self) -> TcpNetlayer:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -409,14 +387,14 @@ class TcpNetlayer(_FfiHandleOwner):
                 child.close()
             self._ffi.close()
 
-    def _adopt(self, child: "TcpConnection | TcpListener") -> bool:
+    def _adopt(self, child: TcpConnection | TcpListener) -> bool:
         with self._children_lock:
             if self._release_requested:
                 return False
             self._children.add(child)
             return True
 
-    def _forget(self, child: "TcpConnection | TcpListener") -> None:
+    def _forget(self, child: TcpConnection | TcpListener) -> None:
         with self._children_lock:
             self._children.discard(child)
 
@@ -426,9 +404,7 @@ class TcpNetlayer(_FfiHandleOwner):
 
         package = _TransportProvider()
         with self._ffi.lease() as raw:
-            _check_tcp(
-                _tcp_lib.glowcap_tcp_transport_provider(raw, ctypes.byref(package))
-            )
+            _check_tcp(_tcp_lib.glowcap_tcp_transport_provider(raw, ctypes.byref(package)))
         return package
 
     def _relinquish_provider_reference(self) -> None:
@@ -444,11 +420,7 @@ class TcpNetlayer(_FfiHandleOwner):
         buf, n = _str_buf(host)
         out = ctypes.c_void_p()
         with self._ffi.lease() as raw:
-            _check_tcp(
-                _tcp_lib.glowcap_tcp_listen(
-                    raw, ctypes.cast(buf, ctypes.c_void_p), n, port, ctypes.byref(out)
-                )
-            )
+            _check_tcp(_tcp_lib.glowcap_tcp_listen(raw, ctypes.cast(buf, ctypes.c_void_p), n, port, ctypes.byref(out)))
             return TcpListener(out, self)
 
     def connect(
@@ -458,7 +430,7 @@ class TcpNetlayer(_FfiHandleOwner):
         codec: str = _DEFAULT_CODEC,
         max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
         *,
-        options: "Optional[StreamOptions]" = None,
+        options: StreamOptions | None = None,
     ) -> TcpConnection:
         buf, n = _str_buf(host)
         out = ctypes.c_void_p()
@@ -483,16 +455,14 @@ class TcpNetlayer(_FfiHandleOwner):
             return TcpConnection(out, self)
 
 
-def provider(config: "Optional[Config]" = None) -> Provider:
+def provider(config: Config | None = None) -> Provider:
     """Build the configured FFI package for all TCP profiles."""
     selected = config if config is not None else Config()
 
     async def install(loop) -> None:
         netlayer = TcpNetlayer(selected)
         try:
-            loop._install_provider(
-                lambda register: register(netlayer._transport_provider())
-            )
+            loop._install_provider(lambda register: register(netlayer._transport_provider()))
         except BaseException as primary:
             _rollback_failed_provider(primary, netlayer.release)
             raise

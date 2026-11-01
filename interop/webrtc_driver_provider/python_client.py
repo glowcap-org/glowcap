@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """The Python WebRTC proofs through the C provider, in order.
 
 Dial (ADR-0035): the binding installs ``webrtc.provider`` with its own
@@ -22,11 +21,11 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Awaitable, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+from helpers import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
 
@@ -45,10 +44,10 @@ class StdioSignaling:
     """Carries candidates to a Zig peer over its stdio. Candidates that arrive
     before ``on_candidate`` subscribes wait for its sink."""
 
-    def __init__(self, proc: "asyncio.subprocess.Process | None" = None) -> None:
+    def __init__(self, proc: asyncio.subprocess.Process | None = None) -> None:
         self.proc = proc
-        self._sinks: "list[Callable[[str], None]]" = []
-        self._pending: "list[str]" = []
+        self._sinks: list[Callable[[str], None]] = []
+        self._pending: list[str] = []
 
     def _write(self, message: dict) -> None:
         stdin = self.proc.stdin if self.proc is not None else None
@@ -84,7 +83,7 @@ class AnswererSignaling(StdioSignaling):
 
     def __init__(self, proc: asyncio.subprocess.Process) -> None:
         super().__init__(proc)
-        self._answer: "asyncio.Future[str]" = asyncio.get_running_loop().create_future()
+        self._answer: asyncio.Future[str] = asyncio.get_running_loop().create_future()
 
     async def offer(self, exchange: int, target: webrtc.Target, sdp: str) -> str:
         self._write({"type": "offer", "sdp": sdp})
@@ -115,7 +114,7 @@ class OffererSignaling(StdioSignaling):
         self._write({"type": "answer", "sdp": sdp})
 
 
-async def read_line(proc: asyncio.subprocess.Process) -> "dict | None":
+async def read_line(proc: asyncio.subprocess.Process) -> dict | None:
     assert proc.stdout is not None
     raw = await proc.stdout.readline()
     if not raw:
@@ -135,9 +134,7 @@ async def unless_pump_stops(step: Awaitable, pump_task: asyncio.Task):
     """Await ``step`` unless the pump stops first. Its exception names the line
     that broke the protocol, and a clean end means the peer left early."""
     task = asyncio.ensure_future(step)
-    done, _ = await asyncio.wait(
-        {task, pump_task}, timeout=DEADLINE_S, return_when=asyncio.FIRST_COMPLETED
-    )
+    done, _ = await asyncio.wait({task, pump_task}, timeout=DEADLINE_S, return_when=asyncio.FIRST_COMPLETED)
     if task in done:
         return task.result()
     task.cancel()
@@ -165,14 +162,10 @@ async def dial_proof() -> None:
         pump_task = asyncio.create_task(pump(proc, signaling.feed))
 
         async with Runtime.open(provider=webrtc.provider(signaling)) as runtime:
-            session = await unless_pump_stops(
-                runtime.connect(webrtc.locator(designator)), pump_task
-            )
+            session = await unless_pump_stops(runtime.connect(webrtc.locator(designator)), pump_task)
             async with session:
                 greeter = await asyncio.wait_for(session.fetch("greeter"), timeout=DEADLINE_S)
-                greeting = await asyncio.wait_for(
-                    session.send(greeter, "greet", []), timeout=DEADLINE_S
-                )
+                greeting = await asyncio.wait_for(session.send(greeter, "greet", []), timeout=DEADLINE_S)
         if not isinstance(greeting, str) or not greeting:
             fail(GATE, f"greet returned {greeting!r}")
         print(f"{GATE}: OK the Python binding dialed the answerer and heard {greeting!r}")
@@ -194,9 +187,7 @@ async def listen_proof() -> None:
     if not OFFERER.exists():
         fail(GATE, f"missing {OFFERER}: run `zig build webrtc-offerer`")
     signaling = OffererSignaling()
-    server = await webrtc.listen(
-        signaling, webrtc.WebrtcConfig(include_loopback_candidates=True)
-    )
+    server = await webrtc.listen(signaling, webrtc.WebrtcConfig(include_loopback_candidates=True))
     proc = None
     pump_task = None
     try:

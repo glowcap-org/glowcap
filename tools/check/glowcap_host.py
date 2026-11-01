@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Host installation/deployment process proof, called by glowcap-host-test.
 
 Uses the public CLI from a foreign cwd. Docker is a recording fixture here;
@@ -9,10 +8,10 @@ The build gives installation, each deployment scenario, and the exhausted
 query budget separate process limits, so one scenario's growth never spends
 another's deadline. Individual product commands also retain their deadlines.
 """
+
 import hashlib
 import json
 import os
-from pathlib import Path
 import selectors
 import shutil
 import signal
@@ -20,16 +19,17 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
-from deployment.confirmation import reset_prompt
 from deployment.checkout import checkout_deployment
+from deployment.confirmation import reset_prompt
 from deployment.volumes import selected_volumes
 
 
 def run(binary, *args, env, ok=True, detached=False):
-    result = subprocess.run([str(binary), *map(str, args)], env=env,
-                            capture_output=True, text=True, timeout=20,
-                            start_new_session=detached)
+    result = subprocess.run(
+        [str(binary), *map(str, args)], env=env, capture_output=True, text=True, timeout=20, start_new_session=detached
+    )
     assert (result.returncode == 0) == ok, (args, result)
     return result
 
@@ -81,8 +81,7 @@ def installation(root, scratch):
     receipt = fixture / "share/glowcap/installation.manifest"
     original = "".join(rows)
     executable = fixture / "bin/glowcap"
-    for bad in ("", original.replace("bin/glowcap", "../escape"), original + rows[-1],
-                "0" * 64 + original[64:]):
+    for bad in ("", original.replace("bin/glowcap", "../escape"), original + rows[-1], "0" * 64 + original[64:]):
         receipt.write_text(bad)
         run(executable, "install", "--prefix", prefix, env=env, ok=False)
         assert link.resolve().parent.parent == selected
@@ -114,7 +113,9 @@ def docker_fixture(scratch):
     fakebin = scratch / "fake tools"
     fakebin.mkdir()
     docker = fakebin / "docker"
-    docker.write_text(f"#!{sys.executable}\n" + '''
+    docker.write_text(
+        f"#!{sys.executable}\n"
+        + """
 import hashlib, json, os, pathlib, signal, sys, time
 a = sys.argv[1:]
 with open(os.environ['DOCKER_LOG'], 'a') as f:
@@ -187,7 +188,8 @@ elif 'exec' in a:
 if a[:1] == ['compose'] and '--project-directory' in a:
     config = pathlib.Path(a[a.index('-f') + 1]).parent
     assert a[a.index('--project-directory') + 1] == str(config)
-''')
+"""
+    )
     docker.chmod(0o755)
     return fakebin
 
@@ -199,13 +201,11 @@ class Deployment:
         self.binary = binary
         self.scratch = scratch
         self.log = scratch / "docker.log"
-        self.env = dict(PATH=f"{docker_fixture(scratch)}:/usr/bin:/bin", HOME=str(scratch),
-                        DOCKER_LOG=str(self.log))
+        self.env = dict(PATH=f"{docker_fixture(scratch)}:/usr/bin:/bin", HOME=str(scratch), DOCKER_LOG=str(self.log))
         self.workspace = scratch / "deployment config"
 
     def call(self, *args, **kwargs):
-        return run(self.binary, "apps", "rooms", "deployment", *args,
-                   "--dir", self.workspace, env=self.env, **kwargs)
+        return run(self.binary, "apps", "rooms", "deployment", *args, "--dir", self.workspace, env=self.env, **kwargs)
 
     def select(self, revision):
         """Select the fixture image as if a product at `revision` built it."""
@@ -227,16 +227,33 @@ def lifecycle(deploy, root):
     call("trace", "--json")
     call("trace")
     trace_calls = [json.loads(line) for line in log.read_text()[before_trace:].splitlines()]
-    viewers = [a[a.index("run"):] for a in trace_calls if "run" in a]
-    viewer = ["run", "--rm", "--no-deps", "-T", "--entrypoint", "/runtime/bin/glowcap",
-              "directory", "apps", "rooms", "trace", "--state=/state", "--url=http://directory:8080"]
+    viewers = [a[a.index("run") :] for a in trace_calls if "run" in a]
+    viewer = [
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "--entrypoint",
+        "/runtime/bin/glowcap",
+        "directory",
+        "apps",
+        "rooms",
+        "trace",
+        "--state=/state",
+        "--url=http://directory:8080",
+    ]
     assert viewers == [viewer + ["--json"], viewer], trace_calls
     # Saved capabilities print as complete recipes only with the locator the
     # directory advertises, which up has just read from it.
-    capabilities = next(json.loads(line) for line in log.read_text()[len(before_up):].splitlines()
-                        if json.loads(line)[-2:] == ["directory", "capabilities"])
+    capabilities = next(
+        json.loads(line)
+        for line in log.read_text()[len(before_up) :].splitlines()
+        if json.loads(line)[-2:] == ["directory", "capabilities"]
+    )
     assert "GLOWCAP_ROOMS_LOCATOR=ocapn://fixture" in capabilities, capabilities
-    assert any(value.startswith("GLOWCAP_ROOMS_TRACE_LOCATOR=ocapn://127.0.0.1%3A9300.tcp") for value in capabilities), capabilities
+    assert any(
+        value.startswith("GLOWCAP_ROOMS_TRACE_LOCATOR=ocapn://127.0.0.1%3A9300.tcp") for value in capabilities
+    ), capabilities
     selection = (workspace / "image").read_text()
     assert selection == "sha256:" + "a" * 64 + "\n"
     override = workspace / "docker-compose.override.yml"
@@ -252,8 +269,9 @@ def lifecycle(deploy, root):
     before_restart = len(log.read_text())
     call("restart")
     restart_calls = [json.loads(line) for line in log.read_text()[before_restart:].splitlines()]
-    assert not any(args[0] in ("build", "pull") or args[:2] == ["volume", "rm"] or "down" in args
-                   for args in restart_calls), "restart selected an image or destroyed deployment data"
+    assert not any(
+        args[0] in ("build", "pull") or args[:2] == ["volume", "rm"] or "down" in args for args in restart_calls
+    ), "restart selected an image or destroyed deployment data"
     restarted = next(i for i, args in enumerate(restart_calls) if "restart" in args)
     waited = next(i for i, args in enumerate(restart_calls) if "up" in args and "--wait" in args)
     assert restarted < waited, "restart returned before checking service health"
@@ -306,14 +324,18 @@ def builds(deploy, scratch):
     # told which image was built and from where.
     recorded = json.loads(metadata.read_text())
     revision = recorded["revision"] + ("-dirty" if recorded.get("dirty") else "")
-    build_call = next(json.loads(line) for line in reversed(log.read_text().splitlines()) if json.loads(line)[0] == "build")
+    build_call = next(
+        json.loads(line) for line in reversed(log.read_text().splitlines()) if json.loads(line)[0] == "build"
+    )
     assert build_call[build_call.index("--label") + 1] == f"org.opencontainers.image.revision={revision}", build_call
-    assert f"Built and selected image sha256:{'a' * 12} from {fixture} at revision {revision}" in built.stderr, built.stderr
+    assert f"Built and selected image sha256:{'a' * 12} from {fixture} at revision {revision}" in built.stderr, (
+        built.stderr
+    )
     checkout_deployment(deploy.binary, fixture, scratch, env, run)
     before_calls = log.read_text()
     (fixture / "README.md").write_text("changed beneath the recorded inventory")
     call("up", "--build", fixture, ok=False)
-    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
+    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls) :].splitlines()]
     assert not any(a[0] == "build" for a in new_calls)
     assert not list(workspace.glob(".image-build-*"))
 
@@ -324,7 +346,9 @@ def reset(deploy):
     before_calls = log.read_text()
     call("status")
     call("down")
-    assert not any(json.loads(line)[:2] == ["volume", "rm"] for line in log.read_text()[len(before_calls):].splitlines())
+    assert not any(
+        json.loads(line)[:2] == ["volume", "rm"] for line in log.read_text()[len(before_calls) :].splitlines()
+    )
     compose = "\n".join(line.split("#", 1)[0] for line in (workspace / "compose.yml").read_text().splitlines())
     assert "zig-out" not in compose and ":/runtime" not in compose, "deployment mounts mutable build output"
     env["EXISTING_VOLUME"] = "1"
@@ -333,7 +357,7 @@ def reset(deploy):
     assert log.read_text() == before_calls
     refusal = call("reset", "all", detached=True, ok=False)
     assert "ConfirmationRequired" in refusal.stderr
-    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
+    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls) :].splitlines()]
     assert not any(a[:2] == ["volume", "rm"] or "down" in a for a in new_calls)
     volumes = {"session": "glowcap-rooms-session-state", "state": "glowcap-rooms-directory-state"}
     for unit in (*volumes, "all"):
@@ -342,16 +366,20 @@ def reset(deploy):
         # Reset keeps the selection, and says so with its revision, so fresh
         # data on an older image is never a silent surprise.
         assert f"Keeping the selected image sha256:{'a' * 12} at revision {revision}" in reset.stderr, reset.stderr
-        new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
+        new_calls = [json.loads(line) for line in log.read_text()[len(before_calls) :].splitlines()]
         removed = [a[-1] for a in new_calls if a[:2] == ["volume", "rm"]]
         assert removed == (list(volumes.values()) if unit == "all" else [volumes[unit]])
-        assert next(i for i, a in enumerate(new_calls) if "down" in a) < next(i for i, a in enumerate(new_calls) if a[:2] == ["volume", "rm"])
-        assert next(i for i, a in enumerate(new_calls) if "up" in a) > max(i for i, a in enumerate(new_calls) if a[:2] == ["volume", "rm"])
+        assert next(i for i, a in enumerate(new_calls) if "down" in a) < next(
+            i for i, a in enumerate(new_calls) if a[:2] == ["volume", "rm"]
+        )
+        assert next(i for i, a in enumerate(new_calls) if "up" in a) > max(
+            i for i, a in enumerate(new_calls) if a[:2] == ["volume", "rm"]
+        )
     env["FAIL_VOLUME"] = volumes["state"]
     before_calls = log.read_text()
     failure = call("reset", "all", "--yes", ok=False)
     assert "stack remains stopped" in failure.stderr and volumes["state"] in failure.stderr
-    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
+    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls) :].splitlines()]
     assert [a[-1] for a in new_calls if a[:2] == ["volume", "rm"]] == list(volumes.values())
     assert not any("up" in a for a in new_calls), "partial reset silently restarted"
     del env["FAIL_VOLUME"]
@@ -359,17 +387,21 @@ def reset(deploy):
 
 
 def child_output(binary, scratch):
-    env = dict(PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin", HOME=str(scratch),
-               DOCKER_LOG=str(scratch / "docker.log"))
+    env = dict(
+        PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin", HOME=str(scratch), DOCKER_LOG=str(scratch / "docker.log")
+    )
     workspace = scratch / "deployment config"
     args = [str(binary), "apps", "rooms", "deployment"]
     # A held-open child proves output arrives before completion. Successful
     # query stdout is private data; action stdout and all stderr remain live.
     for phase, verb in (("query", "status"), ("action", "doctor")):
         release = scratch / f"release-{phase}"
-        child = subprocess.Popen([*args, verb, "--dir", str(workspace)],
-                                 env=dict(env, STREAM_PHASE=phase, STREAM_RELEASE=str(release)),
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        child = subprocess.Popen(
+            [*args, verb, "--dir", str(workspace)],
+            env=dict(env, STREAM_PHASE=phase, STREAM_RELEASE=str(release)),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         output = [bytearray(), bytearray()]
         try:
             with selectors.DefaultSelector() as selector:
@@ -406,21 +438,25 @@ def child_output(binary, scratch):
             if child.poll() is None:
                 child.kill()
             child.communicate(timeout=5)
-    failed = run(binary, "apps", "rooms", "deployment", "status", "--dir", workspace,
-                 env=dict(env, FAIL_QUERY="1"), ok=False)
+    failed = run(
+        binary, "apps", "rooms", "deployment", "status", "--dir", workspace, env=dict(env, FAIL_QUERY="1"), ok=False
+    )
     assert failed.stdout == ""
     assert "query failure on stdout" in failed.stderr and "query failure on stderr" in failed.stderr
     assert 'docker "version" "--format"' in failed.stderr and "exited with code 9" in failed.stderr
-
-
 
 
 def deadline(binary, scratch):
     # Even a child that closes its pipes and then hangs must be reaped. This
     # runs only in the focused host test; archive proofs reuse the quick cases.
     pid = scratch / "hung-docker.pid"
-    env = dict(PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin", HOME=str(scratch),
-               DOCKER_LOG=str(scratch / "docker.log"), DOCKER_PID=str(pid), HANG_PROBE="1")
+    env = dict(
+        PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin",
+        HOME=str(scratch),
+        DOCKER_LOG=str(scratch / "docker.log"),
+        DOCKER_PID=str(pid),
+        HANG_PROBE="1",
+    )
     result = run(binary, "apps", "rooms", "deployment", "status", env=env, ok=False)
     assert "DockerTimedOut" in result.stderr, result.stderr
     assert "last stderr before hang" in result.stderr and "partial stdout before hang" in result.stderr
@@ -443,11 +479,20 @@ def interruption(binary, scratch):
     selection = (workspace / "image").read_bytes()
     for sig in (signal.SIGINT, signal.SIGTERM):
         pid = scratch / f"interrupted-docker-{sig}.pid"
-        env = dict(PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin", HOME=str(scratch),
-                   DOCKER_LOG=str(scratch / "docker.log"), DOCKER_PID=str(pid), HANG_BUILD="1")
-        child = subprocess.Popen([str(binary), "apps", "rooms", "deployment", "up",
-                                  "--dir", str(workspace), "--build", str(fixture)],
-                                 env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        env = dict(
+            PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin",
+            HOME=str(scratch),
+            DOCKER_LOG=str(scratch / "docker.log"),
+            DOCKER_PID=str(pid),
+            HANG_BUILD="1",
+        )
+        child = subprocess.Popen(
+            [str(binary), "apps", "rooms", "deployment", "up", "--dir", str(workspace), "--build", str(fixture)],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         try:
             expires = time.monotonic() + 8
             while not pid.exists() and time.monotonic() < expires and child.poll() is None:

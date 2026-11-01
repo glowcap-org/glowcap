@@ -8,32 +8,30 @@ import asyncio
 from contextvars import ContextVar
 
 import glowcap._loop as _loop_module
-from glowcap._lifecycle import _close_options
-from glowcap._errors import _retain_cleanup_failure, _retain_terminal_failure
-from glowcap._server import _rollback_listener_construction
-
 from glowcap import (
-    tcp,
-    Locator,
-    Host,
     GlowcapError,
+    Host,
+    Locator,
     PendingWork,
     Runtime,
+    tcp,
 )
-from glowcap._transport import Connector, Provider
 from glowcap._constants import (
     ERR_CLOSED,
-    ERR_INVALID_ARGUMENT,
     ERR_INTERNAL,
+    ERR_INVALID_ARGUMENT,
     ERR_IO,
     TRANSPORT_KEYED_TCP,
     TRANSPORT_NOISE_TCP,
     TRANSPORT_TCP,
 )
-
-
+from glowcap._errors import _retain_cleanup_failure, _retain_terminal_failure
+from glowcap._lifecycle import _close_options
+from glowcap._server import _rollback_listener_construction
+from glowcap._transport import Connector, Provider
 
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+
 
 def run_managed(awaitable):
     """Run one async scenario and cross every Runtime teardown barrier."""
@@ -274,9 +272,7 @@ async def _runtime_open_is_transactional() -> None:
     original_close = Host.close
     created: list[Host] = []
     adopted_host = None
-    setup_failure = GlowcapError(
-        ERR_INVALID_ARGUMENT, "synthetic connector install failure"
-    )
+    setup_failure = GlowcapError(ERR_INVALID_ARGUMENT, "synthetic connector install failure")
     cleanup_failure = RuntimeError("synthetic failed-open cleanup failure")
 
     retained_primary = GlowcapError(ERR_INVALID_ARGUMENT, "synthetic primary")
@@ -300,9 +296,7 @@ async def _runtime_open_is_transactional() -> None:
             cleanup_order.append("loop")
             raise loop_cleanup
 
-    assert _rollback_listener_construction(
-        rollback_primary, FailedLoop(), FailedListener(), True
-    ) is rollback_primary
+    assert _rollback_listener_construction(rollback_primary, FailedLoop(), FailedListener(), True) is rollback_primary
     assert cleanup_order == ["listener", "loop"]
     assert rollback_primary.secondary == (listener_cleanup, loop_cleanup)
     assert rollback_primary.secondary_count == 2
@@ -471,4 +465,3 @@ async def _runtime_open_is_transactional() -> None:
         assert not existing_host.released, "failed open released a caller-owned driver loop"
     finally:
         existing_loop.close()
-

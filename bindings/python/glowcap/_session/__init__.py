@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import Optional
 
 from .. import _constants as _abi
 from .. import _pump
@@ -18,7 +17,7 @@ from .._errors import GlowcapError, _check_host
 from .._ffi_host import _host
 from .._ffi_ocapn import _byte_buf, _ManagedFrame
 from .._host import Host
-from .._locator import _OwnedLocator, Locator
+from .._locator import Locator, _OwnedLocator
 from .lifecycle import _LifecycleMixin
 from .profile import SessionProfile, read_session_profile, read_session_transport_name
 from .verbs import PartnerIdentity, SendRedeemingResult, _VerbsMixin
@@ -54,26 +53,26 @@ class Session(_LifecycleMixin, _VerbsMixin):
         self._host = host
         self._transport = transport
         host._bind_running_loop()
-        self._serve_task: Optional[asyncio.Task] = None
+        self._serve_task: asyncio.Task | None = None
         self._closing = False
         self._released = False
         self._release_pending = False
-        self._close_future: Optional[asyncio.Future[None]] = None
-        self._wire_failure: Optional[BaseException] = None
+        self._close_future: asyncio.Future[None] | None = None
+        self._wire_failure: BaseException | None = None
         self._terminal_failures: list[BaseException] = []
         self._terminal_failure_count = 0
         # Every close caller shields this one effect owner. It remains strongly
         # held after completion so repeated close observes the exact outcome.
-        self._terminal_task: Optional[asyncio.Task[None]] = None
+        self._terminal_task: asyncio.Task[None] | None = None
         # Loop-backed repeats can escalate pending-work policy while the first
         # close is in flight. The terminal coordinator drains every request.
         self._loop_close_tasks: set[asyncio.Task[None]] = set()
-        self._close_request_signature: Optional[tuple[int, int, int]] = None
+        self._close_request_signature: tuple[int, int, int] | None = None
         self._transport_lost = False
         self._transport_close_started = False
         # FFI byte-fed progress is a child effect of the terminal
         # coordinator and must outlive cancellation of any one close waiter.
-        self._close_task: Optional[asyncio.Task[None]] = None
+        self._close_task: asyncio.Task[None] | None = None
         self._retirement = asyncio.Event()
         # The writer task that owns every write to the transport.
         self._outbound = Outbound(self)
@@ -84,9 +83,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
         self._hosted = host._hosted
         self._gc_enabled = False
         try:
-            self._loop: "Optional[asyncio.AbstractEventLoop]" = (
-                asyncio.get_running_loop()
-            )
+            self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
             self._loop = None
         host.register_session(self._key, self)
@@ -99,7 +96,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
         host: Host,
         locator: Locator,
         transport,
-    ) -> "Session":
+    ) -> Session:
         """Mint a dialing half without driving the signed handshake."""
         out = ctypes.c_void_p()
         with _OwnedLocator.create(locator) as owned:
@@ -118,14 +115,12 @@ class Session(_LifecycleMixin, _VerbsMixin):
         host: Host,
         locator: Locator,
         transport,
-        handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
-        verified_channel_key: "Optional[str]" = None,
-    ) -> "Session":
+        handshake_timeout_ms: int | None = _HANDSHAKE_TIMEOUT_MS,
+        verified_channel_key: str | None = None,
+    ) -> Session:
         """Mint and establish the dialing half over an owned byte channel."""
         session = cls._open_dialed_locator(host, locator, transport)
-        return await session._bind_channel_proof_and_establish(
-            verified_channel_key, handshake_timeout_ms
-        )
+        return await session._bind_channel_proof_and_establish(verified_channel_key, handshake_timeout_ms)
 
     @classmethod
     async def establish_accepted(
@@ -135,9 +130,9 @@ class Session(_LifecycleMixin, _VerbsMixin):
         server_designator: str,
         transport,
         accepted_local_addr: str = "",
-        handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
-        verified_channel_key: "Optional[str]" = None,
-    ) -> "Session":
+        handshake_timeout_ms: int | None = _HANDSHAKE_TIMEOUT_MS,
+        verified_channel_key: str | None = None,
+    ) -> Session:
         """Mint and establish an accepted byte channel from a listener."""
         transport_raw = transport_name.encode()
         server_raw = server_designator.encode()
@@ -168,15 +163,13 @@ class Session(_LifecycleMixin, _VerbsMixin):
         )
         del transport_buf, server_buf, local_buf
         session = cls(out, host, transport)
-        return await session._bind_channel_proof_and_establish(
-            verified_channel_key, handshake_timeout_ms
-        )
+        return await session._bind_channel_proof_and_establish(verified_channel_key, handshake_timeout_ms)
 
     async def _bind_channel_proof_and_establish(
         self,
-        verified_channel_key: "Optional[str]",
-        handshake_timeout_ms: "Optional[int]",
-    ) -> "Session":
+        verified_channel_key: str | None,
+        handshake_timeout_ms: int | None,
+    ) -> Session:
         """Consume post-mint setup under this Session's transport ownership."""
         try:
             if verified_channel_key:
@@ -188,8 +181,8 @@ class Session(_LifecycleMixin, _VerbsMixin):
 
     async def _establish(
         self,
-        handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
-    ) -> "Session":
+        handshake_timeout_ms: int | None = _HANDSHAKE_TIMEOUT_MS,
+    ) -> Session:
         """Drive the bounded signed handshake and abandon on every failure."""
         try:
             if handshake_timeout_ms:
@@ -200,7 +193,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
             else:
                 await _pump._run_handshake(self)
             return self
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.close_transport()
             raise GlowcapError(
                 _ERR_TIMEOUT,
@@ -283,7 +276,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
     def _writer_wrote(self) -> None:
         self._host.schedule_kick()
 
-    def _own_writer(self, task: "asyncio.Task[None]") -> None:
+    def _own_writer(self, task: asyncio.Task[None]) -> None:
         self._host._own_session_writer(task)
 
     @property
@@ -303,7 +296,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
         return self._gc_enabled
 
     @property
-    def hosted(self) -> "dict[int, int]":
+    def hosted(self) -> dict[int, int]:
         return self._hosted
 
     def schedule_on_loop(self, run) -> None:

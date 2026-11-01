@@ -9,7 +9,7 @@ import threading
 
 import glowcap._host as _host_module
 import glowcap._host.finalizer as _host_finalizer
-from glowcap import Host, Locator, GlowcapError
+from glowcap import GlowcapError, Host, Locator
 from glowcap._constants import ERR_INVALID_ARGUMENT, ERR_IO, HOST_DURABLE_ENTROPY_LEN
 from glowcap._trampoline import _entry_for
 
@@ -58,9 +58,7 @@ def run() -> None:
     stopped_host = stopped_loop.run_until_complete(make_loop_bound_host())
     assert not stopped_loop.is_running() and not stopped_loop.is_closed()
     stopped_loop.run_until_complete(stopped_host.close())
-    assert stopped_host.released, (
-        "release must not queue cleanup onto a stopped event loop"
-    )
+    assert stopped_host.released, "release must not queue cleanup onto a stopped event loop"
     stopped_loop.close()
 
     stopped_work_loop = asyncio.new_event_loop()
@@ -83,14 +81,10 @@ def run() -> None:
         await host.cancel_dial_task(1, 0)
         return host
 
-    stopped_work_host = stopped_work_loop.run_until_complete(
-        make_host_with_active_work()
-    )
+    stopped_work_host = stopped_work_loop.run_until_complete(make_host_with_active_work())
     stopped_work_loop.run_until_complete(stopped_work_host.close())
     assert stopped_work_finished, "CANCEL_DIAL did not join its ticketed task"
-    assert stopped_work_host._raw is None, (
-        "stopped-loop close retained the FFI Host after joining work"
-    )
+    assert stopped_work_host._raw is None, "stopped-loop close retained the FFI Host after joining work"
     stopped_work_loop.close()
 
     # Collection is not an operational Host verb and may run on any Python
@@ -107,9 +101,7 @@ def run() -> None:
         return host, host._publications["finalized"]
 
     finalizer_loop = asyncio.new_event_loop()
-    finalized, finalized_ctx = finalizer_loop.run_until_complete(
-        make_finalizable_host()
-    )
+    finalized, finalized_ctx = finalizer_loop.run_until_complete(make_finalizable_host())
     handoff = [finalized]
     del finalized
     finalizer_loop.close()
@@ -121,9 +113,7 @@ def run() -> None:
     collector = threading.Thread(target=collect_host)
     collector.start()
     collector.join()
-    assert _entry_for(finalized_ctx) is None, (
-        "off-thread Host finalization must retire FFI and trampoline authority"
-    )
+    assert _entry_for(finalized_ctx) is None, "off-thread Host finalization must retire FFI and trampoline authority"
 
     # A finalizer release refused outside a callback transfers to one process
     # retry owner. The next safe Host boundary retries it instead of retaining
@@ -136,9 +126,7 @@ def run() -> None:
         attempts += 1
         return ERR_INVALID_ARGUMENT if attempts == 1 else 0
 
-    retry_state = _host_module._HostFinalizerState(
-        ctypes.c_void_p(1), {}, [], {}, None, 0
-    )
+    retry_state = _host_module._HostFinalizerState(ctypes.c_void_p(1), {}, [], {}, None, 0)
     _host_module._host.glowcap_host_release = refuse_once
     try:
         _host_module._release_finalizer_state(retry_state, checked=False)
@@ -160,23 +148,13 @@ def run() -> None:
             self.released += 1
 
     construction_context = ConstructionContext()
-    _host_module._host.glowcap_host_release = lambda raw: (
-        construction_releases.append(raw) or ERR_INVALID_ARGUMENT
-    )
+    _host_module._host.glowcap_host_release = lambda raw: construction_releases.append(raw) or ERR_INVALID_ARGUMENT
     try:
-        cleanup = _host_module._release_unpublished_host(
-            ctypes.c_void_p(3), construction_context
-        )
-        assert (
-            isinstance(cleanup, GlowcapError) and cleanup.code == ERR_INVALID_ARGUMENT
-        )
-        assert construction_context.released == 0, (
-            "pre-commit construction cleanup freed the borrowed Context"
-        )
+        cleanup = _host_module._release_unpublished_host(ctypes.c_void_p(3), construction_context)
+        assert isinstance(cleanup, GlowcapError) and cleanup.code == ERR_INVALID_ARGUMENT
+        assert construction_context.released == 0, "pre-commit construction cleanup freed the borrowed Context"
         assert _host_finalizer._pending_finalizer_retry_count() == 1
-        _host_module._host.glowcap_host_release = lambda raw: (
-            construction_releases.append(raw) or 0
-        )
+        _host_module._host.glowcap_host_release = lambda raw: construction_releases.append(raw) or 0
         _host_module._drain_deferred_finalizer_states()
         assert construction_context.released == 1
         assert len(construction_releases) == 2
@@ -192,15 +170,11 @@ def run() -> None:
         def _release_handle(self) -> None:
             pass
 
-    consumed_state = _host_module._HostFinalizerState(
-        ctypes.c_void_p(2), {}, [], {}, FinalizerRecorder(), 73
-    )
+    consumed_state = _host_module._HostFinalizerState(ctypes.c_void_p(2), {}, [], {}, FinalizerRecorder(), 73)
     _host_module._host.glowcap_host_release = lambda _raw: ERR_IO
     try:
         _host_module._release_finalizer_state(consumed_state, checked=False)
-        assert consumed_state.raw is None, (
-            "a consumed Host release retained a dangling pointer"
-        )
+        assert consumed_state.raw is None, "a consumed Host release retained a dangling pointer"
         assert _host_finalizer._pending_finalizer_retry_count() == 0
         assert len(reports) == 1 and reports[0]["scope_id"] == 73, reports
         assert reports[0]["operation"] == "host.finalizer.release", reports
@@ -252,9 +226,7 @@ def run() -> None:
     else:
         raise AssertionError("durable entropy of the wrong length must be refused")
     try:
-        host.publish_durable(
-            lambda _verb, _args: None, bytes(HOST_DURABLE_ENTROPY_LEN + 1)
-        )
+        host.publish_durable(lambda _verb, _args: None, bytes(HOST_DURABLE_ENTROPY_LEN + 1))
     except GlowcapError as exc:
         assert exc.code == ERR_INVALID_ARGUMENT, exc.code
     else:
@@ -265,9 +237,7 @@ def run() -> None:
     restored = Host(seed=seed)
     try:
         assert restored.publish_durable(lambda _verb, _args: None, entropy) == name
-        other = restored.publish_durable(
-            lambda _verb, _args: None, bytes([4] * HOST_DURABLE_ENTROPY_LEN)
-        )
+        other = restored.publish_durable(lambda _verb, _args: None, bytes([4] * HOST_DURABLE_ENTROPY_LEN))
         assert other != name
     finally:
         asyncio.run(restored.close())

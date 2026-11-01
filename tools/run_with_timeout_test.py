@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Black-box test for tools/run-with-timeout.py.
 
 The wrapper bounds every CI gate, and ci/gates.py branches on the codes it
@@ -140,9 +139,7 @@ class RunWithTimeoutTest(unittest.TestCase):
         self.assertEqual(self.code("--kill-after", "0.5s", "0.5s", *sleeper), 124)
 
     def test_a_child_ignoring_sigterm_is_still_bounded(self) -> None:
-        stubborn = child(
-            "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"
-        )
+        stubborn = child("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)")
         self.assertEqual(self.code("--kill-after", "0.5s", "0.8s", *stubborn), 124)
 
     def test_a_fired_deadline_names_itself_on_stderr(self) -> None:
@@ -153,9 +150,7 @@ class RunWithTimeoutTest(unittest.TestCase):
 
     def test_a_heartbeat_reports_activity_without_extending_the_deadline(self) -> None:
         sleeper = child("import time; time.sleep(30)")
-        result = self.run_wrapper(
-            "--heartbeat", "0.02s", "--kill-after", "0.1s", "0.15s", *sleeper, merge=True
-        )
+        result = self.run_wrapper("--heartbeat", "0.02s", "--kill-after", "0.1s", "0.15s", *sleeper, merge=True)
         self.assertEqual(result.returncode, 124)
         self.assertIn("still running", result.stdout)
         self.assertIn("deadline and was stopped", result.stdout)
@@ -205,17 +200,14 @@ class RunWithTimeoutTest(unittest.TestCase):
         self.assertEqual(result.stdout, "")
 
     def test_quiet_success_suppresses_child_output(self) -> None:
-        noisy = child(
-            "import sys; print('hidden-out'); print('hidden-error', file=sys.stderr)"
-        )
+        noisy = child("import sys; print('hidden-out'); print('hidden-error', file=sys.stderr)")
         result = self.run_wrapper("--quiet-success", "5s", *noisy, merge=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
 
     def test_quiet_failure_replays_combined_child_output(self) -> None:
         noisy = child(
-            "import sys; print('replayed-out'); print('replayed-error', file=sys.stderr);"
-            " raise SystemExit(9)"
+            "import sys; print('replayed-out'); print('replayed-error', file=sys.stderr); raise SystemExit(9)"
         )
         result = self.run_wrapper("--quiet-success", "5s", *noisy, merge=True)
         self.assertEqual(result.returncode, 9)
@@ -253,9 +245,7 @@ class RunWithTimeoutTest(unittest.TestCase):
         # wrapper returns, that pid must be gone.
         pidfile = self.scratch / "pid"
         sleeper = child(
-            "import os, pathlib, sys, time\n"
-            "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
-            "time.sleep(30)\n",
+            "import os, pathlib, sys, time\npathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\ntime.sleep(30)\n",
             str(pidfile),
         )
         self.run_wrapper("--kill-after", "0.5s", "1s", *sleeper)
@@ -289,7 +279,9 @@ class RunWithTimeoutTest(unittest.TestCase):
             "time.sleep(30)\n"
         )
         wrapper = self.start(
-            "--kill-after", "0.2s", deadline,
+            "--kill-after",
+            "0.2s",
+            deadline,
             *child(leader_code, descendant_code, str(marker)),
         )
         descendant = None

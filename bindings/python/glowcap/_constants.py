@@ -15,7 +15,7 @@ the whole session layer.
 
 import enum
 
-from ._constants_gen import *  # noqa: F401,F403
+from ._constants_gen import *  # noqa: F403
 from ._constants_gen import (
     DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
     DURABLE_PROVENANCE_UNAUTHENTICATED,
@@ -68,9 +68,7 @@ def _provenance_from_abi(raw: int) -> DurableProvenance:
     try:
         return DurableProvenance(raw)
     except ValueError as error:
-        raise ValueError(
-            f"glowcap ABI returned unknown durable provenance {raw}"
-        ) from error
+        raise ValueError(f"glowcap ABI returned unknown durable provenance {raw}") from error
 
 
 # Cycle break message when a local Forward chain exceeds the hop cap.

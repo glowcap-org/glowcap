@@ -17,14 +17,13 @@ watcher reports whether anything on the board changed since its last look, and `
 
 from __future__ import annotations
 
-import asyncio
 import pathlib
 import sys
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
-from python_path import add_bindings_path  # noqa: E402
+from python_path import add_bindings_path
 
 add_bindings_path()
 
@@ -34,7 +33,7 @@ from glowcap import Ref, Runtime, Session, Tagged, tcp  # noqa: E402
 @dataclass
 class TaskList:
     name: str
-    tasks: List[str]
+    tasks: list[str]
 
 
 class Task:
@@ -90,7 +89,7 @@ class TaskBoard:
         self._done = done
 
     @classmethod
-    async def join(cls, host: str, port: int, name: str) -> "TaskBoard":
+    async def join(cls, host: str, port: int, name: str) -> TaskBoard:
         runtime = await Runtime.open(provider=tcp.provider())
         try:
             session = await runtime.connect(tcp.locator(host, port))
@@ -132,7 +131,7 @@ class TaskBoard:
         await watcher._poll()
         return watcher
 
-    async def lists(self) -> List[TaskList]:
+    async def lists(self) -> list[TaskList]:
         """Read both lists, "To do" first."""
         return [await self._read(self._todo), await self._read(self._done)]
 

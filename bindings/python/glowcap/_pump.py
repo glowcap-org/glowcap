@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import Optional
 
 from . import _constants as _abi
 from ._errors import (
@@ -31,9 +30,9 @@ from ._errors import (
     _host_last_error,
     _retain_cleanup_failure,
 )
-from ._lifecycle import _lifecycle_closed
 from ._ffi_host import _host
 from ._ffi_ocapn import _byte_buf, _copy_managed_frame, _LastAbort
+from ._lifecycle import _lifecycle_closed
 from ._trampoline import _enter_deliver, _exit_deliver
 
 _OK = _abi.OK
@@ -105,9 +104,13 @@ async def _serve_loop(session) -> None:
         try:
             msg = b"connection closed"
             buf, ptr = _byte_buf(msg)
-            _check_host(_host.glowcap_host_session_transport_closed(
-                session.raw, ptr, len(msg),
-            ))
+            _check_host(
+                _host.glowcap_host_session_transport_closed(
+                    session.raw,
+                    ptr,
+                    len(msg),
+                )
+            )
             # The physical loss retires close-relevant session state; wake
             # any parked close driver.
             session.host.signal_close_activity()
@@ -234,7 +237,7 @@ async def _raise_feed_refusal(session, rc: int) -> None:
     raise refusal
 
 
-def last_abort(session) -> Optional[AbortDetail]:
+def last_abort(session) -> AbortDetail | None:
     """The typed cause of this CapTP session's most recent local dispatch
     failure, or ``None`` when none has been recorded. The flat per-feed
     error code names the failure family. This names the member. Errors
@@ -261,9 +264,7 @@ def last_abort(session) -> Optional[AbortDetail]:
             else None
         ),
         secondary_error_name=(
-            text(info.secondary_error_name, info.secondary_error_name_len)
-            if info.secondary_error_name_len
-            else None
+            text(info.secondary_error_name, info.secondary_error_name_len) if info.secondary_error_name_len else None
         ),
         secondary_error_count=info.secondary_error_count,
     )
@@ -297,9 +298,7 @@ async def flush_outbound(session) -> bool:
             frame = _copy_managed_frame(scratch.frame)
             wrote = True
             if scratch.prefix_len.value:
-                await session.transport.write(
-                    bytes(scratch.prefix[:scratch.prefix_len.value])
-                )
+                await session.transport.write(bytes(scratch.prefix[: scratch.prefix_len.value]))
             await session.transport.write(frame)
     except BaseException as error:
         # `take_outbound` transferred the frame and a failed/cancelled

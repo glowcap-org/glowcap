@@ -6,11 +6,11 @@ fails when the hook changes a child module alongside the requested file.
 """
 
 import json
-from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
-
+from pathlib import Path
 
 HOOK = Path(__file__).resolve().parents[2] / ".agents/hooks/format-edited-file.sh"
 
@@ -65,6 +65,15 @@ class EditHookTests(unittest.TestCase):
         self.run_hook({"file_path": str(target)})
         self.assertIn("\treturn <div />;", target.read_text())
 
+    @unittest.skipUnless(shutil.which("ruff"), "ruff is not on PATH")
+    def test_python_uses_the_root_config(self):
+        (self.root / "ruff.toml").write_text('[format]\nquote-style = "single"\n')
+        target = self.root / "ci" / "plan.py"
+        target.parent.mkdir()
+        target.write_text('NAME = "plan"\n')
+        self.run_hook({"file_path": str(target)})
+        self.assertEqual(target.read_text(), "NAME = 'plan'\n")
+
     def test_unfinished_edit_reports_failure_without_blocking(self):
         target = self.root / "unfinished.zig"
         original = "pub fn main(\n"
@@ -76,8 +85,7 @@ class EditHookTests(unittest.TestCase):
     def test_absent_path_and_unsupported_file_are_noops(self):
         target = self.root / "notes.txt"
         target.write_text("leave  this alone\n")
-        for payload in ({}, {"file_path": str(self.root / "absent.zig")},
-                        {"file_path": str(target)}):
+        for payload in ({}, {"file_path": str(self.root / "absent.zig")}, {"file_path": str(target)}):
             self.run_hook(payload)
         self.assertEqual(target.read_text(), "leave  this alone\n")
 

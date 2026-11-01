@@ -31,22 +31,19 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "upstream"))
 
-from contrib.syrup import syrup_encode, Record, Symbol  # noqa: E402
-from utils.ocapn_uris import OCapNPeer  # noqa: E402
-from utils.captp_types import OpStartSession, OpAbort, CapTPPublicKey  # noqa: E402
-from netlayers.testing_only_tcp import TestingOnlyTCPNetlayer  # noqa: E402
-from netlayers.onion import OnionNetlayer  # noqa: E402
+from contrib.syrup import Record, Symbol, syrup_encode  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+from netlayers.onion import OnionNetlayer  # noqa: E402
+from netlayers.testing_only_tcp import TestingOnlyTCPNetlayer  # noqa: E402
+from utils.captp_types import CapTPPublicKey, OpAbort, OpStartSession  # noqa: E402
+from utils.ocapn_uris import OCapNPeer  # noqa: E402
 
 CAPTP_VERSION = "1.0"
 OBJECT_TO_FETCH = b"VMDDd1voKWarCe2GvgLbxbVFysNzRPzx"
 
 
 def peer_url(port: int) -> str:
-    return (
-        "ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only"
-        f"?host=127.0.0.1&port={port}"
-    )
+    return f"ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port={port}"
 
 
 def case_invalid_signature(netlayer, uri):
@@ -68,9 +65,7 @@ def case_invalid_version(netlayer, uri):
     private_key = Ed25519PrivateKey.generate()
     public_key = CapTPPublicKey.from_private_key(private_key)
     location = netlayer.location
-    location_sig = private_key.sign(
-        syrup_encode(Record(Symbol("my-location"), [location.to_syrup_record()]))
-    )
+    location_sig = private_key.sign(syrup_encode(Record(Symbol("my-location"), [location.to_syrup_record()])))
     remote.send_message(OpStartSession("invalid-version-number", public_key, location, location_sig))
     abort = remote.expect_message_type(OpAbort)
     remote.close()
@@ -128,7 +123,7 @@ def main():
         try:
             result = fn(netlayer, uri)
             print(f"handshake-abort-probe: {name} -> {result!r}")
-        except Exception as exc:  # noqa: BLE001 - the probe reports any failure as a gate failure
+        except Exception as exc:
             ok = False
             print(f"handshake-abort-probe: {name} -> FAILED ({type(exc).__name__}: {exc})")
     netlayer.shutdown()

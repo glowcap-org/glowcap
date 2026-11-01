@@ -4,13 +4,14 @@ The build supplies one probe executable. Each child has a deadline and is reaped
 temporary stores are removed on every outcome. No environment or repository cwd
 is required. Success is silent; failures return nonzero.
 """
+
 import os
-from pathlib import Path
 import select
 import signal
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 
 def run(probe, mode, directory):
@@ -19,8 +20,10 @@ def run(probe, mode, directory):
 
 def interrupt(probe, boundary, directory):
     child = subprocess.Popen(
-        [probe, boundary, directory], cwd=directory,
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        [probe, boundary, directory],
+        cwd=directory,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
     try:
         ready, _, _ = select.select([child.stderr], [], [], 5)

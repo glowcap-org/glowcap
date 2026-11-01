@@ -57,12 +57,16 @@ def _round(s: list[int], m: list[int]) -> None:
 
 def _compress(cv: list[int], block: list[int], counter: int, block_len: int, flags: int) -> list[int]:
     """One Blake3 compression: seven rounds over a 64-byte block, permuted between."""
-    s = list(cv[:8]) + list(IV[:4]) + [
-        counter & MASK,
-        (counter >> 32) & MASK,
-        block_len,
-        flags,
-    ]
+    s = (
+        list(cv[:8])
+        + list(IV[:4])
+        + [
+            counter & MASK,
+            (counter >> 32) & MASK,
+            block_len,
+            flags,
+        ]
+    )
     m = list(block)
     for r in range(7):
         _round(s, m)
@@ -140,5 +144,3 @@ def blake3(data: bytes) -> bytes:
             ROOT,
         )
     return b"".join(word.to_bytes(4, "little") for word in state[:8])
-
-

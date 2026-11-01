@@ -11,7 +11,6 @@ separately rejects extra files and SDK content.
 
 import hashlib
 import json
-from pathlib import Path, PurePosixPath
 import re
 import secrets
 import subprocess
@@ -21,14 +20,27 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-
+from pathlib import Path, PurePosixPath
 
 # Compose the inventory export and two service journeys under one deadline.
 LIMIT_SECONDS = 60
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
 FORBIDDEN_BASE_PROGRAMS = {
-    "apk", "apt", "apt-get", "ash", "bash", "busybox", "dash", "dnf",
-    "dpkg", "dpkg-deb", "dpkg-query", "microdnf", "rpm", "sh", "yum",
+    "apk",
+    "apt",
+    "apt-get",
+    "ash",
+    "bash",
+    "busybox",
+    "dash",
+    "dnf",
+    "dpkg",
+    "dpkg-deb",
+    "dpkg-query",
+    "microdnf",
+    "rpm",
+    "sh",
+    "yum",
     "zypper",
 }
 
@@ -45,17 +57,14 @@ class Deadline:
 
 
 def run(deadline, *args, check=True, text=True, cap=10):
-    return subprocess.run(args, check=check, capture_output=True, text=text,
-                          timeout=deadline.timeout(cap))
+    return subprocess.run(args, check=check, capture_output=True, text=text, timeout=deadline.timeout(cap))
 
 
 def cleanup_run(*args):
     try:
         return subprocess.run(args, check=False, capture_output=True, text=True, timeout=10)
     except subprocess.TimeoutExpired as error:
-        return subprocess.CompletedProcess(
-            args, 124, error.stdout or "", error.stderr or "cleanup command timed out"
-        )
+        return subprocess.CompletedProcess(args, 124, error.stdout or "", error.stderr or "cleanup command timed out")
 
 
 def container_name(role):
@@ -82,9 +91,9 @@ def inspect_image(deadline, image, expected_arch):
     assert image_data["Architecture"] == expected_arch, image_data["Architecture"]
     assert image_data["Os"] == "linux", image_data["Os"]
     assert not image_data["Config"].get("Volumes"), "image declares mutable volumes"
-    assert image_data["Config"]["Entrypoint"] == [
-        "/runtime/bin/glowcap", "apps", "rooms", "serve"
-    ], image_data["Config"]["Entrypoint"]
+    assert image_data["Config"]["Entrypoint"] == ["/runtime/bin/glowcap", "apps", "rooms", "serve"], image_data[
+        "Config"
+    ]["Entrypoint"]
 
 
 def normalized_path(name):
@@ -99,11 +108,13 @@ def inspect_tar(rootfs):
     # Exported regular-file bytes describe the same filesystem on both.
     size = sum(member.size for member in members if member.isfile())
     assert size <= MAX_IMAGE_BYTES, f"image filesystem is {size} bytes; budget is {MAX_IMAGE_BYTES}"
-    forbidden = sorted({
-        normalized_path(member.name).as_posix()
-        for member in members
-        if not member.isdir() and normalized_path(member.name).name in FORBIDDEN_BASE_PROGRAMS
-    })
+    forbidden = sorted(
+        {
+            normalized_path(member.name).as_posix()
+            for member in members
+            if not member.isdir() and normalized_path(member.name).name in FORBIDDEN_BASE_PROGRAMS
+        }
+    )
     assert not forbidden, f"image base contains a shell or package manager: {forbidden}"
 
     runtime = {}
@@ -142,9 +153,7 @@ def inspect_tar(rootfs):
         assert path > previous and path != manifest_name, path
         expected[path] = (digest, mode == "x")
         previous = path
-    assert "bin/glowcap" in expected and expected["bin/glowcap"][1], (
-        "product manifest has no executable bin/glowcap"
-    )
+    assert "bin/glowcap" in expected and expected["bin/glowcap"][1], "product manifest has no executable bin/glowcap"
 
     assert set(runtime) == set(expected), (
         "image /runtime differs from the verified product manifest",
@@ -164,9 +173,7 @@ def inspect_tar(rootfs):
         assert parts[0] not in {"src", "test", "tools", ".git"}, path
         assert not path.startswith("include/"), f"image contains SDK header: {path}"
         assert not path.endswith(".a"), f"image contains SDK archive: {path}"
-        assert PurePosixPath(path).name not in {"zig", "cargo", "rustc"}, (
-            f"image contains a build tool: {path}"
-        )
+        assert PurePosixPath(path).name not in {"zig", "cargo", "rustc"}, f"image contains a build tool: {path}"
 
 
 def inspect_runtime_inventory(deadline, image, scratch):
@@ -174,8 +181,18 @@ def inspect_runtime_inventory(deadline, image, scratch):
     exported = scratch / "rootfs.tar"
     exported_cleanly = False
     try:
-        run(deadline, "docker", "container", "create", "--name", name,
-            "--entrypoint", "/runtime/bin/glowcap", image, "--help")
+        run(
+            deadline,
+            "docker",
+            "container",
+            "create",
+            "--name",
+            name,
+            "--entrypoint",
+            "/runtime/bin/glowcap",
+            image,
+            "--help",
+        )
         run(deadline, "docker", "container", "export", "--output", str(exported), name, cap=30)
         exported_cleanly = True
     finally:
@@ -191,8 +208,9 @@ def wait_for(deadline, description, probe, container):
         last = probe()
         if last.returncode == 0:
             return last
-        state = run(deadline, "docker", "container", "inspect", "--format",
-                    "{{.State.Running}}", container, check=False)
+        state = run(
+            deadline, "docker", "container", "inspect", "--format", "{{.State.Running}}", container, check=False
+        )
         if state.returncode != 0 or state.stdout.strip() != "true":
             break
         time.sleep(0.1)
@@ -203,16 +221,12 @@ def wait_for(deadline, description, probe, container):
 def stop(name, require_clean):
     stopped = cleanup_run("docker", "container", "stop", "--time", "5", name)
     logs = cleanup_run("docker", "container", "logs", name)
-    state = cleanup_run("docker", "container", "inspect", "--format",
-                        "{{.State.ExitCode}}", name)
+    state = cleanup_run("docker", "container", "inspect", "--format", "{{.State.ExitCode}}", name)
     removed = cleanup_run("docker", "container", "rm", "--force", name)
     if require_clean and (
-        stopped.returncode != 0 or state.returncode != 0 or
-        state.stdout.strip() != "0" or removed.returncode != 0
+        stopped.returncode != 0 or state.returncode != 0 or state.stdout.strip() != "0" or removed.returncode != 0
     ):
-        raise AssertionError(
-            f"{name} did not retire cleanly\nstdout:\n{logs.stdout}\nstderr:\n{logs.stderr}"
-        )
+        raise AssertionError(f"{name} did not retire cleanly\nstdout:\n{logs.stdout}\nstderr:\n{logs.stderr}")
     if not require_clean and removed.returncode != 0:
         sys.stderr.write(f"could not remove failed container {name}: {removed.stderr}\n")
 
@@ -222,24 +236,48 @@ def check_web_and_directory(deadline, image):
     passed = False
     try:
         started = run(
-            deadline, "docker", "run", "--detach", "--name", name,
-            "--publish", "127.0.0.1::8080", image,
-            "--http-bind=0.0.0.0", "--http-port=8080", "--transport=tcp",
-            "--reachability=direct", "--state=/state",
+            deadline,
+            "docker",
+            "run",
+            "--detach",
+            "--name",
+            name,
+            "--publish",
+            "127.0.0.1::8080",
+            image,
+            "--http-bind=0.0.0.0",
+            "--http-port=8080",
+            "--transport=tcp",
+            "--reachability=direct",
+            "--state=/state",
         )
         assert started.stdout.strip(), "Docker did not return a browser container ID"
 
         def status():
             return run(
-                deadline, "docker", "exec", name, "/runtime/bin/glowcap",
-                "apps", "rooms", "status", "--url=http://127.0.0.1:8080",
+                deadline,
+                "docker",
+                "exec",
+                name,
+                "/runtime/bin/glowcap",
+                "apps",
+                "rooms",
+                "status",
+                "--url=http://127.0.0.1:8080",
                 check=False,
             )
 
         wait_for(deadline, "Rooms browser and directory", status, name)
         locator = run(
-            deadline, "docker", "exec", name, "/runtime/bin/glowcap",
-            "apps", "rooms", "locator", "--url=http://127.0.0.1:8080",
+            deadline,
+            "docker",
+            "exec",
+            name,
+            "/runtime/bin/glowcap",
+            "apps",
+            "rooms",
+            "locator",
+            "--url=http://127.0.0.1:8080",
         ).stdout.strip()
         assert locator.startswith("ocapn://"), locator
 
@@ -275,26 +313,58 @@ def check_session(deadline, image):
 
         def start():
             started = run(
-                deadline, "docker", "run", "--detach", "--name", name,
-                "--mount", f"type=volume,source={volume},target=/session-state",
-                "--tmpfs", "/run/rooms-session:mode=0700",
-                "--entrypoint", "/runtime/bin/glowcap", image,
-                "apps", "rooms", "session", "serve", "--dir=/session-state",
-                "--transport=iroh", "--reachability=discovery", f"--readiness-file={ready}",
+                deadline,
+                "docker",
+                "run",
+                "--detach",
+                "--name",
+                name,
+                "--mount",
+                f"type=volume,source={volume},target=/session-state",
+                "--tmpfs",
+                "/run/rooms-session:mode=0700",
+                "--entrypoint",
+                "/runtime/bin/glowcap",
+                image,
+                "apps",
+                "rooms",
+                "session",
+                "serve",
+                "--dir=/session-state",
+                "--transport=iroh",
+                "--reachability=discovery",
+                f"--readiness-file={ready}",
             )
             assert started.stdout.strip(), "Docker did not return a session container ID"
 
         def readiness():
             return run(
-                deadline, "docker", "exec", name, "/runtime/bin/glowcap",
-                "apps", "rooms", "session", "ready", f"--file={ready}",
+                deadline,
+                "docker",
+                "exec",
+                name,
+                "/runtime/bin/glowcap",
+                "apps",
+                "rooms",
+                "session",
+                "ready",
+                f"--file={ready}",
                 check=False,
             )
 
         def management():
-            return run(deadline, "docker", "exec", name, "/runtime/bin/glowcap",
-                       "apps", "rooms", "session", "ready",
-                       "--file=/session-state/control.sturdyref").stdout.strip()
+            return run(
+                deadline,
+                "docker",
+                "exec",
+                name,
+                "/runtime/bin/glowcap",
+                "apps",
+                "rooms",
+                "session",
+                "ready",
+                "--file=/session-state/control.sturdyref",
+            ).stdout.strip()
 
         start()
         capability = wait_for(deadline, "Rooms session", readiness, name).stdout.strip()
@@ -339,7 +409,9 @@ def main():
         inspect_runtime_inventory(deadline, image, Path(temporary))
         check_web_and_directory(deadline, image)
         check_session(deadline, image)
-    print("glowcap-image: bounded image, exact product inventory, browser, directory and durable session restart passed")
+    print(
+        "glowcap-image: bounded image, exact product inventory, browser, directory and durable session restart passed"
+    )
 
 
 if __name__ == "__main__":

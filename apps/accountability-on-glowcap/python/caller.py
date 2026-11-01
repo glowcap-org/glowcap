@@ -24,12 +24,13 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
-from python_path import add_bindings_path  # noqa: E402
+from python_path import add_bindings_path
 
 add_bindings_path()
 
-from identity import Identity, b64url  # noqa: E402
 from glowcap import Runtime, VowBroken, tcp  # noqa: E402
+from identity import Identity, b64url  # noqa: E402
+
 
 async def run(port: int) -> None:
     print("accountability-on-glowcap python caller")

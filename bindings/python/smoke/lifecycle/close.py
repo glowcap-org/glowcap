@@ -6,13 +6,13 @@ import asyncio
 import socket
 
 from glowcap import (
-    tcp,
+    GlowcapError,
     Host,
     Locator,
-    GlowcapError,
     PendingWork,
     Runtime,
     Symbol,
+    tcp,
 )
 from glowcap._constants import (
     DESIGNATOR_SCHEME_ADDRESS,
@@ -31,7 +31,7 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
 
         def __init__(self, hold_close: bool = False) -> None:
             self.inbound: asyncio.Queue[bytes | None] = asyncio.Queue()
-            self.peer: "MemoryChannel | None" = None
+            self.peer: MemoryChannel | None = None
             self.failure: BaseException | None = None
             self.closed = False
             self.close_done = asyncio.Event()
@@ -120,9 +120,7 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
     await asyncio.gather(client_host.close(), server_host.close())
 
 
-async def _host_close_joins_session_transport_failure(
-    *, asynchronous: bool = False, retired: bool = False
-) -> None:
+async def _host_close_joins_session_transport_failure(*, asynchronous: bool = False, retired: bool = False) -> None:
     """Host close owns physical channel retirement after consuming sessions."""
     from glowcap._session import Session
 
@@ -131,7 +129,7 @@ async def _host_close_joins_session_transport_failure(
 
         def __init__(self) -> None:
             self.inbound: asyncio.Queue[bytes | None] = asyncio.Queue()
-            self.peer: "MemoryChannel | None" = None
+            self.peer: MemoryChannel | None = None
             self.closed = False
             self.close_failure: BaseException | None = None
             self.wait_started = asyncio.Event()
@@ -290,9 +288,7 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
         PendingTransport(),
     )
 
-    first = asyncio.create_task(
-        session.close(pending=PendingWork.FINISH, grace=0.02)
-    )
+    first = asyncio.create_task(session.close(pending=PendingWork.FINISH, grace=0.02))
     await close_admitted.wait()
     terminal = session._terminal_task
     assert terminal is not None, "close admission did not publish its coordinator"
@@ -378,9 +374,7 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
         negotiating = asyncio.create_task(runtime.connect(tcp.locator("127.0.0.1", port)))
         driver_loop = runtime._loop
         assert driver_loop is not None, "a provider Runtime did not open on the loop tier"
-        accepted, _ = await asyncio.wait_for(
-            asyncio.get_running_loop().sock_accept(silent), timeout=1
-        )
+        accepted, _ = await asyncio.wait_for(asyncio.get_running_loop().sock_accept(silent), timeout=1)
         assert driver_loop._pending_dials, "the dial never admitted its pending open"
         try:
             await asyncio.wait_for(runtime.close(PendingWork.FINISH, grace=0.02), 5)
@@ -413,9 +407,7 @@ async def _silent_loop_dial_reaches_ffi_handshake_deadline() -> None:
     accepted: socket.socket | None = None
     try:
         port = listener.getsockname()[1]
-        dial = asyncio.create_task(
-            runtime.connect(tcp.locator("127.0.0.1", port))
-        )
+        dial = asyncio.create_task(runtime.connect(tcp.locator("127.0.0.1", port)))
         accepted, _address = await asyncio.wait_for(
             asyncio.get_running_loop().sock_accept(listener),
             timeout=1,
@@ -534,9 +526,7 @@ async def _observe_session_retirement_without_serve_or_close() -> None:
         await closer
     except BaseException as error:
         close_error = error
-    assert second_error is close_error, (
-        "independent observers must share the terminal result"
-    )
+    assert second_error is close_error, "independent observers must share the terminal result"
     late_error: BaseException | None = None
     try:
         await session.closed()

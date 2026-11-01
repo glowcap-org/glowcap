@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from .. import _constants as _c
 from .._errors import GlowcapError, _retain_terminal_failure
 from .._ffi_driver import _driver
 from .._lifecycle import PendingWork, _close_options, _lifecycle_closed
-
 from .errors import _check
 from .listeners import _ACCEPTS_CLOSED
 from .state import DriverLoopMixinBase
@@ -22,9 +21,9 @@ if TYPE_CHECKING:
 class _LifecycleMixin(DriverLoopMixinBase):
     _terminal_failure_count: int
     _closing: bool
-    _close_task: "asyncio.Task[None] | None"
+    _close_task: asyncio.Task[None] | None
     _close_error: BaseException | None
-    _progress_timer: "asyncio.TimerHandle | None"
+    _progress_timer: asyncio.TimerHandle | None
 
     def _record_terminal_failure(self, error: BaseException) -> None:
         self._terminal_failure_count = _retain_terminal_failure(
@@ -40,7 +39,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         for error in wrapper.terminal_failures:
             self._record_terminal_failure(error)
 
-    def _retire_ffi_release(self, release_error: Optional[BaseException]) -> None:
+    def _retire_ffi_release(self, release_error: BaseException | None) -> None:
         """Commit wrapper ownership after a consuming driver release."""
         self._released = True
         if release_error is not None:
@@ -86,7 +85,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         self._closing = True
         self._start_close_driver()
 
-    def close(self, options: "Optional[_CloseOptions]" = None) -> None:
+    def close(self, options: _CloseOptions | None = None) -> None:
         """Begin or escalate the core-owned FFI close barrier."""
         if self._released:
             return
@@ -176,9 +175,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
                 for session in list(self._session_closes):
                     self._finish_session_close(session)
                 state = ctypes.c_uint32()
-                rc = _driver.glowcap_driver_lifecycle_state(
-                    self._h, ctypes.byref(state)
-                )
+                rc = _driver.glowcap_driver_lifecycle_state(self._h, ctypes.byref(state))
                 if rc not in (_c.OK, _c.ERR_TIMEOUT):
                     _check(rc)
                 close_code = rc
@@ -197,9 +194,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
             self._progress_timer = None
         try:
             self._release_attempted = True
-            release_attempt = self._release_owner.release(
-                "driver-loop.close.release", self._retire_ffi_release
-            )
+            release_attempt = self._release_owner.release("driver-loop.close.release", self._retire_ffi_release)
             for accepts in self._accepts.values():
                 accepts.put_nowait(_ACCEPTS_CLOSED)
             for owner in self._listeners.values():
@@ -236,9 +231,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
                 self._close_error = error
         finally:
             if close_code == _c.ERR_TIMEOUT:
-                self._close_error = GlowcapError(
-                    _c.ERR_TIMEOUT, "finish close exhausted its grace period"
-                )
+                self._close_error = GlowcapError(_c.ERR_TIMEOUT, "finish close exhausted its grace period")
             self._closed_event.set()
 
     async def wait_closed(self) -> None:

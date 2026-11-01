@@ -38,6 +38,8 @@ transports/**/target/
 
 # binding consumer caches
 **/__pycache__/
+.ruff_cache/
+**/.venv/
 **/*.pyc
 # The Python binding lock is committed: relay and rendezvous proofs run its
 # optional WebSocket dependency with `uv --locked`.

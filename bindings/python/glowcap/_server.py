@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from typing import cast, TYPE_CHECKING, Optional, Self
+from typing import TYPE_CHECKING, Self, cast
 
 from . import _constants as _c
 from ._errors import GlowcapError, _retain_cleanup_failure
@@ -22,8 +22,8 @@ class DriverServer:
 
     def __init__(
         self,
-        driver_loop: "DriverLoop",
-        listener: "ListenerOwner",
+        driver_loop: DriverLoop,
+        listener: ListenerOwner,
         *,
         retire_loop: bool,
     ) -> None:
@@ -74,7 +74,7 @@ class DriverServer:
     def __aiter__(self) -> Self:
         return self
 
-    async def __anext__(self) -> "Session":
+    async def __anext__(self) -> Session:
         try:
             return await self._driver_loop.accept_session(self._listener)
         except GlowcapError as error:
@@ -91,14 +91,14 @@ class DriverServer:
 
 @dataclass(frozen=True)
 class _PreparedDriverLoop:
-    loop: "DriverLoop"
+    loop: DriverLoop
     owns_loop: bool
 
 
 def _rollback_listener_construction(
     primary: BaseException,
-    loop: "DriverLoop",
-    listener: "Optional[ListenerOwner]",
+    loop: DriverLoop,
+    listener: ListenerOwner | None,
     owns_loop: bool,
 ) -> BaseException:
     """Retire every admitted owner while preserving construction as primary."""
@@ -115,7 +115,7 @@ def _rollback_listener_construction(
     return primary
 
 
-def listener_seed(seed: Optional[bytes], host: Optional[Host]) -> bytes:
+def listener_seed(seed: bytes | None, host: Host | None) -> bytes:
     """The key seed a keyed listener runs under: ``seed`` restores a key,
     ``host`` shares that Host's, and with neither the key is new. Passing both
     is refused, because they are two answers to one question."""
@@ -132,10 +132,10 @@ def listener_seed(seed: Optional[bytes], host: Optional[Host]) -> bytes:
 
 
 def prepare_driver_loop(
-    host: Optional[Host],
+    host: Host | None,
     codec: str,
     *,
-    seed: Optional[bytes] = None,
+    seed: bytes | None = None,
 ) -> _PreparedDriverLoop:
     """Prepare a loop without conflating startup with ownership."""
     from ._loop import DriverLoop

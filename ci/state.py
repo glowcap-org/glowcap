@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """The compiled state a CI build job hands to the test jobs of its group.
 
 Called by check-group.yml on the runner host, outside the devcontainer,
@@ -74,10 +73,14 @@ def present():
 
 
 def stamp():
-    when = int(subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%ct", "HEAD"],
-                              capture_output=True, text=True, check=True).stdout)
-    listing = subprocess.run(["git", "-C", ROOT, "ls-files", "-z", "--recurse-submodules"],
-                             capture_output=True, check=True).stdout
+    when = int(
+        subprocess.run(
+            ["git", "-C", ROOT, "log", "-1", "--format=%ct", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout
+    )
+    listing = subprocess.run(
+        ["git", "-C", ROOT, "ls-files", "-z", "--recurse-submodules"], capture_output=True, check=True
+    ).stdout
     for name in listing.decode("utf-8", "surrogateescape").split("\0"):
         path = ROOT / name
         # The index may name a file the checkout lacks, which stays absent.
@@ -113,8 +116,7 @@ def pack(archive):
     # profile so the listing shows which build fills the store.
     for profile in sorted(CARGO_BUILD.glob("*/*/*/")):
         print(f"{size(profile) / GIB:.1f}G\t{profile.relative_to(CARGO_BUILD)}")
-    subprocess.run(["tar", "-P", "--use-compress-program=zstd -T0 -3", "-cf", archive,
-                    *map(str, paths)], check=True)
+    subprocess.run(["tar", "-P", "--use-compress-program=zstd -T0 -3", "-cf", archive, *map(str, paths)], check=True)
     print(f"{Path(archive).stat().st_size} bytes  {archive}")
     return 0
 

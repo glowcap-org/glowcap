@@ -15,12 +15,12 @@ import ctypes
 import secrets
 
 from . import _constants as _abi
-from ._errors import _check_host, _vow_failure, GlowcapError
-from ._ffi_host import _HostPumpArmFn, _HostPumpHooks, _host
+from ._errors import GlowcapError, _check_host, _vow_failure
+from ._ffi_host import _host, _HostPumpArmFn, _HostPumpHooks
 from ._ffi_ocapn import _byte_buf
 from ._host_action_gen import (
-    Close,
     CancelDial,
+    Close,
     Dial,
     Fail,
     Flush,
@@ -39,7 +39,7 @@ def _answer_gift_id(draw, provide, failed) -> None:
     """Complete entropy failure separately from FFI ticket refusal."""
     try:
         gift_id = draw()
-    except Exception:  # noqa: BLE001 - the core owns the failed effect
+    except Exception:
         failed()
         return
     provide(gift_id)
@@ -141,9 +141,7 @@ class _Handlers:
         _answer_gift_id(
             lambda: secrets.token_bytes(32),
             provide,
-            lambda: _check_host(
-                _host.glowcap_host_gift_id_failed(self._host.raw, a.ticket)
-            ),
+            lambda: _check_host(_host.glowcap_host_gift_id_failed(self._host.raw, a.ticket)),
         )
 
     async def settle(self, a: Settle) -> None:
@@ -160,4 +158,3 @@ class _Handlers:
 
 async def _run_action(host, action: HostAction) -> None:
     await dispatch(action, host.action_handlers)
-

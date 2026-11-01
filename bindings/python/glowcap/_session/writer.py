@@ -9,7 +9,7 @@ after its request, which takes every frame the core had queued by then.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Protocol
+from typing import Protocol
 
 from .. import _constants as _abi
 from .._errors import GlowcapError
@@ -33,7 +33,7 @@ class WriterOwner(Protocol):
         """Resume Host work that outbound backpressure parked."""
         ...
 
-    def _own_writer(self, task: "asyncio.Task[None]") -> None:
+    def _own_writer(self, task: asyncio.Task[None]) -> None:
         """Register the running writer so Host release waits for it."""
         ...
 
@@ -60,8 +60,8 @@ class Outbound:
         self._started = 0
         self._finished = 0
         self._progress = asyncio.Event()
-        self._close_result: Optional[int] = None
-        self._task: Optional[asyncio.Task[None]] = None
+        self._close_result: int | None = None
+        self._task: asyncio.Task[None] | None = None
 
     @property
     def close_delivered(self) -> bool:
@@ -136,7 +136,7 @@ class Outbound:
                 self._started += 1
                 try:
                     wrote = await self._owner.flush_outbound()
-                except Exception:  # noqa: BLE001 - the session owns this failure
+                except Exception:
                     # flush_outbound retained the exact cause and retired the
                     # session.
                     break

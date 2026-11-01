@@ -7,19 +7,23 @@ onto asyncio and the ordinary Session API. Neither layer owns CapTP semantics.
 
 from ._iroh_async import (
     IrohServer,
-    _IrohLoop as _IrohLoop,
     connector,
     dial_locator_for_relay,
     listen,
+)
+from ._iroh_async import (
+    _IrohLoop as _IrohLoop,
 )
 from ._iroh_ffi import (
     IrohConfig,
     IrohConnection,
     IrohNetlayer,
     Reachability,
-    adopt_loop_provider as adopt_loop_provider,
     locator,
     provider,
+)
+from ._iroh_ffi import (
+    adopt_loop_provider as adopt_loop_provider,
 )
 
 __all__ = [

@@ -17,18 +17,16 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "interop" / "_common" / "python"))
-from helpers import fail, insert_bindings_path  # noqa: E402
+from helpers import fail, insert_bindings_path
 
 insert_bindings_path()
 
-from glowcap import CarrierPhase, Host, GlowcapError, Runtime, parse_locator  # noqa: E402
+from glowcap import CarrierPhase, GlowcapError, Host, Runtime, parse_locator  # noqa: E402
 from glowcap.relay import RelayConfig, connector, keyed, provider  # noqa: E402
 
 
 async def expect_wss_refusal(partner, route: str, trust_pem: bytes | None, cause: str) -> None:
-    async with Runtime.open(
-        provider=provider(RelayConfig(route, trust_pem=trust_pem))
-    ) as runtime:
+    async with Runtime.open(provider=provider(RelayConfig(route, trust_pem=trust_pem))) as runtime:
         refused: GlowcapError | None = None
         session = None
         try:
@@ -41,11 +39,7 @@ async def expect_wss_refusal(partner, route: str, trust_pem: bytes | None, cause
         if refused is None:
             fail("keyed-relay-rendezvous", f"WSS did not return {cause}")
         carrier = refused.carrier_failure
-        if (
-            carrier is None
-            or carrier.phase is not CarrierPhase.SECURE_HANDSHAKE
-            or carrier.verification_flags == 0
-        ):
+        if carrier is None or carrier.phase is not CarrierPhase.SECURE_HANDSHAKE or carrier.verification_flags == 0:
             fail(
                 "keyed-relay-rendezvous",
                 f"WSS omitted secure-handshake verification detail: {refused}",
@@ -78,9 +72,7 @@ async def main() -> None:
         wrong_host = wss_relay_url.replace("//localhost:", "//127.0.0.1:", 1)
         await expect_wss_refusal(partner, wrong_host, pem, "CertificateNameMismatch")
         await expect_wss_refusal(partner, wss_relay_url, None, "CertificateUntrusted")
-        transport = {
-            "provider": provider(RelayConfig(wss_relay_url, trust_pem=pem))
-        }
+        transport = {"provider": provider(RelayConfig(wss_relay_url, trust_pem=pem))}
     async with Runtime.open(
         **transport,
         adopt_host=host,

@@ -8,7 +8,7 @@ import ctypes
 import glowcap
 import glowcap._driver.finalizer as _driver_finalizer
 import glowcap._loop as _loop_module
-from glowcap import Host, GlowcapError
+from glowcap import GlowcapError, Host
 from glowcap._constants import ERR_INTERNAL, ERR_INVALID_ARGUMENT, ERR_IO
 from glowcap._ffi_driver import _DriverFailure
 from glowcap._loop import DriverLoop
@@ -58,9 +58,7 @@ async def _refused_live_release_retries_at_public_boundary() -> None:
         assert loop._released
         assert host.released
         assert _driver_finalizer._pending_driver_finalizer_retry_count() == 0
-        assert [failure.code for failure in loop.terminal_failures] == [
-            ERR_INVALID_ARGUMENT
-        ]
+        assert [failure.code for failure in loop.terminal_failures] == [ERR_INVALID_ARGUMENT]
 
         another = Host()
         await another.close()
@@ -99,9 +97,7 @@ async def _deferred_consuming_failure_retires_once_and_stays_ordered() -> None:
             ERR_IO,
         ]
         assert _driver_finalizer._pending_driver_finalizer_retry_count() == 0
-        assert not glowcap.take_runtime_failures(), (
-            "live terminal ownership leaked into process finalizer diagnostics"
-        )
+        assert not glowcap.take_runtime_failures(), "live terminal ownership leaked into process finalizer diagnostics"
 
         another = Host()
         await another.close()

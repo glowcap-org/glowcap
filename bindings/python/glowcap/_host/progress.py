@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
 from .._action import _Handlers, _park_actions, _run_action
 from .._errors import _check_host
@@ -41,7 +42,7 @@ class _ProgressMixin(HostMixinBase):
         can pop the completion first. Binding-internal."""
         self._vows.minted(vow, track_gc=track_gc)
 
-    def await_vow(self, vow: int) -> "asyncio.Future":
+    def await_vow(self, vow: int) -> asyncio.Future:
         """A future for the vow's eventual outcome: the fulfilled wire value,
         or an exception: :class:`VowBroken` for a partner break, the typed
         ``ERR_CLOSED`` :class:`GlowcapError` when the settle was the
@@ -61,7 +62,7 @@ class _ProgressMixin(HostMixinBase):
         action drain's FLUSH/CLOSE arms route through it."""
         return self._sessions.get(ptr)
 
-    def park_release(self, release: "Callable[[], None]") -> None:
+    def park_release(self, release: Callable[[], None]) -> None:
         """Park a C release the host refused inside a behavior callback. The
         next drain, the head of :meth:`kick_actions`, or the feed's unwind,
         runs it where it is legal. The parked list is thread-local (see
@@ -110,11 +111,11 @@ class _ProgressMixin(HostMixinBase):
             return
         self._own_action_drain(task)
 
-    def _own_action_drain(self, task: "asyncio.Task") -> None:
+    def _own_action_drain(self, task: asyncio.Task) -> None:
         """Retain a detached action drain and consume its terminal result."""
         self._action_drains.add(task)
 
-        def done(finished: "asyncio.Task") -> None:
+        def done(finished: asyncio.Task) -> None:
             self._action_drains.discard(finished)
             if finished.cancelled():
                 return
@@ -125,11 +126,11 @@ class _ProgressMixin(HostMixinBase):
 
         task.add_done_callback(done)
 
-    def _own_session_writer(self, task: "asyncio.Task") -> None:
+    def _own_session_writer(self, task: asyncio.Task) -> None:
         """Keep a session's running writer under Host release."""
         self._session_writers.add(task)
 
-        def done(finished: "asyncio.Task") -> None:
+        def done(finished: asyncio.Task) -> None:
             self._session_writers.discard(finished)
             if finished.cancelled():
                 return
@@ -151,7 +152,7 @@ class _ProgressMixin(HostMixinBase):
             self._session_writers.difference_update(pending)
             await self._join_action_drains()
 
-    def _own_session_retirement(self, session: "Session") -> None:
+    def _own_session_retirement(self, session: Session) -> None:
         """Retain physical retirement after the native routing entry is gone."""
         self._session_retirements.add(session)
         try:
@@ -162,7 +163,7 @@ class _ProgressMixin(HostMixinBase):
             return
         task = session._start_terminal_coordinator()
 
-        def done(finished: "asyncio.Task[None]") -> None:
+        def done(finished: asyncio.Task[None]) -> None:
             self._session_retirements.discard(session)
             if not finished.cancelled():
                 finished.exception()
@@ -200,7 +201,7 @@ class _ProgressMixin(HostMixinBase):
         self,
         ticket: int,
         route_index: int,
-        run: "Callable[[], Coroutine[Any, Any, None]]",
+        run: Callable[[], Coroutine[Any, Any, None]],
     ) -> None:
         """Retain a popped DIAL independently of the drain that discovered it."""
         if not self._raw:
@@ -210,7 +211,7 @@ class _ProgressMixin(HostMixinBase):
         key = (ticket, route_index)
         self._dial_tasks[key] = task
 
-        def done(finished: "asyncio.Task") -> None:
+        def done(finished: asyncio.Task) -> None:
             if self._dial_tasks.get(key) is finished:
                 self._dial_tasks.pop(key, None)
             # Retrieve terminal exceptions so Host-owned cancellation does not
@@ -229,9 +230,7 @@ class _ProgressMixin(HostMixinBase):
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         if self._raw:
-            _check_host(_host.glowcap_host_dial_cancelled(
-                self._raw, ticket, route_index
-            ))
+            _check_host(_host.glowcap_host_dial_cancelled(self._raw, ticket, route_index))
             # Retiring a pending dial is close-relevant pending work.
             self.signal_close_activity()
 
@@ -249,9 +248,7 @@ class _ProgressMixin(HostMixinBase):
         everything the turn enqueued pumps when the enclosing feed unwinds
         into this same drain. Binding-internal."""
         task = asyncio.current_task()
-        admitted_task = (
-            task if task is not None and task not in self._action_drains else None
-        )
+        admitted_task = task if task is not None and task not in self._action_drains else None
         if admitted_task is not None:
             self._action_drains.add(admitted_task)
         try:
@@ -286,7 +283,7 @@ class _ProgressMixin(HostMixinBase):
                     # work behind it can belong to another live session.
                     try:
                         await _run_action(self, action)
-                    except Exception as error:  # noqa: BLE001 - drain every action
+                    except Exception as error:
                         if first_failure is None:
                             first_failure = error
                 # A drained batch may have advanced close-relevant state

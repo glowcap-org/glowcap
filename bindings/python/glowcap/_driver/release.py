@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import weakref
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
 from .._driver_failure import _release
 from .._ffi_driver import _driver
@@ -21,7 +21,7 @@ class _ReleaseAttempt:
     """One release result, including whether FFI authority was consumed."""
 
     consumed: bool
-    error: Optional[BaseException]
+    error: BaseException | None
 
 
 class _DriverReleaseOwner:
@@ -34,12 +34,8 @@ class _DriverReleaseOwner:
 
     def __init__(self, wrapper, handle: int, context=None) -> None:
         self._state = _DriverFinalizerState(handle, context)
-        self._finalizer = weakref.finalize(
-            wrapper, _release_driver_finalizer_state, self._state
-        )
-        self._completion: "Optional[Callable[[Optional[BaseException]], None]]" = (
-            None
-        )
+        self._finalizer = weakref.finalize(wrapper, _release_driver_finalizer_state, self._state)
+        self._completion: Callable[[BaseException | None], None] | None = None
 
     @property
     def context(self):
@@ -55,7 +51,7 @@ class _DriverReleaseOwner:
     def release(
         self,
         operation: str,
-        completion: "Callable[[Optional[BaseException]], None]",
+        completion: Callable[[BaseException | None], None],
     ) -> _ReleaseAttempt:
         handle = self._state.handle
         if not handle:
@@ -70,12 +66,10 @@ class _DriverReleaseOwner:
             self._state.context = None
         else:
             self._completion = completion
-            _defer_live_driver_release(
-                self._state, operation, self._finish_deferred_release
-            )
+            _defer_live_driver_release(self._state, operation, self._finish_deferred_release)
         return _ReleaseAttempt(consumed, outcome.error)
 
-    def _finish_deferred_release(self, error: Optional[BaseException]) -> None:
+    def _finish_deferred_release(self, error: BaseException | None) -> None:
         """Finish the wrapper exactly once after a retry consumes the lease."""
         self._finalizer.detach()
         completion = self._completion

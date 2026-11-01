@@ -14,11 +14,11 @@ from __future__ import annotations
 import array
 import asyncio
 import ctypes
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from . import _constants as _abi
 from ._errors import GlowcapError
-from ._ffi_ocapn import _Argument, _Reference, _borrowed_byte_ptr
+from ._ffi_ocapn import _Argument, _borrowed_byte_ptr, _Reference
 from ._value import Argument, ErrorValue, Keyword, Ref, Set, Struct, Symbol, Tagged, _ref_from_id
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
@@ -62,12 +62,8 @@ def _captp_version_name(version: int, source: str | None = None) -> str:
     if version == _abi.CAPTP_NEXT:
         return "next"
     if source is not None:
-        raise RuntimeError(
-            f"glowcap ABI returned unknown {source} CapTP version {version!r}"
-        )
-    raise RuntimeError(
-        f"glowcap ABI generated unknown default CapTP version {version!r}"
-    )
+        raise RuntimeError(f"glowcap ABI returned unknown {source} CapTP version {version!r}")
+    raise RuntimeError(f"glowcap ABI generated unknown default CapTP version {version!r}")
 
 
 def _feature_name(features: int):
@@ -151,9 +147,7 @@ def _ref_to_c(ref: Ref) -> _Reference:
 _PromiseLowering = Callable[[asyncio.Future], Ref]
 
 
-def _arg_to_c(
-    value: Argument, keepalive: list, lower: Optional[_PromiseLowering] = None
-) -> _Argument:
+def _arg_to_c(value: Argument, keepalive: list, lower: _PromiseLowering | None = None) -> _Argument:
     a = _Argument()
     if isinstance(value, array.array) and value.typecode == "q":
         # Export the buffer before reading its address: retaining the array
@@ -226,7 +220,7 @@ def _set_bytes(a: _Argument, kind: int, data: bytes, keepalive: list) -> None:
     a.bytes_len = len(data)
 
 
-def _args_to_c(args: list, keepalive: list, lower: Optional[_PromiseLowering] = None):
+def _args_to_c(args: list, keepalive: list, lower: _PromiseLowering | None = None):
     n = len(args)
     if n == 0:
         return (None, 0)
@@ -240,7 +234,7 @@ def _args_to_c(args: list, keepalive: list, lower: Optional[_PromiseLowering] = 
 def _struct_entries_to_c(
     entries: list[tuple[str, Argument]],
     keepalive: list,
-    lower: Optional[_PromiseLowering] = None,
+    lower: _PromiseLowering | None = None,
 ):
     n = len(entries) * 2
     if n == 0:

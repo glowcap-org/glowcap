@@ -161,9 +161,7 @@ async def _pump(websocket) -> None:
         )
         # 1011 tells the browser the relay leg failed, not the session.
         try:
-            await asyncio.wait_for(
-                websocket.close(1011, "relay dial failed"), CLOSE_TIMEOUT_S
-            )
+            await asyncio.wait_for(websocket.close(1011, "relay dial failed"), CLOSE_TIMEOUT_S)
         except BaseException as cleanup:
             _retain(error, cleanup)
         raise error

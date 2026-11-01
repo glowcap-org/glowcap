@@ -21,14 +21,16 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from dataclasses import dataclass, field
 import inspect
-from typing import Awaitable, Callable, Optional, Protocol
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import Protocol
 
 from . import _constants as _c
 from ._abi_value import _DEFAULT_CODEC
 from ._constants import TRANSPORT_WEBRTC
 from ._errors import GlowcapError
+from ._ffi import FfiHandle, _FfiHandleOwner
 from ._ffi_ocapn import _read_last_error, _str_buf
 from ._ffi_webrtc import (
     _webrtc,
@@ -41,9 +43,8 @@ from ._ffi_webrtc import (
     _WebrtcSignaling,
     _WebrtcStringView,
 )
-from ._locator import Locator
-from ._ffi import FfiHandle, _FfiHandleOwner
 from ._host import Host
+from ._locator import Locator
 from ._server import (
     DriverServer,
     _rollback_listener_construction,
@@ -76,7 +77,7 @@ class IceServer:
     """One STUN or TURN server. ``username`` and ``credential`` are empty for
     plain STUN and set together for credentialed TURN."""
 
-    urls: "tuple[str, ...]"
+    urls: tuple[str, ...]
     username: str = ""
     credential: str = ""
 
@@ -88,7 +89,7 @@ class WebrtcConfig:
     addresses out. ``include_loopback_candidates`` offers them too, for two
     peers on one machine."""
 
-    ice_servers: "tuple[IceServer, ...]" = field(default_factory=tuple)
+    ice_servers: tuple[IceServer, ...] = field(default_factory=tuple)
     include_loopback_candidates: bool = False
 
 
@@ -103,7 +104,7 @@ class Target:
     every accept."""
 
     designator: str
-    introducer: Optional[str] = None
+    introducer: str | None = None
 
 
 class SignalingAuthority(Protocol):
@@ -138,11 +139,9 @@ class SignalingAuthority(Protocol):
 
     def answer(self, exchange: int, target: Target, sdp: str) -> None: ...
 
-    def candidate(self, exchange: int, ice: str) -> "None | Awaitable[None]": ...
+    def candidate(self, exchange: int, ice: str) -> None | Awaitable[None]: ...
 
-    def on_candidate(
-        self, exchange: int, target: Target, sink: Callable[[str], None]
-    ) -> Callable[[], None]: ...
+    def on_candidate(self, exchange: int, target: Target, sink: Callable[[str], None]) -> Callable[[], None]: ...
 
 
 def locator(designator: str) -> Locator:
@@ -150,15 +149,13 @@ def locator(designator: str) -> Locator:
     return Locator(TRANSPORT_WEBRTC, designator, {}, "boolean-false")
 
 
-def _webrtc_last_error() -> "Optional[str]":
+def _webrtc_last_error() -> str | None:
     return _read_last_error(_webrtc().glowcap_webrtc_last_error)
 
 
 def _check_webrtc(code: int) -> None:
     if code != _c.OK:
-        raise GlowcapError(
-            code, _webrtc_last_error() or f"webrtc transport call failed (code {code})"
-        )
+        raise GlowcapError(code, _webrtc_last_error() or f"webrtc transport call failed (code {code})")
 
 
 def _view(text: str, keep: list) -> _WebrtcStringView:
@@ -168,7 +165,7 @@ def _view(text: str, keep: list) -> _WebrtcStringView:
     return _WebrtcStringView(ctypes.cast(buffer, ctypes.POINTER(ctypes.c_uint8)), len(data))
 
 
-def _ice_records(servers: "tuple[IceServer, ...]", keep: list):
+def _ice_records(servers: tuple[IceServer, ...], keep: list):
     """The C ICE server records, borrowing buffers that ``keep`` holds."""
     records = (_WebrtcIceServer * max(len(servers), 1))()
     for index, server in enumerate(servers):
@@ -187,8 +184,8 @@ class _Exchange:
     __slots__ = ("dispose", "offer")
 
     def __init__(self) -> None:
-        self.dispose: "Optional[Callable[[], None]]" = None
-        self.offer: "Optional[asyncio.Future]" = None
+        self.dispose: Callable[[], None] | None = None
+        self.offer: asyncio.Future | None = None
 
 
 def _text(ptr, length: int) -> str:
@@ -209,18 +206,16 @@ class _Signaler:
         self._aio = aio
         self._host = host
         self._wake = wake
-        self._exchanges: "dict[int, _Exchange]" = {}
-        self._tasks: "set[asyncio.Future]" = set()
-        self.netlayer: "Optional[ctypes.c_void_p]" = None
+        self._exchanges: dict[int, _Exchange] = {}
+        self._tasks: set[asyncio.Future] = set()
+        self.netlayer: ctypes.c_void_p | None = None
         self.send_offer = _WebrtcSendOfferFn(self._on_send_offer)
         self.send_answer = _WebrtcSendAnswerFn(self._on_send_answer)
         self.send_candidate = _WebrtcSendCandidateFn(self._on_send_candidate)
         self.done = _WebrtcExchangeDoneFn(self._on_done)
 
     def table(self) -> _WebrtcSignaling:
-        return _WebrtcSignaling(
-            None, self.send_offer, self.send_answer, self.send_candidate, self.done
-        )
+        return _WebrtcSignaling(None, self.send_offer, self.send_answer, self.send_candidate, self.done)
 
     def _record(self, operation: str, error: BaseException) -> None:
         self._host._record_callerless_failure(operation, error)
@@ -276,9 +271,7 @@ class _Signaler:
         ends without a session. A refusal means no such exchange is signaling."""
         if self.netlayer is None:
             raise GlowcapError(_c.ERR_CLOSED, "the webrtc netlayer is not open")
-        _check_webrtc(
-            _webrtc().glowcap_webrtc_netlayer_fail_exchange(self.netlayer, exchange)
-        )
+        _check_webrtc(_webrtc().glowcap_webrtc_netlayer_fail_exchange(self.netlayer, exchange))
         self._wake()
 
     def _give_up(self, exchange: int) -> None:
@@ -299,9 +292,7 @@ class _Signaler:
 
     def _provide_candidate(self, exchange: int, ice: str) -> None:
         try:
-            self._provide(
-                exchange, _webrtc().glowcap_webrtc_netlayer_provide_candidate, ice
-            )
+            self._provide(exchange, _webrtc().glowcap_webrtc_netlayer_provide_candidate, ice)
         except BaseException as error:
             self._record("webrtc.provide_candidate", error)
 
@@ -321,9 +312,7 @@ class _Signaler:
         entry.dispose = self._signaling.on_candidate(exchange, target, sink)
         return entry
 
-    def _on_send_offer(
-        self, _ctx, exchange, designator, dlen, introducer, ilen, sdp, slen
-    ) -> int:
+    def _on_send_offer(self, _ctx, exchange, designator, dlen, introducer, ilen, sdp, slen) -> int:
         try:
             target = Target(
                 _text(designator, dlen),
@@ -331,9 +320,7 @@ class _Signaler:
             )
             offer = _text(sdp, slen)
             entry = self._register(exchange, target)
-            entry.offer = self._spawn(
-                "webrtc.offer", self._offer(exchange, target, offer), exchange
-            )
+            entry.offer = self._spawn("webrtc.offer", self._offer(exchange, target, offer), exchange)
             return _c.OK
         except BaseException as error:
             self._end(exchange)
@@ -413,9 +400,7 @@ class _Netlayer(_FfiHandleOwner):
             signaling=signaler.table(),
         )
         out = ctypes.c_void_p()
-        _check_webrtc(
-            _webrtc().glowcap_webrtc_netlayer_new(ctypes.byref(ffi_config), ctypes.byref(out))
-        )
+        _check_webrtc(_webrtc().glowcap_webrtc_netlayer_new(ctypes.byref(ffi_config), ctypes.byref(out)))
         self._signaler = signaler
         signaler.netlayer = out
         self._ffi = FfiHandle(
@@ -425,12 +410,10 @@ class _Netlayer(_FfiHandleOwner):
         )
 
     @classmethod
-    async def open(cls, config: WebrtcConfig, signaler: _Signaler) -> "_Netlayer":
+    async def open(cls, config: WebrtcConfig, signaler: _Signaler) -> _Netlayer:
         """Construct off the reactor and keep ownership through cancellation."""
         construction = asyncio.ensure_future(
-            asyncio.to_thread(
-                cls, config, signaler, _construction_token=_NETLAYER_CONSTRUCTION
-            )
+            asyncio.to_thread(cls, config, signaler, _construction_token=_NETLAYER_CONSTRUCTION)
         )
         try:
             return await asyncio.shield(construction)
@@ -446,9 +429,7 @@ class _Netlayer(_FfiHandleOwner):
                 try:
                     await asyncio.to_thread(construction.result()._release_blocking)
                 except BaseException as error:
-                    _record_transport_cleanup_failure(
-                        "webrtc-release-after-cancel", error
-                    )
+                    _record_transport_cleanup_failure("webrtc-release-after-cancel", error)
             raise
 
     def _transport_provider(self):
@@ -457,9 +438,7 @@ class _Netlayer(_FfiHandleOwner):
 
         package = _TransportProvider()
         with self._ffi.lease() as raw:
-            code = _webrtc().glowcap_webrtc_transport_provider(
-                raw, ctypes.byref(package)
-            )
+            code = _webrtc().glowcap_webrtc_transport_provider(raw, ctypes.byref(package))
         _check_webrtc(code)
         return package
 
@@ -471,19 +450,13 @@ class _Netlayer(_FfiHandleOwner):
         self._ffi.close()
 
 
-async def _install(
-    loop, signaling: SignalingAuthority, config: WebrtcConfig
-) -> _Signaler:
+async def _install(loop, signaling: SignalingAuthority, config: WebrtcConfig) -> _Signaler:
     """Put one netlayer on ``loop`` and return the signaler its callbacks and
     verbs run through."""
-    signaler = _Signaler(
-        signaling, asyncio.get_running_loop(), loop.wrapper_host(), loop.schedule_step
-    )
+    signaler = _Signaler(signaling, asyncio.get_running_loop(), loop.wrapper_host(), loop.schedule_step)
     netlayer = await _Netlayer.open(config, signaler)
     try:
-        loop._install_provider(
-            lambda register: register(netlayer._transport_provider())
-        )
+        loop._install_provider(lambda register: register(netlayer._transport_provider()))
         netlayer._relinquish_provider_reference()
         # The driver's lease keeps the C netlayer alive. The Python objects
         # behind its callbacks must live as long, so the loop keeps them.
@@ -494,9 +467,7 @@ async def _install(
     return signaler
 
 
-def provider(
-    signaling: SignalingAuthority, config: "Optional[WebrtcConfig]" = None
-) -> Provider:
+def provider(signaling: SignalingAuthority, config: WebrtcConfig | None = None) -> Provider:
     """Build the WebRTC provider package. ``signaling`` carries each dial's
     offer, answer, and candidates. A Host that should also answer offers uses
     :func:`listen` instead."""
@@ -515,8 +486,8 @@ class ListenOptions:
     ``host`` shares an existing Host, so its sessions and publications stay.
     Pass at most one."""
 
-    seed: Optional[bytes] = None
-    host: Optional[Host] = None
+    seed: bytes | None = None
+    host: Host | None = None
 
 
 class Server(DriverServer):

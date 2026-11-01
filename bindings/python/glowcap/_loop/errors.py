@@ -1,14 +1,13 @@
 """Driver-loop FFI failure projection."""
 
 import ctypes
-from typing import Optional
 
 from .. import _constants as _c
 from .._errors import GlowcapError
 from .._ffi_driver import _driver
 
 
-def _last_driver_error() -> Optional[str]:
+def _last_driver_error() -> str | None:
     buf = ctypes.create_string_buffer(512)
     n = _driver.glowcap_driver_last_error(buf, len(buf))
     if n == 0:

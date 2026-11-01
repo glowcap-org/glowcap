@@ -25,15 +25,15 @@ from __future__ import annotations
 
 import ctypes
 import inspect
-from dataclasses import dataclass
 import threading
 import weakref
-from typing import Callable, Optional
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from . import _constants as _abi
 from ._abi_value import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
-from ._errors import _check_host, _host_last_error, GlowcapError, VowBroken
-from ._ffi_host import _host, _selector_buf, _HostBehavior
+from ._errors import GlowcapError, VowBroken, _check_host, _host_last_error
+from ._ffi_host import _host, _HostBehavior, _selector_buf
 from ._ffi_ocapn import _Argument, _byte_buf, _Reference
 from ._promise import RemotePromise, _FarArguments, _send_far
 from ._value import Forward, Ref, _ref_from_id
@@ -50,19 +50,17 @@ class _BehaviorEntry:
     projects it and records that Host identity in the shared hosted index.
     """
 
-    run: "Callable"
+    run: Callable
     # Resolve a local Host capability id to its entry, or None when the entry
     # has not joined the Host's local-composition index.
-    resolve_local: "Optional[Callable[[int], Optional[_BehaviorEntry]]]"
+    resolve_local: Callable[[int], _BehaviorEntry | None] | None
 
 
 # Process-global callback lookup is weak: the owning Host strongly retains each
 # entry, so a behavior that closes over that Host forms a collectable Host-local
 # cycle rather than a process-global root. The C callback has free = NULL;
 # Host.close removes the weak row deterministically after FFI teardown.
-_registry: "weakref.WeakValueDictionary[int, _BehaviorEntry]" = (
-    weakref.WeakValueDictionary()
-)
+_registry: weakref.WeakValueDictionary[int, _BehaviorEntry] = weakref.WeakValueDictionary()
 _next_id = 1
 
 
@@ -81,7 +79,7 @@ def _unregister_behavior(ctx_id: int) -> None:
     _registry.pop(ctx_id, None)
 
 
-def _entry_for(ctx_id: Optional[int]) -> Optional[_BehaviorEntry]:
+def _entry_for(ctx_id: int | None) -> _BehaviorEntry | None:
     """The entry behind a ctx id, for in-process :class:`Forward` composition."""
     return _registry.get(ctx_id) if ctx_id is not None else None
 
@@ -151,7 +149,7 @@ def _send_local(session, ctx: int, verb: str | None, args: list) -> RemotePromis
             return result
         except GlowcapError:
             raise
-        except Exception as error:  # noqa: BLE001 - a raise breaks the answer
+        except Exception as error:
             raise VowBroken(str(error) or type(error).__name__)
 
     return RemotePromise.local(begin)
@@ -170,7 +168,7 @@ async def _tell_local(session, ctx: int, verb: str | None, args: list) -> None:
             # Await so an async behavior's raise lands here instead of
             # surfacing as a never-awaited coroutine warning.
             await result
-    except Exception as error:  # noqa: BLE001 - no answer exists to break
+    except Exception as error:
         session.host._record_callerless_failure("tell.behavior", error)
         return
     if isinstance(result, Forward):
@@ -189,18 +187,18 @@ async def _tell_local(session, ctx: int, verb: str | None, args: list) -> None:
 _turn_state = threading.local()
 
 
-def _enter_deliver(owner: object) -> Optional[object]:
+def _enter_deliver(owner: object) -> object | None:
     """Bracket synchronous FFI progress that may run an actor."""
     prior = getattr(_turn_state, "active_deliver_owner", None)
     _turn_state.active_deliver_owner = owner
     return prior
 
 
-def _enter_host_deliver(host: object) -> Optional[object]:
+def _enter_host_deliver(host: object) -> object | None:
     return _enter_deliver(host)
 
 
-def _exit_deliver(prior: Optional[object]) -> None:
+def _exit_deliver(prior: object | None) -> None:
     _turn_state.active_deliver_owner = prior
 
 
@@ -228,7 +226,7 @@ def _turn_arriving_session(turn: int) -> tuple[object, object]:
     return carrier, arriving
 
 
-def _current_turn_for(session: object) -> Optional[int]:
+def _current_turn_for(session: object) -> int | None:
     """The current turn pointer when it belongs to ``session``'s Host."""
     current_turn = getattr(_turn_state, "current_turn", None)
     if current_turn is not None and current_turn[1] is getattr(session, "host", None):
@@ -308,9 +306,7 @@ def _settle_reply(turn: int, result, out_reply) -> int:
     return _OK
 
 
-def _trampoline_body(
-    ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_reply
-) -> int:
+def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_reply) -> int:
     # The shared trampoline body: decode the deliver, run the entry under the
     # turn context, and settle the reply. Nothing may raise across the C frame,
     # KeyboardInterrupt and CancelledError included.
@@ -323,16 +319,12 @@ def _trampoline_body(
         carrier, arriving = _turn_arriving_session(turn)
         _turn_state.active_deliver_owner = arriving
         restore_deliver = True
-        verb = (
-            ctypes.string_at(verb_ptr, verb_len).decode(errors="replace")
-            if verb_ptr
-            else None
-        )
+        verb = ctypes.string_at(verb_ptr, verb_len).decode(errors="replace") if verb_ptr else None
         args = [_arg_from_c(args_ptr[i]) for i in range(args_len)]
         if getattr(arriving, "gc_enabled", False):
             getattr(arriving, "gc").track_arguments(args)
         return _settle_reply(turn, _run_hosted(entry, verb, args, turn=turn), out_reply)
-    except BaseException as error:  # noqa: BLE001 - nothing crosses the C frame
+    except BaseException as error:
         return _turn_break(turn, str(error) or type(error).__name__)
     finally:
         if restore_deliver:
@@ -349,15 +341,11 @@ def _turn_spawn(turn: int, ctx_id: int) -> int:
     """Spawn a hosted object from INSIDE a turn: the turn-time form the host
     allows where the top-level spawn is refused. Returns its opaque Host id."""
     out = _Reference()
-    _check_host(
-        _host.glowcap_host_turn_spawn(
-            turn, _TRAMPOLINE, ctypes.c_void_p(ctx_id), None, ctypes.byref(out)
-        )
-    )
+    _check_host(_host.glowcap_host_turn_spawn(turn, _TRAMPOLINE, ctypes.c_void_p(ctx_id), None, ctypes.byref(out)))
     return out.id
 
 
-def _caretaker_proxy(spawn, target: Ref) -> "Caretaker":
+def _caretaker_proxy(spawn, target: Ref) -> Caretaker:
     # ADR-0016 caretaker: spawn a proxy that forwards to `target` until
     # revoke(), then breaks every call Revoked.
     live = [True]

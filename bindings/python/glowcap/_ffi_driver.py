@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import ctypes
 
-from ._ffi_host import _CloseOptions, _HostAction
-from ._ffi_ocapn import _bind, _Lib, _LocatorView, _Reference
 from ._archive_contract import require_archive_fingerprint
 from ._constants_gen import DRIVER_ARCHIVE_FINGERPRINT
+from ._ffi_host import _CloseOptions, _HostAction
+from ._ffi_ocapn import _bind, _Lib, _LocatorView, _Reference
 from ._lib_resolve import _lib_path
 from ._pin import pin_struct
 from ._sigs_gen import loop_sigs

@@ -5,7 +5,7 @@ from __future__ import annotations
 import ctypes
 import math
 import time
-from enum import Enum
+from enum import StrEnum
 from typing import Final
 
 from . import _constants as _abi
@@ -13,7 +13,7 @@ from ._errors import GlowcapError
 from ._ffi_host import _CloseOptions
 
 
-class PendingWork(str, Enum):
+class PendingWork(StrEnum):
     """What close does with operations admitted before its barrier."""
 
     CANCEL = "cancel"

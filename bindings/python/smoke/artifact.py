@@ -9,12 +9,12 @@ an isolated interpreter.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import zipfile
+from pathlib import Path
 
 
 def main() -> int:

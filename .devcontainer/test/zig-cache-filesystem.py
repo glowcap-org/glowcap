@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prove a Zig local cache can atomically publish response files.
 
 This runs before the cache can be trusted. Python keeps the probe independent
@@ -10,7 +9,6 @@ import ctypes
 import errno
 import os
 import sys
-
 
 AT_FDCWD = -100
 AT_SYMLINK_FOLLOW = 0x400

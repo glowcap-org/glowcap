@@ -1,4 +1,5 @@
 """Reset only the volumes Compose resolves for the deployment, even when an override renames them."""
+
 import json
 
 
@@ -8,11 +9,12 @@ def selected_volumes(call, env, log):
         before = len(log.read_text())
         call("reset", "all", "--yes")
         calls = [json.loads(line) for line in log.read_text()[before:].splitlines()]
-        assert [a[-1] for a in calls if a[:2] == ["volume", "rm"]] == [
-            "custom-session", "custom-directory"]
-        for flag, reason in (("EXTERNAL_VOLUMES", "ExternalDeploymentVolume"),
-                             ("BIND_VOLUME", "UnsupportedDeploymentMount"),
-                             ("SHARED_VOLUME", "AmbiguousDeploymentVolume")):
+        assert [a[-1] for a in calls if a[:2] == ["volume", "rm"]] == ["custom-session", "custom-directory"]
+        for flag, reason in (
+            ("EXTERNAL_VOLUMES", "ExternalDeploymentVolume"),
+            ("BIND_VOLUME", "UnsupportedDeploymentMount"),
+            ("SHARED_VOLUME", "AmbiguousDeploymentVolume"),
+        ):
             env[flag] = "1"
             try:
                 before = len(log.read_text())

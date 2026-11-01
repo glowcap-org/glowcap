@@ -8,12 +8,12 @@ import email.message
 import importlib.util
 import io
 import os
-from pathlib import Path
 import tempfile
 import unittest
-from unittest import mock
 import urllib.request
 import urllib.response
+from pathlib import Path
+from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location(
     "lib_resolve", Path(__file__).resolve().parents[1] / "glowcap/_lib_resolve.py"
@@ -33,8 +33,10 @@ class ReleaseTransportTest(unittest.TestCase):
             if redirect:
                 headers["Location"] = destination
             response = urllib.response.addinfourl(
-                io.BytesIO(b"" if redirect else b"archive"), headers,
-                request.full_url, code if redirect else 200,
+                io.BytesIO(b"" if redirect else b"archive"),
+                headers,
+                request.full_url,
+                code if redirect else 200,
             )
             response.msg = "Found" if redirect else "OK"
             return response
@@ -58,8 +60,7 @@ class ReleaseTransportTest(unittest.TestCase):
             for insecure in (False, True):
                 with self.subTest(code=code, insecure=insecure):
                     with self.assertRaisesRegex(RuntimeError, "non-HTTPS"):
-                        self.download("https://release.invalid/asset", "http://release.invalid/payload",
-                                      code, insecure)
+                        self.download("https://release.invalid/asset", "http://release.invalid/payload", code, insecure)
                     self.assertEqual(self.requests, ["https://release.invalid/asset"])
 
     def test_https_redirect_to_another_https_host_succeeds(self):

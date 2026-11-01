@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from glowcap import relay
 from glowcap._errors import GlowcapError
 
-
 DESIGNATOR = "ab" * 32
-CORPUS = json.loads(
-    (Path(__file__).parents[3] / "test/net/fixtures/relay_routes.json").read_text()
-)
+CORPUS = json.loads((Path(__file__).parents[3] / "test/net/fixtures/relay_routes.json").read_text())
 
 
 class RelayRouteTests(unittest.TestCase):

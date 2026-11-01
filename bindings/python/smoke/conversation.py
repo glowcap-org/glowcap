@@ -5,20 +5,19 @@ admission, and a disconnect rejecting the pending send."""
 from __future__ import annotations
 
 import asyncio
-from contextvars import ContextVar
-import re
-
 import ctypes
+import re
+from contextvars import ContextVar
 
 from glowcap import (
-    tcp,
     Context,
+    GlowcapError,
+    Host,
     Keyword,
     Locator,
-    Host,
-    GlowcapError,
-    VowBroken,
     Runtime,
+    VowBroken,
+    tcp,
 )
 from glowcap._constants import (
     DESIGNATOR_SCHEME_ADDRESS,
@@ -28,9 +27,8 @@ from glowcap._constants import (
 
 from smoke.runtime import tcp_connect
 
-
-
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+
 
 async def _start_relay(target_port: int, rewrite=None, observe=None):
     """A byte-level TCP relay between a client and a server that are both real
@@ -540,6 +538,7 @@ async def _disconnect_rejects_pending_send() -> None:
 
         async def serve_one() -> None:
             async for session in server:
+
                 async def service(verb, args):
                     if verb == "ping":
                         return None

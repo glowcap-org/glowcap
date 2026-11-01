@@ -48,10 +48,11 @@ import threading
 import weakref
 from dataclasses import dataclass
 
-from ._abi_value import _DEFAULT_CODEC, _codec_id
 from . import _constants as _c
+from ._abi_value import _DEFAULT_CODEC, _codec_id
 from ._constants import OK as _OK
 from ._errors import GlowcapError
+from ._ffi import FfiHandle, _FfiHandleOwner
 from ._ffi_ocapn import (
     _borrowed_byte_frame,
     _copy_managed_frame,
@@ -61,8 +62,7 @@ from ._ffi_ocapn import (
 from ._ffi_onion import _onion_lib, _OnionConfig
 from ._host import Host
 from ._locator import Locator
-from ._ffi import FfiHandle, _FfiHandleOwner
-from ._server import DriverServer, prepare_driver_loop, _rollback_listener_construction
+from ._server import DriverServer, _rollback_listener_construction, prepare_driver_loop
 from ._transport import Provider, _rollback_failed_provider
 
 __all__ = [
@@ -84,6 +84,7 @@ __all__ = [
 def locator(service_id: str) -> Locator:
     """Build the standardized hint-free locator for an onion service."""
     return Locator(_c.TRANSPORT_ONION, service_id, {}, "boolean-false")
+
 
 #: An unauthenticated control endpoint, the form a Unix control socket with no
 #: authentication gives and the one upstream Goblins assumes.
@@ -153,7 +154,7 @@ class OnionConnection(_FfiHandleOwner):
     """One onion connection carrying one OCapN session, framed on the codec its
     constructor named. Closed on release / context exit."""
 
-    def __init__(self, raw, netlayer: "OnionNetlayer"):
+    def __init__(self, raw, netlayer: OnionNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
             raw,
@@ -186,9 +187,7 @@ class OnionConnection(_FfiHandleOwner):
         bytes. The connection owns this descriptor. Do not close it."""
         out = ctypes.c_int32()
         with self._ffi.lease() as raw:
-            _check_onion(
-                _onion_lib.glowcap_onion_conn_readiness_fd(raw, ctypes.byref(out))
-            )
+            _check_onion(_onion_lib.glowcap_onion_conn_readiness_fd(raw, ctypes.byref(out)))
         return out.value
 
     def read_frame(self) -> bytes:
@@ -198,21 +197,13 @@ class OnionConnection(_FfiHandleOwner):
         arrived."""
         with self._reads, self._ffi.lease() as raw:
             frame = _ManagedFrame()
-            _check_onion(
-                _onion_lib.glowcap_onion_conn_read_frame(
-                    raw, ctypes.byref(frame), None, 0, None
-                )
-            )
+            _check_onion(_onion_lib.glowcap_onion_conn_read_frame(raw, ctypes.byref(frame), None, 0, None))
             return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
         f, _borrowed = _borrowed_byte_frame(frame)
         with self._writes, self._ffi.lease() as raw:
-            _check_onion(
-                _onion_lib.glowcap_onion_conn_write_frame(
-                    raw, ctypes.byref(f), None, 0, None
-                )
-            )
+            _check_onion(_onion_lib.glowcap_onion_conn_write_frame(raw, ctypes.byref(f), None, 0, None))
 
 
 class OnionListener(_FfiHandleOwner):
@@ -222,9 +213,7 @@ class OnionListener(_FfiHandleOwner):
     Closing withdraws the service, so the address stops resolving. That is the one
     release in this family with an effect a partner can observe."""
 
-    def __init__(
-        self, raw, service_id: str, service_key: bytes, netlayer: "OnionNetlayer"
-    ):
+    def __init__(self, raw, service_id: str, service_key: bytes, netlayer: OnionNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
             raw,
@@ -264,9 +253,7 @@ class OnionListener(_FfiHandleOwner):
         :meth:`close`."""
         out = ctypes.c_int32()
         with self._ffi.lease() as raw:
-            _check_onion(
-                _onion_lib.glowcap_onion_listener_readiness_fd(raw, ctypes.byref(out))
-            )
+            _check_onion(_onion_lib.glowcap_onion_listener_readiness_fd(raw, ctypes.byref(out)))
         return out.value
 
     def wait(self, timeout_ms: int) -> bool:
@@ -275,11 +262,7 @@ class OnionListener(_FfiHandleOwner):
         parking, without closing the listener from another thread."""
         out = ctypes.c_uint32()
         with self._ffi.lease() as raw:
-            _check_onion(
-                _onion_lib.glowcap_onion_listener_wait(
-                    raw, timeout_ms, ctypes.byref(out), None, 0, None
-                )
-            )
+            _check_onion(_onion_lib.glowcap_onion_listener_wait(raw, timeout_ms, ctypes.byref(out), None, 0, None))
         return out.value != 0
 
     def accept(
@@ -352,9 +335,7 @@ class OnionNetlayer(_FfiHandleOwner):
         cfg.forward, cfg.forward_len = ptr(4), len(forward_b)
 
         out = ctypes.c_void_p()
-        _check_onion(
-            _onion_lib.glowcap_onion_netlayer_new(ctypes.byref(cfg), ctypes.byref(out))
-        )
+        _check_onion(_onion_lib.glowcap_onion_netlayer_new(ctypes.byref(cfg), ctypes.byref(out)))
         # Annotated because `release` clears it, the same shape `_host.py` uses.
         self._ffi = FfiHandle(
             out,
@@ -364,9 +345,7 @@ class OnionNetlayer(_FfiHandleOwner):
         )
         # Children retain this owner; weak membership avoids an ownership cycle
         # while still letting explicit release retire them before std.Io.
-        self._children: "weakref.WeakSet[OnionConnection | OnionListener]" = (
-            weakref.WeakSet()
-        )
+        self._children: weakref.WeakSet[OnionConnection | OnionListener] = weakref.WeakSet()
         self._children_lock = threading.Lock()
         self._release_lock = threading.Lock()
         self._release_requested = False
@@ -405,9 +384,7 @@ class OnionNetlayer(_FfiHandleOwner):
 
         package = _TransportProvider()
         with self._ffi.lease() as raw:
-            _check_onion(
-                _onion_lib.glowcap_onion_transport_provider(raw, ctypes.byref(package))
-            )
+            _check_onion(_onion_lib.glowcap_onion_transport_provider(raw, ctypes.byref(package)))
         return package
 
     def _relinquish_provider_reference(self) -> None:
@@ -536,9 +513,7 @@ async def listen(
     loop = prepared.loop
     listener = None
     try:
-        await provider(OnionConfig(
-            socks, control, auth_kind, auth_secret, service_key, forward
-        )).install(loop)
+        await provider(OnionConfig(socks, control, auth_kind, auth_secret, service_key, forward)).install(loop)
         listener = loop.listen(_c.TRANSPORT_ONION, "")
         loop.start()
         await loop.wait_listener(listener)
@@ -557,6 +532,7 @@ async def listen(
 
 def provider(config: OnionConfig) -> Provider:
     """Build the configured FFI onion provider package."""
+
     async def install(loop) -> None:
         netlayer = OnionNetlayer(
             socks=config.socks,
@@ -567,9 +543,7 @@ def provider(config: OnionConfig) -> Provider:
             forward=config.forward,
         )
         try:
-            loop._install_provider(
-                lambda register: register(netlayer._transport_provider())
-            )
+            loop._install_provider(lambda register: register(netlayer._transport_provider()))
         except BaseException as primary:
             _rollback_failed_provider(primary, netlayer.release)
             raise

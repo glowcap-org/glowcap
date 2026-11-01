@@ -32,11 +32,13 @@ from __future__ import annotations
 import ctypes
 import threading
 import weakref
-from typing import Optional
 
 from ._abi_value import _DEFAULT_CODEC, _codec_id
-from ._constants import OK as _OK, RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC
+from ._constants import OK as _OK
+from ._constants import RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC
 from ._errors import GlowcapError
+from ._ffi import FfiHandle, _FfiHandleOwner
+from ._ffi_inproc import _inproc_lib
 from ._ffi_ocapn import (
     _borrowed_byte_frame,
     _copy_managed_frame,
@@ -44,8 +46,6 @@ from ._ffi_ocapn import (
     _read_last_error,
     _str_buf,
 )
-from ._ffi_inproc import _inproc_lib
-from ._ffi import FfiHandle, _FfiHandleOwner
 from ._locator import Locator
 
 __all__ = ["InprocNetlayer", "InprocListener", "InprocConnection", "locator"]
@@ -56,7 +56,7 @@ def locator(designator: str) -> Locator:
     return Locator(TRANSPORT_INPROC, designator, {}, "boolean-false")
 
 
-def _inproc_last_error() -> Optional[str]:
+def _inproc_last_error() -> str | None:
     """The calling thread's last error message from the in-process transport
     archive (``libglowcap_net_transport_inproc``), or ``None`` when there is
     none. The transport keeps its own thread-local slot, so an inproc call's
@@ -89,7 +89,7 @@ class InprocConnection(_FfiHandleOwner):
     netlayer's codec, the socket-free sibling of :class:`glowcap.tcp.TcpConnection`.
     Closed on release / context exit."""
 
-    def __init__(self, raw, netlayer: "InprocNetlayer"):
+    def __init__(self, raw, netlayer: InprocNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
             raw,
@@ -104,7 +104,7 @@ class InprocConnection(_FfiHandleOwner):
             self._ffi.close()
             raise RuntimeError("inproc netlayer is released")
 
-    def __enter__(self) -> "InprocConnection":
+    def __enter__(self) -> InprocConnection:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -118,28 +118,20 @@ class InprocConnection(_FfiHandleOwner):
         """Block for one whole frame. Raises GlowcapError(ERR_CLOSED) on clean EOF."""
         with self._reads, self._ffi.lease() as raw:
             frame = _ManagedFrame()
-            _check_inproc(
-                _inproc_lib.glowcap_inproc_conn_read_frame(
-                    raw, ctypes.byref(frame), None, 0, None
-                )
-            )
+            _check_inproc(_inproc_lib.glowcap_inproc_conn_read_frame(raw, ctypes.byref(frame), None, 0, None))
             return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
         f, _borrowed = _borrowed_byte_frame(frame)
         with self._writes, self._ffi.lease() as raw:
-            _check_inproc(
-                _inproc_lib.glowcap_inproc_conn_write_frame(
-                    raw, ctypes.byref(f), None, 0, None
-                )
-            )
+            _check_inproc(_inproc_lib.glowcap_inproc_conn_write_frame(raw, ctypes.byref(f), None, 0, None))
 
 
 class InprocListener(_FfiHandleOwner):
     """A bound in-process listener on a string designator. Closed on release /
     context exit."""
 
-    def __init__(self, raw, netlayer: "InprocNetlayer"):
+    def __init__(self, raw, netlayer: InprocNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
             raw,
@@ -153,7 +145,7 @@ class InprocListener(_FfiHandleOwner):
             self._ffi.close()
             raise RuntimeError("inproc netlayer is released")
 
-    def __enter__(self) -> "InprocListener":
+    def __enter__(self) -> InprocListener:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -193,9 +185,7 @@ class InprocListener(_FfiHandleOwner):
         """
         out = ctypes.c_int32()
         with self._ffi.lease() as raw:
-            _check_inproc(
-                _inproc_lib.glowcap_inproc_listener_readiness_fd(raw, ctypes.byref(out))
-            )
+            _check_inproc(_inproc_lib.glowcap_inproc_listener_readiness_fd(raw, ctypes.byref(out)))
         return out.value
 
 
@@ -208,12 +198,12 @@ class InprocNetlayer(_FfiHandleOwner):
         out = ctypes.c_void_p()
         _check_inproc(_inproc_lib.glowcap_inproc_netlayer_new(ctypes.byref(out)))
         self._ffi = FfiHandle(out, _release_netlayer, label="inproc netlayer")
-        self._children: "weakref.WeakSet[InprocConnection | InprocListener]" = weakref.WeakSet()
+        self._children: weakref.WeakSet[InprocConnection | InprocListener] = weakref.WeakSet()
         self._children_lock = threading.Lock()
         self._release_lock = threading.Lock()
         self._release_requested = False
 
-    def __enter__(self) -> "InprocNetlayer":
+    def __enter__(self) -> InprocNetlayer:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -231,14 +221,14 @@ class InprocNetlayer(_FfiHandleOwner):
                 child.close()
             self._ffi.close()
 
-    def _adopt(self, child: "InprocConnection | InprocListener") -> bool:
+    def _adopt(self, child: InprocConnection | InprocListener) -> bool:
         with self._children_lock:
             if self._release_requested:
                 return False
             self._children.add(child)
             return True
 
-    def _forget(self, child: "InprocConnection | InprocListener") -> None:
+    def _forget(self, child: InprocConnection | InprocListener) -> None:
         with self._children_lock:
             self._children.discard(child)
 
@@ -248,9 +238,7 @@ class InprocNetlayer(_FfiHandleOwner):
         out = ctypes.c_void_p()
         with self._ffi.lease() as raw:
             _check_inproc(
-                _inproc_lib.glowcap_inproc_listen(
-                    raw, ctypes.cast(buf, ctypes.c_void_p), n, ctypes.byref(out)
-                )
+                _inproc_lib.glowcap_inproc_listen(raw, ctypes.cast(buf, ctypes.c_void_p), n, ctypes.byref(out))
             )
             return InprocListener(out, self)
 

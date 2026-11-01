@@ -42,9 +42,7 @@ def git(cwd: Path, *args: str) -> str:
 
 
 def run(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(RECORD), *args], cwd=cwd, env=GIT_ENV, capture_output=True, text=True
-    )
+    return subprocess.run([sys.executable, str(RECORD), *args], cwd=cwd, env=GIT_ENV, capture_output=True, text=True)
 
 
 class RecordTest(unittest.TestCase):
@@ -118,7 +116,10 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(git(self.repo, "diff", "--cached", "--name-only"), "")
         listing = subprocess.run(
             ["git", "notes", "--ref=refs/notes/evidence", "list"],
-            cwd=self.repo, env=GIT_ENV, capture_output=True, text=True,
+            cwd=self.repo,
+            env=GIT_ENV,
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(listing.stdout, "")
 

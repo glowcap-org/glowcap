@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from glowcap import FEATURE_FULL, FEATURE_MULTI_LOCATION, Host, GlowcapError, Ref, Tagged, enable_trace, tcp
+from glowcap import FEATURE_FULL, FEATURE_MULTI_LOCATION, GlowcapError, Host, Ref, Tagged, enable_trace, tcp
 from glowcap._constants import ERR_INVALID_ARGUMENT, ERR_UNSUPPORTED_VALUE
 
 from smoke.runtime import tcp_connect
@@ -81,14 +81,10 @@ async def drives_chain() -> None:
         await asyncio.wait_for(second_published.wait(), timeout=5)
         second_root_ref = await second.fetch("root")
         second_task = second.send(second_root_ref, "create", ["second"])
-        assert task.vow == second_task.vow, (
-            "the scenario must exercise colliding Host vow ids"
-        )
+        assert task.vow == second_task.vow, "the scenario must exercise colliding Host vow ids"
         try:
             await second.send(task, "label", [])
-            raise AssertionError(
-                "a promise from another Host must not be reinterpreted"
-            )
+            raise AssertionError("a promise from another Host must not be reinterpreted")
         except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         assert await second.send(second_task, "label", []) == "second"
@@ -131,9 +127,7 @@ async def unawaited_break_stays_silent() -> None:
         await asyncio.wait_for(published.wait(), timeout=5)
         root_ref = await session.fetch("root")
         anchor = session.send(root_ref, "explode", [])
-        assert isinstance(anchor, asyncio.Future), (
-            "a send handle must be an asyncio.Future"
-        )
+        assert isinstance(anchor, asyncio.Future), "a send handle must be an asyncio.Future"
         await asyncio.wait_for(boom_seen.wait(), timeout=5)
         assert await session.send(root_ref, "ping", []) == "pong"
         del anchor
@@ -159,11 +153,13 @@ async def projections_reach_a_field() -> None:
     pipeline_sent = asyncio.Event()
     make_pending = False
     uninstall_trace = enable_trace(
-        lambda event: pipeline_sent.set()
-        if event["kind"] == "ocapn.message-decoded"
-        and event.get("outbound")
-        and event.get("op") == "pipeline-sentinel"
-        else None,
+        lambda event: (
+            pipeline_sent.set()
+            if event["kind"] == "ocapn.message-decoded"
+            and event.get("outbound")
+            and event.get("op") == "pipeline-sentinel"
+            else None
+        ),
     )
     try:
 

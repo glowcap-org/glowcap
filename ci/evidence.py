@@ -57,7 +57,8 @@ def git(*args: str, env: dict[str, str] | None = None) -> str:
 def attach_note(path: Path, commit: str) -> None:
     result = subprocess.run(
         ["git", "notes", f"--ref={NOTES_REF}", "add", "-f", "-F", str(path), commit],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         fail(f"record written at {path}; note not attached: {result.stderr.strip()}", 3)
@@ -92,7 +93,7 @@ def parse_started(raw: str) -> str:
 
 
 def utc_now() -> str:
-    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def digest(path: Path) -> str | None:

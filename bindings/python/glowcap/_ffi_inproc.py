@@ -19,7 +19,7 @@ import ctypes
 
 from ._archive_contract import require_archive_fingerprint
 from ._constants import INPROC_ARCHIVE_FINGERPRINT
-from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
+from ._ffi_ocapn import _bind, _Frame, _Lib, _ManagedFrame
 from ._lib_resolve import _lib_path
 
 # The signature table is generated from the archive's annotated symbol

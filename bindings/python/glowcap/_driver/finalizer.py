@@ -5,7 +5,7 @@ from __future__ import annotations
 import atexit
 import ctypes
 import threading
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from .. import _constants as _c
 from .._driver_failure import _release, _report_fields
@@ -27,12 +27,12 @@ class _DriverFinalizerState:
     )
 
     def __init__(self, handle: int, context=None) -> None:
-        self.handle: Optional[ctypes.c_void_p] = ctypes.c_void_p(handle)
+        self.handle: ctypes.c_void_p | None = ctypes.c_void_p(handle)
         self.host_state = None
         self.context = context
         self.release_failure_reported = False
         self.operation = "driver-loop.finalize.release"
-        self.completion: "Optional[Callable[[Optional[BaseException]], None]]" = None
+        self.completion: Callable[[BaseException | None], None] | None = None
 
 
 _deferred_driver_finalizers: list[_DriverFinalizerState] = []
@@ -92,7 +92,7 @@ def _release_driver_finalizer_state(state: _DriverFinalizerState) -> None:
 def _defer_live_driver_release(
     state: _DriverFinalizerState,
     operation: str,
-    completion: "Callable[[Optional[BaseException]], None]",
+    completion: Callable[[BaseException | None], None],
 ) -> None:
     """Transfer a refused live-loop release to the process retry owner."""
     if not state.handle:

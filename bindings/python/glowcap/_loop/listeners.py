@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import TYPE_CHECKING, Optional, Union, cast
+from typing import TYPE_CHECKING, cast
 
 from .. import _constants as _c
-from .._errors import GlowcapError
 from .._driver_failure import _close_listener
-from .._listener import ListenerLike, ListenerOwner
+from .._errors import GlowcapError
 from .._ffi_driver import _driver
-from .._locator import _OwnedLocator, Locator, parse_locator
-
+from .._listener import ListenerLike, ListenerOwner
+from .._locator import Locator, _OwnedLocator, parse_locator
 from .errors import _check
 from .state import DriverLoopMixinBase
 
@@ -47,7 +46,7 @@ class _ListenersMixin(DriverLoopMixinBase):
             raise GlowcapError(_c.ERR_CLOSED, "the loop is closed")
         return item
 
-    def _take_accept_nowait(self, listener: int) -> Optional[int]:
+    def _take_accept_nowait(self, listener: int) -> int | None:
         accepts = self._accepts.get(listener)
         if accepts is None:
             raise GlowcapError(_c.ERR_CLOSED, "the listener is closed")
@@ -65,7 +64,7 @@ class _ListenersMixin(DriverLoopMixinBase):
             raise GlowcapError(_c.ERR_CLOSED, "the loop is closed")
         return item
 
-    def try_accept(self, listener: ListenerLike) -> Optional[int]:
+    def try_accept(self, listener: ListenerLike) -> int | None:
         """Claim one already-dispatched accepted handle without parking.
 
         This is the accept face for callers that drive :meth:`step` from a
@@ -73,13 +72,9 @@ class _ListenersMixin(DriverLoopMixinBase):
         """
         return self._take_accept_nowait(self._listener_id(listener))
 
-    def listen(
-        self, transport: Union[str, bytes], designator: Union[str, bytes]
-    ) -> "ListenerOwner":
+    def listen(self, transport: str | bytes, designator: str | bytes) -> ListenerOwner:
         transport_b = transport.encode() if isinstance(transport, str) else transport
-        designator_b = (
-            designator.encode() if isinstance(designator, str) else designator
-        )
+        designator_b = designator.encode() if isinstance(designator, str) else designator
         listener = ctypes.c_uint64(0)
         _check(
             _driver.glowcap_driver_listen(
@@ -106,14 +101,8 @@ class _ListenersMixin(DriverLoopMixinBase):
         from .._ffi_ocapn import _LocatorView
 
         view = _LocatorView()
-        _check(
-            _driver.glowcap_driver_listener_locator(
-                self._h, listener, ctypes.byref(view)
-            )
-        )
-        with _OwnedLocator.clone_view(
-            ctypes.cast(ctypes.byref(view), ctypes.c_void_p)
-        ) as owned:
+        _check(_driver.glowcap_driver_listener_locator(self._h, listener, ctypes.byref(view)))
+        with _OwnedLocator.clone_view(ctypes.cast(ctypes.byref(view), ctypes.c_void_p)) as owned:
             return owned.value()
 
     def listener_restoration_state(self, listener: ListenerLike) -> bytes:
@@ -126,9 +115,7 @@ class _ListenersMixin(DriverLoopMixinBase):
         """
         listener = self._listener_id(listener)
         needed = ctypes.c_size_t()
-        rc = _driver.glowcap_driver_listener_restoration_state(
-            self._h, listener, None, 0, ctypes.byref(needed)
-        )
+        rc = _driver.glowcap_driver_listener_restoration_state(self._h, listener, None, 0, ctypes.byref(needed))
         if rc not in (_c.OK, _c.ERR_BUFFER_TOO_SMALL):
             _check(rc)
         if needed.value == 0:
@@ -151,24 +138,16 @@ class _ListenersMixin(DriverLoopMixinBase):
             )
         return bytes(buffer)
 
-    def advertise_listener(
-        self, listener: ListenerLike, locator: Union[Locator, str]
-    ) -> None:
+    def advertise_listener(self, listener: ListenerLike, locator: Locator | str) -> None:
         """Replace this listener's advertised locator through its FFI owner."""
         listener = self._listener_id(listener)
         parsed = parse_locator(locator) if isinstance(locator, str) else locator
         with _OwnedLocator.create(parsed) as owned:
-            _check(
-                _driver.glowcap_driver_listener_advertise(
-                    self._h, listener, owned.borrow_view()
-                )
-            )
+            _check(_driver.glowcap_driver_listener_advertise(self._h, listener, owned.borrow_view()))
 
     def select_listener(self, listener: ListenerLike) -> None:
         """Select this listener's locator as the Host's acceptable location."""
-        _check(
-            _driver.glowcap_driver_listener_select(self._h, self._listener_id(listener))
-        )
+        _check(_driver.glowcap_driver_listener_select(self._h, self._listener_id(listener)))
 
     def close_listener(self, listener: ListenerLike) -> None:
         """Commit one listener stop after preserving committed accepts.
@@ -229,9 +208,7 @@ class _ListenersMixin(DriverLoopMixinBase):
             if closed:
                 self._finish_listener_close(listener)
 
-    def _finish_listener_close(
-        self, listener: int, failure: Optional[GlowcapError] = None
-    ) -> None:
+    def _finish_listener_close(self, listener: int, failure: GlowcapError | None = None) -> None:
         """Retire every binding-owned row for one terminal listener."""
         owner = self._listeners.pop(listener, None)
         self._closing_listeners.discard(listener)
@@ -266,11 +243,7 @@ class _ListenersMixin(DriverLoopMixinBase):
         provider's READY/FAILED outcome.
         """
         aio = self._started_loop()
-        owner = (
-            listener
-            if isinstance(listener, ListenerOwner)
-            else self._listeners.get(listener)
-        )
+        owner = listener if isinstance(listener, ListenerOwner) else self._listeners.get(listener)
         if owner is None:
             raise GlowcapError(_c.ERR_CLOSED, "the listener is closed")
         if owner.failure is not None:
@@ -311,7 +284,7 @@ class _ListenersMixin(DriverLoopMixinBase):
             if isinstance(item, int):
                 self._ffi_session_release(ctypes.c_void_p(item))
 
-    def completion(self, vow: int) -> "asyncio.Future[bool]":
+    def completion(self, vow: int) -> asyncio.Future[bool]:
         """A future settled by the vow's COMPLETION event (True on SETTLE.
         FAIL raises). Register before the next step."""
         aio = self._started_loop()

@@ -3,9 +3,10 @@
 The product CLI owns source selection and argv validation. Its preparation
 request is recorded here; build-front.sh owns the real launcher and builder.
 """
+
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def checkout_deployment(binary, product, scratch, original_env, run):
@@ -20,6 +21,7 @@ def checkout_deployment(binary, product, scratch, original_env, run):
     (checkout / "zig-out").mkdir()
     (checkout / "zig-out/product").symlink_to(product, target_is_directory=True)
     preparation_log = scratch / "checkout preparation.jsonl"
+
     # The CLI validates and replays argv through the checkout launcher. The
     # build-front proof exercises its actual builder; this stand-in records
     # the request and dispatches the already prepared product without compiling.
@@ -37,18 +39,26 @@ env['GLOWCAP_CHECKOUT_PREPARED'] = root
 os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
 """)
         front.chmod(0o755)
+
     prepare_front(checkout)
-    env = dict(original_env, GLOWCAP_CHECKOUT_ROOT=str(checkout), EXISTING_VOLUME="1",
-               XDG_STATE_HOME=str(scratch / "host state"))
+    env = dict(
+        original_env,
+        GLOWCAP_CHECKOUT_ROOT=str(checkout),
+        EXISTING_VOLUME="1",
+        XDG_STATE_HOME=str(scratch / "host state"),
+    )
     state = Path(env["XDG_STATE_HOME"]) / "glowcap/rooms-deployment"
     log = Path(env["DOCKER_LOG"])
+
     def call(*args, **kwargs):
         return run(binary, "apps", "rooms", "deployment", *args, env=env, **kwargs)
+
     def calls_since(before):
         return [json.loads(line) for line in log.read_text()[before:].splitlines()]
+
     def untouched(before):
-        assert not any(a[0] in ("build", "pull") or "up" in a or a[:2] == ["volume", "rm"]
-                       for a in calls_since(before))
+        assert not any(a[0] in ("build", "pull") or "up" in a or a[:2] == ["volume", "rm"] for a in calls_since(before))
+
     # Read-only verbs do not create state. The CLI does not search a checkout
     # for configuration, even when one sits in the checkout's deploy directory.
     before = len(log.read_text())
@@ -91,8 +101,7 @@ os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
         requests = [json.loads(line) for line in preparation_log.read_text().splitlines()]
         assert requests[-1] == ["apps", "rooms", "deployment", "reset", "all", "--yes"]
         before = log.read_text()
-        previous = {name: (state / name).read_bytes() for name in
-                    ("image", "docker-compose.override.yml")}
+        previous = {name: (state / name).read_bytes() for name in ("image", "docker-compose.override.yml")}
         env["FAIL_PREPARATION"] = "1"
         failed = call("up", ok=False)
         assert failed.returncode == 37 and log.read_text() == before, failed
@@ -107,9 +116,15 @@ os.execve({str(binary)!r}, [{str(binary)!r}, *sys.argv[1:]], env)
         call("restart")
         assert preparation_log.read_bytes() == before, "explicit sources or restart requested a source build"
     assert [a[-1] for a in calls if a[:2] == ["volume", "rm"]] == [
-        "glowcap-rooms-session-state", "glowcap-rooms-directory-state"]
-    assert next(i for i, a in enumerate(calls) if "down" in a) < next(i for i, a in enumerate(calls) if a[:2] == ["volume", "rm"])
-    assert next(i for i, a in enumerate(calls) if "up" in a) > max(i for i, a in enumerate(calls) if a[:2] == ["volume", "rm"])
+        "glowcap-rooms-session-state",
+        "glowcap-rooms-directory-state",
+    ]
+    assert next(i for i, a in enumerate(calls) if "down" in a) < next(
+        i for i, a in enumerate(calls) if a[:2] == ["volume", "rm"]
+    )
+    assert next(i for i, a in enumerate(calls) if "up" in a) > max(
+        i for i, a in enumerate(calls) if a[:2] == ["volume", "rm"]
+    )
     # Host state remains authoritative across subsequent checkout invocations.
     (checkout_config / "docker-compose.override.yml").write_bytes(b"# checkout copy\n")
     (state / "docker-compose.override.yml").write_bytes(override + b"# host edit\n")

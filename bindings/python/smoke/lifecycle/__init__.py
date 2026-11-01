@@ -5,22 +5,21 @@ teardown, and every session-close path retains its exact failures."""
 from __future__ import annotations
 
 import asyncio
-from contextvars import ContextVar
 import threading
+from contextvars import ContextVar
 
 import glowcap
-
 from glowcap import (
     FEATURE_FULL,
     FEATURE_MULTI_LOCATION,
-    tcp,
-    Locator,
-    Host,
     GlowcapError,
-    Symbol,
+    Host,
+    Locator,
     Runtime,
+    Symbol,
     encode_peer_locator,
     parse_locator,
+    tcp,
 )
 from glowcap._constants import (
     DESIGNATOR_SCHEME_ADDRESS,
@@ -31,27 +30,48 @@ from glowcap._constants import (
 )
 
 from smoke.runtime import tcp_connect
+
 from .close import (
     _cancelled_session_close_waiter_does_not_stop_driver as _cancelled_session_close_waiter_does_not_stop_driver,
+)
+from .close import (
     _host_close_joins_session_transport_failure as _host_close_joins_session_transport_failure,
-    _loop_close_joins_session_retirement as _loop_close_joins_session_retirement,
+)
+from .close import (
     _host_close_shuts_a_still_open_listener as _host_close_shuts_a_still_open_listener,
+)
+from .close import (
+    _loop_close_joins_session_retirement as _loop_close_joins_session_retirement,
+)
+from .close import (
     _loop_finish_close_reports_finite_grace_timeout as _loop_finish_close_reports_finite_grace_timeout,
-    _repeated_host_close_observes_recorded_timeout as _repeated_host_close_observes_recorded_timeout,
-    _session_wire_failure_is_exact_and_retired as _session_wire_failure_is_exact_and_retired,
-    _silent_loop_dial_reaches_ffi_handshake_deadline as _silent_loop_dial_reaches_ffi_handshake_deadline,
+)
+from .close import (
     _observe_session_retirement_without_serve_or_close as _observe_session_retirement_without_serve_or_close,
+)
+from .close import (
+    _repeated_host_close_observes_recorded_timeout as _repeated_host_close_observes_recorded_timeout,
+)
+from .close import (
+    _session_wire_failure_is_exact_and_retired as _session_wire_failure_is_exact_and_retired,
+)
+from .close import (
+    _silent_loop_dial_reaches_ffi_handshake_deadline as _silent_loop_dial_reaches_ffi_handshake_deadline,
 )
 from .session_coordinator import (
     cancelled_close_waiter_preserves_transport_coordinator as cancelled_close_waiter_preserves_transport_coordinator,
+)
+from .session_coordinator import (
     cancelled_loop_close_waiter_preserves_terminal_chain as cancelled_loop_close_waiter_preserves_terminal_chain,
+)
+from .session_coordinator import (
     partner_release_keeps_a_freed_handle_from_loop_close as partner_release_keeps_a_freed_handle_from_loop_close,
+)
+from .session_coordinator import (
     passive_observers_join_physical_retirement as passive_observers_join_physical_retirement,
 )
 
-_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
-    "scenario_runtimes", default=None
-)
+_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
 
 
 async def _listen_surfaces_bound_port() -> None:
@@ -150,9 +170,7 @@ async def _supplied_host_tcp_listener_ownership() -> None:
     client = None
     accepted = None
     try:
-        assert server.host is supplied, (
-            "listener did not preserve the supplied Host wrapper"
-        )
+        assert server.host is supplied, "listener did not preserve the supplied Host wrapper"
         assert parse_locator(server.uri).transport == TRANSPORT_TCP, server.uri
         client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         accepted = await asyncio.wait_for(accepted_task, timeout=5)
@@ -211,20 +229,14 @@ async def _supplied_host_iroh_listener_ownership() -> None:
     client = None
     accepted = None
     try:
-        assert server.host is supplied, (
-            "iroh listener did not preserve the supplied Host wrapper"
-        )
+        assert server.host is supplied, "iroh listener did not preserve the supplied Host wrapper"
         from glowcap.iroh import provider as iroh_provider
 
-        runtime = await Runtime.open(
-            provider=iroh_provider(IrohConfig(Reachability.LOCAL_DISCOVERY))
-        )
+        runtime = await Runtime.open(provider=iroh_provider(IrohConfig(Reachability.LOCAL_DISCOVERY)))
         client = await runtime.connect(server.locator)
         accepted = await asyncio.wait_for(accepted_task, timeout=10)
         await server.close()
-        assert not supplied.released, (
-            "iroh listener close released a yielded supplied Host"
-        )
+        assert not supplied.released, "iroh listener close released a yielded supplied Host"
         await accepted.close()
         await client.close()
     finally:
@@ -298,12 +310,8 @@ async def _host_release_joins_dial_task() -> None:
         await _run_action(host, CancelDial(ticket=7, route_index=0))
         assert finished.is_set(), "CANCEL_DIAL returned before DIAL cleanup finished"
         await host.close()
-        assert host._raw is None, (
-            "Host close retained FFI authority after CANCEL_DIAL cleanup"
-        )
-        assert not host._dial_tasks, (
-            "the Host-owned DIAL registry retained a finished task"
-        )
+        assert host._raw is None, "Host close retained FFI authority after CANCEL_DIAL cleanup"
+        assert not host._dial_tasks, "the Host-owned DIAL registry retained a finished task"
     finally:
         dial_module.run_dial_ticket = original
         if host._raw is not None:
@@ -373,22 +381,12 @@ async def _proof_refusal_releases_minted_session() -> None:
         except GlowcapError as exc:
             assert exc.code == ERR_INVALID_ARGUMENT, exc.code
         else:
-            raise AssertionError(
-                "a refused accepted-channel proof unexpectedly established"
-            )
-        assert releases == 2, (
-            "accepted proof refusal did not release exactly one session"
-        )
-        assert accepted_transport.close_count == 1, (
-            "accepted proof refusal did not close its transport"
-        )
-        assert not host._sessions, (
-            "accepted proof refusal left a session registered on its Host"
-        )
+            raise AssertionError("a refused accepted-channel proof unexpectedly established")
+        assert releases == 2, "accepted proof refusal did not release exactly one session"
+        assert accepted_transport.close_count == 1, "accepted proof refusal did not close its transport"
+        assert not host._sessions, "accepted proof refusal left a session registered on its Host"
     finally:
-        session_module._host.glowcap_host_session_bind_verified_channel_key = (
-            original_bind
-        )
+        session_module._host.glowcap_host_session_bind_verified_channel_key = original_bind
         session_module._host.glowcap_host_session_release = original_release
         await host.close()
 
@@ -404,9 +402,7 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
     glowcap.take_runtime_failures()
 
     class ControlledNetlayer(IrohNetlayer):
-        def __init__(
-            self, _config, _secret_seed=None, *, _construction_token=None
-        ) -> None:
+        def __init__(self, _config, _secret_seed=None, *, _construction_token=None) -> None:
             started.set()
             finish.wait()
 
@@ -414,9 +410,7 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
             released.set()
             raise cleanup_failure
 
-    opening = asyncio.create_task(
-        ControlledNetlayer.open(IrohConfig(Reachability.DIRECT))
-    )
+    opening = asyncio.create_task(ControlledNetlayer.open(IrohConfig(Reachability.DIRECT)))
     assert await asyncio.to_thread(started.wait, 1), "iroh constructor did not start"
     opening.cancel()
     finish.set()
@@ -426,9 +420,7 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
         pass
     else:
         raise AssertionError("cancelled iroh startup returned an endpoint")
-    assert released.is_set(), (
-        "cancelled iroh startup abandoned the constructed endpoint"
-    )
+    assert released.is_set(), "cancelled iroh startup abandoned the constructed endpoint"
     diagnostics = glowcap.take_runtime_failures()
     assert len(diagnostics) == 1, diagnostics
     assert diagnostics[0].operation == "iroh-release-after-cancel"
@@ -551,9 +543,7 @@ async def _session_repeated_close_joins_published_failure() -> None:
     session._start_terminal_coordinator(session._close_future)
     repeated = asyncio.create_task(session.close())
 
-    session._close_future.set_exception(
-        GlowcapError(ERR_INVALID_ARGUMENT, "published close failure")
-    )
+    session._close_future.set_exception(GlowcapError(ERR_INVALID_ARGUMENT, "published close failure"))
     try:
         await repeated
     except GlowcapError as error:
@@ -626,6 +616,4 @@ async def _session_close_retains_every_terminal_failure() -> None:
         assert observed is primary, "repeated close replaced its exact primary"
     else:
         raise AssertionError("repeated close discarded its terminal failure chain")
-    assert session.terminal_failures == expected, (
-        "repeated close duplicated or reordered retained failures"
-    )
+    assert session.terminal_failures == expected, "repeated close duplicated or reordered retained failures"

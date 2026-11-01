@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 from . import _constants as _c
 from ._errors import GlowcapError
@@ -25,8 +24,8 @@ class CarrierPhase(Enum):
 class CarrierFailure:
     phase: CarrierPhase
     verification_flags: int = 0
-    peer_alert: Optional[int] = None
-    engine_code: Optional[int] = None
+    peer_alert: int | None = None
+    engine_code: int | None = None
 
 
 _PHASES = {
@@ -47,7 +46,7 @@ def _decode(
     verification_flags: int,
     peer_alert: int,
     engine_code: int,
-) -> Optional[CarrierFailure]:
+) -> CarrierFailure | None:
     if phase == _c.CARRIER_PHASE_NONE:
         if detail_flags == verification_flags == peer_alert == engine_code == 0:
             return None

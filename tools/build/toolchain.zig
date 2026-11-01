@@ -35,6 +35,10 @@ const in_tree_runtimes = [_]toolchain_check.Runtime{
         .why = "source parity, C-ABI extraction, and visualizer harnesses are shell-owned",
     },
     .{
+        .program = "ruff",
+        .why = "every first-party Python file, from the CI programs to the binding, is formatted and linted by the one pinned tool",
+    },
+    .{
         .program = "sh",
         .why = "the complete-installation proof runs build-owned POSIX staging recipes, including file copying and Git revision stamping",
     },

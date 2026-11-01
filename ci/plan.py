@@ -8,13 +8,13 @@ readable GITHUB_STEP_SUMMARY.
 
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from groups import GROUPS, GROUP_NAMES
+from groups import GROUP_NAMES, GROUPS
 
 
 def select(event_name, ref, event, paths):
@@ -24,10 +24,12 @@ def select(event_name, ref, event, paths):
     # Dev supplies the exact commit's promotion evidence, which main reuses
     # after a fast-forward, so every dev push must run full validation. Keep
     # explicit validation on main full for recovery runs too.
-    if (event_name in ("schedule", "workflow_dispatch")
-            or ref in ("refs/heads/main", "refs/heads/dev")
-            or event.get("pull_request", {}).get("base", {}).get("ref") == "main"
-            or paths is None):
+    if (
+        event_name in ("schedule", "workflow_dispatch")
+        or ref in ("refs/heads/main", "refs/heads/dev")
+        or event.get("pull_request", {}).get("base", {}).get("ref") == "main"
+        or paths is None
+    ):
         return list(GROUP_NAMES), True
     selected = {"source", "core", "runtime", "tls", "shipped"}
     for path in paths:
@@ -58,7 +60,11 @@ def changed_paths(event, cwd):
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", "--no-renames", "-z", base, "HEAD", "--"],
-            cwd=cwd, capture_output=True, check=True, timeout=60)
+            cwd=cwd,
+            capture_output=True,
+            check=True,
+            timeout=60,
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     if not result.stdout:
@@ -69,10 +75,14 @@ def changed_paths(event, cwd):
 def main():
     root = Path(__file__).resolve().parents[1]
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-    selected, full = select(os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"],
-                            event, changed_paths(event, root))
-    groups = [{"name": group.name, "phases": list(group.phases), "shards": list(range(1, group.shards + 1))}
-              for group in GROUPS if group.name in selected]
+    selected, full = select(
+        os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"], event, changed_paths(event, root)
+    )
+    groups = [
+        {"name": group.name, "phases": list(group.phases), "shards": list(range(1, group.shards + 1))}
+        for group in GROUPS
+        if group.name in selected
+    ]
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"groups={json.dumps(groups)}\nfull={str(full).lower()}\n")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
@@ -81,8 +91,10 @@ def main():
         for group in groups:
             summary.write(f"| {group['name']} | {len(group['shards'])} | {', '.join(group['phases'])} |\n")
         summary.write("\nmacOS runs separately.\n\n")
-        summary.write("Full validation reports `gates`, which promotion requires. A development "
-                      "run reports `dev-gates` and cannot promote a commit to main.\n")
+        summary.write(
+            "Full validation reports `gates`, which promotion requires. A development "
+            "run reports `dev-gates` and cannot promote a commit to main.\n"
+        )
 
 
 if __name__ == "__main__":

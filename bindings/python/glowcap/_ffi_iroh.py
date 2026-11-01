@@ -17,8 +17,8 @@ import ctypes
 from ._archive_contract import require_archive_fingerprint
 from ._constants import IROH_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
-from ._pin import pin_struct
 from ._lib_resolve import _lib_file, _lib_path
+from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
 # inventory (``zig build gen-binding-python-ffi``). The iroh archive keeps its
@@ -67,9 +67,7 @@ def _load_iroh():
         "iroh",
         IROH_ARCHIVE_FINGERPRINT,
     )
-    for name, (argtypes, restype) in iroh_sigs(
-        _IrohReadyEvent, _IrohConfig, _TransportProvider
-    ).items():
+    for name, (argtypes, restype) in iroh_sigs(_IrohReadyEvent, _IrohConfig, _TransportProvider).items():
         fn = getattr(lib, name)
         fn.argtypes = argtypes
         fn.restype = restype
@@ -91,7 +89,6 @@ def _iroh():
             raise RuntimeError(
                 f"iroh transport unavailable: could not load {_IROH_LIB_FILE} from "
                 "GLOWCAP_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system "
-                "library path. Build it with `zig build iroh-abi` (needs cargo). "
-                + str(exc)
+                "library path. Build it with `zig build iroh-abi` (needs cargo). " + str(exc)
             ) from exc
     return _iroh_lib_cache

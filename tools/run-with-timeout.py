@@ -46,8 +46,8 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import shutil
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -207,17 +207,24 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 if time.monotonic() >= deadline:
                     raise
-                print(f"run-with-timeout: {shlex.join(command)} still running "
-                      f"({time.monotonic() - started:.0f}s elapsed, "
-                      f"{args.timeout:g}s deadline)", file=sys.stderr, flush=True)
+                print(
+                    f"run-with-timeout: {shlex.join(command)} still running "
+                    f"({time.monotonic() - started:.0f}s elapsed, "
+                    f"{args.timeout:g}s deadline)",
+                    file=sys.stderr,
+                    flush=True,
+                )
     except subprocess.TimeoutExpired:
         signal_group(process, signal.SIGTERM)
         escalate(process, args.kill_after)
         signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
         process = None
         code = finish(124)
-        print(f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline "
-              "and was stopped", file=sys.stderr, flush=True)
+        print(
+            f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline and was stopped",
+            file=sys.stderr,
+            flush=True,
+        )
         signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
         return code
     elapsed = time.monotonic() - started
@@ -237,8 +244,12 @@ def report_headroom(command: list[str], elapsed: float, timeout: float) -> None:
     way."""
     said = shlex.join(command)
     if timeout > 0 and elapsed * HEADROOM > timeout:
-        print(f"run-with-timeout: {said} passed in {elapsed:.0f}s of its {timeout:g}s deadline; "
-              f"a runner {HEADROOM}x slower would stop it", file=sys.stderr, flush=True)
+        print(
+            f"run-with-timeout: {said} passed in {elapsed:.0f}s of its {timeout:g}s deadline; "
+            f"a runner {HEADROOM}x slower would stop it",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

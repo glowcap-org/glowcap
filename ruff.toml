@@ -1,0 +1,16 @@
+# `zig build python-check` holds every first-party Python file to this
+# formatter and lint, and `zig build python-fmt` writes the format. The
+# vendored upstream suites keep their authors' style, and a generated file
+# keeps its generator's.
+line-length = 120
+# The Python binding supports 3.11, the oldest Python any first-party file runs on.
+target-version = "py311"
+extend-exclude = ["conformance/*/upstream", "*_gen.py"]
+
+[lint]
+# The mechanical rules: errors, unused names, import order, outdated syntax,
+# a shebang on a file nothing executes, and a noqa nothing needs. The
+# formatter owns line length, and what it leaves long is a literal that would
+# read worse split.
+select = ["E", "F", "I", "UP", "EXE", "RUF100"]
+ignore = ["E501"]

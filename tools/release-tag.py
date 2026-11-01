@@ -36,7 +36,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_TIMEOUT = 30
 NETWORK_TIMEOUT = 60
@@ -76,8 +75,7 @@ def release(version):
     if git("rev-parse", "--show-toplevel", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         raise Refusal("not inside a Git worktree")
 
-    if git("fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main",
-           timeout=NETWORK_TIMEOUT).returncode:
+    if git("fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main", timeout=NETWORK_TIMEOUT).returncode:
         raise Refusal("cannot fetch main from origin")
     resolved = git_output("rev-parse", "refs/remotes/origin/main")
     if resolved.returncode:
@@ -88,8 +86,10 @@ def release(version):
     if listed.returncode:
         raise Refusal("cannot list the tags on origin")
     if listed.stdout.strip():
-        raise Refusal(f"{tag} is already on origin; a published version is never replaced, "
-                      "so a defect takes the next patch version")
+        raise Refusal(
+            f"{tag} is already on origin; a published version is never replaced, "
+            "so a defect takes the next patch version"
+        )
 
     shown = git_output("show", f"{commit}:bindings/c-abi-resolve.json")
     try:
@@ -99,25 +99,34 @@ def release(version):
     except (ValueError, KeyError, TypeError):
         raise Refusal("cannot read the version main states") from None
     if stated != version:
-        raise Refusal(f"main ({commit}) states {stated}, not {version}; "
-                      f"land `zig build set-version -Dversion={version}` on dev "
-                      "and let promotion move main first")
+        raise Refusal(
+            f"main ({commit}) states {stated}, not {version}; "
+            f"land `zig build set-version -Dversion={version}` on dev "
+            "and let promotion move main first"
+        )
     changelog = git_output("show", f"{commit}:CHANGELOG.md")
     if changelog.returncode or not re.search(rf"^## \[{re.escape(version)}\]", changelog.stdout, re.MULTILINE):
         raise Refusal(f"CHANGELOG.md on main has no [{version}] section")
 
-    named = run(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], GH_TIMEOUT,
-                f"gh did not name the repository within {GH_TIMEOUT} seconds; rerun when GitHub responds",
-                stdout=subprocess.PIPE, text=True)
+    named = run(
+        ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+        GH_TIMEOUT,
+        f"gh did not name the repository within {GH_TIMEOUT} seconds; rerun when GitHub responds",
+        stdout=subprocess.PIPE,
+        text=True,
+    )
     if named.returncode:
         raise Refusal("gh cannot name the repository; run gh auth login first")
     repository = named.stdout.rstrip("\n")
-    refusal = (f"main ({commit}) has no successful full validation, "
-               "so the release workflow would refuse the tag")
-    validated = run([sys.executable, str(ROOT / "ci/require_main_check.py"), commit], CHECK_TIMEOUT,
-                    f"{refusal} (the validation lookup exceeded {CHECK_TIMEOUT} seconds)",
-                    env={**os.environ, "GITHUB_REPOSITORY": repository},
-                    stdout=subprocess.PIPE, text=True)
+    refusal = f"main ({commit}) has no successful full validation, so the release workflow would refuse the tag"
+    validated = run(
+        [sys.executable, str(ROOT / "ci/require_main_check.py"), commit],
+        CHECK_TIMEOUT,
+        f"{refusal} (the validation lookup exceeded {CHECK_TIMEOUT} seconds)",
+        env={**os.environ, "GITHUB_REPOSITORY": repository},
+        stdout=subprocess.PIPE,
+        text=True,
+    )
     if validated.returncode:
         raise Refusal(refusal)
     run_url = validated.stdout.rstrip("\n")
@@ -125,23 +134,38 @@ def release(version):
     existing = git_output("rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}")
     if existing.returncode == 0:
         if existing.stdout.strip() != commit:
-            raise Refusal(f"local tag {tag} points at {existing.stdout.strip()}, not main's {commit}; "
-                          "inspect and delete it, then retry")
-    elif git("tag", "-s", tag, commit, "-m", f"glowcap {version}", timeout=SIGN_TIMEOUT,
-             timed_out=f"signing {tag} did not finish within {SIGN_TIMEOUT} seconds; "
-                       "make the signing key reachable (forward the agent that holds it) and retry"
-             ).returncode:
-        raise Refusal("signing failed; make the signing key reachable "
-                      "(forward the agent that holds it) and retry")
+            raise Refusal(
+                f"local tag {tag} points at {existing.stdout.strip()}, not main's {commit}; "
+                "inspect and delete it, then retry"
+            )
+    elif git(
+        "tag",
+        "-s",
+        tag,
+        commit,
+        "-m",
+        f"glowcap {version}",
+        timeout=SIGN_TIMEOUT,
+        timed_out=f"signing {tag} did not finish within {SIGN_TIMEOUT} seconds; "
+        "make the signing key reachable (forward the agent that holds it) and retry",
+    ).returncode:
+        raise Refusal("signing failed; make the signing key reachable (forward the agent that holds it) and retry")
     if git("verify-tag", tag, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
-        raise Refusal(f"the signature on {tag} does not verify; "
-                      "name the key in gpg.ssh.allowedSignersFile and retry")
-    if git("push", "-q", "origin", f"refs/tags/{tag}", timeout=NETWORK_TIMEOUT,
-           timed_out=f"pushing {tag} did not finish within {NETWORK_TIMEOUT} seconds; "
-                     "the signed tag is kept locally, check origin and retry").returncode:
+        raise Refusal(f"the signature on {tag} does not verify; name the key in gpg.ssh.allowedSignersFile and retry")
+    if git(
+        "push",
+        "-q",
+        "origin",
+        f"refs/tags/{tag}",
+        timeout=NETWORK_TIMEOUT,
+        timed_out=f"pushing {tag} did not finish within {NETWORK_TIMEOUT} seconds; "
+        "the signed tag is kept locally, check origin and retry",
+    ).returncode:
         raise Refusal(f"pushing {tag} failed; the signed tag is kept locally, retry")
     print(f"release-tag: pushed {tag} at {commit}, validated by {run_url}")
-    print(f"release-tag: the release workflow publishes it: https://github.com/{repository}/actions/workflows/release.yml")
+    print(
+        f"release-tag: the release workflow publishes it: https://github.com/{repository}/actions/workflows/release.yml"
+    )
 
 
 def main(argv):
