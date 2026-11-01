@@ -246,6 +246,7 @@ pub fn register(
         "--allow-ffi", "--unstable-ffi", "interop/goblins_rooms/harness.ts",
     });
     goblins_rooms.step.dependOn(rooms_services_install);
+    goblins_rooms.step.dependOn(common.goblinsPeerModules(b));
     const goblins_rooms_step = b.step("goblins-rooms", "Live Goblins in the rooms chat: a real Goblins vat and a glowcap peer hold one room, each on the profile its own session settled (needs deno + racket + goblins)");
     goblins_rooms_step.dependOn(&goblins_rooms.step);
 
@@ -256,6 +257,7 @@ pub fn register(
     const goblins_rooms_peering = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_peering/harness.ts",
     });
+    goblins_rooms_peering.step.dependOn(common.goblinsPeerModules(b));
     const goblins_rooms_peering_step = b.step("goblins-rooms-peering", "Live Goblins through Rooms Peering: enter a glowcap foreign listing over v1.0/Syrup, revoke discovery, and keep using the handed room (needs deno + racket + goblins)");
     goblins_rooms_peering_step.dependOn(&goblins_rooms_peering.step);
 
@@ -269,6 +271,7 @@ pub fn register(
     goblins_rooms_irc_bridge.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
     goblins_rooms_irc_bridge.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=bridge" });
     goblins_rooms_irc_bridge.step.dependOn(rooms_services_install);
+    goblins_rooms_irc_bridge.step.dependOn(common.goblinsPeerModules(b));
     const goblins_rooms_irc_bridge_step = b.step("goblins-rooms-irc-bridge", "Live Goblins through the IRC bridge: fixture IRC and a real vat exchange room lines both ways (needs deno + racket + goblins)");
     goblins_rooms_irc_bridge_step.dependOn(&goblins_rooms_irc_bridge.step);
 
@@ -299,6 +302,7 @@ pub fn register(
     // Server and vat both reach iroh through the C ABI companion library.
     goblins_rooms_iroh.step.dependOn(iroh_abi_step);
     goblins_rooms_iroh.step.dependOn(rooms_services_install);
+    goblins_rooms_iroh.step.dependOn(common.goblinsPeerModules(b));
     const goblins_rooms_iroh_step = b.step("goblins-rooms-iroh", "Live Goblins in the rooms chat over iroh's encrypted QUIC: the accepting side records the endpoint id QUIC authenticated (needs cargo + deno + racket + goblins)");
     goblins_rooms_iroh_step.dependOn(&goblins_rooms_iroh.step);
 
@@ -313,6 +317,7 @@ pub fn register(
     goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
     goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     goblins_rooms_dm.step.dependOn(rooms_services_install);
+    goblins_rooms_dm.step.dependOn(common.goblinsPeerModules(b));
     goblins_rooms_dm.addArgs(&.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts",
     });
@@ -332,6 +337,7 @@ pub fn register(
     goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
     goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     goblins_rooms_dm_iroh.step.dependOn(rooms_services_install);
+    goblins_rooms_dm_iroh.step.dependOn(common.goblinsPeerModules(b));
     goblins_rooms_dm_iroh.addArgs(&.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts", "--iroh",
     });
@@ -355,6 +361,7 @@ pub fn register(
         run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
         run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
         run.step.dependOn(rooms_services_install);
+        run.step.dependOn(common.goblinsPeerModules(b));
         run.addArgs(&.{
             "deno",                         "run", "--allow-all", "interop/goblins_rooms_matrix/harness.ts",
             b.fmt("--phase={s}", .{phase}),

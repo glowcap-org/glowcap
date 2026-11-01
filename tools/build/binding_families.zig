@@ -28,6 +28,9 @@ const BindingFamily = struct {
     aggregate_name: []const u8,
     aggregate_desc: []const u8,
     needs_iroh_abi: bool,
+    /// The rows' harnesses spawn a Goblins vat from `conformance/goblins-peer/racket/`,
+    /// so those modules are compiled before any row's deadline starts.
+    spawns_goblins_vat: bool = false,
     /// The rows dial the Zig WebRTC answerer and accept the Zig WebRTC
     /// offerer over the WebRTC C library, so all three are built first.
     needs_webrtc_peers: bool = false,
@@ -56,6 +59,7 @@ fn addBindingFamily(
     for (family.rows) |client| {
         const run = addInstalledSystemRun(b, client.posture, client.argv);
         if (family.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
+        if (family.spawns_goblins_vat) run.step.dependOn(common.goblinsPeerModules(b));
         if (family.needs_webrtc_peers) {
             run.step.dependOn(webrtc.abi_step);
             run.step.dependOn(webrtc.answerer_step);
@@ -379,24 +383,28 @@ const binding_families = [_]BindingFamily{
         .aggregate_name = "bindings-goblins-interop",
         .aggregate_desc = "Live keyed conversation vs a real Goblins vat through Deno, Python, Rust, and Racket bindings (needs racket + goblins + the runtimes)",
         .needs_iroh_abi = false,
+        .spawns_goblins_vat = true,
         .rows = &goblins_interop_clients,
     },
     .{
         .aggregate_name = "bindings-goblins-listen",
         .aggregate_desc = "Live listener conversation: a real Goblins vat dials and calls Deno, Python, Rust, and Racket binding hosts (needs deno + racket + goblins + the runtimes)",
         .needs_iroh_abi = false,
+        .spawns_goblins_vat = true,
         .rows = &goblins_listen_clients,
     },
     .{
         .aggregate_name = "bindings-goblins-handoff",
         .aggregate_desc = "Three-party handoff through Deno, Python, Rust, and Racket bindings as recipient (needs racket + goblins + the runtimes)",
         .needs_iroh_abi = false,
+        .spawns_goblins_vat = true,
         .rows = &goblins_handoff_clients,
     },
     .{
         .aggregate_name = "bindings-goblins-gift",
         .aggregate_desc = "Three-party handoff through Deno, Python, Rust, and Racket bindings as gifter (needs racket + goblins + the runtimes)",
         .needs_iroh_abi = false,
+        .spawns_goblins_vat = true,
         .rows = &goblins_gift_clients,
     },
     .{

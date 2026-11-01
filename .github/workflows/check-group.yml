@@ -35,9 +35,12 @@ permissions:
 # them or every test job rebuilds. Cargo's intermediate state is cached
 # between runs, so incremental compilation would only add disk, and dev-profile
 # debug info keeps source lines without the variable data that dominates a
-# target directory; the Rooms test profile makes the same choice.
+# target directory; the Rooms test profile makes the same choice. Cargo's
+# fingerprint log names each unit it rebuilds and why, and says nothing when
+# a build is fresh, so a gate that recompiles after a state restore shows its
+# cause instead of a silent gap.
 env:
-  EXEC: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only
+  EXEC: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only --remote-env CARGO_LOG=cargo::core::compiler::fingerprint=info
 
 jobs:
   build:

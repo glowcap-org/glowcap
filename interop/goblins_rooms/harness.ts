@@ -263,15 +263,20 @@ try {
 	// posts as soon as it has subscribed and waits for the glowcap member's line.
 	const roster = `${GLOWCAP_NICK},${GOBLINS_NICK}`;
 	const [glowcap, goblins] = await Promise.all([
-		runChild("deno", [
-			...DENO_FLAGS,
-			`${ROOT}/apps/rooms/clients/deno/client.ts`,
-			locator,
-			ROOM,
-			GLOWCAP_NICK,
-			GLOWCAP_LINE,
-			roster,
-		], ROOT),
+		runChild(
+			"deno",
+			[
+				...DENO_FLAGS,
+				`${ROOT}/apps/rooms/clients/deno/client.ts`,
+				locator,
+				ROOM,
+				GLOWCAP_NICK,
+				GLOWCAP_LINE,
+				roster,
+			],
+			ROOT,
+			{ echo: GLOWCAP_NICK },
+		),
 		runChild(
 			"racket",
 			[
@@ -284,20 +289,14 @@ try {
 				GLOWCAP_NICK,
 			],
 			ROOT,
-			{ GLOWCAP_ROOMS_TRACE_URL: publishUrl },
+			{ env: { GLOWCAP_ROOMS_TRACE_URL: publishUrl }, echo: GOBLINS_NICK },
 		),
 	]);
 
-	console.log(`──────── the glowcap member (exit ${glowcap.code}) ────────`);
-	console.log(glowcap.out.trimEnd());
-	console.log(`──────── the goblins vat (exit ${goblins.code}) ────────`);
-	console.log(goblins.out.trimEnd());
-	console.log("");
-
 	if (goblins.code !== 0 || !goblins.out.includes("ROOMS OK")) {
-		fail("the goblins vat did not complete the exchange");
+		fail(`the goblins vat did not complete the exchange (exit ${goblins.code})`);
 	}
-	if (glowcap.code !== 0) fail("the glowcap member did not complete the exchange");
+	if (glowcap.code !== 0) fail(`the glowcap member did not complete the exchange (exit ${glowcap.code})`);
 	if (!goblins.out.includes(GLOWCAP_LINE)) {
 		fail(`the goblins vat never heard "${GLOWCAP_LINE}"`);
 	}
