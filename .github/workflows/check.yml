@@ -221,9 +221,10 @@ jobs:
         id: pins
 
       - name: Install the pinned uv
-        env:
-          UV_VERSION: ${{ steps.pins.outputs.uv }}
-        run: python3 -m pip install "uv==$UV_VERSION"
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+          enable-cache: false
 
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
