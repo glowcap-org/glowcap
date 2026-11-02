@@ -2,8 +2,8 @@
  * Fixtures for claim-placement: a document of observations, the layout
  * picture it produces, and the distances the lean is judged by.
  *
- * `engineTest` and `dist` are the keyframe suite's, so a Deno sanitizer
- * workaround and a distance live in one place.
+ * `dist` is the keyframe suite's and `engineTest` the engine suite's, both
+ * re-exported so a claim-placement test imports one harness.
  */
 
 import { createWorld, type GameWorld, type Vec2 } from "../../world.ts";
@@ -11,7 +11,8 @@ import { TimelineDocument, type TimelineEvent } from "../../timeline.ts";
 import { materializeWorldAt } from "../world-materializer.ts";
 import { DEFAULT_LAYOUT_CONFIG, KeyframeLayoutSystem, type LayoutConfig } from "../keyframe-layout-system.ts";
 import { LOOSE_END_CLAIMING, NODE_RADIUS } from "../../../render/draw-helpers.ts";
-import { dist, engineTest } from "../keyframe-layout-test/harness.ts";
+import { dist } from "../keyframe-layout-test/harness.ts";
+import { engineTest } from "../../engine-test/harness.ts";
 
 export { dist, engineTest };
 

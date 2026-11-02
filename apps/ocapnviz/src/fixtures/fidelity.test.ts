@@ -39,8 +39,7 @@ const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 
 /** Every netlayer glowcap ships, with how it spells a designator. A claim that
  *  does not match its netlayer's spelling is a recording nothing could have
- *  produced, and a netlayer missing from this table fails the transport check
- *  below as unknown rather than being checked at all.
+ *  produced.
  *
  *  Which netlayers exist, and which of them name a peer by key, are Zig's:
  *  `driver_core.vocab.designatorSchemeForTransport` and each resident's own
@@ -65,7 +64,8 @@ const DESIGNATOR_SHAPE: Record<TransportOption, RegExp> = {
 	[TRANSPORT_NOISE_RELAY]: KEY_DESIGNATOR,
 };
 
-/** The same table keyed by the recording's string, for lookups. */
+/** The same table keyed by the string a recording carries, which is checked
+ *  against the offer rather than typed as it. */
 const designatorShapes: ReadonlyMap<string, RegExp> = new Map(Object.entries(DESIGNATOR_SHAPE));
 
 function opensOf(doc: (typeof scenarios)[number]) {
@@ -84,7 +84,7 @@ Deno.test("every shipped recording names the netlayer each session runs over", (
 				`${doc.id}/${ev.sessionId}: no transport — one session runs over one netlayer, and a trace always knows which`,
 			);
 			assert(
-				ev.transport in DESIGNATOR_SHAPE,
+				designatorShapes.has(ev.transport),
 				`${doc.id}/${ev.sessionId}: unknown netlayer ${ev.transport}`,
 			);
 		}
@@ -95,7 +95,7 @@ Deno.test("every session end says what it claims and what backed the claim", () 
 	for (const doc of scenarios) {
 		for (const ev of opensOf(doc)) {
 			const shape = designatorShapes.get(ev.transport!);
-			assert(shape !== undefined, `${doc.id}: session opened over an unoffered netlayer ${ev.transport}`);
+			assert(shape !== undefined, `${doc.id}/${ev.sessionId}: unknown netlayer ${ev.transport}`);
 			for (const side of SESSION_SIDES) {
 				const end = ev[side];
 				// An end always has a claim: the reporting host either dialed
