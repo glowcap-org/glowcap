@@ -82,7 +82,7 @@ service id to reach.
 > partner = onion.locator("<56-character onion service id>")
 >
 > async with Runtime.open(
->     provider=onion.provider(onion.OnionConfig(socks="/run/tor/socks"))
+>     providers=[onion.provider(onion.OnionConfig(socks="/run/tor/socks"))]
 > ) as runtime:
 > ```
 > **Rust**

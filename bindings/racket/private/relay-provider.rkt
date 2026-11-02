@@ -186,6 +186,7 @@
      (establish-dialed-locator-session
       m loc
       (ws-transport (relay-dial-url route (locator-designator loc)))
+      #:verified-channel-key #f
       #:handshake-timeout-ms handshake-timeout-ms))))
 
 (module+ test

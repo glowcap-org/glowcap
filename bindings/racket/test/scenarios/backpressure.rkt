@@ -30,10 +30,12 @@
        (establish-accepted-session bp-exporter "tcp" "127.0.0.1:9011"
                                    (port-transport bp-forward-in bp-backward-out)
                                    #:designator-scheme DESIGNATOR-SCHEME-ADDRESS
+                                   #:verified-channel-key #f
                                    #:handshake-timeout-ms 5000))))))
 (define bp-dialed
   (establish-dialed-locator-session bp-dialer (tcp-locator "127.0.0.1" 9011)
                                     (port-transport bp-backward-in bp-forward-out)
+                                    #:verified-channel-key #f
                                     #:handshake-timeout-ms 5000))
 (define bp-accepted (channel-get bp-accepted-ch))
 (when (exn? bp-accepted) (raise bp-accepted))

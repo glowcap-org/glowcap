@@ -308,7 +308,7 @@ async fn walk(peer_uri: String, dead_uri: String) {
 	}
 	joined("serve listener a", serving_a).await;
 	joined("serve listener b", serving_b).await;
-	// Listener a minted the loop both share, so it closes last.
+	// The Host owns the loop both listeners share, so their close order does not matter.
 	expect("close listener b", b.close().await);
 	expect("close listener a", a.close().await);
 	mark("listen-routed", "");

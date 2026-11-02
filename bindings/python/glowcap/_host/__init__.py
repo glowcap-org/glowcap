@@ -1,5 +1,5 @@
 """Internal: the CapTP :class:`Host`: multi-session CapTP product over the
-byte-fed host family (ADR-0022, loaded from ``libglowcap_host``). The Host
+byte-fed host family (loaded from ``libglowcap_host``). The Host
 owns ``engine.Node``
 (the sans-io handoff router). Goblins ``mycapn`` is two roles: its product maps
 to Host. Its router tables map to ``engine.Node``: never a single-type
@@ -76,7 +76,7 @@ _HOST_FRAME_CAP = _abi.DEFAULT_FRAME_CAP
 class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
     """The CapTP Host: one identity, one session directory, one routing and redeem
     authority, shared by every session minted against it. It owns
-    ``engine.Node`` in the Zig core behind ``libglowcap_host`` (ADR-0022).
+    ``engine.Node`` in the Zig core behind ``libglowcap_host``.
     This is the host-idiom residue over it: the :class:`Session` registry,
     the vow table, the action drain that performs the I/O the host asks for
     (dial, flush, settle, entropy), and the iroh redeem posture.

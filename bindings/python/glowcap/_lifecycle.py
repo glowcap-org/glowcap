@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ctypes
-import math
 import time
 from enum import StrEnum
 from typing import Final
@@ -41,28 +40,31 @@ def _monotonic_ms() -> int:
     return time.monotonic_ns() // 1_000_000
 
 
-def _close_options(pending: PendingWork, grace: object = _UNSET) -> _CloseOptions:
-    if grace is _UNSET:
+def _close_options(pending: PendingWork, grace_ms: object = _UNSET) -> _CloseOptions:
+    """Marshal one close policy. ``grace_ms`` is a millisecond count, ``None``
+    for the deliberate unbounded wait, or unset. FINISH names its grace budget
+    explicitly, so unset is refused for it before any effect."""
+    if grace_ms is _UNSET:
+        if pending is PendingWork.FINISH:
+            raise GlowcapError(_abi.ERR_INVALID_ARGUMENT, "finish close requires grace_ms (None waits without a bound)")
         grace_mode = _abi.CLOSE_GRACE_UNSPECIFIED
-        grace_ms = 0
-    elif grace is None:
+        grace_value = 0
+    elif grace_ms is None:
         grace_mode = _abi.CLOSE_GRACE_UNBOUNDED
-        grace_ms = 0
+        grace_value = 0
     else:
-        if isinstance(grace, bool) or not isinstance(grace, (int, float)) or grace < 0:
-            raise GlowcapError(_abi.ERR_INVALID_ARGUMENT, "grace must be a non-negative number of seconds or None")
-        if isinstance(grace, float) and not math.isfinite(grace):
-            raise GlowcapError(_abi.ERR_INVALID_ARGUMENT, "grace must be finite")
-        if grace > _abi.CLOSE_MAX_GRACE_MS / 1_000:
+        if (
+            isinstance(grace_ms, bool)
+            or not isinstance(grace_ms, int)
+            or grace_ms < 0
+            or grace_ms > _abi.CLOSE_MAX_GRACE_MS
+        ):
             raise GlowcapError(
-                _abi.ERR_INVALID_ARGUMENT, f"grace must not exceed {_abi.CLOSE_MAX_GRACE_MS} milliseconds"
-            )
-        grace_ms = math.ceil(grace * 1_000)
-        if grace_ms > _abi.CLOSE_MAX_GRACE_MS:
-            raise GlowcapError(
-                _abi.ERR_INVALID_ARGUMENT, f"grace must not exceed {_abi.CLOSE_MAX_GRACE_MS} milliseconds"
+                _abi.ERR_INVALID_ARGUMENT,
+                f"grace_ms must be None or an integer from 0 through {_abi.CLOSE_MAX_GRACE_MS}",
             )
         grace_mode = _abi.CLOSE_GRACE_FINITE
+        grace_value = grace_ms
     pending_id = {PendingWork.CANCEL: _abi.PENDING_CANCEL, PendingWork.FINISH: _abi.PENDING_FINISH}.get(
         pending, 0xFFFF_FFFF
     )
@@ -71,5 +73,5 @@ def _close_options(pending: PendingWork, grace: object = _UNSET) -> _CloseOption
         struct_size=ctypes.sizeof(_CloseOptions),
         pending=pending_id,
         grace_mode=grace_mode,
-        grace_ms=grace_ms,
+        grace_ms=grace_value,
     )

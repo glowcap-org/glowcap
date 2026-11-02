@@ -11,10 +11,10 @@ Deno.test("supplied iroh Host transfers to the generic driver listener", async (
 		assert(server.host === host, "iroh listener replaced the supplied Host wrapper");
 		assert(host.driverLoop != null, "supplied iroh Host did not transfer to the driver");
 		assert(server.uri.includes(".iroh"), "generic driver listener did not advertise iroh");
-		await server.stopAdmission();
+		await server.close();
 		assert(!host.released, "iroh listener close released its shared Host");
 	} finally {
-		await server.stopAdmission();
+		await server.close();
 		await host.close();
 	}
 });
@@ -26,7 +26,7 @@ Deno.test("iroh adoption takes a publication's already-scheduled drain", async (
 	try {
 		assert(host.driverLoop != null, "published Host did not transfer to the driver");
 	} finally {
-		await server.stopAdmission();
+		await server.close();
 		await host.close();
 	}
 });
@@ -40,7 +40,7 @@ Deno.test("closing iroh admission leaves a sibling TCP listener live", async () 
 	let client: Session | null = null;
 	let accepted: Session | null = null;
 	try {
-		await iroh.stopAdmission();
+		await iroh.close();
 		assert(!host.released, "iroh listener close released the shared loop");
 		tcpServer.select();
 		const next = tcpServer[Symbol.asyncIterator]().next();
@@ -52,8 +52,8 @@ Deno.test("closing iroh admission leaves a sibling TCP listener live", async () 
 		await accepted?.close();
 		await client?.close();
 		await runtime.close();
-		await iroh.stopAdmission();
-		await tcpServer.stopAdmission();
+		await iroh.close();
+		await tcpServer.close();
 		await host.close();
 	}
 });

@@ -90,7 +90,7 @@ export async function run(managed: Runtime): Promise<void> {
 			const exact = await session.fetch(name);
 			assert(await session.send(exact, "add", [2n]) === 17n, "published reference mutates the original actor");
 			assert(await session.send(counter, "get", []) === 17n, "original authority sees the same state");
-			assert(captpHost.unpublishDurable(name), "remove independent publication root");
+			assert(captpHost.removeDurable(name), "remove independent publication root");
 			assert(await session.send(exact, "get", []) === 17n, "issued reference survives removal");
 			await session.close();
 		}

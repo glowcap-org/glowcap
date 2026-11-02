@@ -461,7 +461,8 @@
      ((async-transport-close! wf-base)))))
 (define wf-host (make-fresh-host))
 (define wf-session
-  (establish-dialed-locator-session wf-host (server-locator wf-server) wf-transport))
+  (establish-dialed-locator-session wf-host (server-locator wf-server) wf-transport
+                                    #:verified-channel-key #f))
 (semaphore-wait wf-ready)
 (define wf-client-result (make-channel))
 (define wf-client-thread

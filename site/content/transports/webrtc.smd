@@ -92,7 +92,7 @@ capability they can already reach. That exchange is called signaling.
 > signaling: SignalingAuthority
 > partner = locator("<64 lowercase hex characters from the peer>")
 >
-> async with Runtime.open(provider=provider(signaling)) as runtime:
+> async with Runtime.open(providers=[provider(signaling)]) as runtime:
 > ```
 > **Rust**
 > ```rust

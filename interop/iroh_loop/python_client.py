@@ -65,7 +65,7 @@ async def _client_once(server_id: str) -> None:
     local-discovery book resolves it), fetch the greeter, and call it
     ``CALLS_PER_CONN`` times, checking every reply."""
     locator = format_peer_uri(TRANSPORT_IROH, server_id)
-    runtime = await Runtime.open(provider=provider(IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)))
+    runtime = await Runtime.open(providers=[provider(IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1))])
     session = await runtime.connect(locator)
     try:
         greeter = await session.fetch("greeter")

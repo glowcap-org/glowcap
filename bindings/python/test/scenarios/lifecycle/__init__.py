@@ -218,7 +218,7 @@ async def _supplied_host_iroh_listener_ownership() -> None:
         assert server.host is supplied, "iroh listener did not preserve the supplied Host wrapper"
         from glowcap.iroh import provider as iroh_provider
 
-        runtime = await Runtime.open(provider=iroh_provider(IrohConfig(Reachability.LOCAL_DISCOVERY)))
+        runtime = await Runtime.open(providers=[iroh_provider(IrohConfig(Reachability.LOCAL_DISCOVERY))])
         client = await runtime.connect(server.locator)
         accepted = await asyncio.wait_for(accepted_task, timeout=10)
         await server.close()

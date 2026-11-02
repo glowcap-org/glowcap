@@ -87,10 +87,19 @@ async def _exchange(capacity: int) -> None:
         backward = _Pipe(capacity)
         accepted, dialed = await asyncio.gather(
             Session.establish_accepted(
-                exporter, "tcp", "127.0.0.1:9011", _End(forward, backward), handshake_timeout_ms=5_000
+                exporter,
+                "tcp",
+                "127.0.0.1:9011",
+                _End(forward, backward),
+                handshake_timeout_ms=5_000,
+                verified_channel_key=None,
             ),
             Session.establish_dialed_locator(
-                dialer, tcp.locator("127.0.0.1", 9011), _End(backward, forward), handshake_timeout_ms=5_000
+                dialer,
+                tcp.locator("127.0.0.1", 9011),
+                _End(backward, forward),
+                handshake_timeout_ms=5_000,
+                verified_channel_key=None,
             ),
         )
         serving += [accepted.serve(), dialed.serve()]

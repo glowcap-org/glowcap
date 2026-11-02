@@ -69,10 +69,12 @@
 ;; dials carry: a partner that takes the connection and then never finishes the
 ;; handshake is a hang, not a slow success. A caller that holds its own
 ;; cancellation passes #f (or 0) to wait forever.
+;; `#:verified-channel-key` is the partner key the transport itself authenticated,
+;; or #f for a transport with no channel proof. Every caller states it, so a
+;; transport with a proof cannot drop it in silence.
 (define (establish-dialed-locator-session m loc transport
                                              #:time-travel? [time-travel? #f]
-                                             #:verified-channel-key
-                                             [verified-channel-key #f]
+                                             #:verified-channel-key verified-channel-key
                                              #:handshake-timeout-ms
                                              [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (establish-closing-transport m transport
@@ -103,8 +105,7 @@
                                        #:accepted-local-addr [accepted-local-addr ""]
                                        #:designator-scheme [designator-scheme #f]
                                        #:time-travel? [time-travel? #f]
-                                       #:verified-channel-key
-                                       [verified-channel-key #f]
+                                       #:verified-channel-key verified-channel-key
                                        #:handshake-timeout-ms
                                        [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (establish-closing-transport m transport

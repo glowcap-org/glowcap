@@ -68,7 +68,7 @@ async def run() -> None:
     config = IrohConfig(Reachability.LOCAL_DISCOVERY)
 
     # ── Exporter: a Host-published greeter on its own local-discovery endpoint ─────
-    exporter_runtime = await Runtime.open(provider=provider(config))
+    exporter_runtime = await Runtime.open(providers=[provider(config)])
     exporter = await listen(config, host=exporter_runtime.host)
     exporter.host.publish("greeter", greeter)
     exporter_id = exporter.node_id
@@ -77,7 +77,7 @@ async def run() -> None:
     print(f"python-iroh-redeem-posture: exporter published greeter on {exporter_id}")
 
     # ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-    gifter_runtime = await Runtime.open(provider=provider(config))
+    gifter_runtime = await Runtime.open(providers=[provider(config)])
     gifter = await listen(config, host=gifter_runtime.host)
     gifter_id = gifter.node_id
     to_exporter = await gifter_runtime.connect(locator(exporter_id))
@@ -98,7 +98,7 @@ async def run() -> None:
     print(f"python-iroh-redeem-posture: gifter published introducer on {gifter_id}")
 
     # ── Recipient: configures its redeem posture, then redeems the hint-less give ─
-    recipient_runtime = await Runtime.open(provider=provider(config))
+    recipient_runtime = await Runtime.open(providers=[provider(config)])
     recipient = await recipient_runtime.connect(locator(gifter_id))
     # The provider posture under test also governs the runtime's internal handoff
     # dial. Discovery would reach for n0 relays and DNS; LocalDiscovery resolves

@@ -78,7 +78,7 @@ async def serve_once(server, served: list, name: str, behavior) -> None:
 
 
 async def run(peer_uri: str, dead_uri: str) -> None:
-    runtime = await Runtime.open(provider=tcp.provider())
+    runtime = await Runtime.open(providers=[tcp.provider()])
     try:
         # ── dial-ok ──────────────────────────────────────────────────────────
         session = await runtime.connect(parse_locator(peer_uri))

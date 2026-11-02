@@ -233,9 +233,9 @@ class _LifecycleMixin:
 
     # ── Teardown ─────────────────────────────────────────────────────────────
 
-    async def close(self, *, pending: PendingWork = PendingWork.CANCEL, grace: object = _UNSET) -> None:
+    async def close(self, *, pending: PendingWork = PendingWork.CANCEL, grace_ms: object = _UNSET) -> None:
         """Close this session and join its one complete retirement outcome."""
-        options = _close_options(pending, grace)
+        options = _close_options(pending, grace_ms)
         signature = (options.pending, options.grace_mode, options.grace_ms)
         self._host._assert_owner()
         terminal = self._terminal_task

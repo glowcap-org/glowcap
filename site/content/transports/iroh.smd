@@ -89,7 +89,7 @@ dial passes only the locator and any per-connect options.
 > partner = locator(node_id)
 >
 > async with Runtime.open(
->     provider=provider(IrohConfig(Reachability.DISCOVERY))
+>     providers=[provider(IrohConfig(Reachability.DISCOVERY))]
 > ) as runtime:
 > ```
 > **Rust**

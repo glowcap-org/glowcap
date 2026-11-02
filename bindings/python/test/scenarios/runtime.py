@@ -46,10 +46,11 @@ def run_managed(awaitable):
 async def tcp_connect(partner, **kwargs):
     """Open one managed TCP runtime for this scenario."""
     host = kwargs.pop("host", None)
-    codec = kwargs.pop("codec", "syrup")
+    # An adopted Host already has its codec, and Runtime refuses a second one.
+    codec = kwargs.pop("codec", "syrup" if host is None else None)
     timeout = kwargs.pop("handshake_timeout_ms", None)
     runtime = await Runtime.open(
-        provider=tcp.provider(),
+        providers=[tcp.provider()],
         adopt_host=host,
         codec=codec,
         handshake_timeout_ms=timeout if timeout is not None else 10_000,
@@ -223,9 +224,9 @@ async def _runtime_open_is_transactional() -> None:
 
     connector = Connector(("runtime-test",), never)
 
-    retryable = await Runtime.open(connector=connector)
+    retryable = await Runtime.open(connectors=[connector])
     try:
-        await retryable.close(grace=1)
+        await retryable.close(grace_ms=1)
     except GlowcapError as error:
         assert error.code == ERR_INVALID_ARGUMENT, error
     else:
@@ -242,10 +243,17 @@ async def _runtime_open_is_transactional() -> None:
 
     grace_host = Host()
     try:
-        maximum = _close_options(PendingWork.FINISH, 0xFFFF_FFFF / 1_000)
+        maximum = _close_options(PendingWork.FINISH, 0xFFFF_FFFF)
         assert maximum.grace_ms == 0xFFFF_FFFF
+        for refused in (lambda: _close_options(PendingWork.FINISH), lambda: _close_options(PendingWork.FINISH, 0.02)):
+            try:
+                refused()
+            except GlowcapError as error:
+                assert error.code == ERR_INVALID_ARGUMENT, error
+            else:
+                raise AssertionError("FINISH close accepted a missing or non-integer grace_ms")
         try:
-            await grace_host.close(PendingWork.FINISH, grace=10**10_000)
+            await grace_host.close(pending=PendingWork.FINISH, grace_ms=10**10_000)
         except GlowcapError as error:
             assert error.code == ERR_INVALID_ARGUMENT, error
         else:
@@ -314,7 +322,7 @@ async def _runtime_open_is_transactional() -> None:
 
     setattr(Host, "install_connectors", fail_install)
     try:
-        runtime = Runtime.open(connector=connector)
+        runtime = Runtime.open(connectors=[connector])
         setattr(Host, "close", fail_after_close)
         try:
             await runtime
@@ -330,7 +338,7 @@ async def _runtime_open_is_transactional() -> None:
         assert runtime.terminal_failures == (setup_failure, cleanup_failure), runtime.terminal_failures
 
         adopted_host = Host()
-        adopted = Runtime.open(adopt_host=adopted_host, connector=connector)
+        adopted = Runtime.open(adopt_host=adopted_host, connectors=[connector])
         try:
             await adopted
         except GlowcapError as error:
@@ -355,7 +363,7 @@ async def _runtime_open_is_transactional() -> None:
         created_provider_loop = loop
         raise GlowcapError(ERR_INVALID_ARGUMENT, "synthetic provider install failure")
 
-    created_runtime = Runtime.open(provider=Provider(fail_created_provider))
+    created_runtime = Runtime.open(providers=[Provider(fail_created_provider)])
     try:
         await created_runtime
     except GlowcapError as error:
@@ -383,7 +391,7 @@ async def _runtime_open_is_transactional() -> None:
         await finish_install.wait()
         await tcp.provider().install(loop)
 
-    closing_runtime = Runtime.open(provider=Provider(slow_install))
+    closing_runtime = Runtime.open(providers=[Provider(slow_install)])
     opening = asyncio.create_task(closing_runtime._ensure_open())
     await install_started.wait()
     closing = asyncio.create_task(closing_runtime.close())
@@ -401,7 +409,7 @@ async def _runtime_open_is_transactional() -> None:
     assert slow_loop is not None and slow_loop._released, "cancelled close leaked its installed loop"
 
     supplied = Host()
-    runtime = Runtime.open(adopt_host=supplied, provider=Provider(fail_provider))
+    runtime = Runtime.open(adopt_host=supplied, providers=[Provider(fail_provider)])
     try:
         try:
             await runtime
@@ -412,7 +420,7 @@ async def _runtime_open_is_transactional() -> None:
         assert not supplied.released, "failed provider setup released the caller-owned Host"
         assert supplied.driver_loop is not None, "failed provider setup discarded the adopted loop"
         assert runtime._host is None, "failed provider setup published a Host"
-        retry = Runtime.open(adopt_host=supplied, provider=tcp.provider())
+        retry = Runtime.open(adopt_host=supplied, providers=[tcp.provider()])
         await retry
         await retry.close()
     finally:
@@ -430,7 +438,7 @@ async def _runtime_open_is_transactional() -> None:
 
     existing_host = Host()
     existing_loop = DriverLoop.take_host(existing_host)
-    runtime = Runtime.open(adopt_host=existing_host, provider=Provider(fail_existing_install))
+    runtime = Runtime.open(adopt_host=existing_host, providers=[Provider(fail_existing_install)])
     try:
         try:
             await runtime

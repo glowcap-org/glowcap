@@ -391,7 +391,7 @@ async def _empty_codec_is_not_the_default() -> None:
     opened or a Host is minted with Syrup by accident."""
     for verb, action in (
         ("listen", lambda: tcp.listen("127.0.0.1", 0, codec="")),
-        ("connect", lambda: Runtime.open(provider=tcp.provider(), codec="", handshake_timeout_ms=10_000)),
+        ("connect", lambda: Runtime.open(providers=[tcp.provider()], codec="", handshake_timeout_ms=10_000)),
     ):
         try:
             opened = await action()

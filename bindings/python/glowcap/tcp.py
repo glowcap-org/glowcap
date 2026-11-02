@@ -1,8 +1,7 @@
 """The blocking TCP transport, glowcap's ``libglowcap_net_transport_tcp``
-archive, surfaced à la carte.
+archive.
 
-This is a companion to the core :mod:`glowcap` module, mirroring the C ABI's
-symbol-disjoint archive split (ADR-0022). Importing it loads
+This is a companion to the core :mod:`glowcap` module. Importing it loads
 ``libglowcap_net_transport_tcp`` on top of the core ``libglowcap_ocapn``. It
 shares the core's frame, context, and value layout but adds the
 ``glowcap_tcp_*`` family, a host-owned blocking frame shuttle over a real
@@ -429,7 +428,9 @@ def connector() -> Connector:
         try:
             from ._session import Session
 
-            return await Session.establish_dialed_locator(host, locator, channel, handshake_timeout_ms)
+            return await Session.establish_dialed_locator(
+                host, locator, channel, handshake_timeout_ms, verified_channel_key=None
+            )
         except BaseException as primary:
             await _rollback_failed_transport(primary, channel)
             raise

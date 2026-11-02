@@ -90,7 +90,7 @@ class TaskBoard:
 
     @classmethod
     async def join(cls, host: str, port: int, name: str) -> TaskBoard:
-        runtime = await Runtime.open(provider=tcp.provider())
+        runtime = await Runtime.open(providers=[tcp.provider()])
         try:
             session = await runtime.connect(tcp.locator(host, port))
             session.serve()

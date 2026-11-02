@@ -182,7 +182,8 @@ class FetchFailed(GlowcapError):
     This is the application-level outcome, the partner answered, and the
     answer was not a reference, distinct from a marshalling failure or a
     broken promise. ``name`` is the swiss-number the fetch asked for. ``code``
-    is ``ERR_BROKEN``, matching the other bindings."""
+    is ``ERR_BROKEN``, as in TypeScript. Rust and Racket have no separate type
+    and report the same outcome as a Broken error."""
 
     def __init__(self, name: str):
         super().__init__(_abi.ERR_BROKEN, f'fetch("{name}") did not resolve to a capability')

@@ -255,6 +255,7 @@
           close!))
        (establish-dialed-locator-session
         m loc transport
+        #:verified-channel-key #f
         #:handshake-timeout-ms handshake-timeout-ms)))))
 
 ;; Host CapTP through an onion service using the generic driver listener. The

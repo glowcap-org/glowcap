@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from . import _constants as _abi
-from ._abi_value import _INTEROP_CAPTP_VERSION, _INTEROP_CODEC, _OWN_CAPTP_VERSION, _OWN_CODEC
 from ._errors import GlowcapError, _check_host, _retain_terminal_failure
 from ._ffi_host import _host
 from ._ffi_ocapn import _LocatorHintView, _LocatorView
@@ -23,6 +23,7 @@ from ._locator import Locator, _OwnedLocator
 from ._transport import Connector, Provider
 
 if TYPE_CHECKING:
+    from ._context import Context
     from ._loop import DriverLoop
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
@@ -38,18 +39,11 @@ def _validate_handshake_timeout(handshake_timeout_ms: int | None) -> None:
         raise GlowcapError(_ERR_INVALID_ARGUMENT, "handshake_timeout_ms must be None or an unsigned 32-bit integer")
 
 
-def _composition(value, values, label):
-    if value is not None and values is not None:
-        raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime.open accepts either {label}= or {label}s=, not both")
-    if value is not None:
-        result = (value,)
-    elif values is not None:
-        try:
-            result = tuple(values)
-        except TypeError:
-            raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime {label}s must be iterable") from None
-    else:
-        result = ()
+def _composition(values, label):
+    try:
+        result = tuple(values)
+    except TypeError:
+        raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime {label}s must be iterable") from None
     if not result:
         raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime requires at least one {label}")
     return result
@@ -67,10 +61,10 @@ class Runtime:
     ``Runtime.open`` returns an awaitable async context manager. Both of these
     forms are supported::
 
-        async with Runtime.open(provider=tcp.provider()) as runtime:
+        async with Runtime.open(providers=[tcp.provider()]) as runtime:
             session = await runtime.connect(tcp.locator("127.0.0.1", 9099))
 
-        runtime = await Runtime.open(provider=tcp.provider())
+        runtime = await Runtime.open(providers=[tcp.provider()])
         session = await runtime.connect(locator)
         await runtime.close()
     """
@@ -81,17 +75,13 @@ class Runtime:
         connectors: tuple[Connector, ...],
         *,
         adopt_host: Host | None,
-        seed: bytes | None,
-        profile: str | None,
-        codec: str | None,
+        host_options: dict[str, object],
         handshake_timeout_ms: int | None,
     ) -> None:
         self._providers = providers
         self._connectors = connectors
         self._adopt_host = adopt_host
-        self._seed = seed
-        self._profile = profile
-        self._codec = codec
+        self._host_options = host_options
         self._handshake_timeout_ms = handshake_timeout_ms
         self._host: Host | None = None
         self._loop: DriverLoop | None = None
@@ -124,59 +114,63 @@ class Runtime:
     def open(
         cls,
         *,
-        provider: Provider | None = None,
-        providers=None,
-        connector: Connector | None = None,
-        connectors=None,
+        providers: Iterable[Provider] | None = None,
+        connectors: Iterable[Connector] | None = None,
         adopt_host: Host | None = None,
         seed: bytes | None = None,
         profile: str | None = None,
         codec: str | None = None,
+        captp_version: str | None = None,
+        features: object = None,
+        context: Context | None = None,
+        local_turn_budget: int | None = None,
         handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS,
     ) -> Runtime:
         """Construct a runtime. FFI setup is completed on first await/use.
 
-        Singular ``provider=`` and ``connector=`` are the idiomatic Python
-        spelling. The plural aliases allow one runtime to compose several
-        symbol-disjoint provider packages without introducing a Python-only
-        wrapper type.
+        ``providers`` or ``connectors`` (exactly one) name the transport
+        composition. ``seed``, ``profile``, ``codec``, ``captp_version``,
+        ``features``, ``context``, and ``local_turn_budget`` are the options of
+        :class:`Host` and configure the Host this Runtime mints. ``adopt_host``
+        transfers an existing Host instead and refuses every Host option.
         """
         _validate_handshake_timeout(handshake_timeout_ms)
-        selected_providers = (
-            _composition(provider, providers, "provider") if (provider is not None or providers is not None) else ()
-        )
-        selected_connectors = (
-            _composition(connector, connectors, "connector")
-            if (connector is not None or connectors is not None)
-            else ()
-        )
-        if bool(selected_providers) == bool(selected_connectors):
+        if (providers is None) == (connectors is None):
             raise GlowcapError(_ERR_INVALID_ARGUMENT, "Runtime.open requires providers or connectors, but not both")
-        if selected_providers:
+        if providers is not None:
+            selected_providers = _composition(providers, "provider")
+            selected_connectors: tuple[Connector, ...] = ()
             _validate_composition(selected_providers, Provider, "provider")
         else:
+            selected_providers = ()
+            selected_connectors = _composition(connectors, "connector")
             _validate_composition(selected_connectors, Connector, "connector")
+        host_options = {
+            name: value
+            for name, value in (
+                ("seed", seed),
+                ("profile", profile),
+                ("codec", codec),
+                ("captp_version", captp_version),
+                ("features", features),
+                ("context", context),
+                ("local_turn_budget", local_turn_budget),
+            )
+            if value is not None
+        }
+        if adopt_host is not None and host_options:
+            raise GlowcapError(
+                _ERR_INVALID_ARGUMENT, f"adopt_host cannot be combined with Host options ({', '.join(host_options)})"
+            )
         if profile not in (None, "interop", "glowcap"):
             raise GlowcapError(_ERR_INVALID_ARGUMENT, f"unknown Host profile {profile!r}")
-        if profile is not None and codec is not None:
-            raise GlowcapError(_ERR_INVALID_ARGUMENT, "profile cannot be combined with codec")
-        if adopt_host is not None and profile is not None:
-            wanted = (
-                (_OWN_CODEC, _OWN_CAPTP_VERSION) if profile == "glowcap" else (_INTEROP_CODEC, _INTEROP_CAPTP_VERSION)
-            )
-            if wanted != (adopt_host.codec, adopt_host.captp_version):
-                raise GlowcapError(_ERR_INVALID_ARGUMENT, f'profile "{profile}" conflicts with the adopted host')
-        if adopt_host is not None and codec is not None and codec != adopt_host.codec:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT, f'codec "{codec}" conflicts with the adopted host\'s "{adopt_host.codec}"'
-            )
+        if profile is not None and (codec is not None or captp_version is not None):
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "profile cannot be combined with codec or captp_version")
         return cls(
             selected_providers,
             selected_connectors,
             adopt_host=adopt_host,
-            seed=seed,
-            profile=profile,
-            codec=codec,
+            host_options=host_options,
             handshake_timeout_ms=handshake_timeout_ms,
         )
 
@@ -207,7 +201,7 @@ class Runtime:
         loop = None
         try:
             if host is None:
-                host = Host(seed=self._seed, profile=self._profile, codec=self._codec)
+                host = Host(**self._host_options)
             if self._providers:
                 existing_loop = host.driver_loop is not None
                 if existing_loop:
@@ -282,8 +276,8 @@ class Runtime:
             raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime has no connector for {partner.transport!r}")
         return await connector.connect(self.host, partner, timeout)
 
-    async def close(self, pending: PendingWork = PendingWork.CANCEL, *, grace: object = _UNSET) -> None:
-        _close_options(pending, grace)
+    async def close(self, *, pending: PendingWork = PendingWork.CANCEL, grace_ms: object = _UNSET) -> None:
+        _close_options(pending, grace_ms)
         if self._closed:
             self._raise_terminal_failure()
             return
@@ -306,7 +300,7 @@ class Runtime:
         close_error: BaseException | None = None
         if self._host is not None:
             try:
-                await self._host.close(pending, grace=grace)
+                await self._host.close(pending=pending, grace_ms=grace_ms)
             except BaseException as error:
                 self._record_terminal_failure(error)
                 close_error = error

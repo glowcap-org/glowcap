@@ -212,10 +212,10 @@ async def _dial(locator: str) -> tuple[Runtime, Session]:
             raise ValueError(f'rooms expected an iroh ocapn:// URI, got "{loc.transport}": {locator}')
         hints = loc.hints.get(HINT_DIRECT_ADDRESSES, "")
         reach = Reachability.DIRECT if hints else Reachability.DISCOVERY
-        runtime = await Runtime.open(provider=iroh_provider(IrohConfig(reach)), adopt_host=rooms_host())
+        runtime = await Runtime.open(providers=[iroh_provider(IrohConfig(reach))], adopt_host=rooms_host())
         return runtime, await runtime.connect(loc)
     host, port = designator_host_port(locator)
-    runtime = await Runtime.open(provider=tcp.provider(), adopt_host=rooms_host())
+    runtime = await Runtime.open(providers=[tcp.provider()], adopt_host=rooms_host())
     return runtime, await runtime.connect(tcp.locator(host, port))
 
 

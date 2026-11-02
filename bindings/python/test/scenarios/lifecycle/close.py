@@ -57,9 +57,11 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
     client_host = Host()
     server_host = Host()
     designator = tcp.address_designator("127.0.0.1", 1)
-    accepted = Session.establish_accepted(server_host, TRANSPORT_TCP, designator, server_channel)
+    accepted = Session.establish_accepted(
+        server_host, TRANSPORT_TCP, designator, server_channel, verified_channel_key=None
+    )
     dialed = Session.establish_dialed_locator(
-        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel
+        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel, verified_channel_key=None
     )
     server_session, session = await asyncio.gather(accepted, dialed)
     server_session.publish("svc", lambda _verb, _args: Symbol("alive"))
@@ -146,9 +148,11 @@ async def _host_close_joins_session_transport_failure(*, asynchronous: bool = Fa
     client_host = Host()
     server_host = Host()
     designator = tcp.address_designator("127.0.0.1", 1)
-    accepted = Session.establish_accepted(server_host, TRANSPORT_TCP, designator, server_channel)
+    accepted = Session.establish_accepted(
+        server_host, TRANSPORT_TCP, designator, server_channel, verified_channel_key=None
+    )
     dialed = Session.establish_dialed_locator(
-        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel
+        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel, verified_channel_key=None
     )
     _, client_session = await asyncio.gather(accepted, dialed)
     close_failure = OSError("injected Host transport-close failure")
@@ -260,7 +264,7 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
         host, Locator(TRANSPORT_TCP, "pending-session", {}, "boolean-false"), PendingTransport()
     )
 
-    first = asyncio.create_task(session.close(pending=PendingWork.FINISH, grace=0.02))
+    first = asyncio.create_task(session.close(pending=PendingWork.FINISH, grace_ms=20))
     await close_admitted.wait()
     terminal = session._terminal_task
     assert terminal is not None, "close admission did not publish its coordinator"
@@ -280,7 +284,7 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
         raise AssertionError("the shared finite finish discarded its timeout")
     assert session._released, "the finite close coordinator did not retire the Session"
     try:
-        await session.close(pending=PendingWork.FINISH, grace=None)
+        await session.close(pending=PendingWork.FINISH, grace_ms=None)
     except GlowcapError as error:
         assert error.code == ERR_TIMEOUT, error
     else:
@@ -311,7 +315,7 @@ async def _repeated_host_close_observes_recorded_timeout() -> None:
     )
 
     try:
-        await host.close(PendingWork.FINISH, grace=0.02)
+        await host.close(pending=PendingWork.FINISH, grace_ms=20)
     except GlowcapError as error:
         assert error.code == ERR_TIMEOUT, error
     else:
@@ -340,14 +344,14 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
         silent.listen(1)
         silent.setblocking(False)
         port = silent.getsockname()[1]
-        runtime = await Runtime.open(provider=tcp.provider(), handshake_timeout_ms=10_000)
+        runtime = await Runtime.open(providers=[tcp.provider()], handshake_timeout_ms=10_000)
         negotiating = asyncio.create_task(runtime.connect(tcp.locator("127.0.0.1", port)))
         driver_loop = runtime._loop
         assert driver_loop is not None, "a provider Runtime did not open on the loop tier"
         accepted, _ = await asyncio.wait_for(asyncio.get_running_loop().sock_accept(silent), timeout=1)
         assert driver_loop._pending_dials, "the dial never admitted its pending open"
         try:
-            await asyncio.wait_for(runtime.close(PendingWork.FINISH, grace=0.02), 5)
+            await asyncio.wait_for(runtime.close(pending=PendingWork.FINISH, grace_ms=20), 5)
         except GlowcapError as error:
             assert error.code == ERR_TIMEOUT, error
         else:
@@ -370,7 +374,7 @@ async def _silent_loop_dial_reaches_ffi_handshake_deadline() -> None:
     listener.setblocking(False)
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
-    runtime = await Runtime.open(provider=tcp.provider(), handshake_timeout_ms=50)
+    runtime = await Runtime.open(providers=[tcp.provider()], handshake_timeout_ms=50)
     accepted: socket.socket | None = None
     try:
         port = listener.getsockname()[1]
@@ -453,9 +457,11 @@ async def _observe_session_retirement_without_serve_or_close() -> None:
     client_host = Host()
     server_host = Host()
     designator = tcp.address_designator("127.0.0.1", 1)
-    accepted = Session.establish_accepted(server_host, TRANSPORT_TCP, designator, server_channel)
+    accepted = Session.establish_accepted(
+        server_host, TRANSPORT_TCP, designator, server_channel, verified_channel_key=None
+    )
     dialed = Session.establish_dialed_locator(
-        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel
+        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel, verified_channel_key=None
     )
     server_session, session = await asyncio.gather(accepted, dialed)
     first = asyncio.create_task(session.closed())

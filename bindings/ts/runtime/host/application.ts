@@ -1,5 +1,5 @@
 // The CapTP host: multi-session CapTP product over the byte-fed host archive
-// (libglowcap_host, ADR-0022). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns, and never
 // a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
@@ -260,7 +260,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 	 * that name (the swiss to place in a sturdyref beside this host's own
 	 * locator, ADR-0007). Unpredictable, never reassigned, structurally
 	 * disjoint from every mutable alias, removable only through
-	 * {@link unpublishDurable}. When supplied, `entropy` lets an embedder retain
+	 * {@link removeDurable}. When supplied, `entropy` lets an embedder retain
 	 * and reproduce the same durable name; otherwise this method draws it. */
 	publishDurable(behavior: Behavior, entropy?: Uint8Array): string {
 		const entropyBytes = entropy == null
@@ -347,7 +347,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 	/** Remove a minted durable publication (ADR-0007): the old sturdyref status-allow: replacement state identity
 	 * misses from now on, while issued `Ref`s and deposited gifts keep the
 	 * exact actor. Returns false when no such durable name exists. */
-	unpublishDurable(swiss: string): boolean {
+	removeDurable(swiss: string): boolean {
 		const bytes = utf8Encoder.encode(swiss);
 		const rc = hostS.glowcap_host_remove_durable(this._raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;

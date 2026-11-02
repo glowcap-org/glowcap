@@ -13,7 +13,7 @@ dial with its ``connect`` method, accept through a transport module's
 :class:`Keyword`, :class:`Set`, :class:`Tagged`, :class:`Struct`, and the capability
 :class:`Ref`:
 
-    async with Runtime.open(provider=tcp.provider()) as runtime:
+    async with Runtime.open(providers=[tcp.provider()]) as runtime:
         async with await runtime.connect(tcp.locator("127.0.0.1", 9099)) as session:
             greeter = await session.fetch("greeter")
             reply = await session.send(greeter, "greet", ["world"])
@@ -23,10 +23,9 @@ binding moves bytes and honors the host's action queue. A :class:`Host` is the
 CapTP Host those sessions share, one identity and one handoff router, read as
 ``server.host`` or transferred into :class:`Runtime`.
 
-The C ABI ships as a set of composable, symbol-disjoint archives (ADR-0022),
-and this package mirrors that à la carte: the core here, plus one submodule
-per transport. Each transport submodule loads only its own archive, so
-importing one transport never loads another. Compose what you need:
+The C ABI ships as symbol-disjoint archives (ADR-0022), and this package
+mirrors that split: the core here, plus one submodule per transport. Importing
+a transport submodule loads its archive and no other. Compose what you need:
 
     from glowcap import Runtime, tcp
     from glowcap.tcp import TcpNetlayer        # libglowcap_net_transport_tcp
