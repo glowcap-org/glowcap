@@ -28,6 +28,7 @@ from glowcap._constants import (
     TRANSPORT_NOISE_TCP,
     TRANSPORT_TCP,
 )
+from glowcap._errors import TerminalFailures
 
 from scenarios.runtime import tcp_connect
 
@@ -473,6 +474,7 @@ async def _session_close_joins_owned_transport_release() -> None:
     session._host = HostStub()
     session._transport = transport
     session._closing = False
+    session._failure_ledger = TerminalFailures()
     session._released = True
     session._close_future = None
     session._close_task = None
@@ -510,6 +512,7 @@ async def _session_repeated_close_joins_published_failure() -> None:
     session._host = HostStub()
     session._transport = object()
     session._closing = True
+    session._failure_ledger = TerminalFailures()
     session._released = True
     session._close_future = asyncio.get_running_loop().create_future()
     session._close_task = None
@@ -573,8 +576,7 @@ async def _session_close_retains_every_terminal_failure() -> None:
     session._released = True
     session._release_pending = False
     session._wire_failure = primary
-    session._terminal_failures = []
-    session._terminal_failure_count = 0
+    session._failure_ledger = TerminalFailures()
     session._terminal_task = None
     session._loop_close_tasks = set()
     session._serve_task = asyncio.create_task(rejected_serve())

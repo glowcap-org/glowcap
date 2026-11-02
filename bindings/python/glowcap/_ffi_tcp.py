@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import ctypes
 
-from ._archive_contract import require_archive_fingerprint
+from ._archive_contract import load_archive
 from ._constants import TCP_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
-from ._ffi_ocapn import _bind, _Frame, _Lib, _ManagedFrame
-from ._lib_resolve import _lib_path
+from ._ffi_ocapn import _Frame, _ManagedFrame
 from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
@@ -41,13 +40,10 @@ pin_struct(_TcpStreamOptions, "GLOWCAP_TCP_STREAM_OPTIONS")
 pin_struct(_TcpConfig, "GLOWCAP_TCP_CONFIG")
 
 
-def _load():
-    tcp = ctypes.CDLL(str(_lib_path("glowcap_net_transport_tcp")))
-    require_archive_fingerprint(lambda: tcp.glowcap_tcp_archive_fingerprint, "tcp", TCP_ARCHIVE_FINGERPRINT)
-    facade = _Lib(tcp)
-    _bind(facade, tcp, tcp_sigs(_Frame, _ManagedFrame, _TcpConfig, _TcpStreamOptions, _TransportProvider))
-    return facade
-
-
 # Loaded when :mod:`glowcap.tcp` is imported, not when the core package is.
-_tcp_lib = _load()
+_tcp_lib = load_archive(
+    "glowcap_net_transport_tcp",
+    lambda lib: lib.glowcap_tcp_archive_fingerprint,
+    TCP_ARCHIVE_FINGERPRINT,
+    tcp_sigs(_Frame, _ManagedFrame, _TcpConfig, _TcpStreamOptions, _TransportProvider),
+)

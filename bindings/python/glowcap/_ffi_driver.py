@@ -17,11 +17,10 @@ from __future__ import annotations
 
 import ctypes
 
-from ._archive_contract import require_archive_fingerprint
+from ._archive_contract import load_archive
 from ._constants_gen import DRIVER_ARCHIVE_FINGERPRINT
 from ._ffi_host import _CloseOptions, _HostAction
-from ._ffi_ocapn import _bind, _Lib, _LocatorView, _Reference
-from ._lib_resolve import _lib_path
+from ._ffi_ocapn import _LocatorView, _Reference
 from ._pin import pin_struct
 from ._sigs_gen import loop_sigs
 
@@ -117,8 +116,11 @@ class _TransportOperationOptions(ctypes.Structure):
 pin_struct(_TransportOperationOptions, "GLOWCAP_TRANSPORT_OPERATION_OPTIONS")
 
 
-def _load():
-    sigs = loop_sigs(
+_driver = load_archive(
+    "glowcap_driver",
+    lambda lib: lib.glowcap_driver_archive_fingerprint,
+    DRIVER_ARCHIVE_FINGERPRINT,
+    loop_sigs(
         _DriverOptions,
         _DriverFailure,
         _CloseOptions,
@@ -127,12 +129,5 @@ def _load():
         _Reference,
         _TransportOperationOptions,
         _TransportProvider,
-    )
-    lib = ctypes.CDLL(str(_lib_path("glowcap_driver")))
-    require_archive_fingerprint(lambda: lib.glowcap_driver_archive_fingerprint, "driver", DRIVER_ARCHIVE_FINGERPRINT)
-    facade = _Lib(lib)
-    _bind(facade, lib, sigs)
-    return facade
-
-
-_driver = _load()
+    ),
+)

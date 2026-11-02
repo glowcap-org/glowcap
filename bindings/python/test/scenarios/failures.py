@@ -25,7 +25,7 @@ from glowcap._constants import (
     ERR_IO,
 )
 from glowcap._driver_failure import _decode as _decode_driver_failure
-from glowcap._errors import _retain_cleanup_failure
+from glowcap._errors import TerminalFailures, _retain_cleanup_failure
 from glowcap._failure import _RuntimeFailureQueue
 from glowcap._ffi import FfiHandle
 from glowcap._ffi_driver import _DriverFailure
@@ -155,8 +155,7 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
 
     host = Host.__new__(Host)
     host._behavior_tasks = set()
-    host._terminal_failures = []
-    host._terminal_failure_count = 0
+    host._failure_ledger = TerminalFailures()
     host._close_activity = asyncio.Event()
     failed = asyncio.create_task(fail_settlement())
     host._own_behavior_task(failed)

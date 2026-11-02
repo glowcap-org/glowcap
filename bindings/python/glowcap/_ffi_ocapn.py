@@ -20,13 +20,11 @@ from __future__ import annotations
 
 import ctypes
 
-from ._archive_contract import require_archive_fingerprint
+from ._archive_contract import load_archive
 from ._constants_gen import FRAME_SHAPE_BYTE, OCAPN_ARCHIVE_FINGERPRINT
 
 # Archive path resolution (configure → abi-versioned cache → zig-out → find)
 # lives in ``_lib_resolve`` so every ``_ffi_*`` loader shares one cascade.
-from ._lib_resolve import _lib_path
-
 # The layout gate for the hand-mirrored ctypes.Structure types below, held
 # against sizes and offsets reflected off the real Zig C ABI types
 # (``zig build gen-binding-ffi-layouts``).
@@ -195,25 +193,6 @@ pin_struct(_FailureEvent, "GLOWCAP_FAILURE_EVENT")
 pin_struct(_LastAbort, "GLOWCAP_LAST_ABORT")
 
 
-class _Lib:
-    """A bound handle to one archive: the package reads ``_lib.glowcap_*``
-    without holding a raw ``CDLL``. Keeps the loaded ``CDLL`` alive so it is
-    never collected while a bound function is still callable."""
-
-    def __init__(self, *handles):
-        self._handles = handles
-
-
-def _bind(facade, lib, sigs):
-    """Attach each signature in ``sigs`` to ``facade`` as a bound ctypes
-    function read off ``lib``. Shared by every archive's loader."""
-    for name, (argtypes, restype) in sigs.items():
-        fn = getattr(lib, name)
-        fn.argtypes = argtypes
-        fn.restype = restype
-        setattr(facade, name, fn)
-
-
 def _read_last_error(fn) -> str | None:
     """Read an archive's thread-local last-error slot into a string, or ``None``
     when empty. ``fn`` is the archive's two-pass C reader ``(buffer, cap) ->
@@ -254,19 +233,12 @@ def _borrowed_byte_frame(data: bytes) -> tuple[_Frame, ctypes.c_char_p]:
     return _Frame(ptr, len(data), FRAME_SHAPE_BYTE), owner
 
 
-def _load():
-    ocapn = ctypes.CDLL(str(_lib_path("glowcap_ocapn")))
-    require_archive_fingerprint(lambda: ocapn.glowcap_ocapn_archive_fingerprint, "ocapn", OCAPN_ARCHIVE_FINGERPRINT)
-    facade = _Lib(ocapn)
-    _bind(
-        facade,
-        ocapn,
-        ocapn_sigs(_Allocator, _ManagedFrame, _LocatorHintView, _LocatorView, _FailureReport, _FailureEvent),
-    )
-    return facade
-
-
-_lib = _load()
+_lib = load_archive(
+    "glowcap_ocapn",
+    lambda lib: lib.glowcap_ocapn_archive_fingerprint,
+    OCAPN_ARCHIVE_FINGERPRINT,
+    ocapn_sigs(_Allocator, _ManagedFrame, _LocatorHintView, _LocatorView, _FailureReport, _FailureEvent),
+)
 
 
 def _copy_managed_frame(frame: _ManagedFrame) -> bytes:

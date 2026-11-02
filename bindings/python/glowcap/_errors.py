@@ -132,6 +132,34 @@ def _retain_terminal_failure(retained: list[BaseException], total: int, error: B
     return total
 
 
+class TerminalFailures:
+    """One owner's ledger of exact terminal failures in observation order.
+
+    Retention is bounded by :func:`_retain_terminal_failure`, which also keeps
+    the saturated count of observations, overflow included."""
+
+    __slots__ = ("_count", "_retained")
+
+    def __init__(self) -> None:
+        self._retained: list[BaseException] = []
+        self._count = 0
+
+    def record(self, error: BaseException) -> None:
+        self._count = _retain_terminal_failure(self._retained, self._count, error)
+
+    def snapshot(self) -> tuple[BaseException, ...]:
+        return tuple(self._retained)
+
+    @property
+    def count(self) -> int:
+        return self._count
+
+    def raise_first(self) -> None:
+        """Raise the first retained failure, which is authoritative, if any."""
+        if self._retained:
+            raise self._retained[0]
+
+
 def _check(code: int) -> None:
     if code != _OK:
         # Capture the thread-local message now, before any later call clobbers it.

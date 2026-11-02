@@ -7,7 +7,7 @@ import ctypes
 from typing import TYPE_CHECKING
 
 from .. import _constants as _c
-from .._errors import GlowcapError, _retain_terminal_failure
+from .._errors import GlowcapError
 from .._ffi_driver import _driver
 from .._lifecycle import PendingWork, _close_options, _lifecycle_closed
 from .errors import _check
@@ -19,16 +19,13 @@ if TYPE_CHECKING:
 
 
 class _LifecycleMixin(DriverLoopMixinBase):
-    _terminal_failure_count: int
     _closing: bool
     _close_task: asyncio.Task[None] | None
     _close_error: BaseException | None
     _progress_timer: asyncio.TimerHandle | None
 
     def _record_terminal_failure(self, error: BaseException) -> None:
-        self._terminal_failure_count = _retain_terminal_failure(
-            self._terminal_failures, self._terminal_failure_count, error
-        )
+        self._failure_ledger.record(error)
 
     def _retire_wrapper(self) -> None:
         """Retire the adopted Host and claim its session cleanup outcomes."""
@@ -52,12 +49,12 @@ class _LifecycleMixin(DriverLoopMixinBase):
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
         """Loop-owned terminal failures in observation order."""
-        return tuple(self._terminal_failures)
+        return self._failure_ledger.snapshot()
 
     @property
     def terminal_failure_count(self) -> int:
         """Observed terminal failures, including unretained overflow."""
-        return self._terminal_failure_count
+        return self._failure_ledger.count
 
     def _ffi_session_release(self, ptr: ctypes.c_void_p) -> None:
         value = ptr.value
@@ -244,5 +241,4 @@ class _LifecycleMixin(DriverLoopMixinBase):
                 self._record_terminal_failure(error)
         if self._close_error is not None:
             raise self._close_error
-        if self._terminal_failures:
-            raise self._terminal_failures[0]
+        self._failure_ledger.raise_first()

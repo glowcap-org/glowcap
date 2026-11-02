@@ -7,7 +7,7 @@ import ctypes
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import TYPE_CHECKING, Any, Protocol
 
-from .._errors import GlowcapError
+from .._errors import GlowcapError, TerminalFailures
 from .._gc import HostGc
 from .finalizer import _HostFinalizerState
 from .vows import VowTable
@@ -38,8 +38,7 @@ class HostState(Protocol):
     _session_retirements: set[Session]
     _vows: VowTable
     _behavior_tasks: set[asyncio.Task[Any]]
-    _terminal_failures: list[BaseException]
-    _terminal_failure_count: int
+    _failure_ledger: TerminalFailures
     _action_drains: set[asyncio.Task[Any]]
     _session_writers: set[asyncio.Task[Any]]
     _close_activity: asyncio.Event

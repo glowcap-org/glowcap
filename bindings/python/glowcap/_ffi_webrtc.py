@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import ctypes
 
-from ._archive_contract import require_archive_fingerprint
+from ._archive_contract import load_archive
 from ._constants import WEBRTC_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
-from ._lib_resolve import _lib_file, _lib_path
+from ._lib_resolve import _lib_file
 from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol inventory
@@ -27,8 +27,8 @@ from ._pin import pin_struct
 # than the core ``glowcap_last_error``.
 from ._sigs_gen import webrtc_sigs
 
-_WEBRTC_LIB_PATH = _lib_path("glowcap_net_transport_webrtc")
-_WEBRTC_LIB_FILE = _lib_file("glowcap_net_transport_webrtc")
+_WEBRTC_LIB_STEM = "glowcap_net_transport_webrtc"
+_WEBRTC_LIB_FILE = _lib_file(_WEBRTC_LIB_STEM)
 
 
 class _WebrtcReadyEvent(ctypes.Structure):
@@ -126,16 +126,6 @@ class _WebrtcConfig(ctypes.Structure):
 pin_struct(_WebrtcConfig, "GLOWCAP_WEBRTC_CONFIG")
 
 
-def _load_webrtc():
-    lib = ctypes.CDLL(str(_WEBRTC_LIB_PATH))
-    require_archive_fingerprint(lambda: lib.glowcap_webrtc_archive_fingerprint, "webrtc", WEBRTC_ARCHIVE_FINGERPRINT)
-    for name, (argtypes, restype) in webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider).items():
-        fn = getattr(lib, name)
-        fn.argtypes = argtypes
-        fn.restype = restype
-    return lib
-
-
 _webrtc_lib_cache = None
 
 
@@ -146,7 +136,12 @@ def _webrtc():
     global _webrtc_lib_cache
     if _webrtc_lib_cache is None:
         try:
-            _webrtc_lib_cache = _load_webrtc()
+            _webrtc_lib_cache = load_archive(
+                _WEBRTC_LIB_STEM,
+                lambda lib: lib.glowcap_webrtc_archive_fingerprint,
+                WEBRTC_ARCHIVE_FINGERPRINT,
+                webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider),
+            )
         except OSError as exc:
             raise RuntimeError(
                 f"webrtc transport unavailable: could not load {_WEBRTC_LIB_FILE} from "

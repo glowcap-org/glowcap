@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from .. import _constants as _abi
 from .. import _pump
-from .._errors import AbortDetail, GlowcapError, _check_host, _retain_terminal_failure
+from .._errors import AbortDetail, GlowcapError, TerminalFailures, _check_host
 from .._ffi_host import _host
 from .._lifecycle import _UNSET, PendingWork, _close_options, _lifecycle_closed, _monotonic_ms
 from .._trampoline import _inside_turn
@@ -40,8 +40,7 @@ class _LifecycleMixin:
         _release_pending: bool
         _close_future: asyncio.Future[None] | None
         _wire_failure: BaseException | None
-        _terminal_failures: list[BaseException]
-        _terminal_failure_count: int
+        _failure_ledger: TerminalFailures
         _terminal_task: asyncio.Task[None] | None
         _loop_close_tasks: set[asyncio.Task[None]]
         _close_request_signature: tuple[int, int, int] | None
@@ -119,24 +118,18 @@ class _LifecycleMixin:
             self._wire_failure = error
 
     def _record_terminal_failure(self, error: BaseException) -> None:
-        failures = getattr(self, "_terminal_failures", None)
-        if failures is None:
-            failures = []
-            self._terminal_failures = failures
-        self._terminal_failure_count = _retain_terminal_failure(
-            failures, getattr(self, "_terminal_failure_count", 0), error
-        )
+        self._failure_ledger.record(error)
         self._host._track_session_retirement_failure(error)
 
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
         """Terminal failures in observation order. The first is authoritative."""
-        return tuple(getattr(self, "_terminal_failures", ()))
+        return self._failure_ledger.snapshot()
 
     @property
     def terminal_failure_count(self) -> int:
         """Observed terminal failures, including unretained overflow."""
-        return getattr(self, "_terminal_failure_count", 0)
+        return self._failure_ledger.count
 
     def mark_transport_lost(self) -> None:
         """Make inbound/protocol teardown the terminal owner. Pump seam."""

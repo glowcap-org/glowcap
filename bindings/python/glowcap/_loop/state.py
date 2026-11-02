@@ -6,7 +6,7 @@ import asyncio
 import ctypes
 from typing import TYPE_CHECKING, Any, Protocol
 
-from .._errors import GlowcapError
+from .._errors import GlowcapError, TerminalFailures
 from .._listener import ListenerLike, ListenerOwner
 from .._locator import Locator
 
@@ -39,8 +39,7 @@ class DriverLoopState(Protocol):
     _released: bool
     _release_attempted: bool
     _terminal_failure: GlowcapError | None
-    _terminal_failures: list[BaseException]
-    _terminal_failure_count: int
+    _failure_ledger: TerminalFailures
     _closing: bool
     _close_task: asyncio.Task[None] | None
     _close_error: BaseException | None

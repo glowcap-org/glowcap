@@ -22,6 +22,7 @@ class _HostStub:
 
 def _stub_session(transport, *, released: bool, wire_failure=None):
     """A Session over a stub Host and transport, before any close began."""
+    from glowcap._errors import TerminalFailures
     from glowcap._session import Session
     from glowcap._session.writer import Outbound
 
@@ -39,8 +40,7 @@ def _stub_session(transport, *, released: bool, wire_failure=None):
     session._loop_close_tasks = set()
     session._serve_task = None
     session._wire_failure = wire_failure
-    session._terminal_failures = []
-    session._terminal_failure_count = 0
+    session._failure_ledger = TerminalFailures()
     session._transport_lost = False
     session._transport_close_started = released
     return session
