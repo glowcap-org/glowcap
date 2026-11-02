@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RoomsBrowserController } from "../../web/ui/controller/browser.ts";
 import type { RoomsSessionController } from "../../web/ui/controller/session.ts";
+import { assert } from "../assert.ts";
 
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
@@ -20,10 +21,6 @@ const { dirId } = await import("../../web/ui/types.ts");
 const { Foot } = await import("../../web/ui/sidebar/Foot.tsx");
 const { RoomsBrowserProvider } = await import("../../web/ui/controller/browser.ts");
 const { RoomsSessionProvider } = await import("../../web/ui/controller/session.ts");
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 function shellSame(
 	before: ReturnType<typeof store.appShellState>,

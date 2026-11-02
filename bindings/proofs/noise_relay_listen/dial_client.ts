@@ -8,11 +8,7 @@
 
 import { parseLocator, Runtime } from "@glowcap/runtime";
 import { provider, routeFromLocator } from "@glowcap/relay";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
+import { fail } from "../_support/harness.ts";
 
 if (Deno.args.length < 1) fail("usage: dial_client.ts <locator>");
 const partner = parseLocator(Deno.args[Deno.args.length - 1]);

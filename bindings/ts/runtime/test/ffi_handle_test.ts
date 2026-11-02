@@ -5,18 +5,7 @@ import {
 	type FfiRetirement,
 	SingleFlight,
 } from "../transport/ffi_handle.ts";
-import { assertDeepEquals } from "../../test/assert.ts";
-
-async function assertRejects(promise: Promise<unknown>, expected: unknown): Promise<void> {
-	let rejected = false;
-	try {
-		await promise;
-	} catch (error) {
-		rejected = true;
-		assertDeepEquals(error, expected);
-	}
-	if (!rejected) throw new Error("expected promise to reject");
-}
+import { assertDeepEquals, assertRejects } from "../../test/assert.ts";
 
 class TestChild {
 	readonly ffi: FfiHandle;
@@ -47,8 +36,8 @@ Deno.test("SingleFlight refuses concurrent FFI operations without retaining them
 	const blocked = new Promise<void>((resolve) => finish = resolve);
 	const gate = new SingleFlight("test read");
 	const first = gate.run(() => blocked);
-	await assertRejects(
-		gate.run(() => Promise.resolve()),
+	assertDeepEquals(
+		await assertRejects(() => gate.run(() => Promise.resolve())),
 		new Error("test read already has an operation in flight"),
 	);
 	finish();
@@ -122,7 +111,7 @@ Deno.test("FfiHandle continues release after shutdown throws", async () => {
 		(retirement) => retirements.push(retirement),
 	);
 
-	await assertRejects(handle.waitClosed(), failure);
+	assertDeepEquals(await assertRejects(() => handle.waitClosed()), failure);
 	assertDeepEquals(events, ["shutdown", "release"]);
 	assertDeepEquals(retirements, [{ released: true, outcome: { ok: false, error: failure } }]);
 });
@@ -138,7 +127,7 @@ Deno.test("FfiHandle reports failed release to its owner", async () => {
 		(retirement) => retirements.push(retirement),
 	);
 
-	await assertRejects(handle.waitClosed(), failure);
+	assertDeepEquals(await assertRejects(() => handle.waitClosed()), failure);
 	assertDeepEquals(retirements, [{ released: false, outcome: { ok: false, error: failure } }]);
 });
 
@@ -153,7 +142,7 @@ Deno.test("FfiHandle distinguishes consumed release failures", async () => {
 		(retirement) => retirements.push(retirement),
 	);
 
-	await assertRejects(handle.waitClosed(), failure);
+	assertDeepEquals(await assertRejects(() => handle.waitClosed()), failure);
 	assertDeepEquals(retirements, [{ released: true, outcome: { ok: false, error: failure } }]);
 });
 
@@ -222,7 +211,7 @@ Deno.test("FfiParent pins its backend when child release fails", async () => {
 	);
 	assertDeepEquals(child.admitted, true);
 
-	await assertRejects(parent.waitClosed(), failure);
+	assertDeepEquals(await assertRejects(() => parent.waitClosed()), failure);
 	assertDeepEquals(events, ["child shutdown", "parent shutdown"]);
 });
 
@@ -244,6 +233,6 @@ Deno.test("FfiParent retires a child whose failed release consumed it", async ()
 	);
 	assertDeepEquals(child.admitted, true);
 
-	await assertRejects(parent.waitClosed(), failure);
+	assertDeepEquals(await assertRejects(() => parent.waitClosed()), failure);
 	assertDeepEquals(events, ["child shutdown", "parent shutdown", "parent release"]);
 });

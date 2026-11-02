@@ -10,7 +10,8 @@ import * as tcp from "@glowcap/tcp";
 // the keyed handshake and the greet round-trip succeed end to end.
 
 import { init } from "@glowcap/web";
-import { fail, kill, parseHarnessArgs, readToken, spawnRelay, WASM } from "./relay_harness_common.ts";
+import { fail } from "../../test/assert.ts";
+import { kill, parseHarnessArgs, readToken, spawnRelay, WASM } from "./relay_harness_common.ts";
 
 const inv = parseHarnessArgs(Deno.args);
 const deadline = setTimeout(() => fail(`${inv.label} relay scenario timed out after 60s`), 60_000);

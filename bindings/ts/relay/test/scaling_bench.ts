@@ -28,6 +28,8 @@
 // small host fails loudly ("only X/N established") rather than reporting a bad
 // number; lower --conns to the host's descriptor budget.
 
+import { RELAY_READY_MARKER } from "../mod.ts";
+
 interface Args {
 	conns: number;
 	report: boolean;
@@ -129,7 +131,7 @@ async function startRelayProbe(): Promise<RelayProbe> {
 			while ((nl = buf.indexOf("\n")) >= 0) {
 				const line = buf.slice(0, nl);
 				buf = buf.slice(nl + 1);
-				const ready = line.match(/DENO-RELAY-READY (\d+)/);
+				const ready = line.match(new RegExp(`${RELAY_READY_MARKER} (\\d+)`));
 				if (ready) {
 					resolvePort(Number(ready[1]));
 					continue;

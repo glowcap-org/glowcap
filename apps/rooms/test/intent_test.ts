@@ -20,6 +20,8 @@
 
 /// <reference lib="dom" />
 
+import { assert } from "./assert.ts";
+
 const { initializeApplication } = await import("./support/application.ts");
 await initializeApplication();
 const intent = await import("../web/ui/intent.ts");
@@ -40,10 +42,6 @@ const HOME_CONTEXT: import("../web/ui/joining.ts").DirectoryDestinationContext =
 	defaultDirectory: { id: HOME, locator: HOME },
 };
 const NOTHING: import("../web/ui/intent.ts").Remembered = { room: "", locator: "", nick: "" };
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 /** The card, answered. `edits` defaults to the act's own, which is the state
  * every act starts in. */

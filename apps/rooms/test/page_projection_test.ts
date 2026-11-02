@@ -1,5 +1,6 @@
 // Each page projection owns its drafts, conversations, roster, history, and unread state independently.
 import "./support/browser_application.ts";
+import { assert } from "./assert.ts";
 // Two pages in one isolate keep separate presentation. Drafts, conversations,
 // rosters, histories, unreads, and who is composing belong to the page that wrote them.
 
@@ -17,10 +18,6 @@ Object.defineProperty(globalThis, "matchMedia", {
 const store = await import("../web/ui/store.ts");
 const { RoomsPage } = await import("../web/ui/page.ts");
 const { dirId } = await import("../web/ui/types.ts");
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 Deno.test("two pages do not share drafts, conversations, members, typers, histories, or unreads", () => {
 	const first = new RoomsPage();

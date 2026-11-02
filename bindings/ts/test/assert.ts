@@ -2,6 +2,13 @@
 // dependencies, so its tests carry their own vocabulary, and one copy of it
 // beats one per file: a message shape or an equality rule changes here once.
 
+/** A harness process fails loudly: say why on stderr, then exit. A `Deno.test`
+ * throws instead, so its `finally` still runs. */
+export function fail(message: string): never {
+	console.error(`FAIL: ${message}`);
+	Deno.exit(1);
+}
+
 export function assert(value: unknown, message = "assertion failed"): asserts value {
 	if (!value) throw new Error(message);
 }
@@ -20,14 +27,22 @@ export function assertDeepEquals(actual: unknown, expected: unknown): void {
 	}
 }
 
-/** Run `fn` and return what it rejected with; fail if it settled. */
-export async function assertRejects(fn: () => Promise<unknown>): Promise<unknown> {
+/** Run `fn` and return what it rejected with; fail if it settled. With
+ * `includes`, the rejection must also carry that text. */
+export async function assertRejects(fn: () => Promise<unknown>, includes?: string): Promise<unknown> {
 	try {
 		await fn();
 	} catch (error) {
+		if (includes !== undefined && !String(error).includes(includes)) {
+			throw new Error(`expected rejection containing ${JSON.stringify(includes)}, got ${String(error)}`);
+		}
 		return error;
 	}
-	throw new Error("expected the promise to reject");
+	throw new Error(
+		includes === undefined
+			? "expected the promise to reject"
+			: `expected rejection containing ${JSON.stringify(includes)}`,
+	);
 }
 
 /** `fn` must throw synchronously with a message containing `includes`. */

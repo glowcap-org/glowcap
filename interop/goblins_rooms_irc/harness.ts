@@ -6,18 +6,12 @@
 
 import { runChild } from "../../apps/_demo/orchestrator.ts";
 import { encodeIrc, type IrcMessage, readIrcLines } from "../../apps/rooms/irc/protocol.ts";
+import { fail } from "../../apps/rooms/test/support/fail.ts";
+import { assert } from "../../apps/rooms/test/assert.ts";
 
 const ROOT = Deno.cwd();
 const PHASE = Deno.args.find((arg) => arg.startsWith("--phase="))?.slice("--phase=".length);
 const WAIT_MS = 60_000;
-
-function fail(message: string): never {
-	throw new Error(message);
-}
-
-function assert(value: unknown, message: string): asserts value {
-	if (!value) fail(message);
-}
 
 async function writeAll(conn: Deno.Conn, bytes: Uint8Array): Promise<void> {
 	let offset = 0;

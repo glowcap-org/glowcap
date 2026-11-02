@@ -18,10 +18,7 @@ import { writingExamples } from "../lib/text/writing.ts";
 import { keyLabel, markerFor, wrapSelection } from "../web/ui/composer/keys.ts";
 import { assertEquals } from "./assert.ts";
 import "./support/browser_application.ts";
-
-function fail(message: string): never {
-	throw new Error(message);
-}
+import { fail } from "./support/fail.ts";
 
 function drawn(text: string): string {
 	return renderToStaticMarkup(createElement(RichText, { text, nick: "" }));

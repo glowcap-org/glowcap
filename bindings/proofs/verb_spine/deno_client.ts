@@ -8,11 +8,7 @@
 
 import { parseLocator, type Ref, Runtime, type Session } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
+import { fail } from "../_support/harness.ts";
 
 function mark(marker: string, detail = ""): void {
 	console.log(`VERB-SPINE ${marker}${detail === "" ? "" : ` ${detail}`}`);

@@ -7,6 +7,7 @@
 //
 // Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts [--wss] -- <client argv...>
 
+import { RELAY_READY_MARKER } from "@glowcap/relay";
 import { awaitMarker, fail, runProofOrFail } from "../_support/harness.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -55,7 +56,7 @@ const clientCode = await runProofOrFail({
 		stdout: "piped",
 		stderr: "inherit",
 	});
-	const relayPort = await awaitMarker(relay, "DENO-RELAY-READY", "relay");
+	const relayPort = await awaitMarker(relay, RELAY_READY_MARKER, "relay");
 	const relayUrl = `${overWss ? "wss" : "ws"}://localhost:${relayPort}/relay`;
 
 	const peer = processes.spawn("deno", {

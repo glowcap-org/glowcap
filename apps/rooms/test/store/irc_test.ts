@@ -1,6 +1,7 @@
 // IRC store projection carries bridge facets, seat progress, and network-scoped identity into room state.
 /// <reference lib="dom" />
 import "../support/browser_application.ts";
+import { assert } from "../assert.ts";
 // IRC identity and presence projections in the Rooms UI store.
 
 Object.defineProperty(globalThis, "matchMedia", {
@@ -15,10 +16,6 @@ Object.defineProperty(globalThis, "matchMedia", {
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
 const { dirId } = await import("../../web/ui/types.ts");
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 // Unknown-seat admission and roster reset are exercised by the host/Wasm
 // contract in rust/proofs/src/room_view.rs. This seam receives complete views.

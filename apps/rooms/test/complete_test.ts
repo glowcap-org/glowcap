@@ -10,15 +10,8 @@ import { PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from ".
 import { messageMentions } from "../web/ui/markdown.ts";
 import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
 import type { Conv } from "../web/ui/types.ts";
-import { assertEquals } from "./assert.ts";
-
-function fail(message: string): never {
-	throw new Error(message);
-}
-
-function assert(ok: boolean, what: string): void {
-	if (!ok) throw new Error(what);
-}
+import { assert, assertEquals } from "./assert.ts";
+import { fail } from "./support/fail.ts";
 
 const SOURCES = { nicks: ["alice", "alicia", "bob"], rooms: ["lobby", "logs", "dev"], here: "room" as const };
 

@@ -14,7 +14,8 @@
 //
 // The assertion is a fetch-and-call round trip through the whole chain.
 
-import { fail, kill, parseHarnessArgs, readToken, ROOT, spawnFfi, spawnRelay, WASM } from "./relay_harness_common.ts";
+import { fail } from "../../test/assert.ts";
+import { kill, parseHarnessArgs, readToken, ROOT, spawnFfi, spawnRelay, WASM } from "./relay_harness_common.ts";
 
 const HOST = new URL("./serve_iroh_host.ts", import.meta.url).pathname;
 const PROBE = new URL("./iroh_relay_probe.ts", import.meta.url).pathname;

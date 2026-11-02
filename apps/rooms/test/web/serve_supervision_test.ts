@@ -5,10 +5,7 @@
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { freePort } from "../support/rooms_server.ts";
 import { delay, reachRoomThroughRelay, ROOT, spawnWeb, waitForIndex, WEB } from "./serve_harness.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+import { assert } from "../assert.ts";
 
 Deno.test("the web front reports a room server that cannot start, and stops", async () => {
 	// Startup must preserve the host storage refusal through child retirement.

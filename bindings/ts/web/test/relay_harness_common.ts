@@ -11,15 +11,12 @@
 // argument is "0" for an ephemeral port). `--env` pairs are merged into the
 // relay subprocess environment (the Rust iroh relay needs `LD_LIBRARY_PATH`).
 
+import { fail } from "../../test/assert.ts";
+
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 export { ROOT };
 export const WASM = `${ROOT}zig-out/wasm/glowcap_host.wasm`;
-
-export function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
 
 /** One relay program to launch and the marker it prints when listening. */
 export interface RelayInvocation {

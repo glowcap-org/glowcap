@@ -26,7 +26,8 @@
 // `deno run --allow-all interop/webrtc_browser_peer/browser_peer_test.ts`.
 
 import { chromium } from "playwright";
-import { bundleProbe, fail, freePort } from "../../bindings/ts/web/test/support.ts";
+import { bundleProbe, freePort } from "../../bindings/ts/web/test/support.ts";
+import { fail } from "../../bindings/proofs/_support/harness.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const ANSWERER = `${ROOT}zig-out/bin/glowcap-webrtc-answerer`;

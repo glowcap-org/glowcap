@@ -10,14 +10,10 @@
 // room: a keyed OCapN session established over `/relay`.
 
 import { parseOpsBundle } from "../../web/ui/ops/bundle.ts";
-import { assertEquals } from "../assert.ts";
+import { assert, assertEquals } from "../assert.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { freePort } from "../support/rooms_server.ts";
 import { reachRoomThroughRelay, ROOT, waitForIndex, WEB, withWeb } from "./serve_harness.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
 
 Deno.test("the web supervisor prints one pasteable capability bundle", async () => {
 	const httpPort = freePort();

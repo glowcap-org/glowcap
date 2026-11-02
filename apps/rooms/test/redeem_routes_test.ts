@@ -1,10 +1,7 @@
 // Redeem-route scheduling bounds active and queued work while giving each directory a turn.
 import { RedeemRouteCoordinator } from "../lib/redeem_routes.ts";
 import { Unanswered } from "../lib/deadline.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+import { assert } from "./assert.ts";
 
 Deno.test("redeem routes batch one directory and give the next directory its turn", async () => {
 	const routes = new RedeemRouteCoordinator<object>(4, 1_000);

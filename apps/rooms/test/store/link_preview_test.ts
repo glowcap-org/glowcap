@@ -4,6 +4,8 @@
 
 /// <reference lib="dom" />
 
+import { assert } from "../assert.ts";
+
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
 	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
@@ -12,10 +14,6 @@ Object.defineProperty(globalThis, "matchMedia", {
 const store = await import("../../web/ui/store.ts");
 const { dirId } = await import("../../web/ui/types.ts");
 const { previewSelection } = await import("../../web/ui/link_preview.ts");
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 function setup(name: string) {
 	const projection = new store.PageProjection();

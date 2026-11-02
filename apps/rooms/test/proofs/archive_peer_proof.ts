@@ -24,22 +24,12 @@ import { namedDirectRow } from "../support/conversation_row.ts";
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 import { startArchivePeer } from "../support/archive_peer.ts";
+import { fail } from "../support/fail.ts";
+import { freePort } from "../support/ports.ts";
 const ROOM = "archive-room";
 const KEPT = "this line outlives the browser that wrote it";
 const KEPT_DEVICE = "this line was this browser's account of it";
 const AFTER_PEER = "this still reaches its recipient while the archive is away";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
-
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
 
 async function announcedArchive(proc: Deno.ChildProcess): Promise<string> {
 	const reader = proc.stdout.getReader();

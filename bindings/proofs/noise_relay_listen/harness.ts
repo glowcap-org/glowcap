@@ -9,6 +9,7 @@
 //
 // Run: deno run -A bindings/proofs/noise_relay_listen/harness.ts -- <listener argv...>
 
+import { RELAY_READY_MARKER } from "@glowcap/relay";
 import { awaitMarker, fail, runProofOrFail } from "../_support/harness.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -43,7 +44,7 @@ const outcome = await runProofOrFail({
 		stdout: "piped",
 		stderr: "inherit",
 	});
-	const relayPort = await awaitMarker(relay, "DENO-RELAY-READY", "relay");
+	const relayPort = await awaitMarker(relay, RELAY_READY_MARKER, "relay");
 	const relayUrl = `ws://localhost:${relayPort}/relay`;
 	const registerUrl = `ws://localhost:${relayPort}/register`;
 

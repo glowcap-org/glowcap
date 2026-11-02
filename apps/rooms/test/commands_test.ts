@@ -23,12 +23,9 @@ import {
 } from "../lib/session_content_data.ts";
 
 import { initializeApplication } from "./support/application.ts";
+import { fail } from "./support/fail.ts";
 await initializeApplication();
 const DIRECTORY_NO_CHAT = "This view does not carry messages. Use a command.";
-
-function fail(message: string): never {
-	throw new Error(message);
-}
 
 Deno.test("session content metadata keeps workspace, custody and target powers separate", () => {
 	const { participation, custody } = SESSION_CONTENT.groups;

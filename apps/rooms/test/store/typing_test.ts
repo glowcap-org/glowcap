@@ -1,5 +1,7 @@
 // Typing projection changes only ephemeral composition state and retires it with the conversation.
 /// <reference lib="dom" />
+import "../support/browser_application.ts";
+import { assert } from "../assert.ts";
 
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
@@ -14,10 +16,6 @@ const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
 const { dirId } = await import("../../web/ui/types.ts");
 const { assertEquals } = await import("../assert.ts");
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 Deno.test("a typing flag does not replace the conversation", () => {
 	projection.reset();

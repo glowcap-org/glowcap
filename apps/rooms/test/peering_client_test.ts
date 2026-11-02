@@ -4,10 +4,7 @@ import { refFromId } from "../../../bindings/ts/runtime/value.ts";
 import type { Directory } from "../lib/directory.ts";
 import { DirectoryPeering, type DurableRoom, RoomPublication } from "../lib/peering.ts";
 import { PUBLISH_DURABLE_ROOM, REVOKE } from "../lib/protocol.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+import { assert } from "./assert.ts";
 
 function deferred<T>(): {
 	promise: Promise<T>;

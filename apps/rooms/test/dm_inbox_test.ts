@@ -15,10 +15,7 @@ import { inboxPublisher } from "../lib/dm_inbox.ts";
 import type { Directory } from "../lib/room/client.ts";
 import { MAX_DM_INBOXES } from "../lib/limits.ts";
 import { registrationId } from "./support/registration.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+import { assert } from "./assert.ts";
 
 /** The offer path defers one microtask. Run it. */
 function settle(): Promise<void> {

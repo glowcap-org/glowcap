@@ -5,6 +5,8 @@
 //
 // Run: deno run -A interop/goblins_interop/binding_listen_harness.ts -- <listener argv...>
 
+import { fail } from "../../bindings/proofs/_support/harness.ts";
+
 const ROOT = new URL("../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../zig-out/lib/", import.meta.url).pathname;
 const ACTOR_SWISS = "glowcapActorSwissnumABCDEFGH1234";
@@ -14,11 +16,6 @@ const installedArchiveEnv = {
 	GLOWCAP_LIB_DIR: LIB_DIR,
 	...(Deno.build.os === "darwin" ? { DYLD_LIBRARY_PATH: LIB_DIR } : { LD_LIBRARY_PATH: LIB_DIR }),
 };
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
 
 const sep = Deno.args.indexOf("--");
 const listenerArgv = sep === -1 ? [...Deno.args] : Deno.args.slice(sep + 1);

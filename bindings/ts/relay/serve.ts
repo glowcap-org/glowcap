@@ -25,6 +25,7 @@
 import {
 	denoIrohChannel,
 	denoTcpChannel,
+	RELAY_READY_MARKER,
 	type RelayConfig,
 	relayFailureLogger,
 	Rendezvous,
@@ -192,7 +193,7 @@ const serveOptions: Deno.ServeTcpOptions = {
 	hostname: "127.0.0.1",
 	port: listenPort,
 	signal: shutdown.signal,
-	onListen: ({ port }) => console.log(`DENO-RELAY-READY ${port}`),
+	onListen: ({ port }) => console.log(`${RELAY_READY_MARKER} ${port}`),
 };
 const handler = (req: Request): Response => {
 	const url = new URL(req.url);
