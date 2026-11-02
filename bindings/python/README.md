@@ -80,7 +80,7 @@ likewise loads the relay library and installs its provider.
 
 `Runtime.open(providers=[...])` or `Runtime.open(connectors=[...])` names the
 transports. Host options such as `seed`, `profile`, `codec`, `captp_version`,
-`features`, `context`, and `local_turn_budget` configure the Host it mints.
+`features`, `context`, `frame_cap`, and `local_turn_budget` configure the Host it mints.
 `Runtime.open(adopt_host=host, ...)` transfers an existing Host into the
 Runtime and takes no Host options. `await runtime.close()` then shuts that Host
 down for good.

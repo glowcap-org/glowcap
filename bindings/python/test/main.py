@@ -129,6 +129,9 @@ def main() -> int:
     runtime.run_managed(runtime._driver_completion_preserves_failure_category())
     runtime.run_managed(runtime._runtime_open_is_transactional())
     print("python test OK: Runtime.open preserves caller-owned Hosts across failed provider setup")
+    runtime.run_managed(runtime._runtime_open_options_reach_the_host())
+    runtime.run_managed(runtime._runtime_frame_cap_zero_is_refused())
+    print("python test OK: Runtime.open forwards Host options and adopt_host refuses each by name")
     print("python test OK: connector installation is transactional")
     sturdyref = parse_sturdyref(
         "ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/"
@@ -403,6 +406,8 @@ def main() -> int:
 
     runtime.run_managed(conversation._tightened_admission_cap_refuses())
     print("python test OK: a tightened session limit refuses a frame the default cap admits")
+    runtime.run_managed(conversation._runtime_frame_cap_refuses_over_cap())
+    print("python test OK: Runtime.open frame_cap sizes the Host's admission cap")
 
     runtime.run_managed(conversation._disconnect_rejects_pending_send())
     print("python test OK: an outstanding send rejects on disconnect")

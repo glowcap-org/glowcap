@@ -497,6 +497,34 @@ async def _tightened_admission_cap_refuses() -> None:
         session.close_transport()
 
 
+async def _runtime_frame_cap_refuses_over_cap() -> None:
+    """``Runtime.open(frame_cap=)`` sizes the Host it mints: the 4000-byte
+    declaration the default cap leaves incomplete is a typed over-cap refusal
+    at a 1024-byte cap."""
+    from glowcap import _pump
+    from glowcap._transport import Connector
+
+    def never(_host, _locator, _timeout):
+        return None
+
+    runtime = await Runtime.open(connectors=[Connector((TRANSPORT_TCP,), never)], frame_cap=1024)
+    session = _dial_injected(runtime.host)
+    try:
+        await _pump._feed(session, b"4000:")
+        raise AssertionError("a Runtime frame_cap must refuse an over-cap frame")
+    except GlowcapError as exc:
+        assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
+    finally:
+        session.close_transport()
+    # The refused session is a retained terminal failure, so close reports it.
+    try:
+        await runtime.close()
+    except GlowcapError as exc:
+        assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
+    else:
+        raise AssertionError("close hid the refused session's terminal failure")
+
+
 async def _disconnect_rejects_pending_send() -> None:
     """An outstanding ``send`` rejects when the connection drops, rather than
     hanging on a reply that can never arrive. The server serves one call and

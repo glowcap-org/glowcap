@@ -450,3 +450,71 @@ async def _runtime_open_is_transactional() -> None:
         assert not existing_host.released, "failed open released a caller-owned driver loop"
     finally:
         existing_loop.close()
+
+
+async def _runtime_open_options_reach_the_host() -> None:
+    """Host options pass through Runtime.open, ``adopt_host`` refuses each one
+    by name, and the removed singular keywords are not accepted."""
+
+    def never(_host, _locator, _timeout):
+        return None
+
+    connectors = [Connector((TRANSPORT_TCP,), never)]
+
+    runtime = await Runtime.open(connectors=connectors, codec="capnp")
+    try:
+        assert runtime.host.codec == "capnp", runtime.host.codec
+    finally:
+        await runtime.close()
+
+    adopted = Host()
+    try:
+        for option, value in (
+            ("seed", bytes(32)),
+            ("profile", "glowcap"),
+            ("codec", "capnp"),
+            ("captp_version", "1.0"),
+            ("features", ()),
+            ("frame_cap", 1024),
+            ("local_turn_budget", 8),
+        ):
+            try:
+                Runtime.open(connectors=connectors, adopt_host=adopted, **{option: value})
+            except GlowcapError as error:
+                assert error.code == ERR_INVALID_ARGUMENT, error
+                assert option in str(error), (option, str(error))
+            else:
+                raise AssertionError(f"adopt_host accepted the Host option {option}")
+    finally:
+        await adopted.close()
+
+    for singular in ("provider", "connector"):
+        try:
+            Runtime.open(**{singular: object()})  # type: ignore[call-overload]
+        except TypeError:
+            pass
+        else:
+            raise AssertionError(f"Runtime.open accepted the removed keyword {singular}")
+
+
+async def _runtime_frame_cap_zero_is_refused() -> None:
+    """``frame_cap`` is a Host option, so the Host's own refusal of a zero cap
+    surfaces from the Runtime open, and close reports that same failure."""
+
+    def never(_host, _locator, _timeout):
+        return None
+
+    runtime = Runtime.open(connectors=[Connector((TRANSPORT_TCP,), never)], frame_cap=0)
+    try:
+        await runtime
+    except GlowcapError as error:
+        assert error.code == ERR_INVALID_ARGUMENT, error
+        assert "frame_cap" in str(error), str(error)
+    else:
+        raise AssertionError("a zero frame_cap opened a Runtime")
+    try:
+        await runtime.close()
+    except GlowcapError as error:
+        assert error.code == ERR_INVALID_ARGUMENT, error
+    else:
+        raise AssertionError("close hid the failed open")

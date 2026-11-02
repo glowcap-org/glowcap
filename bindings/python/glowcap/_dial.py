@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from . import _constants as _abi
 from ._errors import GlowcapError, _check_host, _retain_terminal_failure
@@ -27,6 +27,19 @@ if TYPE_CHECKING:
     from ._loop import DriverLoop
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
+
+
+class _HostOptions(TypedDict, total=False):
+    """The keyword parameters of :class:`Host` that ``Runtime.open`` forwards."""
+
+    seed: bytes
+    profile: str
+    codec: str
+    captp_version: str
+    features: object
+    context: Context
+    frame_cap: int
+    local_turn_budget: int
 
 
 def _validate_handshake_timeout(handshake_timeout_ms: int | None) -> None:
@@ -75,7 +88,7 @@ class Runtime:
         connectors: tuple[Connector, ...],
         *,
         adopt_host: Host | None,
-        host_options: dict[str, object],
+        host_options: _HostOptions,
         handshake_timeout_ms: int | None,
     ) -> None:
         self._providers = providers
@@ -123,6 +136,7 @@ class Runtime:
         captp_version: str | None = None,
         features: object = None,
         context: Context | None = None,
+        frame_cap: int | None = None,
         local_turn_budget: int | None = None,
         handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS,
     ) -> Runtime:
@@ -130,9 +144,11 @@ class Runtime:
 
         ``providers`` or ``connectors`` (exactly one) name the transport
         composition. ``seed``, ``profile``, ``codec``, ``captp_version``,
-        ``features``, ``context``, and ``local_turn_budget`` are the options of
-        :class:`Host` and configure the Host this Runtime mints. ``adopt_host``
-        transfers an existing Host instead and refuses every Host option.
+        ``features``, ``context``, ``frame_cap``, and ``local_turn_budget`` are
+        the options of :class:`Host` and configure the Host this Runtime mints,
+        so the frame cap is fixed when the Host is built and a driver loop
+        inherits it. ``adopt_host`` transfers an existing Host instead and
+        refuses every Host option, ``frame_cap`` included.
         """
         _validate_handshake_timeout(handshake_timeout_ms)
         if (providers is None) == (connectors is None):
@@ -145,19 +161,23 @@ class Runtime:
             selected_providers = ()
             selected_connectors = _composition(connectors, "connector")
             _validate_composition(selected_connectors, Connector, "connector")
-        host_options = {
-            name: value
-            for name, value in (
-                ("seed", seed),
-                ("profile", profile),
-                ("codec", codec),
-                ("captp_version", captp_version),
-                ("features", features),
-                ("context", context),
-                ("local_turn_budget", local_turn_budget),
-            )
-            if value is not None
-        }
+        host_options: _HostOptions = {}
+        if seed is not None:
+            host_options["seed"] = seed
+        if profile is not None:
+            host_options["profile"] = profile
+        if codec is not None:
+            host_options["codec"] = codec
+        if captp_version is not None:
+            host_options["captp_version"] = captp_version
+        if features is not None:
+            host_options["features"] = features
+        if context is not None:
+            host_options["context"] = context
+        if frame_cap is not None:
+            host_options["frame_cap"] = frame_cap
+        if local_turn_budget is not None:
+            host_options["local_turn_budget"] = local_turn_budget
         if adopt_host is not None and host_options:
             raise GlowcapError(
                 _ERR_INVALID_ARGUMENT, f"adopt_host cannot be combined with Host options ({', '.join(host_options)})"

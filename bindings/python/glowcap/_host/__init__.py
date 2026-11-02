@@ -89,7 +89,8 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
     signed offer. Each session settles version and codec with its
     partner, falling back to v1.0/Syrup when needed, and runs only the
     intersection of the two offered feature sets. Omitted profile options use
-    the generated C ABI defaults. ``context`` routes every byte the host owns
+    the generated C ABI defaults. ``frame_cap`` sizes every session's maximum
+    admissible frame in bytes. ``context`` routes every byte the host owns
     through a caller-supplied allocation scope (:class:`Context`).
     ``local_turn_budget`` caps local-turn amplification per session
     (ADR-0018): ``0`` applies the Host's finite default, ``0xFFFF_FFFF`` (the C
@@ -105,6 +106,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         captp_version: str | None = None,
         features=_DEFAULT_FEATURES,
         context: Context | None = None,
+        frame_cap: int = _HOST_FRAME_CAP,
         local_turn_budget: int = 0,
         _adopt_raw: int | None = None,
         _driver_loop: DriverLoop | None = None,
@@ -255,7 +257,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
                     context_raw,
                     sptr,
                     64,
-                    _HOST_FRAME_CAP,
+                    frame_cap,
                     1,
                     _codec_id(codec),
                     _captp_version_id(captp_version),
