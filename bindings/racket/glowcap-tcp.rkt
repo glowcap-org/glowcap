@@ -1,12 +1,11 @@
 #lang racket/base
 ;; glowcap/tcp: the blocking TCP transport for the glowcap Racket binding.
 ;;
-;; Mirrors the à-la-carte archive split (ADR-0022): this module is
-;; libglowcap_net_transport_tcp's binding, the explicit netlayer/listener/connection
-;; handles for cleartext, loopback-grade TCP. Its private loader
-;; (`private/ffi-tcp.rkt`) opens ONLY that archive, so requiring this module
-;; never links a transport you do not use. It builds on the core value and
-;; error machinery in `glowcap.rkt` through the shared transport seam
+;; This module is libglowcap_net_transport_tcp's binding, the explicit
+;; netlayer/listener/connection handles for cleartext, loopback-grade TCP. Its
+;; private loader (`private/ffi-tcp.rkt`) opens ONLY that archive. It builds
+;; on the core value and error machinery in `glowcap.rkt` through the shared
+;; transport seam
 ;; (`private/seam.rkt`). They share the frame layout but no symbol, so a TCP
 ;; consumer composes the two:
 ;;

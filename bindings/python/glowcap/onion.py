@@ -1,5 +1,4 @@
-"""The Tor onion transport, glowcap's ``libglowcap_net_transport_onion`` archive,
-surfaced à la carte.
+"""The Tor onion transport, glowcap's ``libglowcap_net_transport_onion`` archive.
 
 ``onion`` is the one netlayer the OCapN draft standardizes, and the one upstream
 Spritely Goblins ships, so it is where a glowcap peer and a Goblins vat meet on

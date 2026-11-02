@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: host action execute over the byte-fed host
-;; (libglowcap_host, ADR-0022 / ADR-0011).
+;; (libglowcap_host, ADR-0011).
 ;;
 ;; Owns the shared C drain (`glowcap_host_pump_drain`) with sync park-only
 ;; hooks, then honors each parked arm (`drain-host-actions!`). The CapTP surface

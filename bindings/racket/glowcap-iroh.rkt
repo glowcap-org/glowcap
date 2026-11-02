@@ -1,13 +1,10 @@
 #lang racket/base
 ;; glowcap-iroh: the iroh transport companion for the glowcap Racket binding.
 ;;
-;; Mirrors the à-la-carte archive split (ADR-0022): `glowcap.rkt` is the core
-;; (libglowcap_ocapn), and each transport is a composable module:
-;; `glowcap-tcp.rkt`, `glowcap-inproc.rkt`, and this one. This module is
-;; libglowcap_net_transport_iroh's binding, the optional encrypted-QUIC netlayer.
-;; Its private loader (`private/ffi-iroh.rkt`) opens ONLY the iroh companion
-;; (`zig build iroh-abi`, needs cargo). That archive exports only `glowcap_iroh_*`
-;; and builds an `async-transport` over it through the transport seam
+;; This module is libglowcap_net_transport_iroh's binding, the optional
+;; encrypted-QUIC netlayer. Its private loader (`private/ffi-iroh.rkt`) opens
+;; ONLY the iroh companion (`zig build iroh-abi`, needs cargo). That archive
+;; exports only `glowcap_iroh_*` and builds an `async-transport` over it through the transport seam
 ;; (`private/seam.rkt`); the core calls come from there. Everything above the
 ;; pump (vat, session-* verbs, events) is the core's; only the transport differs.
 ;;

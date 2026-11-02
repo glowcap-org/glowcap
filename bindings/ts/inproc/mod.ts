@@ -1,12 +1,12 @@
 // Idiomatic JavaScript/TypeScript API for `libglowcap_net_transport_inproc`.
-// It is glowcap's in-process transport, a composable companion to the core `./mod.ts`
-// module (ADR-0022).
+// It is glowcap's in-process transport, a companion to the core `./mod.ts`
+// module.
 //
 // This is the socket-free sibling of `./tcp.ts`: two peers in one process wired
 // by in-process pipes and no kernel transport. The C listener adds a wake
 // descriptor for reactor integration; no application bytes flow through it. It rides its
-// own archive (`libglowcap_net_transport_inproc`), symbol-disjoint from the core
-// and from the other transports, sharing the frame/context types by layout. The
+// own archive (`libglowcap_net_transport_inproc`) and shares the frame/context
+// types with the core by layout. The
 // lifecycle matches TCP (make the netlayer, bind a listener or dial a
 // connection, release the connections, then release the netlayer), but a listener
 // binds to a string designator (any opaque token, not a host:port) and a dialer

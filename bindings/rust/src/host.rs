@@ -1,5 +1,5 @@
 //! The CapTP [`Host`]: multi-session CapTP product over the byte-fed host archive
-//! (`libglowcap_host`, ADR-0022). It owns `engine.Node` (the sans-io handoff
+//! (`libglowcap_host`). It owns `engine.Node` (the sans-io handoff
 //! router). Goblins' `mycapn` is two roles: product maps to Host, router tables map to
 //! `engine.Node`: never a single-type equation (ADR-0011). The `GlowcapHost`
 //! owns every decision: the retained identity, session directory,

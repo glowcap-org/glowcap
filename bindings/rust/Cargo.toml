@@ -38,11 +38,9 @@ all = { level = "deny", priority = -1 }
 undocumented_unsafe_blocks = "deny"
 
 [features]
-# The feature set mirrors glowcap's à-la-carte C ABI archives (ADR-0022): the
-# core OCapN peer is always present, and each transport feature links exactly its
-# companion archive and compiles its module (`build.rs` emits one
-# `cargo:rustc-link-lib` per enabled feature). A consumer pays — in linked
-# archive and symbols — only for the transports it turns on.
+# The core OCapN peer is always present, and each transport feature links its
+# archive and compiles its module (`build.rs` emits one `cargo:rustc-link-lib`
+# per enabled feature).
 default = ["tcp", "inproc"]
 
 # Optional durable resources on the existing Host, stored in SQLite, LMDB,

@@ -15,7 +15,7 @@
 // settle). A transport
 // that links its own glowcap archive lives in its own module beside this one:
 // `@glowcap/tcp`, `@glowcap/inproc`, `@glowcap/onion`, and the optional
-// `@glowcap/iroh` package, as a C consumer links archives à la carte.
+// `@glowcap/iroh` package. Importing one loads its archive and no other.
 //
 // This module re-exports the public surface of its sibling modules, so the
 // `@glowcap/runtime` import path is one place.

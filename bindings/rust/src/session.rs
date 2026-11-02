@@ -1,5 +1,5 @@
-//! The application surface over the byte-fed host (`libglowcap_host`,
-//! ADR-0022): [`Session`] and its verbs (`fetch`/`send`/`tell`/`spawn`/
+//! The application surface over the byte-fed host (`libglowcap_host`):
+//! [`Session`] and its verbs (`fetch`/`send`/`tell`/`spawn`/
 //! `publish`/`enliven`/`serve`/`close`), plus mint/handshake (`establish_*`).
 //! The managed dial executor (provider selection + channel open + [`Runtime::connect`]) lives in
 //! [`crate::dial`]. [`Server`] / [`listen`] live in [`crate::listen`]. The

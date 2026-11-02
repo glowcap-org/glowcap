@@ -7,11 +7,9 @@
 ;; locator URI grammar, and the exporter location-record encoder gifter
 ;; origination feeds. The wire itself rides the byte-fed host archive
 ;; (`ffi-host.rkt`); the Zig engine peer is not mirrored into C
-;; surface with no Racket wrapper. This loader opens ONLY libglowcap_ocapn:
-;; the universal base usable alone (ADR-0022). The transport archives have
-;; their own loaders (`ffi-tcp.rkt`, `ffi-inproc.rkt`, `ffi-iroh.rkt`), each
-;; opening only its own symbol-disjoint archive, so requiring the core pulls
-;; in no transport.
+;; surface with no Racket wrapper. This loader opens ONLY libglowcap_ocapn.
+;; The transport archives have their own loaders (`ffi-tcp.rkt`,
+;; `ffi-inproc.rkt`, `ffi-iroh.rkt`).
 ;;
 ;; The bound functions and their out-cell wrappers are generated from the
 ;; archive's annotated symbol inventory (`ffi-ocapn-gen.rkt`, `zig build

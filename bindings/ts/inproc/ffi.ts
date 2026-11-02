@@ -4,13 +4,12 @@
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
 // Internal: the FFI mirror of `libglowcap_net_transport_inproc` — the
-// in-process transport archive (ADR-0022).
+// in-process transport archive.
 //
 // Nothing here is public; `inproc.ts` is the ergonomic surface over it. This
-// loader opens *only* the inproc archive, so importing `inproc.ts` never pulls
-// in the TCP or iroh archives. The inproc family is symbol-disjoint from the
-// core and shares the frame/context types by layout; it carries its own
-// thread-local last-error read through `glowcap_inproc_last_error`.
+// loader opens *only* the inproc archive, which shares the frame/context types
+// with the core by layout and carries its own thread-local last-error read
+// through `glowcap_inproc_last_error`.
 
 import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
 import { INPROC_ARCHIVE_FINGERPRINT } from "@glowcap/abi";

@@ -23,7 +23,7 @@ rendezvous = ["websockets"]
 
 [tool.setuptools.packages.find]
 # The binding is the `glowcap` package: the core plus one submodule per transport
-# (`tcp`, `inproc`, `iroh`), mirroring the à-la-carte C ABI archives. Its internal
+# (`tcp`, `inproc`, `iroh`), one per C ABI archive. Its internal
 # per-archive FFI loaders (`_ffi_ocapn`, `_ffi_tcp`, `_ffi_inproc`, `_ffi_iroh`) and
 # the ABI constants (`_constants`) ship inside it. The `test/` tree runs from the
 # checkout and is never installed. Discovery is one recursive

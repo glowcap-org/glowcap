@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the CapTP `session` surface over the byte-fed host
-;; (libglowcap_host, ADR-0022 / ADR-0011). It owns the application verbs and
+;; (libglowcap_host, ADR-0011). It owns the application verbs and
 ;; serve path, construction/abandon, and the core-selected terminal effect.
 ;; `session/state.rkt`, `session/identity.rkt`,
 ;; `session/establish.rkt`, and `session/close.rkt` own their named siblings.

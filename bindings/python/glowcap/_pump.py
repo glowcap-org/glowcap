@@ -1,5 +1,5 @@
 """Internal: the byte-fed embedder pump choreography over the host
-(``libglowcap_host``, ADR-0022).
+(``libglowcap_host``).
 
 Owns the connection byte path the embedder contract leaves to the binding:
 read raw bytes off the transport, hand them to the core's stream delimiter

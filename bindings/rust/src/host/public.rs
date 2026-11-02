@@ -5,8 +5,8 @@ use crate::{CaptpVersion, Session};
 /// The CapTP Host: one identity, one actor graph, one routing and redeem
 /// authority, shared by every session minted against it. Owns `engine.Node`
 /// (router half of Goblins mycapn, while Host carries the product role: ADR-0011).
-/// The cross-session machinery lives in the Zig core behind `libglowcap_host`
-/// (ADR-0022). This is the host-idiom residue over it: the session registry,
+/// The cross-session machinery lives in the Zig core behind `libglowcap_host`.
+/// This is the host-idiom residue over it: the session registry,
 /// the vow table, the action drain that performs the I/O the host asks for
 /// (dial, flush, settle, entropy), and the iroh redeem posture. Cloning shares
 /// the same Host. The FFI host is released when the last clone (and last
