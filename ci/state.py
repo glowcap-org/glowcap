@@ -27,9 +27,10 @@ directory would leave its mount on a deleted inode.
 first shard, which ran every Cargo build, lands last so Cargo's recorded
 times win. Every shard of a successful build packed, so a missing archive is
 a handoff defect and exits 1. A shard whose build failed hands over nothing,
-and the test job compiles its share. Exit 2 names a malformed call.
+and the test job compiles its share. A malformed call exits 2 with the usage.
 """
 
+import argparse
 import json
 import os
 import shutil
@@ -139,24 +140,30 @@ def restore(directory, shards, build):
 
 
 def main(argv):
-    verb, args = (argv[0], argv[1:]) if argv else ("", [])
-    try:
-        if verb == "stores" and not args:
-            print("\n".join(map(str, STORES)))
-        elif verb == "stamp" and not args:
-            stamp()
-        elif verb == "bound" and len(args) == 2:
-            bound(float(args[0]), float(args[1]))
-        elif verb == "pack" and len(args) == 1:
-            return pack(args[0])
-        elif verb == "restore" and len(args) == 3:
-            return restore(*args)
-        else:
-            raise ValueError("expected one verb")
-    except ValueError as error:
-        say(str(error))
-        say("usage: stores | stamp | bound LIMIT_GB FLOOR_GB | pack ARCHIVE | restore DIR SHARDS BUILD")
-        return 2
+    parser = argparse.ArgumentParser(
+        prog="ci/state.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    verbs = parser.add_subparsers(dest="verb", required=True)
+    verbs.add_parser("stores")
+    verbs.add_parser("stamp")
+    bounding = verbs.add_parser("bound")
+    bounding.add_argument("limit_gb", type=float)
+    bounding.add_argument("floor_gb", type=float)
+    verbs.add_parser("pack").add_argument("archive")
+    restoring = verbs.add_parser("restore")
+    for name in ("directory", "shards", "build"):
+        restoring.add_argument(name)
+    args = parser.parse_args(argv)
+    if args.verb == "stores":
+        print("\n".join(map(str, STORES)))
+    elif args.verb == "stamp":
+        stamp()
+    elif args.verb == "bound":
+        bound(args.limit_gb, args.floor_gb)
+    elif args.verb == "pack":
+        return pack(args.archive)
+    else:
+        return restore(args.directory, args.shards, args.build)
     return 0
 
 

@@ -452,18 +452,23 @@ class Arguments(unittest.TestCase):
         self.assertIn("invalid choice", result.stderr)
 
     def test_malformed_values_are_refused(self):
-        cases = [
-            (("draft-state", "v1.0.0"), {}, "invalid prerelease tag"),
+        for argv, env, message in [
             (("draft-state", TAG), {"GITHUB_RUN_ID": "0123"}, "invalid GITHUB_RUN_ID"),
             (("draft-state", TAG), {"GITHUB_REPOSITORY": "owner"}, "invalid GITHUB_REPOSITORY"),
-            (("draft-state", "extra", TAG), {}, "takes the tag alone"),
-            (("published", "extra", TAG), {}, "takes the tag alone"),
-            (("assemble", TAG), {}, "artifacts directory and the tag"),
             (("assemble", "artifacts", TAG), {"GITHUB_SHA": "abc"}, "invalid GITHUB_SHA"),
-        ]
-        for argv, env, message in cases:
+        ]:
             with self.subTest(argv=argv, env=env), self.assertRaisesRegex(ValueError, message):
                 run_main(*argv, **env)
+        for argv, message in [
+            (("draft-state", "v1.0.0"), "invalid prerelease tag"),
+            (("draft-state", TAG, "extra"), "unrecognized arguments"),
+            (("published", TAG, "extra"), "unrecognized arguments"),
+            (("assemble", TAG), "required: tag"),
+        ]:
+            with self.subTest(argv=argv):
+                result = self.script(*argv, GITHUB_REPOSITORY=REPOSITORY, GITHUB_RUN_ID="123", GITHUB_SHA=COMMIT)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(message, result.stderr)
 
 
 @needs_jq

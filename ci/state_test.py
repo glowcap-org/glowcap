@@ -108,8 +108,10 @@ class StateTest(unittest.TestCase):
                 ["restore", "dir", "[1]"],
                 ["unknown"],
             ):
-                with self.subTest(argv=argv), mock.patch("builtins.print"):
-                    self.assertEqual(state.main(argv), 2)
+                with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as refused:
+                        state.main(argv)
+                    self.assertEqual(refused.exception.code, 2)
             with mock.patch("builtins.print"):
                 self.assertEqual(state.main(["pack", f"{temporary}/empty.tar.zst"]), 1, "nothing to pack")
             self.assertFalse(Path(temporary, "empty.tar.zst").exists())

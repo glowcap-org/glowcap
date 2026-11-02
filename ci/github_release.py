@@ -239,17 +239,27 @@ def published(repository, tag):
     return commit
 
 
-def main():
+def prerelease_tag(value):
+    if re.fullmatch(r"v0\.[0-9]+\.[0-9]+", value) is None:
+        raise argparse.ArgumentTypeError(f"invalid prerelease tag: {value}")
+    return value
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("mode", choices=("assemble", "bundles", "draft-state", "verify-draft", "published"))
-    parser.add_argument("arguments", nargs="+", metavar="ARG")
-    args = parser.parse_args()
+    modes = parser.add_subparsers(dest="mode", required=True)
+    assembling = modes.add_parser("assemble")
+    assembling.add_argument("artifacts", type=Path)
+    for mode in (
+        assembling,
+        *(modes.add_parser(name) for name in ("bundles", "draft-state", "verify-draft", "published")),
+    ):
+        mode.add_argument("tag", type=prerelease_tag)
+    args = parser.parse_args(argv)
+    tag = args.tag
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is not None, "invalid GITHUB_REPOSITORY")
-    tag = args.arguments[-1]
-    require(re.fullmatch(r"v0\.[0-9]+\.[0-9]+", tag) is not None, f"invalid prerelease tag: {tag}")
     if args.mode == "published":
-        require(len(args.arguments) == 1, "published takes the tag alone")
         commit = published(repository, tag)
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
@@ -259,13 +269,11 @@ def main():
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     require(re.fullmatch(r"[1-9][0-9]*", run_id) is not None, "invalid GITHUB_RUN_ID")
     if args.mode == "assemble":
-        require(len(args.arguments) == 2, "assemble takes the artifacts directory and the tag")
         commit = os.environ.get("GITHUB_SHA", "")
         require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None, "invalid GITHUB_SHA")
-        assemble(repository, Path(args.arguments[0]), tag, commit, run_id)
+        assemble(repository, args.artifacts, tag, commit, run_id)
         print(f"Assembled {len(list(ASSETS.glob('*.tar.gz')))} archives for {tag} at {commit}")
         return
-    require(len(args.arguments) == 1, f"{args.mode} takes the tag alone")
     if args.mode == "bundles":
         bundles(repository, tag)
         print(f"Downloaded the provenance bundle of every signed asset for {tag}")

@@ -4,6 +4,8 @@ The runner's command launcher and evidence recorder are replaced in process,
 so every gate the runner would start is recorded instead of run.
 """
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -236,8 +238,10 @@ class RunnerTest(unittest.TestCase):
             ["fetch", "extra"],
             ["summary", "extra"],
         ):
-            with self.subTest(arguments=arguments):
-                self.assertEqual(recorder.run(*arguments), 2)
+            with self.subTest(arguments=arguments), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as refused:
+                    recorder.run(*arguments)
+                self.assertEqual(refused.exception.code, 2)
                 self.assertEqual(recorder.calls, [])
                 self.assertIsNone(recorder.record)
 

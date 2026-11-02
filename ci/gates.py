@@ -19,12 +19,13 @@ gate means the deadline killed it (`wedged`).
 A run writes an evidence record (ci/evidence.py): under
 zig-out/evidence/<phase> for one phase, or attached to HEAD as a git note for
 a full run on a clean checkout. A green run whose record fails exits 70. A
-compile writes no record. Exit 2 names a malformed call.
+compile writes no record. A malformed call exits 2 with the usage.
 
 `fetch` makes three bounded attempts, pausing ZIG_FETCH_RETRY_DELAY seconds
 (default 5) between them, and stops at once on an interrupt or termination.
 """
 
+import argparse
 import json
 import os
 import re
@@ -197,40 +198,41 @@ def fetch():
         time.sleep(int(delay))
 
 
-def usage(message):
-    say(message)
-    say("usage: run [PHASE] | compile K/N PHASE... | fetch | summary")
-    return 2
+def shard(value):
+    """A K/N build shard with 1 <= K <= N, as the workflow passes it."""
+    match = re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", value)
+    if match is None or int(match[1]) > int(match[2]):
+        raise argparse.ArgumentTypeError("a shard is K/N with 1 <= K <= N")
+    return value
 
 
 def main(argv):
-    verb, args = (argv[0], argv[1:]) if argv else ("", [])
-    if verb == "fetch" and not args:
+    parser = argparse.ArgumentParser(
+        prog=NAME, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    verbs = parser.add_subparsers(dest="verb", required=True)
+    verbs.add_parser("run").add_argument("phase", nargs="?", choices=list(groups.PHASES))
+    compiling = verbs.add_parser("compile")
+    compiling.add_argument("shard", type=shard)
+    compiling.add_argument("phases", nargs="+", choices=list(groups.PHASES))
+    verbs.add_parser("fetch")
+    verbs.add_parser("summary")
+    args = parser.parse_args(argv)
+    if args.verb == "fetch":
         return fetch()
-    if verb == "summary" and not args:
+    if args.verb == "summary":
         summary()
         return 0
-    if verb == "run" and len(args) <= 1:
-        phase = args[0] if args else None
-        if phase is not None and phase not in groups.PHASES:
-            return usage(f"unknown phase: {phase}")
-        started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        run = Run()
-        status = None
-        for name in [phase] if phase else groups.PHASES:
-            status = run.phase(name)
-            if status is not None:
-                break
-        return finish(run, started, run.first_failure if status is None else status, phase)
-    if verb == "compile" and len(args) >= 2:
-        shard = re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", args[0])
-        if shard is None or int(shard[1]) > int(shard[2]):
-            return usage("compile needs a K/N shard with 1 <= K <= N")
-        unknown = [name for name in args[1:] if name not in groups.PHASES]
-        if unknown:
-            return usage(f"unknown phase: {unknown[0]}")
-        return Run().compile(args[0], args[1:])
-    return usage("expected one verb")
+    if args.verb == "compile":
+        return Run().compile(args.shard, args.phases)
+    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    run = Run()
+    status = None
+    for name in [args.phase] if args.phase else groups.PHASES:
+        status = run.phase(name)
+        if status is not None:
+            break
+    return finish(run, started, run.first_failure if status is None else status, args.phase)
 
 
 if __name__ == "__main__":
