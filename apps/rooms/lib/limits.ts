@@ -12,7 +12,7 @@
 // there. An attachment's is in `attachment.ts` beside the record it describes.
 
 import { WEBRTC_MAX_SIGNAL_BYTES } from "@glowcap/abi";
-import { utf8ByteLengthUpTo } from "@glowcap/runtime";
+import { utf8ByteLengthUpTo } from "@glowcap/runtime/text";
 import * as APPLICATION_DATA from "./application_data.ts";
 
 /** Hard length caps a room enforces, so an oversize name or line is refused at

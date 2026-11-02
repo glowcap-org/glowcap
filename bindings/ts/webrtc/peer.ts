@@ -13,7 +13,7 @@ import {
 } from "@glowcap/abi";
 import { rtcChannel } from "./channel.ts";
 import { assertSignalBytes } from "./signal.ts";
-import { utf8ByteLengthUpTo } from "@glowcap/runtime";
+import { utf8ByteLengthUpTo } from "@glowcap/runtime/text";
 
 const CHANNEL_LABEL = "ocapn";
 const MAX_PENDING_ICE_CANDIDATES = WEBRTC_MAX_PENDING_ICE_CANDIDATES;

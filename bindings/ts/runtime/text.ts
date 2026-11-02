@@ -1,5 +1,6 @@
 // UTF-8 measurement for the byte caps the ABI states in bytes while a caller
-// holds a JavaScript string.
+// holds a JavaScript string. This module requires no Host or FFI, so a browser
+// bundle maps it like `@glowcap/runtime/cleanup`.
 
 /** UTF-8 bytes of `text`, counted without encoding it. Counting stops once the
  * total passes `stopAfter`, so a cap check (`utf8ByteLengthUpTo(text, cap) <=

@@ -1,5 +1,5 @@
 import { WEBRTC_MAX_SIGNAL_BYTES } from "@glowcap/abi";
-import { utf8ByteLengthUpTo } from "@glowcap/runtime";
+import { utf8ByteLengthUpTo } from "@glowcap/runtime/text";
 
 export function assertSignalBytes(kind: string, text: string): string {
 	if (!fitsUtf8ByteCap(text, WEBRTC_MAX_SIGNAL_BYTES)) {

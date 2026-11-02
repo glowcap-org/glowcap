@@ -135,7 +135,6 @@ export { openWebSocketChannel, webSocketChannel } from "./websocket.ts";
 // resolve synchronously and never need it; `Runtime.open` and async transport
 // helpers already await it.
 export { ensureRuntimeReady } from "./internal/ffi/runtime.ts";
-export { utf8ByteLengthUpTo } from "./text.ts";
 export {
 	bareLocator,
 	designatorHostPort,
