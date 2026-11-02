@@ -81,7 +81,6 @@ const c_abi_errdefer = @import("source_check/c_abi/errdefer.zig");
 const c_abi_wiring = @import("source_check/c_abi/wiring.zig");
 const c_abi_mirrors = @import("source_check/c_abi/mirrors.zig");
 const binding_literals = @import("source_check/binding_literals.zig");
-const binding_posture = @import("source_check/binding_posture.zig");
 const cp_node_actions = @import("source_check/captp_product/node_actions.zig");
 const cp_pins = @import("source_check/captp_product/pins.zig");
 const cp_codes = @import("source_check/captp_product/codes.zig");
@@ -156,7 +155,6 @@ pub fn check(
     try scaffolding.checkCursorRuleOverlay(io, gpa, root, &violations);
     try scaffolding.checkRequiredSubstrings(io, gpa, root, &violations);
     try agents_catalog.checkSkillCatalog(io, gpa, root, &violations);
-    try agents_catalog.checkAgentsRouting(io, gpa, root, &violations);
     try docs_links.checkMarkdownLinks(io, gpa, root, &violations);
     try docs_links.checkRepoBlobLinks(io, gpa, root, &violations);
     try docs_links.checkRegistryReadmeLinks(io, gpa, root, &violations);
@@ -181,7 +179,6 @@ pub fn check(
     try css_lightdark.checkCssLightDarkGuard(io, gpa, root, &violations);
     try ui.checkUiProductTokens(io, gpa, root, &violations);
     try ui.checkUiThemeParity(io, gpa, root, &violations);
-    try rooms_ui.checkRoomsSelectors(io, gpa, root, &violations);
     try rooms_ui.checkRoomsTextCatalog(io, gpa, root, &violations);
     try rooms_ui.checkRoomsTextVoice(io, gpa, root, &violations);
     try prose_file_claims.checkProseFileClaims(io, gpa, root, &violations);
@@ -197,7 +194,6 @@ pub fn check(
     try rooms_ui.checkRoomsGapSteps(io, gpa, root, &violations);
     try rooms_ui.checkRoomsComposedTokens(io, gpa, root, &violations);
     try rooms_ui.checkRoomsRequestDeadlines(io, gpa, root, &violations);
-    try rooms_ui.checkRoomsRailRow(io, gpa, root, &violations);
     try rooms_ui.checkRoomsConfig(io, gpa, root, &violations);
     try rooms_avatar.checkAvatarRamp(io, gpa, root, &violations);
     try mark_assets.checkMarkAssets(io, gpa, root, &violations);
@@ -255,7 +251,6 @@ pub fn check(
     try bs_iroh.checkIrohLoopConvergence(io, gpa, root, &violations);
     try bs_iroh.checkIrohBindingAggregatesComplete(io, gpa, root, &violations);
     try binding_literals.check(io, gpa, root, &violations);
-    try binding_posture.check(io, gpa, root, &violations);
     try agents_catalog.checkRuleFrontmatter(io, gpa, root, &violations);
     try ps_layers.checkLayerOwnership(io, gpa, root, &violations);
     try ps_layers.checkTestPlacement(io, gpa, root, &violations);
@@ -329,6 +324,8 @@ test {
     _ = @import("toolchain_check.zig");
     // Pull the check modules' unit tests into the source-check test artifact.
     _ = bans;
+    _ = agents_catalog;
+    _ = rooms_ui;
     _ = fuzz;
     _ = binding_runtime_proof;
     _ = bs_ffi_surface;

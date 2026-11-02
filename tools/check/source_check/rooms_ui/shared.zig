@@ -1,5 +1,5 @@
 //! Shared rooms-UI check vocabulary: the interface directory, concatenated
-//! stylesheets, and comment-stripped source. Selector proofs, layer bans, and
+//! stylesheets, and comment-stripped source. Layer bans, the token checks, and
 //! config checks each import this rather than owning a copy.
 
 const std = @import("std");

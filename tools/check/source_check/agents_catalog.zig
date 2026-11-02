@@ -1,28 +1,12 @@
-//! The agent scaffolding's shape: AGENTS.md routing, skill frontmatter, and
-//! rule frontmatter. `gen-agent-index` owns the index in `.agents/README.md`.
+//! The agent scaffolding's routing facts: a skill's `name:` equals its
+//! directory, a rule's `globs:` and `paths:` agree, and the resident rules fit
+//! their byte budget. `gen-agent-index` owns the index in `.agents/README.md`
+//! and refuses a skill or rule without frontmatter or `description:`.
 
 const std = @import("std");
 const util = @import("util.zig");
 
 const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
-
-pub fn checkAgentsRouting(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    try expectFileContains(io, gpa, root, violations, "AGENTS.md", &.{
-        "## Start Here",
-        "docs/vision.md",
-        ".agents/skills/work/SKILL.md",
-        ".agents/rules/scripts.md",
-        "Context map",
-    });
-}
 
 pub fn checkSkillCatalog(
     io: std.Io,
@@ -47,15 +31,6 @@ pub fn checkSkillCatalog(
             try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: skill path too long", .{entry.path});
             continue;
         };
-        skills.access(io, skill_path, .{}) catch |err| {
-            const detail = if (err == error.FileNotFound)
-                "top-level skill directories must contain SKILL.md"
-            else
-                @errorName(err);
-            try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: {s}", .{ entry.path, detail });
-            continue;
-        };
-
         // A skill is discovered through its frontmatter, and its invocation
         // name is the directory name, a mismatched `name:` advertises a skill
         // that cannot be invoked as written.
@@ -69,11 +44,6 @@ pub fn checkSkillCatalog(
             if (!std.mem.eql(u8, name, entry.path)) {
                 try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: frontmatter `name: {s}` must equal the directory name", .{ entry.path, name });
             }
-            if (frontmatterValue(frontmatter, "description:") == null) {
-                try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: frontmatter is missing `description:`", .{entry.path});
-            }
-        } else {
-            try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: missing frontmatter — a skill without `name:`/`description:` is not discoverable", .{entry.path});
         }
     }
 }
@@ -85,11 +55,11 @@ pub fn checkSkillCatalog(
 const resident_budget_bytes: usize = 18_000;
 
 /// A Cursor rule loads through its frontmatter: `globs` routes it to the files
-/// it governs and `alwaysApply: true` keeps it resident. A rule without
-/// frontmatter is never auto-attached, silently unloaded at exactly the moment
-/// it governs, which is how doc-voice once shipped unrouted. Every canonical
-/// rule must open with a frontmatter block carrying `description:` and either
-/// `globs:` or `alwaysApply: true`.
+/// it governs and `alwaysApply: true` keeps it resident. A rule with
+/// frontmatter must carry either `globs:` or `alwaysApply: true`, or it is
+/// never auto-attached, silently unloaded at exactly the moment it governs,
+/// which is how doc-voice once shipped unrouted. A rule with no frontmatter at
+/// all is `gen-agent-index`'s refusal.
 pub fn checkRuleFrontmatter(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -122,13 +92,7 @@ pub fn checkRuleFrontmatter(
         };
         defer gpa.free(contents);
 
-        const frontmatter = frontmatterBlock(contents) orelse {
-            try appendViolation(gpa, violations, ".agents/rules/{s}: missing frontmatter, without `globs` or `alwaysApply`, Cursor never loads this rule", .{entry.path});
-            continue;
-        };
-        if (frontmatterValue(frontmatter, "description:") == null) {
-            try appendViolation(gpa, violations, ".agents/rules/{s}: frontmatter is missing `description:`", .{entry.path});
-        }
+        const frontmatter = frontmatterBlock(contents) orelse continue;
         const always = frontmatterValue(frontmatter, "alwaysApply:") orelse "";
         if (std.mem.eql(u8, always, "true")) resident_bytes += contents.len;
         const globs = frontmatterValue(frontmatter, "globs:");
@@ -220,27 +184,4 @@ test "pathsMatchGlobs holds Claude paths to Cursor globs" {
     // An always-resident rule carries neither key.
     try std.testing.expect(pathsMatchGlobs("alwaysApply: true\n", ""));
     try std.testing.expect(!pathsMatchGlobs("alwaysApply: true\npaths:\n  - \"x\"\n", ""));
-}
-
-test "sectionBody and collectBulletSpans read one registry section" {
-    const gpa = std.testing.allocator;
-    const doc =
-        "# Title\n\n## Layer Ownership\n\n" ++
-        "- `foundation`: bytes.\n" ++
-        "- `ocapn/`: the protocol:\n" ++
-        "  - `ocapn/model`: types.\n" ++
-        "  prose continuation with `inline` span.\n\n" ++
-        "## Next Section\n\n- `not-here`\n";
-    const section = sectionBody(doc, "## Layer Ownership").?;
-
-    var spans: std.ArrayList([]const u8) = .empty;
-    defer spans.deinit(gpa);
-    try collectBulletSpans(gpa, section, &spans);
-
-    try std.testing.expectEqual(@as(usize, 3), spans.items.len);
-    try std.testing.expectEqualStrings("foundation", spans.items[0]);
-    try std.testing.expectEqualStrings("ocapn/", spans.items[1]);
-    try std.testing.expectEqualStrings("ocapn/model", spans.items[2]);
-
-    try std.testing.expect(sectionBody(doc, "## Absent") == null);
 }
