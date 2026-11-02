@@ -122,10 +122,4 @@ pub const Timeline = struct {
     pub fn bytes(self: *const Timeline) []const u8 {
         return self.lines.items;
     }
-
-    /// This tick as simulated nanoseconds, for an event that names a future
-    /// arrival.
-    pub fn nowNs(self: *const Timeline) u64 {
-        return self.clock * ns_per_tick;
-    }
 };
