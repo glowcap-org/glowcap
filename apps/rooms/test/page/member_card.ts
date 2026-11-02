@@ -10,7 +10,7 @@
 
 import type { Page } from "playwright";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 /** What the pip on the card's chip is drawing, and what the row under it says.
  * The card has one branch for both, so a reader who glances at the shape and a

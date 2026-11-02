@@ -5,7 +5,7 @@
 
 import type { Browser, Page, Route } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 const VIDEO = "https://youtu.be/NdU6UdUKaYc?si=v9JTLhkE5if3tpCq";
 const RETRY = "https://writingcooperative.com/a-quick-guide-to-medium-9f61864ab26";

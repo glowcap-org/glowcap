@@ -36,7 +36,10 @@ import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
 import { openRailRoom } from "../support/private_room_page.ts";
-import { fail, freePort, ROOT, waitForHttp } from "../page/harness.ts";
+import { fail } from "../support/fail.ts";
+import { ROOT } from "../support/paths.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
 
 const httpPort = freePort();
 const roomPort = freePort();

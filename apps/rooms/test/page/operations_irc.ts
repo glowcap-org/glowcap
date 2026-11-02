@@ -9,7 +9,7 @@
 // the surrounding scenes keep their held-capability counts.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { removeCapability, takeCapability } from "./capability_set.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 

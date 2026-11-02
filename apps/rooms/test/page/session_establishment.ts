@@ -2,7 +2,7 @@
 
 import type { Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export async function establishTestSession(tab: Page): Promise<void> {
 	await tab.waitForSelector("#boot", { state: "detached", timeout: 60_000 });

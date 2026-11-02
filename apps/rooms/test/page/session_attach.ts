@@ -12,7 +12,7 @@
 // read where it was shown rather than left on a page nobody looks at again.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 async function openAttachForm(page: Page, capability: string): Promise<void> {
 	await page.click("#settingsBtn");

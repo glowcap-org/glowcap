@@ -12,8 +12,9 @@
 import { parseOpsBundle } from "../../web/ui/ops/bundle.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { freePort } from "../support/rooms_server.ts";
-import { reachRoomThroughRelay, ROOT, waitForIndex, WEB, withWeb } from "./serve_harness.ts";
+import { freePort } from "../support/ports.ts";
+import { ROOT, WEB } from "../support/paths.ts";
+import { reachRoomThroughRelay, waitForIndex, withWeb } from "./serve_harness.ts";
 
 Deno.test("the web supervisor prints one pasteable capability bundle", async () => {
 	const httpPort = freePort();

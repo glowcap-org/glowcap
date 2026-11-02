@@ -326,6 +326,7 @@ test {
     _ = bans;
     _ = agents_catalog;
     _ = rooms_ui;
+    _ = rooms_proofs;
     _ = fuzz;
     _ = binding_runtime_proof;
     _ = bs_ffi_surface;

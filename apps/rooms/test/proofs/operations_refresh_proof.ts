@@ -3,7 +3,8 @@ import { spawnWeb } from "../support/web_front.ts";
 import { chromium } from "playwright";
 
 import { reapOwned } from "../support/children.ts";
-import { freePort, waitForHttp } from "../support/rooms_server.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { removeCapability, takeCapability } from "../page/capability_set.ts";

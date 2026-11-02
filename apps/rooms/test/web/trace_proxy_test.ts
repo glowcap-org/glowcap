@@ -6,9 +6,12 @@
 // arrive through the carried leg unchanged.
 
 import { TRACE_REFUSED_CLOSE_CODE, traceCapUrl } from "../../lib/trace_publish.ts";
-import { assert, freePort, roomsTest, ROOT, until, waitForHttp, within } from "../support/rooms_server.ts";
+import { assert } from "../assert.ts";
+import { ROOT, WEB } from "../support/paths.ts";
+import { freePort } from "../support/ports.ts";
+import { until, within } from "../support/wait.ts";
+import { roomsTest, waitForHttp } from "../support/rooms_server.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { WEB } from "../support/paths.ts";
 import { connectTraceViewer } from "../../lib/trace_view.ts";
 import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
 

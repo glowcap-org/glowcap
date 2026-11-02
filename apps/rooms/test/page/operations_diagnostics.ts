@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { takeCapability } from "./capability_set.ts";
 import { opsDiagnosticsLabel } from "../../lib/text/ops.ts";
 

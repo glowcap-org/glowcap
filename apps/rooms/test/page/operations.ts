@@ -18,7 +18,7 @@
 
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { verifyCompleteOperationsNav } from "./operations_nav.ts";
 import { runOperatorScene } from "./operations_operator.ts";
 import { runIrcScene } from "./operations_irc.ts";

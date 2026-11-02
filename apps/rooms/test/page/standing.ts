@@ -5,7 +5,8 @@
 
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { fail, fillSettled, reachDirectoryOnCard } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { fillSettled, reachDirectoryOnCard } from "./harness.ts";
 import { namedDirectRow } from "../support/conversation_row.ts";
 
 export async function run(

@@ -9,8 +9,6 @@ import { ROOT, WEB } from "../support/paths.ts";
 import { freePort } from "../support/ports.ts";
 import { delay, within } from "../support/wait.ts";
 
-export { delay, ROOT, WEB };
-
 function remaining(deadline: number, what: string): number {
 	const ms = deadline - Date.now();
 	if (ms <= 0) throw new Error(`timed out waiting for ${what}`);

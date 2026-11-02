@@ -33,8 +33,10 @@ import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort, waitForHttp } from "../support/rooms_server.ts";
-import { fail, openDmTo } from "../page/harness.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
+import { fail } from "../support/fail.ts";
+import { openDmTo } from "../page/harness.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";

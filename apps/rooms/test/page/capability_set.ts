@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { OPERATIONS_CAPABILITIES } from "../../lib/application_data.ts";
 import { capabilityUriLabel } from "../../lib/text/settings.ts";
 

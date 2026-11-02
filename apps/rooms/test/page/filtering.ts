@@ -17,7 +17,8 @@
 
 import type { Page } from "playwright";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { fail, waitForPostedLine } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { waitForPostedLine } from "./harness.ts";
 import { run as filterFormRun } from "./filter_form.ts";
 
 /** What the rail is drawing, and what the filter says about it. */

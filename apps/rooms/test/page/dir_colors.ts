@@ -14,7 +14,7 @@
 
 import type { Page } from "playwright";
 import { waitForFiniteAnimations } from "../support/animations.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { inkContrast } from "../ink_contrast.ts";
 
 /** Sweep the rail for a directory told apart by colour alone, then measure every

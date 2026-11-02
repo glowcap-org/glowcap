@@ -58,7 +58,7 @@ import {
 	scrapeTraceSturdyref,
 	tracePublishUrlOf,
 } from "../../apps/rooms/test/trace/viewer.ts";
-import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
+import { freePort } from "../../apps/rooms/test/support/ports.ts";
 import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
 import { until as untilWithin } from "../../apps/rooms/test/support/wait.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";

@@ -7,7 +7,7 @@
 // same control in both homes.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export async function runChrome(
 	tab: Page,

@@ -26,8 +26,9 @@ import { enterOrOpen } from "../../lib/enter_room.ts";
 import { dial, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../support/rooms_server.ts";
-import { fail, until } from "../page/harness.ts";
+import { freePort } from "../support/ports.ts";
+import { fail } from "../support/fail.ts";
+import { until } from "../support/wait.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";

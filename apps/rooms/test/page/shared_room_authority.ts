@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 /** Prove the attached path after its session peer restarted: the room was
  * realized through its durable entry link, yet revoking that entry authority status-allow: pending state or quoted runtime label

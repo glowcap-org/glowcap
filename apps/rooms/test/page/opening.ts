@@ -6,7 +6,8 @@
 // run says instead of nothing.
 
 import type { Browser, Page } from "playwright";
-import { fail, openDirectoryCardFromSettings } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { openDirectoryCardFromSettings } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import {
 	proveActionRowsStayShort,

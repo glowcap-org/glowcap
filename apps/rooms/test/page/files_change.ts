@@ -5,7 +5,8 @@
 
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
-import { bubbleInkContrast, fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { bubbleInkContrast } from "./harness.ts";
 import { png } from "./png.ts";
 import { runChrome } from "./chrome.ts";
 

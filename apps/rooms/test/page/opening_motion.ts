@@ -1,7 +1,7 @@
 // The opening screen for a reader who has asked for less motion.
 //
 import type { Browser } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 /** A reader who has asked for less motion gets an opening screen that sits
  * still and still gets the page. Both halves are worth holding, and the second

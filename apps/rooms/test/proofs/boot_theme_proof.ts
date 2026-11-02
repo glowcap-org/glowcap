@@ -23,13 +23,11 @@ import { spawnWeb } from "../support/web_front.ts";
 
 import { chromium } from "playwright";
 import { reapOwned } from "../support/children.ts";
+import { fail } from "../support/fail.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { freePort, ROOT, waitForHttp } from "../page/harness.ts";
-
-function fail(message: string): never {
-	console.error(`rooms-web-boot-theme FAILED: ${message}`);
-	Deno.exit(1);
-}
+import { ROOT } from "../support/paths.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
 
 const httpPort = freePort();
 const roomPort = freePort();

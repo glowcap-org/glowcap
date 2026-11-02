@@ -9,8 +9,10 @@ import { spawnWeb } from "../support/web_front.ts";
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort, waitForHttp } from "../support/rooms_server.ts";
-import { directOpened, fail } from "../page/harness.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
+import { fail } from "../support/fail.ts";
+import { directOpened } from "../page/harness.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";

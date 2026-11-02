@@ -43,7 +43,8 @@ import { fail } from "../support/fail.ts";
 import { joinAs } from "../support/join.ts";
 import { awaitBubble, openDmTo, say } from "../page/harness.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort, waitForHttp } from "../support/rooms_server.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
 /** One record off the endpoint, as the converter takes it, and the shape of
  * one event it produces. Both are open records here: this file states no
  * structure of its own for either, and reads a converted event only through

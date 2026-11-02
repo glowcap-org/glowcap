@@ -13,7 +13,7 @@ import {
 } from "../../apps/rooms/test/trace/viewer.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
-import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
+import { freePort } from "../../apps/rooms/test/support/ports.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 import { WEB } from "../../apps/rooms/test/support/paths.ts";

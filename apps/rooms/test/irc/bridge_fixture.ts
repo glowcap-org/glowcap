@@ -3,7 +3,7 @@
 // policy remains in the Rust bridge.
 
 import { type IrcMessage, readIrcLines } from "../../irc/protocol.ts";
-import { assert } from "../support/rooms_server.ts";
+import { assert } from "../assert.ts";
 
 export async function writeAll(conn: Deno.Conn, bytes: Uint8Array): Promise<void> {
 	let offset = 0;

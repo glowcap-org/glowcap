@@ -14,7 +14,8 @@
 
 import type { Locator, Page } from "playwright";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { fail, openDirectoryCardFromCaption, reachDirectoryOnCard, showDirectoryFromCaption } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { openDirectoryCardFromCaption, reachDirectoryOnCard, showDirectoryFromCaption } from "./harness.ts";
 import { run as goneRun } from "./gone.ts";
 
 export async function run(
