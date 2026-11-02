@@ -7,7 +7,9 @@ const staging = @import("release/stage.zig");
 const transaction = @import("release/transaction.zig");
 pub const Manifest = staging.Manifest;
 
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, iroh_abi_step: *std.Build.Step, check_step: *std.Build.Step, manifest: Manifest) void {
+/// `companion_steps` build the shared libraries the SDK ships beside its
+/// static archives, which the default install leaves out.
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, companion_steps: []const *std.Build.Step, check_step: *std.Build.Step, manifest: Manifest) void {
     productPreset(b, target);
     const manifest_tests = staging.addManifestTests(b);
     check_step.dependOn(&manifest_tests.step);
@@ -41,7 +43,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     b.top_level_steps.get("infrastructure-check").?.step.dependOn(test_step);
 
     const sdk = staging.add(b, target, version, "sdk", manifest);
-    sdk.step.dependOn(iroh_abi_step);
+    for (companion_steps) |companion| sdk.step.dependOn(companion);
     const sdk_archive = archive(b, target, version, "glowcap-c", "sdk", "release");
     sdk_archive.run.step.dependOn(&sdk.step);
     const sdk_proof = common.addRootedSystemCommand(b, .build_tool, &.{ "bash", "tools/check/release-pack-smoke.sh" });
