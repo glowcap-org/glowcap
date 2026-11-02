@@ -9,6 +9,8 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-02
+
 ### Fixed
 
 - The C SDK archive ships the WebRTC transport's shared library and header
@@ -57,6 +59,7 @@ and storage formats before 1.0.
   Rooms application with its container image. [What ships](docs/shipped.md)
   describes the release in full.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/glowcap-org/glowcap/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/glowcap-org/glowcap/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/glowcap-org/glowcap/releases/tag/v0.1.0
