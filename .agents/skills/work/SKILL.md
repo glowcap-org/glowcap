@@ -94,8 +94,9 @@ earlier in this session, as if someone else wrote it. Answer: <!-- status-allow:
   (`zig_duplicate_bodies`), and a pair below its bar is yours to judge. Which
   `pub` function lost its last caller? Zig compiles an unused function
   without complaint. `source-check` holds a private function to a caller in
-  its file (`checkZigDeadPrivateFns`), so count callers across `src`,
-  `test`, `tools`, and `bench` for the `pub` ones in a touched file.
+  its file (`checkZigDeadPrivateFns`), so count callers for the `pub` ones
+  with a tree-wide `git grep -w`, because `cli/`, `bench/`, `examples/`,
+  `apps/`, and the bindings compile against the same exports as `test/`.
 - **Optimum:** How far is the result from the obvious design the
   [release bar](../../rules/project-values.md#release-bar) describes?
 
