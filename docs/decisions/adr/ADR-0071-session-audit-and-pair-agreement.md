@@ -26,8 +26,6 @@ Two sessions also hold one fact between them. An export this side counts
 is an import the partner holds, a question this side asked is an answer the
 partner keeps, and a settled answer has handed off every call and listener
 anchored on it. No single session can see a violation of these relations.
-Successive review passes found defects of exactly these two shapes, one
-path at a time.
 
 ## Decision
 

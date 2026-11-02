@@ -1,7 +1,7 @@
 # Rooms session memory costs
 
-The [memory ledger](../SKILL.md) owns the naming procedure. Derivations live
-at each declaration. This inventory names managed session execution costs.
+Derivations live at each declaration. This inventory names managed session
+execution costs.
 
 ## The ledger
 

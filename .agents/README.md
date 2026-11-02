@@ -19,8 +19,9 @@ through a symlink, because an in-place edit turns the link into a file:
 - `.claude/skills` and `.cursor/skills` are directory symlinks to
   `.agents/skills`. Codex reads `AGENTS.md` and `.agents/skills` directly.
 - `.claude/settings.json` and `.cursor/hooks.json` run the edit hooks under
-  `hooks/`. `.mcp.json`, `.cursor/mcp.json`, and `.codex/config.toml` start
-  Serena and the glowcap MCP server through `glowcap-dev`.
+  `hooks/`. `.mcp.json`, `.pi/mcp.json`, and `.codex/config.toml` start Serena
+  through `glowcap-dev`, and `.cursor/mcp.json` starts it directly. `.mcp.json`
+  and `.cursor/mcp.json` also start the glowcap MCP server from `./glowcap`.
 
 `zig build source-check` holds this topology: symlink shape, hook and MCP
 wiring, frontmatter, the index, and links.

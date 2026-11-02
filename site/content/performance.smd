@@ -397,8 +397,6 @@ describe each phase.
 Each section names the bench that measures it. To run one
 alone, pass its name to `zig build` and add
 `-Doptimize=ReleaseFast` for figures worth comparing.
-[What you can depend on]($link.page('stability')) lists which checks run
-inside glowcap and which run against outside implementations.
 
 # [Live sessions]($section.id('live-sessions'))
 

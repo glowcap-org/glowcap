@@ -1,7 +1,6 @@
 # Loam storage memory costs
 
-The [memory ledger](../SKILL.md) owns the naming procedure. This reference
-holds engine caches, staged records, and record residency costs.
+This reference holds engine caches, staged records, and record residency costs.
 
 - **Loam record staging**: `Record.encodeAlloc` measures before allocation and
   copies payload and typed edges once into the prepared record.

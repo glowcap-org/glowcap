@@ -115,11 +115,7 @@ maintenance release.
    code they describe. The `@glowcap/*` packages publish to npm. The Rust
    example that shells out to `deno fmt` takes the new formatter.
 6. **Deno is removed, not demoted.** No secondary test runtime survives, and
-   the `DENO_VERSION` pin leaves the devcontainer image. Two runtimes for one
-   job is the state this record ends.
-
-The order is this record, then the addon, then the sweep, landed well inside
-the maintenance window rather than at its edge.
+   the `DENO_VERSION` pin leaves the devcontainer image.
 
 ## Scope (what this does not decide)
 
@@ -143,7 +139,7 @@ the maintenance window rather than at its edge.
 - **Bun primary through `bun:ffi` with a Worker-owned executor.** A Worker
   holds the dlopen handle and the parking calls, and the main thread talks to
   it over messages. Rejected because it serves Bun alone, pays a message hop
-  per park, and repeats the single-vendor bet this record is responding to.
+  per park, and repeats the single-vendor bet.
 - **Node and Bun through their built-in FFI modules.** `node:ffi` and
   `bun:ffi` would each get an adapter and share the Worker executor above.
   Rejected for the same reasons as the Worker executor, and because `node:ffi`

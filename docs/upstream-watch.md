@@ -7,7 +7,8 @@ sources: []
 # Waiting on upstream
 
 These are open questions in OCapN and Spritely Goblins that glowcap cannot
-settle alone, so they are not on [the roadmap](roadmap.md). Each section names
+settle alone. The [roadmap](roadmap.md#waiting-on-upstream) holds the work each
+one unblocks. Each section names
 the proposal deciding it, because `glowcap-next` follows current direction as
 well as merged text. Each number below was checked on October 13, 2026.
 

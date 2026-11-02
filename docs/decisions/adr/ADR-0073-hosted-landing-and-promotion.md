@@ -71,9 +71,9 @@ longer scales with run length, would justify revisiting this.
 on `dev` from this repository, no workflow-token permissions, the app token's
 two permissions, and no checkout. It runs the job's script against a stub API:
 an ahead commit fast-forwards `main`, a commit `main` already contains moves
-nothing, and diverged history or an API failure stops before any write. None
-of this shows the hosted ruleset accepting the app's push or that push
-deploying the site. The first promotion after this record lands is that proof.
+nothing, and diverged history or an API failure stops before any write. Only
+a promotion shows the hosted ruleset accepting the app's push and that push
+deploying the site.
 
 `tools/repository_policy_test.py` drives `tools/repository-policy.py`, which
 holds the repository's settings and rulesets to `.github/repository-policy.json`

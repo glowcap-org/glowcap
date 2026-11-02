@@ -26,7 +26,7 @@ A snapshot does not rewind CapTP sessions, wire queues, remote effects or manage
 
 Eager deep copies make each snapshot proportional to total mutable state. Mandatory immutable state plus GC charges every behavior change. Immediate behavior replacement loses discard-on-error semantics.
 
-The collection layer remains deliberately small. It supplies the implemented map rather than a general collection framework. Applications choose state representations and retain the responsibility for effects beyond local functional state.
+The collection layer stays small. It supplies the implemented map rather than a general collection framework. Applications choose state representations and retain the responsibility for effects beyond local functional state.
 
 ## Evidence
 

@@ -1,8 +1,7 @@
 # Transport memory costs
 
-The [memory ledger](../SKILL.md) owns the naming procedure. Derivations live
-at each declaration, and this inventory names transport, loop, and stream
-costs.
+Derivations live at each declaration, and this inventory names transport, loop,
+and stream costs.
 
 ## The ledger
 

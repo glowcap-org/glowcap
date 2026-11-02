@@ -22,8 +22,6 @@ reach and what the path between you proves.
 | `tcp` | Testing only | Cleartext testing against Goblins, through glowcap's adapter | A host:port. Nothing is proved and nothing is encrypted. |
 | `inproc` | Testing only | Both peers in one process | No network between them, so nothing to prove and nothing to encrypt. |
 
-[What you can depend on]($link.page('stability')) lists the checks.
-
 # Browser traffic
 
 A browser cannot open raw TCP or iroh QUIC. It has two choices:

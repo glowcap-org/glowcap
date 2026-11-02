@@ -82,6 +82,18 @@ Classify each hit:
   plain version is unclear, read the code to learn what the thing does, then
   say that.
 
+Rooms text (`apps/rooms/lib/text/`) serves two readers: most sessions belong
+to someone a developer sent a link to, and a few to an operator who needs the
+protocol's own words. Plain words carry the act and the protocol word rides
+along as the precise name ("a room link (a sturdyref)" once, then "a room
+link"). The subject of a sentence is the reader or something they can see,
+never the session, directory, or page: "Something you started may not have
+finished" over "This durable change stopped before the session knew its
+outcome". A sentence that is true word by word and leaves a wrong picture
+("Rooms runs in this page, not on a server you sign in to") says the whole
+shape instead, ordinary parts included. A refusal says what happened, what
+to do next, and the exact cause for whoever is debugging.
+
 Then rewrite:
 
 - Split a semicolon into two sentences, and read every split.

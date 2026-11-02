@@ -425,4 +425,3 @@ The Rust, Python, TypeScript, and Racket bindings dial and register through the
 relay provider package. A browser peer speaks the same `noise-relay` through
 its WebSocket connector. Rooms can carry direct messages over it through the room's own
 relay instead of the default WebRTC channel.
-[What you can depend on]($link.page('stability')) lists the checks.

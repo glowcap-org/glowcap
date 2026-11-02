@@ -18,7 +18,7 @@ A list of addresses does not establish that those addresses reach the same capab
 
 ## Decision
 
-Ordered via routes must prove that same key. The Node admits a bounded race of two strong routes and replenishes that window in source order.
+Ordered via routes must prove the key the id locator names. The Node admits a bounded race of two strong routes and replenishes that window in source order.
 
 The first completed route with the required proof wins. Only after strong routes fail can handoff-scoped alt-locators be tried serially in their declared order. Weak advice cannot outrank strong identity proof.
 

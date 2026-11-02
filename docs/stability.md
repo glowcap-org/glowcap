@@ -10,9 +10,6 @@ glowcap has no stable release yet. Some checks run on every main or dev push.
 Others need external runtimes or network access and run on demand. None is a
 compatibility or security promise.
 
-For feature coverage, read [what ships](shipped.md). For consequences that may
-change a deployment, read [known limitations](boundaries.md).
-
 ## Checks by area
 
 | Area | Evidence | What remains |

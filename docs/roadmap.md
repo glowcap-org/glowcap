@@ -7,10 +7,7 @@ sources: []
 # Remaining work
 
 Unfinished work, each item linked to its plan, or to the
-[plan to plan](planning/plan-to-plan.md) until it has one. [What ships](shipped.md) covers the
-present, [known limitations](boundaries.md) covers their consequences, and
-[milestones](milestones.md) tracks progress toward 1.0. [Upstream
-watch](upstream-watch.md) tracks open OCapN and Goblins questions.
+[plan to plan](planning/plan-to-plan.md) until it has one.
 
 Work that can start sits first, in the order it starts. Work that waits on
 something outside the code follows, grouped by what it waits on. An item moves

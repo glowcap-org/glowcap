@@ -1,15 +1,8 @@
 // The application surface over the byte-fed host (libglowcap_host,
-// ADR-0022): `Session` and its verbs (`fetch`/`send`/`tell`/`spawn`/
-// `publish`/`enliven`/`serve`/`close`), plus mint/handshake
-// (`establishDialedLocator` / `establishAccepted`). The dial executor and
-// `connect` live in `dial.ts`; Server/`listen` live in `listen.ts`. The
-// `RemotePromise` handle, fetch/enliven mint→await, far-send `sendFar` /
-// `promiseFor`, live in `promise.ts`. Spawn/publish hosting, ADR-0016
-// proxies, and Host-reference send·tell dispatch live in `trampoline.ts`. The
-// byte-fed embedder pump (handshake,
-// read transport packets, feed, drain, flush) lives in `pump.ts`. The host owns
-// everything else: routing, redemption, gift origination, far vows. `mod.ts`
-// re-exports the public members.
+// ADR-0022): `Session` and its methods (`fetch`, `send`, `tell`, `spawn`,
+// `publish`, `enliven`, `serve`, `close`), plus the mint and handshake
+// entry points (`establishDialedLocator`, `establishAccepted`). The host owns
+// routing, redemption, gift origination, and far vows.
 
 import { DESIGNATOR_SCHEME_ADDRESS, DESIGNATOR_SCHEME_KEY, HANDSHAKE_TIMEOUT_MS } from "@glowcap/abi";
 import { checkHost, GlowcapError } from "./errors.ts";
