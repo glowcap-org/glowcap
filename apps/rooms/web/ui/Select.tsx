@@ -3,7 +3,8 @@
 // every attribute and its options.
 
 import type { ComponentPropsWithRef } from "react";
+import { classNames } from "./classes.ts";
 
 export function Select({ className, ...select }: ComponentPropsWithRef<"select">) {
-	return <select {...select} className={["field", className].filter(Boolean).join(" ")} />;
+	return <select {...select} className={classNames("field", className)} />;
 }

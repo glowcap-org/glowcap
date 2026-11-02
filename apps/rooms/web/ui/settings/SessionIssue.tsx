@@ -197,9 +197,9 @@ export function SessionIssueModal(
 											<label className="entry-name" htmlFor="sessionDelegationDepth">
 												{text.depth}
 											</label>
-											<input
+											<Input
 												id="sessionDelegationDepth"
-												className="field option-number"
+												className="option-number"
 												type="number"
 												inputMode="numeric"
 												min={0}

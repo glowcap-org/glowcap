@@ -29,6 +29,7 @@
 // than the line already did was a control with nothing behind it.
 
 import { type ElementType, type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { classNames } from "./classes.ts";
 import { useOpenModal } from "./modal.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { errorDetailTitle } from "./error_text.ts";
@@ -92,7 +93,7 @@ export function Said(
 	const { ref, clamped } = useClamped(children);
 	const text = typeof children === "string" ? children : null;
 	const empty = children == null || children === "";
-	const said = ["said", className].filter(Boolean).join(" ");
+	const said = classNames("said", className);
 	const role = empty ? undefined : kind === "success" ? "status" : "alert";
 	if (text !== null && !empty && kind !== "success") {
 		// Measured as a clamp first; only a cut one becomes the way to the card.

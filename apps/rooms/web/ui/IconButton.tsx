@@ -1,3 +1,4 @@
+import { classNames } from "./classes.ts";
 import { ControlProgress, useProgress } from "./presentation.ts";
 // The one rooms control whose meaning is carried by an interface icon.
 //
@@ -58,7 +59,7 @@ export function IconButton({
 	disabled,
 	...button
 }: IconButtonProps) {
-	const classes = ["icon-button", className].filter(Boolean).join(" ");
+	const classes = classNames("icon-button", className);
 	const progress = useProgress(busy);
 	return (
 		<>

@@ -15,6 +15,7 @@ import { loadKitchen, prefetch } from "../chunks.ts";
 import { LoadingSurface } from "../Loading.tsx";
 import { SettingsHead } from "../settings/SettingsHead.tsx";
 import { Button } from "../Button.tsx";
+import { ModalForm } from "../ModalCard.tsx";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { CopyField } from "../Copy.tsx";
 import { type TabFace, Tabs } from "../Tabs.tsx";
@@ -110,8 +111,8 @@ export const Help = memo(function Help(
 			className="modal"
 			aria-labelledby={titleId}
 		>
-			<form
-				className={sink ? "modal-card card-plane kitchen-card" : "modal-card card-plane help-card"}
+			<ModalForm
+				className={sink ? "kitchen-card" : "help-card"}
 				onSubmit={(event) => event.preventDefault()}
 			>
 				<div className="modal-body">
@@ -287,7 +288,7 @@ export const Help = memo(function Help(
 						label={helpCopyBuild}
 					/>
 				</div>
-			</form>
+			</ModalForm>
 		</dialog>
 	);
 });

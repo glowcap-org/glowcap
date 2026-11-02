@@ -26,6 +26,7 @@ import { type RoomsSessionController, useRoomsSession } from "../controller/sess
 import type { OpsCap } from "../types.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { Input } from "../Input.tsx";
+import { ModalForm } from "../ModalCard.tsx";
 
 interface CapabilitySetModel {
 	readonly draft: OpsBundleDraft;
@@ -410,8 +411,7 @@ function CapabilityValueModal(
 	};
 	return (
 		<dialog ref={dialog} className="modal" aria-labelledby="capabilityValueTitle">
-			<form
-				className="modal-card card-plane"
+			<ModalForm
 				onSubmit={(event) => {
 					event.preventDefault();
 					save();
@@ -452,7 +452,7 @@ function CapabilityValueModal(
 						<Button type="submit" size="large">{capabilitySetSaveTo}</Button>
 					</div>
 				</div>
-			</form>
+			</ModalForm>
 		</dialog>
 	);
 }

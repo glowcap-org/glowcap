@@ -19,6 +19,7 @@
 // track. Sized past that and it stops being the thing it is for.
 
 import type { ComponentPropsWithRef, ReactNode } from "react";
+import { classNames } from "./classes.ts";
 
 /** One answer this control offers. */
 export interface SegmentedChoice {
@@ -55,7 +56,7 @@ export function Segmented({ choices, chosen, onToggle, disabled, className, ...g
 		<div
 			{...group}
 			role="group"
-			className={["segmented", className].filter(Boolean).join(" ")}
+			className={classNames("segmented", className)}
 			data-count={String(choices.length)}
 		>
 			{choices.map((choice) => {

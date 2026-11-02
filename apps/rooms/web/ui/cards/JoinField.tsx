@@ -6,6 +6,7 @@
 // beside an identity, not as a box with a button stuck to its side.
 
 import type { ComponentPropsWithRef, ReactNode } from "react";
+import { classNames } from "../classes.ts";
 
 export function JoinField(
 	{ invalid, children }: { invalid?: boolean; children: ReactNode },
@@ -28,7 +29,7 @@ export function JoinPrefix({
 	label: string;
 	children: ReactNode;
 } & Omit<ComponentPropsWithRef<"button">, "aria-label" | "children" | "title" | "type">) {
-	const classes = ["icon-button", "join-prefix", className].filter(Boolean).join(" ");
+	const classes = classNames("icon-button", "join-prefix", className);
 	return (
 		<button
 			{...button}

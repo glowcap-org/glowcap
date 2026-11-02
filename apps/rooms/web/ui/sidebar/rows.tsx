@@ -34,6 +34,7 @@ import {
 	rowTakingInvitation,
 } from "../../../lib/text/conversation.ts";
 import { railFrom, railIn, railLeave, railNoRoomsYet } from "../../../lib/text/rail.ts";
+import { classNames } from "../classes.ts";
 
 export function Empty({ text }: { text: string }) {
 	return <li className="empty">{text}</li>;
@@ -190,8 +191,7 @@ export function RoomRow(
 		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : membership) + unwell;
 	return (
 		<li
-			className={[here ? "here" : "", conv.held ? "held" : "", `membership-${conv.membership}`].filter(Boolean)
-				.join(" ")}
+			className={classNames(here && "here", conv.held && "held", `membership-${conv.membership}`)}
 			data-dir={where.mark}
 		>
 			<button
