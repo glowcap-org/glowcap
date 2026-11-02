@@ -42,6 +42,7 @@ import * as standing from "../page/standing.ts";
 import * as operations from "../page/operations.ts";
 import * as registration from "../page/registration.ts";
 import * as memberCard from "../page/member_card.ts";
+import { recordNotices } from "../page/harness.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
 
 const httpPort = freePort();
@@ -137,6 +138,7 @@ async function phase<T>(name: string, work: () => Promise<T>): Promise<T> {
 					standing: document.getElementById("standingBtn")?.textContent,
 					roomStanding: document.getElementById("roomStanding")?.parentElement?.textContent,
 					toasts: document.getElementById("toasts")?.textContent,
+					notices: (globalThis as { proofNotices?: string[] }).proofNotices,
 					rooms: document.getElementById("roomList")?.textContent,
 					input: (document.getElementById("newRoomInput") as HTMLInputElement | null)?.value,
 					composer: (() => {
@@ -165,6 +167,7 @@ try {
 	const activeBrowser = await chromium.launch({ args: ["--no-sandbox"] });
 	browser = activeBrowser;
 	const tab = await activeBrowser.newPage();
+	await recordNotices(tab);
 	const invalidMarkup: string[] = [];
 	// Mirror the page's own console and crashes into this proof's output: a
 	// scene that times out otherwise reports only the selector it never saw,

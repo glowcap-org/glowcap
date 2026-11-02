@@ -9,6 +9,23 @@ import type { Locator, Page } from "playwright";
 import { inkContrast } from "../ink_contrast.ts";
 import { fail } from "../support/fail.ts";
 
+/** Keep every notice the page tells, because a toast leaves on its own a few
+ * seconds after it is shown, and a failure dump that reads `#toasts` after a
+ * scene timed out finds it empty. Installed before the tab's first load, so
+ * every document the tab opens is watched. The page moves the region into an
+ * open modal, so the observer watches the document and reads the region
+ * fresh on each change. The dump reads `proofNotices`. */
+export async function recordNotices(tab: Page): Promise<void> {
+	await tab.addInitScript(() => {
+		const told: string[] = [];
+		(globalThis as { proofNotices?: string[] }).proofNotices = told;
+		new MutationObserver(() => {
+			const text = document.getElementById("toasts")?.textContent ?? "";
+			if (text !== "" && told[told.length - 1] !== text) told.push(text);
+		}).observe(document, { subtree: true, childList: true, characterData: true });
+	});
+}
+
 /** Measure hovered ink against every painted ancestor, including opaque file
  * chips inside a gradient bubble. The shared contrast owner handles browser
  * colour syntax and alpha. No descendant skips its actual ground. */

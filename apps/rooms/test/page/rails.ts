@@ -7,6 +7,7 @@
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
+import { recordNotices } from "./harness.ts";
 import { proveRoomDepartures } from "./departure.ts";
 
 export async function run(tab: Page, browser: Browser, httpPort: number): Promise<Page> {
@@ -15,6 +16,7 @@ export async function run(tab: Page, browser: Browser, httpPort: number): Promis
 	// carries a direct-line button is the one the checks below are about, and you
 	// never get one for yourself. The name is long.
 	const second = await browser.newPage();
+	await recordNotices(second);
 	second.on("pageerror", (e) => console.error("  [page error, second peer]", e.message));
 	second.on("console", (message) => {
 		if (message.type() === "error") console.error("  [second peer]", message.text());
