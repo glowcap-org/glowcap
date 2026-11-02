@@ -18,7 +18,7 @@ A supported wire value needs a representation that survives transport and codec 
 
 ## Decision
 
-The shared model represents the supported OCapN passable value tree. Codecs refuse values they cannot represent rather than dropping, coercing or truncating them.
+Codecs refuse values they cannot represent rather than dropping, coercing or truncating them.
 
 Integers use an `i64` fast path and a canonical signed arbitrary-precision representation outside that range. Protocol positions, indexes and wire deltas retain their bounded protocol types.
 

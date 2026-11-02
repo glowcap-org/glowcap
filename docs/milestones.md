@@ -4,7 +4,7 @@ description: The five milestones on the way to 1.0 and where the evidence for ea
 sources: []
 ---
 
-# The route to 1.0
+# Milestones to 1.0
 
 glowcap has five milestones on the way to 1.0: protocol conformance,
 performance at scale, hosted applications, the C ABI and bindings, and

@@ -18,7 +18,7 @@ A durable reference identifies authority at a particular peer. A mutable name, a
 
 ## Decision
 
-A sturdyref retains its complete peer identity and swiss name until enlivenment selects and verifies the peer. Hints advise routing and do not participate in peer identity. Assertion-only cleartext use requires the explicit low-level posture.
+Hints advise routing and do not participate in peer identity. Assertion-only cleartext use requires the explicit low-level posture.
 
 Bootstrap lookup checks session publications before Host publications and then the durable provider. Authority outside a session cannot replace a session's own publication. Mutable aliases and randomly minted durable names occupy distinct namespaces.
 

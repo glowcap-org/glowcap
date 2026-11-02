@@ -18,7 +18,7 @@ Persistent cycles require tracing, while newly held capabilities can become root
 
 ## Decision
 
-Loam performs bounded transactional tracing with persisted work queues, explicit live roots and atomic insertion barriers. The collector invokes no actor behavior and adds no state to CapTP sessions.
+The collector invokes no actor behavior and adds no state to CapTP sessions.
 
 A collection cycle captures live custody once and journals newly admitted mark obligations until the exact collection receipt confirms their durable shading. Bounded exhaustion refuses new custody before it becomes visible. Managed retirement first disables authority through owner-local identity inventories, then shared tracing reclaims unreachable payloads.
 

@@ -18,7 +18,7 @@ Authenticated discovery, QUIC, hole punching and relay reachability are substant
 
 ## Decision
 
-The iroh transport uses a separate Rust sidecar behind a narrow C interface. Zig owns its resident/provider adapter. The endpoint owns the sidecar's runtime, identity and readiness resources, and callers explicitly retain or release them.
+Zig owns its resident/provider adapter. The endpoint owns the sidecar's runtime, identity and readiness resources, and callers explicitly retain or release them.
 
 Nonblocking readiness lets many connections join the shared Host runtime. Discovery, relay configuration and durable identity remain transport concerns. CapTP sees the resulting authenticated channel and its actual provenance.
 

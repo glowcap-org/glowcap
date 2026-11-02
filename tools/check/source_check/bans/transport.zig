@@ -13,7 +13,7 @@ pub const transport_vocabulary_paths: []const []const u8 = &.{
     "README.md",
     "docs/architecture.md",
     "docs/boundaries.md",
-    "docs/ladder.md",
+    "docs/milestones.md",
     "docs/shipped.md",
     "docs/roadmap.md",
     "docs/capabilities.md",

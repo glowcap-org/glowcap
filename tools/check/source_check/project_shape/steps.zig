@@ -11,9 +11,8 @@ const collectBulletSpans = util.collectBulletSpans;
 
 /// Command-citing surfaces that live outside the walked `docs/**` and
 /// `.agents/**` trees. Everything inside those trees is discovered by walking,
-/// so a new doc or rule is gated the moment it lands, no hand-maintained list
-/// to fall out of sync (which is exactly how `docs/vision.md` and
-/// `docs/ladder.md` once slipped past the command check).
+/// so a new doc or rule is gated the moment it lands, with no hand-maintained
+/// list to fall out of sync.
 const fixed_command_docs = [_][]const u8{
     "README.md",
     "CONTRIBUTING.md",

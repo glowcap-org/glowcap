@@ -18,7 +18,7 @@ A small embedding and a large application have different record, call-memory and
 
 ## Decision
 
-Each application derives its capacity from its declared data shape and the largest admitted operation. Store, call and endpoint limits remain independently bounded. Tests fill the application's declared boundary rather than relying on ordinary small examples.
+Store, call and endpoint limits remain independently bounded. Tests fill the application's declared boundary rather than relying on ordinary small examples.
 
 The record cache charges the encoded size it actually retains. A maximum-size read reservation is released after completion copies the result to its retained size. Unchanged resident bytes can remain cached without extending the authority of an older lease.
 

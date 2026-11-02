@@ -18,7 +18,7 @@ Waiting for each result before sending the next call adds network round trips. A
 
 ## Decision
 
-A pending answer is a send target. The session owns its bounded FIFO of pipelined calls and listeners, and the engine drains it through exact-incarnation resolution links. A promise reference names one answer position. Structural projections remain explicit operations with their own answer lifetimes.
+The session owns its bounded FIFO of pipelined calls and listeners, and the engine drains it through exact-incarnation resolution links. A promise reference names one answer position. Structural projections remain explicit operations with their own answer lifetimes.
 
 Caller APIs accept a capability or promise through the ordinary send operation. Applications do not allocate protocol positions or decode resolver callbacks. Received promise listeners and Node forwarding share session-owned resolver machinery.
 

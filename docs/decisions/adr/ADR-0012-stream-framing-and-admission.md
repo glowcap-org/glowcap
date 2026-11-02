@@ -18,7 +18,7 @@ A transport boundary, a codec grammar and a session admission decision answer di
 
 ## Decision
 
-A byte stream wraps each bare codec frame in one canonical Syrup byte string: decimal byte length, a colon and the exact frame bytes. Message-preserving transports and whole-frame APIs carry the bare frame.
+Message-preserving transports and whole-frame APIs carry the bare frame.
 
 The envelope or transport delimits one body. The engine copies the admitted frame behind its owned head, and the session parses it through one entry point. The negotiated codec must accept the entire body as exactly one message. No codec independently frames a production stream.
 

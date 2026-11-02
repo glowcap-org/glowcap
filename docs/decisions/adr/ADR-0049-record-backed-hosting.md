@@ -18,7 +18,7 @@ A large durable graph cannot require a live actor for every record. A live capab
 
 ## Decision
 
-Record-backed actors attach to the existing Host and Vat. Activation restores needed records and local capability edges lazily within configured bounds. Mutation replies remain withheld until their storage transaction commits.
+Activation restores needed records and local capability edges lazily within configured bounds. Mutation replies remain withheld until their storage transaction commits.
 
 A live hosting lifetime has its own transactionally advanced restart marker. The Store opening incarnation fences storage writers and does not stand in for a Host lifetime. Restarting a Host within one Store opening still retires the prior live authority.
 

@@ -18,7 +18,7 @@ A protocol implemented only against its own fixtures can be internally consisten
 
 ## Decision
 
-The baseline profile follows the pinned OCapN suite and Goblins-canonical Syrup forms. Export and answer GC are separate operations. Export GC carries parallel position and wire-delta lists, and session accounting refuses mismatches and underflow before mutation.
+Export and answer GC are separate operations. Export GC carries parallel position and wire-delta lists, and session accounting refuses mismatches and underflow before mutation.
 
 Abort has one typed internal reason, projected into the profile's wire form. A baseline peer receives the required string representation. Private profiles may carry additional structure without changing the baseline.
 

@@ -18,7 +18,7 @@ A peer must be able to greet a Goblins implementation and another glowcap build 
 
 ## Decision
 
-Codecs project one codec-neutral model and receive the protocol version for each operation. They hold no session authority. Version, codec and feature negotiation remain separate axes.
+Codecs hold no session authority. Version, codec and feature negotiation remain separate axes.
 
 Every hello uses the shared baseline Syrup grammar. Signed locator hints advertise preferences, and symmetric negotiation fixes the pair at the handshake boundary. An unknown version or codec offer falls back to the baseline on that axis. Unknown feature names are ignored, while an unreadable feature list refuses.
 

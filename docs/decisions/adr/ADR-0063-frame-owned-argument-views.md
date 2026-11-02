@@ -18,7 +18,7 @@ Materializing every incoming value repeats parsing and copies containers a handl
 
 ## Decision
 
-One bounded region in the owned frame head stores argument views, Struct entries and integer words. Decoding validates while filling that region. When storage fills, a validated wire-backed representation retains the same traversal bounds.
+Decoding validates while filling that region. When storage fills, a validated wire-backed representation retains the same traversal bounds.
 
 Wide rare records remain lazy views over their framed bytes. Integer runs remain list backings. An owned source, parsed view and wire-backed sequence all represent the same semantic values.
 

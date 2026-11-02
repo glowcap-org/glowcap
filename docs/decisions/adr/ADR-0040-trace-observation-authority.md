@@ -18,7 +18,7 @@ Several peers can observe the same wire without routing their application traffi
 
 ## Decision
 
-Trace producers report the session identifier both peers derive and a hash of each observed message's wire bytes. The convergence endpoint assigns namespaces and restamps time. The viewer decides how to combine sightings of one wire.
+The convergence endpoint assigns namespaces and restamps time. The viewer decides how to combine sightings of one wire.
 
 Live observation is a read-only CapTP capability. A browser enlivens it and grants an inbox for bounded canonical records. Telemetry ingestion remains a separate one-way adapter, and observation grants no endpoint control.
 

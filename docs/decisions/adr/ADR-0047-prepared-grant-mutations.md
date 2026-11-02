@@ -18,7 +18,7 @@ A storage write can complete after the resource graph or grant state has changed
 
 ## Decision
 
-One Zig planner validates grant mutations and prepares bounded deltas against exact graph and ledger revisions. Preparation copies retained inputs and reserves the relevant graph state before writing. It emits no committed event and publishes no authority.
+Preparation copies retained inputs and reserves the relevant graph state before writing. It emits no committed event and publishes no authority.
 
 An exact ticket binds the owner, sequence, base revisions and phase. Confirmed commit installs the prepared delta without allocation or policy re-evaluation. Known-unchanged completion discards it. Unknown outcome retains its memory and reservation and fences protected access until recovery resolves that same ticket.
 

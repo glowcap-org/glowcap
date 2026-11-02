@@ -18,7 +18,7 @@ Directory authority, a member's managed workspace and derived public-room scroll
 
 ## Decision
 
-Directory authority uses versioned single-document files in the server state directory. A member session's workspace uses its managed Loam store. Public-room kept lines use JSONL files under the state directory, or memory when no state directory is configured.
+A member session's workspace uses its managed Loam store. Public-room kept lines use JSONL files under the state directory, or memory when no state directory is configured.
 
 PostgreSQL is not a Rooms prerequisite. The planned room-content model can take ownership of kept lines and their quota when that integration exists. Existing JSONL retention does not claim that future storage model is shipped.
 

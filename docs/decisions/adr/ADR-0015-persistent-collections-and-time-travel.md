@@ -18,7 +18,7 @@ Snapshotting local functional actor state should not require copying every retai
 
 ## Decision
 
-Local functional behavior replacement is staged until a turn succeeds. Snapshot and restore retain local actor state, sharing immutable structure where possible. The persistent map is a dependency-free leaf that applications may use for incremental state changes. The Vat does not require it.
+Snapshot and restore retain local actor state, sharing immutable structure where possible. The persistent map is a dependency-free leaf that applications may use for incremental state changes. The Vat does not require it.
 
 A snapshot does not rewind CapTP sessions, wire queues, remote effects or managed grant authority. Mutable actor state changed directly by a behavior is outside functional rollback.
 

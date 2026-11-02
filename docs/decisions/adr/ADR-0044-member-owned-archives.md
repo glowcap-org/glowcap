@@ -18,7 +18,7 @@ A person's retained account of a conversation is distinct from public-room scrol
 
 ## Decision
 
-An archive is an ordinary capability with bounded put and revision-read operations. Records carry opaque source and conversation-generation coordinates. Edits and withdrawals update their standing representation rather than preserving withdrawn plaintext as an immutable event history.
+Records carry opaque source and conversation-generation coordinates. Edits and withdrawals update their standing representation rather than preserving withdrawn plaintext as an immutable event history.
 
 A reader explicitly selects its recorder and validates a remote archive before swapping. Offline failure remains visible instead of silently starting a second device recorder. Persisting a bearer in browser storage is an explicit choice.
 

@@ -19,8 +19,8 @@ protocol, code or observed behavior that establishes it.>
 
 ## Decision
 
-<The choice and its scope. Keep the frontmatter sentence consistent with this
-account. Link to implementation and living guides instead of copying them.>
+<The scope of the choice the frontmatter states. Link to implementation and
+living guides instead of copying them.>
 
 ## Alternatives and consequences
 
@@ -29,5 +29,4 @@ retains. Name what would justify revisiting it.>
 
 ## Evidence
 
-<The tests, fixtures or measurements relevant to the choice, with their limits.
-Do not imply that a configured check or accepted design has been verified.>
+<The tests, fixtures or measurements relevant to the choice, with their limits.>

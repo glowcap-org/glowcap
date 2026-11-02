@@ -35,7 +35,7 @@ Run every gate through
 | Committed script or operations front | [`.agents/rules/scripts.md`](.agents/rules/scripts.md) | owning check + `zig build source-check` |
 | Docs, plans, or agent scaffolding | [doc-writing skill](.agents/skills/doc-writing/SKILL.md) + [doc-drift](.agents/rules/doc-drift.md), plus [agent-scaffolding](.agents/rules/agent-scaffolding.md) for `.agents/` | `zig build source-check`, plus `infrastructure-check` for executable workflow |
 
-**Context map:** route to 1.0 in [`docs/ladder.md`](docs/ladder.md), ordered
+**Context map:** milestones to 1.0 in [`docs/milestones.md`](docs/milestones.md), ordered
 work in [`docs/roadmap.md`](docs/roadmap.md) (idea to plan to execution runs
 through [plan to plan](docs/planning/plan-to-plan.md)), layer tour in
 [`docs/architecture.md`](docs/architecture.md), what the project builds on in

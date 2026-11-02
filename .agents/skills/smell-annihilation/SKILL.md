@@ -47,7 +47,7 @@ named fault. Prerelease waives the excuses "someone might still need it" and
 Architecture that ignores cost is incomplete. Treat allocation, copy,
 lifetime, and asymptotic shape as smells of the same severity as a wrong layer
 or a dual-typed struct. The [memory rule](../../rules/memory.md) owns the
-ownership model, and [ladder](../../../docs/ladder.md) step 2 names what holds
+ownership model, and [milestones](../../../docs/milestones.md) step 2 names what holds
 the budgets.
 
 The optimum is the structure that makes the cheap correct path the only path:

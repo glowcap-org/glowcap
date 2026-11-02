@@ -18,7 +18,7 @@ The OCapN onion transport must communicate with a real Goblins vat. A deployment
 
 ## Decision
 
-The Zig onion provider speaks SOCKS5 and the Tor control protocol to an explicitly configured daemon. It starts no daemon and adds no Rust sidecar. Control connection lifetime owns the undetached service, with explicit restoration state where configured.
+The provider starts no daemon and adds no Rust sidecar. Control connection lifetime owns the undetached service, with explicit restoration state where configured.
 
 The onion service id identifies the address. It is not a durable CapTP session signer or authenticated-channel proof. The transport and hello retain those separate meanings.
 

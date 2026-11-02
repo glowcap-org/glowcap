@@ -18,7 +18,7 @@ A second disk engine should not require another implementation of read, commit, 
 
 ## Decision
 
-A storage engine supplies transactions over get, ordered-prefix next, put and remove, with commit and abort for writes. The shared core derives worker-facing operations from that contract once and checks Zig engine implementations at compile time.
+The shared core derives worker-facing operations from that contract once and checks Zig engine implementations at compile time.
 
 Each concrete engine owns its physical opening arguments, archive and operations guide. It projects the same lifecycle into C and Rust and runs the shared durable test suite. An embedding-supplied callback engine uses the same derivation.
 

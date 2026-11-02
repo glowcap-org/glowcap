@@ -18,7 +18,7 @@ Resource structure, grant authority and actor execution have different lifetimes
 
 ## Decision
 
-Managed access is an optional Zig application layer. Resource identity and exact, selected or continuing subtree scopes are independent of actor identities. A subtree includes future descendants under its declared scope rules.
+Resource identity and exact, selected or continuing subtree scopes are independent of actor identities. A subtree includes future descendants under its declared scope rules.
 
 A schema fixes permission keys, bound meanings and their compact representation. Intersection keeps only common permissions and the tighter bounds. Unknown or inconsistent terms refuse. Declared positive permission dependencies and resource-kind applicability are enforced by the shared evaluator rather than added implicitly.
 

@@ -18,7 +18,7 @@ A browser projection, live capability inventory and durable workspace cannot all
 
 ## Decision
 
-One portable Rust application owns Rooms policy and capability custody across process and browser execution. Platform I/O and service composition remain separate crates. React contexts expose stable owners, and page state is a non-authoritative projection.
+Platform I/O and service composition remain separate crates. React contexts expose stable owners, and page state is a non-authoritative projection.
 
 A managed session keeps workspace intent, exact held references and recoverable effects in one Loam graph. Attached views consume admitted observations and submit commands through their held use endpoints. Use and control grants have separate lifetimes, and every call checks current authority.
 

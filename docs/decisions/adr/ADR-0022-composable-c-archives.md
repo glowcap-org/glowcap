@@ -18,7 +18,7 @@ An embedding may need the protocol core, an owning driver, or only one transport
 
 ## Decision
 
-The C ABI ships symbol-disjoint archives for the protocol core, byte-fed Host, optional driver and concrete providers. Each family has an explicit header and ownership contract. The shared Host projects capability identity and routing once, while a binding supplies its language's values, application behavior and runtime adapters.
+Each archive family has an explicit header and ownership contract. The shared Host projects capability identity and routing once, while a binding supplies its language's values, application behavior and runtime adapters.
 
 An embedding that owns I/O can feed the Host and drain data actions. The driver adds transport execution as a separately linked choice. No private Zig implementation archive is promoted into an extra public C contract solely to share internal code.
 

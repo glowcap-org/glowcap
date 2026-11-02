@@ -18,7 +18,7 @@ Submitting each receive re-arm or reply separately adds kernel entries. Deferrin
 
 ## Decision
 
-The runtime stages sends per recipient and submits them before returning a verb to its caller. Blocking receive re-arms wait for the next park. Reaping between verbs does not itself submit work.
+Blocking receive re-arms wait for the next park. Reaping between verbs does not itself submit work.
 
 When the registered residents support it, the runtime parks inside a resident's own kernel queue and watches the other wake descriptors there. Readiness-only residents retain the descriptor fallback. Watches are armed at the actual park boundary so earlier reaping cannot consume the only wake.
 

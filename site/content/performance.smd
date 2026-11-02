@@ -30,7 +30,7 @@ calls timed in Cap'n Proto RPC and in Spritely Goblins.
 
 `zig build check` fails if the allocation and size budgets change, and
 `zig build perf-check` fails on a coarse timing regression. The
-[route to 1.0](https://github.com/glowcap-org/glowcap/blob/main/docs/ladder.md)
+[milestones to 1.0](https://github.com/glowcap-org/glowcap/blob/main/docs/milestones.md)
 names the constants and tests that hold them.
 
 The [benchmarks README](https://github.com/glowcap-org/glowcap/blob/main/bench/README.md)

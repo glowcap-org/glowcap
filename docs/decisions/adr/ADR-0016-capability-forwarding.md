@@ -18,7 +18,7 @@ A wrapper should be able to attenuate or forward a far capability without forcin
 
 ## Decision
 
-A behavior can forward its answer through the existing vow and settlement machinery. The partner sees one answer that settles once. Caretakers and attenuators compose this primitive with their own application policy.
+The partner sees one answer that settles once. Caretakers and attenuators compose this primitive with their own application policy.
 
 A promise introduced to another session is a local promise export backed by that session's inbound answer. Settlement goes through the same guaranteed settlement path as ordinary answers. Under pressure the answer retains its outcome and queues its carrier when capacity returns.
 

@@ -18,7 +18,7 @@ A first durable application needs one recommended engine. A matched Tasks worklo
 
 ## Decision
 
-SQLite is the default disk engine for Zig, C and Rust setup, examples and the managed Rooms session. LMDB remains supported behind the same transaction contract. Browser storage remains IndexedDB.
+LMDB remains supported behind the same transaction contract. Browser storage remains IndexedDB.
 
 The recorded comparison favors SQLite's durable changes and smaller closed store. With CPU placement controlled, LMDB wins the cold record-read comparison. Hot reads call neither engine. The commit savings dominate the measured read gap for the compared interactive workload.
 

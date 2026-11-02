@@ -80,7 +80,7 @@ direction changes.
 
 ## Decision
 
-Bun becomes the primary TypeScript runtime. The binding reaches Bun and Node
+The binding reaches Bun and Node
 through one Node-API addon that Zig renders from the C ABI symbol
 inventories, and Deno leaves the toolchain before Cloudflare's last
 maintenance release.

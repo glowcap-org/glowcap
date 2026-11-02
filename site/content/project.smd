@@ -36,7 +36,7 @@ is `0.1.2` alpha.
 The repository keeps the detailed project record: [what
 ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md), [known
 limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md),
-the [steps toward 1.0](https://github.com/glowcap-org/glowcap/blob/main/docs/ladder.md),
+the [milestones to 1.0](https://github.com/glowcap-org/glowcap/blob/main/docs/milestones.md),
 and the [remaining work](https://github.com/glowcap-org/glowcap/blob/main/docs/roadmap.md).
 The [vision](https://github.com/glowcap-org/glowcap/blob/main/docs/vision.md)
 defines what 1.0 is aiming for. Accepted and superseded choices are recorded in the

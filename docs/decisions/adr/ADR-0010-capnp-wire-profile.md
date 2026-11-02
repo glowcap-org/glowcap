@@ -18,7 +18,7 @@ A second codec should reuse the protocol state machine while offering word-orien
 
 ## Decision
 
-The Cap'n Proto codec implements its documented wire layout directly in Zig. It emits and accepts the supported single-segment format, uses explicit endianness and aligned frames, and decodes into borrowed views.
+The codec emits and accepts the supported single-segment format, uses explicit endianness and aligned frames, and decodes into borrowed views.
 
 A non-empty all-integer list can use its dedicated word-run encoding. It remains the same list in the semantic model. Empty runs are refused to avoid a second encoding for an empty list, and alignment is established before exposing a typed slice.
 

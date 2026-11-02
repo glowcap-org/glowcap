@@ -18,7 +18,7 @@ At high connection counts, a fixed buffer retained by every idle socket can cost
 
 ## Decision
 
-Completion backends own shared read-buffer pools. A receive lends a bounded view, and the consumer returns that buffer exactly once. Pool exhaustion delays receiving rather than closing a healthy connection.
+A receive lends a bounded view, and the consumer returns that buffer exactly once. Pool exhaustion delays receiving rather than closing a healthy connection.
 
 Accepted and dialed sockets share one connection lifecycle. Platform backends own their kernel operations, while transport residents own addressing and provider resources. An in-process byte transport exercises this contract without sockets.
 
