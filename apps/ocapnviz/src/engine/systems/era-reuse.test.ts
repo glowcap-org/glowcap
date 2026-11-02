@@ -32,10 +32,7 @@ import { TimelineDocument, type TimelineEvent } from "../timeline.ts";
 import { Engine } from "../engine.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
 import { attachedEndpoint, unattributedEndpoint } from "../../schema/session-end.ts";
-
-function engineTest(name: string, fn: () => void): void {
-	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
-}
+import { engineTest } from "../engine-test/harness.ts";
 
 /** A room: two peers that stay, and one session between them. */
 function roomEngine(): Engine {
