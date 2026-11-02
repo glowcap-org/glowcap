@@ -368,9 +368,7 @@ pub const Resident = struct {
         self.* = undefined;
     }
 
-    pub fn newPeer(self: *Resident, is_offerer: bool) Peer.InitError!Peer {
-        return Peer.init(self, is_offerer);
-    }
+    pub const newPeer = Peer.init;
 
     /// Borrowed, read-only OS readiness fd. Register it once and call
     /// `drainReady` whenever it wakes. The resident owns it until `deinit`.

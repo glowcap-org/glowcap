@@ -161,9 +161,7 @@ pub const Backend = union(Selection) {
         };
     }
 
-    pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return uring.Backend.listenerPort(address);
-    }
+    pub const listenerPort = uring.Backend.listenerPort;
 
     pub fn closeFd(self: *Backend, fd: Fd) void {
         switch (self.*) {
@@ -281,7 +279,5 @@ pub const Backend = union(Selection) {
 };
 
 pub const white_box = if (builtin.is_test) struct {
-    pub fn fallbackReasonFor(err: anyerror) ?FallbackReason {
-        return fallbackReason(err);
-    }
+    pub const fallbackReasonFor = fallbackReason;
 } else struct {};

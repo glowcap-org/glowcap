@@ -157,6 +157,4 @@ pub fn dial(
     };
 }
 
-pub fn isEmpty(report: shared.GlowcapProviderFailure) bool {
-    return shared.transport_provider.providerFailureEmpty(report);
-}
+pub const isEmpty = shared.transport_provider.providerFailureEmpty;

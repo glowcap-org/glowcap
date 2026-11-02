@@ -21,9 +21,7 @@ pub fn ResidentPolicy(comptime Backend: type) type {
             return std.mem.eql(u8, transport, model.transport.webrtc);
         }
 
-        pub fn resolve(locator: model.PeerLocator) !Backend.ConnectTarget {
-            return signaling.DialResolver.resolve(locator);
-        }
+        pub const resolve = signaling.DialResolver.resolve;
 
         /// Empty asks for the Host's key. Anything else must be it.
         pub fn listenTarget(_: *const Backend, transport: []const u8, config: net.netlayer.ListenConfig) !Backend.ListenTarget {

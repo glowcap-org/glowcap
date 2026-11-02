@@ -185,9 +185,7 @@ pub const GrantLedger = struct {
         return transaction.finishWrite(self, ticket, outcome);
     }
 
-    pub fn resolveWrite(self: *GrantLedger, ticket: Ticket, resolution: Resolution) Error!Completion {
-        return transaction.resolveWrite(self, ticket, resolution);
-    }
+    pub const resolveWrite = transaction.resolveWrite;
 
     /// Cancellation is possible only before beginWrite. A running or uncertain
     /// write retains its state until a matching outcome or recovery resolution.
@@ -195,9 +193,7 @@ pub const GrantLedger = struct {
         return transaction.cancel(self, ticket);
     }
 
-    pub fn commitVolatile(self: *GrantLedger, ticket: Ticket) Error!Change {
-        return transaction.commitVolatile(self, ticket);
-    }
+    pub const commitVolatile = transaction.commitVolatile;
 
     fn applyVolatile(self: *GrantLedger, base: Version, command: Command) Error!?Change {
         const ticket = try self.prepareCopying(base, command) orelse return null;
@@ -208,7 +204,5 @@ pub const GrantLedger = struct {
         if (self.pending) |pending| if (pending.phase == .uncertain) return error.RecoveryRequired;
     }
 
-    fn lookup(self: *const GrantLedger, id: GrantId) Error!*const Record {
-        return transaction.lookup(self, id);
-    }
+    const lookup = transaction.lookup;
 };

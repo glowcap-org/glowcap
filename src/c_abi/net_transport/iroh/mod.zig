@@ -517,6 +517,4 @@ comptime {
     for (symbols.symbols) |symbol| _ = @field(@This(), symbol.name);
 }
 
-fn nlFromOpaque(netlayer: ?*GlowcapIrohNetlayer) ?*NetlayerPayload {
-    return ownership.netlayerFromOpaque(netlayer);
-}
+const nlFromOpaque = ownership.netlayerFromOpaque;

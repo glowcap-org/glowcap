@@ -50,21 +50,8 @@ pub fn sendPreparedFetch(self: *Peer, prepared: fetch.PreparedFetch) !void {
     try send(self, prepared.message);
 }
 
-/// Enqueue `message`, borrowing it for the call: the caller's storage is its
-/// own again when this returns. A deliver that carries only values leaves as
-/// its frame with no copy. A deliver that carries a reference, handoff, or
-/// set, and every other kind, is cloned into the queue, the named outbound
-/// boundary copy (`outbound.enqueueBorrowed`).
-pub fn sendBorrowed(self: *Peer, message: model.Message) !void {
-    return outbound.enqueueBorrowed(self, message);
-}
-
-/// Enqueue a deliver whose arguments are lent as views (ADR-0064). The tree
-/// must carry values only, which the session certifies, and it leaves as
-/// its frame before this returns (`outbound.enqueueFreight`).
-pub fn sendFreight(self: *Peer, target: model.Reference, args: model.view.Args, answer: ?model.AnswerPosition) !void {
-    return outbound.enqueueFreight(self, target, args, answer);
-}
+pub const sendBorrowed = outbound.enqueueBorrowed;
+pub const sendFreight = outbound.enqueueFreight;
 
 pub const sendAnswerResolutionCopying = outbound_copying.answer;
 pub const sendAnswerTargetResolutionCopying = outbound_copying.answerTarget;
