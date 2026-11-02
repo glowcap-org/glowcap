@@ -273,12 +273,3 @@ pub const glowcap_locator_hint_wire_form = uri.glowcap_locator_hint_wire_form;
 pub const glowcap_locator_release = uri.glowcap_locator_release;
 pub const glowcap_locator_record_encode = uri_record.glowcap_locator_record_encode;
 pub const glowcap_locator_record_bytes_release = uri_record.glowcap_locator_record_bytes_release;
-
-comptime {
-    // Force the family files' `export fn`s into the compilation even if the
-    // re-exports above are ever pruned. A plain reference is enough.
-    _ = context;
-    _ = frame;
-    _ = uri;
-    _ = uri_record;
-}

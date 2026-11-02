@@ -212,9 +212,8 @@ pub fn build(b: *std.Build) void {
     const relay_tls = mbedtls_build.addFamily(b, target, optimize, host_mods[layerIndex("foundation")], host_mods[layerIndex("net")]);
 
     // ── Composable C ABI archives (ADR-0022) ─────────────────────────────────
-    // The single umbrella artifact is dropped: each family
-    // ships as its own archive linked à la carte, exporting only its
-    // `glowcap_<family>_*` symbols and sharing core types by header layout.
+    // Each family ships as its own archive linked à la carte, exporting only
+    // its `glowcap_<family>_*` symbols and sharing core types by header layout.
     // `libglowcap_ocapn` is the shared vocabulary; each transport is a
     // self-contained companion that embeds its private lower layers as local
     // symbols.
@@ -362,17 +361,16 @@ pub fn build(b: *std.Build) void {
     };
     gen_build.register(gen_ctx);
 
-    // The documentation site pipeline (autodoc, the transport example
-    // snippets and their per-language checks, the Zine render, and the local
-    // preview) registers as one subject from tools/build/site.zig; the
-    // language-check handles come back for the `bindings` aggregate.
-
     // Every step that drives a real headless Chromium depends on this one
     // preparation (tools/build/browser_preflight.zig).
     const browser_preflight = browser_preflight_build.register(b);
 
     mark_build.register(b, browser_preflight);
 
+    // The documentation site pipeline (autodoc, the transport example
+    // snippets and their per-language checks, the Zine render, and the local
+    // preview) registers as one subject from tools/build/site.zig; the
+    // language-check handles come back for the `bindings` aggregate.
     const site_reg = site_build.register(.{
         .b = b,
         .target = target,

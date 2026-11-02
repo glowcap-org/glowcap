@@ -343,12 +343,6 @@ pub fn Map(comptime K: type, comptime V: type) type {
     return std.HashMapUnmanaged(K, V, Context(K), std.hash_map.default_max_load_percentage);
 }
 
-/// The managed form of `Map`, for a backend that keeps its allocator in the
-/// table.
-pub fn Managed(comptime K: type, comptime V: type) type {
-    return std.HashMap(K, V, Context(K), std.hash_map.default_max_load_percentage);
-}
-
 /// Who chooses a table's keys.
 pub const Provenance = enum {
     /// This process allocates them, in sequence: a position it exports, a

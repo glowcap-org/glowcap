@@ -25,9 +25,9 @@ const engine = @import("engine");
 const net = @import("net");
 const driver_core = @import("driver_core");
 
-pub const default_wire_buffer_bytes: usize = 16 << 10;
-pub const default_max_pending_opens: usize = 256;
-pub const default_listener_setup_ms: i64 = 10_000;
+pub const default_wire_buffer_bytes = runtime_contract.default_wire_buffer_bytes;
+pub const default_max_pending_opens = runtime_contract.default_max_pending_opens;
+pub const default_listener_setup_ms = runtime_contract.default_listener_setup_ms;
 pub const default_settle_ms: i64 = 10_000;
 const settle_mailbox = @import("settle_mailbox.zig");
 const runtime_admission = @import("host_runtime/admission.zig");
@@ -55,12 +55,6 @@ const wire_state = @import("host_runtime/wire.zig");
 
 const Error = driver_core.Error;
 const OperationFailure = @import("operation_failure.zig").OperationFailure;
-const Contract = runtime_contract.Vocabulary(
-    default_wire_buffer_bytes,
-    default_max_pending_opens,
-    default_listener_setup_ms,
-);
-
 /// The owning face over one `driver_core.Host`: the core, the transports
 /// it dials through, and one wire per live session. One thread drives one
 /// `HostRuntime` and its core `Host`. Every blocking verb on a view pumps through
@@ -223,13 +217,13 @@ pub const HostRuntime = struct {
 
     /// The public options and result vocabulary live in one I/O-free contract
     /// leaf. Aliases keep HostRuntime as the supported namespace.
-    pub const Options = Contract.Options;
-    pub const FailureObserver = Contract.FailureObserver;
-    pub const AdoptionOptions = Contract.AdoptionOptions;
-    pub const max_busy_poll_ns = Contract.max_busy_poll_ns;
-    pub const ProviderRegistrationError = Contract.ProviderRegistrationError;
-    pub const PendingWork = Contract.PendingWork;
-    pub const CloseOutcome = Contract.CloseOutcome;
+    pub const Options = runtime_contract.Options;
+    pub const FailureObserver = runtime_contract.FailureObserver;
+    pub const AdoptionOptions = runtime_contract.AdoptionOptions;
+    pub const max_busy_poll_ns = runtime_contract.max_busy_poll_ns;
+    pub const ProviderRegistrationError = runtime_contract.ProviderRegistrationError;
+    pub const PendingWork = runtime_contract.PendingWork;
+    pub const CloseOutcome = runtime_contract.CloseOutcome;
 
     pub const DeferredSessionRelease = wire_state.DeferredSessionRelease;
     pub const Wire = wire_state.Wire;
