@@ -21,6 +21,21 @@ from scenarios.runtime import tcp_connect
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
 
 
+def _ipv6_hosts_keep_their_brackets_in_every_locator() -> None:
+    """A designator formatted by hand as ``host:port`` would drop an IPv6
+    host's brackets, so every TCP profile's locator spells it through the one
+    address helper."""
+    assert tcp.address_designator("::1", 4242) == "[::1]:4242"
+    assert tcp.address_designator("[::1]", 4242) == "[::1]:4242"
+    assert tcp.address_designator("127.0.0.1", 4242) == "127.0.0.1:4242"
+    assert tcp.locator("::1", 4242).designator == "[::1]:4242"
+    assert tcp.locator("127.0.0.1", 4242).designator == "127.0.0.1:4242"
+    for profile in (tcp.keyed, tcp.noise):
+        assert profile.locator("peer", "::1", 4242).hints == {glowcap.HINT_DIRECT_ADDRESSES: "[::1]:4242"}
+        assert profile.locator("peer", "127.0.0.1", 4242).hints == {glowcap.HINT_DIRECT_ADDRESSES: "127.0.0.1:4242"}
+    print("python test OK: IPv6 hosts keep their brackets in every TCP locator")
+
+
 def _wait_for_ffi_call(owner, label: str) -> None:
     """Wait until a blocking wrapper has transferred one lease to FFI code."""
     ffi = owner._ffi
@@ -94,7 +109,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         carol_host = Host()
         from glowcap.tcp import connector as tcp_connector
 
-        runtime = await Runtime.open(adopt_host=carol_host, connector=tcp_connector(), handshake_timeout_ms=10_000)
+        runtime = await Runtime.open(adopt_host=carol_host, connectors=[tcp_connector()], handshake_timeout_ms=10_000)
         carol = await runtime.connect(carol_locator)
         carol.serve()
         introducer = await carol.fetch("introducer")

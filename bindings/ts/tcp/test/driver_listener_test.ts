@@ -7,7 +7,9 @@ import {
 	Runtime,
 	type Session,
 } from "../../runtime/mod.ts";
-import { assert } from "../../test/assert.ts";
+import { assert, assertDeepEquals, assertEquals } from "../../test/assert.ts";
+import { addressDesignator, keyedLocator, locator, noiseLocator } from "../address.ts";
+import { HINT_DIRECT_ADDRESSES } from "@glowcap/abi";
 
 Deno.test("high-level servers expose the driver's complete listener locator", async () => {
 	const plain = await tcp.listen("127.0.0.1", 0);
@@ -82,7 +84,7 @@ Deno.test("closing a TCP listener preserves its Host and yielded session", async
 		await accepted?.close();
 		await client?.close();
 		await runtime.close();
-		await server.stopAdmission();
+		await server.close();
 		await host.close();
 	}
 });
@@ -147,7 +149,7 @@ Deno.test("failed listener setup preserves a supplied Host for retry", async () 
 		retry = await tcp.listen("127.0.0.1", 0, { host });
 		assert(retry.host === host, "listener retry replaced the supplied Host");
 	} finally {
-		await retry?.stopAdmission();
+		await retry?.close();
 		await host.close();
 	}
 });
@@ -162,8 +164,20 @@ Deno.test("keyed and Noise listeners preserve a supplied Host", async () => {
 		assert(noise.host === host, "Noise listener replaced the supplied Host");
 		assert(host.driverLoop != null, "TCP profile listeners did not adopt the Host");
 	} finally {
-		await keyed.stopAdmission();
-		await noise.stopAdmission();
+		await keyed.close();
+		await noise.close();
 		await host.close();
+	}
+});
+
+Deno.test("an IPv6 host keeps its brackets in every locator the package builds", () => {
+	assertEquals(addressDesignator("::1", 4242), "[::1]:4242");
+	assertEquals(addressDesignator("[::1]", 4242), "[::1]:4242");
+	assertEquals(addressDesignator("127.0.0.1", 4242), "127.0.0.1:4242");
+	assertEquals(locator("::1", 4242).designator, "[::1]:4242");
+	assertEquals(locator("127.0.0.1", 4242).designator, "127.0.0.1:4242");
+	for (const build of [keyedLocator, noiseLocator]) {
+		assertDeepEquals([...build("peer", "::1", 4242).hints], [[HINT_DIRECT_ADDRESSES, "[::1]:4242"]]);
+		assertDeepEquals([...build("peer", "127.0.0.1", 4242).hints], [[HINT_DIRECT_ADDRESSES, "127.0.0.1:4242"]]);
 	}
 });

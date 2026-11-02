@@ -371,6 +371,7 @@ def main() -> int:
 
     print("python test OK: the blocking TCP and in-process transports shuttled a frame")
 
+    transports._ipv6_hosts_keep_their_brackets_in_every_locator()
     transports._onion_against_a_fake_daemon()
     print("python test OK: the onion transport reached a fake Tor and reported its service")
 
