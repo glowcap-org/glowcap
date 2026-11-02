@@ -9,6 +9,9 @@ on:
       archive:
         value: ${{ jobs.trusted.outputs.archive || jobs.readonly.outputs.archive }}
 
+# Each job grants itself exactly what it needs below.
+permissions: {}
+
 jobs:
   trusted:
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
