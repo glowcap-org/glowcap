@@ -35,6 +35,7 @@ const receiveWith = fixtures.receiveWith;
 const RejectingVerifier = fixtures.RejectingVerifier;
 const RoutingVerifier = fixtures.RoutingVerifier;
 const signedGive = fixtures.signedGive;
+const signedReceive = fixtures.signedReceive;
 
 test "third-party handoff authorizes a withdrawal under real Ed25519 with keys routed per certificate" {
     const allocator = std.testing.allocator;
@@ -53,17 +54,10 @@ test "third-party handoff authorizes a withdrawal under real Ed25519 with keys r
     defer allocator.free(give_signed);
 
     // The receive embeds the signed give and is signed by the recipient.
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     var give_pair = try cross_peer.GivePair.init(allocator, give.recipient_key);
     defer give_pair.deinit();
@@ -102,17 +96,10 @@ test "immediate deposited withdraw verifies the borrowed receive without ownersh
     var give_sig: crypto.Signature = undefined;
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     var counter = CountingAllocator{ .backing = allocator };
     const measured = counter.allocator();
@@ -189,17 +176,10 @@ test "borrowed handoff signing domains equal owned domains through both codecs" 
         defer allocator.free(give_signed);
         const give_sig = crypto.sign(&gifter_secret, give_signed);
         give.signature = give_sig.asBytes();
-        var receive: model.HandoffReceive = .{
-            .receiving_session = receiving_session[0..],
-            .receiving_side = &recipient_side,
-            .handoff_count = 1,
-            .signed_give = give,
-            .signature = "",
-        };
-        const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+        var receive_signed: []u8 = undefined;
+        var receive_sig: crypto.Signature = undefined;
+        const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
         defer allocator.free(receive_signed);
-        const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-        receive.signature = receive_sig.asBytes();
 
         for ([_]model.CodecId{ .syrup, .capnp }) |codec_id| {
             var handoff = model.Handoff{ .receive = receive };
@@ -245,17 +225,10 @@ test "third-party handoff rejects a give signed by a key other than the recorded
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &forger_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
 
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     var give_pair = try cross_peer.GivePair.init(allocator, give.recipient_key);
     defer give_pair.deinit();
@@ -397,17 +370,10 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
 
-    var receive: model.HandoffReceive = .{
-        .receiving_session = &receiving_session_name,
-        .receiving_side = &withdrawing_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, &receiving_session_name, &withdrawing_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     var give_pair = try cross_peer.GivePair.init(allocator, give.recipient_key);
     defer give_pair.deinit();

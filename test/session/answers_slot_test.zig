@@ -3,22 +3,11 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const protocol_oracle = @import("../oracle/protocol_oracle.zig");
+const session_harness = @import("session_harness.zig");
 
 const model = glowcap.ocapn.model;
-const syrup = glowcap.ocapn.codec.syrup;
 const answers = glowcap.ocapn.session;
 const slot = glowcap.ocapn.session.slot;
-
-fn encodeFulfillRef(allocator: std.mem.Allocator, reference: model.Reference) ![]u8 {
-    var frame = try syrup.encodeMessage(allocator, .{
-        .resolve = .{
-            .answer = .from(7),
-            .resolution = .{ .fulfill = .{ .reference = reference } },
-        },
-    });
-    defer frame.deinit();
-    return try allocator.dupe(u8, frame.bytes());
-}
 
 test "pending inbound answer is Slot.remote_unresolved" {
     const s = answers.pendingInboundSlot(.from(11));
@@ -44,7 +33,7 @@ test "pending inbound answer through real syrup codec matches answer oracle fixt
     const allocator = std.testing.allocator;
     const fixture = protocol_oracle.fixtureByName("op_resolve_fulfill_promise.bin").?;
     const reference = slot.toReference(answers.pendingInboundSlot(.from(11))).?;
-    const encoded = try encodeFulfillRef(allocator, reference);
+    const encoded = try session_harness.encodeFulfillRef(allocator, reference);
     defer allocator.free(encoded);
     try std.testing.expectEqualStrings(fixture.bytes(), encoded);
 }
