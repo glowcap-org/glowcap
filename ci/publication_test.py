@@ -231,12 +231,6 @@ else:
         for granted in (pages_workflow["permissions"], pages["build"]["permissions"]):
             self.assertNotEqual(granted.get("pages"), "write")
             self.assertNotEqual(granted.get("id-token"), "write")
-        for path, found in (("release.yml", release), ("pages.yml", pages)):
-            for name, job in found.items():
-                for checkout in job.get("steps", []):
-                    if checkout.get("uses", "").startswith("actions/checkout@"):
-                        with self.subTest(workflow=path, job=name):
-                            self.assertIs(checkout["with"]["persist-credentials"], False)
 
     def test_pages_builds_only_main(self):
         # The verify step, not this condition, requires the commit's

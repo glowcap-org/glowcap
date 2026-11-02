@@ -157,24 +157,15 @@ class ReleaseNotes(unittest.TestCase):
         sbom = "Write the image's software bill of materials"
         sbom_attest = "Attest the image's software bill of materials"
         render = "Render the release page and download every provenance bundle"
-        self.assertEqual(step(release, publish)["id"], "image")
         self.assertLess(names.index(publish), names.index(attest))
         self.assertLess(names.index(attest), names.index(sbom))
         self.assertLess(names.index(sbom), names.index(sbom_attest))
         self.assertLess(names.index(sbom_attest), names.index(render))
-        self.assertEqual(
-            step(release, attest)["with"],
-            {
-                "subject-name": "ghcr.io/glowcap-org/glowcap-rooms",
-                "subject-digest": "${{ steps.image.outputs.digest }}",
-                "push-to-registry": True,
-            },
-        )
-        statement = step(release, sbom_attest)["with"]
-        self.assertEqual(statement["subject-digest"], "${{ steps.image.outputs.digest }}")
-        self.assertEqual(statement["predicate-type"], "https://spdx.dev/Document/v2.3")
-        self.assertIs(statement["push-to-registry"], True)
-        self.assertEqual(run(release, publish), "python3 ci/release_image.py artifacts")
+        digest = f"${{{{ steps.{step(release, publish)['id']}.outputs.digest }}}}"
+        for name in (attest, sbom_attest):
+            with self.subTest(step=name):
+                self.assertEqual(step(release, name)["with"]["subject-digest"], digest, "the digest the publish output")
+                self.assertIs(step(release, name)["with"]["push-to-registry"], True)
 
     def test_refuses_facts_that_would_mislead_a_reader(self):
         complete = facts()

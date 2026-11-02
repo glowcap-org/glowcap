@@ -58,6 +58,9 @@ jobs:
         with:
           image: ${{ steps.image.outputs.image }}
 
+      - name: Fetch pinned Zig dependencies
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json python3 ci/gates.py fetch
+
       - name: Build the site in the devcontainer
         run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json zig build site
 

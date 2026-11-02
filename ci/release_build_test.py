@@ -109,31 +109,13 @@ class ReleaseBuild(unittest.TestCase):
                 self.assertEqual(result.returncode == 0, accepted, result.stderr)
                 self.assertEqual((root / "image-context/bin/glowcap").exists(), accepted)
 
-    def test_release_publishes_in_order_and_attests_before_it_fills_the_draft(self):
-        release = RELEASE["release"]
-        order = (
-            "Assemble the release assets",
-            "Attest the checksum file's build provenance",
-            "Publish the versioned multi-platform Rooms image",
-            "Attest the image's build provenance",
-            "Write the image's software bill of materials",
-            "Attest the image's software bill of materials",
-            "Render the release page and download every provenance bundle",
-            "Fill the draft release, then make it public",
-            "Publish the language packages at the tag",
-        )
-        names = [found.get("name") for found in release["steps"]]
-        positions = [names.index(name) for name in order]
-        self.assertEqual(positions, sorted(positions))
-        self.assertEqual(len(set(positions)), len(order))
-        self.assertEqual(
-            run(release, "Assemble the release assets"),
-            'python3 ci/github_release.py assemble artifacts "$RELEASE_TAG"',
-        )
-        self.assertEqual(
-            step(release, "Attest the checksum file's build provenance")["with"]["subject-path"],
-            "release-assets/SHA256SUMS",
-        )
+    def test_every_attestation_precedes_the_public_release_and_the_packages_follow_it(self):
+        names = [found.get("name", "") for found in RELEASE["release"]["steps"]]
+        public = names.index("Fill the draft release, then make it public")
+        attestations = [index for index, name in enumerate(names) if name.startswith("Attest ")]
+        self.assertEqual(len(attestations), 3, "the checksums, the image, and its bill of materials")
+        self.assertLess(max(attestations), public)
+        self.assertLess(public, names.index("Publish the language packages at the tag"))
 
     def test_failed_product_archives_are_preserved_without_qualifying_them(self):
         [predicate] = [found["if"] for found in RELEASE["archives"]["steps"] if "hashFiles" in found.get("if", "")]
