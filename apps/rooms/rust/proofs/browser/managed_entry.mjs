@@ -18,15 +18,26 @@ export async function managedApplication(binding, tab, reopening) {
 		if (typeof snapshot.revision !== "string") throw new Error("workspace revision lost precision");
 		if (reopening) {
 			const rows = await workspace.effects();
-			if (rows.length !== 1 || rows[0].operation !== "standing" || rows[0].status !== "committed" || rows[0].resumable) {
+			if (
+				rows.length !== 1 || rows[0].operation !== "standing" || rows[0].status !== "committed" ||
+				rows[0].resumable
+			) {
 				throw new Error("cold receipt inventory lost its exact original endpoint");
 			}
 			const recovered = await workspace.recoverEffect("standing");
 			held.push(recovered);
-			if (await recovered.status() !== "committed" || await recovered.result() !== null || await recovered.resume() !== "committed") {
+			if (
+				await recovered.status() !== "committed" || await recovered.result() !== null ||
+				await recovered.resume() !== "committed"
+			) {
 				throw new Error("cold effect recovery changed the committed result");
 			}
-			const acquire = await recovered.prepareResultAcquisition(snapshot.revision, "[]", "[]", JSON.stringify(snapshot.intent));
+			const acquire = await recovered.prepareResultAcquisition(
+				snapshot.revision,
+				"[]",
+				"[]",
+				JSON.stringify(snapshot.intent),
+			);
 			held.push(acquire);
 			await acquire.submit();
 			const adopted = await workspace.snapshot();
@@ -36,7 +47,9 @@ export async function managedApplication(binding, tab, reopening) {
 			// First adoption records the receipt's consumed result atomically.
 			// Replaying that adoption must perform no further workspace write.
 			await acquire.submit();
-			if ((await workspace.snapshot()).revision !== adopted.revision) throw new Error("cold result replay changed workspace intent");
+			if ((await workspace.snapshot()).revision !== adopted.revision) {
+				throw new Error("cold result replay changed workspace intent");
+			}
 		}
 		if (!reopening) {
 			const registering = await workspace.prepareObservation();
@@ -236,21 +249,27 @@ export async function managedApplication(binding, tab, reopening) {
 			await lifecycle(control, "pause", (await control.inspect()).revision);
 			const conflict = await stale.submitOutcome();
 			if (conflict.status !== "conflict") {
-				throw new Error(`a retained stale edit did not report its exact revision conflict: ${JSON.stringify(conflict)}`);
+				throw new Error(
+					`a retained stale edit did not report its exact revision conflict: ${JSON.stringify(conflict)}`,
+				);
 			}
 			const oldRevision = inspected.revision;
 			const staleRevision = await control.preparePolicy(oldRevision, "[]");
 			held.push(staleRevision);
 			const revisionConflict = await staleRevision.submitOutcome();
 			if (revisionConflict.status !== "conflict" || !revisionConflict.reason.includes("RevisionConflict")) {
-				throw new Error(`a stale expected revision did not retain its conflict: ${JSON.stringify(revisionConflict)}`);
+				throw new Error(
+					`a stale expected revision did not retain its conflict: ${JSON.stringify(revisionConflict)}`,
+				);
 			}
 			await lifecycle(control, "resume", (await control.inspect()).revision);
 			const home = JSON.parse(binding.inspectCapability(await app.publish())).authority;
 			const useLink = await use.publish();
 			const controlLink = await control.publish();
-			if (useLink === controlLink || [useLink, controlLink].some((link) =>
-				JSON.parse(binding.inspectCapability(link)).authority !== home)) {
+			if (
+				useLink === controlLink ||
+				[useLink, controlLink].some((link) => JSON.parse(binding.inspectCapability(link)).authority !== home)
+			) {
 				throw new Error("cold local publication lost its original owner or endpoint role");
 			}
 			if (await use.publish() !== useLink || await control.publish() !== controlLink) {
@@ -259,8 +278,10 @@ export async function managedApplication(binding, tab, reopening) {
 			const publishedUse = await app.attachWorkspace(useLink);
 			const publishedControl = await app.attachControl(controlLink);
 			held.push(publishedUse, publishedControl);
-			if (JSON.stringify((await publishedUse.snapshot()).intent) !== JSON.stringify(snapshot.intent) ||
-				(await publishedControl.inspect()).label !== "Saved observer renamed") {
+			if (
+				JSON.stringify((await publishedUse.snapshot()).intent) !== JSON.stringify(snapshot.intent) ||
+				(await publishedControl.inspect()).label !== "Saved observer renamed"
+			) {
 				throw new Error("cold local publication selected replacement authority");
 			}
 			await lifecycle(control, "revoke", (await control.inspect()).revision);

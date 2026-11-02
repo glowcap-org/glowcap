@@ -139,10 +139,11 @@ try {
 		const binding = await import("/rooms_browser.js");
 		await binding.default();
 		globalThis.openingApplication = new binding.RoomsManagedApplication(crypto.randomUUID(), () => {});
-		globalThis.openingOutcome = globalThis.openingApplication.attachWorkspace("ocapn://127.0.0.1%3A1234.tcp/s/held").then(
-			() => "unexpected attachment",
-			(error) => error.message,
-		);
+		globalThis.openingOutcome = globalThis.openingApplication.attachWorkspace("ocapn://127.0.0.1%3A1234.tcp/s/held")
+			.then(
+				() => "unexpected attachment",
+				(error) => error.message,
+			);
 	});
 	const [, socket] = await upgrading.catch(async (error) => {
 		throw new Error(

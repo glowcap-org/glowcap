@@ -71,7 +71,11 @@
     "lineWidth": 120,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["**/*.ts", "**/*.tsx"],
+    // Every first-party script is in scope: TypeScript, JSX, and the plain
+    // JavaScript the browser proofs and the Loam storage shim are written in.
+    // No vendored or generated JavaScript is tracked, and fetched packages
+    // sit under the excluded `node_modules` and `upstream` trees.
+    "include": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.mjs"],
     // yml/yaml/md/json are excluded so an explicit-path run (`deno fmt <dir>`)
     // cannot reach them: a path argument overrides `include`, and this formatter
     // would reindent YAML to four spaces, re-wrap Markdown to lineWidth, and

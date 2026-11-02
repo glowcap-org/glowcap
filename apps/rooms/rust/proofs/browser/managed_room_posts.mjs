@@ -1,5 +1,7 @@
 // Exact room line edits, source suspension, history and selected previews.
-export async function managedRoomPosts({workspace, held, settle, message, notice, lifecycle, control, coordinate, said}) {
+export async function managedRoomPosts(
+	{ workspace, held, settle, message, notice, lifecycle, control, coordinate, said },
+) {
 	const changeLine = async (operation, verb, ...args) => {
 		const command = await workspace.prepareCommand(
 			operation,
@@ -26,7 +28,11 @@ export async function managedRoomPosts({workspace, held, settle, message, notice
 	}
 	await lifecycle(control, "pause", (await control.inspect()).revision);
 	let pausedForm = false;
-	try { await workspace.readBridgeForm(seatCoordinate); } catch { pausedForm = true; }
+	try {
+		await workspace.readBridgeForm(seatCoordinate);
+	} catch {
+		pausedForm = true;
+	}
 	if (!pausedForm) throw new Error("paused source read its retained bridge form");
 	let pausedEdit = false;
 	try {
@@ -42,7 +48,9 @@ export async function managedRoomPosts({workspace, held, settle, message, notice
 	);
 	const previewText = "See https://example.org/";
 	const previewPost = await workspace.prepareCommand(
-		"previews", (await workspace.snapshot()).revision, "say",
+		"previews",
+		(await workspace.snapshot()).revision,
+		"say",
 		["room", previewText, JSON.stringify(["https://example.org/"])],
 	);
 	held.push(previewPost);

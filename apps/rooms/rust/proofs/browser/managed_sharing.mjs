@@ -69,7 +69,9 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		const restoredControl = await second.savedControl("foreign");
 		held.push(restoredUse, restoredControl);
 		await restoredUse.snapshot();
-		if ((await restoredControl.inspect()).label !== "Shared observer") throw new Error("saved foreign control changed its exact target");
+		if ((await restoredControl.inspect()).label !== "Shared observer") {
+			throw new Error("saved foreign control changed its exact target");
+		}
 		if (await restoredUse.publish() !== useLink || await restoredControl.publish() !== controlLink) {
 			throw new Error("restored foreign capability lost its canonical publication home");
 		}
@@ -80,8 +82,10 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		remoteControl = await second.savedControl("foreign");
 		held.push(remoteUse, remoteControl);
 		await remoteUse.snapshot();
-		if (await remoteUse.publish() !== useLink || await remoteControl.publish() !== controlLink ||
-			(await remoteControl.inspect()).label !== "Shared observer") {
+		if (
+			await remoteUse.publish() !== useLink || await remoteControl.publish() !== controlLink ||
+			(await remoteControl.inspect()).label !== "Shared observer"
+		) {
 			throw new Error("cold foreign restoration changed authority or publication home");
 		}
 		const inspection = {
@@ -115,23 +119,38 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		if (new URL(foreignNarrowLink).host !== new URL(rootLink).host || foreignNarrowLink === rootLink) {
 			throw new Error("foreign derivation lost its publication owner or widened its endpoint");
 		}
-		const foreignIssuing = await remoteRoot.prepareIssue((await remoteRoot.inspect()).revision,
-			JSON.stringify({ ceiling: permissions, configured: permissions }), "Issued through remote management", false, 0, JSON.stringify(powers));
+		const foreignIssuing = await remoteRoot.prepareIssue(
+			(await remoteRoot.inspect()).revision,
+			JSON.stringify({ ceiling: permissions, configured: permissions }),
+			"Issued through remote management",
+			false,
+			0,
+			JSON.stringify(powers),
+		);
 		held.push(foreignIssuing);
 		const foreignIssued = await foreignIssuing.submitOutcome();
-		if (foreignIssued.status !== "committed") throw new Error(`foreign issuance failed: ${JSON.stringify(foreignIssued)}`);
+		if (foreignIssued.status !== "committed") {
+			throw new Error(`foreign issuance failed: ${JSON.stringify(foreignIssued)}`);
+		}
 		held.push(foreignIssued.access, foreignIssued.control);
 		const foreignIssuedLink = await foreignIssued.access.publish();
 		const foreignIssuedControlLink = await foreignIssued.control.publish();
-		if (new URL(foreignIssuedLink).host !== new URL(rootLink).host || new URL(foreignIssuedControlLink).host !== new URL(rootLink).host) {
+		if (
+			new URL(foreignIssuedLink).host !== new URL(rootLink).host ||
+			new URL(foreignIssuedControlLink).host !== new URL(rootLink).host
+		) {
 			throw new Error("foreign issuance published at the receiving Host");
 		}
 		const checkForeignIssued = await second.attachControl(foreignIssuedControlLink);
 		held.push(checkForeignIssued);
-		if ((await checkForeignIssued.inspect()).label !== "Issued through remote management") throw new Error("foreign issuance changed its target");
+		if ((await checkForeignIssued.inspect()).label !== "Issued through remote management") {
+			throw new Error("foreign issuance changed its target");
+		}
 		const ownIssued = await first.attachControl(foreignIssuedControlLink);
 		held.push(ownIssued);
-		if ((await ownIssued.inspect()).label !== "Issued through remote management") throw new Error("own-Host fetch changed the foreign-issued target");
+		if ((await ownIssued.inspect()).label !== "Issued through remote management") {
+			throw new Error("own-Host fetch changed the foreign-issued target");
+		}
 		let refused = false;
 		try {
 			await lifecycle(remoteNarrow, "pause", (await remoteNarrow.inspect()).revision);
@@ -161,7 +180,11 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		const stale = await control.preparePause(paused.revision);
 		held.push(stale);
 		refused = false;
-		try { await stale.submit(); } catch { refused = true; }
+		try {
+			await stale.submit();
+		} catch {
+			refused = true;
+		}
 		if (!refused) throw new Error("fresh lifecycle ignored its expected revision");
 		await use.snapshot();
 		await remoteUse.snapshot();
@@ -184,7 +207,11 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		second.free();
 		first.free();
 		const failed = results.find((result) => result.status === "rejected");
-		if (failed) failure = failure ? new AggregateError([failure, failed.reason], "Sharing and cleanup failed") : failed.reason;
+		if (failed) {
+			failure = failure
+				? new AggregateError([failure, failed.reason], "Sharing and cleanup failed")
+				: failed.reason;
+		}
 	}
 	if (failure) throw failure;
 }

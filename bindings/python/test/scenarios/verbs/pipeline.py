@@ -188,8 +188,7 @@ async def projections_reach_a_field() -> None:
 
         serve_task = asyncio.ensure_future(serve_one())
         session = await tcp_connect(
-            tcp.locator("127.0.0.1", server.port),
-            host=Host(codec="capnp", captp_version="v1_0", features="full"),
+            tcp.locator("127.0.0.1", server.port), host=Host(codec="capnp", captp_version="v1_0", features="full")
         )
         assert session.profile.captp_version == "v1_0"
         assert session.profile.codec == "capnp"
