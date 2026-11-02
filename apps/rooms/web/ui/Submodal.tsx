@@ -8,6 +8,7 @@
 // raised it and stays inline there, which is `Confirm` and its own reasons.
 
 import { type ReactNode, useRef } from "react";
+import { ModalCard } from "./ModalCard.tsx";
 import { ModalHead } from "./ModalHead.tsx";
 import { useHeldModal, useModalDialog } from "./modal.ts";
 
@@ -28,12 +29,12 @@ export function Submodal(
 	if (!held) return null;
 	return (
 		<dialog ref={dialog} className="modal" aria-labelledby={titleId}>
-			<div className={`modal-card card-plane ${className}`.trim()}>
+			<ModalCard className={className}>
 				<div className="modal-body">
 					<ModalHead titleId={titleId} title={title} closeRef={close} onClose={onClose} />
 					{children}
 				</div>
-			</div>
+			</ModalCard>
 		</dialog>
 	);
 }

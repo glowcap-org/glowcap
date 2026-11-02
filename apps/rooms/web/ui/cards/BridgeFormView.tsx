@@ -25,6 +25,7 @@ import type {
 import { bridgeFormFields, bridgeFormSubmission, refreshBridgeAnswers, refreshBridgeToggles } from "../bridge_form.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { secretPromise } from "../../../lib/text/page.ts";
+import { Input } from "../Input.tsx";
 
 const SECRET_PROMISE = secretPromise;
 
@@ -55,9 +56,8 @@ function LeafField(
 	const hint = secret ? (field.hint == null ? SECRET_PROMISE : `${field.hint} ${SECRET_PROMISE}`) : field.hint;
 	const prefix = field.kind === "text" ? field.prefix : undefined;
 	const control = (id: string, describedBy?: string) => (
-		<input
+		<Input
 			id={id}
-			className="field"
 			name={`${idPrefix}-${field.id}`}
 			type={secret ? "password" : "text"}
 			value={value}

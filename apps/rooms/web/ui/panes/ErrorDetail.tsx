@@ -14,6 +14,7 @@ import { useRoomsBrowser } from "../controller/browser.ts";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { ModalHead } from "../ModalHead.tsx";
 import { CopyButton } from "../Copy.tsx";
+import { ModalCard } from "../ModalCard.tsx";
 
 export const ErrorDetail = memo(function ErrorDetail(
 	{ title, text }: { title: string | null; text: string | null },
@@ -43,7 +44,7 @@ function ErrorDialog(
 	useModalDialog(dialog, () => browser.closeError(), close, open, onExited);
 	return (
 		<dialog ref={dialog} className="modal" aria-labelledby="errorTitle">
-			<div className="modal-card card-plane">
+			<ModalCard>
 				<div className="modal-body">
 					<ModalHead
 						titleId="errorTitle"
@@ -55,7 +56,7 @@ function ErrorDialog(
 					/>
 					<pre id="errorBody" className="error-body">{text}</pre>
 				</div>
-			</div>
+			</ModalCard>
 		</dialog>
 	);
 }

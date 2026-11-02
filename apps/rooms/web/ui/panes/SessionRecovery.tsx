@@ -34,6 +34,7 @@ import {
 	recoveryUpdatesStopped,
 } from "../../../lib/text/recovery.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
+import { ModalCard } from "../ModalCard.tsx";
 
 export function SessionRecoveryModal(
 	{ open, onClose, dismissWhenEmpty = true }: { open: boolean; onClose(): void; dismissWhenEmpty?: boolean },
@@ -216,7 +217,7 @@ export function SessionRecoveryModal(
 				onClose();
 			}}
 		>
-			<div className="modal-card card-plane session-recovery-modal">
+			<ModalCard className="session-recovery-modal">
 				<div className="modal-body">
 					<ModalHead
 						titleId="sessionRecoveryTitle"
@@ -334,7 +335,7 @@ export function SessionRecoveryModal(
 						</>
 					)}
 				</div>
-			</div>
+			</ModalCard>
 		</dialog>
 	);
 }

@@ -63,6 +63,7 @@ import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { useAsyncAction } from "../async_action.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
+import { Input } from "../Input.tsx";
 
 export function SessionMoves(
 	{ sessionKind }: { sessionKind: "local" | "attached" | "hosted" },
@@ -265,9 +266,8 @@ function AttachModal(
 					said={why}
 				>
 					{(wiring) => (
-						<input
+						<Input
 							id={wiring.id}
-							className="field"
 							type="text"
 							{...identifierField}
 							value={link}

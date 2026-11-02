@@ -25,6 +25,7 @@ import { formatOpsBundle, type OpsBundleDraft, opsBundleReady, parseOpsBundleDra
 import { type RoomsSessionController, useRoomsSession } from "../controller/session.ts";
 import type { OpsCap } from "../types.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
+import { Input } from "../Input.tsx";
 
 interface CapabilitySetModel {
 	readonly draft: OpsBundleDraft;
@@ -432,10 +433,9 @@ function CapabilityValueModal(
 							said={why}
 						>
 							{(wiring) => (
-								<input
+								<Input
 									ref={field}
 									id={wiring.id}
-									className="field"
 									value={uri}
 									{...identifierField}
 									aria-describedby={wiring.describedBy}

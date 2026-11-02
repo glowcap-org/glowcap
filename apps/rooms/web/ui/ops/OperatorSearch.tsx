@@ -28,6 +28,7 @@ import { useRoomsSession } from "../controller/session.ts";
 import type { OperatorReferenceKind } from "../../../lib/operator.ts";
 import { useOperatorActivity } from "./operator_activity.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
+import { Input } from "../Input.tsx";
 
 /** How long the pane waits after the last keystroke. Long enough that a
  * typed word is one scan rather than five, short enough to feel like the page
@@ -88,9 +89,8 @@ export function OperatorSearch(
 				<span className="ops-search-mark" aria-hidden="true">
 					<Icon name="search" size={16} />
 				</span>
-				<input
+				<Input
 					id="operatorSearch"
-					className="field"
 					type="search"
 					value={typed}
 					autoComplete="off"

@@ -45,6 +45,7 @@ import {
 import { useRoomsState } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
+import { Input } from "../Input.tsx";
 
 export function SessionSetup(
 	{ initialCapability = "", initialError = "" }: {
@@ -180,9 +181,8 @@ export function SessionSetup(
 								said={attachError}
 							>
 								{(wiring) => (
-									<input
+									<Input
 										id={wiring.id}
-										className="field"
 										value={capability}
 										{...identifierField}
 										disabled={busy != null}

@@ -32,6 +32,7 @@ import { identifierField } from "../field.ts";
 import type { ListenerRow } from "../types.ts";
 import { OpsHead } from "./Head.tsx";
 import { actionRefusal } from "../error_text.ts";
+import { Input } from "../Input.tsx";
 
 /** This page's own relay endpoint, which registers rendezvous peers at
  * `/register` beside it: the natural relay for this server to ride, so a
@@ -194,9 +195,8 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 									width={knob.kind === "port" ? "short" : "medium"}
 								>
 									{(wiring) => (
-										<input
+										<Input
 											id={wiring.id}
-											className="field"
 											type="text"
 											inputMode={knob.kind === "port"
 												? "numeric"

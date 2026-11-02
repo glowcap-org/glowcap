@@ -61,6 +61,7 @@ import {
 	leaveRoomCommit,
 	leaveRoomSay,
 } from "../../../lib/text/conversation.ts";
+import { ModalCard } from "../ModalCard.tsx";
 
 export const ConvCard = memo(function ConvCard(
 	{
@@ -478,7 +479,7 @@ function ConvDialog(
 				    does: arriving from a coloured conversation to find nothing
 				    coloured makes a reader check they opened the right one. */
 			}
-			<div className="modal-card card-plane conversation-card" data-dir={mark}>
+			<ModalCard className="conversation-card" data-dir={mark}>
 				<div className="modal-body">
 					<ModalHead
 						titleId="convcardTitle"
@@ -527,7 +528,7 @@ function ConvDialog(
 							</>
 						)}
 				</div>
-			</div>
+			</ModalCard>
 		</dialog>
 	);
 }

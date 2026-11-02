@@ -41,6 +41,7 @@ import { useSessionPermission } from "../hooks.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { settingsTitle } from "../../../lib/text/settings.ts";
 import { settingsHoldingsTab, settingsReachabilityTab, settingsSessionTab } from "../../../lib/text/settings.ts";
+import { ModalCard } from "../ModalCard.tsx";
 
 interface SettingsProps {
 	open: boolean;
@@ -207,10 +208,7 @@ function SettingsDialog(
 			className="modal"
 			aria-labelledby={titleId}
 		>
-			<div
-				className="modal-card card-plane"
-				data-dir="home"
-			>
+			<ModalCard data-dir="home">
 				<div className="modal-body">
 					<SettingsHead
 						titleId={titleId}
@@ -346,7 +344,7 @@ function SettingsDialog(
 						</div>
 					)}
 				</div>
-			</div>
+			</ModalCard>
 		</dialog>
 	);
 }

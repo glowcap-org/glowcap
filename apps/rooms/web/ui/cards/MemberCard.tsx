@@ -45,6 +45,7 @@ import {
 } from "../../../lib/text/conversation.ts";
 import { memberNetwork, memberPresence } from "../../../lib/text/conversation.ts";
 import { memberOffline } from "../../../lib/text/conversation.ts";
+import { ModalCard } from "../ModalCard.tsx";
 
 /** Everything the card paints, gathered while the member is still on screen.
  *
@@ -178,7 +179,7 @@ function MemberDialog(
 	const presence = presenceOf(view);
 	return (
 		<dialog ref={dialog} className="modal" aria-labelledby="membercardTitle">
-			<div className="modal-card card-plane membercard">
+			<ModalCard className="membercard">
 				<div className="modal-body">
 					<ModalHead
 						titleId="membercardTitle"
@@ -334,7 +335,7 @@ function MemberDialog(
 							</div>
 						))}
 				</div>
-			</div>
+			</ModalCard>
 		</dialog>
 	);
 }
