@@ -88,10 +88,7 @@ fn replayBatch(profile: model.CaptpVersion, codec: model.CodecId, close_introduc
     var recipient = support.init(failing.allocator(), @splat(0x73), options);
     defer recipient.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| a.free(dial.designator);
-        dials.deinit(a);
-    }
+    defer h.deinitParked(a, &dials);
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     const ge = try h.openPair(a, &gifter, &exporter, "127.0.0.1:7941", &dials);
     _ = try ge.b.served.publish(&exporter.vat, "widget", h.Widget, .{});

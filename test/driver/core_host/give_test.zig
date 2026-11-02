@@ -94,10 +94,7 @@ test "application-delivered give uses Host identity without fabricating wire row
     var partner = test_host.init(allocator, @as([32]u8, @splat(0x71)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| allocator.free(dial.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
     const pair = try openPair(allocator, &host, &partner, "127.0.0.1:7109", &dials);
     const session = pair.a;
 
@@ -201,10 +198,7 @@ test "core host: Error remains fulfilled data across recursive lower and lift" {
     var partner = test_host.init(allocator, @as([32]u8, @splat(0x49)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| allocator.free(dial.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
     const pair = try openPair(allocator, &host, &partner, "127.0.0.1:7099", &dials);
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -237,10 +231,7 @@ test "core host: an inline give becomes one nested promise identity and terminal
     var partner = test_host.init(allocator, @as([32]u8, @splat(0x4b)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| allocator.free(dial.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
     const pair = try openPair(allocator, &host, &partner, "127.0.0.1:7100", &dials);
     const session = pair.a;
     const baseline_operations = session.pendingOperations();
@@ -340,10 +331,7 @@ test "core host: releasing queued promise operations cancels their exact ownersh
     var partner = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| allocator.free(dial.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
     const pair = try openPair(allocator, &host, &partner, "127.0.0.1:7101", &dials);
 
     const signed = try signedGiveForLifecycleTest(allocator);
@@ -427,10 +415,7 @@ fn runNestedGivePipelining(case: PipeliningCase) !void {
     defer anchor.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient, &anchor };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7111", &dials);
     _ = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "widget", Widget, .{});

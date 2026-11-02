@@ -7,7 +7,6 @@ const glowcap = @import("glowcap");
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
 const net = glowcap.net;
 const keyed_relay = net.relay;
 const ws_relay = @import("../../support/ws_relay.zig");
@@ -24,10 +23,6 @@ const deinitAdmissionBackend = admission.deinitAdmissionBackend;
 
 const frame_cap = admission.frame_cap;
 
-pub fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
-    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-}
-
 pub fn startSession(designator: []const u8) model.Message {
     return handshake.startSession(keyed_relay.transport_name, designator);
 }
@@ -42,7 +37,7 @@ pub fn serveRegistered(
     identity: crypto.PeerKey,
     allocator: std.mem.Allocator,
 ) !void {
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");

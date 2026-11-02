@@ -1,6 +1,7 @@
 //! Fault injection at the physical backend. Missing allocator and identity
 //! metadata cannot authorize initialization over surviving application rows.
 const std = @import("std");
+const Temp = @import("engine_fixture").Temp;
 const core = @import("loam_core");
 const Lmdb = @import("loam_lmdb").Lmdb;
 const Env = @typeInfo(@FieldType(Lmdb, "env")).pointer.child;
@@ -22,14 +23,10 @@ fn value(bytes: []const u8) Val {
 }
 
 test "loam LMDB refuses initialization over rows without metadata" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(path);
-    const terminated = try std.testing.allocator.dupeSentinel(u8, path, 0);
-    defer std.testing.allocator.free(terminated);
+    var tmp = try Temp.init();
+    defer tmp.deinit();
     const id: core.StoreId = @fromBackingInt(42);
-    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = id, .mode = .create } });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = id, .mode = .create } });
     var txn: ?*Txn = null;
     try std.testing.expectEqual(@as(c_int, 0), mdb_txn_begin(db.env, null, 0, &txn));
     var row_key = value("surviving-row");
@@ -43,7 +40,7 @@ test "loam LMDB refuses initialization over rows without metadata" {
         .{ .opening = .{ .id = id, .mode = .create } },
         .{ .opening = .{ .id = id, .mode = .bootstrap } },
     }) |options| {
-        const attempted = Lmdb.open(terminated, options);
+        const attempted = Lmdb.open(tmp.path, options);
         if (attempted) |opened| {
             var unexpected = opened;
             try unexpected.close();
@@ -55,7 +52,7 @@ test "loam LMDB refuses initialization over rows without metadata" {
     var env: ?*Env = null;
     try std.testing.expectEqual(@as(c_int, 0), mdb_env_create(&env));
     defer mdb_env_close(env.?);
-    try std.testing.expectEqual(@as(c_int, 0), mdb_env_open(env.?, terminated, 0x200000, 0o600));
+    try std.testing.expectEqual(@as(c_int, 0), mdb_env_open(env.?, tmp.path, 0x200000, 0o600));
     try std.testing.expectEqual(@as(c_int, 0), mdb_txn_begin(env.?, null, 0x20000, &txn));
     defer mdb_txn_abort(txn.?);
     var dbi: c_uint = 0;

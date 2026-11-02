@@ -65,10 +65,7 @@ fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7011", &dials);
     _ = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "widget", Widget, .{});
@@ -178,10 +175,7 @@ fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
     var recipient = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7021", &dials);
     _ = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "widget", Widget, .{});
@@ -290,10 +284,7 @@ test "core host: a redeem reuses a live exporter session instead of dialing a du
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     // Gifter dials the exporter and fetches the widget (the give's future home).
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7001", &dials);

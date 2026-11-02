@@ -1,5 +1,6 @@
 //! Capture, front/sink, listen-refusal, dial retention, timeouts, and signal latch.
 const std = @import("std");
+const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 const glowcap = @import("glowcap");
 
@@ -25,11 +26,10 @@ fn makeCtx(io: std.Io, gpa: std.mem.Allocator, environ: *const std.process.Envir
 
 test "writeResult appends to sink buffer" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
 
     var capture: std.ArrayList(u8) = .empty;
@@ -41,11 +41,10 @@ test "writeResult appends to sink buffer" {
 
 test "an unavailable CapTP transport is named before identity creation" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var ctx: Ctx = .{ .io = threaded.io(), .gpa = gpa, .environ = &environ };
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var ctx: Ctx = .{ .io = runtime.io(), .gpa = gpa, .environ = &runtime.environ };
     defer ctx.deinit();
     cli.log.test_capture.reset();
     try std.testing.expectError(error.UnknownTransport, cli.ocapn.dialUriWithOpts(
@@ -60,11 +59,10 @@ test "an unavailable CapTP transport is named before identity creation" {
 
 test "listen backgrounds on the MCP front: bind now, one listener, close stops it" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
     var capture: std.ArrayList(u8) = .empty;
@@ -96,11 +94,10 @@ test "listen backgrounds on the MCP front: bind now, one listener, close stops i
 
 test "dial retains session for REPL and MCP fronts only" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
 
     try std.testing.expect(!cli.ocapn.retainSessionAfterDial(&c));
@@ -117,11 +114,10 @@ test "dial retains session for REPL and MCP fronts only" {
 
 test "refused one-shot remains the reachable pending owner" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
 
     var primary: glowcap.driver.Session = undefined;
     var sidecar: glowcap.driver.Session = undefined;
@@ -140,11 +136,10 @@ test "refused one-shot remains the reachable pending owner" {
 
 test "pending sidecar admission resumes only after cleanup settles" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
 
     var primary: glowcap.driver.Session = undefined;
     var first: glowcap.driver.Session = undefined;
@@ -163,11 +158,10 @@ test "pending sidecar admission resumes only after cleanup settles" {
 
 test "a refused held-session close is not exposed as an active session" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
 
     var held: glowcap.driver.Session = undefined;
     c.holdSession(&held);
@@ -200,11 +194,10 @@ test "CLI session opts refuse unbounded CapTP waits" {
 test "dial against silent partner times out (no hang)" {
     // Bind but never accept: connect completes into the backlog, handshake stalls.
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
@@ -219,7 +212,7 @@ test "dial against silent partner times out (no hang)" {
     });
     defer gpa.free(uri);
 
-    var c = makeCtx(io, gpa, &environ);
+    var c = makeCtx(io, gpa, &runtime.environ);
     defer c.deinit();
 
     // 200ms budget: an unbounded dial would hang until the outer build timeout.
@@ -285,11 +278,10 @@ test "loose identity seeds do not share a /tmp state lock" {
 
 test "info succeeds under state-dir lock with preset identity path" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-info-{d}", .{std.os.linux.getpid()});
@@ -300,7 +292,7 @@ test "info succeeds under state-dir lock with preset identity path" {
     var id_buf: [std.fs.max_path_bytes]u8 = undefined;
     const id_path = try std.fmt.bufPrint(&id_buf, "{s}/identity", .{dir});
 
-    var c = makeCtx(io, gpa, &environ);
+    var c = makeCtx(io, gpa, &runtime.environ);
     defer c.deinit();
     @memcpy(c.identity_path_buf[0..id_path.len], id_path);
     c.identity_path = c.identity_path_buf[0..id_path.len];
@@ -334,11 +326,10 @@ test "an unwritable state directory is refused as an identity problem, not a dia
     // the dial mapper, sends the reader looking at the network for a
     // permissions problem.
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const dir = try std.fmt.bufPrint(&path_buf, "/tmp/glowcap-cli-ro-{d}", .{std.os.linux.getpid()});
@@ -358,7 +349,7 @@ test "an unwritable state directory is refused as an identity problem, not a dia
     dir_z[dir.len] = 0;
     if (std.os.linux.chmod(@ptrCast(&dir_z), 0o500) != 0) return error.SkipZigTest;
 
-    var c = makeCtx(io, gpa, &environ);
+    var c = makeCtx(io, gpa, &runtime.environ);
     defer c.deinit();
     @memcpy(c.identity_path_buf[0..id_path.len], id_path);
     c.identity_path = c.identity_path_buf[0..id_path.len];
@@ -379,11 +370,10 @@ test "listen --rendezvous reaches the background front, not just argv" {
     // (`ocapn.listenTarget`), so the locator it prints names the relay
     // transport rather than a TCP address nobody asked for.
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
     var capture: std.ArrayList(u8) = .empty;
@@ -426,11 +416,10 @@ test "info reports a background listener that died on its own" {
     // evidence the listener is alive. A loop that stopped by itself records
     // why, and `info` must report that rather than keep claiming to listen.
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
     var capture: std.ArrayList(u8) = .empty;
@@ -491,11 +480,10 @@ test "close composition keeps the primary and notes cleanup as a consequence" {
 
 test "close keeps accept-thread listener failure as the command outcome" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = makeCtx(threaded.io(), gpa, &environ);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
     var capture: std.ArrayList(u8) = .empty;

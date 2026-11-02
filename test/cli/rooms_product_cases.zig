@@ -1,5 +1,6 @@
 //! The installed product vocabulary follows jobs, not helper executable names.
 const std = @import("std");
+const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 
 test "Rooms exposes one product tree with one session and team lifecycle" {
@@ -82,11 +83,10 @@ test "Rooms help refuses CapTP flags instead of advertising ignored output and i
 
 test "Rooms refuses root flags on either side of the command boundary before executing" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var ctx: cli.ctx.Ctx = .{ .gpa = gpa, .environ = &environ, .io = threaded.io(), .front = .argv };
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var ctx: cli.ctx.Ctx = .{ .gpa = gpa, .environ = &runtime.environ, .io = runtime.io(), .front = .argv };
     defer ctx.deinit();
     for ([_][]const []const u8{
         &.{ "--plain", "apps", "rooms", "skills" },

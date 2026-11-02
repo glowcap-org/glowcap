@@ -218,6 +218,12 @@ pub fn register(ctx: Context) Registered {
     // `--pin=A,B` places every client on core A and the host on core B through
     // the helper the two-thread benches pin with.
     langs_orchestrator.root_module.addImport("affinity", b.createModule(.{ .root_source_file = b.path("bench/support/affinity.zig"), .target = ctx.target, .optimize = ctx.optimize }));
+    // Both ends of a timed row read the one clock helper the benches share.
+    // Optimize mode is per-module, so the client's copy is ReleaseFast like the
+    // rest of its measured path.
+    const clock_path = b.path("bench/support/clock.zig");
+    langs_orchestrator.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = ctx.optimize }));
+    langs_zig_client_exe.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = .ReleaseFast }));
     const run_bench_langs = execution.addArtifact(b, .benchmark, langs_orchestrator);
     run_bench_langs.setCwd(b.path("."));
     run_bench_langs.has_side_effects = true;

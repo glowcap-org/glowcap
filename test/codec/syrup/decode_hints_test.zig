@@ -9,15 +9,15 @@ const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
 const syrup = glowcap.ocapn.codec.syrup;
+const handshake = @import("../../support/handshake.zig");
 
 const harness = @import("harness.zig");
 const repeatedByte = harness.repeatedByte;
 
 test "Syrup decode refuses duplicate feature hints as a noncanonical dictionary" {
     const allocator = std.testing.allocator;
-    var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
-    peer.verify_partner_handshake = false;
 
     const frame_bytes: []const u8 =
         "<16'op:start-session3\"1.0" ++
@@ -88,9 +88,8 @@ test "a session refuses malformed reserved profile hints on the borrowed start-s
     };
     inline for (hint_maps) |case| {
         const hint_map = case[0];
-        var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
+        var peer = handshake.stubPeer(allocator);
         defer peer.deinit();
-        peer.verify_partner_handshake = false;
 
         const frame_bytes: []const u8 =
             "<16'op:start-session3\"1.0" ++
@@ -108,9 +107,8 @@ test "a borrowed start-session reads another build's profile tokens as the basel
     // The decoded-view hint path (`findNamed`) and the owned one agree: a
     // version or codec token this build does not write reads as the baseline
     // on its axis, and an unknown feature name is dropped, not refused.
-    var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
-    peer.verify_partner_handshake = false;
 
     const frame_bytes: []const u8 =
         "<16'op:start-session3\"1.0" ++

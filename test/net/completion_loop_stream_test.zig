@@ -203,7 +203,7 @@ fn buildClientScript(
     client_ss: *std.ArrayList(u8),
     fetch_bytes: *std.ArrayList(u8),
 ) !void {
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -410,19 +410,7 @@ const HeldSendBackend = struct {
 
     pub fn submitRecv(self: *HeldSendBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
-        if (self.chunk_idx < chunks.len) {
-            if (self.pool_free == 0) {
-                self.push(.{ .user_data = user_data, .result = -1, .recv_no_buffer = true });
-                return;
-            }
-            self.pool_free -= 1;
-            self.handed += 1;
-            const chunk = chunks[self.chunk_idx];
-            self.chunk_idx += 1;
-            self.push(.{ .user_data = user_data, .result = @intCast(chunk.len), .borrowed = .recv(chunk, 0) });
-        } else {
-            self.push(.{ .user_data = user_data, .result = 0 }); // clean EOF
-        }
+        self.push(fixtures.scriptedRecv(self, user_data, chunks));
     }
 
     pub fn verifiedChannelKey(self: *HeldSendBackend, fd: Fd) ?[32]u8 {
@@ -490,7 +478,7 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
     // server queues lands while its opening start-session send is still held
     // by the backend, and together they outgrow the queue's first allocation,
     // forcing a realloc that would free the held storage.
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -544,7 +532,7 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
 /// buffer, proving pool sizing does not become a second frame limit.
 fn makeBigFramePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     _ = ctx;
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var peer = handshake.stubPeer(allocator);
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = big_frame_max;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -565,7 +553,7 @@ fn buildBigDeliverScript(
     client_ss: *std.ArrayList(u8),
     big_deliver: *std.ArrayList(u8),
 ) !void {
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = big_frame_max;
 

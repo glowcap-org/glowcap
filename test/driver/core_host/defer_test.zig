@@ -57,10 +57,7 @@ test "wire-shaped callback: a foreign-session reply breaks one vow, not the sess
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7621", &dials);
     const hosted = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "widget", Widget, .{});
@@ -219,10 +216,7 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
     var server = test_host.init(allocator, @as([32]u8, @splat(0x2b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |d| allocator.free(d.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7821", &dials);
 
     var minted_resolver: u64 = 0;
@@ -497,10 +491,7 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
     var server = test_host.init(allocator, @as([32]u8, @splat(0x5b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |d| allocator.free(d.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7841", &dials);
     _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
@@ -567,10 +558,7 @@ fn resolverCapability(local: bool) !void {
     var exporter = test_host.init(allocator, @as([32]u8, @splat(0x93)), Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| allocator.free(dial.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7861", &dials);
     const other = try openPair(allocator, &server, &exporter, "127.0.0.1:7862", &dials);
     const direct = try openPair(allocator, &client, &exporter, "127.0.0.1:7862", &dials);

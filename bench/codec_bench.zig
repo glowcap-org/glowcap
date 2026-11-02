@@ -9,6 +9,7 @@
 //! Timing uses `std.Io`'s monotonic clock (`.awake`) in the harness only.
 
 const std = @import("std");
+const clock = @import("support/clock.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
@@ -71,9 +72,9 @@ fn reportMessage() model.Message {
     } };
 }
 
-/// Monotonic clock read in nanoseconds. `.awake` is `CLOCK_MONOTONIC`.
-fn nowNs(io: std.Io) f64 {
-    return @floatFromInt(std.Io.Clock.now(.awake, io).nanoseconds);
+/// Nanoseconds elapsed since `start`, a `clock.nowNs` reading.
+fn sinceNs(io: std.Io, start: i128) f64 {
+    return @floatFromInt(clock.nowNs(io) - start);
 }
 
 /// Encode `iters` copies of `message`, freeing each frame, and report ns/op and
@@ -91,14 +92,14 @@ fn benchEncode(
     const frame_len = probe.bytes().len;
     probe.deinit();
 
-    const start = nowNs(io);
+    const start = clock.nowNs(io);
     var i: usize = 0;
     while (i < iters) : (i += 1) {
         var frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, message);
         std.mem.doNotOptimizeAway(frame.bytes().len);
         frame.deinit();
     }
-    report("encode", codec_id, call, iters, frame_len, nowNs(io) - start);
+    report("encode", codec_id, call, iters, frame_len, sinceNs(io, start));
 }
 
 /// Decode (project a borrowed view of) the same encoded frame `iters` times.
@@ -116,13 +117,13 @@ fn benchDecode(
     const frame_len = frame.bytes().len;
     const view = frame.view();
 
-    const start = nowNs(io);
+    const start = clock.nowNs(io);
     var i: usize = 0;
     while (i < iters) : (i += 1) {
         const body = try codec.dispatch.decodeBody(codec_id, view);
         std.mem.doNotOptimizeAway(&body);
     }
-    report("decode", codec_id, call, iters, frame_len, nowNs(io) - start);
+    report("decode", codec_id, call, iters, frame_len, sinceNs(io, start));
 }
 
 /// Decode the same frame `iters` times into the argument room the engine
@@ -144,7 +145,7 @@ fn benchDecodeInto(
     const views = try allocator.alloc(model.view.Argument, engine.events.headViewsFor(frame_len));
     defer allocator.free(views);
 
-    const start = nowNs(io);
+    const start = clock.nowNs(io);
     var i: usize = 0;
     while (i < iters) : (i += 1) {
         var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(views));
@@ -152,7 +153,7 @@ fn benchDecodeInto(
         try codec.dispatch.decodeBodyInto(codec_id, model.CaptpVersion.v1_0, view, &slab, &body);
         std.mem.doNotOptimizeAway(&body);
     }
-    report("decode-into", codec_id, call, iters, frame_len, nowNs(io) - start);
+    report("decode-into", codec_id, call, iters, frame_len, sinceNs(io, start));
 }
 
 /// Steady-state inbound dispatch: feed a borrowed `op:deliver` to a live export
@@ -167,9 +168,9 @@ fn benchDispatch(io: std.Io, allocator: std.mem.Allocator, turns: usize) !void {
 
     for (0..8) |_| try driveOneTurn(&peer, deliver_to_live_export);
 
-    const start = nowNs(io);
+    const start = clock.nowNs(io);
     for (0..turns) |_| try driveOneTurn(&peer, deliver_to_live_export);
-    const ns_per = (nowNs(io) - start) / @as(f64, @floatFromInt(turns));
+    const ns_per = sinceNs(io, start) / @as(f64, @floatFromInt(turns));
 
     std.debug.print(
         "dispatch turns={d} ns_per_turn={d:.1} turns_per_sec={d:.0}\n",
@@ -197,12 +198,12 @@ fn benchSparseImportTable(io: std.Io, allocator: std.mem.Allocator, count: usize
     defer peer.deinit();
 
     const stride: u64 = 0x1_0000_0001; // sparse, far beyond any flat-vector size
-    const start = nowNs(io);
+    const start = clock.nowNs(io);
     var i: usize = 0;
     while (i < count) : (i += 1) {
         try peer.session_state.registerImport(.from(@as(u64, i) * stride + 1));
     }
-    const ns_per = (nowNs(io) - start) / @as(f64, @floatFromInt(count));
+    const ns_per = sinceNs(io, start) / @as(f64, @floatFromInt(count));
 
     std.debug.print(
         "sparse_import_table inserts={d} ns_per_insert={d:.1}\n",

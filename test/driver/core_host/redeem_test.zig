@@ -255,10 +255,7 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
     var server = test_host.init(allocator, @as([32]u8, @splat(0x0b)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |d| allocator.free(d.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7801", &dials);
     _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
@@ -348,10 +345,7 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
     var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |d| allocator.free(d.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const parked_vow = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7803", "widget"));
     _ = try drainActions(allocator, &.{&client}, &dials);

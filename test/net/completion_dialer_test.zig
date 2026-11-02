@@ -23,7 +23,7 @@ fn startSession(designator: []const u8) model.Message {
 }
 
 fn serverPeer(allocator: std.mem.Allocator) !engine.Peer {
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var peer = handshake.stubPeer(allocator);
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -120,7 +120,7 @@ const ClientShared = struct {
 
 fn makeClientPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     _ = ctx;
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var peer = handshake.stubPeer(allocator);
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     try peer.sendBorrowed(startSession("client"));

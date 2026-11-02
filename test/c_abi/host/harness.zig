@@ -33,6 +33,7 @@ pub fn sessionLimitOptions(
 const keyed_relay = glowcap.net.relay;
 const stream_framing = glowcap.foundation.stream_framing;
 const c_args = @import("../../support/c_abi_args.zig");
+const host_pair = @import("../../support/host_pair.zig");
 pub const argBase = c_args.argBase;
 pub const argInt = c_args.argInt;
 pub const argStr = c_args.argStr;
@@ -67,9 +68,7 @@ pub fn closeFinish(grace_ms: u32) cd.GlowcapCloseOptions {
     };
 }
 
-pub fn expectOk(rc: i32) !void {
-    try std.testing.expectEqual(c.GLOWCAP_OK, rc);
-}
+pub const expectOk = c_args.expectOk;
 
 /// Durable identity in the first 32 bytes, deterministic session-key root in the
 /// rest, the only seed length `glowcap_host_new` accepts (ADR-0028).
@@ -220,9 +219,7 @@ pub fn ensureAdvertisedLocator(host: ?*cd.GlowcapHost, transport: []const u8) !v
     try expectOk(cd.glowcap_host_ensure_advertised_locator(host, transport.ptr, transport.len));
 }
 
-pub fn tcpLocator(designator: []const u8) model.PeerLocator {
-    return .{ .transport = "tcp", .designator = designator, .hints = model.Hints.emptyFalse() };
-}
+pub const tcpLocator = host_pair.tcpLocator;
 
 // ── The byte shuttle and action pump ─────────────────────────────────────────
 

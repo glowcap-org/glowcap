@@ -8,13 +8,9 @@ const support = @import("loam_test_support");
 
 test "loam engine managed capabilities restore roles and fence cold calls through recovery" {
     for ([_]bool{ false, true }) |committed| {
-        var tmp = std.testing.tmpDir(.{});
-        defer tmp.cleanup();
-        const path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", a);
-        defer a.free(path);
-        const terminated = try a.dupeSentinel(u8, path, 0);
-        defer a.free(terminated);
-        var db = try fixture.open(terminated, .create, f.store_id);
+        var tmp = try fixture.Temp.init();
+        defer tmp.deinit();
+        var db = try fixture.open(tmp.path, .create, f.store_id);
         defer db.close() catch unreachable;
         var store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, f.limits);
         defer store.deinit() catch unreachable;
@@ -37,7 +33,7 @@ test "loam engine managed capabilities restore roles and fence cold calls throug
         const revision = store.metadata.revision;
         try store.deinit();
         try db.close();
-        db = try fixture.open(terminated, .open, f.store_id);
+        db = try fixture.open(tmp.path, .open, f.store_id);
         store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, f.limits);
         {
             var caps = try c.storage.Capabilities.init(a, &store, .{});
@@ -81,7 +77,7 @@ test "loam engine managed capabilities restore roles and fence cold calls throug
         }
         try store.deinit();
         try db.close();
-        db = try fixture.open(terminated, .open, f.store_id);
+        db = try fixture.open(tmp.path, .open, f.store_id);
         store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, f.limits);
         {
             var caps = try c.storage.Capabilities.init(a, &store, .{});

@@ -19,9 +19,16 @@ const foundation = glowcap.foundation;
 const model = glowcap.ocapn.model;
 const codec = glowcap.ocapn.codec;
 const crypto = foundation.crypto;
+const engine = glowcap.ocapn.engine;
 
 pub const zero_pubkey = @as([32]u8, @splat(0));
 pub const zero_sig = @as([64]u8, @splat(0));
+
+/// A negotiating peer with partner verification off, for tests that prove
+/// transport and framing seams and send the unsigned `startSession` below.
+pub fn stubPeer(allocator: std.mem.Allocator) engine.Peer {
+    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+}
 
 /// The unsigned loopback `op:start-session`. The receiving peer must run
 /// with `verify_partner_handshake = false`. A verifying peer refuses it.

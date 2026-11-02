@@ -26,6 +26,7 @@ const Io = std.Io;
 
 const report_mod = @import("report.zig");
 const affinity = @import("affinity");
+const clock = @import("clock");
 const availability_mod = @import("availability.zig");
 
 const host_addr = "127.0.0.1";
@@ -426,7 +427,7 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
     const times = try ctx.arena.alloc(f64, samples);
     for (0..samples) |i| {
         const argv = try buildArgv(ctx, def, "cold", port, 1);
-        const t0 = nowNs(ctx.io);
+        const t0 = clock.nowNs(ctx.io);
         var child = try spawnOn(ctx, cores(ctx, .client), .{
             .argv = argv,
             .environ_map = ctx.environ,
@@ -451,7 +452,7 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
             try checkExit(def, "cold", term);
             return error.MissingColdMarker;
         }
-        times[i] = @as(f64, @floatFromInt(nowNs(ctx.io) - t0)) / 1_000_000.0;
+        times[i] = @as(f64, @floatFromInt(clock.nowNs(ctx.io) - t0)) / 1_000_000.0;
         child.kill(ctx.io);
     }
     std.sort.pdq(f64, times, {}, lessThanF64);
@@ -468,10 +469,6 @@ fn percentile(sorted: []const f64, p: f64) f64 {
     const rank: usize = @intFromFloat(@ceil(p * @as(f64, @floatFromInt(sorted.len))));
     const idx = if (rank == 0) 0 else @min(sorted.len - 1, rank - 1);
     return sorted[idx];
-}
-
-fn nowNs(io: Io) u64 {
-    return @intCast(std.Io.Clock.now(.awake, io).nanoseconds);
 }
 
 /// Sample a pid's VmRSS `samples` times `dt_ms` apart, keeping the minimum (the

@@ -3,6 +3,7 @@
 //! Proves the product CLI fronts wire `driver.Session` correctly (exit 0 and
 //! greeter payload). Not Goblins/suite wire evidence, see community-review.
 const std = @import("std");
+const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 const glowcap = @import("glowcap");
 
@@ -44,16 +45,15 @@ fn expectPublishedCallRoundTrip(
     needles: []const []const u8,
 ) !void {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &environ, host_seed);
+    var host = makeCtx(io, gpa, &runtime.environ, host_seed);
     defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
@@ -70,7 +70,7 @@ fn expectPublishedCallRoundTrip(
 
     const uri = try waitListenLocator(&host, &host_future, io);
 
-    var client = makeCtx(io, gpa, &environ, client_seed);
+    var client = makeCtx(io, gpa, &runtime.environ, client_seed);
     defer client.deinit();
     var client_capture: std.ArrayList(u8) = .empty;
     defer client_capture.deinit(gpa);
@@ -97,13 +97,12 @@ test "listen publish greeter once then call round-trips through cli.ocapn" {
 
 test "MCP listen backgrounds and a client round-trips off the listener's own thread" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
-    var host = makeCtx(io, gpa, &environ, 81);
+    var host = makeCtx(io, gpa, &runtime.environ, 81);
     defer host.deinit();
     host.front = .mcp;
     var host_capture: std.ArrayList(u8) = .empty;
@@ -120,7 +119,7 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&host, &listen_parsed));
     const uri = host.publishedLocator().?;
 
-    var client = makeCtx(io, gpa, &environ, 82);
+    var client = makeCtx(io, gpa, &runtime.environ, 82);
     defer client.deinit();
     var client_capture: std.ArrayList(u8) = .empty;
     defer client_capture.deinit(gpa);
@@ -148,16 +147,15 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
 
 test "MCP locator call retains session for a follow-up call" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &environ, 61);
+    var host = makeCtx(io, gpa, &runtime.environ, 61);
     defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
@@ -174,7 +172,7 @@ test "MCP locator call retains session for a follow-up call" {
 
     const uri = try waitListenLocator(&host, &host_future, io);
 
-    var client = makeCtx(io, gpa, &environ, 62);
+    var client = makeCtx(io, gpa, &runtime.environ, 62);
     defer client.deinit();
     client.front = .mcp;
     var client_capture: std.ArrayList(u8) = .empty;
@@ -202,16 +200,15 @@ test "MCP locator call retains session for a follow-up call" {
 
 test "argv locator call does not retain a session" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &environ, 63);
+    var host = makeCtx(io, gpa, &runtime.environ, 63);
     defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
@@ -228,7 +225,7 @@ test "argv locator call does not retain a session" {
 
     const uri = try waitListenLocator(&host, &host_future, io);
 
-    var client = makeCtx(io, gpa, &environ, 64);
+    var client = makeCtx(io, gpa, &runtime.environ, 64);
     defer client.deinit();
     var client_capture: std.ArrayList(u8) = .empty;
     defer client_capture.deinit(gpa);
@@ -308,16 +305,15 @@ fn expectConnectionDeath(store: *const cli.repl_blocks.Store) !void {
 
 test "listen exits promptly on requestStop while accepting" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &environ, 33);
+    var host = makeCtx(io, gpa, &runtime.environ, 33);
     defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
@@ -341,16 +337,15 @@ test "listen exits promptly on requestStop while accepting" {
 
 test "listen exits promptly on requestStop while serving" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &environ, 44);
+    var host = makeCtx(io, gpa, &runtime.environ, 44);
     defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
@@ -366,7 +361,7 @@ test "listen exits promptly on requestStop while serving" {
 
     const uri = try waitListenLocator(&host, &host_future, io);
 
-    var client = makeCtx(io, gpa, &environ, 55);
+    var client = makeCtx(io, gpa, &runtime.environ, 55);
     defer client.deinit();
     // Dial proves accept+publish completed; keep the session open so the host
     // parks in serveUntilStop (unbounded Session.serve would ignore stop).
@@ -384,16 +379,15 @@ test "listen exits promptly on requestStop while serving" {
 
 test "await queue detaches its vat listener when the partner vanishes mid-wait" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &environ, 71);
+    var host = makeCtx(io, gpa, &runtime.environ, 71);
     defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
@@ -409,7 +403,7 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
     var host_future = try io.concurrent(runListen, .{&listen_args});
     const uri = try waitListenLocator(&host, &host_future, io);
 
-    var client = makeCtx(io, gpa, &environ, 72);
+    var client = makeCtx(io, gpa, &runtime.environ, 72);
     defer client.deinit();
     client.front = .repl;
     var client_capture: std.ArrayList(u8) = .empty;
@@ -446,16 +440,15 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
 
 test "await queue finishes a dropped socket as connection failure" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
 
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &environ, 73);
+    var host = makeCtx(io, gpa, &runtime.environ, 73);
     defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
@@ -471,7 +464,7 @@ test "await queue finishes a dropped socket as connection failure" {
     var host_future = try io.concurrent(runListen, .{&listen_args});
     const uri = try waitListenLocator(&host, &host_future, io);
 
-    var client = makeCtx(io, gpa, &environ, 74);
+    var client = makeCtx(io, gpa, &runtime.environ, 74);
     defer client.deinit();
     client.front = .repl;
     var client_capture: std.ArrayList(u8) = .empty;

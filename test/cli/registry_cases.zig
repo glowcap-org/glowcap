@@ -1,5 +1,6 @@
 //! Registry metadata tests for the glowcap CLI (ADR-0032).
 const std = @import("std");
+const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 const glowcap = @import("glowcap");
 
@@ -148,16 +149,15 @@ test "mcp tools/call result body is valid JSON (root braces closed)" {
 
 test "json CapTP failure writes non-empty sink body (MCP/argv --json)" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
     var capture: std.ArrayList(u8) = .empty;
     defer capture.deinit(gpa);
     var c = cli.ctx.Ctx{
-        .io = threaded.io(),
+        .io = runtime.io(),
         .gpa = gpa,
-        .environ = &environ,
+        .environ = &runtime.environ,
         .front = .mcp,
         .json = .json,
         .sink = .{ .buffer = &capture },
@@ -308,14 +308,13 @@ test "REPL everyday help matches Tab CapTP set" {
 
 test "registry dispatch unknown verb is usage" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
     var c = cli.ctx.Ctx{
-        .io = threaded.io(),
+        .io = runtime.io(),
         .gpa = gpa,
-        .environ = &environ,
+        .environ = &runtime.environ,
         .front = .argv,
         .secret = @import("glowcap").foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(9))),
     };

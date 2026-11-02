@@ -391,10 +391,7 @@ test "core host: a three-vat handoff holds glowcap between the glowcap pair and 
 
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     var row_freed = false;
     var row = TaggedRow{ .tag = "greeter", .freed = &row_freed };

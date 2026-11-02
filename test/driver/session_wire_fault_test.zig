@@ -11,6 +11,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
+const driver_serve = @import("../support/driver_serve.zig");
 
 const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
@@ -55,12 +56,7 @@ const BreakCapture = struct {
 
 /// Accept one partner, publish the greeter, and serve until the client's
 /// wire closes.
-fn serveOnce(server: *driver.Server) anyerror!void {
-    var session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("greeter", Greeter, .{});
-    try session.serve();
-}
+const serveOnce = driver_serve.serveOnceWith(Greeter);
 
 /// A whole `op:abort` frame, encoded so a caller can take a prefix of it to
 /// drive a mid-frame EOF.

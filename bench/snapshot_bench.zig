@@ -33,6 +33,7 @@
 //! counts and skips the report.
 
 const std = @import("std");
+const nowNs = @import("support/clock.zig").nowNs;
 const glowcap = @import("glowcap");
 const persistent = @import("loam_collections");
 
@@ -49,6 +50,12 @@ const max_samples = 32;
 const Blob = struct {
     allocator: std.mem.Allocator,
     data: []u8,
+
+    const Elem = u8;
+
+    fn owning(allocator: std.mem.Allocator, data: []u8) Blob {
+        return .{ .allocator = allocator, .data = data };
+    }
 
     pub fn handle(self: *Blob, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
@@ -72,6 +79,12 @@ const Blob = struct {
 const MapMut = struct {
     allocator: std.mem.Allocator,
     entries: []u64,
+
+    const Elem = u64;
+
+    fn owning(allocator: std.mem.Allocator, entries: []u64) MapMut {
+        return .{ .allocator = allocator, .entries = entries };
+    }
 
     pub fn handle(self: *MapMut, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
@@ -114,25 +127,34 @@ const MapPersistent = struct {
     }
 };
 
+const Spawned = struct { vat: actors.Vat, refs: []actors.Ref };
+
+/// A Vat of `k` `Actor`s, each `Actor.owning` `n` zeroed `Actor.Elem`s and
+/// the `allocator` that frees them.
+fn spawnZeroed(comptime Actor: type, allocator: std.mem.Allocator, k: usize, n: usize) !Spawned {
+    var vat = actors.Vat.init(allocator);
+    errdefer vat.deinit();
+    const refs = try allocator.alloc(actors.Ref, k);
+    errdefer allocator.free(refs);
+    for (refs) |*ref| {
+        const elems = try allocator.alloc(Actor.Elem, n);
+        @memset(elems, 0);
+        ref.* = vat.spawn(Actor, Actor.owning(allocator, elems)) catch |e| {
+            allocator.free(elems);
+            return e;
+        };
+    }
+    return .{ .vat = vat, .refs = refs };
+}
+
 const Population = struct {
     vat: actors.Vat,
     refs: []actors.Ref,
     allocator: std.mem.Allocator,
 
     fn build(allocator: std.mem.Allocator, k: usize, m: usize) !Population {
-        var vat = actors.Vat.init(allocator);
-        errdefer vat.deinit();
-        const refs = try allocator.alloc(actors.Ref, k);
-        errdefer allocator.free(refs);
-        for (refs) |*ref| {
-            const data = try allocator.alloc(u8, m);
-            @memset(data, 0);
-            ref.* = vat.spawn(Blob, .{ .allocator = allocator, .data = data }) catch |e| {
-                allocator.free(data);
-                return e;
-            };
-        }
-        return .{ .vat = vat, .refs = refs, .allocator = allocator };
+        const spawned = try spawnZeroed(Blob, allocator, k, m);
+        return .{ .vat = spawned.vat, .refs = spawned.refs, .allocator = allocator };
     }
 
     fn deinit(self: *Population) void {
@@ -147,19 +169,8 @@ const MapVat = struct {
     allocator: std.mem.Allocator,
 
     fn buildMutable(allocator: std.mem.Allocator, k: usize, n: usize) !MapVat {
-        var vat = actors.Vat.init(allocator);
-        errdefer vat.deinit();
-        const refs = try allocator.alloc(actors.Ref, k);
-        errdefer allocator.free(refs);
-        for (refs) |*ref| {
-            const entries = try allocator.alloc(u64, n);
-            @memset(entries, 0);
-            ref.* = vat.spawn(MapMut, .{ .allocator = allocator, .entries = entries }) catch |e| {
-                allocator.free(entries);
-                return e;
-            };
-        }
-        return .{ .vat = vat, .refs = refs, .allocator = allocator };
+        const spawned = try spawnZeroed(MapMut, allocator, k, n);
+        return .{ .vat = spawned.vat, .refs = spawned.refs, .allocator = allocator };
     }
 
     fn buildPersistent(allocator: std.mem.Allocator, k: usize, n: usize) !MapVat {
@@ -195,10 +206,6 @@ const MapVat = struct {
         self.allocator.free(self.refs);
     }
 };
-
-fn nowNs(io: std.Io) i128 {
-    return std.Io.Clock.now(.awake, io).nanoseconds;
-}
 
 fn elapsed(start: i128, end: i128) u64 {
     return @intCast(@max(end - start, 0));

@@ -8,7 +8,6 @@ const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
 const tcp = glowcap.net.tcp;
 const Loop = glowcap.net.TcpLoop;
 const completion = glowcap.net.completion;
@@ -221,7 +220,7 @@ const FanInBackend = struct {
 test "completion loop: fan_in_throttle parks a drained source while a sink is over high-water" {
     const allocator = std.testing.allocator;
 
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
@@ -283,7 +282,7 @@ test "completion loop: fan_in_throttle parks a drained source while a sink is ov
 test "completion loop: a condemned sink releases the fan-in sources it throttled" {
     const allocator = std.testing.allocator;
 
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;

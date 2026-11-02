@@ -9,26 +9,8 @@ const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const capnp = glowcap.ocapn.codec.capnp;
 const syrup = glowcap.ocapn.codec.syrup;
+const view_round_trip = @import("../support/view_round_trip.zig");
 const handoff_fixtures = @import("../support/handoff_fixtures.zig");
-
-/// Encode a deliver carrying `arg` on a promise target (a far target decodes
-/// to a near one, which the encoder refuses), decode it to views, and
-/// re-encode the views.
-fn expectArgumentViewRoundTrip(arg: model.Argument) !void {
-    const allocator = std.testing.allocator;
-    const args = [_]model.Argument{ .{ .symbol = "deposit" }, arg };
-    var frame = try capnp.encodeMessageForProfile(allocator, .v1_0, .{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(3) } },
-        .args = &args,
-        .answer = .from(9),
-    } });
-    defer frame.deinit();
-
-    const body = try capnp.decodeBodyForProfile(.v1_0, frame.view());
-    var again = try capnp.encodeBodyForProfile(allocator, .v1_0, &body, null);
-    defer again.deinit();
-    try std.testing.expectEqualSlices(u8, frame.bytes(), again.bytes());
-}
 
 test "decoded argument arms re-encode from their views byte for byte" {
     const samples = [_]model.Argument{ .{ .integer = 100 }, .{ .integer = -200 }, .{ .integer = 1 << 40 } };
@@ -37,22 +19,22 @@ test "decoded argument arms re-encode from their views byte for byte" {
         .{ .key = "b", .value = .{ .integer = 2 } },
         .{ .key = "a", .value = .{ .list = &samples } },
     };
-    try expectArgumentViewRoundTrip(.{ .list = &samples });
-    try expectArgumentViewRoundTrip(.{ .list = &members });
-    try expectArgumentViewRoundTrip(.{ .list = &.{} });
-    try expectArgumentViewRoundTrip(.{ .set = &members });
-    try expectArgumentViewRoundTrip(.{ .@"struct" = &entries });
-    try expectArgumentViewRoundTrip(.{ .tagged = .{ .tag = "t", .value = &samples } });
-    try expectArgumentViewRoundTrip(.{ .keyword = "kw" });
-    try expectArgumentViewRoundTrip(.{ .@"error" = .{ .message = "why" } });
-    try expectArgumentViewRoundTrip(.{ .big_integer = .{ .negative = true, .digits = "123456789012345678901234567890" } });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .list = &samples });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .list = &members });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .list = &.{} });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .set = &members });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .@"struct" = &entries });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .tagged = .{ .tag = "t", .value = &samples } });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .keyword = "kw" });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .@"error" = .{ .message = "why" } });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .big_integer = .{ .negative = true, .digits = "123456789012345678901234567890" } });
 }
 
 test "decoded signed give, receive, and hinted sturdyref re-encode from their views" {
     var give: model.Handoff = .{ .give = handoff_fixtures.give() };
-    try expectArgumentViewRoundTrip(.{ .handoff = &give });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .handoff = &give });
     var receive: model.Handoff = .{ .receive = handoff_fixtures.receive() };
-    try expectArgumentViewRoundTrip(.{ .handoff = &receive });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .handoff = &receive });
 
     const hints = [_]model.HintEntry{
         .{ .name = "relay", .value = .{ .string = "relay.example" } },
@@ -62,7 +44,7 @@ test "decoded signed give, receive, and hinted sturdyref re-encode from their vi
         .peer = .{ .transport = "tcp", .designator = "exporter.example", .hints = .{ .entries = &hints } },
         .swissnum = "swiss-number",
     };
-    try expectArgumentViewRoundTrip(.{ .reference = .{ .sturdy = &sturdy } });
+    try view_round_trip.expectArgumentViewRoundTrip(capnp, .{ .reference = .{ .sturdy = &sturdy } });
 }
 
 test "decoded gc and start-session bodies re-encode from their views" {

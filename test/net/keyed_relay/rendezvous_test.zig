@@ -11,7 +11,6 @@ const netlayer_test = @import("../../support/netlayer.zig");
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
 const net = glowcap.net;
 const keyed_relay = net.relay;
 const ws_relay = @import("../../support/ws_relay.zig");
@@ -30,7 +29,6 @@ const deinitAdmissionBackend = admission.deinitAdmissionBackend;
 const frame_cap = admission.frame_cap;
 
 const relay_support = @import("harness.zig");
-const stubNegotiatingPeer = relay_support.stubNegotiatingPeer;
 const startSession = relay_support.startSession;
 const serveRegistered = relay_support.serveRegistered;
 
@@ -86,7 +84,7 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     // sleep in this test.
 
     // The dialing peer: cold dial the registered key through the relay.
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -191,7 +189,7 @@ test "keyed-relay routes a cold dial through the target's other relay" {
         advertised.hints.entries[0].value.string,
     );
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     const read_buf = try allocator.alloc(u8, frame_cap);

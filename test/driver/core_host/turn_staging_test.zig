@@ -121,10 +121,7 @@ fn exercisePromise(options: Host.Options, verb: []const u8) !PromiseResult {
     var server = test_host.init(allocator, @as([32]u8, @splat(0x5c)), options);
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const to_a = try openPair(allocator, &a, &server, "127.0.0.1:7111", &dials);
     const to_b = try openPair(allocator, &b, &server, "127.0.0.1:7112", &dials);

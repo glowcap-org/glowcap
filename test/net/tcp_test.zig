@@ -24,21 +24,13 @@ fn startSession(designator: []const u8) model.Message {
     return handshake.startSession(tcp.transport_name, designator);
 }
 
-/// This loopback proof exercises transport + framing, and its `startSession`
-/// carries the stub zero signature, so the peers run with partner-signature
-/// verification off (a verifying peer would refuse the unsigned handshake). The
-/// keyed, verified handshake is proven in `pairing_test`.
-fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
-    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-}
-
 const ServerError = anyerror;
 
 /// Accept one connection, complete the handshake, and serve the bootstrap fetch
 /// by pumping until the client closes (graceful EOF). The responder half is
 /// automatic in the runtime. The server only drives bytes.
 fn serveOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) ServerError!void {
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -67,7 +59,7 @@ fn serveOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) ServerError!
 /// fulfilled. Closes the connection on return (its `defer`), which lets the
 /// concurrent server observe EOF and finish.
 fn fetchOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -159,7 +151,7 @@ test "tcp.locator formats a host:port designator into fixed-width caller storage
 }
 
 fn acceptUntilListenerClose(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void {
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     var read_buf: [256]u8 = undefined;
     var write_buf: [256]u8 = undefined;

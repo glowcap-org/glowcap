@@ -10,7 +10,6 @@ const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const codec = glowcap.ocapn.codec;
 const net = glowcap.net;
-const engine = glowcap.ocapn.engine;
 const completion = net.completion;
 const bounds = @import("bounds.zig");
 const max_input = bounds.max_input;
@@ -34,7 +33,7 @@ var hello_buf: [512]u8 = undefined;
 /// only garbage, which is not a broken test.
 pub fn buildHello(allocator: std.mem.Allocator) void {
     hello = &.{};
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
     client.sendBorrowed(handshake.startSession(net.tcp.plain.transport_name, "client")) catch return;

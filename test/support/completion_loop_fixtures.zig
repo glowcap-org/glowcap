@@ -15,6 +15,20 @@ const handshake = @import("handshake.zig");
 
 pub const frame_cap = 4096;
 
+/// The completion a fake backend's scripted recv pushes: the next of `chunks`
+/// as a borrowed buffer, `recv_no_buffer` while the pool is dry, and a clean
+/// EOF once the script ends. `self` carries the script's `chunk_idx` and the
+/// pool's `pool_free` and `handed`.
+pub fn scriptedRecv(self: anytype, user_data: u64, chunks: []const []const u8) completion.Completion {
+    if (self.chunk_idx >= chunks.len) return .{ .user_data = user_data, .result = 0 }; // clean EOF
+    if (self.pool_free == 0) return .{ .user_data = user_data, .result = -1, .recv_no_buffer = true };
+    self.pool_free -= 1;
+    self.handed += 1;
+    const chunk = chunks[self.chunk_idx];
+    self.chunk_idx += 1;
+    return .{ .user_data = user_data, .result = @intCast(chunk.len), .borrowed = .recv(chunk, 0) };
+}
+
 pub fn startSession(designator: []const u8) model.Message {
     return handshake.startSession(tcp.transport_name, designator);
 }
@@ -24,7 +38,7 @@ pub fn startSession(designator: []const u8) model.Message {
 /// bootstrap cap, and queue the opening `op:start-session`.
 pub fn makeServerPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     _ = ctx;
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var peer = handshake.stubPeer(allocator);
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -209,19 +223,7 @@ pub const FakeBackend = struct {
     pub fn submitRecv(self: *FakeBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
         self.record(.recv_armed);
-        if (self.chunk_idx < chunks.len) {
-            if (self.pool_free == 0) {
-                self.push(.{ .user_data = user_data, .result = -1, .recv_no_buffer = true });
-                return;
-            }
-            self.pool_free -= 1;
-            self.handed += 1;
-            const chunk = chunks[self.chunk_idx];
-            self.chunk_idx += 1;
-            self.push(.{ .user_data = user_data, .result = @intCast(chunk.len), .borrowed = .recv(chunk, 0) });
-        } else {
-            self.push(.{ .user_data = user_data, .result = 0 }); // clean EOF
-        }
+        self.push(scriptedRecv(self, user_data, chunks));
     }
 
     pub fn verifiedChannelKey(self: *FakeBackend, fd: Fd) ?[32]u8 {

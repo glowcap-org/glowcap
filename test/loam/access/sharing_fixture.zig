@@ -69,7 +69,9 @@ pub fn publishedGrant(server: *h.Hosted, backend: anytype, session: *h.driver.Ho
     defer descriptor.deinit(h.a);
     return descriptor.grant;
 }
-fn entropy(context: ?*anyopaque, bytes: *h.driver.Host.DurableSwiss.Entropy) !void {
+/// A deterministic entropy source: `context` is a `*u64` counter, and each
+/// fill bumps it and writes it big-endian into the first eight bytes.
+pub fn entropy(context: ?*anyopaque, bytes: *h.driver.Host.DurableSwiss.Entropy) !void {
     const counter: *u64 = @ptrCast(@alignCast(context.?));
     counter.* += 1;
     @memset(bytes, 0);

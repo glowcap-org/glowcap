@@ -1,5 +1,6 @@
 //! XDG / POSIX / human-help goldens for the glowcap CLI.
 const std = @import("std");
+const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 
 const Command = cli.cmd_types.Command;
@@ -126,14 +127,13 @@ test "defaultIdentityPath uses the state directory" {
 
 test "end-of-options treats flag-shaped tokens as positionals" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
     var c = cli.ctx.Ctx{
-        .io = threaded.io(),
+        .io = runtime.io(),
         .gpa = gpa,
-        .environ = &environ,
+        .environ = &runtime.environ,
         .front = .argv,
     };
     defer c.deinit();
@@ -148,14 +148,13 @@ test "end-of-options treats flag-shaped tokens as positionals" {
 
 test "root -V alias reaches version" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
     var c = cli.ctx.Ctx{
-        .io = threaded.io(),
+        .io = runtime.io(),
         .gpa = gpa,
-        .environ = &environ,
+        .environ = &runtime.environ,
         .front = .argv,
     };
     defer c.deinit();

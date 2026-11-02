@@ -33,10 +33,7 @@ test "core host: pending id enliven reuses an authenticated via session" {
     var server = test_host.init(allocator, server_seed, nextRouteOptions());
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| allocator.free(dial.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const client_key = keyedDesignator(client_seed);
     const server_key = keyedDesignator(server_seed);
@@ -129,10 +126,7 @@ test "core host: id enliven reuses an authenticated baseline session but not a f
     var server = test_host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| allocator.free(dial.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const client_key = keyedDesignator(client_seed);
     const server_key = keyedDesignator(server_seed);

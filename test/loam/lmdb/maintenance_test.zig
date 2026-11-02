@@ -1,17 +1,14 @@
 //! Cleanup that compacts the LMDB file between phases and reopens cold.
 const std = @import("std");
+const Temp = @import("engine_fixture").Temp;
 const h = @import("../access/hosting_fixture.zig");
 const maintenance = @import("../access/maintenance_fixture.zig");
 const Lmdb = @import("loam_lmdb").Lmdb;
 
 test "loam LMDB maintenance reopens every bounded retirement phase without resurrection" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
+    var tmp = try Temp.init();
+    defer tmp.deinit();
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -22,7 +19,7 @@ test "loam LMDB maintenance reopens every bounded retirement phase without resur
         try store.deinit();
         try db.compact();
         try db.close();
-        db = try Lmdb.open(terminated, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
+        db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
         store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
         result = try maintenance.change(&store, &db, data.owner, .step, result.sequence);
@@ -60,13 +57,9 @@ fn refuse(server: *h.Hosted, client: *sharing.Client, db: *Lmdb, target: sharing
 }
 
 test "loam LMDB maintenance preserves expired and retired receipt refusal through collection and cold reopen" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
+    var tmp = try Temp.init();
+    defer tmp.deinit();
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -110,7 +103,7 @@ test "loam LMDB maintenance preserves expired and retired receipt refusal throug
     try store.deinit();
     try db.compact();
     try db.close();
-    db = try Lmdb.open(terminated, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
+    db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
     store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
     var server: h.Hosted = undefined;

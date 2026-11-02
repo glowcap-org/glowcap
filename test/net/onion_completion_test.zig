@@ -1,4 +1,5 @@
 const std = @import("std");
+const handshake = @import("../support/handshake.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
@@ -258,7 +259,7 @@ fn closeDial(backend: *Backend, fd: Backend.Fd, close_ud: u64) !void {
 }
 
 fn makePeer(_: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
-    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    return handshake.stubPeer(allocator);
 }
 
 test "Zig OnionLoop composes the onion adapter and completion Loop" {

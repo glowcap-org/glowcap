@@ -68,10 +68,7 @@ test "core host: terminal projection callback preserves appended projections and
                 var healthy = support.init(a, @splat(0xa4), options);
                 defer healthy.deinit();
                 var dials: std.ArrayList(h.ParkedDial) = .empty;
-                defer {
-                    for (dials.items) |dial| a.free(dial.designator);
-                    dials.deinit(a);
-                }
+                defer h.deinitParked(a, &dials);
                 const intro = try h.openPair(a, &host, &introducer, "127.0.0.1:7961", &dials);
                 const recipient = try h.openPair(a, &host, &failed, "127.0.0.1:7962", &dials);
                 const live = try h.openPair(a, &host, &healthy, "127.0.0.1:7963", &dials);

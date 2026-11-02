@@ -1,13 +1,19 @@
 //! Near-verbatim duplicate function bodies as a checked surface.
 //!
 //! Two copies of one body drift: a fix lands in one and the other keeps the
-//! defect. Every `fn` in `src/` with at least `min_body_lines` lines of code
-//! is tokenized with identifiers collapsed to one token, so a renamed copy
-//! still matches, and hashed into `shingle_len`-token shingles. Two bodies
+//! defect. Every `fn` in `src/`, `test/`, and `bench/` with at least
+//! `min_body_lines` lines of code is tokenized with identifiers collapsed to
+//! one token, so a renamed copy still matches, and hashed into
+//! `shingle_len`-token shingles. Two bodies
 //! whose shingle sets overlap at `min_overlap_percent` or more are one shape
 //! written twice, and the check names both so the shape gets one owner. The
 //! bar is near-verbatim on purpose: structural siblings that differ in their
 //! facts (two wire records, two directions of one socket) share far less.
+//! A body that is mostly `.field = value,` binding rows is a table, whose
+//! values are its facts, so it is never compared: collapsing the value
+//! identifiers would make any two tables with the same fields one shape. A
+//! row whose value can fail or branch (`try`, `orelse`, `catch`, `if`,
+//! `switch`) is logic and counts as code.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -20,6 +26,10 @@ const min_overlap_percent: usize = 90;
 /// A shingle this many bodies share says nothing about any pair of them and
 /// is left out of candidate selection; the exact overlap still counts it.
 const max_shingle_owners: usize = 128;
+/// A body with at least this share of initializer rows is a table.
+const table_row_percent: usize = 60;
+/// Repository directories whose Zig files are compared with each other.
+const walked_roots = [_][]const u8{ "src", "test", "bench" };
 
 const Body = struct {
     path: []const u8,
@@ -47,8 +57,21 @@ pub fn check(
         for (bodies.items) |body| body.deinit(gpa);
         bodies.deinit(gpa);
     }
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src: cannot be opened for the duplicate-body check ({s})", .{@errorName(err)});
+    for (walked_roots) |name| try collectTree(io, gpa, root, name, &bodies, violations);
+    try reportDuplicates(gpa, violations, bodies.items);
+}
+
+/// Append every function body under the repository directory `name`.
+fn collectTree(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    name: []const u8,
+    bodies: *std.ArrayList(Body),
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, name, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot be opened for the duplicate-body check ({s})", .{ name, @errorName(err) });
         return;
     };
     defer dir.close(io);
@@ -56,16 +79,15 @@ pub fn check(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
+        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ name, entry.path });
         defer gpa.free(path);
         const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot be read for the duplicate-body check ({s})", .{ path, @errorName(err) });
             continue;
         };
         defer gpa.free(contents);
-        try collectBodies(gpa, &bodies, path, contents);
+        try collectBodies(gpa, bodies, path, contents);
     }
-    try reportDuplicates(gpa, violations, bodies.items);
 }
 
 /// Append every function body of `contents` long enough to compare.
@@ -93,7 +115,7 @@ fn collectBodies(gpa: std.mem.Allocator, bodies: *std.ArrayList(Body), path: []c
         for (body) |line| {
             if (!std.mem.startsWith(u8, std.mem.trimStart(u8, line, " "), "//")) code_lines += 1;
         }
-        if (code_lines >= min_body_lines) {
+        if (code_lines >= min_body_lines and !isTable(body, code_lines)) {
             const shingles = try shinglesOf(gpa, body);
             errdefer gpa.free(shingles);
             const owned_path = try gpa.dupe(u8, path);
@@ -104,6 +126,29 @@ fn collectBodies(gpa: std.mem.Allocator, bodies: *std.ArrayList(Body), path: []c
         }
         i = close;
     }
+}
+
+/// Whether `table_row_percent` of the body's code lines are plain
+/// `.field = value,` bindings.
+fn isTable(body: []const []const u8, code_lines: usize) bool {
+    var rows: usize = 0;
+    for (body) |line| {
+        if (isBindingRow(std.mem.trim(u8, line, " "))) rows += 1;
+    }
+    return rows * 100 >= code_lines * table_row_percent;
+}
+
+/// Whether `code` is `.field = value,` with a value that neither fails nor
+/// branches.
+fn isBindingRow(code: []const u8) bool {
+    if (code.len < 2 or code[0] != '.' or !isIdentStart(code[1])) return false;
+    const eq = std.mem.indexOf(u8, code, " = ") orelse return false;
+    if (!std.mem.endsWith(u8, code, ",")) return false;
+    const value = code[eq + 3 ..];
+    for ([_][]const u8{ "try ", " orelse ", " catch ", "if (", "switch (" }) |logic| {
+        if (std.mem.indexOf(u8, value, logic) != null) return false;
+    }
+    return true;
 }
 
 const FnHead = struct { indent: usize, name: []const u8 };
@@ -352,6 +397,58 @@ test "a body below the length floor is never compared" {
     const gpa = std.testing.allocator;
     const short = "fn a(x: u32) u32 {\n    const y = x + 1;\n    return y * 2;\n}\n";
     var violations = try violationsFor(gpa, &.{ short, short });
+    defer freeViolations(gpa, &violations);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+
+test "a table of fallible rows is still compared" {
+    const gpa = std.testing.allocator;
+    const decode =
+        \\fn decode(r: *Reader) !T {
+        \\    return .{
+        \\        .a = try r.readInt(u32, .little),
+        \\        .b = try r.readInt(u32, .little),
+        \\        .c = try r.readInt(u32, .little),
+        \\        .d = try r.readInt(u32, .little),
+        \\        .e = try r.readInt(u32, .little),
+        \\        .f = try r.readInt(u32, .little),
+        \\        .g = try r.readInt(u32, .little),
+        \\        .h = try r.readInt(u32, .little),
+        \\        .i = try r.readInt(u32, .little),
+        \\        .j = try r.readInt(u32, .little),
+        \\        .k = try r.readInt(u32, .little),
+        \\        .l = std.math.cast(u32, r.n) orelse return error.TooBig,
+        \\    };
+        \\}
+        \\
+    ;
+    var violations = try violationsFor(gpa, &.{ decode, decode });
+    defer freeViolations(gpa, &violations);
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+test "a table of bindings is never compared" {
+    const gpa = std.testing.allocator;
+    const first =
+        \\fn table(self: *A) T {
+        \\    return .{
+        \\        .abi_version = version,
+        \\        .ctx = self,
+        \\        .read = readA,
+        \\        .write = writeA,
+        \\        .close = closeA,
+        \\        .listen = listenA,
+        \\        .accept = acceptA,
+        \\        .locator = locatorA,
+        \\        .advertise = advertiseA,
+        \\        .failure = failureA,
+        \\        .key = keyA,
+        \\        .stop = stopA,
+        \\    };
+        \\}
+        \\
+    ;
+    var violations = try violationsFor(gpa, &.{ first, first });
     defer freeViolations(gpa, &violations);
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }

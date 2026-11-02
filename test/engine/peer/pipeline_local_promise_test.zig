@@ -8,12 +8,7 @@ const codec = glowcap.ocapn.codec;
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
 
-fn pump(peer: *engine.Peer) !void {
-    for (0..64) |_| {
-        if (try peer.step() != .progress) return;
-    }
-    return error.PumpDidNotQuiesce;
-}
+const pump = peer_fixture.pump;
 
 fn countCallbacks(peer: *engine.Peer, expected_position: ?u64) !usize {
     var count: usize = 0;

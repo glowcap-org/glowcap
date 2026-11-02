@@ -4,6 +4,7 @@ const c = @import("c_abi_loam");
 const n = @import("c_abi_loam_lmdb");
 const shared = @import("c_abi_shared");
 const h = @import("c_abi_host");
+const Temp = @import("loam_engine_temp").Temp;
 
 test {
     _ = @import("loam_sqlite.zig");
@@ -217,10 +218,9 @@ test "Loam C value topology covers actual nested projections and owned reply con
 }
 
 test "Loam C LMDB atomic resource creation and reopen" {
-    var temporary = std.testing.tmpDir(.{});
-    defer temporary.cleanup();
-    const path = try temporary.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(path);
+    var temporary = try Temp.init();
+    defer temporary.deinit();
+    const path = temporary.path;
     const limits: c.GlowcapLoamLimits = .{ .resident_bytes = 4 * 1024 * 1024, .staging_bytes = 4 * 1024 * 1024, .cache_slots = 64, .max_leases = 128, .max_changes = 64, .max_references = 128, .max_operations = 32, .record_capacity = 32, .max_reference_saves = 96, .max_retentions = 256, .max_continuations = 2, .continuation_bytes = 4096, .max_continuation_targets = 3, .forward_reply_bytes = 3072 };
     const schema: c.GlowcapLoamSchema = .{ .id = 7, .version = 1, .max_payload = 256, .max_edges = 8 };
     var backend: ?*n.GlowcapLoamLmdb = null;

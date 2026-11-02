@@ -9,7 +9,6 @@ const netlayer_test = @import("../../support/netlayer.zig");
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
 const net = glowcap.net;
 const keyed_relay = net.relay;
 const ws_relay = @import("../../support/ws_relay.zig");
@@ -28,7 +27,6 @@ const deinitAdmissionBackend = admission.deinitAdmissionBackend;
 const frame_cap = admission.frame_cap;
 
 const relay_support = @import("harness.zig");
-const stubNegotiatingPeer = relay_support.stubNegotiatingPeer;
 const startSession = relay_support.startSession;
 const serveRegistered = relay_support.serveRegistered;
 
@@ -186,7 +184,7 @@ test "keyed-relay listener readiness clears idle hints and retains unclaimed arr
         try std.testing.expect(try listener.waitAcceptable(0));
         try std.testing.expectEqual(@as(usize, 1), try net.poll.wait(&fds, 0));
     }
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     var read_buf: [64]u8 = undefined;
     var write_buf: [64]u8 = undefined;
@@ -441,7 +439,7 @@ test "keyed-relay listener recovers a stalled replacement without invalidating i
     // factory before accept must not leave that task borrowing URL slices.
     try std.testing.expectEqual(null, resident.deinit());
     resident_live = false;
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     var read_buf: [64]u8 = undefined;
     var write_buf: [64]u8 = undefined;

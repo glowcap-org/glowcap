@@ -62,10 +62,7 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     var recipient = test_host.init(allocator, @as([32]u8, @splat(0x83)), options);
     defer recipient.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const home_pair = try openPair(allocator, &relay, &home, "127.0.0.1:7181", &dials);
     const recipient_pair = try openPair(allocator, &relay, &recipient, "127.0.0.1:7182", &dials);

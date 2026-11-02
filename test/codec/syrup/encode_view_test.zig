@@ -7,6 +7,7 @@ const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const syrup = glowcap.ocapn.codec.syrup;
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
+const view_round_trip = @import("../../support/view_round_trip.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
 
 /// The borrowed walk and the owned walk are one encoder with two sources, so
@@ -50,29 +51,11 @@ test "borrowed body re-encodes every corpus message as its owned copy does" {
     }
 }
 
-/// Encode a deliver carrying `arg` on a promise target (a far target would
-/// decode to a near one), decode it to views, and re-encode the views.
-fn expectArgumentViewRoundTrip(arg: model.Argument) !void {
-    const allocator = std.testing.allocator;
-    const args = [_]model.Argument{ .{ .symbol = "deposit" }, arg };
-    var frame = try syrup.encodeMessageForProfile(allocator, .v1_0, .{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(3) } },
-        .args = &args,
-        .answer = .from(9),
-    } });
-    defer frame.deinit();
-
-    const body = try syrup.decodeBodyForProfile(.v1_0, frame.view());
-    var again = try syrup.encodeBodyForProfile(allocator, .v1_0, &body, null);
-    defer again.deinit();
-    try std.testing.expectEqualSlices(u8, frame.bytes(), again.bytes());
-}
-
 test "decoded signed give and receive re-encode from their views byte for byte" {
     var give: model.Handoff = .{ .give = handoff_fixtures.give() };
-    try expectArgumentViewRoundTrip(.{ .handoff = &give });
+    try view_round_trip.expectArgumentViewRoundTrip(syrup, .{ .handoff = &give });
     var receive: model.Handoff = .{ .receive = handoff_fixtures.receive() };
-    try expectArgumentViewRoundTrip(.{ .handoff = &receive });
+    try view_round_trip.expectArgumentViewRoundTrip(syrup, .{ .handoff = &receive });
 }
 
 test "decoded sturdyref with hints re-encodes from its view byte for byte" {
@@ -84,15 +67,15 @@ test "decoded sturdyref with hints re-encodes from its view byte for byte" {
         .peer = .{ .transport = "tcp", .designator = "exporter.example", .hints = .{ .entries = &hints } },
         .swissnum = "swiss-number",
     };
-    try expectArgumentViewRoundTrip(.{ .reference = .{ .sturdy = &sturdy } });
+    try view_round_trip.expectArgumentViewRoundTrip(syrup, .{ .reference = .{ .sturdy = &sturdy } });
 }
 
 test "decoded set and struct re-encode from their views in canonical order" {
     const members = [_]model.Argument{ .{ .integer = 3 }, .{ .integer = 1 }, .{ .integer = 2 } };
-    try expectArgumentViewRoundTrip(.{ .set = &members });
+    try view_round_trip.expectArgumentViewRoundTrip(syrup, .{ .set = &members });
     const entries = [_]model.StructEntry{
         .{ .key = "b", .value = .{ .integer = 2 } },
         .{ .key = "a", .value = .{ .string = "one" } },
     };
-    try expectArgumentViewRoundTrip(.{ .@"struct" = &entries });
+    try view_round_trip.expectArgumentViewRoundTrip(syrup, .{ .@"struct" = &entries });
 }

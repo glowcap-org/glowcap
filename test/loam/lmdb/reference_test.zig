@@ -4,32 +4,18 @@ const f = @import("../access/reference_fixture.zig");
 const sharing = @import("../access/sharing_fixture.zig");
 const h = f.h;
 const Lmdb = @import("loam_lmdb").Lmdb;
+const Temp = @import("engine_fixture").Temp;
 const a = std.testing.allocator;
 const collect = @import("loam_test_support").collect;
 
-fn entropy(context: ?*anyopaque, bytes: *h.driver.Host.DurableSwiss.Entropy) !void {
-    const counter: *u64 = @ptrCast(@alignCast(context.?));
-    counter.* += 1;
-    @memset(bytes, 0);
-    std.mem.writeInt(u64, bytes[0..8], counter.*, .big);
-}
-
 test "loam LMDB foreign roles survive compaction and restore a later vat during collection" {
-    var source_dir = std.testing.tmpDir(.{});
-    defer source_dir.cleanup();
-    var target_dir = std.testing.tmpDir(.{});
-    defer target_dir.cleanup();
-    const source_path = try source_dir.dir.realPathFileAlloc(std.testing.io, ".", a);
-    defer a.free(source_path);
-    const target_path = try target_dir.dir.realPathFileAlloc(std.testing.io, ".", a);
-    defer a.free(target_path);
-    const source_z = try a.dupeSentinel(u8, source_path, 0);
-    defer a.free(source_z);
-    const target_z = try a.dupeSentinel(u8, target_path, 0);
-    defer a.free(target_z);
-    var source_db = try Lmdb.open(source_z, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
+    var source_dir = try Temp.init();
+    defer source_dir.deinit();
+    var target_dir = try Temp.init();
+    defer target_dir.deinit();
+    var source_db = try Lmdb.open(source_dir.path, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
     defer source_db.close() catch unreachable;
-    var target_db = try Lmdb.open(target_z, .{ .opening = .{ .id = @fromBackingInt(95), .mode = .create } });
+    var target_db = try Lmdb.open(target_dir.path, .{ .opening = .{ .id = @fromBackingInt(95), .mode = .create } });
     defer target_db.close() catch unreachable;
     var source_store = try h.loam.core.Store.init(a, source_db.metadata, &f.schemas, h.limits);
     defer source_store.deinit() catch unreachable;
@@ -56,7 +42,7 @@ test "loam LMDB foreign roles survive compaction and restore a later vat during 
         defer source.host.releaseCapabilityTerminal(control, null);
         var counter: u64 = 100;
         target.service.decode_derive = sharing.decode;
-        target.service.entropy = .{ .context = &counter, .fill = entropy };
+        target.service.entropy = .{ .context = &counter, .fill = sharing.entropy };
         const derived = try f.send(&source, &source_db, &target, &target_db, pair, original, "derive", &.{ .{ .integer = 1 }, .{ .integer = 0 }, .{ .integer = 0 } });
         defer derived.deinit();
         const use = derived.result().ready.capability;
@@ -78,8 +64,8 @@ test "loam LMDB foreign roles survive compaction and restore a later vat during 
     try target_db.compact();
     try source_db.close();
     try target_db.close();
-    source_db = try Lmdb.open(source_z, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
-    target_db = try Lmdb.open(target_z, .{ .opening = .{ .id = @fromBackingInt(95), .mode = .open } });
+    source_db = try Lmdb.open(source_dir.path, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
+    target_db = try Lmdb.open(target_dir.path, .{ .opening = .{ .id = @fromBackingInt(95), .mode = .open } });
     source_store = try h.loam.core.Store.init(a, source_db.metadata, &f.schemas, h.limits);
     target_store = try h.loam.core.Store.init(a, target_db.metadata, &h.schemas, h.limits);
     var source: h.Hosted = undefined;

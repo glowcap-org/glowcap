@@ -28,6 +28,7 @@
 //! against `gate_warm_dispatch_ceiling_ns` and exits red when it is crossed.
 
 const std = @import("std");
+const nowNs = @import("support/clock.zig").nowNs;
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const profile = @import("support/profile.zig");
@@ -83,10 +84,6 @@ fn runGate(io: std.Io, backing: std.mem.Allocator) !void {
         "perf_gate warm_dispatch min_ns={d:.1} ceiling_ns={d:.1} ok\n",
         .{ min_ns, gate_warm_dispatch_ceiling_ns },
     );
-}
-
-fn nowNs(io: std.Io) i128 {
-    return std.Io.Clock.now(.awake, io).nanoseconds;
 }
 
 fn driveOneTurn(peer: *engine.Peer) !void {

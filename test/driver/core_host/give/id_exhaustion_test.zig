@@ -15,10 +15,7 @@ test "core host: an inline give refuses an exhausted promise id space without ef
     var partner = support.init(a, @splat(0xc2), Host.Options.withFrameCap(h.frame_cap));
     defer partner.deinit();
     var dials: std.ArrayList(h.ParkedDial) = .empty;
-    defer {
-        for (dials.items) |dial| a.free(dial.designator);
-        dials.deinit(a);
-    }
+    defer h.deinitParked(a, &dials);
     const pair = try h.openPair(a, &host, &partner, "127.0.0.1:7981", &dials);
 
     const bytes = try signedGive(a);

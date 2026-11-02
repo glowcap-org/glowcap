@@ -8,6 +8,7 @@ const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
 const syrup = glowcap.ocapn.codec.syrup;
+const handshake = @import("../../support/handshake.zig");
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
 
@@ -107,9 +108,8 @@ test "Syrup decodes an unrecognised captp-version rather than calling the frame 
 test "a session refuses an unrecognised captp-version as a version mismatch" {
     // The other half of the split above: the decoder reported, this decides.
     const allocator = std.testing.allocator;
-    var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
-    peer.verify_partner_handshake = false;
 
     const frame_bytes: []const u8 =
         "<16'op:start-session9\"ocapn-1.0" ++

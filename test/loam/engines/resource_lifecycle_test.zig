@@ -6,13 +6,9 @@ const fixture = @import("engine_fixture");
 
 test "loam engine resource lifecycle recovers moves, child indexes, content and exact retry after reopen" {
     for ([_]bool{ false, true }) |committed| {
-        var tmp = std.testing.tmpDir(.{});
-        defer tmp.cleanup();
-        const path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", h.a);
-        defer h.a.free(path);
-        const terminated = try h.a.dupeSentinel(u8, path, 0);
-        defer h.a.free(terminated);
-        var db = try fixture.open(terminated, .create, h.f.store_id);
+        var tmp = try fixture.Temp.init();
+        defer tmp.deinit();
+        var db = try fixture.open(tmp.path, .create, h.f.store_id);
         defer db.close() catch unreachable;
         var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         defer store.deinit() catch unreachable;
@@ -40,7 +36,7 @@ test "loam engine resource lifecycle recovers moves, child indexes, content and 
         }
         try store.deinit();
         try db.close();
-        db = try fixture.open(terminated, .open, h.f.store_id);
+        db = try fixture.open(tmp.path, .open, h.f.store_id);
         store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         caps = try r.storage.Capabilities.init(h.a, &store, .{});
         try r.children(&caps, &db, descriptor, seed.root, if (committed) &.{destination} else &.{ seed.leaf, destination });
@@ -73,13 +69,9 @@ test "loam engine resource lifecycle recovers moves, child indexes, content and 
 
 test "loam engine resource lifecycle preserves structure visibility and rollback invariants" {
     inline for (.{ "structure", "visibility", "rollback", "queued", "independentPreparations", "composedTraversal", "cursorCustody", "cursorCancellation" }) |name| {
-        var tmp = std.testing.tmpDir(.{});
-        defer tmp.cleanup();
-        const path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", h.a);
-        defer h.a.free(path);
-        const terminated = try h.a.dupeSentinel(u8, path, 0);
-        defer h.a.free(terminated);
-        var db = try fixture.open(terminated, .create, h.f.store_id);
+        var tmp = try fixture.Temp.init();
+        defer tmp.deinit();
+        var db = try fixture.open(tmp.path, .create, h.f.store_id);
         defer db.close() catch unreachable;
         var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         defer store.deinit() catch unreachable;
@@ -88,13 +80,9 @@ test "loam engine resource lifecycle preserves structure visibility and rollback
 }
 
 test "loam engine resource lifecycle reopens moves out of and into subtree scope and stable deleted identities" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try fixture.open(terminated, .create, h.f.store_id);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
+    var db = try fixture.open(tmp.path, .create, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -104,7 +92,7 @@ test "loam engine resource lifecycle reopens moves out of and into subtree scope
         try std.testing.expect(try r.change(&store, &db, seed.data.owner, seed.leaf, action));
         try store.deinit();
         try db.close();
-        db = try fixture.open(terminated, .open, h.f.store_id);
+        db = try fixture.open(tmp.path, .open, h.f.store_id);
         store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         var server: h.Hosted = undefined;
         try server.init(&store, &db, seed.data);
