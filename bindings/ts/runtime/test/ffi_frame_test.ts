@@ -9,7 +9,7 @@ import {
 	checkedMaxFrameBytes,
 	FrameDescriptorScratch,
 } from "../transport/ffi_frame.ts";
-import { deferred } from "../../dogfood/assert.ts";
+import { deferred } from "../../test/assert.ts";
 
 async function assertRejectsWith(promise: Promise<unknown>, text: string): Promise<void> {
 	try {

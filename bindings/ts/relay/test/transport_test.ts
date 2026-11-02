@@ -3,7 +3,7 @@ import type { Host, Locator } from "@glowcap/runtime";
 import routeCorpusJson from "../../../../test/net/fixtures/relay_routes.json" with { type: "json" };
 import { connector } from "../transport.ts";
 import { dialUrl, keyed, noise, routeFromLocator } from "../route.ts";
-import { assert, rejects } from "../../dogfood/assert.ts";
+import { assert, rejects } from "../../test/assert.ts";
 
 const DESIGNATOR = "ab".repeat(32);
 

@@ -2,7 +2,7 @@
 
 import { rtcChannel } from "../channel.ts";
 import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@glowcap/abi";
-import { assertDeepEquals } from "../../dogfood/assert.ts";
+import { assertDeepEquals } from "../../test/assert.ts";
 
 class FakeDataChannel extends EventTarget {
 	binaryType: BinaryType = "blob";

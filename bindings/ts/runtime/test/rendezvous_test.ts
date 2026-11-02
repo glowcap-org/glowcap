@@ -4,7 +4,7 @@ import type { Host } from "../host.ts";
 import type { Locator } from "../locator.ts";
 import { Session } from "../session.ts";
 import { secondaryFailures } from "../errors.ts";
-import { assert, rejects } from "../../dogfood/assert.ts";
+import { assert, rejects } from "../../test/assert.ts";
 
 const DESIGNATOR = "ab".repeat(32);
 

@@ -161,7 +161,7 @@ them for retention ([ADR-0063](decisions/adr/ADR-0063-frame-owned-argument-views
 The OCapN 1.0 profile uses Syrup. Two glowcap peers can offer Cap'n Proto or `"glowcap-next"` in their hellos and
 settle on it ([ADR-0001](decisions/adr/ADR-0001-codec-profiles-and-negotiation.md)). A peer that makes no offer gets
 1.0 over Syrup, so Goblins traffic is unchanged. Every binding offers `glowcap` and `interop` Host profiles. The
-`rust-dogfood`, `deno-dogfood`, `python-dogfood`, and `racket-dogfood` checks run each binding over a live
+`rust-test`, `deno-test`, `python-test`, and `racket-test` checks run each binding over a live
 Cap'n Proto socket. Zig applications can register another codec.
 
 ## Transports

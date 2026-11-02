@@ -5,7 +5,7 @@ import {
 	type FfiRetirement,
 	SingleFlight,
 } from "../transport/ffi_handle.ts";
-import { assertDeepEquals } from "../../dogfood/assert.ts";
+import { assertDeepEquals } from "../../test/assert.ts";
 
 async function assertRejects(promise: Promise<unknown>, expected: unknown): Promise<void> {
 	let rejected = false;

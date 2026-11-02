@@ -2,7 +2,7 @@ import { INTERNAL, INVALID_ARGUMENT, IO, OK } from "@glowcap/abi";
 import { GlowcapError, secondaryFailures } from "../errors.ts";
 import type { DriverCallOutcome } from "../internal/driver_failure.ts";
 import { TerminalDriverRelease } from "../driver_loop/terminal_release.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 function outcome(code: number, error: GlowcapError | null): DriverCallOutcome {
 	return { code, failure: null, error };

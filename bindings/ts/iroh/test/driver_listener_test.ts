@@ -1,7 +1,7 @@
 import { Host, Runtime, type Session } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
 import { listen, Reachability } from "../impl.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 Deno.test("supplied iroh Host transfers to the generic driver listener", async () => {
 	const seed = crypto.getRandomValues(new Uint8Array(32));

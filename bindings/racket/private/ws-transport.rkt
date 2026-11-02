@@ -30,7 +30,7 @@
 (define WS-MESSAGE-HIGH-WATER BINDING-WEBSOCKET-MESSAGE-CAP-BYTES)
 
 ;; Open a WebSocket and adapt it. Procedures are injectable only at this private
-;; seam so dogfood can force asynchronous failures without a timing-dependent
+;; seam so tests can force asynchronous failures without a timing-dependent
 ;; network peer.
 (define (ws-transport url-string
                       #:connect [connect ws-connect]

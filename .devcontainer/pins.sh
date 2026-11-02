@@ -25,12 +25,12 @@ ZLS_VERSION="0.17.0-dev"
 ZLS_SOURCE_REVISION="eab2be0fd74443a27662da809b771c4ad0d2afcf"
 ZLS_SOURCE_SHA256="e33ac991c827b3e38150530864d3d4deafc1ca020539a6358fb056b8c4a48606"
 
-# --- Rust (C ABI dogfood) ---
+# --- Rust ---
 # dep Rust and rustup: The Rust binding, the iroh and WebRTC transports, and Rooms.
 RUST_VERSION="1.99.0"
 RUSTUP_INIT_VERSION="1.29.1"
 
-# --- JavaScript / TypeScript dogfood ---
+# --- JavaScript / TypeScript ---
 # dep Deno: The TypeScript binding, Rooms' web client, ocapnviz and the browser tests.
 DENO_VERSION="2.9.7"
 # dep Node and npm: Install the coding agents the container offers.

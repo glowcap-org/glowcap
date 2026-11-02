@@ -7,7 +7,7 @@ import {
 	Runtime,
 	type Session,
 } from "../../runtime/mod.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 Deno.test("high-level servers expose the driver's complete listener locator", async () => {
 	const plain = await tcp.listen("127.0.0.1", 0);

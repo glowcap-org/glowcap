@@ -82,7 +82,7 @@ implementation as the authority in prose.
 - `test/support`: shared helpers, including copy utilities.
 - `test/interface`: compiler descriptions and independent application message fixtures.
 - `test/api_surface_test.zig`: references every exported declaration.
-- `bindings/rust`: Rust consumer smoke tests via `zig build rust-dogfood`.
+- `bindings/rust`: the Rust binding's tests, `zig build rust-test`.
 - `bindings/proofs`: per-binding proof families, every peer glowcap.
 
 External arbiters live in [`conformance/`](../../conformance/README.md) and

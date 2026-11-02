@@ -89,7 +89,7 @@ pub fn register(ctx: Context) Registered {
     // Live interop proof against a real Spritely Goblins vat: a glowcap peer
     // dials the conformance Goblins host, completes the keyed op:start-session
     // handshake, and bootstrap-fetches its echo cap. Needs `racket` + the
-    // `goblins` collection on PATH (like the binding dogfoods). The driver
+    // `goblins` collection on PATH (like the binding suites). The driver
     // spawns and tears down the Goblins vat itself.
     const goblins_interop = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-interop", .source = "interop/goblins_interop/driver.zig", .step_name = "goblins-interop", .description = "Live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
@@ -222,7 +222,7 @@ pub fn register(ctx: Context) Registered {
     run_bench_langs.setCwd(b.path("."));
     run_bench_langs.has_side_effects = true;
     // The Deno, Python, and Rust rows link the installed C ABI archives, so the
-    // run needs the install step the way the binding dogfoods do.
+    // run needs the install step the way the binding suites do.
     run_bench_langs.step.dependOn(b.getInstallStep());
     run_bench_langs.addArtifactArg(langs_host_exe);
     run_bench_langs.addArtifactArg(langs_zig_client_exe);

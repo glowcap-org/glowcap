@@ -28,7 +28,7 @@ Run every gate through
 | Protocol semantics or layer boundary | [architecture](.agents/rules/architecture.md) + [tests](.agents/rules/tests.md) | `zig build oracle-check`, then `check-external` |
 | Performance claim or slow path | [profiling skill](.agents/skills/profiling/SKILL.md) | the bench's `profile-*` step, then its ReleaseFast run |
 | Wire-path allocation or copy | [memory](.agents/rules/memory.md) + [memory-ledger skill](.agents/skills/memory-ledger/SKILL.md) | `zig build test` |
-| C ABI surface or a binding | [architecture](.agents/rules/architecture.md) + [`bindings/README.md`](bindings/README.md) | the `gen-*-check` steps ([cli rule](.agents/rules/cli.md)) + `zig build rust-dogfood` |
+| C ABI surface or a binding | [architecture](.agents/rules/architecture.md) + [`bindings/README.md`](bindings/README.md) | the `gen-*-check` steps ([cli rule](.agents/rules/cli.md)) + `zig build rust-test` |
 | Example or example app | [`examples/README.md`](examples/README.md) | `zig build examples` |
 | Live CapTP (shell, MCP, rooms) | [glowcap-cli](.agents/skills/glowcap-cli/SKILL.md), [glowcap-mcp](.agents/skills/glowcap-mcp/SKILL.md), [rooms-peer](.agents/skills/rooms-peer/SKILL.md) | `zig build cli-test` |
 | Runtime process or language workspace | [tests](.agents/rules/tests.md) | `zig build runtime-check` |

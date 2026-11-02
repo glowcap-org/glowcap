@@ -127,7 +127,7 @@ glowcap_pins_dep_gate() {
         distroless) echo "release workflow Linux image proofs" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
-        rust) echo "zig build check (rust-dogfood rides it)" ;;
+        rust) echo "zig build check (rust-test rides it)" ;;
         rustup-init | deno | node | bun) echo "zig build check" ;;
         playwright) echo "rebuild (new baked Chromium), then zig build rooms-web-page and siblings" ;;
         python) echo "zig build ocapn-conformance" ;;

@@ -260,19 +260,19 @@ pub fn check(
                 }
             }
         }
-        // Dogfood / unit tests mint host:port designators through the TCP package.
-        const dogfood_addr_designator = [_]struct {
+        // The suites mint host:port designators through the TCP package.
+        const suite_addr_designator = [_]struct {
             path: []const u8,
             required: []const u8,
             banned: []const []const u8,
         }{
             .{
-                .path = "bindings/racket/test/zig-smoke/transports.rkt",
+                .path = "bindings/racket/test/scenarios/transports.rkt",
                 .required = "tcp-address-designator",
                 .banned = &.{ "\"127.0.0.1:9\"", "\"127.0.0.1:1\"", "\"127.0.0.1:2\"", "format-peer-uri \"tcp\"" },
             },
             .{
-                .path = "bindings/python/smoke/conversation.py",
+                .path = "bindings/python/test/scenarios/conversation.py",
                 .required = "tcp.address_designator",
                 .banned = &.{"\"127.0.0.1:1\""},
             },
@@ -287,14 +287,14 @@ pub fn check(
                 .banned = &.{ "peer.to_string()", "\"127.0.0.1:0\".to_string()" },
             },
         };
-        for (dogfood_addr_designator) |entry| {
+        for (suite_addr_designator) |entry| {
             const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}: failed to read for dogfood addr designator check with {s}", .{ entry.path, @errorName(err) });
+                try appendViolation(gpa, violations, "{s}: failed to read for the addr designator check with {s}", .{ entry.path, @errorName(err) });
                 continue;
             };
             defer gpa.free(contents);
             if (std.mem.indexOf(u8, contents, entry.required) == null) {
-                try appendViolation(gpa, violations, "{s}: missing `{s}` — dogfood designators must use the TCP package", .{ entry.path, entry.required });
+                try appendViolation(gpa, violations, "{s}: missing `{s}` — test designators must use the TCP package", .{ entry.path, entry.required });
             }
             for (entry.banned) |needle| {
                 if (std.mem.indexOf(u8, contents, needle) != null) {

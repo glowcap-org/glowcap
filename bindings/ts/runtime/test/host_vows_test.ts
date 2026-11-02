@@ -4,7 +4,7 @@ import { Host } from "../host.ts";
 import { type PromiseFactoryHandle, promiseFor } from "../promise.ts";
 import { SessionApplication } from "../session/application.ts";
 import { refFromId } from "../value.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 async function assertRejectsCode(promise: Promise<unknown>, code: number): Promise<void> {
 	try {

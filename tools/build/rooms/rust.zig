@@ -74,7 +74,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     executor_tests.setCwd(b.path("."));
     executor_tests.step.dependOn(&workspace_tests.step);
     // Where the test executables find glowcap's installed shared libraries at
-    // load time, the way `rust-dogfood` already binds its own.
+    // load time, the way `rust-test` already binds its own.
     //
     // Both proof runs select this workspace, so Cargo unifies features across
     // its members and the crates that link a transport hand that link to every

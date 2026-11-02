@@ -48,7 +48,7 @@
 
 (provide (all-defined-out)
          (all-from-out "pending-writes.rkt")
-         ;; Feed-refusal `last_abort` lives in pump; re-export for dogfood that
+         ;; Feed-refusal `last_abort` lives in pump; re-export for tests that
          ;; requires this module for CapTP verbs. The handshake bound lives
          ;; there too, beside the deadline machinery dial and accept share;
          ;; re-export it for the public barrel.

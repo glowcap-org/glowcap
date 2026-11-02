@@ -210,8 +210,8 @@ pub fn register(ctx: Context) Registered {
     // The core correctness gate is hermetic from outside authority: arch gate,
     // source gate, tests, oracle checks, the header staleness check, the Zig + C
     // examples, the cross-compile gate, and the benchmark checks (peer-scaling
-    // in its in-process smoke mode). The cross-language C ABI dogfood
-    // (`zig build rust-dogfood`, and the wider `zig build bindings`) needs
+    // in its in-process smoke mode). The binding test suites
+    // (`zig build rust-test`, and the wider `zig build bindings`) needs
     // cargo/deno/python/racket on PATH, so it is a sibling step run alongside
     // `check`, not a dependency of it. `check` itself requires the small host
     // tool set `in_tree_runtimes` declares in toolchain.zig. The container has it.

@@ -58,8 +58,8 @@ explains both paths.
 the browser.
 
 ```sh
-zig build deno-dogfood
-zig build bun-dogfood
+zig build deno-test
+zig build bun-test
 zig build wasm-driver-test
 zig build wasm-abi-layout-check
 zig build wasm-import-check

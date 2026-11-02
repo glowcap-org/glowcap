@@ -129,7 +129,7 @@ a binding that bypasses the generated action decoder.
 Each `@glowcap/*` directory under `bindings/ts/` is a publishable package.
 Its root is the ship surface: source that a consumer imports. Tests, harnesses,
 smokes, benches, and probes live under that package's `test/` directory (or
-under the workspace-level `dogfood/`), not beside `mod.ts`. Every package
+under the workspace-level `test/`), not beside `mod.ts`. Every package
 `deno.json` names `test/**` in `publish.exclude`, so a broad `**/*.ts` include
 cannot ship them. `zig build source-check` refuses `*_test.ts`, `*_smoke.ts`,
 `*_bench.ts`, `*_probe.ts`, and `*_harness.ts` outside `test/` in a package,
@@ -222,13 +222,13 @@ Each binding also has its own steps, which the package pages on the registries d
 
 | Binding | Against a glowcap peer | Against a Goblins peer | Also |
 | --- | --- | --- | --- |
-| Rust | `zig build rust-dogfood` | `zig build rust-goblins-interop` | `cargo build --no-default-features`, `--features tcp`, `--features async`, `zig build rust-webrtc-driver-provider`, `zig build loam-rust-test`, `zig build rooms-rust-browser-host-test` |
-| Python | `zig build python-dogfood` | `zig build python-goblins-interop` | `uv run --project bindings/python --extra rendezvous --locked` installs the relay client from the lock |
-| Racket | `zig build racket-dogfood` | `zig build racket-goblins-interop` | `zig build racket-test`, with `zig-smoke-fake-tor.rkt` answering the Tor requests as a child process |
-| TypeScript | `zig build deno-dogfood`, `zig build bun-dogfood` | | `zig build web-peer-test`, `wasm-driver-test`, `deno-relay-test`, `relay-scaling`, `webrtc-browser-to-browser`, `deno-webrtc-driver-provider` |
+| Rust | `zig build rust-test` | `zig build rust-goblins-interop` | `cargo build --no-default-features`, `--features tcp`, `--features async`, `zig build rust-webrtc-driver-provider`, `zig build loam-rust-test`, `zig build rooms-rust-browser-host-test` |
+| Python | `zig build python-test` | `zig build python-goblins-interop` | `uv run --project bindings/python --extra rendezvous --locked` installs the relay client from the lock |
+| Racket | `zig build racket-test` | `zig build racket-goblins-interop` | `test/fake-tor.rkt` answers the suite's Tor requests as a child process |
+| TypeScript | `zig build deno-test`, `zig build bun-test` | | `zig build web-peer-test`, `wasm-driver-test`, `deno-relay-test`, `relay-scaling`, `webrtc-browser-to-browser`, `deno-webrtc-driver-provider` |
 
-Each dogfood step runs that binding's `zig_smoke` program, the complete example in the binding's
-directory.
+Each suite step runs the binding's `test/main` program against the installed archives, with the
+binding's unit tests under the same `test/` directory.
 
 [`examples/c/host_embedder_pump.c`](../examples/c/host_embedder_pump.c) is the
 small compiled reference for feed, drain, refusal, and EOF.

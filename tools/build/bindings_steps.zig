@@ -1,5 +1,5 @@
-//! The binding verification siblings: the per-language C ABI dogfoods, the
-//! Racket unit tests, the `bindings` and `bindings-onion` aggregates, the
+//! The binding verification siblings: each language's test suite over the
+//! installed C ABI archives, the `bindings` and `bindings-onion` aggregates, the
 //! glowcap-only deno gifter handoff, and the formatting/type/lint half,
 //! `fmt`/`fmt-check` in-tree, `bindings-fmt`/`bindings-fmt-check` over every
 //! language scope, with the TypeScript stack suites beside them.
@@ -13,7 +13,7 @@ const site_build = @import("site.zig");
 const addRootedSystemCommand = common.addRootedSystemCommand;
 const addInstalledSystemRun = common.addInstalledSystemRun;
 
-pub const dogfoods = [_]struct {
+pub const suites = [_]struct {
     step_name: []const u8,
     description: []const u8,
     argv: []const []const u8,
@@ -21,78 +21,78 @@ pub const dogfoods = [_]struct {
     posture: execution.Posture,
 }{
     .{
-        .step_name = "rust-dogfood",
-        .description = "Run Rust C ABI dogfood tests against the glowcap C ABI archives (needs cargo)",
+        .step_name = "rust-test",
+        .description = "Run the Rust binding's tests against the installed C ABI archives (needs cargo)",
         .argv = &.{ "cargo", "test", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async" },
         .needs_iroh_abi = false,
         .posture = .{ .deterministic = 5 },
     },
     .{
-        .step_name = "deno-dogfood",
-        .description = "Run the Deno C ABI dogfood against the glowcap C ABI archives (needs deno)",
-        // `--v8-flags=--expose-gc` gives the dogfood a deterministic `gc()` so
+        .step_name = "deno-test",
+        .description = "Run the TypeScript binding's test suite on Deno against the installed C ABI archives (needs deno)",
+        // `--v8-flags=--expose-gc` gives the suite a deterministic `gc()` so
         // the ADR-0025 finalizer-GC scenario can force collection and prove a
         // dropped import releases its export.
-        .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", "--v8-flags=--expose-gc", "bindings/ts/dogfood/zig_smoke.ts" },
+        .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", "--v8-flags=--expose-gc", "bindings/ts/test/main.ts" },
         .needs_iroh_abi = true,
         .posture = .{ .deterministic = 15 },
     },
     .{
-        .step_name = "bun-dogfood",
-        .description = "Run the Bun C ABI dogfood against the glowcap C ABI archives, the same multi-runtime binding as Deno (needs bun)",
-        .argv = &.{ "bun", "run", "bindings/ts/dogfood/zig_smoke.ts" },
+        .step_name = "bun-test",
+        .description = "Run the TypeScript binding's test suite on Bun, the same binding as Deno (needs bun)",
+        .argv = &.{ "bun", "run", "bindings/ts/test/main.ts" },
         .needs_iroh_abi = true,
         .posture = .{ .deterministic = 15 },
     },
     .{
-        .step_name = "python-dogfood",
-        .description = "Run the Python C ABI dogfood against the glowcap C ABI archives (needs python3)",
-        .argv = &.{ "python3", "bindings/python/zig_smoke.py" },
+        .step_name = "python-test",
+        .description = "Run the Python binding's test suite and unit tests against the installed C ABI archives (needs python3)",
+        .argv = &.{ "python3", "bindings/python/test/main.py" },
         .needs_iroh_abi = true,
         .posture = .{ .deterministic = 10 },
     },
     .{
-        .step_name = "racket-dogfood",
-        .description = "Run the Racket C ABI dogfood against the glowcap C ABI archives (needs racket)",
-        .argv = &.{ "racket", "-y", "bindings/racket/zig-smoke.rkt" },
+        .step_name = "racket-test",
+        .description = "Run the Racket binding's test suite and every Racket module's unit tests (needs racket + goblins)",
+        .argv = &.{ "racket", "-y", "bindings/racket/test/main.rkt" },
         .needs_iroh_abi = true,
         .posture = .{ .deterministic = 15 },
     },
 };
 
-fn dogfoodIndex(comptime step_name: []const u8) comptime_int {
-    inline for (dogfoods, 0..) |dogfood, index| {
-        if (std.mem.eql(u8, dogfood.step_name, step_name)) return index;
+fn suiteIndex(comptime step_name: []const u8) comptime_int {
+    inline for (suites, 0..) |suite, index| {
+        if (std.mem.eql(u8, suite.step_name, step_name)) return index;
     }
-    @compileError("unknown binding dogfood step: " ++ step_name);
+    @compileError("unknown binding suite step: " ++ step_name);
 }
 
 pub const Registered = struct {
     bindings_step: *std.Build.Step,
     bindings_onion_step: *std.Build.Step,
     rust_binding_lint_step: *std.Build.Step,
-    dogfood_runs: [dogfoods.len]*std.Build.Step.Run,
+    suite_runs: [suites.len]*std.Build.Step.Run,
 };
 
-/// The dogfoods and their aggregates. The iroh-dependent wiring stays with
+/// The suites and their aggregates. The iroh-dependent wiring stays with
 /// the root, which holds the iroh ABI steps the rows depend on.
 pub fn register(
     b: *std.Build,
     site_reg: site_build.Registered,
 ) Registered {
-    // ── C ABI dogfoods (siblings of `check`) ─────────────────────────────────
-    // Per-language dogfood of the Zig C ABI archives. Each consumer loads the
+    // ── Binding suites (siblings of `check`) ─────────────────────────────────
+    // Each binding's test suite over the Zig C ABI archives. Each consumer loads the
     // installed archives and drives an OCapN round-trip through its idiomatic
     // API over the whole C ABI, allocation context, owned-frame feed, and
     // typed events included (see bindings/README.md). The Rust consumer also
     // exercises the opt-in tokio async layer alongside the sync surface. Each
     // needs its runtime on PATH (cargo / deno / python3 / racket), provided by
     // this repo's devcontainer.
-    var dogfood_runs: [dogfoods.len]*std.Build.Step.Run = undefined;
-    for (dogfoods, 0..) |dogfood, i| {
-        dogfood_runs[i] = addRootedSystemCommand(b, dogfood.posture, dogfood.argv);
-        dogfood_runs[i].step.dependOn(b.getInstallStep());
-        b.step(dogfood.step_name, dogfood.description).dependOn(&dogfood_runs[i].step);
+    var suite_runs: [suites.len]*std.Build.Step.Run = undefined;
+    for (suites, 0..) |suite, i| {
+        suite_runs[i] = addRootedSystemCommand(b, suite.posture, suite.argv);
+        suite_runs[i].step.dependOn(b.getInstallStep());
+        b.step(suite.step_name, suite.description).dependOn(&suite_runs[i].step);
     }
     // The crate declares its Clippy floor so editors and direct Cargo use see
     // the same contract. This leg supplies only the whole-target feature shape
@@ -103,29 +103,31 @@ pub fn register(
     rust_binding_lint.step.dependOn(b.getInstallStep());
     const rust_binding_lint_step = b.step("rust-binding-lint", "Lint the Rust binding library, tests, and examples with Clippy (needs cargo)");
     rust_binding_lint_step.dependOn(&rust_binding_lint.step);
-    dogfood_runs[0].step.dependOn(&rust_binding_lint.step);
-    const python_artifact_smoke = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
-        "python3", "bindings/python/smoke/artifact.py",
+    suite_runs[0].step.dependOn(&rust_binding_lint.step);
+    const python_wheel_check = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "python3", "bindings/python/test/artifact.py",
     });
-    python_artifact_smoke.step.dependOn(b.getInstallStep());
-    const python_dogfood = dogfood_runs[dogfoodIndex("python-dogfood")];
-    python_dogfood.step.dependOn(&python_artifact_smoke.step);
+    python_wheel_check.step.dependOn(b.getInstallStep());
+    const python_suite = suite_runs[suiteIndex("python-test")];
+    python_suite.step.dependOn(&python_wheel_check.step);
+    // `test/main.py` imports the package from the checkout, not an installed wheel.
+    python_suite.setEnvironmentVariable("PYTHONPATH", common.rootPath(b, "bindings/python"));
     // The macOS Rust test executable resolves glowcap's installed dylibs at
     // load time. Bind both Cargo's resolver and the test process to the archives
-    // this step installed. The dogfood's compile prep shares its environment.
-    const dogfood_lib_dir = common.rootPath(b, "zig-out/lib");
+    // this step installed. The suite's compile prep shares its environment.
+    const lib_dir = common.rootPath(b, "zig-out/lib");
     // Pin every runtime to these installed archives. Otherwise a language's
     // ordinary cold-cache resolver may select an older versioned package first.
-    for (dogfood_runs) |run| run.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
-    rust_binding_lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
+    for (suite_runs) |run| run.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
+    rust_binding_lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
     switch (builtin.os.tag) {
         .macos => {
-            dogfood_runs[0].setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
-            rust_binding_lint.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir);
+            suite_runs[0].setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
+            rust_binding_lint.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
         },
         .linux, .freebsd, .netbsd, .openbsd, .dragonfly => {
-            dogfood_runs[0].setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
-            rust_binding_lint.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir);
+            suite_runs[0].setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir);
+            rust_binding_lint.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir);
         },
         else => {},
     }
@@ -143,13 +145,13 @@ pub fn register(
         });
         run.step.dependOn(b.getInstallStep());
         run.setEnvironmentVariable("PYTHONPATH", common.rootPath(b, "bindings/python"));
-        run.setEnvironmentVariable("GLOWCAP_LIB_DIR", dogfood_lib_dir);
+        run.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
         switch (builtin.os.tag) {
-            .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", dogfood_lib_dir),
-            .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", dogfood_lib_dir),
+            .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir),
+            .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir),
             else => {},
         }
-        python_dogfood.step.dependOn(&run.step);
+        python_suite.step.dependOn(&run.step);
     }
     // The Rust crate's README claims the core stands alone with no feature on;
     // this compile-only leg keeps that claim a gate instead of a sentence (the
@@ -159,7 +161,7 @@ pub fn register(
         "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features",
     });
     rust_core_only.step.dependOn(b.getInstallStep());
-    dogfood_runs[0].step.dependOn(&rust_core_only.step);
+    suite_runs[0].step.dependOn(&rust_core_only.step);
     // The async driver is independently selectable even when a consumer has
     // not enabled a listener provider. Event retirement is intrinsic to that
     // generic loop, not to the public constructors optional features expose.
@@ -167,7 +169,7 @@ pub fn register(
         "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", "async",
     });
     rust_async_only.step.dependOn(b.getInstallStep());
-    dogfood_runs[0].step.dependOn(&rust_async_only.step);
+    suite_runs[0].step.dependOn(&rust_async_only.step);
     // Each transport feature alone, on top of nothing: a module one feature
     // reaches into (the driver listener, a locator formatter) must be gated on
     // every feature that reaches it, and the default set always carries `tcp`,
@@ -178,13 +180,13 @@ pub fn register(
             "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", feature,
         });
         leg.step.dependOn(b.getInstallStep());
-        dogfood_runs[0].step.dependOn(&leg.step);
+        suite_runs[0].step.dependOn(&leg.step);
     }
     const rust_iroh_tests_only = addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "check", "--tests", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", "iroh",
     });
     rust_iroh_tests_only.step.dependOn(b.getInstallStep());
-    dogfood_runs[0].step.dependOn(&rust_iroh_tests_only.step);
+    suite_runs[0].step.dependOn(&rust_iroh_tests_only.step);
     // The application crates are consumers of the public Rust surface, not
     // fixtures inside it. Compile them separately so a binding API or feature
     // edge cannot leave the demos stale while the binding's own tests stay
@@ -199,7 +201,7 @@ pub fn register(
             "cargo", "check", "--manifest-path", manifest,
         });
         check.step.dependOn(b.getInstallStep());
-        dogfood_runs[0].step.dependOn(&check.step);
+        suite_runs[0].step.dependOn(&check.step);
     }
     // `raco test` makes a failed rackunit check process-fatal and runs each
     // library's `(module+ test ...)` submodule; compiler-lib in the pinned
@@ -226,7 +228,7 @@ pub fn register(
         "bindings/racket/private/session/outbound.rkt",
         "bindings/racket/private/ws-transport.rkt",
     };
-    const racket_test_step = b.step("racket-test", "Run the Racket unit tests (needs racket + goblins)");
+    const racket_suite = suite_runs[suiteIndex("racket-test")];
     const racket_make = execution.addSystemCommand(b, .build_tool, &.{ "raco", "make" });
     for (racket_tests) |file| racket_make.addArg(file);
     racket_make.step.dependOn(b.getInstallStep());
@@ -235,11 +237,11 @@ pub fn register(
         const run = execution.addSystemCommand(b, .{ .deterministic = 10 }, &.{ "raco", "test", file });
         run.step.dependOn(&racket_make.step);
         run.has_side_effects = true;
-        racket_test_step.dependOn(&run.step);
+        racket_suite.step.dependOn(&run.step);
     }
 
-    const bindings_step = b.step("bindings", "Run language-binding dogfood and verify published examples (rust, deno, bun, python, racket)");
-    for (dogfood_runs) |run| bindings_step.dependOn(&run.step);
+    const bindings_step = b.step("bindings", "Run every binding's test suite and verify the published examples (rust, deno, bun, python, racket)");
+    for (suite_runs) |run| bindings_step.dependOn(&run.step);
     bindings_step.dependOn(site_reg.python_examples_check);
     bindings_step.dependOn(site_reg.rust_examples_check);
     bindings_step.dependOn(site_reg.racket_examples_check);
@@ -252,8 +254,8 @@ pub fn register(
     // the gifter half (ADR-0039) and the engine's swiss re-resolution end to end
     // through the binding, with no Goblins or manual export bookkeeping.
     const run_gifter_handoff = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
-        "deno",                                  "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
-        "bindings/ts/dogfood/gifter_handoff.ts",
+        "deno",                               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
+        "bindings/ts/test/gifter_handoff.ts",
     });
     run_gifter_handoff.step.dependOn(b.getInstallStep());
     b.step("deno-gifter-handoff", "Glowcap-only 3-node three-party handoff: a broker introduces a recipient to an exporter, who is then messaged directly (needs deno)")
@@ -262,12 +264,12 @@ pub fn register(
         .bindings_step = bindings_step,
         .bindings_onion_step = bindings_onion_step,
         .rust_binding_lint_step = rust_binding_lint_step,
-        .dogfood_runs = dogfood_runs,
+        .suite_runs = suite_runs,
     };
 }
 
 /// The formatting, per-scope check, and detached-package half, wired after
-/// the archives and dogfood runs it references exist.
+/// the archives and suite runs it references exist.
 pub fn registerChecks(
     b: *std.Build,
     check_step: *std.Build.Step,
@@ -277,7 +279,7 @@ pub fn registerChecks(
     reg: Registered,
 ) void {
     const bindings_fmt_deps = reg;
-    const dogfood_runs = bindings_fmt_deps.dogfood_runs;
+    const suite_runs = bindings_fmt_deps.suite_runs;
     const bindings_onion_step = bindings_fmt_deps.bindings_onion_step;
     const downloads = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/c-abi/download_test.py" });
     downloads.has_side_effects = true;
@@ -289,7 +291,7 @@ pub fn registerChecks(
     // the Zig toolchain, so `fmt` (write) and `fmt-check` (check) are in-tree and
     // `fmt-check` rides `check`. The Rust formatter needs cargo, so `bindings-fmt`
     // and `bindings-fmt-check` are siblings of `check`, the same posture as
-    // `rust-dogfood` and `bindings`. Python and Racket have no formatter in the
+    // `rust-test` and `bindings`. Python and Racket have no formatter in the
     // toolchain: Python's formatters forbid tabs and Racket indentation is
     // alignment-sensitive, so they are governed by `.editorconfig` alone. The
     // indentation policy itself lives in `.editorconfig`, `rustfmt.toml`, and
@@ -436,10 +438,10 @@ pub fn registerChecks(
     });
     bindings_fmt_check_step.dependOn(&mypy_check.step);
 
-    // Type-check the TypeScript binding. `deno-dogfood` and `wasm-driver-test`
+    // Type-check the TypeScript binding. `deno-test` and `wasm-driver-test`
     // both run their entry without type-checking (modern `deno run` does not
     // type-check by default), so a type error would otherwise ship silently;
-    // check the public entry points, the dogfood, and the wasm browser-binding
+    // check the public entry points, the test suite, and the wasm browser-binding
     // proof here. The graph is the Deno one: the experimental
     // Node adapter imports `node:ffi`, which Deno cannot resolve, so it stays out
     // (it is `@ts-nocheck` and only loaded under Node).
@@ -509,13 +511,13 @@ pub fn registerChecks(
     bindings_fmt_check_step.dependOn(&deno_onion_test.step);
 
     // ADR-0042's binding-package proof. Rust, Python, and Racket exercise the
-    // onion provider in their ordinary archive dogfoods; TypeScript has the
+    // onion provider in their ordinary test suites; TypeScript has the
     // focused provider suite above. Bun is a second TypeScript runtime, not a
     // fifth binding, and cannot own a blocking provider lifecycle.
-    bindings_onion_step.dependOn(&dogfood_runs[0].step);
+    bindings_onion_step.dependOn(&suite_runs[0].step);
     bindings_onion_step.dependOn(&deno_onion_test.step);
-    bindings_onion_step.dependOn(&dogfood_runs[3].step);
-    bindings_onion_step.dependOn(&dogfood_runs[4].step);
+    bindings_onion_step.dependOn(&suite_runs[3].step);
+    bindings_onion_step.dependOn(&suite_runs[4].step);
 
     // The detached Rust consumer enables every transport feature, so it links
     // the iroh and WebRTC companions that the default install leaves out.

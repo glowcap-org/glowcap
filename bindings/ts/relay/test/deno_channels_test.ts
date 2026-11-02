@@ -1,6 +1,6 @@
 import { takeRuntimeFailures } from "@glowcap/runtime";
 import { denoTcpChannel } from "../deno_channels.ts";
-import { assertEquals } from "../../dogfood/assert.ts";
+import { assertEquals } from "../../test/assert.ts";
 
 type TcpConnect = (options: Deno.ConnectOptions) => Promise<Deno.TcpConn>;
 const denoTcp = Deno as unknown as { connect: TcpConnect };

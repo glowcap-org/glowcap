@@ -519,7 +519,7 @@
      (run-ffi-finalizer! "iroh-endpoint.finalize" (lambda () (iroh-endpoint-close! q)) #:layer 'transport)))
   e)
 
-;; Internal fault projection used by the resident loop and binding dogfood.
+;; Internal fault projection used by the resident loop and the binding's tests.
 (define (iroh-endpoint-record-failure! e error)
   (record-iroh-loop-failure! (iroh-endpoint-loop e) error))
 

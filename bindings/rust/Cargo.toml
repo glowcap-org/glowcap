@@ -20,7 +20,7 @@ path = "src/lib.rs"
 # Dead code in this crate is drift: an FFI mirror or marshaling helper whose C
 # export or caller went away must be pruned in the same change, so the compiler
 # refuses it instead of a rule asking someone to notice (`cargo` enforces this
-# in every build, including `zig build rust-dogfood`).
+# in every build, including `zig build rust-test`).
 [lints.rust]
 dead_code = "deny"
 # An `unsafe fn` body is not implicitly unsafe at edition 2024, so every raw

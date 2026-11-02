@@ -27,7 +27,7 @@ path = "client.rs"
 iroh = ["glowcap/iroh"]
 
 # The glowcap binding, with its tokio async layer. Renamed to `glowcap` so the
-# application reads against the library, not the dogfood crate's package name.
+# application reads against the library, not the binding crate's package name.
 # `default-features = false` keeps the archive set explicit. This client always
 # composes the TCP provider for bare room locators; the optional `iroh` feature
 # adds only the iroh provider for `ocapn://…iroh` locators.

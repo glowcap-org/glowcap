@@ -7,7 +7,7 @@ const util = @import("../util.zig");
 const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
-/// The public dogfood root is a thin aggregate, while its
+/// The Racket suite's root module is a thin aggregate, while its
 /// scenario modules stay outside the package. Hold all three facts together:
 /// every scenario is required once, no stale aggregate entry survives, and
 /// catalog installation omits the complete test tree.
@@ -17,10 +17,10 @@ pub fn checkBindingTestAggregate(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const aggregate_path = "bindings/racket/zig-smoke.rkt";
-    const scenarios_path = "bindings/racket/test/zig-smoke";
+    const aggregate_path = "bindings/racket/test/main.rkt";
+    const scenarios_path = "bindings/racket/test/scenarios";
     const aggregate = root.readFileAlloc(io, aggregate_path, gpa, .limited(2 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read Racket dogfood aggregate with {s}", .{ aggregate_path, @errorName(err) });
+        try appendViolation(gpa, violations, "{s}: failed to read the Racket suite root with {s}", .{ aggregate_path, @errorName(err) });
         return;
     };
     defer gpa.free(aggregate);
@@ -30,7 +30,7 @@ pub fn checkBindingTestAggregate(
     };
 
     var dir = root.openDir(io, scenarios_path, .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to open Racket dogfood scenarios with {s}", .{ scenarios_path, @errorName(err) });
+        try appendViolation(gpa, violations, "{s}: failed to open the Racket scenarios with {s}", .{ scenarios_path, @errorName(err) });
         return;
     };
     defer dir.close(io);
@@ -41,24 +41,24 @@ pub fn checkBindingTestAggregate(
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".rkt")) continue;
         if (std.mem.eql(u8, entry.path, "support.rkt")) continue;
         scenario_count += 1;
-        const required = try std.fmt.allocPrint(gpa, "test/zig-smoke/{s}", .{entry.path});
+        const required = try std.fmt.allocPrint(gpa, "scenarios/{s}", .{entry.path});
         defer gpa.free(required);
         const count = stringLiteralCount(require_form, required);
         if (count != 1) {
             try appendViolation(gpa, violations, "{s}: scenario `{s}` must appear exactly once in the aggregate require form; found {d}", .{ aggregate_path, required, count });
         }
     }
-    const support = "test/zig-smoke/support.rkt";
+    const support = "scenarios/support.rkt";
     const support_count = stringLiteralCount(require_form, support);
     if (support_count != 1) {
         try appendViolation(gpa, violations, "{s}: shared scenario support must appear exactly once in the aggregate require form; found {d}", .{ aggregate_path, support_count });
     }
-    const aggregate_count = prefixedStringLiteralCount(require_form, "test/zig-smoke/");
+    const aggregate_count = prefixedStringLiteralCount(require_form, "scenarios/");
     if (aggregate_count != scenario_count + 1) {
         try appendViolation(gpa, violations, "{s}: aggregate names {d} scenario paths but the directory owns {d} scenarios plus support; remove stale or duplicate entries", .{ aggregate_path, aggregate_count, scenario_count });
     }
-    try expectFileContains(io, gpa, root, violations, "bindings/racket/info.rkt", &.{"(define compile-omit-paths '(\"zig-smoke.rkt\" \"test\"))"});
-    try expectFileContains(io, gpa, root, violations, "bindings/racket/info.rkt", &.{"(define source-omit-files '(\"zig-smoke.rkt\" \"zig-smoke-fake-tor.rkt\" \"test\"))"});
+    try expectFileContains(io, gpa, root, violations, "bindings/racket/info.rkt", &.{"(define compile-omit-paths '(\"test\"))"});
+    try expectFileContains(io, gpa, root, violations, "bindings/racket/info.rkt", &.{"(define source-omit-files '(\"test\"))"});
 }
 
 fn findRequireForm(contents: []const u8) ?[]const u8 {
@@ -149,15 +149,15 @@ fn isDelimiter(byte: u8) bool {
 test "Racket aggregate parser ignores comments and rejects duplicate scenario literals" {
     const source =
         \\#lang racket/base
-        \\; (require "test/zig-smoke/comment.rkt")
-        \\(require "test/zig-smoke/support.rkt"
-        \\         "test/zig-smoke/one.rkt"
-        \\         "test/zig-smoke/one.rkt")
+        \\; (require "scenarios/comment.rkt")
+        \\(require "scenarios/support.rkt"
+        \\         "scenarios/one.rkt"
+        \\         "scenarios/one.rkt")
     ;
     const form = findRequireForm(source).?;
-    try std.testing.expectEqual(@as(usize, 2), stringLiteralCount(form, "test/zig-smoke/one.rkt"));
-    try std.testing.expectEqual(@as(usize, 3), prefixedStringLiteralCount(form, "test/zig-smoke/"));
-    try std.testing.expectEqual(@as(usize, 0), stringLiteralCount(form, "test/zig-smoke/comment.rkt"));
+    try std.testing.expectEqual(@as(usize, 2), stringLiteralCount(form, "scenarios/one.rkt"));
+    try std.testing.expectEqual(@as(usize, 3), prefixedStringLiteralCount(form, "scenarios/"));
+    try std.testing.expectEqual(@as(usize, 0), stringLiteralCount(form, "scenarios/comment.rkt"));
 }
 
 /// Every Racket script under `conformance/goblins-peer/racket/` must read as

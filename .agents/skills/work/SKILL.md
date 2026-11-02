@@ -45,7 +45,7 @@ the design is sound.
 | Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
 | Dependency or toolchain updates                       | [`docs/dependencies.md`](../../../docs/dependencies.md) + [cli](../../rules/cli.md#devcontainer) + [prerelease](../../rules/prerelease.md) |
 | Live CapTP from the shell (argv, REPL, listen, `--json`) | [glowcap-cli skill](../glowcap-cli/SKILL.md)                                                               |
-| Live CapTP via Cursor/Claude MCP tools                | [glowcap-mcp skill](../glowcap-mcp/SKILL.md) (dogfood CapTP while editing glowcap)                         |
+| Live CapTP via Cursor/Claude MCP tools                | [glowcap-mcp skill](../glowcap-mcp/SKILL.md) (live CapTP while editing glowcap)                         |
 | Room presence wake loop                               | [rooms-peer skill](../rooms-peer/SKILL.md)                                                                   |
 | A settled boundary or vocabulary choice               | matching ADR under `docs/decisions/adr/`                                                                   |
 | OCapN current direction (settled or pending)          | updated `conformance/ocapn-spec/upstream/`: draft, recent minutes, and the owning live proposal            |

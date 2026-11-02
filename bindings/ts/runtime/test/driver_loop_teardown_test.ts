@@ -3,7 +3,7 @@ import { DriverLoop } from "../driver_loop.ts";
 import { GlowcapError, secondaryFailures } from "../errors.ts";
 import { Host } from "../host.ts";
 import type { Session } from "../session.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 Deno.test("close runs each retained release once in order and records a throwing one", async () => {
 	const host = new Host();

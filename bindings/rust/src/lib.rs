@@ -22,7 +22,7 @@
 //! roles: the product maps to the Host and the router tables map to
 //! `engine.Node` (ADR-0011). This crate moves bytes and honors the host's
 //! action queue on the byte-fed path. It is also the consumer that
-//! `zig build rust-dogfood` runs to cover the ergonomic surface.
+//! `zig build rust-test` runs to cover the ergonomic surface.
 //!
 //! # Composable modules, à la carte
 //!

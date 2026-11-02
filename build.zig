@@ -404,12 +404,12 @@ pub fn build(b: *std.Build) void {
     bench_build.register(b, target, optimize, lib_mod, fast_lib_mod, host_mods, check_step, runtime_gate, profiles);
     gen_build.registerCapnpFixtures(b, target, optimize, lib_mod, check_step);
 
-    // The per-language dogfoods and their aggregates register from
+    // The per-language test suites and their aggregates register from
     // tools/build/bindings_steps.zig; the iroh-dependent wiring joins below,
     // where the iroh ABI steps exist.
     const bindings_reg = bindings_steps_build.register(b, site_reg);
     const bindings_step = bindings_reg.bindings_step;
-    const dogfood_runs = bindings_reg.dogfood_runs;
+    const suite_runs = bindings_reg.suite_runs;
 
     // Shared Zig interop-driver harness, one instance for every interop
     // executable (the goblins family's drivers and the iroh drivers below).
@@ -454,8 +454,8 @@ pub fn build(b: *std.Build) void {
     const iroh_resident_mod = iroh_reg.resident_mod;
     const iroh_sidecar_archive = iroh_reg.sidecar_archive;
     const iroh_abi_step = iroh_reg.abi_step;
-    for (bindings_steps_build.dogfoods, dogfood_runs) |dogfood, run| {
-        if (dogfood.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
+    for (bindings_steps_build.suites, suite_runs) |suite, run| {
+        if (suite.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
     }
     bindings_step.dependOn(iroh_reg.abi_test_step);
 
@@ -609,7 +609,7 @@ pub fn build(b: *std.Build) void {
     apps_demos_build.register(b, target, optimize, lib_mod, loam_engines.sqlite, check_step, runtime_gate, pin_port, attach, demo_usage_mod, demo_tools_check_mod);
 
     // The formatting, per-scope, and detached-package checks register from
-    // tools/build/bindings_steps.zig, over the archives and dogfood runs.
+    // tools/build/bindings_steps.zig, over the archives and suite runs.
     bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, &.{ iroh_abi_step, webrtc_reg.abi_step }, rooms.browser_application, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.

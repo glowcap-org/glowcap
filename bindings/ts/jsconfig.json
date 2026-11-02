@@ -3,7 +3,7 @@
 	// `paths`; Deno uses the deno.json workspace and ignores this file (a
 	// tsconfig.json here would perturb `deno check`, so it is a jsconfig on
 	// purpose). The two maps name the same packages, so `@glowcap/*` resolves
-	// identically on both runtimes (`deno-dogfood` / `bun-dogfood` hold it).
+	// identically on both runtimes (`deno-test` and `bun-test` hold it).
 	"compilerOptions": {
 		"paths": {
 			"@glowcap/abi": ["./abi/constants.ts"],

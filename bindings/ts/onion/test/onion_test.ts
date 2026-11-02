@@ -19,7 +19,7 @@ function assertThrows(fn: () => unknown): void {
 }
 import { DriverLoop, GlowcapError } from "@glowcap/runtime/transport";
 import { Connection, installProvider, listen, Netlayer, SERVICE_ID_LENGTH } from "../mod.ts";
-import { assert, assertDeepEquals, assertRejects } from "../../dogfood/assert.ts";
+import { assert, assertDeepEquals, assertRejects } from "../../test/assert.ts";
 
 /** A real, checksum-valid version 3 id, from the pinned Goblins source. Using a
  * well-formed one matters: the transport refuses anything else before it opens a

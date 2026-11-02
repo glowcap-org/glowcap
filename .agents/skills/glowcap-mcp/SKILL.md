@@ -2,7 +2,7 @@
 name: glowcap-mcp
 description: >-
   Use when CapTP must run through the project's glowcap MCP server (Cursor /
-  Claude mcp.json): dogfood live CapTP while editing, choose catalogs via
+  Claude mcp.json): run live CapTP while editing, choose catalogs via
   --tools, fix missing binary/state, or diagnose identity/busy/timeout. Shell
   CapTP → glowcap-cli. Room wake → rooms-peer.
 ---
@@ -31,7 +31,7 @@ a shell-out. They run the same product binary as argv and REPL
 | Shell / REPL / listen | [glowcap-cli](../glowcap-cli/SKILL.md) |
 | Session lifetimes (all fronts) | [glowcap-cli](../glowcap-cli/SKILL.md) § Session model |
 
-## Dogfood while building glowcap
+## Live CapTP while building glowcap
 
 | Need | How |
 | --- | --- |

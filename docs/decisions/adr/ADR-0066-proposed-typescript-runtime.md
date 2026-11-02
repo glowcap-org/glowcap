@@ -25,9 +25,9 @@ The driver loop parks in one off-thread `poll(2)` on a copy of the kernel
 readiness descriptor, through the `nonblocking` flag of Deno's FFI
 (`bindings/ts/runtime/driver_loop.ts`). Bun's FFI runs every call on the
 JavaScript thread, so Bun refuses listeners and blocking transport
-lifecycles before allocating them (`bindings/ts/dogfood/smoke/bun_refusals.ts`).
+lifecycles before allocating them (`bindings/ts/test/scenarios/bun_refusals.ts`).
 [Stability](../../stability.md) and [known limitations](../../boundaries.md)
-record that exclusion, and `bun-dogfood` proves the refusals.
+record that exclusion, and `bun-test` proves the refusals.
 
 On 2026-10-09 Deno announced that it is [joining
 Cloudflare](https://deno.com/blog/cloudflare). The runtime gets one more year
@@ -94,7 +94,7 @@ maintenance release.
    the park off the JavaScript thread through Node-API's own mechanisms,
    either async work or an addon-owned thread with a thread-safe wake. The
    symbol inventories stay the one authority over the exported symbols.
-2. **The addon is gated before anything else moves.** `bun-dogfood` grows
+2. **The addon is gated before anything else moves.** `bun-test` grows
    until Bun runs the live Goblins listener matrix, the relay, and the iroh
    checks that Deno runs today, and a Node step runs the same programs. No
    other part of the swap starts before that passes, because the addon is the
@@ -114,7 +114,7 @@ maintenance release.
    image, the editor settings, and the docs change in the same batches as the
    code they describe. The `@glowcap/*` packages publish to npm. The Rust
    example that shells out to `deno fmt` takes the new formatter.
-6. **Deno is removed, not demoted.** No secondary dogfood target survives, and
+6. **Deno is removed, not demoted.** No secondary test runtime survives, and
    the `DENO_VERSION` pin leaves the devcontainer image. Two runtimes for one
    job is the state this record ends.
 
@@ -124,7 +124,7 @@ the maintenance window rather than at its edge.
 ## Scope (what this does not decide)
 
 - Whether Node gets its own row in [stability](../../stability.md) with
-  recurring steps, or is proven only by the addon's dogfood.
+  recurring steps, or is proven only by the addon's test suite.
 - Whether `bun build` replaces Vite for the Rooms and visualizer browser
   bundles.
 - Whether Cloudflare Workers becomes a deployment target for the byte-fed
@@ -151,7 +151,7 @@ the maintenance window rather than at its edge.
   `ffi.getCurrentEventLoop()` would let a shim poll the readiness descriptor
   from Node's own libuv loop instead of parking, but that path exists on Node
   alone, so it does not replace the addon.
-- **Swap roles and keep Deno as the secondary dogfood target.** Rejected
+- **Swap roles and keep Deno as the secondary test runtime.** Rejected
   because it holds two runtimes for one job until a removal date the window
   already sets.
 - **Node primary with Bun secondary.** The addon serves both, so the choice is
@@ -180,7 +180,7 @@ the maintenance window rather than at its edge.
 ## Evidence and gate
 
 A proposed record has no in-tree evidence. On acceptance, the gate is:
-`bun-dogfood` runs the listener matrix on Bun through the addon and a Node
+`bun-test` runs the listener matrix on Bun through the addon and a Node
 step runs the same programs, a test that leaks a socket on purpose fails
 under the teardown check, and `check` and `runtime-check` pass with Deno
 absent from the image.

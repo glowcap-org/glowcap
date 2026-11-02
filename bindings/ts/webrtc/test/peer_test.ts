@@ -7,7 +7,7 @@ import {
 } from "@glowcap/abi";
 import { acceptRemoteCandidate } from "../exchange.ts";
 import { RtcPeer } from "../peer.ts";
-import { assertDeepEquals, deferred } from "../../dogfood/assert.ts";
+import { assertDeepEquals, deferred } from "../../test/assert.ts";
 import { fakeChannel, installFakePeerConnection } from "./fake_peer_connection.ts";
 
 async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {

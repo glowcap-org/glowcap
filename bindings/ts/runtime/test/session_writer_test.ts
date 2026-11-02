@@ -4,7 +4,7 @@ import { GlowcapError, secondaryFailures } from "../errors.ts";
 import { Host } from "../host.ts";
 import { bareLocator } from "../locator.ts";
 import { type Channel, Session } from "../session.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 /** One direction of an in-memory stream that holds at most `capacity` bytes,
  * so a writer waits until the reader takes what is buffered. */
