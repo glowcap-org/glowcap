@@ -43,6 +43,23 @@
 (define (echoer bcom)
   (methods [(echo what) what]))
 
+;; The published object that names its listener, for `listen-routed`.
+(define ((sider label) bcom)
+  (methods [(which) label]))
+
+;; Accept one session on `server` on its own green thread, publish `name`
+;; there, and serve it. The semaphore posts once the publication is in place.
+(define (serve-side server name object)
+  (define published (make-semaphore 0))
+  (define serving
+    (thread
+     (lambda ()
+       (define served (accept server))
+       (session-publish served name object)
+       (semaphore-post published)
+       (session-serve served))))
+  (values serving published))
+
 (define argv (current-command-line-arguments))
 (when (< (vector-length argv) 2)
   (fail "usage: racket_client.rkt <peerUri> <deadUri>"))
@@ -154,14 +171,7 @@
 (define server (listen "127.0.0.1" 0))
 ;; A closed listener has no locator to read, so name it while it lives.
 (define own-uri (server-uri server))
-(define published (make-semaphore 0))
-(define serving
-  (thread
-   (lambda ()
-     (define served (accept server))
-     (session-publish served "echo" echoer)
-     (semaphore-post published)
-     (session-serve served))))
+(define-values (serving published) (serve-side server "echo" echoer))
 (define own (runtime-connect runtime (server-locator server)))
 (semaphore-wait published)
 (define echo (session-fetch own "echo"))
@@ -170,6 +180,32 @@
 (thread-wait serving)
 (server-close! server)
 (mark "listen-served" own-uri)
+
+;; ── listen-routed ────────────────────────────────────────
+;; Two listeners on one Host share one driver loop, and each ACCEPTED event
+;; names its listener. A loop that flattened accepts into one queue would hand
+;; one listener's connection to the other's accept loop, and the served answer
+;; would name the wrong side. A Host holds one listener per profile, so the
+;; second listener is the keyed-tcp profile of the same package. The listeners
+;; share the first one's Host, and the runtime's own Host stays the dialer.
+(define a (listen "127.0.0.1" 0))
+(define b (listen-keyed-tcp "127.0.0.1" 0 #:host (server-host a)))
+(define-values (serving-a published-a) (serve-side a "side" (sider "a")))
+(define-values (serving-b published-b) (serve-side b "side" (sider "b")))
+(for ([server (list b a)]
+      [label (list "b" "a")]
+      [published (list published-b published-a)])
+  (define dialed (runtime-connect runtime (server-locator server)))
+  (semaphore-wait published)
+  (define which (session-fetch dialed "side"))
+  (expect-string (format "listener ~a routed" label) (session-send dialed which 'which) label)
+  (session-close! dialed))
+(thread-wait serving-a)
+(thread-wait serving-b)
+;; Listener a minted the loop both share, so it closes last.
+(server-close! b)
+(server-close! a)
+(mark "listen-routed")
 
 ;; ── dial-refused ─────────────────────────────────────────────────────────────
 (define stray

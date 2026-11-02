@@ -69,6 +69,11 @@
 //                   port 0, dialed its advertised locator from this same
 //                   process, called a published object over the accepted
 //                   session, and closed the listener.
+//   listen-routed   Opened two more listeners on one Host (a Host holds one
+//                   listener per profile, so plain and keyed TCP), dialed
+//                   each, and read back which listener's accept loop served
+//                   the session. An accept handed to the other listener fails
+//                   the scene.
 //   dial-refused    Dialed <deadUri> and got the binding's typed refusal. A
 //                   hang, a panic, or a successful connect all fail the scene.
 //   ok              Every scene above passed and the client is exiting.
@@ -96,6 +101,7 @@ const EXPECTED = [
 	"gc-released",
 	"promise-failed",
 	"listen-served",
+	"listen-routed",
 	"dial-refused",
 	"ok",
 ] as const;

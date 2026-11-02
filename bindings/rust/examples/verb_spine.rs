@@ -27,8 +27,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use glowcap::{
-	Argument, ConnectOptions, Error, PendingWork, Ref, RemotePromise, Runtime, RuntimeConfig, Session, parse_locator,
-	tcp,
+	Argument, ConnectOptions, Error, ListenerIdentity, PendingWork, Ref, RemotePromise, Runtime, RuntimeConfig,
+	Session, parse_locator, tcp,
 };
 use tokio::task::LocalSet;
 
@@ -96,17 +96,35 @@ fn expect_value<T>(what: &str, outcome: Result<T, Error>) -> T {
 	}
 }
 
-/// Publish `echo` on the first session this listener accepts, and serve it
-/// until the partner closes.
-async fn serve_once(listener: Rc<tcp::Server>) -> Result<(), Error> {
+/// Publish `name` with `behavior` on the first session this listener accepts,
+/// and serve it until the partner closes.
+async fn serve_once(
+	listener: Rc<tcp::Server>,
+	name: &str,
+	behavior: impl FnMut(Option<&str>, &[Argument]) -> Result<Argument, String> + 'static,
+) -> Result<(), Error> {
 	let served = listener.accept().await?;
-	served.publish("echo", |verb, args| {
-		if verb != Some("echo") {
-			return Err(format!("echo has no verb {verb:?}"));
-		}
-		Ok(args.first().and_then(Argument::as_str).unwrap_or("?").into())
-	})?;
+	served.publish(name, behavior)?;
 	served.serve().await
+}
+
+fn echo_behavior(verb: Option<&str>, args: &[Argument]) -> Result<Argument, String> {
+	if verb != Some("echo") {
+		return Err(format!("echo has no verb {verb:?}"));
+	}
+	Ok(args.first().and_then(Argument::as_str).unwrap_or("?").into())
+}
+
+/// Join a serve task once the dialed half has closed, bounding the wait.
+async fn joined(what: &str, serving: tokio::task::JoinHandle<Result<(), Error>>) {
+	match tokio::time::timeout(SERVE_TIMEOUT, serving).await {
+		Ok(Ok(outcome)) => expect(what, outcome),
+		Ok(Err(joined)) => fail(format!("{what}: the serve task failed: {joined}")),
+		Err(_) => fail(format!(
+			"{what}: the accepted session was still serving {}s after the dialed half closed",
+			SERVE_TIMEOUT.as_secs()
+		)),
+	}
 }
 
 async fn walk(peer_uri: String, dead_uri: String) {
@@ -236,7 +254,7 @@ async fn walk(peer_uri: String, dead_uri: String) {
 	// A closed listener has no locator to read, so name it while it lives.
 	let own_uri = expect_value("read the listener locator", server.uri());
 	let own_locator = expect_value("read the listener locator", server.locator());
-	let serving = tokio::task::spawn_local(serve_once(Rc::clone(&server)));
+	let serving = tokio::task::spawn_local(serve_once(Rc::clone(&server), "echo", echo_behavior));
 	let own = expect_value(
 		"dial this process's own listener",
 		runtime.connect(&own_locator, ConnectOptions::default()).await,
@@ -248,16 +266,52 @@ async fn walk(peer_uri: String, dead_uri: String) {
 		"heard",
 	);
 	expect("close the dialed half", own.close(PendingWork::Cancel).await);
-	match tokio::time::timeout(SERVE_TIMEOUT, serving).await {
-		Ok(Ok(outcome)) => expect("serve the accepted session", outcome),
-		Ok(Err(joined)) => fail(format!("the serve task failed: {joined}")),
-		Err(_) => fail(format!(
-			"the accepted session was still serving {}s after the dialed half closed",
-			SERVE_TIMEOUT.as_secs()
-		)),
-	}
+	joined("serve the accepted session", serving).await;
 	expect("close the listener", server.close().await);
 	mark("listen-served", &own_uri);
+
+	// ── listen-routed ────────────────────────────────────────
+	// Two listeners on one Host share one driver loop, and each ACCEPTED event
+	// names its listener. A loop that flattened accepts into one queue would
+	// hand one listener's connection to the other's accept loop, and the served
+	// answer would name the wrong side. A Host holds one listener per profile,
+	// so the second listener is the keyed-tcp profile of the same package. The
+	// listeners share the first one's Host, and the runtime's own Host stays
+	// the dialer.
+	let a = Rc::new(expect_value(
+		"open listener a",
+		tcp::listen("127.0.0.1", 0, tcp::ListenOptions::default()).await,
+	));
+	let shared = tcp::ListenOptions {
+		identity: ListenerIdentity::Host(a.host()),
+		..Default::default()
+	};
+	let b = Rc::new(expect_value(
+		"open listener b",
+		tcp::keyed::listen("127.0.0.1", 0, shared).await,
+	));
+	let serving_a = tokio::task::spawn_local(serve_once(Rc::clone(&a), "side", |_, _| Ok("a".into())));
+	let serving_b = tokio::task::spawn_local(serve_once(Rc::clone(&b), "side", |_, _| Ok("b".into())));
+	for (server, side) in [(&b, "b"), (&a, "a")] {
+		let locator = expect_value("read a listener locator", server.locator());
+		let dialed = expect_value(
+			"dial a listener",
+			runtime.connect(&locator, ConnectOptions::default()).await,
+		);
+		let which = expect_value("fetch side", dialed.fetch("side").await);
+		expect_string(
+			&format!("listener {side} routed"),
+			&value("which side", dialed.send(&which, "which", &[])).await,
+			side,
+		);
+		expect("close the dialed half", dialed.close(PendingWork::Cancel).await);
+	}
+	joined("serve listener a", serving_a).await;
+	joined("serve listener b", serving_b).await;
+	// Listener a minted the loop both share, so it closes last.
+	expect("close listener b", b.close().await);
+	expect("close listener a", a.close().await);
+	mark("listen-routed", "");
 
 	// ── dial-refused ────────────────────────────────────────────────────────
 	let dead = expect_value("parse the dead locator", parse_locator(&dead_uri));

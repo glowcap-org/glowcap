@@ -57,17 +57,39 @@ function sendHandle(
 	return handle;
 }
 
-/** Publish `echo` on the first session this listener accepts, and serve it. */
-async function serveOnce(listener: tcp.Server): Promise<void> {
+/** Publish `name` with `behavior` on the first session this listener accepts,
+ * and serve it. */
+async function serveOnce(
+	listener: tcp.Server,
+	name: string,
+	behavior: Parameters<Session["publish"]>[1],
+): Promise<void> {
 	for await (const accepted of listener) {
 		const served: Session = accepted;
-		served.publish("echo", (verb, args) => {
-			if (verb !== "echo") throw new Error(`echo has no verb ${verb}`);
-			return typeof args[0] === "string" ? args[0] : "?";
-		});
+		served.publish(name, behavior);
 		served.serve();
 		return;
 	}
+}
+
+// Serve the first accept and leave the listener open. Returning from a
+// `for await` over a listener closes it, and closing the Host's selected
+// listener leaves the Host with no acceptable locator for its other
+// listener's accepts, so the routed scene closes both listeners itself.
+async function serveFirst(
+	listener: tcp.Server,
+	name: string,
+	behavior: Parameters<Session["publish"]>[1],
+): Promise<void> {
+	const first = await listener[Symbol.asyncIterator]().next();
+	if (first.done) throw new Error(`${name}: the listener closed before its accept`);
+	first.value.publish(name, behavior);
+	first.value.serve();
+}
+
+function echoBehavior(verb: string | null, args: unknown[]): string {
+	if (verb !== "echo") throw new Error(`echo has no verb ${verb}`);
+	return typeof args[0] === "string" ? args[0] : "?";
 }
 
 if (Deno.args.length < 2) fail("usage: deno_client.ts <peerUri> <deadUri>");
@@ -140,7 +162,7 @@ mark("promise-failed");
 const server = await tcp.listen("127.0.0.1", 0);
 // A closed listener has no locator to read, so name it while it lives.
 const ownUri = server.uri;
-const serving = serveOnce(server);
+const serving = serveOnce(server, "echo", echoBehavior);
 const own = await runtime.connect(server.locator);
 const echo = await own.fetch("echo");
 expectString("own listener echo", await own.send(echo, "echo", ["heard"]), "heard");
@@ -148,6 +170,29 @@ await own.close();
 await serving;
 await server.close();
 mark("listen-served", ownUri);
+
+// ── listen-routed ────────────────────────────────────────
+// Two listeners on one Host share one driver loop, and each ACCEPTED event
+// names its listener. A loop that flattened accepts into one queue would hand
+// one listener's connection to the other's accept loop, and the served answer
+// would name the wrong side. A Host holds one listener per profile, so the
+// second listener is the keyed-tcp profile of the same package. The listeners
+// share the first one's Host, and the runtime's own Host stays the dialer.
+const a = await tcp.listen("127.0.0.1", 0);
+const b = await tcp.keyed.listen("127.0.0.1", 0, { host: a.host });
+const servingA = serveFirst(a, "side", () => "a");
+const servingB = serveFirst(b, "side", () => "b");
+for (const [server, side] of [[b, "b"], [a, "a"]] as const) {
+	const dialed = await runtime.connect(server.locator);
+	const which = await dialed.fetch("side");
+	expectString(`listener ${side} routed`, await dialed.send(which, "which", []), side);
+	await dialed.close();
+}
+await Promise.all([servingA, servingB]);
+// Listener a minted the loop both share, so it closes last.
+await b.close();
+await a.close();
+mark("listen-routed");
 
 // ── dial-refused ────────────────────────────────────────────────────────────
 let stray: Session | null = null;
