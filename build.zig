@@ -36,10 +36,6 @@ const relay_matrix_build = @import("tools/build/relay_matrix.zig");
 const browser_preflight_build = @import("tools/build/browser_preflight.zig");
 const build_steps_doc = @import("tools/build/build_steps_doc.zig");
 
-const glowcapExecutable = build_common.glowcapExecutable;
-const addGlowcapRun = build_common.addGlowcapRun;
-const addRootedSystemCommand = build_common.addRootedSystemCommand;
-
 /// C ABI version (keep in lockstep with `GLOWCAP_VERSION_*` in
 /// `include/glowcap_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
 /// in `build.zig.zon`, the source gate holds the zon triple to this one). Each
@@ -163,16 +159,11 @@ pub fn layerIndex(comptime name: []const u8) usize {
 
 pub const graphFromTable = @import("tools/build/module_graph.zig").create;
 
-const addInstalledSystemRun = build_common.addInstalledSystemRun;
 const installArchive = build_common.installArchive;
 const interopHarnessModule = build_common.interopHarnessModule;
 
 const AbiImport = build_common.AbiImport;
 const transportAbiModule = build_common.transportAbiModule;
-
-const linkIrohSidecar = build_common.linkIrohSidecar;
-
-const irohDriverModule = build_common.irohDriverModule;
 
 pub fn build(b: *std.Build) void {
     const target = build_common.baselineTarget(b);
@@ -494,8 +485,6 @@ pub fn build(b: *std.Build) void {
     });
     check_step.dependOn(&iroh_abi_check.step);
 
-    // `include/glowcap_net_transport_iroh.h` and the binding FFI layout facts
-
     gen_build.registerMirrors(gen_ctx, iroh_resident_mod, webrtc_resident_mod);
 
     // The per-binding client families (the `bindings-*` aggregates and their
@@ -608,7 +597,7 @@ pub fn build(b: *std.Build) void {
 
     // The formatting, per-scope, and detached-package checks register from
     // tools/build/bindings_steps.zig, over the archives and suite runs.
-    bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, &.{ iroh_abi_step, webrtc_reg.abi_step }, rooms.browser_application, bindings_reg);
+    bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, &.{ iroh_abi_step, webrtc_reg.abi_step }, rooms.rust_lint, rooms.browser_application, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
     ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, browser_preflight, rooms_services_install);

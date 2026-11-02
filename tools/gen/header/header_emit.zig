@@ -1,4 +1,4 @@
-//! The shared C-header emitter behind the `header_gen*` generators.
+//! The shared C-header emitter behind the `tools/gen/header/*.zig` generators.
 //!
 //! Every generator reflects one `c_abi` module into a byte-exact C header:
 //! constants become `#define`s, extern structs become typedefs, and exports

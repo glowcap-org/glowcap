@@ -251,10 +251,6 @@ pub fn WireMap(comptime K: type, comptime V: type) type {
             return self.inner.getPtrContext(key, self.ctx());
         }
 
-        pub fn getEntry(self: *const Self, key: K) ?Entry {
-            return self.inner.getEntryContext(key, self.ctx());
-        }
-
         pub fn contains(self: *const Self, key: K) bool {
             return self.inner.containsContext(key, self.ctx());
         }

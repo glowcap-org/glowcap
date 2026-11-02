@@ -269,10 +269,6 @@ pub const TcpBackendStatus = if (@import("builtin").os.tag == .linux)
     linux_completion.Status
 else
     struct {};
-pub const TcpBackendImplementation = if (@import("builtin").os.tag == .linux)
-    linux_completion.Implementation
-else
-    enum {};
 pub const TcpBackendFallbackReason = if (@import("builtin").os.tag == .linux)
     linux_completion.FallbackReason
 else

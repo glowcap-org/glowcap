@@ -289,7 +289,7 @@ test "core host: partner-side index empties after enroll, learn, condemn, and re
 }
 
 test "core host: a burst of accepts before any start-session indexes every partner side without overflow" {
-    // Regression (ADR-0007): `partner_by_side` reserves at its own insert
+    // `partner_by_side` (ADR-0007) reserves at its own insert
     // (`indexPartnerKey`), not at mint. A partner key is unknown until that
     // partner's `op:start-session` arrives, so every session minted before a
     // single start-session is fed stays un-indexed, a mint-time reservation

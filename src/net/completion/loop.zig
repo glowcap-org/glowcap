@@ -70,7 +70,6 @@ pub const HintedPending = hinted_try_io.HintedPending;
 pub const TryRead = hinted_try_io.TryRead;
 pub const TryWrite = hinted_try_io.TryWrite;
 pub const HintedTryIo = hinted_try_io.HintedTryIo;
-pub const InnerLegLifecycle = @import("inner_leg.zig").Lifecycle;
 pub const SubmissionDebt = @import("submission_debt.zig").State;
 pub const CloseReason = contract.CloseReason;
 pub const CloseReport = contract.CloseReport;

@@ -2,6 +2,7 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 const session_mod = @import("session");
 const engine = @import("../../mod.zig");
@@ -92,7 +93,7 @@ const PreparedRecipient = struct {
 
 pub const Prepared = struct {
     /// Keyed like `Node.promise_proxies`, whose rows these become.
-    groups: topology.Groups(Group),
+    groups: foundation.identity_hash.MapOf(.wire, topology.HomeKey, Group),
     recipients: std.ArrayListUnmanaged(PreparedRecipient) = .empty,
     committed: bool = false,
 

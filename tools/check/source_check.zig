@@ -162,8 +162,8 @@ pub fn check(
     try docs_links.checkRegistryReadmeLinks(io, gpa, root, &violations);
     try docs_adr.checkAdrCitations(io, gpa, root, &violations, root_path);
     try docs_adr.checkAdrFrontmatter(io, gpa, root, &violations);
+    try docs_adr.checkAdrIndex(io, gpa, root, &violations);
     try docs_adr.checkAdrRelations(io, gpa, root, &violations);
-    try docs_adr.checkAdrEvidenceLinks(io, gpa, root, &violations);
     try docs_site.checkSiteContentLinks(io, gpa, root, &violations);
     try docs_site.checkSiteTransportTabs(io, gpa, root, &violations);
     try docs_site.checkSiteNavParity(io, gpa, root, &violations);

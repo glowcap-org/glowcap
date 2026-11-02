@@ -160,47 +160,6 @@ pub fn checkNoAdrInRuntimeStrings(
     }
 }
 
-/// Like `srcHasCallOutsideDef`, but allows a small set of definition/call sites.
-fn srcHasCallOutsideAllowlist(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-    call_needle: []const u8,
-    allow: []const []const u8,
-) !bool {
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch return false;
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
-        defer gpa.free(path);
-        var allowed = false;
-        for (allow) |a| {
-            if (std.mem.eql(u8, path, a)) {
-                allowed = true;
-                break;
-            }
-        }
-        if (allowed) continue;
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be read for the C-ABI wiring check ({s})", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        var lines = std.mem.splitScalar(u8, contents, '\n');
-        while (lines.next()) |line| {
-            const trimmed = std.mem.trimStart(u8, line, " \t");
-            if (std.mem.startsWith(u8, trimmed, "//")) continue;
-            if (std.mem.indexOf(u8, line, call_needle) != null) return true;
-        }
-    }
-    return false;
-}
-
 fn srcHasCallOutsideDef(
     io: std.Io,
     gpa: std.mem.Allocator,

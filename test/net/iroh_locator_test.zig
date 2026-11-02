@@ -46,7 +46,6 @@ test "supported iroh facade and nested surfaces stay exact" {
         "ConnectTarget",
         "resolveConnectTarget",
         "DialResolver",
-        "CompositeDialResolver",
         "validateListenerLocator",
         "CompletionBackend",
         "Backend",

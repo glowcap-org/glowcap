@@ -1,6 +1,6 @@
 //! Terminal promise projection failure can synchronously fire far-vow listeners.
 //! Those listeners may project the same promise or grow the Host promise map.
-//! Omitting row reacquisition was verified to crash after callback map growth.
+//! The row is reacquired after each callback because the map may have grown.
 //! Fixture gives stop at introducer closure; no successful withdrawal is claimed.
 const std = @import("std");
 const glowcap = @import("glowcap");

@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { fail } from "./harness.ts";
-import { OPERATIONS_CAPABILITIES } from "../../lib/boot_caps.ts";
+import { OPERATIONS_CAPABILITIES } from "../../lib/application_data.ts";
 import { capabilityUriLabel } from "../../lib/text/settings.ts";
 
 export async function savedCapabilityNames(tab: Page): Promise<string[]> {

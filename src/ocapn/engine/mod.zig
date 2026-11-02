@@ -1,12 +1,5 @@
 //! The `Peer` you hold, and the loop that drives it. Synchronous, no I/O.
 //!
-//! We call this the engine, not the runtime, and that difference is the whole
-//! point. glowcap has no runtime in the usual sense: no scheduler, no background
-//! tasks, no ambient executor driving things behind your back. The engine is the
-//! explicit, synchronous alternative, you feed it frames, you call `step`, you
-//! drain and poll. When the project's values say "no hidden runtime", this layer
-//! is what they mean stays absent.
-//!
 //! A `Peer` is the engine object an adapter hangs onto. It owns a `Session`,
 //! keeps one queue of inbound frames and one of outbound messages, and surfaces
 //! events for your application to handle. It does no I/O and runs no scheduler of
@@ -299,7 +292,6 @@ pub const Peer = struct {
     pub const PendingReservation = peer_outbound.PendingReservation;
     pub const InlinePassableStagingReservation = peer_outbound.InlinePassableStagingReservation;
     pub const PendingBatch = peer_outbound.PendingBatch;
-    pub const pendingOutboundCharge = peer_outbound.pendingOutboundCharge;
     pub const reservePending = peer_outbound.reservePending;
     pub const reservePendingCharged = peer_outbound.reservePendingCharged;
     pub const reserveAnswerRelease = peer_outbound.reserveAnswerRelease;
@@ -308,7 +300,6 @@ pub const Peer = struct {
     pub const cancelInlinePassableStaging = peer_outbound.cancelInlinePassableStaging;
     pub const transferInlinePassableStaging = peer_outbound.transferInlinePassableStaging;
     pub const beginPendingBatch = peer_outbound.beginPendingBatch;
-    pub const ensurePendingCapacity = peer_outbound.ensurePendingCapacity;
     pub const pushPendingAssume = peer_outbound.pushPendingAssume;
     pub const cancelPendingReservation = peer_outbound.cancelPendingReservation;
     pub const transferPendingChargeToAnswerStore = peer_outbound.transferPendingChargeToAnswerStore;
@@ -408,7 +399,6 @@ pub const Peer = struct {
     pub const recordAbortDeliveryFailure = peer_failures.recordAbortDeliveryFailure;
     pub const recordSecondaryFailure = peer_failures.recordSecondaryFailure;
 
-    pub const pushEncoded = peer_send.pushEncoded;
     pub const pushEncodedFromPending = peer_send.pushEncodedFromPending;
     pub const pushEncodedPairFromPending = peer_send.pushEncodedPairFromPending;
     pub const commitAbortOutbound = peer_send.commitAbortOutbound;

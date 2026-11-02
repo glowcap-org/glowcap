@@ -69,14 +69,3 @@ pub fn drainHost(comptime Driver: type, comptime Codes: type, host: ?*Driver.Glo
     }
     return .{ .acted = acted };
 }
-
-/// Give every host one drain turn through the same `exec`.
-pub fn drainHosts(comptime Driver: type, comptime Codes: type, hosts: []const ?*Driver.GlowcapHost, exec: anytype) !DrainResult {
-    var result: DrainResult = .{};
-    for (hosts) |host| {
-        const one = try drainHost(Driver, Codes, host, exec);
-        result.acted = result.acted or one.acted;
-        result.yielded = result.yielded or one.yielded;
-    }
-    return result;
-}

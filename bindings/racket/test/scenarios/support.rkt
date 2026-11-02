@@ -31,10 +31,10 @@
 ;; Accordingly each helper call opens one test-owned Runtime; sharing one here
 ;; would silently reuse peer identity and reject a second session to the same
 ;; partner as a duplicate pair. The aggregate retires every Runtime at teardown.
-(define tcp-provider-for-smoke (tcp-provider))
+(define shared-tcp-provider (tcp-provider))
 (define extra-runtimes (box '()))
 
-(define (open-test-session loc #:provider [provider tcp-provider-for-smoke]
+(define (open-test-session loc #:provider [provider shared-tcp-provider]
                            #:connector [connector #f] #:adopt-host [adopted-host #f]
                            #:codec [codec #f] #:captp-version [captp-version #f]
                            #:features [features #f]

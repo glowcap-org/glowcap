@@ -183,7 +183,7 @@ pub const transport_provider_architecture: []const Ban = &.{
     .{
         .where = .{ .file = "src/net/socket.zig" },
         .kind = .forbid,
-        .needles = &.{"pub const Shim = stream_shim.Shim;"},
+        .needles = &.{"stream_shim"},
         .check = "transport-provider-architecture",
         .why = "the stream adapter has one public authority at net.stream_shim; socket owns only OS socket and keepalive primitives",
     },

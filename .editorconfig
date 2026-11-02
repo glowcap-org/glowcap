@@ -59,7 +59,7 @@ indent_style = space
 indent_size = 2
 
 # C headers and sources: the public headers are generated four-space by
-# tools/header_gen*.zig, so the hand-written examples match them.
+# tools/gen/header/*.zig, so the hand-written examples match them.
 [*.{c,h}]
 indent_style = space
 indent_size = 4

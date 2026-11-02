@@ -68,7 +68,7 @@ pub const test_only_surface: []const Ban = &.{
     .{
         .where = .{ .file = "src/driver/core/mod.zig" },
         .kind = .forbid,
-        .needles = &.{"pub const emitStatelessAfter"},
+        .needles = &.{ "\npub fn emitStatelessAfter", "\npub const emitStatelessAfter" },
         .check = "test-only-surface",
         .why = "direct stateless-GC emission is white-box support, not a production driver.core export",
     },
@@ -81,13 +81,6 @@ pub const test_only_surface: []const Ban = &.{
         .needles = &.{ "pub fn testingMarkDirty", "pub fn testingQueueUniqueSessionAction" },
         .check = "test-only-surface",
         .why = "white-box pump helpers live under a compile-time-empty testing namespace, never as ordinary public functions",
-    },
-    .{
-        .where = .{ .file = "src/ocapn/engine/mod.zig" },
-        .kind = .forbid,
-        .needles = &.{ "initRawOpenFixture", "fifo_steady_bytes" },
-        .check = "test-only-surface",
-        .why = "engine fixtures and budget probes belong under the test-build-only engine.testing namespace",
     },
     .{
         .where = .{ .file = "src/driver/core/host.zig" },

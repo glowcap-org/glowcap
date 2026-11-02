@@ -87,7 +87,6 @@ zig build fmt-check                         # Check Zig formatting without writi
 zig build python-check                      # Check the formatting and lint of every first-party Python file with the pinned ruff; part of check-build, source-check
 zig build python-fmt                        # Format every first-party Python file in place with the pinned ruff
 zig build cli-test                          # Run the in-tree glowcap CLI registry and session/capture tests; part of check
-zig build cli                               # Alias for cli-test: the in-tree glowcap CLI goldens
 zig build glowcap                           # Run the glowcap CapTP CLI; pass `-- <command> ...` (ocapn, repl, mcp, apps rooms session, and so on)
 zig build examples                          # Build and run examples; part of check
 zig build consumer-check                    # Build a downstream package against the glowcap module (the README's fetch/import path); part of check-build

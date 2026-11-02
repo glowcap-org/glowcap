@@ -379,7 +379,7 @@ test "provider maps failed WebRTC open to transport failure" {
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, failure.result);
 }
 
-test "candidate pump carries one candidate above the former 4 KiB bound" {
+test "candidate pump carries one candidate above 4 KiB" {
     stub.candidate_bytes_to_emit = 5 * 1024;
     stub.candidate_reads = 0;
     stub.candidate_sent_bytes = 0;

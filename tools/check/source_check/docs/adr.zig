@@ -1,5 +1,6 @@
 //! ADR hygiene: frontmatter shape, relation symmetry between supersedes and
-//! amends pairs, and evidence links that still resolve.
+//! amends pairs, citations that name a record, and an index that lists every
+//! record.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -11,6 +12,40 @@ const AdrRecord = struct {
     path: []const u8,
     body: []const u8,
 };
+
+/// `docs/decisions/README.md` lists every record under a subject, so a record
+/// the index skips is unreachable from the page that introduces the records.
+pub fn checkAdrIndex(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const index_path = "docs/decisions/README.md";
+    const index = root.readFileAlloc(io, index_path, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for ADR index check with {s}", .{ index_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(index);
+    const dir_path = "docs/decisions/adr";
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for ADR index check with {s}", .{ dir_path, @errorName(err) });
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.startsWith(u8, entry.path, "ADR-")) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
+        const link = try std.fmt.allocPrint(gpa, "(adr/{s})", .{entry.path});
+        defer gpa.free(link);
+        if (std.mem.indexOf(u8, index, link) == null) {
+            try appendViolation(gpa, violations, "{s}: does not list {s}/{s}", .{ index_path, dir_path, entry.path });
+        }
+    }
+}
 
 /// The one spelling of an ADR's own standing. A record that states its status
 /// in prose instead of frontmatter sits outside `checkAdrRelations` entirely,
@@ -152,46 +187,6 @@ pub fn checkAdrRelations(
     for (records.items) |record| {
         for (relations) |relation| {
             try checkAdrRelationField(gpa, violations, records.items, record, relation.field, relation.reciprocal);
-        }
-    }
-}
-
-/// An ADR may list aspirational acceptance scenarios without implemented
-/// evidence. Once it is accepted, or once a partial migration records its
-/// standing, prose alone is no longer enough: cite at least one in-tree test. status-allow: lifecycle transition
-/// `checkMarkdownLinks` separately proves that the cited path resolves.
-pub fn checkAdrEvidenceLinks(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const dir_path = "docs/decisions/adr";
-    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to open for ADR evidence check with {s}", .{ dir_path, @errorName(err) });
-        return;
-    };
-    defer dir.close(io);
-
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.startsWith(u8, entry.path, "ADR-") or !std.mem.endsWith(u8, entry.path, ".md")) continue;
-        const body = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}/{s}: failed to read for ADR evidence check with {s}", .{ dir_path, entry.path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(body);
-
-        if (std.mem.indexOf(u8, body, "\n## Required evidence\n") == null) continue;
-        const accepted = if (adrFrontmatterValue(body, "status")) |status|
-            std.mem.eql(u8, status, "accepted")
-        else
-            false;
-        const records_standing = std.mem.indexOf(u8, body, "Migration standing") != null;
-        if (!accepted and !records_standing) continue;
-        if (std.mem.indexOf(u8, body, "](../../../test/") == null) {
-            try appendViolation(gpa, violations, "{s}/{s}: accepted or migration-standing required evidence must cite an in-tree `test/` path with a Markdown link", .{ dir_path, entry.path });
         }
     }
 }

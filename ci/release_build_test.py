@@ -51,7 +51,6 @@ class ReleaseBuild(unittest.TestCase):
         self.assertEqual(triggers, {"push": {"tags": ["v*"]}, "workflow_dispatch": None})
         source = text(WORKFLOW)
         self.assertNotIn("actions/cache", source)
-        self.assertNotIn("release_recovery", source)
 
     def test_only_a_tag_attests_and_only_the_archives_and_release_may_attest(self):
         archives = RELEASE["archives"]

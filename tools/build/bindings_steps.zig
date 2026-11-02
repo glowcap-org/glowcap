@@ -103,7 +103,8 @@ pub fn register(
     rust_binding_lint.step.dependOn(b.getInstallStep());
     const rust_binding_lint_step = b.step("rust-binding-lint", "Lint the Rust binding library, tests, and examples with Clippy (needs cargo)");
     rust_binding_lint_step.dependOn(&rust_binding_lint.step);
-    suite_runs[0].step.dependOn(&rust_binding_lint.step);
+    const rust_suite = suite_runs[suiteIndex("rust-test")];
+    rust_suite.step.dependOn(&rust_binding_lint.step);
     const python_wheel_check = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "python3", "bindings/python/test/artifact.py",
     });
@@ -122,11 +123,11 @@ pub fn register(
     rust_binding_lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
     switch (builtin.os.tag) {
         .macos => {
-            suite_runs[0].setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
+            rust_suite.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
             rust_binding_lint.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
         },
         .linux, .freebsd, .netbsd, .openbsd, .dragonfly => {
-            suite_runs[0].setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir);
+            rust_suite.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir);
             rust_binding_lint.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir);
         },
         else => {},
@@ -161,7 +162,7 @@ pub fn register(
         "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features",
     });
     rust_core_only.step.dependOn(b.getInstallStep());
-    suite_runs[0].step.dependOn(&rust_core_only.step);
+    rust_suite.step.dependOn(&rust_core_only.step);
     // The async driver is independently selectable even when a consumer has
     // not enabled a listener provider. Event retirement is intrinsic to that
     // generic loop, not to the public constructors optional features expose.
@@ -169,7 +170,7 @@ pub fn register(
         "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", "async",
     });
     rust_async_only.step.dependOn(b.getInstallStep());
-    suite_runs[0].step.dependOn(&rust_async_only.step);
+    rust_suite.step.dependOn(&rust_async_only.step);
     // Each transport feature alone, on top of nothing: a module one feature
     // reaches into (the driver listener, a locator formatter) must be gated on
     // every feature that reaches it, and the default set always carries `tcp`,
@@ -180,13 +181,13 @@ pub fn register(
             "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", feature,
         });
         leg.step.dependOn(b.getInstallStep());
-        suite_runs[0].step.dependOn(&leg.step);
+        rust_suite.step.dependOn(&leg.step);
     }
     const rust_iroh_tests_only = addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "check", "--tests", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", "iroh",
     });
     rust_iroh_tests_only.step.dependOn(b.getInstallStep());
-    suite_runs[0].step.dependOn(&rust_iroh_tests_only.step);
+    rust_suite.step.dependOn(&rust_iroh_tests_only.step);
     // The application crates are consumers of the public Rust surface, not
     // fixtures inside it. Compile them separately so a binding API or feature
     // edge cannot leave the demos stale while the binding's own tests stay
@@ -201,7 +202,7 @@ pub fn register(
             "cargo", "check", "--manifest-path", manifest,
         });
         check.step.dependOn(b.getInstallStep());
-        suite_runs[0].step.dependOn(&check.step);
+        rust_suite.step.dependOn(&check.step);
     }
     // `raco test` makes a failed rackunit check process-fatal and runs each
     // library's `(module+ test ...)` submodule; compiler-lib in the pinned
@@ -275,6 +276,7 @@ pub fn registerChecks(
     check_step: *std.Build.Step,
     onion_dynamic_install: *std.Build.Step,
     companion_abi_steps: []const *std.Build.Step,
+    rooms_rust_lint: *std.Build.Step,
     rooms_browser: *std.Build.Step,
     reg: Registered,
 ) void {
@@ -354,13 +356,7 @@ pub fn registerChecks(
     const rust_lint_step = b.step("rust-lint", "Lint every first-party Rust crate and target with Clippy (needs cargo)");
     rust_lint_step.dependOn(reg.rust_binding_lint_step);
     bindings_fmt_check_step.dependOn(rust_lint_step);
-    const rooms_lint = addRootedSystemCommand(b, .build_tool, &.{
-        "cargo",       "clippy",        "--locked",   "--manifest-path",          "apps/rooms/rust/Cargo.toml",
-        "--workspace", "--all-targets", "--features", "rooms-services/processes", "--",
-        "-D",          "warnings",
-    });
-    rooms_lint.step.dependOn(b.getInstallStep());
-    rust_lint_step.dependOn(&rooms_lint.step);
+    rust_lint_step.dependOn(rooms_rust_lint);
     // `--all` because a virtual workspace manifest declares no bin or lib target
     // of its own: without it `cargo fmt` there reports "Failed to find targets"
     // and formats nothing, which is the quietest way for a whole workspace to
@@ -514,10 +510,10 @@ pub fn registerChecks(
     // onion provider in their ordinary test suites; TypeScript has the
     // focused provider suite above. Bun is a second TypeScript runtime, not a
     // fifth binding, and cannot own a blocking provider lifecycle.
-    bindings_onion_step.dependOn(&suite_runs[0].step);
+    bindings_onion_step.dependOn(&suite_runs[suiteIndex("rust-test")].step);
     bindings_onion_step.dependOn(&deno_onion_test.step);
-    bindings_onion_step.dependOn(&suite_runs[3].step);
-    bindings_onion_step.dependOn(&suite_runs[4].step);
+    bindings_onion_step.dependOn(&suite_runs[suiteIndex("python-test")].step);
+    bindings_onion_step.dependOn(&suite_runs[suiteIndex("racket-test")].step);
 
     // The detached Rust consumer enables every transport feature, so it links
     // the iroh and WebRTC companions that the default install leaves out.
