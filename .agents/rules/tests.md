@@ -20,7 +20,7 @@ fix the test.
 - **unit:** a module-internal invariant. A failure points at that layer.
 - **scenario:** a whole-conversation trace through the engine compared against
   the oracle. A failure points at session or engine behavior.
-- **oracle:** `src/oracle/` traces plus the `test/oracle/` corpus and arm
+- **oracle:** `test/oracle/` scenario traces, corpus, and arm
   registry. The corpus is glowcap-authored, so the live steps
   (`goblins-interop`, `ocapn-conformance`) are the stronger authority.
 - **conformance:** external authority (OCapN spec, live Goblins, upstream

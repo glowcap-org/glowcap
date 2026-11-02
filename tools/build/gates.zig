@@ -74,9 +74,23 @@ fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Op
 /// compiled to one loadable wasm module. It roots on `src/c_abi/wasm/mod.zig`,
 /// which forces both export families in and adds the JS<->wasm linear-memory
 /// primitives. The module graph is the sans-io core (the `core = true` prefix)
-/// plus the two ocapn C ABI vocabulary rows. The I/O layers (`net`, `driver`,
-/// `oracle`) wasm lacks are excluded. ReleaseSmall keeps the download small and
+/// plus the two ocapn C ABI vocabulary rows. The I/O layers (`net`, `driver`)
+/// wasm lacks are excluded. ReleaseSmall keeps the download small and
 /// drops the runtime-safety-only `std.Thread.getCurrentId` owner assert.
+/// The CapTP scenario drivers under `test/oracle/scenarios/`: test code that
+/// drives a `Peer` through fixed protocol scenarios and returns the wire bytes
+/// the oracle, fuzz, and memcheck suites compare. Built once per module graph
+/// because each graph has its own target and mode.
+fn scenariosModule(b: *std.Build, mods: []*std.Build.Module, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path("test/oracle/scenarios/mod.zig"),
+        .target = t,
+        .optimize = o,
+    });
+    inline for (.{ "foundation", "model", "session", "engine" }) |layer| mod.addImport(layer, mods[layerIndex(layer)]);
+    return mod;
+}
+
 /// The `layer_table` rows the wasm driver's base module graph transitively
 /// needs, as a keep-mask over `layer_table`.
 ///
@@ -224,9 +238,9 @@ pub fn register(ctx: Context) Registered {
     // Completion deadline arithmetic is implementation authority, not a
     // supported `net` namespace. Focused tests import that leaf directly so
     // evidence never forces a consumer-root re-export.
-    // The C ABI layers and `oracle` are not on the public `glowcap` namespace
-    // (a Zig consumer has no use for them), so their test suites import the
-    // layer modules directly.
+    // The C ABI layers are not on the public `glowcap` namespace (a Zig
+    // consumer has no use for them), so their test suites import the layer
+    // modules directly.
     // Renderer invariant tests use the Syrup implementation barrel directly;
     // importing a child file as a second module violates Zig's file-identity rule.
     tests_mod.addImport("syrup", host_mods[layerIndex("syrup")]);
@@ -240,7 +254,8 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("c_abi_net_transport_onion", onion_abi_mod);
     tests_mod.addImport("c_abi_host", host_abi_mod);
     tests_mod.addImport("c_abi_driver", driver_abi_mod);
-    tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
+    const scenarios_mod = scenariosModule(b, host_mods, target, optimize);
+    tests_mod.addImport("oracle", scenarios_mod);
     // Collection tests import the dependency-free Loam leaf directly, matching
     // the snapshot benchmark without involving storage or LMDB backends.
     tests_mod.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
@@ -320,7 +335,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = .Debug,
     });
     memcheck_mod.addImport("glowcap", memcheck_mods[layerIndex("glowcap")]);
-    memcheck_mod.addImport("oracle", memcheck_mods[layerIndex("oracle")]);
+    memcheck_mod.addImport("oracle", scenariosModule(b, memcheck_mods, memcheck_target, .Debug));
     frame_identity.addFixtures(b, memcheck_mod, memcheck_target, .Debug);
     memcheck_mod.addImport("syrup", memcheck_mods[layerIndex("syrup")]);
     const memcheck_layers = b.addOptions();
@@ -349,7 +364,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     fuzz_mod.addImport("glowcap", lib_mod);
-    fuzz_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
+    fuzz_mod.addImport("oracle", scenarios_mod);
     // The immutable collections use the same direct leaf import as the suite;
     // their fuzz target needs neither graph storage nor an LMDB backend, and
     // its fuzz target drives it against a plain map to see where they disagree.
@@ -428,9 +443,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     oracle_tests_mod.addImport("glowcap", lib_mod);
-    // The scenario traces drive the `oracle` layer directly (it is not on the
-    // public `glowcap` namespace), so the focused gate imports it too.
-    oracle_tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
+    oracle_tests_mod.addImport("oracle", scenarios_mod);
     const oracle_tests = b.addTest(.{
         .root_module = oracle_tests_mod,
     });
@@ -630,6 +643,6 @@ pub fn register(ctx: Context) Registered {
         .test_filter = test_filter,
         .wasm_install = &wasm_driver_install.step,
         .wasm_archives = wasm_archives_step,
-        .oracle = host_mods[layerIndex("oracle")],
+        .oracle = scenarios_mod,
     };
 }

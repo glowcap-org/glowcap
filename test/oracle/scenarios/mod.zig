@@ -3,11 +3,9 @@
 //! Each `run*` function drives a `engine.Peer` through one fixed protocol
 //! scenario (a Stage-0 abort, a driven deliver/resolve, a handshake-then-
 //! bootstrap-fetch, an inbound dispatch mode) and returns the resulting wire
-//! bytes. Those byte traces are the conformance evidence: the Zig oracle tests
-//! (`test/oracle`) compare them for identical observable behavior. The drivers
-//! live in their own `oracle` module, off the public `glowcap` namespace: the
-//! tests import it directly, and no binding consumes it. The bindings prove
-//! the C ABI by dogfood, not by oracle traces.
+//! bytes, which the oracle tests beside this directory compare for identical
+//! observable behavior. The suites import this directory as the `oracle`
+//! module; nothing under `src/` does.
 //!
 //! The drivers are sync and codec-parameterized. They own no I/O and add no
 //! protocol semantics the engine lacks.

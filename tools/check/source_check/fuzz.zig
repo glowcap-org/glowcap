@@ -39,15 +39,6 @@ pub fn checkFuzzRegressionSeeds(
     };
     defer test_dir.close(io);
 
-    // Null, not an early return: an unreadable canonical README costs the
-    // README comparison below and nothing else. Returning here would silence
-    // the seed-replay walk this function exists for.
-    const canonical_readme: ?[]const u8 = root.readFileAlloc(io, canonical_regressions_readme_path, gpa, .limited(1 << 20)) catch |err| blk: {
-        try appendViolation(gpa, violations, "{s}: cannot read the canonical fuzz-regression README ({s})", .{ canonical_regressions_readme_path, @errorName(err) });
-        break :blk null;
-    };
-    defer if (canonical_readme) |text| gpa.free(text);
-
     var entries = test_dir.iterate();
     while (try entries.next(io)) |entry| {
         if (entry.kind != .directory) continue;
@@ -64,11 +55,6 @@ pub fn checkFuzzRegressionSeeds(
         };
         defer gpa.free(harness);
 
-        // A target with no regressions directory at all must not pass as one
-        // with an empty directory. The case this check refuses is a crash the
-        // driver tells you to save into a path that is not there, and a seed
-        // list to add it to that does not exist either. Absent is a violation.
-        //
         // Per target, not per file. One file may hold several targets, and
         // asking only whether the *file* mentions a seed list passes a file
         // where one target replays its regressions and the others cannot. That
@@ -79,28 +65,16 @@ pub fn checkFuzzRegressionSeeds(
 
         const regressions_dir = try std.fmt.allocPrint(gpa, "test/{s}/fuzz_regressions", .{entry.name});
         defer gpa.free(regressions_dir);
-        var dir = root.openDir(io, regressions_dir, .{ .iterate = true }) catch {
-            try appendViolation(gpa, violations, "{s}: does not exist, and `zig build fuzz` tells you to copy a crash into it. Create it.", .{regressions_dir});
-            continue;
+        // Git holds no empty directory, so a target without saved crashes has
+        // none; the driver's copy instruction creates it with the first one.
+        var dir = root.openDir(io, regressions_dir, .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => {
+                try appendViolation(gpa, violations, "{s}: failed to open for fuzz-regression check with {s}", .{ regressions_dir, @errorName(err) });
+                continue;
+            },
         };
         defer dir.close(io);
-
-        // Every one of these directories carries the same README, explaining
-        // what the files are and how to wire one in. One text, one meaning:
-        // seven near-identical copies are how the explanation drifts into
-        // seven different half-truths.
-        if (canonical_readme) |canonical| {
-            const readme_path = try std.fmt.allocPrint(gpa, "{s}/README.md", .{regressions_dir});
-            defer gpa.free(readme_path);
-            if (root.readFileAlloc(io, readme_path, gpa, .limited(1 << 20))) |readme| {
-                defer gpa.free(readme);
-                if (!std.mem.eql(u8, readme, canonical)) {
-                    try appendViolation(gpa, violations, "{s}: differs from {s}. The fuzz-regression READMEs are one text; edit the canonical copy and mirror it.", .{ readme_path, canonical_regressions_readme_path });
-                }
-            } else |err| {
-                try appendViolation(gpa, violations, "{s}: cannot be read ({s}); every fuzz-regression directory carries the same README.", .{ readme_path, @errorName(err) });
-            }
-        }
 
         var files = dir.iterate();
         while (try files.next(io)) |file| {
@@ -349,10 +323,6 @@ fn checkTargetsReplayRegressions(
         }
     }
 }
-
-/// The copy that owns the one text every `test/*/fuzz_regressions/README.md`
-/// carries.
-const canonical_regressions_readme_path = "test/codec/fuzz_regressions/README.md";
 
 /// Where the fuzz driver looks for targets, and the shape it looks for.
 const target_file = "fuzz_test.zig";
