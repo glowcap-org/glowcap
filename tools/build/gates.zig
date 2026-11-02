@@ -420,7 +420,7 @@ pub fn register(ctx: Context) Registered {
     });
     onion_loop_tests_mod.addImport("glowcap", lib_mod);
     const onion_loop_tests = b.addTest(.{ .root_module = onion_loop_tests_mod });
-    const onion_loop_step = b.step("onion-loop", "Run the focused Zig OnionLoop completion tests");
+    const onion_loop_step = b.step("onion-loop-test", "Run the focused Zig OnionLoop completion tests");
     onion_loop_step.dependOn(&execution.addZigTest(b, onion_loop_tests, .unit_test).step);
 
     // ADR-0018's pending resident listen for `onion`. The publish conversation
@@ -433,7 +433,7 @@ pub fn register(ctx: Context) Registered {
     });
     onion_pending_tests_mod.addImport("glowcap", lib_mod);
     const onion_pending_tests = b.addTest(.{ .root_module = onion_pending_tests_mod });
-    const onion_pending_step = b.step("onion-pending-listen", "Run the onion pending-listen resident tests over the fake daemon");
+    const onion_pending_step = b.step("onion-pending-listen-test", "Run the onion pending-listen resident tests over the fake daemon");
     onion_pending_step.dependOn(&execution.addZigTest(b, onion_pending_tests, .unit_test).step);
     runtime_gate.add(onion_pending_step);
 
@@ -569,7 +569,7 @@ pub fn register(ctx: Context) Registered {
     // Without this edge a renamed C-ABI symbol leaves the served module stale,
     // and the browser can only report the missing export at dlopen time.
     b.getInstallStep().dependOn(&wasm_driver_install.step);
-    const wasm_driver_step = b.step("wasm-driver", "Build the browser binding's freestanding wasm32 Host module (ADR-0034) into zig-out/wasm/");
+    const wasm_driver_step = b.step("wasm-host", "Build the browser binding's freestanding wasm32 Host module (ADR-0034) into zig-out/wasm/");
     wasm_driver_step.dependOn(&wasm_driver_install.step);
     cross_check_step.dependOn(&wasm_driver.step);
 
@@ -594,7 +594,7 @@ pub fn register(ctx: Context) Registered {
     wasm_driver_test.setCwd(b.path("."));
     wasm_driver_test.has_side_effects = true;
     wasm_driver_test.step.dependOn(&wasm_driver_install.step);
-    const wasm_driver_test_step = b.step("wasm-driver-test", "Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno, ADR-0034 and ADR-0007)");
+    const wasm_driver_test_step = b.step("wasm-host-test", "Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno, ADR-0034 and ADR-0007)");
     wasm_driver_test_step.dependOn(&wasm_driver_test.step);
 
     // The wasm32 layout descriptor (`glowcap_wasm_abi_layout`) decodes cleanly:

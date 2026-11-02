@@ -1,4 +1,4 @@
-"""Shutdown acceptance checks for the relay-tls-build server fixture."""
+"""Shutdown acceptance checks for the mbedtls-build server fixture."""
 
 import argparse
 import os

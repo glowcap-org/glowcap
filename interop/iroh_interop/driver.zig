@@ -37,7 +37,7 @@
 //! outlives the process that minted it.
 //!
 //! Not part of the hermetic `zig build check`: it links the Rust sidecar
-//! staticlib (`zig build iroh-lib`, needs cargo), so it runs as the sibling
+//! staticlib (`zig build iroh-sidecar-build`, needs cargo), so it runs as the sibling
 //! step `zig build iroh-interop`.
 
 const std = @import("std");

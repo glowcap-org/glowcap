@@ -272,7 +272,7 @@ The output goes under `zig-out/glowcap-release/`.
 
 ### Running from a checkout
 
-`zig build rooms-build` stages the installation under `zig-out`. Use
+`zig build glowcap-install` stages the installation under `zig-out`. Use
 `./glowcap` to run it during development, or `./glowcap install` to install it.
 
 - The checkout launcher runs the complete product in `zig-out/product`.
@@ -281,7 +281,7 @@ The output goes under `zig-out/glowcap-release/`.
   or else the full local toolchain. macOS always builds locally, because the
   devcontainer produces Linux executables. If that build fails, the launcher
   stops.
-- After editing source, run `zig build rooms-release` in the build environment
+- After editing source, run `zig build glowcap-release` in the build environment
   before trying your changes.
 - `GLOWCAP_BIN` selects an existing executable and skips the development
   build, for example to debug a Debug executable you built by hand.
@@ -291,11 +291,11 @@ The output goes under `zig-out/glowcap-release/`.
 - `./glowcap install` copies the prepared product into a verified generation
   outside the checkout.
 - On a Linux host, `./glowcap apps rooms deployment up` prepares the current
-  source with `rooms-release` and builds its Docker image from `zig-out/product`. The
+  source with `glowcap-release` and builds its Docker image from `zig-out/product`. The
   [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
   covers persistent configuration and choosing an image.
-- `rooms-release` prepares the complete host product with ReleaseSafe and
+- `glowcap-release` prepares the complete host product with ReleaseSafe and
   baseline CPU settings. Docker requires a Linux product.
 - Neither command can produce a macOS executable from a Linux container.
 
-The C SDK is packaged separately, by `release-pack`.
+The C SDK is packaged separately, by `c-sdk-pack`.

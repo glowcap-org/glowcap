@@ -87,11 +87,11 @@ pub fn checkCAbiResolvePorts(
             if (std.mem.indexOf(u8, contents, "marker_shared_stem") != null) {
                 try appendViolation(gpa, violations, "{s}: must not use `marker_shared_stem` (static link uses marker_static)", .{path});
             }
-            // Cargo cfg already emits release-pack arch/os names (no host alias map).
+            // Cargo cfg already emits c-sdk-pack arch/os names (no host alias map).
             if (std.mem.indexOf(u8, contents, "CARGO_CFG_TARGET_ARCH") == null or
                 std.mem.indexOf(u8, contents, "CARGO_CFG_TARGET_OS") == null)
             {
-                try appendViolation(gpa, violations, "{s}: host target must come from CARGO_CFG_TARGET_ARCH/OS (matches release-pack)", .{path});
+                try appendViolation(gpa, violations, "{s}: host target must come from CARGO_CFG_TARGET_ARCH/OS (matches c-sdk-pack)", .{path});
             }
         } else {
             if (std.mem.indexOf(u8, contents, "marker_shared_stem") == null) {
@@ -100,20 +100,20 @@ pub fn checkCAbiResolvePorts(
             if (std.mem.indexOf(u8, contents, "marker_static") != null) {
                 try appendViolation(gpa, violations, "{s}: must not use `marker_static` for cache hits (dynamic load uses marker_shared_stem)", .{path});
             }
-            // Host alias → release-pack triple (see tools/c-abi/c-abi-host-aliases.json).
+            // Host alias → c-sdk-pack triple (see tools/c-abi/c-abi-host-aliases.json).
             if (std.mem.indexOf(u8, contents, "amd64") == null and
                 std.mem.indexOf(u8, contents, "x64") == null)
             {
-                try appendViolation(gpa, violations, "{s}: must normalize amd64/x64 → x86_64 for release-pack targets", .{path});
+                try appendViolation(gpa, violations, "{s}: must normalize amd64/x64 → x86_64 for c-sdk-pack targets", .{path});
             }
             if (std.mem.indexOf(u8, contents, "aarch64") == null and std.mem.indexOf(u8, contents, "arm64") == null) {
-                try appendViolation(gpa, violations, "{s}: must normalize arm64/aarch64 for release-pack targets", .{path});
+                try appendViolation(gpa, violations, "{s}: must normalize arm64/aarch64 for c-sdk-pack targets", .{path});
             }
             if (std.mem.indexOf(u8, contents, "darwin") == null and
                 std.mem.indexOf(u8, contents, "Darwin") == null and
                 std.mem.indexOf(u8, contents, "macosx") == null)
             {
-                try appendViolation(gpa, violations, "{s}: must normalize darwin/macosx → macos for release-pack targets", .{path});
+                try appendViolation(gpa, violations, "{s}: must normalize darwin/macosx → macos for c-sdk-pack targets", .{path});
             }
             // ADR-0023: refuse bare DLL names on Windows (search-order plant risk).
             if (std.mem.indexOf(u8, contents, "Windows refuses bare DLL") == null) {
@@ -360,13 +360,13 @@ pub fn checkCAbiResolvePorts(
         try appendViolation(gpa, violations, "{s}: env truthy helper must accept 1/true/yes", .{expected_operator_script});
     }
     if (std.mem.indexOf(u8, script, "amd64") == null) {
-        try appendViolation(gpa, violations, "{s}: must normalize amd64 → x86_64 for release-pack targets", .{expected_operator_script});
+        try appendViolation(gpa, violations, "{s}: must normalize amd64 → x86_64 for c-sdk-pack targets", .{expected_operator_script});
     }
     if (std.mem.indexOf(u8, script, "arm64") == null and std.mem.indexOf(u8, script, "aarch64") == null) {
-        try appendViolation(gpa, violations, "{s}: must normalize arm64/aarch64 for release-pack targets", .{expected_operator_script});
+        try appendViolation(gpa, violations, "{s}: must normalize arm64/aarch64 for c-sdk-pack targets", .{expected_operator_script});
     }
     if (std.mem.indexOf(u8, script, "Darwin") == null and std.mem.indexOf(u8, script, "darwin") == null) {
-        try appendViolation(gpa, violations, "{s}: must normalize Darwin → macos for release-pack targets", .{expected_operator_script});
+        try appendViolation(gpa, violations, "{s}: must normalize Darwin → macos for c-sdk-pack targets", .{expected_operator_script});
     }
     for (forbidden_shadows) |lit| {
         if (std.mem.indexOf(u8, script, lit) != null) {

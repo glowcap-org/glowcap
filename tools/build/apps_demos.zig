@@ -181,11 +181,11 @@ pub fn register(
     });
     three_party_mod.addImport("glowcap", lib_mod);
     const three_party_test = b.addTest(.{
-        .name = "accountability-three-party",
+        .name = "accountability-three-party-test",
         .root_module = three_party_mod,
     });
     const run_three_party = execution.addZigTest(b, three_party_test, .unit_test);
-    const three_party_step = b.step("accountability-three-party", "Run three-Host TCP handoff attribution");
+    const three_party_step = b.step("accountability-three-party-test", "Run three-Host TCP handoff attribution");
     three_party_step.dependOn(&run_three_party.step);
     check_step.dependOn(&run_three_party.step);
 }

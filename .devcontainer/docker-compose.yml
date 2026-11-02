@@ -36,7 +36,7 @@ services:
       # reaches nothing. The config reads this variable and opens Vite's
       # Host-header allowlist for that same wide bind.
       OCAPNVIZ_HOST: 0.0.0.0
-      # Zine's docs-serve is the same shape: loopback on a laptop, wide in
+      # Zine's site-serve is the same shape: loopback on a laptop, wide in
       # the container so the published 1990 mapping reaches the process.
       DOCS_SERVE_HOST: 0.0.0.0
       # The named volume below gives Zig daemon-native filesystem semantics on

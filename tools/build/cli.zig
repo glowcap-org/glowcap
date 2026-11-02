@@ -33,7 +33,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
     b.installArtifact(exe);
     const run = common.addInstalledSystemRun(b, .service, &.{"env"});
     run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/glowcap" } });
-    run.step.dependOn(&b.top_level_steps.get("rooms-build").?.step);
+    run.step.dependOn(&b.top_level_steps.get("glowcap-install").?.step);
     run.addPassthruArgs();
     b.step("glowcap", "Run the glowcap CapTP CLI; pass `-- <command> ...` (ocapn, repl, mcp, apps rooms session, and so on)")
         .dependOn(&run.step);

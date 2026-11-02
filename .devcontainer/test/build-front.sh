@@ -163,7 +163,7 @@ service_notice="$(PATH="${scratch}/bin:${PATH}" "${front}" --local zig build roo
 [[ "${service_notice}" == *"rooms-dev"* ]]
 
 service_status=0
-if service_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build docs-serve 2>&1)"; then
+if service_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build site-serve 2>&1)"; then
     echo "test/build-front: glowcap-dev accepted a host-side service without a terminal" >&2
     exit 1
 else
@@ -180,8 +180,8 @@ forced_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAI
 [[ "${forced_container_exec}" == *"--workdir /workspaces/glowcap abc123 setsid --wait sh -c "*" true" ]]
 
 if [[ $(uname -s) == Linux ]]; then
-    auto_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --auto zig build rooms-build)"
-    [[ "${auto_container_exec}" == *"abc123 setsid --wait sh -c "*" /workspaces/glowcap/.devcontainer/bin/build-lease zig build --cache-poison --test-timeout 30s rooms-build"* ]]
+    auto_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --auto zig build glowcap-install)"
+    [[ "${auto_container_exec}" == *"abc123 setsid --wait sh -c "*" /workspaces/glowcap/.devcontainer/bin/build-lease zig build --cache-poison --test-timeout 30s glowcap-install"* ]]
 fi
 explicit_local="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --local local-probe local)"
 [[ "${explicit_local}" == "${repo_root}|local" ]]
@@ -236,7 +236,7 @@ printf '%s\n' '#!/usr/bin/env bash' '[[ ${GLOWCAP_CHECKOUT_ROOT} == "$LAUNCHER_R
 chmod +x "${launcher_product}"
 launcher_output=$(cd / && LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" "${scratch}/launch" version 2>"${scratch}/launcher-log")
 [[ ${launcher_output} == first:version ]]
-grep -Fx 'builder:--auto zig build rooms-release' "${scratch}/launcher-log" >/dev/null
+grep -Fx 'builder:--auto zig build glowcap-release' "${scratch}/launcher-log" >/dev/null
 grep -Fx 'builder diagnostic' "${scratch}/launcher-log" >/dev/null
 grep -Fx 'product diagnostic' "${scratch}/launcher-log" >/dev/null
 launcher_log=$(<"${scratch}/launcher-log")
@@ -249,7 +249,7 @@ for verb in up reset; do
         GLOWCAP_PREPARE_CHECKOUT="${launcher_root}" \
         "${scratch}/launch" apps rooms deployment "$verb" 2>"${scratch}/launcher-log")
     [[ ${launcher_output} == "first:apps rooms deployment $verb" ]]
-    grep -Fx 'builder:--auto zig build rooms-release' "${scratch}/launcher-log" >/dev/null
+    grep -Fx 'builder:--auto zig build glowcap-release' "${scratch}/launcher-log" >/dev/null
     grep -Fx "prepared:${launcher_root}" "${scratch}/launcher-log" >/dev/null
     launcher_status=0
     LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" FAKE_BUILD_FAIL=1 \

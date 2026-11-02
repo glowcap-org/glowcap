@@ -236,13 +236,13 @@ require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_CAPTP_HOST_PORT:?R
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_RELAY_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9200" "docker-compose.yml relay host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_TRACE_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9300" "docker-compose.yml trace host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_OCAPNVIZ_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:5173" "docker-compose.yml ocapnviz host port"
-require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_DOCS_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:1990" "docker-compose.yml docs-serve host port"
+require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_DOCS_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:1990" "docker-compose.yml site-serve host port"
 require_literal "${compose_file}" "GLOWCAP_ROOMS_DEV_HOST: 0.0.0.0" "docker-compose.yml Rooms Vite bind"
 require_literal "${compose_file}" "OCAPNVIZ_HOST: 0.0.0.0" "docker-compose.yml ocapnviz Vite bind"
-require_literal "${compose_file}" "DOCS_SERVE_HOST: 0.0.0.0" "docker-compose.yml docs-serve bind"
+require_literal "${compose_file}" "DOCS_SERVE_HOST: 0.0.0.0" "docker-compose.yml site-serve bind"
 require_line "${compose_file}" "    init: true" "docker-compose.yml reaps orphaned tool grandchildren"
 require_literal "${dir}/../apps/ocapnviz/vite-dev-listen.ts" "allowedHosts: true" "ocapnviz Vite Host-header policy for a wide bind"
-require_literal "${dir}/../site/docs-serve.sh" 'DOCS_SERVE_HOST:-127.0.0.1' "docs-serve.sh forwards the container-wide bind"
+require_literal "${dir}/../site/serve.sh" 'DOCS_SERVE_HOST:-127.0.0.1' "serve.sh forwards the container-wide bind"
 
 # Every bind target under the container's home must itself exist, owned by
 # vscode, in the image. Docker creates a missing mount path as root, and it

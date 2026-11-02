@@ -205,7 +205,7 @@ The image puts the CapTP CLI on PATH (see the [CLI](../docs/cli.md)).
 `glowcap` links to the repo-root development launcher, which runs
 `zig-out/product/bin/glowcap`.
 
-- The launcher builds a missing product once. Run `zig build rooms-release`
+- The launcher builds a missing product once. Run `zig build glowcap-release`
   after source edits, because session and inspection commands use the existing
   product.
 - On Linux, checkout deployment `up` and `reset` prepare the current source

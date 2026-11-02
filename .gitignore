@@ -8,7 +8,7 @@ zig-out/
 # ZIG_LOCAL_PKG_DIR redirects it. Generated, never committed.
 zig-pkg/
 # Zine's default output directory: `zig build site` renders into the install
-# prefix (zig-out/site), but a direct `zine`/`docs-serve` run writes the same
+# prefix (zig-out/site), but a direct `zine`/`site-serve` run writes the same
 # generated HTML to site/public/. Generated, never committed.
 site/public/
 # The site's brand mark, bundled from the rooms shader mark by `zig build

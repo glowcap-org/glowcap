@@ -17,7 +17,7 @@ done
 ROOT="$(cd "$(dirname "${GLOWCAP_SHIM}")" && pwd)"
 PRODUCT="$ROOT/zig-out/product"
 BIN="${GLOWCAP_BIN:-$PRODUCT/bin/glowcap}"
-REBUILD=(zig build rooms-release)
+REBUILD=(zig build glowcap-release)
 prepare_request="${GLOWCAP_PREPARE_CHECKOUT:-}"
 unset GLOWCAP_CHECKOUT_ROOT GLOWCAP_PREPARE_CHECKOUT GLOWCAP_CHECKOUT_PREPARED
 if [[ -z "${GLOWCAP_BIN:-}" ]]; then
@@ -55,7 +55,7 @@ if [[ -z "${GLOWCAP_BIN:-}" ]]; then
 	export GLOWCAP_CHECKOUT_ROOT="$ROOT"
 fi
 if [[ ! -x "$BIN" ]]; then
-	echo "glowcap: missing executable at ${BIN}; check GLOWCAP_BIN or build the complete installation with 'zig build rooms-build'" >&2
+	echo "glowcap: missing executable at ${BIN}; check GLOWCAP_BIN or build the complete installation with 'zig build glowcap-install'" >&2
 	exit 1
 fi
 exec "$BIN" "$@"

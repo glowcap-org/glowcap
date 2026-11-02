@@ -223,7 +223,7 @@ To see the change:
 - The Rooms app reads the stylesheet on each request, so a CSS change needs
   only a browser refresh. A change to `ui/*.ts` needs a server restart,
   because the bundle is built at startup.
-- Rebuild the site with `zig build site`, or run `zig build docs-serve` while
+- Rebuild the site with `zig build site`, or run `zig build site-serve` while
   editing. Zine reloads content and templates, regenerates the CapTP example
   tabs when `site/examples/` changes, and triggers a CSS reload when
   `ui/tokens.css` or `ui/mark.css` changes.

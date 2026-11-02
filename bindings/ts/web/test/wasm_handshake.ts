@@ -1,6 +1,6 @@
 // The layer-zero proof for the browser binding (ADR-0034): the byte-fed CapTP
 // Host,
-// compiled to freestanding wasm32 (`zig build wasm-driver`), holds a real keyed
+// compiled to freestanding wasm32 (`zig build wasm-host`), holds a real keyed
 // OCapN handshake driven entirely from JavaScript across the WASM/JS boundary.
 //
 // Two independent Hosts with distinct Ed25519 identities live in one wasm

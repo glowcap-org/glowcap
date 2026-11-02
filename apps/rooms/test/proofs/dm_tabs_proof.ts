@@ -30,7 +30,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // DataChannel the room only signals. Rust supplies the room/web services
 // and browser session runtime; Deno drives the page through Playwright.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives
+// Needs deno, the wasm module (`zig build wasm-host`), the installed archives
 // (the room server is the Rust process), and a Playwright Chromium
 // (the devcontainer image ships one).
 // Run: `.agents/skills/work/bin/glowcap-dev zig build rooms-web-dm-tabs`.

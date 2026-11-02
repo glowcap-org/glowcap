@@ -29,7 +29,7 @@ Use `glowcap apps rooms session` to participate in an existing deployment and
 
 ## Build and develop
 
-From the repository root, `zig build rooms-build` stages that installation
+From the repository root, `zig build glowcap-install` stages that installation
 under `zig-out/product`. To run the web page from a checkout while you work on it:
 
 ```sh

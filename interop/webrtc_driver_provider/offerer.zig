@@ -17,7 +17,7 @@
 //! the offer, so the accepted session names this peer. This peer pins the
 //! listener's key the same way, so the handshake proves both identities.
 //!
-//! Links the Rust sidecar (`zig build webrtc-lib`, needs cargo), so it is built
+//! Links the Rust sidecar (`zig build webrtc-sidecar-build`, needs cargo), so it is built
 //! and run only by the binding proofs, never a hermetic gate.
 
 const std = @import("std");

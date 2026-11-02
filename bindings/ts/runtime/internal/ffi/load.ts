@@ -258,7 +258,7 @@ function abiVersion(devRoot: string | null, contract: Contract): string {
 }
 
 function hostTargetTriple(): string {
-	// Host aliases → zig build release-pack triples
+	// Host aliases → zig build c-sdk-pack triples
 	// (`tools/c-abi/c-abi-host-aliases.json`). Full corpus (string literals for
 	// source_check per-port presence): "x86_64" "amd64" "x64" "aarch64" "arm64"
 	// "macos" "darwin" "macosx" "Darwin" "linux" "Linux" "windows" "win32".

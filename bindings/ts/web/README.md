@@ -14,7 +14,7 @@ deno add jsr:@glowcap/web jsr:@glowcap/runtime jsr:@glowcap/relay
 ```
 
 The page also needs `glowcap_host.wasm`, the Wasm build of the protocol core. In a checkout of the
-[repository](https://github.com/glowcap-org/glowcap), `zig build wasm-driver` writes it to
+[repository](https://github.com/glowcap-org/glowcap), `zig build wasm-host` writes it to
 `zig-out/wasm/`.
 
 ## A first session
@@ -95,7 +95,7 @@ must not read the session.
 
 ## Shipping a page
 
-1. Serve `glowcap_host.wasm` from `zig-out/wasm/` after `zig build wasm-driver`.
+1. Serve `glowcap_host.wasm` from `zig-out/wasm/` after `zig build wasm-host`.
 2. Bundle this package with `@glowcap/runtime` and `@glowcap/abi`. Start from
    the adapter-only [`browser-bundle.json`](browser-bundle.json) and add the
    application's framework and data dependencies to it.

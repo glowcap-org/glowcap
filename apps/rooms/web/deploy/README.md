@@ -95,8 +95,8 @@ On a Linux contributor host, run:
 ./glowcap apps rooms deployment up
 ```
 
-Each checkout `up` prepares the current source, including uncommitted edits, with the `rooms-release` build: the shared
-`rooms-build` step with ReleaseSafe and baseline CPU settings, in the matching devcontainer when available. It then
+Each checkout `up` prepares the current source, including uncommitted edits, with the `glowcap-release` build: the shared
+`glowcap-install` step with ReleaseSafe and baseline CPU settings, in the matching devcontainer when available. It then
 builds an immutable image from the complete product.
 
 - Checkout `reset` uses the same preparation before asking for confirmation.
@@ -112,7 +112,7 @@ development builds.
 To prepare a Linux product separately, build inside the devcontainer:
 
 ```sh
-zig build rooms-release
+zig build glowcap-release
 ```
 
 Then, on the Docker host with glowcap installed:

@@ -434,7 +434,7 @@ pub fn registerChecks(
     });
     bindings_fmt_check_step.dependOn(&mypy_check.step);
 
-    // Type-check the TypeScript binding. `deno-test` and `wasm-driver-test`
+    // Type-check the TypeScript binding. `deno-test` and `wasm-host-test`
     // both run their entry without type-checking (modern `deno run` does not
     // type-check by default), so a type error would otherwise ship silently;
     // check the public entry points, the test suite, and the wasm browser-binding

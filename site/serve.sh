@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Server-lifecycle launcher for `zig build docs-serve`.
+# Server-lifecycle launcher for `zig build site-serve`.
 #
-# Why this exists: the root build's `docs-serve` step shells out to an inner
-# `zig build … docs-serve` from `site/`, which in turn launches Zine's
+# Why this exists: the root build's `site-serve` step shells out to an inner
+# `zig build … site-serve` from `site/`, which in turn launches Zine's
 # development server as a long-running grandchild. `zig build` does not
 # reap that subtree when it is interrupted, so the Zine server is easily left
 # orphaned: reparented to init, still bound to its port and serving stale
@@ -18,7 +18,7 @@
 #      pid" / IDE-kill-terminal case, where the signal never reaches this
 #      launcher, detected by a background watcher.
 # It is the lifecycle detail of an existing step, not a new user command, the
-# public `zig build docs-serve` is unchanged.
+# public `zig build site-serve` is unchanged.
 #
 # It also keeps generated site example tabs fresh. Zine watches `site/content`
 # and reloads when those pages change; CapTP transport snippets live under
@@ -30,17 +30,17 @@
 # Residual limit: SIGKILL is untrappable, a SIGKILL of this launcher (or of an
 # ancestor in a way that never lets the watcher run) cannot be intercepted, and
 # the isolated inner group may briefly outlive it. Likewise, a bare single-pid
-# SIGINT to a `zig build docs-serve` that was started as a *background* job is
+# SIGINT to a `zig build site-serve` that was started as a *background* job is
 # masked by the shell's job-control SIGINT handling (async jobs inherit SIGINT
 # ignored) and so never reaches this subtree; an interactive terminal, Ctrl-C,
 # or any foreground signal, is unaffected and tears down cleanly.
 #
-# Usage: docs-serve.sh <zig-exe> <build-args…>
-#   e.g. docs-serve.sh /usr/local/bin/zig --cache-dir <cache> \
-#          --prefix <repo>/zig-out docs-serve [-Dport=N] [-Dhost=ADDR]
+# Usage: serve.sh <zig-exe> <build-args…>
+#   e.g. serve.sh /usr/local/bin/zig --cache-dir <cache> \
+#          --prefix <repo>/zig-out site-serve [-Dport=N] [-Dhost=ADDR]
 set -u
 
-zig="${1:?usage: docs-serve.sh <zig-exe> <build-args...>}"
+zig="${1:?usage: serve.sh <zig-exe> <build-args...>}"
 shift
 
 # 1990 is the canonical container port Compose publishes. Stay on it unless
@@ -62,20 +62,20 @@ fi
 if [ "${has_port}" = false ]; then
   port=1990
   if (printf '' >"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
-    echo "docs-serve: port ${port} is already in use; pass -Dport=N or stop the process holding it" >&2
+    echo "site-serve: port ${port} is already in use; pass -Dport=N or stop the process holding it" >&2
     exit 1
   fi
-  echo "docs-serve: preview will use http://127.0.0.1:${port}/glowcap/ after preparation" >&2
+  echo "site-serve: preview will use http://127.0.0.1:${port}/glowcap/ after preparation" >&2
   set -- "$@" "-Dport=${port}"
 fi
 
 # Keep the build graph identical on clean and warm checkouts. The preview
 # owns this runtime cache decision, while a site build always captures afresh.
 if ! compgen -G 'site/assets/rooms-*.webp' >/dev/null; then
-  echo "docs-serve: no Rooms screenshots cached; building Rooms and capturing browser scenes before serving. A cold build can take several minutes." >&2
+  echo "site-serve: no Rooms screenshots cached; building Rooms and capturing browser scenes before serving. A cold build can take several minutes." >&2
   started=$SECONDS
   "${zig}" build site-captures || exit $?
-  echo "docs-serve: screenshots prepared in $((SECONDS - started))s; starting the site build" >&2
+  echo "site-serve: screenshots prepared in $((SECONDS - started))s; starting the site build" >&2
 fi
 
 # Fingerprint of every input `gen-site-examples` reads. Content checksum, not
@@ -117,15 +117,15 @@ examples_watch_loop() {
     next="$(examples_stamp)"
     if [ "${next}" != "${stamp}" ]; then
       stamp="${next}"
-      echo "docs-serve: site/examples changed; regenerating tabs…" >&2
+      echo "site-serve: site/examples changed; regenerating tabs…" >&2
       if ! "${zig}" build gen-site-examples; then
-        echo "docs-serve: gen-site-examples failed (preview may be stale)" >&2
+        echo "site-serve: gen-site-examples failed (preview may be stale)" >&2
       fi
     fi
     next_tokens="$(ui_core_stamp)"
     if [ "${next_tokens}" != "${tokens}" ]; then
       tokens="${next_tokens}"
-      echo "docs-serve: ui core CSS changed; nudging site CSS watch…" >&2
+      echo "site-serve: ui core CSS changed; nudging site CSS watch…" >&2
       touch site/assets/style.css 2>/dev/null || true
     fi
   done
@@ -150,10 +150,10 @@ examples_watcher=$!
 # one, so the traps below are still what tears the server down, and a terminal
 # that disappears entirely can reach the inner group too, which only helps.
 #
-# Zine's first `docs-serve` compiles the `zine` binary. `zig build` prints
+# Zine's first `site-serve` compiles the `zine` binary. `zig build` prints
 # nothing until that finishes, which looks like a hang. Say so before the
 # quiet stretch, and only once: later runs are cache hits.
-echo "docs-serve: compiling Zine if needed (a cold compile is silent and can take a few minutes)…" >&2
+echo "site-serve: compiling Zine if needed (a cold compile is silent and can take a few minutes)…" >&2
 set -m
 (
   cd site || exit 1
@@ -180,7 +180,7 @@ stop_side_watchers() {
 
 # Ancestors whose exit means this preview is over: our direct parent (the inner
 # build runner that `zig build` spawned) and its parent (the outer
-# `zig build docs-serve` the user launched). A signal aimed only at an ancestor
+# `zig build site-serve` the user launched). A signal aimed only at an ancestor
 # never reaches this launcher, so a watcher reaps the inner group when an
 # ancestor exits.
 build_runner=$PPID

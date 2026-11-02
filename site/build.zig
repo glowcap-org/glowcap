@@ -6,14 +6,14 @@ const zine = @import("zine");
 /// these steps from `site/`, redirecting the install prefix so the rendered
 /// pages land in the project's `zig-out/site`.
 pub fn build(b: *std.Build) void {
-    // `-Dport` matches the root build's port flag; the root `docs-serve`
+    // `-Dport` matches the root build's port flag; the root `site-serve`
     // step forwards it here. `-Dhost` defaults to loopback so a laptop run
-    // is not a LAN service. `site/docs-serve.sh` forwards `DOCS_SERVE_HOST`
+    // is not a LAN service. `site/serve.sh` forwards `DOCS_SERVE_HOST`
     // when the caller did not pass `-Dhost`. The devcontainer sets that
     // variable to `0.0.0.0`, because a Docker-published port reaches only a
     // wide bind inside the container.
-    const port = b.option(u16, "port", "Port for the Zine development server (docs-serve)");
-    const host = b.option([]const u8, "host", "Bind address for the Zine development server (docs-serve)") orelse "127.0.0.1";
+    const port = b.option(u16, "port", "Port for the Zine development server (site-serve)");
+    const host = b.option([]const u8, "host", "Bind address for the Zine development server (site-serve)") orelse "127.0.0.1";
 
     const site_step = b.step("site", "Render the documentation site under the install prefix");
     const install_prefix = b.graph.path(.install_prefix, "");
@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) void {
     const serve = zine.serve(b, .{});
     serve.addArgs(&.{ "--host", host });
     if (port) |p| serve.addArgs(&.{ "--port", b.fmt("{d}", .{p}) });
-    const serve_step = b.step("docs-serve", "Serve the documentation site with Zine's development server");
+    const serve_step = b.step("site-serve", "Serve the documentation site with Zine's development server");
     serve_step.dependOn(&serve.step);
 }
 

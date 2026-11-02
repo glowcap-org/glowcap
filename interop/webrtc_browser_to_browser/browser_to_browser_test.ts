@@ -8,7 +8,7 @@
 // signals through (`webrtc-signaling-captp` proves that over CapTP), so the
 // proof needs no room and no cargo.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), and a Playwright
+// Needs deno, the wasm module (`zig build wasm-host`), and a Playwright
 // Chromium (the devcontainer image ships one; elsewhere
 // `tools/check/playwright-preflight.sh` names the pinned version and how to get
 // it). Run directly:

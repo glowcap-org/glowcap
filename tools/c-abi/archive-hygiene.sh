@@ -3,7 +3,7 @@
 #
 # `archive_hygiene_check TARBALL PREFIX` validates only PREFIX, matching the
 # binding extractors. An empty PREFIX validates the whole archive, for callers
-# such as release-pack that extract every member.
+# such as c-sdk-pack that extract every member.
 #
 # Returns:
 #   0 clean

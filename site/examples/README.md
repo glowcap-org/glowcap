@@ -68,7 +68,7 @@ unmarked example is a shipped, checked claim.
 1. Change or add a snippet file under the folders above.
 2. If you add a transport or page slot, update `matrix` / `slots` in
    [`tools/gen/site_examples.zig`](../../tools/gen/site_examples.zig).
-3. Run `zig build gen-site-examples`, or keep `zig build docs-serve` running.
+3. Run `zig build gen-site-examples`, or keep `zig build site-serve` running.
    The preview regenerates tabs on start and whenever `site/examples/` (or the
    assembler) changes.
 4. `zig build gen-site-examples-check` (on `check`) fails when a page marker is

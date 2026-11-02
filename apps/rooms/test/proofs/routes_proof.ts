@@ -31,7 +31,7 @@ import { spawnWeb } from "../support/web_front.ts";
 //   8. An empty nickname field promises the connected directory's granted
 //      name, and joining through that promise uses it.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives
+// Needs deno, the wasm module (`zig build wasm-host`), the installed archives
 // (serve.ts's room server is the Rust process), and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/routes_test.ts`.
 

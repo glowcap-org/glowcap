@@ -1,7 +1,7 @@
 // @glowcap/web: the browser entry for the glowcap runtime (ADR-0034).
 //
 // A browser tab becomes a real OCapN peer: the same sans-io protocol core the
-// FFI archives link, compiled to wasm32 (`zig build wasm-driver` →
+// FFI archives link, compiled to wasm32 (`zig build wasm-host` →
 // `glowcap_host.wasm`), with the byte channel on a WebSocket. The proof
 // (`zig build web-peer-test`) covers the keyed handshake, fetch and call, and
 // a host call back into a wasm-hosted object. `init` instantiates the module,

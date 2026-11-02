@@ -62,13 +62,13 @@ pub fn register(ctx: Context) *std.Build.Step {
     product.step.dependOn(ctx.iroh_abi_step);
     const resources = staging.installResources(b, "product");
     resources.step.dependOn(&product.step);
-    const rooms_build = b.step("rooms-build", "Install the complete glowcap product and stage its deployment tree: CLI, Rooms runtimes, browser assets and skills (needs cargo + deno + wasm-bindgen)");
+    const rooms_build = b.step("glowcap-install", "Install the complete glowcap product and stage its deployment tree: CLI, Rooms runtimes, browser assets and skills (needs cargo + deno + wasm-bindgen)");
     rooms_build.dependOn(&resources.step);
     const install_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release.py", "--installed" });
     install_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix } }, .{ .make_absolute = true });
     install_proof.addFileArg(b.path("glowcap"));
     install_proof.step.dependOn(rooms_build);
-    const install_test = b.step("glowcap-install-test", "Prove the source launcher serves Rooms after rooms-build, with installed sessions, skills, and completion");
+    const install_test = b.step("glowcap-install-test", "Prove the source launcher serves Rooms after glowcap-install, with installed sessions, skills, and completion");
     install_test.dependOn(&install_proof.step);
     ctx.runtime_gate.add(install_test);
 

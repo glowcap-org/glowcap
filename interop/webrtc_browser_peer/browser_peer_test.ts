@@ -18,7 +18,7 @@
 // loopback candidate; Chromium runs with mDNS host-candidate obfuscation
 // disabled so its host candidates are raw IPs the Zig peer can reach.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the sidecar-linked
+// Needs deno, the wasm module (`zig build wasm-host`), the sidecar-linked
 // answerer (`zig build webrtc-answerer`, needs cargo), and a Playwright Chromium
 // (the devcontainer image ships one; elsewhere
 // `tools/check/playwright-preflight.sh` names the pinned version and how to get

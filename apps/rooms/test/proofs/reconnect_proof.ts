@@ -55,7 +55,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // flight when the session dies, which should come back with a retry action.
 //
 // Needs deno, cargo for the iroh sidecar, the wasm module (`zig build
-// wasm-driver`), the installed archives, and a Playwright Chromium.
+// wasm-host`), the installed archives, and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/reconnect_test.ts`.
 
 /// <reference lib="dom" />

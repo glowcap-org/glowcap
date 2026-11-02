@@ -4,7 +4,7 @@
 set -euo pipefail
 
 if [[ $# -ne 4 ]]; then
-	printf 'usage: release-pack-smoke.sh TARBALL STATIC_NAMES SHARED_NAMES HEADERS\n' >&2
+	printf 'usage: c-sdk-pack-smoke.sh TARBALL STATIC_NAMES SHARED_NAMES HEADERS\n' >&2
 	exit 2
 fi
 
@@ -13,11 +13,11 @@ read -r -a static_names <<<"$2"
 read -r -a shared_names <<<"$3"
 read -r -a header_names <<<"$4"
 if [[ ! -f $archive ]]; then
-	printf 'release-pack-smoke: archive not found: %s\n' "$archive" >&2
+	printf 'c-sdk-pack-smoke: archive not found: %s\n' "$archive" >&2
 	exit 1
 fi
 if ! command -v cc >/dev/null 2>&1; then
-	printf 'release-pack-smoke: a native C compiler is required to compile the consumers\n' >&2
+	printf 'c-sdk-pack-smoke: a native C compiler is required to compile the consumers\n' >&2
 	exit 1
 fi
 
@@ -26,13 +26,13 @@ archive_name=$(basename -- "$archive")
 case $archive_name in
 	*.tar.gz) ;;
 	*)
-		printf 'release-pack-smoke: expected a .tar.gz archive: %s\n' "$archive_name" >&2
+		printf 'c-sdk-pack-smoke: expected a .tar.gz archive: %s\n' "$archive_name" >&2
 		exit 1
 		;;
 esac
 
 if [[ ! -f $archive_dir/SHA256SUMS ]]; then
-	printf 'release-pack-smoke: checksum manifest not found beside %s\n' "$archive_name" >&2
+	printf 'c-sdk-pack-smoke: checksum manifest not found beside %s\n' "$archive_name" >&2
 	exit 1
 fi
 if command -v sha256sum >/dev/null 2>&1; then
@@ -41,12 +41,12 @@ else
 	(cd "$archive_dir" && shasum -a 256 -c SHA256SUMS)
 fi
 
-workdir=$(mktemp -d "${TMPDIR:-/tmp}/glowcap-release-pack.XXXXXX")
+workdir=$(mktemp -d "${TMPDIR:-/tmp}/glowcap-c-sdk-pack.XXXXXX")
 trap 'rm -rf -- "$workdir"' EXIT
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 . "$repo_root/tools/c-abi/archive-hygiene.sh"
 if ! archive_hygiene_check "$archive_dir/$archive_name" ""; then
-	printf 'release-pack-smoke: refusing unsafe release archive\n' >&2
+	printf 'c-sdk-pack-smoke: refusing unsafe release archive\n' >&2
 	exit 1
 fi
 # Extract under the same locale and option set the listing validator saw.
@@ -55,11 +55,11 @@ fi
 LC_ALL=C TAR_OPTIONS= tar -xzf "$archive_dir/$archive_name" -C "$workdir" --no-same-owner
 
 if [[ ! -f $workdir/PROVENANCE.md ]]; then
-	printf 'release-pack-smoke: missing project provenance disclosure: PROVENANCE.md\n' >&2
+	printf 'c-sdk-pack-smoke: missing project provenance disclosure: PROVENANCE.md\n' >&2
 	exit 1
 fi
 if ! cmp -s "$repo_root/PROVENANCE.md" "$workdir/PROVENANCE.md"; then
-	printf 'release-pack-smoke: packaged PROVENANCE.md differs from the release source\n' >&2
+	printf 'c-sdk-pack-smoke: packaged PROVENANCE.md differs from the release source\n' >&2
 	exit 1
 fi
 
@@ -70,18 +70,18 @@ validate_identifier() {
 	local kind=$1
 	local name=$2
 	if [[ ! $name =~ ^[a-z0-9_]+$ ]]; then
-		printf 'release-pack-smoke: invalid %s name: %s\n' "$kind" "$name" >&2
+		printf 'c-sdk-pack-smoke: invalid %s name: %s\n' "$kind" "$name" >&2
 		exit 1
 	fi
 }
 
 for header in "${header_names[@]}"; do
 	if [[ ! $header =~ ^[a-z0-9_]+\.h$ ]]; then
-		printf 'release-pack-smoke: invalid header name: %s\n' "$header" >&2
+		printf 'c-sdk-pack-smoke: invalid header name: %s\n' "$header" >&2
 		exit 1
 	fi
 	if [[ ! -f $include_dir/$header ]]; then
-		printf 'release-pack-smoke: missing public header: include/%s\n' "$header" >&2
+		printf 'c-sdk-pack-smoke: missing public header: include/%s\n' "$header" >&2
 		exit 1
 	fi
 done
@@ -137,7 +137,7 @@ write_consumer() {
 					printf '    fingerprints ^= glowcap_%s_archive_fingerprint();\n' "$transport"
 					;;
 				*)
-					printf 'release-pack-smoke: no safe consumer probe for library: %s\n' "$name" >&2
+					printf 'c-sdk-pack-smoke: no safe consumer probe for library: %s\n' "$name" >&2
 					exit 1
 					;;
 			esac
@@ -180,11 +180,11 @@ manifest_has() {
 	return 1
 }
 if ! manifest_has glowcap_ocapn "${static_names[@]}"; then
-	printf 'release-pack-smoke: static manifest omits libglowcap_ocapn\n' >&2
+	printf 'c-sdk-pack-smoke: static manifest omits libglowcap_ocapn\n' >&2
 	exit 1
 fi
 if ! manifest_has glowcap_ocapn "${shared_names[@]}"; then
-	printf 'release-pack-smoke: shared manifest omits libglowcap_ocapn\n' >&2
+	printf 'c-sdk-pack-smoke: shared manifest omits libglowcap_ocapn\n' >&2
 	exit 1
 fi
 
@@ -200,20 +200,20 @@ case $(uname -s) in
 		shared_suffix=.dylib
 		;;
 	*)
-		printf 'release-pack-smoke: unsupported host OS: %s\n' "$(uname -s)" >&2
+		printf 'c-sdk-pack-smoke: unsupported host OS: %s\n' "$(uname -s)" >&2
 		exit 1
 		;;
 esac
 
 for library in "${static_archives[@]}"; do
 	if [[ ! -f $library ]]; then
-		printf 'release-pack-smoke: missing static archive: %s\n' "${library#"$workdir/"}" >&2
+		printf 'c-sdk-pack-smoke: missing static archive: %s\n' "${library#"$workdir/"}" >&2
 		exit 1
 	fi
 done
 for name in "${shared_names[@]}"; do
 	if [[ ! -f $lib_dir/lib$name$shared_suffix ]]; then
-		printf 'release-pack-smoke: missing shared library: lib/lib%s%s\n' "$name" "$shared_suffix" >&2
+		printf 'c-sdk-pack-smoke: missing shared library: lib/lib%s%s\n' "$name" "$shared_suffix" >&2
 		exit 1
 	fi
 done
@@ -241,4 +241,4 @@ cc -std=c11 -Wall -Wextra -Werror -I"$include_dir" \
 	"${shared_archives[@]}" "${native_libraries[@]}" -o "$workdir/shared-consumer"
 env "$loader_variable=$lib_dir" "$workdir/shared-consumer"
 
-printf 'release-pack-smoke: individual and combined static consumers and shared consumer passed\n'
+printf 'c-sdk-pack-smoke: individual and combined static consumers and shared consumer passed\n'

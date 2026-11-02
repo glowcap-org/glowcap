@@ -209,7 +209,7 @@ pub fn register(ctx: Context) Registered {
     const webrtc_probe_build = sidecar.build;
     const sidecar_target_dir = sidecar.target_dir;
     const sidecar_archive = sidecar.archive;
-    const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and probe binary (ADR-0035, needs cargo)");
+    const webrtc_lib_step = b.step("webrtc-sidecar-build", "Build the WebRTC DataChannel netlayer sidecar staticlib and probe binary (ADR-0035, needs cargo)");
     webrtc_lib_step.dependOn(&webrtc_probe_build.step);
 
     const webrtc_datachannel_test = execution.addSystemCommand(b, .{ .browser_proof = 90 }, &.{

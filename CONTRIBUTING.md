@@ -71,7 +71,7 @@ staged Zig, Rust, TypeScript, JavaScript, and Python files. A plain clone runs
 
 ## Preview startup
 
-`zig build docs-serve` and `zig build rooms-dev` build their prerequisites
+`zig build site-serve` and `zig build rooms-dev` build their prerequisites
 before starting a server. A fresh checkout or empty build cache can spend
 several minutes downloading and compiling dependencies. Wait for the server's
 listening address before opening the page. The development environment front

@@ -46,14 +46,14 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     for (companion_steps) |companion| sdk.step.dependOn(companion);
     const sdk_archive = archive(b, target, version, "glowcap-c", "sdk", "release");
     sdk_archive.run.step.dependOn(&sdk.step);
-    const sdk_proof = common.addRootedSystemCommand(b, .build_tool, &.{ "bash", "tools/check/release-pack-smoke.sh" });
+    const sdk_proof = common.addRootedSystemCommand(b, .build_tool, &.{ "bash", "tools/check/c-sdk-pack-smoke.sh" });
     sdk_proof.addFileArg(sdk_archive.path);
     sdk_proof.addArgs(&.{ staging.join(b, manifest.static_archives), staging.join(b, manifest.dynamic_archives), staging.join(b, manifest.headers) });
     sdk_proof.step.dependOn(&sdk_archive.run.step);
-    gate(b, target, optimize, b.step("release-pack", "Package and verify the C SDK (explicit Release mode and baseline CPU required)"), &sdk_proof.step);
+    gate(b, target, optimize, b.step("c-sdk-pack", "Package and verify the C SDK (explicit Release mode and baseline CPU required)"), &sdk_proof.step);
 
     const product_archive = archive(b, target, version, "glowcap", "product", "glowcap-release");
-    product_archive.run.step.dependOn(&b.top_level_steps.get("rooms-build").?.step);
+    product_archive.run.step.dependOn(&b.top_level_steps.get("glowcap-install").?.step);
     // A finite sequence of release operations; every child command and
     // readiness wait owns its deadline rather than sharing one 30s timer.
     const proof = common.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/glowcap_release.py" });
@@ -64,7 +64,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
 }
 
 fn productPreset(b: *std.Build, target: std.Build.ResolvedTarget) void {
-    const step = b.step("rooms-release", "Prepare the complete host product with ReleaseSafe and baseline CPU settings for installation or Linux deployment (needs cargo + deno + wasm-bindgen)");
+    const step = b.step("glowcap-release", "Prepare the complete host product with ReleaseSafe and baseline CPU settings for installation or Linux deployment (needs cargo + deno + wasm-bindgen)");
     if (hostTargetFailure(b, target)) |reason| {
         step.dependOn(&b.addFail(reason).step);
         return;
@@ -73,7 +73,7 @@ fn productPreset(b: *std.Build, target: std.Build.ResolvedTarget) void {
     // in its fixed configuration, preserving the caller's target, prefix, and
     // cache root. The environment front owns the lease across both builds.
     const run = execution.addSystemCommand(b, .build_tool, &.{
-        b.graph.zig_exe, "build", "rooms-build", "-Doptimize=ReleaseSafe", "-Dcpu=baseline", "--cache-dir",
+        b.graph.zig_exe, "build", "glowcap-install", "-Doptimize=ReleaseSafe", "-Dcpu=baseline", "--cache-dir",
     });
     run.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
     run.addArg("--prefix");
@@ -117,7 +117,7 @@ const archive_script = transaction.begin ++
     \\(cd "$stage/tree"; if command -v sha256sum >/dev/null 2>&1; then sha256sum "$name"; else shasum -a 256 "$name"; fi) > "$stage/tree/SHA256SUMS"
     \\
 ++ transaction.commit ++
-    \\echo "release-pack: $output/$name"
+    \\echo "c-sdk-pack: $output/$name"
 ;
 
 fn archive(b: *std.Build, target: std.Build.ResolvedTarget, version: std.SemanticVersion, name: []const u8, source: []const u8, output: []const u8) struct { run: *std.Build.Step.Run, path: std.Build.LazyPath } {

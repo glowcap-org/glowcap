@@ -135,7 +135,7 @@ _HOST_ALIAS_CORPUS = (
 
 
 def _host_target_triple() -> str:
-    """Host → zig build release-pack target (`tools/c-abi/c-abi-host-aliases.json`)."""
+    """Host → zig build c-sdk-pack target (`tools/c-abi/c-abi-host-aliases.json`)."""
     machine = platform.machine().lower()
     arch = {"x86_64": "x86_64", "amd64": "x86_64", "x64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(
         machine, machine

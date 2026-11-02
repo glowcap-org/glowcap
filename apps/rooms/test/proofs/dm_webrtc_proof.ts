@@ -17,7 +17,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // directory it already reaches, installed as `webrtc.connector`'s signaling,
 // the same configured posture the rendezvous cold dial holds.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives
+// Needs deno, the wasm module (`zig build wasm-host`), the installed archives
 // (serve.ts's room server is the Rust process), and a Playwright Chromium
 // (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web/dm_webrtc_test.ts`.

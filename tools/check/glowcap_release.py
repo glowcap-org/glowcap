@@ -260,7 +260,7 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: glowcap_release.py TARBALL | --installed PREFIX CHECKOUT_LAUNCHER")
     archive = Path(sys.argv[1]).resolve()
-    with tempfile.TemporaryDirectory(prefix="rooms-release-", dir="/tmp") as scratch:
+    with tempfile.TemporaryDirectory(prefix="glowcap-release-", dir="/tmp") as scratch:
         root = Path(scratch) / "installation with spaces"
         root.mkdir()
         unpack(archive, root)

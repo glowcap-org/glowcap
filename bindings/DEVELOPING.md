@@ -225,7 +225,7 @@ Each binding also has its own steps, which the package pages on the registries d
 | Rust | `zig build rust-test` | `zig build rust-goblins-interop` | `cargo build --no-default-features`, `--features tcp`, `--features async`, `zig build rust-webrtc-driver-provider`, `zig build loam-rust-test`, `zig build rooms-rust-browser-host-test` |
 | Python | `zig build python-test` | `zig build python-goblins-interop` | `uv run --project bindings/python --extra rendezvous --locked` installs the relay client from the lock |
 | Racket | `zig build racket-test` | `zig build racket-goblins-interop` | `test/fake-tor.rkt` answers the suite's Tor requests as a child process |
-| TypeScript | `zig build deno-test`, `zig build bun-test` | | `zig build web-peer-test`, `wasm-driver-test`, `deno-relay-test`, `relay-scaling`, `webrtc-browser-to-browser`, `deno-webrtc-driver-provider` |
+| TypeScript | `zig build deno-test`, `zig build bun-test` | | `zig build web-peer-test`, `wasm-host-test`, `deno-relay-test`, `relay-scaling`, `webrtc-browser-to-browser`, `deno-webrtc-driver-provider` |
 
 Each suite step runs the binding's test program (`test/main` for Deno, Python, and Racket,
 `cargo test` for Rust) against the installed archives.

@@ -56,7 +56,7 @@ caller and exits.
 ## Attribution after an introduction
 
 ```sh
-zig build accountability-three-party
+zig build accountability-three-party-test
 ```
 
 Three glowcap Hosts run over loopback TCP. A fetches C's Affordance and
