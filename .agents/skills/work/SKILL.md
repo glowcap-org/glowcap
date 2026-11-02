@@ -125,13 +125,13 @@ Commit or integrate only when the user has authorized it. The
 [Git posture](../../rules/cli.md#git-posture) owns the worktree procedure and
 `glowcap-integrate`. A direction to continue work authorizes neither.
 
-## 4. Ratchet and hand off
+## 4. Hand off
 
 Update `docs/shipped.md` and `docs/boundaries.md` when product behavior or
 boundaries change. Fix drift on touched surfaces. An unresolved limitation
 needs a living owner, not an unowned deferral marker.
 
-Run the [ratchet review](../ratchet/SKILL.md): encode reusable lessons at their
-strongest owner and prune instructions they replace. Existing guidance that
-covers the lesson needs no new rule. Report the outcome, relevant verification
-and its limits, and what the ratchet changed or why nothing qualified.
+Land what the session learned at its strongest owner
+([agent-scaffolding](../../rules/agent-scaffolding.md#landing-a-lesson)).
+Report the outcome, relevant verification and its limits, and what the lesson
+changed or why nothing qualified.

@@ -24,7 +24,7 @@ moving a type, splitting a layer, or relocating logic.
 
 - One-line fixes or pure questions with a focused rule already naming the path.
 - OCapN and Goblins community-review preflight: [community-review](../community-review/SKILL.md).
-- Multi-persona room team ops: [rooms-team](../rooms-team/SKILL.md).
+- Room team operations: [rooms-team](../rooms-team/SKILL.md).
 
 ## Leave it better (kaizen)
 
@@ -42,17 +42,6 @@ named fault. Prerelease waives the excuses "someone might still need it" and
   a stale doc claim fixed. Scar tissue fails the pass even when the original
   bug is gone.
 
-Persona titles and proper names may appear in subagent prompts and session
-plans, never in committed code or comments. Taste lands as structure
-([agent-scaffolding](../../rules/agent-scaffolding.md)).
-
-## Persona lookup
-
-Resolve slugs per [`.agents/personas/README.md`](../../personas/README.md). The
-operator names the two slugs, and this skill hardcodes no defaults. A missing
-slug stops the run. For scaffolding-only scopes, pair `scaffold-rigor` with an
-operator-chosen domain lens.
-
 ## Memory, performance, optimums
 
 Architecture that ignores cost is incomplete. Treat allocation, copy,
@@ -67,7 +56,7 @@ cleaner type for a quieter alloc on the hot path, and do not "optimize" a named
 allocation without re-deriving its contract against the full option set
 ([prerelease](../../rules/prerelease.md) and the ledger in memory.md).
 
-When scoping and when briefing personas, demand a verdict on each candidate
+When scoping and when briefing reviewers, demand a verdict on each candidate
 move. A wire-path allocation or copy is **forbidden, named, or measured**:
 
 | Verdict | Meaning |
@@ -77,7 +66,7 @@ move. A wire-path allocation or copy is **forbidden, named, or measured**:
 | **measure** | The shape is unclear. Land a bench or alloc-budget proof before taste. |
 | **own-pass** | Real win, but bigger than this session. Defer with the cost claim intact. |
 
-Persona output includes, per finding, the path (wire, session, host, or test),
+Each reviewer's output includes, per finding, the path (wire, session, host, or test),
 the alloc or copy delta (before to after, or "none"), the lifetime owner, and
 the verdict. A "cleanup" that adds a steady-state heap hit or an O(n) re-walk
 on `at`/`toOwned` without a forbid, name, or measure line is incomplete.
@@ -87,9 +76,9 @@ on `at`/`toOwned` without a forbid, name, or measure line is incomplete.
 1. **SCOPE.** State the fault, the ideal, and the false constraint, one
    sentence each. Name the memory or perf stake in the ideal: what becomes
    impossible and what budget holds.
-2. **REVIEW WITH TWO INDEPENDENT PERSONAS.** Spawn two subagents on the real
-   tree, because you have blind spots in code you wrote. Resolve each slug,
-   inject that file's body into the subagent prompt, and order both:
+2. **REVIEW WITH TWO INDEPENDENT READERS.** Spawn two subagents on the real
+   tree, because you have blind spots in code you wrote. Give each a different
+   concern (the layer boundary, the wire-path cost) and order both:
 
    > Read the code, don't hand-wave; say where something is already right;
    > do not invent nits; propose, do not edit, I will execute.
@@ -151,7 +140,7 @@ Make a smell's return structurally impossible by turning the lesson into a
 gate: a build check, an enforced layer boundary, an alloc or footprint budget
 test, a `perf-check` ceiling, or a scenario that pins the contract. The best
 pass leaves the gate longer and the prose shorter. The
-[ratchet skill](../ratchet/SKILL.md) lands it.
+[agent-scaffolding](../../rules/agent-scaffolding.md#landing-a-lesson) rule says where it lands.
 
 ## Discipline
 
@@ -171,7 +160,6 @@ pass leaves the gate longer and the prose shorter. The
 - Duplication is gone or deferred with a reason.
 - Wire-path costs are forbidden, named, or measured.
 - The public surface is unchanged or deliberately swept.
-- No committed code carries a persona's proper name.
 - The next agent inherits a higher floor.
 
 ## On this codebase

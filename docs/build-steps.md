@@ -249,8 +249,8 @@ application's readers.
 ```sh
 zig build gen-rooms-protocol       # Regenerate the Rooms application and client protocol tables from tools/gen/rooms_protocol.zig
 zig build gen-rooms-protocol-check # Verify the Rooms application and client protocol tables match tools/gen/rooms_protocol.zig (fails if stale); part of check
-zig build gen-agent-index          # Regenerate the agent scaffolding index from each rule, skill, persona and hook
-zig build gen-agent-index-check    # Verify the agent scaffolding index matches each rule, skill, persona and hook (fails if stale or a file states no purpose); part of source-check
+zig build gen-agent-index          # Regenerate the agent scaffolding index from each rule, skill and hook
+zig build gen-agent-index-check    # Verify the agent scaffolding index matches each rule, skill and hook (fails if stale or a file states no purpose); part of source-check
 zig build gen-dependencies         # Regenerate docs/dependencies.md from the dep comments in every manifest
 zig build gen-dependencies-check   # Verify docs/dependencies.md matches the dep comments in every manifest (fails if stale or a dependency has no comment); part of source-check
 zig build gen-doc-values           # Rewrite every value a doc quotes from a code constant

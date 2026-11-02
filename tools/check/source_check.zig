@@ -165,7 +165,6 @@ pub fn check(
     try scaffolding.checkCursorRuleOverlay(io, gpa, root, &violations);
     try scaffolding.checkRequiredSubstrings(io, gpa, root, &violations);
     try agents_catalog.checkSkillCatalog(io, gpa, root, &violations);
-    try agents_catalog.checkAgentPersonas(io, gpa, root, &violations);
     try agents_catalog.checkAgentsRouting(io, gpa, root, &violations);
     try docs_links.checkMarkdownLinks(io, gpa, root, &violations);
     try docs_links.checkRepoBlobLinks(io, gpa, root, &violations);

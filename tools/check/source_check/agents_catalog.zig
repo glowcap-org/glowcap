@@ -1,5 +1,5 @@
 //! The agent scaffolding's shape: AGENTS.md routing, skill frontmatter, and
-//! anonymous personas. `gen-agent-index` owns the index in `.agents/README.md`.
+//! rule frontmatter. `gen-agent-index` owns the index in `.agents/README.md`.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -74,95 +74,6 @@ pub fn checkSkillCatalog(
             }
         } else {
             try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: missing frontmatter — a skill without `name:`/`description:` is not discoverable", .{entry.path});
-        }
-    }
-}
-
-/// Project personas under `.agents/personas/` are anonymous lenses only. A
-/// named taste reference and person-channeling phrasing belong in one of the
-/// unpublished persona sources `.agents/personas/README.md` names, never in
-/// committed scaffolding. The smell-annihilation skill is gated the same way
-/// for channeling language.
-pub fn checkAgentPersonas(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const banned = [_][]const u8{
-        "channel ",
-    };
-
-    try refuseBannedSubstrings(io, gpa, root, violations, ".agents/skills/smell-annihilation/SKILL.md", &banned);
-    try refuseBannedSubstrings(io, gpa, root, violations, ".agents/skills/rooms-team/SKILL.md", &banned);
-
-    var personas = root.openDir(io, ".agents/personas", .{ .iterate = true }) catch |err| switch (err) {
-        error.FileNotFound => return,
-        else => {
-            try appendViolation(gpa, violations, ".agents/personas: failed to open with {s}", .{@errorName(err)});
-            return;
-        },
-    };
-    defer personas.close(io);
-
-    var walker = try personas.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
-        // README.md owns lookup prose; lenses are slug.md only.
-        if (std.mem.eql(u8, entry.path, "README.md")) continue;
-        if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
-
-        var path_buf: [256]u8 = undefined;
-        const rel = std.fmt.bufPrint(&path_buf, ".agents/personas/{s}", .{entry.path}) catch {
-            try appendViolation(gpa, violations, ".agents/personas/{s}: path too long", .{entry.path});
-            continue;
-        };
-
-        const contents = root.readFileAlloc(io, rel, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ rel, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-
-        const stem = entry.path[0 .. entry.path.len - ".md".len];
-        if (frontmatterBlock(contents)) |frontmatter| {
-            const slug = frontmatterValue(frontmatter, "slug:") orelse {
-                try appendViolation(gpa, violations, "{s}: missing frontmatter `slug:`", .{rel});
-                continue;
-            };
-            if (!std.mem.eql(u8, slug, stem)) {
-                try appendViolation(gpa, violations, "{s}: frontmatter `slug: {s}` must equal filename stem `{s}`", .{ rel, slug, stem });
-            }
-        } else {
-            try appendViolation(gpa, violations, "{s}: missing frontmatter — project personas need `slug:` matching the filename", .{rel});
-        }
-
-        for (banned) |needle| {
-            if (std.mem.indexOf(u8, contents, needle) != null) {
-                try appendViolation(gpa, violations, "{s}: contains banned `{s}` — channeling language belongs in user XDG, not committed project lenses", .{ rel, needle });
-            }
-        }
-    }
-}
-
-fn refuseBannedSubstrings(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-    path: []const u8,
-    banned: []const []const u8,
-) !void {
-    const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(contents);
-    for (banned) |needle| {
-        if (std.mem.indexOf(u8, contents, needle) != null) {
-            try appendViolation(gpa, violations, "{s}: contains banned `{s}` — channeling language belongs in user XDG, not committed scaffolding", .{ path, needle });
         }
     }
 }

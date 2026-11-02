@@ -21,9 +21,6 @@ const fixed_command_docs = [_][]const u8{
     "bindings/README.md",
     "bindings/DEVELOPING.md",
     "bindings/PACKAGING.md",
-    ".cursor/README.md",
-    ".claude/README.md",
-    ".codex/README.md",
     ".serena/project.yml",
 };
 

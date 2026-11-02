@@ -1,5 +1,5 @@
 ---
-description: "The scaffolding is a public API whose consumers are agents. Keeping claims true, the scaffolding gate, the ratchet, and the budget. Load before changing anything under .agents/, AGENTS.md, overlays, hooks, or skills."
+description: "The scaffolding is a public API whose consumers are agents. Keeping claims true, the scaffolding gate, the budget, and landing a lesson. Load before changing anything under .agents/, AGENTS.md, overlays, hooks, or skills."
 globs: AGENTS.md, .agents/**, .claude/**, .cursor/**, .codex/**, .pi/**
 paths:
   - "AGENTS.md"
@@ -46,10 +46,23 @@ Committed guidance names protocol vocabulary, owners, boundaries, and
 evidence, never people to emulate. Commit messages describe what the diff
 demonstrates, with a short subject and no session machinery.
 
-## The ratchet
+## Landing a lesson
 
 Before handing off, ask what the session learned that guidance did not teach.
-A human correction always triggers this. Land the lesson at its strongest
-owner (a check, regression test, fixture, rule line, or deletion) and validate
-a new check against the defect it claims to catch. Existing coverage is a valid
-outcome. The [ratchet skill](../skills/ratchet/SKILL.md) is the procedure.
+A human correction always triggers this. Existing coverage is a valid outcome.
+Otherwise land the lesson at the strongest layer that holds it, and shrink the
+prose it replaces to a pointer:
+
+| The lesson is | It lands as |
+| --- | --- |
+| A static cross-file fact | a check under `tools/check/source_check/`, or `arch_check.zig` for layer imports |
+| Executable workflow behavior | a regression test under the gate that runs the workflow |
+| A semantic or protocol fact | a test, fixture, or scenario placed by [tests](tests.md) |
+| A judgment no check can hold | one line in the rule that owns the surface |
+| A line that stopped paying rent | a deletion |
+
+A new check is validated against the defect it claims to catch: introduce the
+violation, watch the check fail for that reason, restore, and require a pass.
+A new rule or skill needs frontmatter, the `.cursor/rules/<name>.mdc` symlink
+for a rule, and `zig build gen-agent-index`. `source-check` names what is
+missing.

@@ -15,7 +15,7 @@
  *
  * The capture drives isolated browser peers through the shipped page: a
  * person and the four-bot roster a rooms team runs at its default cap, one
- * lead and three members named by their persona slugs. They join one team
+ * lead and three members with fixed nicks. They join one team
  * room and exchange real lines in the shape the rooms-team skill prescribes
  * (strategy announced, findings reported, the human redirecting). The person
  * then opens a direct line from the roster, an IRC client enters the same

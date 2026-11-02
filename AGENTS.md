@@ -43,7 +43,7 @@ through [plan to plan](docs/planning/plan-to-plan.md)), layer tour in
 [`docs/decisions/adr/`](docs/decisions/adr/), the Syrup reference corpus in
 `test/oracle/`, live Goblins wire authority in `conformance/goblins-peer/`, and
 the OCapN spec in `conformance/ocapn-spec/`. The
-[`.agents/` index](.agents/README.md) lists every rule, skill, and persona.
+[`.agents/` index](.agents/README.md) lists every rule and skill.
 
 ## First Principles
 
@@ -54,6 +54,3 @@ hold the principles. Two more apply to every task:
 - Serena is first for Zig symbol work ([serena skill](.agents/skills/serena/SKILL.md)).
 - glowcap is AI-assisted and maintainer-directed. Disclose assistance on
   landings ([`PROVENANCE.md`](PROVENANCE.md)).
-
-Codex loads [`.agents/skills/`](.agents/skills/) directly, and
-[`.codex/README.md`](.codex/README.md) records its overlay.

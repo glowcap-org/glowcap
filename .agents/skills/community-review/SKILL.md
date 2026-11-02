@@ -117,8 +117,7 @@ settled, and glowcap argues with none of them:
 
 1. **Disclosure is present and true.** [`PROVENANCE.md`](../../../PROVENANCE.md)
    states how the project is built, in the open, without spin, and every
-   sentence in it is checkable. Concealment ends the conversation. Commit
-   trailers corroborate assistance but are not the project's identity. A
+   sentence in it is checkable. Concealment ends the conversation. A
    first-read page harms the project when it hides the disclosure or describes
    glowcap as AI-written instead of maintainer-directed and AI-assisted.
 2. **Nothing generated leaks upstream.** No LLM-written patch, issue, or comment
@@ -138,8 +137,8 @@ settled, and glowcap argues with none of them:
 
 **Refuse:**
 
-- Advising concealment: stripping `Co-Authored-By` trailers, rewriting history to
-  hide provenance, or wording a disclosure to mislead.
+- Advising concealment: rewriting history to hide provenance, or wording a
+  disclosure to mislead.
 - Treating the policies as an obstacle to route around instead of a position to
   meet. Name the policy and do not editorialize the community as unwelcome.
 - Overclaiming a personal audit of every line, or putting the destination's

@@ -2,7 +2,7 @@
 //!
 //! Cursor and Claude overlays complete and unbroken, Codex direct-loading kept
 //! free of duplicate mirrors, the hook configurations and the Serena MCP entry
-//! for Claude, Pi, Codex, and Cursor, rule/skill/persona
+//! for Claude, Pi, Codex, and Cursor, rule/skill
 //! index parity in both directions, agent routing, and rule
 //! frontmatter. These are the checks that keep the scaffolding a public API
 //! whose consumers act on what it says. Wired by the source-check driver
@@ -249,13 +249,6 @@ pub fn checkRequiredSubstrings(
         "/mcp-server.lock",
         "/index.lock",
         "/.index-complete",
-    });
-    try expectFileContains(io, gpa, root, violations, ".codex/README.md", &.{
-        "AGENTS.md",
-        ".agents/skills",
-        "`.codex/skills` mirror",
-        "bin/",
-        "config.toml",
     });
     // Codex has no JSON MCP file: its TOML entry is held to the same
     // devcontainer-front command as `.mcp.json`, in Serena's `codex` context.
