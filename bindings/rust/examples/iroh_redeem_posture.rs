@@ -35,16 +35,16 @@ use std::rc::Rc;
 use glowcap::iroh::Reachability;
 use glowcap::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, iroh};
 
-#[path = "../../../interop/_common/rust/client_gate.rs"]
-mod client_gate;
+#[path = "iroh/gate.rs"]
+mod gate;
 
-type Fail = client_gate::Fail;
+type Fail = gate::Fail;
 
 const NAME: &str = "rust-redeem-posture-carol";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
-	client_gate::ignore_port_args()?;
+	gate::ignore_port_args()?;
 	// The `Session`/`Server` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await
@@ -61,7 +61,7 @@ async fn run() -> Result<(), Fail> {
 	);
 	exporter.host().publish("greeter", || Box::new(greeter))?;
 	let exporter_id = exporter.node_id().to_string();
-	client_gate::serve_iroh_sessions(Rc::clone(&exporter));
+	gate::serve_iroh_sessions(Rc::clone(&exporter));
 	println!("rust-iroh-redeem-posture: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
@@ -98,7 +98,7 @@ async fn run() -> Result<(), Fail> {
 			}
 		})
 	})?;
-	client_gate::serve_iroh_sessions(Rc::clone(&gifter));
+	gate::serve_iroh_sessions(Rc::clone(&gifter));
 	println!("rust-iroh-redeem-posture: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: configures its redeem posture, then redeems the hint-less give ─

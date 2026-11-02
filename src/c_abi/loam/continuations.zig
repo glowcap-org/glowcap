@@ -2,12 +2,13 @@
 const std = @import("std");
 const foreign_values = @import("foreign_values.zig");
 const owners = @import("owners.zig");
+const c = @import("layouts.zig");
+const driver = @import("driver_core");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
 const refusal = @import("refusal.zig");
 const attached = @import("attachment.zig");
 const callbacks = @import("callbacks.zig");
-const c = owners.c;
-const shared = owners.shared;
-const hosting = owners.hosting;
 
 /// The caller and kernel confirmation own independent references. Canceled
 /// observers may outlive kernel custody. Their small metadata allocation and
@@ -73,7 +74,7 @@ fn reserve(call: *callbacks.Call, targets: ?[*]const shared.GlowcapReference, co
     if (count > owner.value.options.max_continuation_targets) return error.ContinuationCapacity;
     if (owner.effect_observers == std.math.maxInt(usize)) return error.ContinuationCapacity;
     const refs = try foreign_values.slice(shared.GlowcapReference, targets, count);
-    const values = try call.content_call.allocator().alloc(owners.driver.Capability, count);
+    const values = try call.content_call.allocator().alloc(driver.Capability, count);
     for (refs, values) |ref, *value| value.* = call.host.capabilityFromRaw(ref.id);
     const self = try owner.store.allocator.create(Control);
     errdefer owner.store.allocator.destroy(self);
@@ -84,10 +85,10 @@ fn reserve(call: *callbacks.Call, targets: ?[*]const shared.GlowcapReference, co
     out_pending.* = @ptrCast(self);
 }
 
-fn reference(_: void, value: owners.driver.Value) !shared.GlowcapReference {
+fn reference(_: void, value: driver.Value) !shared.GlowcapReference {
     return .{ .id = value.capability.raw() };
 }
-fn grant(self: *Control, capability: owners.driver.Capability, out: *shared.GlowcapReference) !void {
+fn grant(self: *Control, capability: driver.Capability, out: *shared.GlowcapReference) !void {
     out.* = try self.owner.host_borrow.core().projectOwnedValue(.{ .capability = capability }, {}, reference);
 }
 pub fn glowcap_loam_continuation_reservation_source(raw: ?*c.GlowcapLoamContinuationReservation, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {

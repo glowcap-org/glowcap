@@ -26,10 +26,10 @@ use glowcap::iroh::Stream;
 use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh};
 use tokio::io::AsyncWriteExt;
 
-#[path = "../../../interop/_common/rust/client_gate.rs"]
-mod client_gate;
+#[path = "iroh/gate.rs"]
+mod gate;
 
-type Fail = client_gate::Fail;
+type Fail = gate::Fail;
 
 // Concurrent connections, each served on the one server loop; calls each makes
 // before closing. Mirrors the Zig iroh-loop gate.
@@ -39,7 +39,7 @@ const GREETING: &str = "hello over the iroh loop";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
-	client_gate::ignore_port_args()?;
+	gate::ignore_port_args()?;
 	// The `Session` driver is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await

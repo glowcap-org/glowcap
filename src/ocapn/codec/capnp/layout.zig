@@ -1,4 +1,4 @@
-//! Shared Cap'n Proto layout vocabulary for the hand-rolled codec: wire-layout
+//! The Cap'n Proto layout vocabulary of the hand-rolled codec: wire-layout
 //! discriminants and bounds-checked borrowed reader helpers only. Decode, owned
 //! materialization, and encode import it rather than depending on each other.
 

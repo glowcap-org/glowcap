@@ -3,11 +3,10 @@
 
 const std = @import("std");
 const owners = @import("owners.zig");
-
-const access = owners.access;
-const c = owners.c;
-const core = owners.core;
-const shared = owners.shared;
+const access = @import("loam_access");
+const c = @import("layouts.zig");
+const core = @import("loam_core");
+const shared = @import("c_abi_shared");
 
 /// A caller's object handle. A malformed one is the caller's argument, not
 /// damaged storage, so it never reports `Corrupt`.

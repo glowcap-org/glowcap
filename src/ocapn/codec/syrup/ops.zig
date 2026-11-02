@@ -1,6 +1,4 @@
-//! The wire op symbol of each message-level `model.Message` kind, the one
-//! source both Syrup halves read so the encoder and the decoder's dispatch
-//! cannot disagree on a name.
+//! The wire op symbol of each message-level `model.Message` kind.
 
 const std = @import("std");
 

@@ -1,13 +1,14 @@
 //! Read interface declarations copy into the shared recursive custody owner.
 const foreign_values = @import("foreign_values.zig");
 const owners = @import("owners.zig");
+const c = @import("layouts.zig");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
 const refusal = @import("refusal.zig");
 const callbacks = @import("callbacks.zig");
 const std = @import("std");
 const continuations = @import("continuations.zig");
-const c = owners.c;
-const shared = owners.shared;
-const Scope = owners.hosting.ReadScope;
+const Scope = hosting.ReadScope;
 
 pub fn glowcap_loam_call_disclose_reads_copying(raw: ?*c.GlowcapLoamCall, target: ?*const shared.GlowcapReference, interfaces: ?[*]const c.GlowcapLoamReadInterface, interface_count: usize, role: usize, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -60,7 +61,7 @@ fn projectContinuation(raw: ?*c.GlowcapLoamContinuation, index: usize, interface
     const continuation = try observer.active();
     // POD projection has a transient ceiling independent of the retained
     // scope. Payload leaves stay borrowed until the shared declaration copy.
-    var scratch: owners.hosting.Call.Memory = undefined;
+    var scratch: hosting.Call.Memory = undefined;
     scratch.init(observer.owner.store.allocator, observer.owner.value.options.continuation_bytes);
     defer scratch.deinit();
     const declarations = try project(scratch.input.allocator(), interfaces, count);

@@ -1,9 +1,10 @@
 //! Stable dependent live fields project the shared declaration and comparison.
 const owners = @import("owners.zig");
+const c = @import("layouts.zig");
+const cd = @import("c_abi_host");
+const shared = @import("c_abi_shared");
 const refusal = @import("refusal.zig");
 const callbacks = @import("callbacks.zig");
-const c = owners.c;
-const shared = owners.shared;
 
 /// Declare one live facet from an actual source endpoint and exact target.
 /// Preparation owns construction and reservation before waiting. No input
@@ -17,7 +18,7 @@ pub fn glowcap_loam_references_save_live_dependent(raw: ?*c.GlowcapLoamReference
 /// Borrow Host-owned exporter metadata for a committed live dependent facet.
 /// Null means no exporter. The result discloses no target capability and must
 /// not be released. Its lifetime belongs to the existing Host session.
-pub fn glowcap_loam_call_live_dependent_exporter(raw: ?*c.GlowcapLoamCall, facet: ?*const shared.GlowcapReference, out_session: ?*?*owners.host.GlowcapHostSession) callconv(.c) i32 {
+pub fn glowcap_loam_call_live_dependent_exporter(raw: ?*c.GlowcapLoamCall, facet: ?*const shared.GlowcapReference, out_session: ?*?*cd.GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
     const out = out_session orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = null;
@@ -25,7 +26,7 @@ pub fn glowcap_loam_call_live_dependent_exporter(raw: ?*c.GlowcapLoamCall, facet
     const session = call.content_call.liveDependentExporter(
         call.host.capabilityFromRaw((facet orelse return shared.GLOWCAP_ERR_NULL_POINTER).id),
     ) catch |err| return refusal.code(err);
-    out.* = if (session) |value| owners.host.embedding.sessionHandle(value) else null;
+    out.* = if (session) |value| cd.embedding.sessionHandle(value) else null;
     return shared.GLOWCAP_OK;
 }
 

@@ -2,33 +2,37 @@
 const std = @import("std");
 const foreign_values = @import("foreign_values.zig");
 const owners = @import("owners.zig");
+const access = @import("loam_access");
+const c = @import("layouts.zig");
+const cd = @import("c_abi_host");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
 const refusal = @import("refusal.zig");
 const callbacks = @import("callbacks.zig");
-const c = owners.c;
-const graph = owners.access.hosting.graph;
+const graph = access.hosting.graph;
 
 /// Graph contribution to call_bytes, including this seam's candidate and
 /// payload copies and prepared requirement/reference/invocation projections. Other call
 /// owners remain separate. The query allocates nothing and admits no work.
 pub fn glowcap_loam_graph_call_size_bound(pages: usize, payload_bytes: usize, fields: usize, out_bytes: ?*usize) callconv(.c) i32 {
-    owners.shared.lastErrorClear();
-    const out = out_bytes orelse return owners.shared.GLOWCAP_ERR_NULL_POINTER;
+    shared.lastErrorClear();
+    const out = out_bytes orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = 0;
     out.* = callSizeBound(pages, payload_bytes, fields) catch |err| return refusal.code(err);
-    return owners.shared.GLOWCAP_OK;
+    return shared.GLOWCAP_OK;
 }
 
 fn callSizeBound(pages: usize, payload_bytes: usize, fields: usize) !usize {
-    var bound = try owners.access.hosting.graphAllocationBound(pages, payload_bytes, fields);
-    try bound.include(try std.math.mul(usize, pages, @sizeOf(owners.access.hosting.GraphPage)), @alignOf(owners.access.hosting.GraphPage), 1);
-    try bound.includeTotal(try std.math.mul(usize, fields, @sizeOf(owners.access.hosting.GraphField)), @alignOf(owners.access.hosting.GraphField), pages);
+    var bound = try access.hosting.graphAllocationBound(pages, payload_bytes, fields);
+    try bound.include(try std.math.mul(usize, pages, @sizeOf(access.hosting.GraphPage)), @alignOf(access.hosting.GraphPage), 1);
+    try bound.includeTotal(try std.math.mul(usize, fields, @sizeOf(access.hosting.GraphField)), @alignOf(access.hosting.GraphField), pages);
     try bound.includeTotal(payload_bytes, 1, try std.math.add(usize, pages, 1));
     try bound.merge(try projectionAllocationBound(pages));
     return bound.physicalBytes();
 }
 
-pub fn projectionAllocationBound(pages: usize) !owners.hosting.references.AllocationBound {
-    var bound: owners.hosting.references.AllocationBound = .{};
+pub fn projectionAllocationBound(pages: usize) !hosting.references.AllocationBound {
+    var bound: hosting.references.AllocationBound = .{};
     try bound.include(try std.math.mul(usize, pages, @sizeOf(c.GlowcapLoamPage)), @alignOf(c.GlowcapLoamPage), 3);
     return bound;
 }
@@ -71,7 +75,7 @@ pub fn project(arena: std.mem.Allocator, snapshot: ?graph.Snapshot) ![]const c.G
     return pages;
 }
 
-pub fn reference(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize, out: ?*owners.shared.GlowcapReference) !void {
+pub fn reference(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize, out: ?*shared.GlowcapReference) !void {
     const call = try callbacks.active(raw);
     const target = out orelse return error.NullPointer;
     const held = try call.content_call.pageReference(@ptrCast(page orelse return error.NullPointer), index);
@@ -83,11 +87,11 @@ pub fn savedUri(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle,
     return call.content_call.pageSavedUri(@ptrCast(page orelse return error.NullPointer), index);
 }
 
-pub fn disclose(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize, dependent: bool, out: ?*owners.shared.GlowcapArgument) !void {
+pub fn disclose(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize, dependent: bool, out: ?*shared.GlowcapArgument) !void {
     const call = try callbacks.active(raw);
     const target = out orelse return error.NullPointer;
     const value = try call.content_call.disclosePage(@ptrCast(page orelse return error.NullPointer), index, dependent);
-    target.* = try owners.host.embedding.valueToC(call.content_call.allocator(), value);
+    target.* = try cd.embedding.valueToC(call.content_call.allocator(), value);
 }
 
 /// Foreign payloads and field buffers die at callback return. This one copy
@@ -100,7 +104,7 @@ pub fn replaceCopying(raw: ?*c.GlowcapLoamCall, bytes: ?[*]const u8, len: usize,
     if (count > limits.max_pages or len > limits.max_payload_bytes) return error.GraphCapacity;
     const source = try foreign_values.slice(c.GlowcapLoamPageReplacement, input, count);
     const arena = call.content_call.allocator();
-    const pages = try arena.alloc(owners.access.hosting.GraphPage, count);
+    const pages = try arena.alloc(access.hosting.GraphPage, count);
     var payload_bytes = len;
     var edge_count = try std.math.add(usize, count, 1);
     for (source, pages) |page, *target| {
@@ -118,7 +122,7 @@ pub fn replaceCopying(raw: ?*c.GlowcapLoamCall, bytes: ?[*]const u8, len: usize,
             payload_bytes = try std.math.add(usize, payload_bytes, page.payload_len);
             edge_count = try std.math.add(usize, edge_count, try std.math.add(usize, page.field_count, 1));
             if (payload_bytes > limits.max_payload_bytes or edge_count > limits.max_edges) return error.GraphCapacity;
-            const fields = try arena.alloc(owners.access.hosting.GraphField, page.field_count);
+            const fields = try arena.alloc(access.hosting.GraphField, page.field_count);
             const references = try foreign_values.slice(c.GlowcapLoamGraphField, page.fields, page.field_count);
             for (references, fields) |reference_field, *field| {
                 if (reference_field.page) |retained| {
@@ -129,10 +133,10 @@ pub fn replaceCopying(raw: ?*c.GlowcapLoamCall, bytes: ?[*]const u8, len: usize,
                     field.* = .{ .held = call.host.capabilityFromRaw(reference_field.reference.id) };
                 }
             }
-            target.* = .{ .write = .{ .schema = .{ .id = page.schema, .version = page.version }, .payload = try owners.shared.sliceFromC(page.payload, page.payload_len), .fields = fields } };
+            target.* = .{ .write = .{ .schema = .{ .id = page.schema, .version = page.version }, .payload = try shared.sliceFromC(page.payload, page.payload_len), .fields = fields } };
         }
     }
-    const root_payload = try owners.shared.sliceFromC(bytes, len);
+    const root_payload = try shared.sliceFromC(bytes, len);
     try call.content_call.validateGraph(root_payload, pages);
     const root_copy = try arena.dupe(u8, root_payload);
     for (pages) |*page| switch (page.*) {

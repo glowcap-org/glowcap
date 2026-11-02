@@ -86,7 +86,7 @@ pub fn linkRustSidecar(
 /// never runs its tests, so the crate has its own step, a cargo-requiring
 /// sibling of `check` like `iroh-sidecar-test` and `webrtc-sidecar-test`.
 /// `--locked` makes its committed lockfile authoritative.
-pub fn registerSidecarCommon(b: *std.Build) void {
+pub fn registerSidecarRuntime(b: *std.Build) void {
     const test_run = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "cargo", "test", "--locked", "--release", "--manifest-path", "transports/sidecar-runtime/Cargo.toml",
     });

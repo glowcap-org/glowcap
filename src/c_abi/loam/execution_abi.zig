@@ -2,12 +2,13 @@
 const std = @import("std");
 const foreign_values = @import("foreign_values.zig");
 const owners = @import("owners.zig");
+const c = @import("layouts.zig");
+const core = @import("loam_core");
+const shared = @import("c_abi_shared");
 const refusal = @import("refusal.zig");
 const execution = @import("execution.zig");
 const works = @import("work.zig");
 const attached = @import("attachment.zig");
-const c = owners.c;
-const shared = owners.shared;
 
 /// Derive a maximum encoded record from the shared envelope writer without
 /// allocation or storage access. This is sizing, not schema admission.
@@ -16,7 +17,7 @@ pub fn glowcap_loam_schema_size_bound(raw: ?*const c.GlowcapLoamSchema, out_byte
     const out = out_bytes orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = 0;
     const schema = raw orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    const declaration: owners.core.Schema = .{ .id = schema.id, .version = schema.version, .max_payload = schema.max_payload, .max_edges = schema.max_edges };
+    const declaration: core.Schema = .{ .id = schema.id, .version = schema.version, .max_payload = schema.max_payload, .max_edges = schema.max_edges };
     out.* = declaration.encodedSizeBound() catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
@@ -33,8 +34,8 @@ pub fn glowcap_loam_metadata_claim(identity: ?[*]const u8, create: u32, previous
     shared.lastErrorClear();
     const id = identity orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const out = out_metadata orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    const mode = std.enums.fromInt(owners.core.OpenMode, create) orelse return refusal.code(error.InvalidArgument);
-    if (out_len != owners.core.Metadata.encoded_size) return refusal.code(error.InvalidArgument);
+    const mode = std.enums.fromInt(core.OpenMode, create) orelse return refusal.code(error.InvalidArgument);
+    if (out_len != core.Metadata.encoded_size) return refusal.code(error.InvalidArgument);
     const old = foreign_values.slice(u8, previous, previous_len) catch |err| return refusal.code(err);
     const metadata = execution.claim(id[0..16], mode, if (previous == null) null else old) catch |err| return refusal.code(err);
     @memcpy(out[0..out_len], &metadata.encode());
@@ -133,8 +134,8 @@ pub fn glowcap_loam_restore_plan(raw: ?*c.GlowcapLoamAttachment, object: ?*const
     var kv: execution.Kv = .{ .callback = callback orelse return shared.GLOWCAP_ERR_NULL_POINTER, .context = context };
     // Load all transaction inputs before acquiring a pending core read. A
     // missing callback row must not leave a core ticket without an executor.
-    const meta_bytes = (kv.get(owners.core.metadata_key) catch |err| return refusal.code(err)) orelse return refusal.code(error.Corrupt);
-    const metadata = owners.core.Metadata.decode(meta_bytes) catch |err| return refusal.code(err);
+    const meta_bytes = (kv.get(core.metadata_key) catch |err| return refusal.code(err)) orelse return refusal.code(error.Corrupt);
+    const metadata = core.Metadata.decode(meta_bytes) catch |err| return refusal.code(err);
     if (!std.meta.eql(metadata, owner.store.value.metadata)) return refusal.code(error.StaleCompletion);
     const bytes = (kv.get(&id.key()) catch |err| return refusal.code(err)) orelse return refusal.code(error.Gone);
     const lease = switch (owner.store.value.acquire(id) catch |err| return refusal.code(err)) {

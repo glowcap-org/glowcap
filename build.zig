@@ -423,7 +423,7 @@ pub fn build(b: *std.Build) void {
 
     // The runtime plumbing both Rust sidecars share (transports/sidecar-runtime)
     // is tested on its own; each sidecar's cargo build pulls it in by path.
-    cargo.registerSidecarCommon(b);
+    cargo.registerSidecarRuntime(b);
 
     // The iroh netlayer family (sidecar, resident, live drivers, the
     // ADR-0024 seam, the site snippets and locator suite, and the C ABI

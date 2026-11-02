@@ -3,7 +3,6 @@
 //! baseline target they build for.
 
 const std = @import("std");
-const execution = @import("execution.zig");
 
 /// Resolve `-Dtarget`/`-Dcpu` with the baseline CPU as the default, the one
 /// releases ship, and build every host tool for it too. Selecting the host's

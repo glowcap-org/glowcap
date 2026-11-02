@@ -3,12 +3,15 @@ pub const std_options = @import("c_abi_shared").library_options;
 const std = @import("std");
 const foreign_values = @import("foreign_values.zig");
 const owners = @import("owners.zig");
+const access = @import("loam_access");
+const cd = @import("c_abi_host");
+const core = @import("loam_core");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
 const refusal = @import("refusal.zig");
 const attached = @import("attachment.zig");
 const callbacks = @import("callbacks.zig");
 const works = @import("work.zig");
-const shared = owners.shared;
-const host = owners.host;
 const t = @import("layouts.zig");
 pub const GlowcapLoamStore = t.GlowcapLoamStore;
 pub const GlowcapLoamAttachment = t.GlowcapLoamAttachment;
@@ -48,10 +51,10 @@ pub const GlowcapLoamGraphField = t.GlowcapLoamGraphField;
 pub const GlowcapLoamPageReplacement = t.GlowcapLoamPageReplacement;
 /// Limits the header prose quotes, read from their owners.
 pub const prose_limits = struct {
-    pub const max_graph_verbs = owners.access.hosting.graph.Spec.max_requirement_verbs;
-    pub const max_graph_verb_bytes = owners.access.hosting.graph.Spec.max_requirement_verb_bytes;
+    pub const max_graph_verbs = access.hosting.graph.Spec.max_requirement_verbs;
+    pub const max_graph_verb_bytes = access.hosting.graph.Spec.max_requirement_verb_bytes;
     pub const max_accounting_path = @import("graph_abi.zig").max_accounting_path;
-    pub const max_refusal_bytes = owners.hosting.Call.max_refusal_bytes;
+    pub const max_refusal_bytes = hosting.Call.max_refusal_bytes;
 };
 pub const glowcap_loam_call_replace_graph_copying = @import("graph_abi.zig").glowcap_loam_call_replace_graph_copying;
 pub const glowcap_loam_call_page_reference = @import("graph_abi.zig").glowcap_loam_call_page_reference;
@@ -151,7 +154,7 @@ fn storeNew(gpa: std.mem.Allocator, metadata: ?[*]const u8, metadata_len: usize,
     const bounds = limits orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const bytes = shared.sliceFromC(metadata, metadata_len) catch |err| return refusal.code(err);
     const declarations = foreign_values.slice(GlowcapLoamSchema, schemas, schema_count) catch |err| return refusal.code(err);
-    const meta = owners.core.Metadata.decode(bytes) catch |err| return refusal.code(err);
+    const meta = core.Metadata.decode(bytes) catch |err| return refusal.code(err);
     const store = owners.Store.init(gpa, meta, declarations, bounds.*) catch |err| return refusal.code(err);
     slot.* = @ptrCast(store);
     return shared.GLOWCAP_OK;
@@ -164,7 +167,7 @@ pub fn glowcap_loam_store_release(raw: ?*GlowcapLoamStore) callconv(.c) i32 {
     owner.destroy() catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
-pub fn glowcap_loam_attach(raw: ?*GlowcapLoamStore, host_handle: ?*host.GlowcapHost, contents: ?[*]const GlowcapLoamContent, content_count: usize, entropy: ?GlowcapLoamEntropyFn, ctx: ?*anyopaque, out_attachment: ?*?*GlowcapLoamAttachment) callconv(.c) i32 {
+pub fn glowcap_loam_attach(raw: ?*GlowcapLoamStore, host_handle: ?*cd.GlowcapHost, contents: ?[*]const GlowcapLoamContent, content_count: usize, entropy: ?GlowcapLoamEntropyFn, ctx: ?*anyopaque, out_attachment: ?*?*GlowcapLoamAttachment) callconv(.c) i32 {
     shared.lastErrorClear();
     const slot = out_attachment orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     slot.* = null;
@@ -339,10 +342,10 @@ pub fn glowcap_loam_archive_fingerprint() callconv(.c) u64 {
     return GLOWCAP_LOAM_ARCHIVE_FINGERPRINT;
 }
 
-pub const GLOWCAP_LOAM_METADATA_SIZE: usize = owners.core.Metadata.encoded_size;
+pub const GLOWCAP_LOAM_METADATA_SIZE: usize = core.Metadata.encoded_size;
 /// The longest key Loam writes.
-pub const GLOWCAP_LOAM_MAX_KEY_BYTES: usize = owners.core.max_key_bytes;
-pub const GLOWCAP_LOAM_MAX_URI_BYTES: usize = owners.hosting.references.max_uri_bytes;
+pub const GLOWCAP_LOAM_MAX_KEY_BYTES: usize = core.max_key_bytes;
+pub const GLOWCAP_LOAM_MAX_URI_BYTES: usize = hosting.references.max_uri_bytes;
 pub const GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED: i32 = -40;
 pub const GLOWCAP_LOAM_ERR_STALE_COMPLETION: i32 = -41;
 pub const GLOWCAP_LOAM_ERR_DENIED: i32 = -42;
@@ -388,8 +391,8 @@ fn policyValue(policy: ?*const GlowcapLoamPolicy, requirement: ?*const GlowcapLo
     const target = out_value orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (input.permission_count > 64 or input.fact_count > 16) return refusal.code(error.PolicyLimit);
     const evaluated_policy = foreign_values.policy(schema.*) catch |err| return refusal.code(err);
-    var keys: [64]owners.access.core.Policy.Key = undefined;
-    var bounds: [16]owners.access.core.Policy.Bound = undefined;
+    var keys: [64]access.core.Policy.Key = undefined;
+    var bounds: [16]access.core.Policy.Bound = undefined;
     for (input.permissions[0..input.permission_count], 0..) |key, i| keys[i] = @fromBackingInt(key);
     for (input.facts[0..input.fact_count], 0..) |bound, i| bounds[i] = .{ .key = @fromBackingInt(bound.key), .value = bound.value };
     const value = (if (kind) |id| evaluated_policy.valueForKind(@fromBackingInt(id), keys[0..input.permission_count], bounds[0..input.fact_count]) else evaluated_policy.value(keys[0..input.permission_count], bounds[0..input.fact_count])) catch |err| return refusal.code(err);

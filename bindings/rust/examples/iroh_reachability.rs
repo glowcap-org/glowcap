@@ -24,16 +24,16 @@ use std::rc::Rc;
 use glowcap::iroh::Reachability;
 use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh};
 
-#[path = "../../../interop/_common/rust/client_gate.rs"]
-mod client_gate;
+#[path = "iroh/gate.rs"]
+mod gate;
 
-type Fail = client_gate::Fail;
+type Fail = gate::Fail;
 
 const NAME: &str = "rust-iroh-world";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
-	client_gate::ignore_port_args()?;
+	gate::ignore_port_args()?;
 	// The `Session`/`Server` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await

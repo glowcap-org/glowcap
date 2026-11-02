@@ -218,7 +218,7 @@ fn validateExecutionPosture(
             if (identifier.len == owner.len) return;
         }
     }
-    if ((std.mem.eql(u8, path, "tools/build/commands.zig") or std.mem.eql(u8, path, "tools/build/modules.zig")) and std.mem.eql(u8, value, "posture")) return;
+    if (std.mem.eql(u8, path, "tools/build/commands.zig") and std.mem.eql(u8, value, "posture")) return;
     try appendViolation(gpa, violations, "{s}: unknown or invalid execution posture `{s}`; Zig tests use `.unit_test`, deterministic subprocesses use a literal 1..30s budget, and every unbounded process names its exact posture", .{ path, std.mem.trim(u8, text, " \t\r\n") });
 }
 

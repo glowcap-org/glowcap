@@ -5,8 +5,9 @@
 const std = @import("std");
 const foreign_values = @import("foreign_values.zig");
 const owners = @import("owners.zig");
+const core = @import("loam_core");
+const shared = @import("c_abi_shared");
 const work = @import("work.zig");
-const core = owners.core;
 pub const GlowcapLoamBytes = extern struct { data: ?[*]const u8 = null, len: usize = 0, present: u32 = 0 };
 pub const GlowcapLoamKvFn = *const fn (?*anyopaque, u32, ?[*]const u8, usize, ?*const GlowcapLoamBytes, ?*GlowcapLoamBytes) callconv(.c) i32;
 pub const Kv = struct {
@@ -16,8 +17,8 @@ pub const Kv = struct {
     key: [core.max_key_bytes]u8 = undefined,
     fn call(self: *Kv, op: u32, key: []const u8, input: ?*const GlowcapLoamBytes, output: ?*GlowcapLoamBytes) !void {
         switch (self.callback(self.context, op, key.ptr, key.len, input, output)) {
-            owners.shared.GLOWCAP_OK => {},
-            owners.shared.GLOWCAP_ERR_WOULD_BLOCK => return if (op == 0 or op == 3) error.RecordUnloaded else error.WriteWouldBlock,
+            shared.GLOWCAP_OK => {},
+            shared.GLOWCAP_ERR_WOULD_BLOCK => return if (op == 0 or op == 3) error.RecordUnloaded else error.WriteWouldBlock,
             else => return error.StorageFailure,
         }
     }

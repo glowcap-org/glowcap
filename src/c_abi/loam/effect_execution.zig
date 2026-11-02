@@ -1,13 +1,14 @@
 //! Private receipt observation borrows the original Call and projects once.
 const std = @import("std");
 const owners = @import("owners.zig");
+const c = @import("layouts.zig");
+const cd = @import("c_abi_host");
+const driver = @import("driver_core");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
 const refusal = @import("refusal.zig");
 const continuations = @import("continuations.zig");
 const attached = @import("attachment.zig");
-const c = owners.c;
-const shared = owners.shared;
-const driver = owners.driver;
-const hosting = owners.hosting;
 
 /// C child spines have an independently bounded representation. Byte leaves
 /// borrow the core result. Successful projections grant independent occurrence
@@ -24,7 +25,7 @@ pub const Observer = struct {
         const values = try std.math.add(usize, reply_bytes / @sizeOf(driver.Value), 1);
         const Entry = std.meta.Elem(@FieldType(driver.Value, "struct"));
         const entries = reply_bytes / @sizeOf(Entry);
-        const bound = try owners.host.embedding.valueProjectionBound(hosting.references.AllocationBound, values, entries);
+        const bound = try cd.embedding.valueProjectionBound(hosting.references.AllocationBound, values, entries);
         return bound.physicalBytes();
     }
     pub fn callerBytes(reply_bytes: usize) !usize {
@@ -91,7 +92,7 @@ pub fn glowcap_loam_effect_execution_result(raw: ?*c.GlowcapLoamEffectExecution,
     switch (result) {
         .pending => {},
         .ready => |value| {
-            const projected = self.owner.host_borrow.core().projectOwnedValue(value, self.projection.working.allocator(), owners.host.embedding.valueToC) catch |err| {
+            const projected = self.owner.host_borrow.core().projectOwnedValue(value, self.projection.working.allocator(), cd.embedding.valueToC) catch |err| {
                 self.projection.resetWorking();
                 return refusal.code(err);
             };

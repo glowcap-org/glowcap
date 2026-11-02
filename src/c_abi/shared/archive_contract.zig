@@ -159,26 +159,36 @@ fn mixLayout(hash: *u64, comptime entry: Layout) void {
 /// `name` with every module path cut to its last segment, so
 /// `*c_abi.loam.layouts.Store` reads `*Store`: a C consumer observes a type's
 /// name, never the Zig file that declares it, so moving a declaration between
-/// files leaves the fingerprint alone.
-fn unqualified(comptime name: []const u8) []const u8 {
-    return comptime blk: {
-        @setEvalBranchQuota(1_000_000);
-        var out: []const u8 = "";
+/// files leaves the fingerprint alone. A path is a run of identifiers joined
+/// by dots that starts with a letter or underscore; digits, punctuation, and
+/// spaces pass through, so `1.5` and `fn (*a.B) callconv(.c) u32` keep their
+/// shape.
+pub fn unqualified(comptime name: []const u8) []const u8 {
+    comptime {
+        var buf: [name.len]u8 = undefined;
+        var len: usize = 0;
         var i: usize = 0;
         while (i < name.len) {
-            if (!isIdentChar(name[i])) {
-                out = out ++ name[i .. i + 1];
+            if (!isIdentStart(name[i])) {
+                buf[len] = name[i];
+                len += 1;
                 i += 1;
                 continue;
             }
             var segment = i;
-            while (i < name.len and (isIdentChar(name[i]) or (name[i] == '.' and i + 1 < name.len and isIdentChar(name[i + 1])))) : (i += 1) {
+            while (i < name.len and (isIdentChar(name[i]) or (name[i] == '.' and i + 1 < name.len and isIdentStart(name[i + 1])))) : (i += 1) {
                 if (name[i] == '.') segment = i + 1;
             }
-            out = out ++ name[segment..i];
+            @memcpy(buf[len..][0 .. i - segment], name[segment..i]);
+            len += i - segment;
         }
-        break :blk out;
-    };
+        const final = buf[0..len].*;
+        return &final;
+    }
+}
+
+fn isIdentStart(c: u8) bool {
+    return std.ascii.isAlphabetic(c) or c == '_';
 }
 
 fn isIdentChar(c: u8) bool {

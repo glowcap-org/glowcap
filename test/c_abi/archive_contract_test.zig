@@ -70,22 +70,55 @@ test "archive fingerprints follow reflected signatures, constants, and layouts" 
     try std.testing.expectEqual(baseline, repeated);
 }
 
+test "archive fingerprint names keep a type's shape and cut its module path" {
+    const unqualified = shared.archive_contract.unqualified;
+    try std.testing.expectEqualStrings("*Store", comptime unqualified("*c_abi.loam.layouts.Store"));
+    try std.testing.expectEqualStrings("?*const fn (*B, u32) callconv(.c) D", comptime unqualified("?*const fn (*a.B, u32) callconv(.c) a.c.D"));
+    try std.testing.expectEqualStrings("Aligned(u8,null)", comptime unqualified("array_list.Aligned(u8,null)"));
+    try std.testing.expectEqualStrings("[4]B", comptime unqualified("[4]a.B"));
+    try std.testing.expectEqualStrings("error{X}!B", comptime unqualified("error{X}!a.B"));
+    try std.testing.expectEqualStrings("[*:0]const u8", comptime unqualified("[*:0]const u8"));
+    try std.testing.expectEqualStrings("1.5", comptime unqualified("1.5"));
+    try std.testing.expectEqualStrings("a test name sits Row", comptime unqualified("a test name sits in.Row"));
+}
+
 test "archive fingerprints ignore the Zig namespace a declaration sits in" {
     const First = struct {
         pub const Row = extern struct { count: u32 };
         pub const symbols = struct {
-            pub const symbols = [_]shared.symbols.Symbol{};
+            pub const symbols = [_]shared.symbols.Symbol{.{ .name = "contractCall" }};
         };
+
+        pub fn contractCall(row: *const Row) callconv(.c) u32 {
+            return row.count;
+        }
     };
     const Second = struct {
         pub const Row = extern struct { count: u32 };
         pub const symbols = struct {
-            pub const symbols = [_]shared.symbols.Symbol{};
+            pub const symbols = [_]shared.symbols.Symbol{.{ .name = "contractCall" }};
         };
+
+        pub fn contractCall(row: *const Row) callconv(.c) u32 {
+            return row.count;
+        }
+    };
+    const Renamed = struct {
+        pub const Other = extern struct { count: u32 };
+        pub const symbols = struct {
+            pub const symbols = [_]shared.symbols.Symbol{.{ .name = "contractCall" }};
+        };
+
+        pub fn contractCall(row: *const Other) callconv(.c) u32 {
+            return row.count;
+        }
     };
     const first_layouts = [_]shared.archive_contract.Layout{shared.archive_contract.layout("ROW", First.Row)};
     const second_layouts = [_]shared.archive_contract.Layout{shared.archive_contract.layout("ROW", Second.Row)};
+    const renamed_layouts = [_]shared.archive_contract.Layout{shared.archive_contract.layout("ROW", Renamed.Other)};
     const first = comptime shared.archive_contract.fingerprint("archive", First, .{first_layouts});
     const second = comptime shared.archive_contract.fingerprint("archive", Second, .{second_layouts});
+    const renamed = comptime shared.archive_contract.fingerprint("archive", Renamed, .{renamed_layouts});
     try std.testing.expectEqual(first, second);
+    try std.testing.expect(first != renamed);
 }

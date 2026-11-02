@@ -1,11 +1,5 @@
 //! The error sets both halves of the Syrup codec share: the structural `Error`,
 //! the recursive walkers' `WalkError`, and the public `EncodeError`.
-//!
-//! As everywhere in the codec layer, this only describes and routes bytes. It
-//! holds no session authority. Every frame the decoder reads is untrusted,
-//! so the length math on each prefix is checked and the recursive
-//! readers stop at a fixed nesting bound, which means a deeply nested frame fails
-//! loudly instead of running off the stack.
 
 const std = @import("std");
 
@@ -37,5 +31,5 @@ pub const WalkError = Error || std.mem.Allocator.Error || model.view.ProjectErro
 
 /// The public encode entry points' error set: the recursive walk's `WalkError`
 /// plus the frame constructor's shape refusal, the same named-set posture as
-/// the capnp codec's `shared.EncodeError`.
+/// the capnp codec's `layout.EncodeError`.
 pub const EncodeError = WalkError || foundation.Frame.Error;

@@ -1,14 +1,14 @@
-//! The Loam C boundary's stable owners (`Store`, `EvaluationGuard`), the
-//! configured limits, and the module aliases every Loam C file draws on.
+//! The Loam C boundary's stable owners (`Store`, `EvaluationGuard`) and the
+//! limits they are configured with.
 
 const std = @import("std");
-pub const core = @import("loam_core");
-pub const access = @import("loam_access");
-pub const hosting = @import("loam_hosting");
-pub const driver = @import("driver_core");
-pub const shared = @import("c_abi_shared");
-pub const host = @import("c_abi_host");
-pub const c = @import("layouts.zig");
+const core = @import("loam_core");
+const access = @import("loam_access");
+const hosting = @import("loam_hosting");
+const driver = @import("driver_core");
+const shared = @import("c_abi_shared");
+const host = @import("c_abi_host");
+const c = @import("layouts.zig");
 pub const allocator = shared.library_allocator;
 pub const max_content_fields = 514;
 pub const max_schemas = 128;

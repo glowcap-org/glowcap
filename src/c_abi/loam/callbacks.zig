@@ -2,10 +2,12 @@
 const std = @import("std");
 const foreign_values = @import("foreign_values.zig");
 const owners = @import("owners.zig");
-const c = owners.c;
-const access = owners.access;
-const driver = owners.driver;
-const shared = owners.shared;
+const access = @import("loam_access");
+const c = @import("layouts.zig");
+const cd = @import("c_abi_host");
+const driver = @import("driver_core");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
 
 /// Registration copies the bounded declaration inventory once. Contexts remain
 /// borrowed until successful attachment release. Projection child arrays use
@@ -74,10 +76,10 @@ pub fn input(arena: std.mem.Allocator, invocation: access.hosting.ContentInvocat
     const resource = invocation.bound_resource;
     // C resource creation reserves the first strong edge for the managed row.
     // Application field indices omit that binding, so edits cannot replace it.
-    const binding = try owners.hosting.references.edgeAt(view, 0);
+    const binding = try hosting.references.edgeAt(view, 0);
     if (binding.restoration != .object or binding.strength != .strong or !binding.target.eql(resource.object)) return error.InvalidRecord;
     const projected = try arena.alloc(shared.GlowcapArgument, args.len);
-    for (args, projected) |value, *target| target.* = try owners.host.embedding.valueToC(arena, value);
+    for (args, projected) |value, *target| target.* = try cd.embedding.valueToC(arena, value);
     var owner: [16]u8 = undefined;
     std.mem.writeInt(u128, &owner, @backingInt(resource.id.owner), .big);
     const pages = try @import("graph_callbacks.zig").project(arena, invocation.graph);
@@ -181,7 +183,7 @@ pub fn disclose(raw: ?*c.GlowcapLoamCall, index: usize, dependent: bool, out: ?*
     const target = out orelse return error.NullPointer;
     const field = try std.math.add(usize, index, 1);
     const value = if (dependent) try call.content_call.discloseDependent(field) else try call.content_call.discloseExact(field);
-    target.* = try owners.host.embedding.valueToC(call.content_call.allocator(), value);
+    target.* = try cd.embedding.valueToC(call.content_call.allocator(), value);
 }
 
 pub fn editReference(raw: ?*c.GlowcapLoamCall, index: ?usize, replacement: ?shared.GlowcapReference) !void {

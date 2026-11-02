@@ -1,5 +1,5 @@
 /**
- * Shared host the Scrubber pointer adapters read. Scrubber owns the
+ * The host the Scrubber pointer adapters read. Scrubber owns the
  * Pixi-facing refs. The hook fills the rest each render.
  */
 

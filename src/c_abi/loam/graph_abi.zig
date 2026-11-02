@@ -1,13 +1,15 @@
 //! Callback-borrowed page tokens project shared graph selection and staging.
 const foreign_values = @import("foreign_values.zig");
 const owners = @import("owners.zig");
+const access = @import("loam_access");
+const c = @import("layouts.zig");
+const core = @import("loam_core");
+const shared = @import("c_abi_shared");
 const refusal = @import("refusal.zig");
 const graph = @import("graph_callbacks.zig");
-const c = owners.c;
-const shared = owners.shared;
 
 /// A grant chain is at most `max_depth` deep, plus its root.
-pub const max_accounting_path = owners.access.core.max_depth + 1;
+pub const max_accounting_path = access.core.max_depth + 1;
 
 /// Copy the admitted source grant's durable record names, nearest first.
 /// The call's validated working set supplies every ancestor. These names are
@@ -21,7 +23,7 @@ pub fn glowcap_loam_call_accounting_path(raw: ?*c.GlowcapLoamCall, out_path: ?[*
     const out = out_path orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const call: *@import("callbacks.zig").Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
     if (!call.active) return refusal.code(error.WrongPhase);
-    var buffer: [max_accounting_path]owners.core.ObjectId = undefined;
+    var buffer: [max_accounting_path]core.ObjectId = undefined;
     const path = call.content_call.accountingPath(&buffer) catch |err| return refusal.code(err);
     if (capacity < path.len) return refusal.code(error.InvalidArgument);
     for (path, out[0..path.len]) |id, *target| target.* = foreign_values.objectToC(id);
