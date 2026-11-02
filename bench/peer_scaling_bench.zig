@@ -28,6 +28,7 @@ const std = @import("std");
 const live = @import("peer_scaling/live.zig");
 const report = @import("peer_scaling/report.zig");
 const glowcap = @import("glowcap");
+const metrics = @import("alloc_metrics");
 
 const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
@@ -47,56 +48,6 @@ const BenchGreeter = struct {
 };
 
 pub const target_connections: u64 = 500_000;
-
-/// Tracks live (outstanding) heap bytes by accumulating the signed delta of every
-/// allocator operation. Live bytes after peers are constructed and warmed, with
-/// every transient event frame already freed, is the steady-state heap they hold.
-const LiveBytesAllocator = struct {
-    backing: std.mem.Allocator,
-    live: i128 = 0,
-
-    fn allocator(self: *LiveBytesAllocator) std.mem.Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free },
-        };
-    }
-
-    fn note(self: *LiveBytesAllocator, delta: i128) void {
-        self.live += delta;
-    }
-
-    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
-        const self: *LiveBytesAllocator = @ptrCast(@alignCast(ctx));
-        const result = self.backing.rawAlloc(len, alignment, ret_addr);
-        if (result != null) self.note(@intCast(len));
-        return result;
-    }
-
-    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
-        const self: *LiveBytesAllocator = @ptrCast(@alignCast(ctx));
-        const ok = self.backing.rawResize(memory, alignment, new_len, ret_addr);
-        if (ok) self.note(@as(i128, @intCast(new_len)) - @as(i128, @intCast(memory.len)));
-        return ok;
-    }
-
-    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
-        const self: *LiveBytesAllocator = @ptrCast(@alignCast(ctx));
-        const result = self.backing.rawRemap(memory, alignment, new_len, ret_addr);
-        if (result != null) self.note(@as(i128, @intCast(new_len)) - @as(i128, @intCast(memory.len)));
-        return result;
-    }
-
-    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
-        const self: *LiveBytesAllocator = @ptrCast(@alignCast(ctx));
-        self.backing.rawFree(memory, alignment, ret_addr);
-        self.note(-@as(i128, @intCast(memory.len)));
-    }
-
-    fn liveBytes(self: *const LiveBytesAllocator) u64 {
-        return if (self.live < 0) 0 else @intCast(self.live);
-    }
-};
 
 /// One inbound no-answer (`#f` answer position) `op:deliver` to live local
 /// export 7, the steady-state turn the alloc-budget test pins. Driving it once
@@ -171,7 +122,7 @@ pub const Measurement = struct {
 /// measuring one in isolation) amortizes the allocator's chunked growth across
 /// the set, so the quotient is the true marginal cost of one more connection.
 fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measurement {
-    var tracker = LiveBytesAllocator{ .backing = backing };
+    var tracker = metrics.LiveBytesAllocator{ .backing = backing };
     const tracked = tracker.allocator();
 
     const holds_vat = scenarioHoldsVat(scenario);

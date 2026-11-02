@@ -248,15 +248,27 @@ test "completion loop: listener shutdown drains a canceled accept after close co
 /// Encode `peer`'s queued sends and append their bare frame bytes to `sink`.
 /// This is the intrinsic message-framed path used to prepare a peer directly. status-allow: purpose clause
 const OneBadPartnerBackend = struct {
-    pub const Fd = i32;
-
-    pub fn applyKeepalive(_: *OneBadPartnerBackend, _: Fd, _: completion.Keepalive) !void {
-        return error.OperationUnsupported;
-    }
-
-    pub fn wireFraming(_: *OneBadPartnerBackend, _: Fd) model.transport.WireFraming {
-        return .byte_stream;
-    }
+    const shared = fixtures.ScriptedContract(@This());
+    pub const Fd = shared.Fd;
+    pub const applyKeepalive = shared.applyKeepalive;
+    pub const wireFraming = shared.wireFraming;
+    pub const ListenTarget = shared.ListenTarget;
+    pub const loopListenTarget = shared.loopListenTarget;
+    pub const listenerPending = shared.listenerPending;
+    pub const openListener = shared.openListener;
+    pub const ListenerAddress = shared.ListenerAddress;
+    pub const listenerAddress = shared.listenerAddress;
+    pub const listenerPort = shared.listenerPort;
+    pub const closeFd = shared.closeFd;
+    pub const ConnectTarget = shared.ConnectTarget;
+    pub const startDial = shared.startDial;
+    pub const shutdownFd = shared.shutdownFd;
+    pub const verifiedChannelKey = shared.verifiedChannelKey;
+    pub const recycleBorrowed = shared.recycleBorrowed;
+    const push = shared.push;
+    pub const submitCancel = shared.submitCancel;
+    pub const submitClose = shared.submitClose;
+    pub const peek = shared.peek;
 
     const refused_fd: Fd = 100;
     const ok_fd: Fd = 200;
@@ -285,56 +297,6 @@ const OneBadPartnerBackend = struct {
         self.* = .{ .pool_free = 0 };
     }
 
-    pub const ListenTarget = u16;
-
-    pub fn loopListenTarget(port: u16) ListenTarget {
-        return port;
-    }
-
-    /// A scripted listener binds at `openListener`; nothing pends here; a
-    /// wrapped adapter's pending setup reports through the adapter itself.
-    pub fn listenerPending(_: *@This(), _: Fd) bool {
-        return false;
-    }
-
-    pub fn openListener(self: *@This(), port: u16) !Fd {
-        _ = self;
-        _ = port;
-        return 1;
-    }
-
-    pub const ListenerAddress = u16;
-    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
-        return 1;
-    }
-    pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
-    }
-
-    pub fn closeFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    pub const ConnectTarget = void;
-
-    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
-        _ = self;
-        _ = user_data;
-        _ = target;
-        return error.UnsupportedTransport;
-    }
-
-    pub fn shutdownFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    fn push(self: *OneBadPartnerBackend, c: completion.Completion) void {
-        self.ready[self.ready_len] = c;
-        self.ready_len += 1;
-    }
-
     pub fn submitAccept(self: *OneBadPartnerBackend, user_data: u64, listen_fd: Fd) !void {
         _ = listen_fd;
         // Two scripted connections; the loop's later re-arms pend forever.
@@ -349,18 +311,6 @@ const OneBadPartnerBackend = struct {
         self.push(fixtures.scriptedRecv(self, user_data, chunks));
     }
 
-    pub fn verifiedChannelKey(self: *OneBadPartnerBackend, fd: Fd) ?[32]u8 {
-        _ = self;
-        _ = fd;
-        return null;
-    }
-
-    pub fn recycleBorrowed(self: *OneBadPartnerBackend, comp: completion.Completion) void {
-        _ = comp;
-        self.recycles += 1;
-        self.pool_free += 1;
-    }
-
     pub fn submitSend(self: *OneBadPartnerBackend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         if (fd == refused_fd) {
             self.sends_refused += 1;
@@ -368,21 +318,6 @@ const OneBadPartnerBackend = struct {
         }
         self.sends_ok += 1;
         self.push(.{ .user_data = user_data, .result = @intCast(bytes.len) });
-    }
-
-    pub fn submitCancel(self: *OneBadPartnerBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
-        _ = .{ target_user_data, fd };
-        self.push(.{ .user_data = cancel_user_data, .result = 0 });
-    }
-
-    pub fn submitClose(self: *OneBadPartnerBackend, user_data: u64, fd: Fd) !void {
-        _ = fd;
-        self.push(.{ .user_data = user_data, .result = 0 });
-    }
-
-    /// No submission queue here, so a peek is a zero-timeout poll.
-    pub fn peek(self: *OneBadPartnerBackend, out: []completion.Completion) !usize {
-        return self.poll(out, 0);
     }
 
     pub fn poll(self: *OneBadPartnerBackend, out: []completion.Completion, timeout_ms: i32) !usize {

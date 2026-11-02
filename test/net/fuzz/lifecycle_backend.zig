@@ -15,6 +15,7 @@ const bounds = @import("bounds.zig");
 const max_input = bounds.max_input;
 const frame_cap = bounds.frame_cap;
 const handshake = @import("../../support/handshake.zig");
+const fixtures = @import("../../support/completion_loop_fixtures.zig");
 
 /// A real client `op:start-session`, built once per run and handed to the
 /// backend as inbound bytes when the schedule asks for it.
@@ -94,16 +95,19 @@ pub const max_slots = 4;
 /// completed in whatever order the schedule asks for, with whatever result it
 /// asks for, which is the part a hand-written script cannot cover.
 pub const LifecycleBackend = struct {
-    pub const Fd = i32;
-    pub const ConnectTarget = void;
-
-    pub fn applyKeepalive(_: *LifecycleBackend, _: Fd, _: net.completion.Keepalive) !void {
-        return error.OperationUnsupported;
-    }
-
-    pub fn wireFraming(_: *LifecycleBackend, _: Fd) model.transport.WireFraming {
-        return .byte_stream;
-    }
+    const shared = fixtures.ScriptedContract(@This());
+    pub const Fd = shared.Fd;
+    pub const applyKeepalive = shared.applyKeepalive;
+    pub const wireFraming = shared.wireFraming;
+    pub const ListenTarget = shared.ListenTarget;
+    pub const loopListenTarget = shared.loopListenTarget;
+    pub const listenerPending = shared.listenerPending;
+    pub const ListenerAddress = shared.ListenerAddress;
+    pub const listenerAddress = shared.listenerAddress;
+    pub const listenerPort = shared.listenerPort;
+    pub const ConnectTarget = shared.ConnectTarget;
+    pub const verifiedChannelKey = shared.verifiedChannelKey;
+    pub const peek = shared.peek;
 
     const Kind = enum { accept, recv, send, close, connect, cancel };
     /// `len` is the submitted byte count, carried so a send can complete as a
@@ -168,30 +172,10 @@ pub const LifecycleBackend = struct {
         self.* = .{};
     }
 
-    pub const ListenTarget = u16;
-
-    pub fn loopListenTarget(port: u16) ListenTarget {
-        return port;
-    }
-
-    /// A scripted listener binds at `openListener`; nothing pends here; a
-    /// wrapped adapter's pending setup reports through the adapter itself.
-    pub fn listenerPending(_: *@This(), _: Fd) bool {
-        return false;
-    }
-
     pub fn openListener(self: *@This(), port: u16) !Fd {
         _ = port;
         self.next_fd += 1;
         return self.next_fd;
-    }
-
-    pub const ListenerAddress = u16;
-    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
-        return 1;
-    }
-    pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -266,19 +250,8 @@ pub const LifecycleBackend = struct {
         self.record(user_data, .close, 0);
     }
 
-    pub fn verifiedChannelKey(self: *LifecycleBackend, fd: Fd) ?[32]u8 {
-        _ = self;
-        _ = fd;
-        return null;
-    }
-
     pub fn recycleBorrowed(self: *LifecycleBackend, comp: completion.Completion) void {
         _ = .{ self, comp };
-    }
-
-    /// No submission queue here, so a peek is a zero-timeout poll.
-    pub fn peek(self: *LifecycleBackend, out: []completion.Completion) !usize {
-        return self.poll(out, 0);
     }
 
     pub fn poll(self: *LifecycleBackend, out: []completion.Completion, timeout_ms: i32) !usize {

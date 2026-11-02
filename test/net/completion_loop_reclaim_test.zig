@@ -6,7 +6,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
-const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const tcp = glowcap.net.tcp;
 const Loop = glowcap.net.TcpLoop;
@@ -28,15 +27,24 @@ const FakeEvent = fixtures.FakeEvent;
 /// a read error (an RST, or a keepalive probe giving up on a dead remote host).
 /// One connection accepts, its opening send lands, then the next recv errors.
 const DeadPeerBackend = struct {
-    pub const Fd = i32;
-
-    pub fn applyKeepalive(_: *DeadPeerBackend, _: Fd, _: completion.Keepalive) !void {
-        return error.OperationUnsupported;
-    }
-
-    pub fn wireFraming(_: *DeadPeerBackend, _: Fd) model.transport.WireFraming {
-        return .byte_stream;
-    }
+    const shared = fixtures.ScriptedContract(@This());
+    pub const Fd = shared.Fd;
+    pub const applyKeepalive = shared.applyKeepalive;
+    pub const wireFraming = shared.wireFraming;
+    pub const ListenTarget = shared.ListenTarget;
+    pub const loopListenTarget = shared.loopListenTarget;
+    pub const openListener = shared.openListener;
+    pub const ListenerAddress = shared.ListenerAddress;
+    pub const listenerAddress = shared.listenerAddress;
+    pub const listenerPort = shared.listenerPort;
+    pub const ConnectTarget = shared.ConnectTarget;
+    pub const startDial = shared.startDial;
+    pub const shutdownFd = shared.shutdownFd;
+    pub const verifiedChannelKey = shared.verifiedChannelKey;
+    const push = shared.push;
+    pub const submitCancel = shared.submitCancel;
+    pub const submitClose = shared.submitClose;
+    pub const peek = shared.peek;
 
     const ok_fd: Fd = 200;
     // -ECONNRESET on Linux: the shape a vanished-then-surfaced peer produces.
@@ -59,11 +67,6 @@ const DeadPeerBackend = struct {
     pub fn deinit(self: *DeadPeerBackend) void {
         self.* = .{};
     }
-    pub const ListenTarget = u16;
-
-    pub fn loopListenTarget(port: u16) ListenTarget {
-        return port;
-    }
 
     /// A scripted listener normally binds at `openListener`. The failure
     /// mode exercises an adapter that refuses while finishing setup.
@@ -71,36 +74,9 @@ const DeadPeerBackend = struct {
         return self.setup_failure;
     }
 
-    pub fn openListener(self: *@This(), port: u16) !Fd {
-        _ = self;
-        _ = port;
-        return 1;
-    }
-    pub const ListenerAddress = u16;
-    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
-        return 1;
-    }
-    pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
-    }
     pub fn closeFd(self: *@This(), fd: Fd) void {
         if (fd == ok_fd) self.refused_accept_closes += 1;
         if (self.close_counter) |count| count.* += 1;
-    }
-    pub const ConnectTarget = void;
-    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
-        _ = self;
-        _ = user_data;
-        _ = target;
-        return error.UnsupportedTransport;
-    }
-    pub fn shutdownFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-    fn push(self: *DeadPeerBackend, c: completion.Completion) void {
-        self.ready[self.ready_len] = c;
-        self.ready_len += 1;
     }
     pub fn submitAccept(self: *DeadPeerBackend, user_data: u64, listen_fd: Fd) !void {
         _ = listen_fd;
@@ -121,27 +97,10 @@ const DeadPeerBackend = struct {
             .failure = error.ConnectionResetByPeer,
         });
     }
-    pub fn submitCancel(self: *DeadPeerBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
-        _ = .{ target_user_data, fd };
-        self.push(.{ .user_data = cancel_user_data, .result = 0 });
-    }
-    pub fn verifiedChannelKey(self: *DeadPeerBackend, fd: Fd) ?[32]u8 {
-        _ = self;
-        _ = fd;
-        return null;
-    }
 
     pub fn recycleBorrowed(self: *DeadPeerBackend, comp: completion.Completion) void {
         _ = comp;
         self.pool_free += 1;
-    }
-    pub fn submitClose(self: *DeadPeerBackend, user_data: u64, fd: Fd) !void {
-        _ = fd;
-        self.push(.{ .user_data = user_data, .result = 0 });
-    }
-    /// No submission queue here, so a peek is a zero-timeout poll.
-    pub fn peek(self: *DeadPeerBackend, out: []completion.Completion) !usize {
-        return self.poll(out, 0);
     }
 
     pub fn poll(self: *DeadPeerBackend, out: []completion.Completion, timeout_ms: i32) !usize {
