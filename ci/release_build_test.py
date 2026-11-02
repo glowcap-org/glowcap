@@ -9,7 +9,6 @@ service. The Zig and Rust packaging checks below it run the real recipes.
 """
 
 import hashlib
-import importlib.util
 import io
 import json
 import os
@@ -22,11 +21,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from workflows import ROOT, jobs, run, selected, step, text, workflow
+from workflows import ROOT, jobs, load, run, selected, step, text, workflow
 
-spec = importlib.util.spec_from_file_location("zig_package", ROOT / "tools/check/zig_package.py")
-PACKAGE = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(PACKAGE)
+PACKAGE = load("tools/check/zig_package.py")
 WORKFLOW = ".github/workflows/release.yml"
 RELEASE = jobs(WORKFLOW)
 

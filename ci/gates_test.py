@@ -4,7 +4,6 @@ The runner's command launcher and evidence recorder are replaced in process,
 so every gate the runner would start is recorded instead of run.
 """
 
-import importlib.util
 import json
 import os
 import re
@@ -13,12 +12,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import gates as GATES
+import groups as GROUPS
 from workflows import ROOT
 
-SPEC = importlib.util.spec_from_file_location("ci_gates", ROOT / "ci/gates.py")
-GATES = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(GATES)
-GROUPS = GATES.groups
 DEFAULTS = ["--test-timeout", "30s", "--summary", "new"]
 TIMEOUT_NAMES = ("GATE_TIMEOUT", "BUILD_TIMEOUT", "LONG_TIMEOUT")
 

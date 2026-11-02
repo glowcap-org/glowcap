@@ -1,6 +1,5 @@
 """CI image preparation contracts, for infrastructure-check."""
 
-import importlib.util
 import json
 import os
 import subprocess
@@ -10,12 +9,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from workflows import jobs, workflow
+import image as IMAGE
+from workflows import ROOT, jobs, workflow
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("ci_image", ROOT / "ci/image.py")
-IMAGE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(IMAGE)
 DIGEST = "sha256:" + "a" * 64
 REF = "ghcr.io/glowcap-org/glowcap/devcontainer@" + DIGEST
 

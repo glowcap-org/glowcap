@@ -5,7 +5,6 @@ workflow steps that call it run the same way. Nothing here reaches GitHub.
 """
 
 import contextlib
-import importlib.util
 import io
 import json
 import os
@@ -16,6 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import require_main_check as helper
 from workflows import ROOT, jobs, on_path, run, selected, step, stub, workflow
 
 RUN = {
@@ -185,9 +185,6 @@ else:
             self.assertIsNone(call)
 
     def test_evidence_lookup_has_a_deadline_and_setup_diagnostic(self):
-        spec = importlib.util.spec_from_file_location("main_check", ROOT / "ci/require_main_check.py")
-        helper = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(helper)
         for error, status, diagnostic in [
             (subprocess.TimeoutExpired("gh", 30), 124, "exceeded 30 seconds"),
             (FileNotFoundError("gh unavailable"), 1, "cannot run gh"),

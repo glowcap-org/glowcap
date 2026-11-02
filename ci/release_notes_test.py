@@ -9,7 +9,6 @@ subprocess. The workflow assertions read release.yml for the changelog contract
 and the attestation of the published image. Nothing here reaches GitHub.
 """
 
-import importlib.util
 import json
 import subprocess
 import sys
@@ -17,11 +16,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import release_notes as NOTES
 from workflows import ROOT, jobs, run, step
 
-SPEC = importlib.util.spec_from_file_location("release_notes", ROOT / "ci/release_notes.py")
-NOTES = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(NOTES)
 SCRIPT = ROOT / "ci/release_notes.py"
 TAG = "v0.1.0"
 COMMIT = "a" * 40

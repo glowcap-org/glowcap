@@ -6,7 +6,6 @@ stands in for the runner's zstd.
 """
 
 import contextlib
-import importlib.util
 import io
 import os
 import shutil
@@ -16,18 +15,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from workflows import ROOT, on_path, stub
+from workflows import load, on_path, stub
 
 GIB = 1 << 30
 GIT_ENV = {"GIT_AUTHOR_DATE": "@1700000000 +0000", "GIT_COMMITTER_DATE": "@1700000000 +0000"}
 
 
-def load(home, root):
+def module(home, root):
     """The module with its stores under `home` and its checkout at `root`."""
     with mock.patch.dict(os.environ, {"HOME": str(home)}):
-        spec = importlib.util.spec_from_file_location("ci_state", ROOT / "ci/state.py")
-        state = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(state)
+        state = load("ci/state.py")
     state.ROOT = Path(root)
     return state
 
@@ -67,7 +64,7 @@ class StateTest(unittest.TestCase):
                 self.subTest(count=count, free=free, limit=limit, store_bytes=store_bytes),
                 tempfile.TemporaryDirectory() as temporary,
             ):
-                state = load(temporary, temporary)
+                state = module(temporary, temporary)
                 self.assertEqual(len(state.STORES), 7)
                 inodes = {}
                 for store in state.STORES[:count]:
@@ -90,7 +87,7 @@ class StateTest(unittest.TestCase):
 
     def test_size_counts_the_blocks_a_tree_occupies(self):
         with tempfile.TemporaryDirectory() as temporary:
-            state = load(temporary, temporary)
+            state = module(temporary, temporary)
             tree = Path(temporary) / "tree/deep"
             tree.mkdir(parents=True)
             (tree / "file").write_bytes(b"x" * 10_000)
@@ -101,7 +98,7 @@ class StateTest(unittest.TestCase):
 
     def test_malformed_calls_change_nothing(self):
         with tempfile.TemporaryDirectory() as temporary:
-            state = load(temporary, temporary)
+            state = module(temporary, temporary)
             for argv in (
                 [],
                 ["stores", "extra"],
@@ -132,7 +129,7 @@ class StateTest(unittest.TestCase):
             environment = on_path(binary, HOME=str(home), **GIT_ENV)
             commit(root, environment)
             (root / "absent.zig").unlink()
-            state = load(home, root)
+            state = module(home, root)
             with mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(state.main(["stamp"]), 0)
                 self.assertEqual((root / "tracked.zig").stat().st_mtime, 1700000000)
@@ -180,7 +177,7 @@ class StateTest(unittest.TestCase):
         ]
         for build, present, status, unpacked in cases:
             with self.subTest(build=build, present=present), tempfile.TemporaryDirectory() as temporary:
-                state = load(temporary, temporary)
+                state = module(temporary, temporary)
                 directory = Path(temporary) / "state"
                 directory.mkdir()
                 for shard in present:

@@ -14,7 +14,6 @@ runner itself.
 
 import contextlib
 import hashlib
-import importlib.util
 import io
 import json
 import os
@@ -27,12 +26,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import github_release as RELEASE
 from workflows import ROOT, jobs, run, stub
 
 SCRIPT = ROOT / "ci/github_release.py"
-SPEC = importlib.util.spec_from_file_location("github_release", SCRIPT)
-RELEASE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(RELEASE)
 REPOSITORY = "owner/project"
 COMMIT = "a" * 40
 TAG = "v0.1.0"

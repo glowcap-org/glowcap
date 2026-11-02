@@ -10,6 +10,7 @@ caller supplies. None of this runs on a GitHub runner.
 """
 
 import ast
+import importlib.util
 import os
 import re
 from pathlib import Path
@@ -23,6 +24,14 @@ BOOL = "tag:yaml.org,2002:bool"
 
 def text(path):
     return (ROOT / path).read_text()
+
+
+def load(path):
+    """A first-party Python program under the root as a module, for one whose name or directory `import` cannot reach."""
+    spec = importlib.util.spec_from_file_location(Path(path).stem.replace("-", "_"), ROOT / path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class Loader(yaml.SafeLoader):

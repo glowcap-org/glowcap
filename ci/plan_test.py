@@ -1,6 +1,5 @@
 """ci/plan.py, which selects the groups a run needs, for infrastructure-check."""
 
-import importlib.util
 import json
 import os
 import subprocess
@@ -8,10 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("ci_plan", ROOT / "ci/plan.py")
-PLAN = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(PLAN)
+import plan as PLAN
+from workflows import ROOT
+
 INTO_DEV = {"pull_request": {"base": {"ref": "dev"}}}
 # Development validation never fuzzes.
 DEVELOPMENT = [name for name in PLAN.GROUP_NAMES if name != "fuzz"]

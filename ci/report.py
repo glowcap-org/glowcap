@@ -82,7 +82,9 @@ def main():
     if not qualification(needs):
         for name, need in needs.items():
             if need.get("result") != "success":
-                print(f"::error::Validation dependency {name} ended as {need.get('result', 'missing')}", file=sys.stderr)
+                print(
+                    f"::error::Validation dependency {name} ended as {need.get('result', 'missing')}", file=sys.stderr
+                )
         return 1
     return 0
 
