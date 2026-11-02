@@ -244,4 +244,15 @@ pub const transport_provider_architecture: []const Ban = &.{
         .check = "transport-provider-architecture",
         .why = "the generic TypeScript loop registers packages and drives events; transport modules own concrete provider composition",
     },
+    .{
+        .where = .{ .tree = .{
+            .dir = "src",
+            .suffixes = &.{".zig"},
+            .exclude = &.{ "src/net/transport/tcp.zig", "src/net/transport/tcp/stream.zig", "src/net/transport/tcp/profile.zig" },
+        } },
+        .kind = .forbid,
+        .needles = &.{"connectAddress"},
+        .check = "transport-provider-architecture",
+        .why = "a TCP dial goes through DialResolver.resolve, tcp.connect, or the netlayer dial; the raw address connect belongs to the tcp stream, its profile, and the tcp facade alone",
+    },
 };

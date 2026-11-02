@@ -48,9 +48,9 @@ pub fn shutdownStream(stream: *const Stream, io: std.Io) std.Io.net.ShutdownErro
 /// never reallocates. One `completion.Loop` honors it for every backend it is
 /// instantiated over, so there is no second Zig spelling to drift from. The
 /// mirror that can drift is across languages: the iroh sidecar keeps its own
-/// per-direction bound in Rust (`NB_STEADY_BYTES`), and `source-check` pins the
-/// two literals together, because this is a per-connection footprint number the
-/// ladder's 500k-connection budget owns.
+/// per-direction bound in Rust (`NB_STEADY_BYTES`), which
+/// `gen-iroh-sidecar-constants` writes from this constant, because this is a
+/// per-connection footprint number the ladder's 500k-connection budget owns.
 pub const steady_outbound_bytes: usize = 16 * 1024;
 
 /// The outer frame used by byte-stream netlayers: a Syrup byte string containing

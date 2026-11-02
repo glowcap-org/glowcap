@@ -247,6 +247,7 @@ pub const all: []const Ban =
     prose.human_doc_voice ++
     prose.inbound_vocabulary ++
     prose.diagram_wire_vocabulary ++
+    prose.landing_provenance ++
     layers.clock_seam ++
     layers.actors_layer_purity ++
     entropy.rows ++
