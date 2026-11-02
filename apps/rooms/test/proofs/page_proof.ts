@@ -26,7 +26,7 @@ import { spawnWeb } from "../support/web_front.ts";
 import { chromium } from "playwright";
 import { fail } from "../support/fail.ts";
 import { ROOT, SERVER } from "../support/paths.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import * as opening from "../page/opening.ts";
 import { proveFocusKeepsMobileViewport } from "../page/mobile_controls.ts";

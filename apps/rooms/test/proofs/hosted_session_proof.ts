@@ -11,7 +11,7 @@ import { reapOwned } from "../support/children.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
 import { reachDirectoryOnCard } from "../page/harness.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { attachThroughSettings, reattachThroughSettings } from "../page/session_attach.ts";
 

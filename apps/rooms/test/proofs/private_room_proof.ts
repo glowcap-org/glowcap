@@ -47,7 +47,7 @@ import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
 import { fail } from "../support/fail.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { joinAs, ROOM } from "../support/join.ts";
 import { say } from "../page/harness.ts";
 import { waitForHttp } from "../support/rooms_server.ts";

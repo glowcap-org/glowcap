@@ -12,7 +12,7 @@
 import { parseOpsBundle } from "../../web/ui/ops/bundle.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { ROOT, WEB } from "../support/paths.ts";
 import { reachRoomThroughRelay, waitForIndex, withWeb } from "./serve_harness.ts";
 

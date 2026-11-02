@@ -26,7 +26,8 @@
 // `deno run --allow-all interop/webrtc_browser_peer/browser_peer_test.ts`.
 
 import { chromium } from "playwright";
-import { bundleProbe, freePort } from "../../bindings/ts/web/test/support.ts";
+import { freePort } from "../../bindings/ts/test/ports.ts";
+import { bundleProbe } from "../../bindings/ts/web/test/support.ts";
 import { fail } from "../../bindings/ts/test/assert.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;

@@ -7,7 +7,7 @@
 
 import type { Page } from "playwright";
 import { fail } from "../support/fail.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { fillSettled, reachDirectoryOnCard, waitForPostedLine } from "./harness.ts";
 export async function run(
 	tab: Page,

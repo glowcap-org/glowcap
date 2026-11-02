@@ -30,6 +30,7 @@
 
 import { chromium } from "playwright";
 import { fail } from "../../../bindings/ts/test/assert.ts";
+import { freePort } from "../../../bindings/ts/test/ports.ts";
 
 /** The globals the page probe installs on its own `globalThis`.
  *
@@ -52,13 +53,6 @@ if (PROBE == null) {
 
 const PING = "ping-from-browser";
 const EXPECTED_REPLY = `pong-from-probe:${PING}`;
-
-function freePort(): number {
-	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (l.addr as Deno.NetAddr).port;
-	l.close();
-	return port;
-}
 
 // The browser peer, served same-origin over http://127.0.0.1 (localhost is a
 // secure context, so RTCPeerConnection is available). It defines the offerer but

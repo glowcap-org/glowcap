@@ -28,7 +28,7 @@
  */
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { spawnWeb } from "../../apps/rooms/test/support/web_front.ts";
-import { freePort } from "../../apps/rooms/test/support/ports.ts";
+import { freePort } from "../../bindings/ts/test/ports.ts";
 import { reapOwned } from "../../apps/rooms/test/support/children.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { directOpened, openDmTo, reachDirectoryOnCard } from "../../apps/rooms/test/page/harness.ts";

@@ -11,7 +11,8 @@
  * Usage: playwright-selection-panel-shots.ts <out-dir> [url]
  * Setup: a dev server on the url (default :5173).
  */
-import { chromium, type Page } from "playwright";
+import type { Page } from "playwright";
+import { launchHeadless, openFreshPage } from "./support/headless.ts";
 
 type Pt = { id: string; sx: number; sy: number };
 
@@ -139,26 +140,15 @@ async function shot(page: Page, name: string) {
 	console.log(`${name}  ${(await selection(page)).join(" ")}`);
 }
 
-const browser = await chromium.launch({
-	headless: true,
-	args: ["--no-sandbox", "--disable-gpu"],
-});
+const browser = await launchHeadless();
 
 for (const theme of ["light", "dark"] as const) {
-	const ctx = await browser.newContext({
+	const page = await openFreshPage(browser, {
 		viewport: { width: 1600, height: 1000 },
 		deviceScaleFactor: 2,
 		colorScheme: theme,
 	});
-	const page = await ctx.newPage();
 	page.on("pageerror", (e) => console.log("[pageerror]", e.message));
-	await page.addInitScript(() => {
-		try {
-			localStorage.removeItem("ocapnviz:app-state");
-		} catch {
-			// first run has nothing to clear
-		}
-	});
 	await page.goto(url, { waitUntil: "networkidle" });
 	await page.waitForSelector("canvas#ocv-pixi");
 	await page.evaluate((t) => {
@@ -211,7 +201,7 @@ for (const theme of ["light", "dark"] as const) {
 		await seekTo(page, 0);
 	}
 
-	await ctx.close();
+	await page.context().close();
 	console.log(`${theme} → ${outDir}/${theme}-*.png`);
 }
 

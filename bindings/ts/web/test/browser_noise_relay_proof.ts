@@ -6,7 +6,8 @@
 import { chromium } from "playwright";
 import { RELAY_READY_MARKER } from "../../relay/mod.ts";
 import { fail } from "../../test/assert.ts";
-import { bundleProbe, freePort } from "./support.ts";
+import { freePort } from "../../test/ports.ts";
+import { bundleProbe } from "./support.ts";
 
 declare global {
 	var glowcapNoiseReady: {

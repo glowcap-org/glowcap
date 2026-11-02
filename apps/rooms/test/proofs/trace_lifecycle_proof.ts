@@ -43,7 +43,7 @@ import { fail } from "../support/fail.ts";
 import { joinAs } from "../support/join.ts";
 import { awaitBubble, openDmTo, say } from "../page/harness.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 /** One record off the endpoint, as the converter takes it, and the shape of

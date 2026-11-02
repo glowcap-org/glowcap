@@ -39,7 +39,7 @@
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { startIrcServer } from "../../apps/rooms/test/irc/server_process.ts";
 import { reapOwned } from "../../apps/rooms/test/support/children.ts";
-import { freePort } from "../../apps/rooms/test/support/ports.ts";
+import { freePort } from "../../bindings/ts/test/ports.ts";
 import { spawnWeb } from "../../apps/rooms/test/support/web_front.ts";
 import { awaitLocator, outDirArg, pinToLatest, plainRun, shot as capture, still } from "./capture.ts";
 

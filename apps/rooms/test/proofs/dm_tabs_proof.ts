@@ -40,7 +40,7 @@ import { type Browser, type BrowserContext, chromium, type Page } from "playwrig
 import { establishLocalSession } from "../support/session_setup.ts";
 import { inkContrast } from "../ink_contrast.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, confirmTitleLeave, directOpened, openDmTo } from "../page/harness.ts";

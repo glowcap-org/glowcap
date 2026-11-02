@@ -3,7 +3,7 @@
 // asset tests so each deterministic process stays inside its 30-second bound.
 
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { ROOT, WEB } from "../support/paths.ts";
 import { delay } from "../support/wait.ts";
 import { reachRoomThroughRelay, spawnWeb, waitForIndex } from "./serve_harness.ts";

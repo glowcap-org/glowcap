@@ -16,7 +16,7 @@ import { fetchBlob } from "../../lib/attachment.ts";
 import { roomsAddress, roomsHost } from "../../lib/locator.ts";
 import { stopOwned } from "../support/children.ts";
 import { assert } from "../assert.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { dial, roomsTest } from "../support/rooms_server.ts";
 import { announcedSturdyref } from "../support/standalone_peer.ts";
 
