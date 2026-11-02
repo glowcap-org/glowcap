@@ -21,9 +21,10 @@
 //! schema in this repository states its own.
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Where persisted application documents live.
 const roots = [_][]const u8{ "apps", "bindings/ts" };
@@ -124,7 +125,7 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (roots) |root_path| {
-        const files = (try util.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to open for the prerelease version check", .{root_path});
             continue;
         };

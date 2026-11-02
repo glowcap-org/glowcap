@@ -27,7 +27,7 @@ const std = @import("std");
 const driver_core = @import("driver_core");
 
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const marshal = @import("marshal.zig");
 const shared = @import("c_abi_shared");
 
 /// One captured fact. The byte fields index this slot's payload window, since
@@ -128,7 +128,7 @@ pub const TraceQueue = struct {
             .session_open => |open| {
                 slot.kind = c.GLOWCAP_TRACE_SESSION_OPEN;
                 slot.session = open.session.int();
-                slot.provenance = common.provenanceToC(open.provenance);
+                slot.provenance = marshal.provenanceToC(open.provenance);
                 slot.codec = shared.codecToC(open.codec);
                 slot.captp_version = shared.captpVersionToC(open.captp_version);
                 slot.designator_len = take(buf, &used, open.designator);

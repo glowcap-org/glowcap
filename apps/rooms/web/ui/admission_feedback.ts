@@ -2,7 +2,7 @@
 // expiry only enables another explicit gesture. Each page owns its bounded map.
 import { RoomsError, roomsErrorInMessage } from "../../lib/error_codes.ts";
 import { refusalText } from "../../lib/text/failure.ts";
-import type { PageProjection } from "./store/core.ts";
+import type { PageProjection } from "./store/projection.ts";
 
 /** Refusals one page keeps, oldest dropped first. */
 const MAX_ACTION_REFUSALS = 512;

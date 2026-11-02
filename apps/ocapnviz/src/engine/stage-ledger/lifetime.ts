@@ -11,7 +11,7 @@
 
 import type { TimelineEvent } from "../timeline.ts";
 import type { LedgerNames } from "./names.ts";
-import type { EndingReason, LivePeer, LiveWire } from "./types.ts";
+import type { EndingReason, LivePeer, LiveWire } from "./rows.ts";
 
 export class LedgerLifetime {
 	constructor(

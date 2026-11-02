@@ -337,7 +337,7 @@ test "next delivery forms preserve inline subscription semantics through both co
 test "next Cap'n Proto rejects absent malformed and unnegotiated inline mode bits" {
     const allocator = std.testing.allocator;
     const capnp = codec.capnp;
-    const shared = capnp.shared;
+    const layout = capnp.layout;
     var frame = try capnp.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{},
@@ -351,7 +351,7 @@ test "next Cap'n Proto rejects absent malformed and unnegotiated inline mode bit
     const parsed = try capnp.decodeMessageView(view);
     const flags = bytes[(parsed.body.data_idx + 1) * capnp.wire.word_bytes ..][0..capnp.wire.word_bytes];
     const valid = std.mem.readInt(u64, flags, .little);
-    const invalid = [_]shared.DeliverFlags{
+    const invalid = [_]layout.DeliverFlags{
         .{ .has_answer = true, .has_resolve_me = true },
         .{ .has_answer = true, .has_resolve_me = true, .listen_mode = 2 },
         .{ .has_answer = true },

@@ -2,13 +2,14 @@
 //! bindings, and every per-binding client row present in each aggregate.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
-const containsAsSymbol = util.containsAsSymbol;
-const extractBraceBlock = util.extractBraceBlock;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const fileContains = text_match.fileContains;
+const containsAsSymbol = text_match.containsAsSymbol;
+const extractBraceBlock = text_match.extractBraceBlock;
 
 /// Apex for ADR-0018 iroh convergence: CapTP fan-out must not re-grow inside
 /// the iroh resident. The resident supplies the netlayer + completion

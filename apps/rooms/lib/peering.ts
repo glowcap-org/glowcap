@@ -145,7 +145,7 @@ export class DirectoryPeering {
 			this.#releaseOrRetainSource(held);
 			throw error;
 		}
-		// `send` admitted the occurrence before `ask` returned. The core now owns
+		// `send` admitted the occurrence before `ask` returned. The core owns
 		// the staged handoff, and keeping this wrapper until the reply would be a
 		// second retain with no authority role.
 		this.#releaseOrRetainSource(held);

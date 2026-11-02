@@ -1,4 +1,4 @@
-//! XDG Base Directory paths for the glowcap CLI (ergonomics pass).
+//! XDG Base Directory paths for the glowcap CLI.
 const std = @import("std");
 
 /// Which default state root to use when `GLOWCAP_STATE` is unset.

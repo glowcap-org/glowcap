@@ -16,9 +16,9 @@
 //! `switch`) is logic and counts as code.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 const min_body_lines: usize = 12;
 const shingle_len: usize = 6;

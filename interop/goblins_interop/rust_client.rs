@@ -13,10 +13,10 @@
 use glowcap::{Argument, ConnectOptions, Runtime, RuntimeConfig, format_locator_uri, tcp};
 use tokio::process::Command;
 
-#[path = "../_common/rust/helpers.rs"]
-mod helpers;
+#[path = "../_common/rust/client_gate.rs"]
+mod client_gate;
 
-type Fail = helpers::Fail;
+type Fail = client_gate::Fail;
 
 const HOST: &str = "127.0.0.1";
 /// The Goblins vat's fixed port, `--port=N` (from
@@ -26,7 +26,7 @@ const RACKET: &str = "racket";
 const HOST_SCRIPT: &str = "conformance/goblins-peer/racket/goblins-host.rkt";
 
 fn parse_port() -> Result<u16, Fail> {
-	helpers::parse_port(DEFAULT_PORT, 65535)
+	client_gate::parse_port(DEFAULT_PORT, 65535)
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -39,13 +39,13 @@ async fn main() -> Result<(), Fail> {
 		.kill_on_drop(true)
 		.spawn()?;
 
-	let sturdyref_path = helpers::read_sturdyref_path(&mut child).await?;
+	let sturdyref_path = client_gate::read_sturdyref_path(&mut child).await?;
 	println!("rust-goblins-interop: goblins published its echo sturdyref path on {HOST}:{port}");
 
 	// The `Session` is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
 	let result = match tokio::time::timeout(
-		helpers::INTEROP_TIMEOUT,
+		client_gate::INTEROP_TIMEOUT,
 		local.run_until(converse(sturdyref_path, port)),
 	)
 	.await

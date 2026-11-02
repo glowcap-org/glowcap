@@ -9,7 +9,7 @@
 import type { DirId, DirView, SessionPhase } from "../types.ts";
 import type { DirectoryMember, RoomInfo } from "../../../lib/directory_publications.ts";
 import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../limits.ts";
-import type { PageProjection } from "./core.ts";
+import type { PageProjection } from "./projection.ts";
 
 /** Replace one directory's view, leaving every other directory alone. A patch
  * that changes no field writes nothing, so a snapshot that restates what the

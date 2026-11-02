@@ -50,10 +50,10 @@ use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
-use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier};
+use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
-type Readiness = glowcap_sidecar_common::Readiness<GlowcapIrohReadyEvent>;
+type Readiness = glowcap_sidecar_runtime::Readiness<GlowcapIrohReadyEvent>;
 
 fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
 	match catch_unwind(AssertUnwindSafe(f)) {

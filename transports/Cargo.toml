@@ -10,7 +10,7 @@ homepage = "https://glowcap.org"
 documentation = "https://glowcap.org"
 
 [workspace]
-members = ["iroh", "webrtc", "sidecar-common"]
+members = ["iroh", "webrtc", "sidecar-runtime"]
 resolver = "3"
 
 [lib]

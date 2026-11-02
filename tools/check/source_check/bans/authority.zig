@@ -69,7 +69,10 @@ pub const c_abi_policy_projection: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "src/c_abi/host/common.zig",
+            "src/c_abi/host/error.zig",
+            "src/c_abi/host/hosted_behavior.zig",
+            "src/c_abi/host/instance.zig",
+            "src/c_abi/host/marshal.zig",
             "src/c_abi/host/host.zig",
             "src/c_abi/host/session.zig",
             "src/c_abi/host/turn.zig",

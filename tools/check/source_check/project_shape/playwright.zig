@@ -2,11 +2,13 @@
 //! drives a browser.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const markdown = @import("../markdown.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
+const appendViolation = violation_log.appendViolation;
+const sectionBody = markdown.sectionBody;
+const collectBulletSpans = markdown.collectBulletSpans;
 
 /// Trees the Playwright pin check walks. Everything that drives a browser lives
 /// in one of these, and the walk skips vendored and generated paths by name.
@@ -78,7 +80,7 @@ pub fn checkPlaywrightPin(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
                 continue;
             }
             if (entry.kind != .file) continue;

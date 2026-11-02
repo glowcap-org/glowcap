@@ -381,5 +381,5 @@ test "a doc without a header names what it links and spans" {
     try std.testing.expect(try names(gpa, ".agents/rules/x.md", text, "src/loam/core/mod.zig"));
     try std.testing.expect(try names(gpa, ".agents/rules/x.md", text, "apps/rooms/web/deploy/README.md"));
     try std.testing.expect(!try names(gpa, ".agents/rules/x.md", text, "src/loamy/mod.zig"));
-    try std.testing.expect(!try names(gpa, ".agents/rules/x.md", text, "tools/check/source_check/util.zig"));
+    try std.testing.expect(!try names(gpa, ".agents/rules/x.md", text, "tools/check/source_check/violation_log.zig"));
 }

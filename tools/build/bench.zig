@@ -5,11 +5,12 @@
 
 const std = @import("std");
 const root = @import("../../build.zig");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 const profile_build = @import("profile.zig");
 
-const glowcapExecutable = common.glowcapExecutable;
+const glowcapExecutable = modules.glowcapExecutable;
 const layerIndex = root.layerIndex;
 
 pub fn register(
@@ -76,7 +77,7 @@ pub fn register(
     // Cap'n Proto RPC echo benches (Rust capnp-rpc and the C++ reference
     // library) for the comparison table on the benchmarks page; the script
     // builds and runs both outside the Zig graph.
-    const run_bench_capnp = common.addInstalledSystemRun(b, .benchmark, &.{ "sh", "bench/capnp/run.sh" });
+    const run_bench_capnp = commands.addInstalledSystemRun(b, .benchmark, &.{ "sh", "bench/capnp/run.sh" });
     run_bench_capnp.addPassthruArgs();
     b.step("bench-capnp", "Cap'n Proto RPC echo round trip in Rust and C++ for the comparison table on the benchmarks page (needs capnp, cargo, g++)")
         .dependOn(&run_bench_capnp.step);

@@ -25,11 +25,12 @@
 //! it, so the check stays at name presence.
 
 const std = @import("std");
-const util = @import("../util.zig");
-const shared = @import("shared.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
+const ui_sources = @import("ui_sources.zig");
 
-const appendViolation = util.appendViolation;
-const ui_dir = shared.ui_dir;
+const appendViolation = violation_log.appendViolation;
+const ui_dir = ui_sources.ui_dir;
 
 fn keepAnySheet(name: []const u8) bool {
     return std.mem.endsWith(u8, name, ".css");
@@ -101,12 +102,12 @@ pub fn checkRoomsGapSteps(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const css = (util.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
     defer gpa.free(css);
-    const code = try shared.codeOnly(gpa, css);
+    const code = try ui_sources.codeOnly(gpa, css);
     defer gpa.free(code);
 
     var named: usize = 0;
@@ -258,12 +259,12 @@ pub fn checkRoomsComposedTokens(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const css = (util.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
     defer gpa.free(css);
-    const code = try shared.codeOnly(gpa, css);
+    const code = try ui_sources.codeOnly(gpa, css);
     defer gpa.free(code);
 
     var bands: usize = 0;
@@ -322,12 +323,12 @@ pub fn checkRoomsCardWidths(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const css = (util.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
     defer gpa.free(css);
-    const code = try shared.codeOnly(gpa, css);
+    const code = try ui_sources.codeOnly(gpa, css);
     defer gpa.free(code);
 
     var held: usize = 0;
@@ -433,7 +434,7 @@ pub fn checkRoomsTypeRamp(
     violations: *std.ArrayList([]const u8),
 ) !void {
     // Read as written, comments included: the comment is the evidence.
-    const css = (util.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };
@@ -527,7 +528,7 @@ pub fn checkRoomsCustomProperties(
 ) !void {
     // Every sheet, tokens.css included: it is where most of these are written,
     // and the sheet list the other rooms checks use leaves it out.
-    const css = (util.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
+    const css = (source_tree.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;
     };

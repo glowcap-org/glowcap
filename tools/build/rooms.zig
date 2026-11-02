@@ -15,7 +15,9 @@
 //! nobody sees. See `DmDemo.runtime_gated`.
 
 const std = @import("std");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
+const iroh_build = @import("iroh.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 const rooms_tests = @import("rooms/tests.zig");
 const rooms_rust = @import("rooms/rust.zig");
@@ -143,7 +145,7 @@ pub fn register(ctx: Context) Registered {
         .pin_port = ctx.pin_port,
     });
 
-    const rooms_client_exe = common.glowcapExecutable(b, lib_mod, target, optimize, "glowcap-rooms-client", "apps/rooms/clients/zig/client.zig");
+    const rooms_client_exe = modules.glowcapExecutable(b, lib_mod, target, optimize, "glowcap-rooms-client", "apps/rooms/clients/zig/client.zig");
     rooms_client_exe.root_module.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
     rooms_client_exe.root_module.addImport("demo_usage", ctx.demo_usage_mod);
     // The default rooms client is TCP-only: a build option flips the iroh dial
@@ -227,7 +229,7 @@ pub fn register(ctx: Context) Registered {
     // cleanup, then the orchestrator (`apps/rooms/demos/demo.ts`) starts the
     // server, runs whichever clients are available, and asserts the all-to-all
     // broadcast among them.
-    const rooms_demo = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
+    const rooms_demo = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
     rooms_demo.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_demo.step.dependOn(archive_install);
     rooms_demo.addArgs(&.{
@@ -248,13 +250,13 @@ pub fn register(ctx: Context) Registered {
     // runner per language; the Zig one also rides `check` above.
     const terminal_client_test_step = b.step("rooms-terminal-client-test", "Run the Zig, Rust, Python, and Racket terminal-client contract tests (needs cargo + python3 + racket)");
     terminal_client_test_step.dependOn(&run_rooms_client_tests.step);
-    const rust_client_test = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+    const rust_client_test = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "cargo", "test", "--manifest-path", "apps/rooms/clients/rust/Cargo.toml", "--no-default-features",
     });
-    const python_client_test = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+    const python_client_test = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "python3", "-m", "unittest", "discover", "-s", "apps/rooms/clients/python", "-p", "test_room_client.py",
     });
-    const racket_client_test = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+    const racket_client_test = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "raco", "test", "apps/rooms/clients/racket/room-client.rkt",
     });
     terminal_client_test_step.dependOn(&rust_client_test.step);
@@ -265,7 +267,7 @@ pub fn register(ctx: Context) Registered {
     // behaviors with three independently owned host loops. The harness starts
     // Tor explicitly; each product edge installs the onion provider package into
     // an otherwise transport-empty generic driver.
-    const rooms_onion_demo = common.addInstalledSystemRun(b, .real_internet, &.{"env"});
+    const rooms_onion_demo = commands.addInstalledSystemRun(b, .real_internet, &.{"env"});
     rooms_onion_demo.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_onion_demo.addArgs(&.{ "bash", "apps/rooms/demos/run-onion.sh" });
     rooms_onion_demo.step.dependOn(archive_install);
@@ -321,25 +323,25 @@ pub fn register(ctx: Context) Registered {
     // an ocapn:// URI), and the cross-language clients reach the room through the
     // iroh C ABI companion library. Needs cargo (sidecar + iroh ABI) and deno, so
     // it is a sibling of `check`, like `iroh-interop`.
-    const rooms_client_iroh_mod = common.irohDriverModule(b, target, optimize, lib_mod, ctx.iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
+    const rooms_client_iroh_mod = iroh_build.irohDriverModule(b, target, optimize, lib_mod, ctx.iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
     const rooms_iroh_opts = b.addOptions();
     rooms_iroh_opts.addOption(bool, "iroh_enabled", true);
     rooms_client_iroh_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_mod.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
     rooms_client_iroh_mod.addImport("demo_usage", ctx.demo_usage_mod);
-    common.linkIrohSidecar(b, rooms_client_iroh_mod, target, ctx.iroh_sidecar_archive);
+    iroh_build.linkIrohSidecar(b, rooms_client_iroh_mod, target, ctx.iroh_sidecar_archive);
     const rooms_client_iroh_exe = b.addExecutable(.{ .name = "glowcap-rooms-client-iroh", .root_module = rooms_client_iroh_mod });
     // The client's `dialIroh` path lives behind `iroh_enabled`, so the TCP client
     // that rides `check` (above) compiles it out. Ride a second, cargo-free
     // compile guard on `check` with the flag on, externs stay unresolved, so a
     // core-API change through the iroh resident cannot break this consumer unseen.
-    const rooms_client_iroh_check_mod = common.irohDriverModule(b, target, optimize, lib_mod, ctx.iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
+    const rooms_client_iroh_check_mod = iroh_build.irohDriverModule(b, target, optimize, lib_mod, ctx.iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
     rooms_client_iroh_check_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_check_mod.addImport("demo_rooms_cli", ctx.demo_rooms_cli_mod);
     rooms_client_iroh_check_mod.addImport("demo_usage", ctx.demo_usage_mod);
     check_step.dependOn(&b.addObject(.{ .name = "rooms-client-iroh-check", .root_module = rooms_client_iroh_check_mod }).step);
 
-    const rooms_demo_iroh = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
+    const rooms_demo_iroh = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
     rooms_demo_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_demo_iroh.step.dependOn(archive_install);
     rooms_demo_iroh.addArgs(&.{
@@ -362,7 +364,7 @@ pub fn register(ctx: Context) Registered {
     // endpoint directly, no discovery service and no relay. Three iroh endpoints:
     // two client hosts plus the Rooms server process. Needs cargo (the sidecar +
     // iroh ABI companion) and deno, so it is a sibling of `check`.
-    const rooms_dm_iroh = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
+    const rooms_dm_iroh = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
     rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_dm_iroh.step.dependOn(archive_install);
     rooms_dm_iroh.addArgs(&.{
@@ -380,7 +382,7 @@ pub fn register(ctx: Context) Registered {
     // `iroh-reachability`, it touches public n0 infrastructure and pkarr-propagation
     // timing, so it is opt-in and never part of `check`; the offline, deterministic
     // proof of the same handoff is `demo-rooms-dm-iroh` (the Direct posture).
-    const rooms_dm_iroh_discovery = common.addInstalledSystemRun(b, .real_internet, &.{"env"});
+    const rooms_dm_iroh_discovery = commands.addInstalledSystemRun(b, .real_internet, &.{"env"});
     rooms_dm_iroh_discovery.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
     rooms_dm_iroh_discovery.step.dependOn(archive_install);
     rooms_dm_iroh_discovery.addArgs(&.{

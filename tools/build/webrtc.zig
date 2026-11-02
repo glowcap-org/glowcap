@@ -6,7 +6,11 @@
 //! tools.
 
 const std = @import("std");
-const common = @import("common.zig");
+const archives = @import("archives.zig");
+const cargo = @import("cargo.zig");
+const commands = @import("commands.zig");
+const site_build = @import("site.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 
 /// What the WebRTC family draws from the root build graph: the builder trio,
@@ -49,7 +53,7 @@ pub const Registered = struct {
     offerer_install_step: *std.Build.Step,
 };
 
-/// The webrtc C ABI module: `common.transportAbiModule` over
+/// The webrtc C ABI module: `modules.transportAbiModule` over
 /// `src/c_abi/net_transport/webrtc/mod.zig` with the injected `webrtc`
 /// resident alongside the shared vocabulary leaf, keeping
 /// `libglowcap_net_transport_webrtc` symbol-disjoint from `libglowcap_ocapn`
@@ -62,7 +66,7 @@ pub fn abiModule(
     c_abi_shared_mod: *std.Build.Module,
     resident: *std.Build.Module,
 ) *std.Build.Module {
-    return common.transportAbiModule(b, t, o, "src/c_abi/net_transport/webrtc/mod.zig", &.{
+    return modules.transportAbiModule(b, t, o, "src/c_abi/net_transport/webrtc/mod.zig", &.{
         .{ .name = "webrtc", .module = resident },
         .{ .name = "foundation", .module = foundation_mod },
         .{ .name = "c_abi_shared", .module = c_abi_shared_mod },
@@ -78,7 +82,7 @@ fn linkSidecar(
     target: std.Build.ResolvedTarget,
     archive: std.Build.LazyPath,
 ) void {
-    common.linkRustSidecar(b, mod, target, archive);
+    cargo.linkRustSidecar(b, mod, target, archive);
 }
 
 const DriverImports = struct {
@@ -191,10 +195,10 @@ pub fn register(ctx: Context) Registered {
     // bound: a far peer that sends faster than the resident reads has to wait
     // for room rather than grow the buffer without limit. Needs cargo, so it
     // is a sibling step like the iroh sidecar's.
-    const webrtc_sidecar_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const webrtc_sidecar_test = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "cargo", "test", "--release", "--manifest-path", "transports/webrtc/Cargo.toml",
     });
-    const webrtc_sidecar_test_compile = common.addRootedSystemCommand(b, .build_tool, &.{
+    const webrtc_sidecar_test_compile = commands.addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "test", "--no-run", "--release", "--manifest-path", "transports/webrtc/Cargo.toml",
     });
     webrtc_sidecar_test.step.dependOn(&webrtc_sidecar_test_compile.step);
@@ -204,7 +208,7 @@ pub fn register(ctx: Context) Registered {
     // The target directory is a build output, as for the iroh sidecar: every
     // linker and the browser proof depend on the archive and probe by path, in
     // this tree and in a downstream package that imports `glowcap_webrtc`.
-    const sidecar = common.rustSidecar(b, "transports/webrtc/Cargo.toml", "glowcap_webrtc_sidecar");
+    const sidecar = cargo.rustSidecar(b, "transports/webrtc/Cargo.toml", "glowcap_webrtc_sidecar");
     addModule(b, target, optimize, ctx.foundation_mod, ctx.model_mod, ctx.engine_mod, ctx.net_mod, sidecar.archive);
     const webrtc_probe_build = sidecar.build;
     const sidecar_target_dir = sidecar.target_dir;
@@ -250,7 +254,7 @@ pub fn register(ctx: Context) Registered {
 
     // The site's Zig dial tab: `driver.connect` over the completion resident,
     // with the application's signaling authority, as `webrtc_redeem` runs it.
-    common.addSiteZigExampleCompile(b, target, optimize, "site-dial-webrtc", "site/examples/dial/webrtc.zig", &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "webrtc", .module = webrtc_resident_mod } }, ctx.site_zig_examples_check);
+    site_build.addSiteZigExampleCompile(b, target, optimize, "site-dial-webrtc", "site/examples/dial/webrtc.zig", &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "webrtc", .module = webrtc_resident_mod } }, ctx.site_zig_examples_check);
 
     // Internal owner evidence imports the leaves directly: cross-file `pub`
     // is not a reason to widen the supported `webrtc` facade. Every file here
@@ -364,7 +368,7 @@ pub fn register(ctx: Context) Registered {
     // step links the Rust sidecar.
     {
         const seam_source = "interop/webrtc_driver_provider/driver.zig";
-        const seam_imports = [_]common.AbiImport{
+        const seam_imports = [_]modules.AbiImport{
             .{ .name = "c_abi_shared", .module = ctx.c_abi_shared_mod },
             .{ .name = "c_abi_host", .module = ctx.host_abi_mod },
             .{ .name = "c_abi_driver", .module = ctx.driver_abi_mod },
@@ -410,21 +414,21 @@ pub fn register(ctx: Context) Registered {
         .root_module = webrtc_abi_link_mod,
         .version = ctx.abi_version,
     });
-    common.configureSharedArchive(webrtc_abi_shared);
+    archives.configureSharedArchive(webrtc_abi_shared);
     if (target.result.ofmt == .elf) {
         // Keep the Rust sidecar and its runtime private to this artifact. The
         // public companion surface is the generated glowcap_webrtc_* family.
         webrtc_abi_shared.version_script = ctx.b.path("tools/build/exports/webrtc.map");
     }
-    const webrtc_abi_install = common.installIfChanged(b, webrtc_abi_shared, common.install_lib_dir);
-    common.checkArchiveTls(ctx.b, webrtc_abi_shared, webrtc_abi_install);
-    common.checkArchiveResident(ctx.b, webrtc_abi_shared, webrtc_abi_install);
+    const webrtc_abi_install = archives.installIfChanged(b, webrtc_abi_shared, archives.install_lib_dir);
+    archives.checkArchiveTls(ctx.b, webrtc_abi_shared, webrtc_abi_install);
+    archives.checkArchiveResident(ctx.b, webrtc_abi_shared, webrtc_abi_install);
     const webrtc_abi_header_install = b.addInstallHeaderFile(b.path("include/glowcap_net_transport_webrtc.h"), "glowcap_net_transport_webrtc.h");
     const webrtc_abi_step = b.step("webrtc-abi", "Build libglowcap_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0035, needs cargo)");
     webrtc_abi_step.dependOn(webrtc_abi_install);
     webrtc_abi_step.dependOn(&webrtc_abi_header_install.step);
     if (target.result.ofmt == .elf) {
-        const export_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/sidecar-exports.sh" });
+        const export_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/sidecar-exports.sh" });
         export_check.addFileArg(webrtc_abi_shared.getEmittedBin());
         export_check.addArg("glowcap_webrtc_");
         export_check.addArg("glowcap_webrtc_sidecar_");

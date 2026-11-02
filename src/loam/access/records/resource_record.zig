@@ -28,7 +28,7 @@ pub const ResourceRecord = struct {
 
     /// Allocates one exact byte slice through the supplied allocator. The
     /// caller frees that slice. The encoder retains no record or input borrow.
-    pub fn encodeAlloc(self: ResourceRecord, allocator: std.mem.Allocator) (Error || syrup.shared.WalkError)![]u8 {
+    pub fn encodeAlloc(self: ResourceRecord, allocator: std.mem.Allocator) (Error || syrup.WalkError)![]u8 {
         try self.validate();
         if (!self.live and (self.resource.parent != null or self.children != null)) return error.InvalidRecord;
         return syrup.render.renderRecordExact(allocator, write, .{self});

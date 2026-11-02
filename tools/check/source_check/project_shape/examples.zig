@@ -2,11 +2,12 @@
 //! example is built by them.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const markdown = @import("../markdown.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
+const appendViolation = violation_log.appendViolation;
+const sectionBody = markdown.sectionBody;
+const collectBulletSpans = markdown.collectBulletSpans;
 
 /// Gate that every Zig example (`examples/zig/*.zig`) and every C example
 /// (`examples/c/*.c`) the build compiles has an index entry in

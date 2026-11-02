@@ -8,7 +8,9 @@
 //! it already covers it as a member.
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const text_match = @import("text_match.zig");
+const violation_log = @import("violation_log.zig");
 
 const list_file = "tools/build/bindings_steps.zig";
 const list_marker = "const rust_manifests = [_][]const u8{";
@@ -44,12 +46,12 @@ fn listed(list: []const u8, manifest: []const u8) bool {
 
 pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *std.ArrayList([]const u8)) !void {
     const source = root.readFileAlloc(io, list_file, gpa, .limited(1 << 20)) catch |err| {
-        try util.appendViolation(gpa, violations, "{s}: cannot read it ({s})", .{ list_file, @errorName(err) });
+        try violation_log.appendViolation(gpa, violations, "{s}: cannot read it ({s})", .{ list_file, @errorName(err) });
         return;
     };
     defer gpa.free(source);
-    const list = util.extractBraceBlock(source, list_marker) orelse {
-        try util.appendViolation(gpa, violations, "{s}: has no `{s}` list", .{ list_file, list_marker });
+    const list = text_match.extractBraceBlock(source, list_marker) orelse {
+        try violation_log.appendViolation(gpa, violations, "{s}: has no `{s}` list", .{ list_file, list_marker });
         return;
     };
     var manifests: std.ArrayList([]u8) = .empty;
@@ -58,7 +60,7 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
         manifests.deinit(gpa);
     }
     for (roots) |root_path| {
-        const found = try util.collectSourceFiles(io, gpa, root, root_path, isManifest) orelse continue;
+        const found = try source_tree.collectSourceFiles(io, gpa, root, root_path, isManifest) orelse continue;
         defer gpa.free(found);
         try manifests.appendSlice(gpa, found);
     }
@@ -66,7 +68,7 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
     defer gpa.free(workspaces);
     for (manifests.items, workspaces) |manifest, *workspace| {
         const contents = root.readFileAlloc(io, manifest, gpa, .limited(1 << 20)) catch |err| {
-            try util.appendViolation(gpa, violations, "{s}: cannot read it ({s})", .{ manifest, @errorName(err) });
+            try violation_log.appendViolation(gpa, violations, "{s}: cannot read it ({s})", .{ manifest, @errorName(err) });
             workspace.* = false;
             continue;
         };
@@ -75,7 +77,7 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
     }
     for (manifests.items) |manifest| {
         if (!uncovered(manifest, manifests.items, workspaces) or listed(list, manifest)) continue;
-        try util.appendViolation(gpa, violations, "{s}: no format or lint check covers this crate; add it to `rust_manifests` in {s}", .{ manifest, list_file });
+        try violation_log.appendViolation(gpa, violations, "{s}: no format or lint check covers this crate; add it to `rust_manifests` in {s}", .{ manifest, list_file });
     }
 }
 

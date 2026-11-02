@@ -5,13 +5,13 @@
 //! name, and the prose sentence and paragraph ceilings.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 const voice_debt = @import("voice_debt.zig");
 const reader_voice = @import("reader_voice.zig");
 const kinds = @import("kinds.zig");
 const paragraphs = @import("paragraphs.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 const bans = @import("../bans.zig");
 
 /// The human-doc-voice phrase and `.agents/` link bans live in

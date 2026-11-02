@@ -3,9 +3,9 @@
 //! two ideas, or steps and rules that read better as a list.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// The most sentences one paragraph or list item may hold.
 pub const max_paragraph_sentences = 6;

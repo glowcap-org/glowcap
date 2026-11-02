@@ -11,10 +11,11 @@
 //! (`tools/check/source_check.zig`).
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const violation_log = @import("violation_log.zig");
 const scaffolding = @import("scaffolding.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Product stylesheets the browser loads. Symlinked copies of `ui/tokens.css`
 /// and `ui/mark.css` are not listed: the canonical file is enough, and a fault
@@ -497,7 +498,7 @@ pub fn checkUiProductTokens(
         }
     }
 
-    const site = util.concatDirFiles(io, gpa, root, "site/assets", struct {
+    const site = source_tree.concatDirFiles(io, gpa, root, "site/assets", struct {
         fn keep(name: []const u8) bool {
             return std.mem.endsWith(u8, name, ".css") and !std.mem.eql(u8, name, "tokens.css") and !std.mem.eql(u8, name, "mark.css");
         }
@@ -509,7 +510,7 @@ pub fn checkUiProductTokens(
         try appendViolation(gpa, violations, "site/assets: could not read the site stylesheets", .{});
     }
 
-    const rooms = util.concatDirFiles(io, gpa, root, "apps/rooms/web/ui", struct {
+    const rooms = source_tree.concatDirFiles(io, gpa, root, "apps/rooms/web/ui", struct {
         fn keep(name: []const u8) bool {
             return std.mem.endsWith(u8, name, ".css") and !std.mem.eql(u8, name, "tokens.css") and !std.mem.eql(u8, name, "mark.css");
         }

@@ -97,7 +97,7 @@ fn sortedContractConstantNames(
 fn mixConstantValue(hash: *u64, comptime name: []const u8, comptime value: anytype) void {
     const T = @TypeOf(value);
     mix(hash, name);
-    mix(hash, @typeName(T));
+    mix(hash, unqualified(@typeName(T)));
     switch (@typeInfo(T)) {
         .int, .comptime_int => mix(hash, std.fmt.comptimePrint("{d}", .{value})),
         .bool => mixInt(hash, @intFromBool(value)),
@@ -140,7 +140,7 @@ fn mixLayout(hash: *u64, comptime entry: Layout) void {
     const T = entry.Type;
     const info = @typeInfo(T).@"struct";
     mix(hash, entry.stem);
-    mix(hash, @typeName(T));
+    mix(hash, unqualified(@typeName(T)));
     mixInt(hash, info.field_names.len);
     // The declaration, never the resolved bytes: an extern struct's layout on
     // any one target is a pure function of its declared field types and their
@@ -152,15 +152,44 @@ fn mixLayout(hash: *u64, comptime entry: Layout) void {
     // compiler's and each binding's generated layout table's to hold.
     inline for (info.field_names, info.field_types) |field_name, FieldT| {
         mix(hash, field_name);
-        mix(hash, @typeName(FieldT));
+        mix(hash, unqualified(@typeName(FieldT)));
     }
+}
+
+/// `name` with every module path cut to its last segment, so
+/// `*c_abi.loam.layouts.Store` reads `*Store`: a C consumer observes a type's
+/// name, never the Zig file that declares it, so moving a declaration between
+/// files leaves the fingerprint alone.
+fn unqualified(comptime name: []const u8) []const u8 {
+    return comptime blk: {
+        @setEvalBranchQuota(1_000_000);
+        var out: []const u8 = "";
+        var i: usize = 0;
+        while (i < name.len) {
+            if (!isIdentChar(name[i])) {
+                out = out ++ name[i .. i + 1];
+                i += 1;
+                continue;
+            }
+            var segment = i;
+            while (i < name.len and (isIdentChar(name[i]) or (name[i] == '.' and i + 1 < name.len and isIdentChar(name[i + 1])))) : (i += 1) {
+                if (name[i] == '.') segment = i + 1;
+            }
+            out = out ++ name[segment..i];
+        }
+        break :blk out;
+    };
+}
+
+fn isIdentChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
 /// Fingerprint an archive from facts its C consumers can observe: every
 /// exported symbol's reflected function type and crossing annotations, every
 /// public `GLOWCAP_*` value, and every struct in its canonical layout
-/// manifests. Implementation and comment edits do not perturb
-/// the value.
+/// manifests. Implementation and comment edits do not perturb the value, and
+/// neither does the Zig file a type is declared in.
 pub fn fingerprint(
     comptime archive_name: []const u8,
     comptime Archive: type,
@@ -168,7 +197,7 @@ pub fn fingerprint(
 ) u64 {
     @setEvalBranchQuota(10_000_000);
     var hash = offset_basis;
-    mix(&hash, "glowcap-c-archive-contract-v4");
+    mix(&hash, "glowcap-c-archive-contract-v5");
     mix(&hash, archive_name);
     mixConstants(&hash, Archive);
 
@@ -177,7 +206,7 @@ pub fn fingerprint(
         if (@typeInfo(Fn) != .@"fn")
             @compileError(symbol.name ++ " is not a function declaration");
         mix(&hash, symbol.name);
-        mix(&hash, @typeName(Fn));
+        mix(&hash, unqualified(@typeName(Fn)));
         mixIndexes(&hash, symbol.out_params);
         mixIndexes(&hash, symbol.pointer_params);
         mixInt(&hash, @intFromBool(symbol.nonblocking));

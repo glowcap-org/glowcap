@@ -4,13 +4,14 @@
 //! ship the contract.
 
 const std = @import("std");
-const util = @import("../util.zig");
-const shared = @import("shared.zig");
+const json_files = @import("../json_files.zig");
+const violation_log = @import("../violation_log.zig");
+const resolve_contract = @import("resolve_contract.zig");
 
-const appendViolation = util.appendViolation;
-const parseJsonFile = util.parseJsonFile;
-const getField = util.getField;
-const jsonStringEquals = util.jsonStringEquals;
+const appendViolation = violation_log.appendViolation;
+const parseJsonFile = json_files.parseJsonFile;
+const getField = json_files.getField;
+const jsonStringEquals = json_files.jsonStringEquals;
 
 pub fn checkCAbiResolve(
     io: std.Io,
@@ -18,12 +19,12 @@ pub fn checkCAbiResolve(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const contract_path = shared.contract_path;
+    const contract_path = resolve_contract.contract_path;
     var parsed = try parseJsonFile(io, gpa, root, violations, contract_path) orelse return;
     defer parsed.deinit();
 
-    const expected_tarball = shared.tarball_template;
-    const expected_operator_script = shared.operator_script;
+    const expected_tarball = resolve_contract.tarball_template;
+    const expected_operator_script = resolve_contract.operator_script;
 
     const abi_version = blk: {
         const v = getField(parsed.value, "abi_version") orelse {

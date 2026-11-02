@@ -137,7 +137,7 @@ GROUPS = (
             # The Rust sidecars' own unit tests, which reach what no Zig test can:
             # iroh's connect timeout firing and the WebRTC inbound buffer holding.
             "sidecars": [
-                gate("zig build sidecar-common-test"),
+                gate("zig build sidecar-runtime-test"),
                 gate("zig build iroh-sidecar-test"),
                 gate("zig build webrtc-sidecar-test"),
             ],

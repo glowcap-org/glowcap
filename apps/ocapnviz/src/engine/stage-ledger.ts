@@ -89,10 +89,10 @@ import {
 	selfProfileOf,
 	sideOf,
 	wireKeyFor,
-} from "./stage-ledger/types.ts";
+} from "./stage-ledger/rows.ts";
 
-export type { FarEndBacking } from "./stage-ledger/types.ts";
-export { wireKeyFor } from "./stage-ledger/types.ts";
+export type { FarEndBacking } from "./stage-ledger/rows.ts";
+export { wireKeyFor } from "./stage-ledger/rows.ts";
 
 export class StageLedger {
 	#counter = 0;

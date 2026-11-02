@@ -3,16 +3,18 @@
 //! consumed by a binding.
 
 const std = @import("std");
-const util = @import("../util.zig");
-const shared = @import("shared.zig");
+const json_files = @import("../json_files.zig");
+const source_tree = @import("../source_tree.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
-const firstIntIn = util.firstIntIn;
-const parseJsonFile = util.parseJsonFile;
-const getField = util.getField;
-const jsonStringEquals = util.jsonStringEquals;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const fileContains = text_match.fileContains;
+const firstIntIn = text_match.firstIntIn;
+const parseJsonFile = json_files.parseJsonFile;
+const getField = json_files.getField;
+const jsonStringEquals = json_files.jsonStringEquals;
 
 pub fn checkAbiFreeingVerb(
     io: std.Io,
@@ -268,7 +270,7 @@ pub fn checkAbiExportsConsumed(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                try util.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
+                try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
                 continue;
             }
             if (entry.kind != .file) continue;
@@ -285,9 +287,9 @@ pub fn checkAbiExportsConsumed(
             var search: usize = 0;
             while (std.mem.indexOfPos(u8, contents, search, "glowcap_")) |start| {
                 var end = start;
-                while (end < contents.len and shared.isIdentChar(contents[end])) end += 1;
+                while (end < contents.len and text_match.isIdentChar(contents[end])) end += 1;
                 search = end;
-                if (start > 0 and shared.isIdentChar(contents[start - 1])) continue;
+                if (start > 0 and text_match.isIdentChar(contents[start - 1])) continue;
                 const ident = contents[start..end];
                 if (consumed.contains(ident)) continue;
                 try consumed.put(try arena.dupe(u8, ident), {});
@@ -342,9 +344,9 @@ fn collectHeaderDeclarations(
     var search: usize = 0;
     while (std.mem.indexOfPos(u8, text, search, "glowcap_")) |start| {
         var end = start;
-        while (end < text.len and shared.isIdentChar(text[end])) end += 1;
+        while (end < text.len and text_match.isIdentChar(text[end])) end += 1;
         search = end;
-        if (start > 0 and shared.isIdentChar(text[start - 1])) continue;
+        if (start > 0 and text_match.isIdentChar(text[start - 1])) continue;
         if (end >= text.len or text[end] != '(') continue;
         // Blanking preserves byte length, so offsets index the original.
         try out.append(gpa, .{ .name = contents[start..end], .offset = start });

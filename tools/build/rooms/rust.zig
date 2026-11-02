@@ -2,7 +2,8 @@
 //! and browser Wasm. Browser execution remains opt-in like the Rooms page tests.
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("../common.zig");
+const cargo = @import("../cargo.zig");
+const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
 
 pub const Registered = struct {
@@ -90,11 +91,11 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // no transport and needs nothing; the same tests under the workspace run
     // need `libglowcap_net_transport_iroh`, and without this resolved they fail
     // to start rather than to assert, a loader error with no test name in it.
-    const rooms_lib_dir = common.rootPath(b, "zig-out/lib");
+    const rooms_lib_dir = commands.rootPath(b, "zig-out/lib");
     for ([_]*std.Build.Step.Run{ compile, workspace_tests, executor_tests }) |run| setLibraryEnvironment(run, b);
     const rust_test_step = b.step("rooms-rust-test", "Run portable Rooms application and Rust/Zig static linking contracts on the host (needs cargo)");
     rust_test_step.dependOn(&executor_tests.step);
-    rust_test_step.dependOn(&common.rustFmtCheck(b, "apps/rooms/rust/Cargo.toml").step);
+    rust_test_step.dependOn(&cargo.rustFmtCheck(b, "apps/rooms/rust/Cargo.toml").step);
     const admission_cost = execution.addSystemCommand(b, .benchmark, &.{
         "cargo", "run",                   "--quiet",   "--locked",       "--release", "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "-p",    "rooms-contract-proofs", "--example", "admission_cost",
@@ -202,8 +203,8 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     rooms_browser.step.dependOn(&host_browser_cache.step);
     rooms_browser.step.dependOn(peers);
     for ([_]*std.Build.Step.Run{ application.startup, sharing_browser, rooms_browser }) |run| {
-        run.setEnvironmentVariable("GLOWCAP_ROOMS_WEB_TEST_BIN", common.rootPath(b, "zig-out/libexec/rooms-web-proof"));
-        run.setEnvironmentVariable("GLOWCAP_ROOMS_SERVER_TEST_BIN", common.rootPath(b, "zig-out/libexec/rooms-server-proof"));
+        run.setEnvironmentVariable("GLOWCAP_ROOMS_WEB_TEST_BIN", commands.rootPath(b, "zig-out/libexec/rooms-web-proof"));
+        run.setEnvironmentVariable("GLOWCAP_ROOMS_SERVER_TEST_BIN", commands.rootPath(b, "zig-out/libexec/rooms-server-proof"));
     }
     b.step("rooms-managed-rooms-browser-test", "Register, subscribe, chat and stream exact-source files through the production Rooms server").dependOn(&rooms_browser.step);
     const graph_browser = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-all", "check_host.mjs", "--session-graph" });
@@ -259,7 +260,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
 }
 
 fn setLibraryEnvironment(run: *std.Build.Step.Run, b: *std.Build) void {
-    const directory = common.rootPath(b, "zig-out/lib");
+    const directory = commands.rootPath(b, "zig-out/lib");
     run.setEnvironmentVariable("GLOWCAP_LIB_DIR", directory);
     switch (builtin.os.tag) {
         .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", directory),

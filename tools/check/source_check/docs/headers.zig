@@ -3,11 +3,11 @@
 //! fails here instead of leaving the doc pointing nowhere.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 const kinds = @import("kinds.zig");
 const corpus = @import("corpus.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 pub fn check(
     io: std.Io,

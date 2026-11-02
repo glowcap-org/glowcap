@@ -12,7 +12,9 @@ const driver_core = @import("driver_core");
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const instance = @import("instance.zig");
+const marshal = @import("marshal.zig");
 const trace_queue = @import("trace_queue.zig");
 
 pub fn setTrace(
@@ -20,23 +22,23 @@ pub fn setTrace(
     callback: ?c.GlowcapTraceCallback,
     ctx: ?*anyopaque,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (callback == null and inst.trace_queue == null) {
-        inst.core.setTrace(null) catch |err| return common.errToCode(err);
+        inst.core.setTrace(null) catch |err| return host_error.errToCode(err);
     } else {
-        inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit }) catch |err| return common.errToCode(err);
+        inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit }) catch |err| return host_error.errToCode(err);
     }
     inst.trace_cb = callback;
     inst.trace_ctx = ctx;
-    if (callback != null) inst.core.replayTrace() catch |err| return common.errToCode(err);
+    if (callback != null) inst.core.replayTrace() catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
 pub fn setTraceQueue(host: ?*c.GlowcapHost, capacity: usize, payload_cap: usize) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (capacity == 0) {
         if (inst.trace_cb == null)
-            inst.core.setTrace(null) catch |err| return common.errToCode(err);
+            inst.core.setTrace(null) catch |err| return host_error.errToCode(err);
         if (inst.trace_queue) |queue| {
             queue.deinit(inst.allocator);
             inst.allocator.destroy(queue);
@@ -49,19 +51,19 @@ pub fn setTraceQueue(host: ?*c.GlowcapHost, capacity: usize, payload_cap: usize)
         return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     const queue = inst.allocator.create(trace_queue.TraceQueue) catch |err|
-        return common.errToCode(err);
+        return host_error.errToCode(err);
     queue.* = trace_queue.TraceQueue.init(inst.allocator, capacity, payload_cap) catch |err| {
         inst.allocator.destroy(queue);
         if (err == error.SizeOverflow) {
             shared.setLastError("host: set_trace_queue: capacity times payload_cap overflows", .{});
             return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
         }
-        return common.errToCode(err);
+        return host_error.errToCode(err);
     };
     inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit }) catch |err| {
         queue.deinit(inst.allocator);
         inst.allocator.destroy(queue);
-        return common.errToCode(err);
+        return host_error.errToCode(err);
     };
     const previous = inst.trace_queue;
     inst.trace_queue = queue;
@@ -69,12 +71,12 @@ pub fn setTraceQueue(host: ?*c.GlowcapHost, capacity: usize, payload_cap: usize)
         old.deinit(inst.allocator);
         inst.allocator.destroy(old);
     }
-    inst.core.replayTrace() catch |err| return common.errToCode(err);
+    inst.core.replayTrace() catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
 pub fn nextTrace(host: ?*c.GlowcapHost, out: ?*c.GlowcapTraceEvent) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const slot = out orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const queue = inst.trace_queue orelse return shared.GLOWCAP_ERR_WOULD_BLOCK;
     if (!queue.pop(slot)) return shared.GLOWCAP_ERR_WOULD_BLOCK;
@@ -82,7 +84,7 @@ pub fn nextTrace(host: ?*c.GlowcapHost, out: ?*c.GlowcapTraceEvent) i32 {
 }
 
 fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
-    const inst: *common.Instance = @ptrCast(@alignCast(ctx.?));
+    const inst: *instance.Instance = @ptrCast(@alignCast(ctx.?));
     if (inst.trace_queue) |queue| queue.push(event);
     const callback = inst.trace_cb orelse return;
     var out = c.GlowcapTraceEvent{
@@ -110,7 +112,7 @@ fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
         .session_open => |open| {
             out.kind = c.GLOWCAP_TRACE_SESSION_OPEN;
             out.session = open.session.int();
-            out.provenance = common.provenanceToC(open.provenance);
+            out.provenance = marshal.provenanceToC(open.provenance);
             out.codec = shared.codecToC(open.codec);
             out.captp_version = shared.captpVersionToC(open.captp_version);
             out.designator = open.designator.ptr;

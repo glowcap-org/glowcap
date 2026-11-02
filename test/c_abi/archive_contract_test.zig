@@ -69,3 +69,23 @@ test "archive fingerprints follow reflected signatures, constants, and layouts" 
     try std.testing.expectEqual(baseline, declarations_reordered);
     try std.testing.expectEqual(baseline, repeated);
 }
+
+test "archive fingerprints ignore the Zig namespace a declaration sits in" {
+    const First = struct {
+        pub const Row = extern struct { count: u32 };
+        pub const symbols = struct {
+            pub const symbols = [_]shared.symbols.Symbol{};
+        };
+    };
+    const Second = struct {
+        pub const Row = extern struct { count: u32 };
+        pub const symbols = struct {
+            pub const symbols = [_]shared.symbols.Symbol{};
+        };
+    };
+    const first_layouts = [_]shared.archive_contract.Layout{shared.archive_contract.layout("ROW", First.Row)};
+    const second_layouts = [_]shared.archive_contract.Layout{shared.archive_contract.layout("ROW", Second.Row)};
+    const first = comptime shared.archive_contract.fingerprint("archive", First, .{first_layouts});
+    const second = comptime shared.archive_contract.fingerprint("archive", Second, .{second_layouts});
+    try std.testing.expectEqual(first, second);
+}

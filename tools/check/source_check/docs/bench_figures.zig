@@ -1,6 +1,6 @@
 //! Benchmark prose links generated reports instead of copying their figures.
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *std.ArrayList([]const u8)) !void {
     const path = "bench/README.md";
     const text = try root.readFileAlloc(io, path, gpa, .limited(1 << 20));
@@ -33,7 +33,7 @@ fn checkText(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), tex
                 break;
             }
         }
-        if (!fence and measurement(visible.items)) try util.appendViolation(gpa, violations, "{s}:{d}: hand-copied measurement; link its generated report instead", .{ path, number });
+        if (!fence and measurement(visible.items)) try violation_log.appendViolation(gpa, violations, "{s}:{d}: hand-copied measurement; link its generated report instead", .{ path, number });
     }
 }
 fn measurement(line: []const u8) bool {

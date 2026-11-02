@@ -28,10 +28,10 @@ use glowcap::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session, tc
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 
-#[path = "../_common/rust/helpers.rs"]
-mod helpers;
+#[path = "../_common/rust/client_gate.rs"]
+mod client_gate;
 
-type Fail = helpers::Fail;
+type Fail = client_gate::Fail;
 
 const HOST: &str = "127.0.0.1";
 /// Bob (the Goblins exporter) listens on PORT, Carol binds her own peer on
@@ -49,7 +49,7 @@ const VENDOR_SWISS: &str = "glowcapGiftVendorSwissnum0000001";
 const INTRODUCER_SWISS: &str = "introducer";
 
 fn parse_port() -> Result<u16, Fail> {
-	helpers::parse_port(DEFAULT_PORT, 65534)
+	client_gate::parse_port(DEFAULT_PORT, 65534)
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -86,7 +86,7 @@ async fn main() -> Result<(), Fail> {
 
 	let stdout = bob.stdout.take().ok_or("no exporter stdout")?;
 	let mut reader = BufReader::new(stdout);
-	helpers::await_greeter_ready(&mut reader).await?;
+	client_gate::await_greeter_ready(&mut reader).await?;
 	// Keep draining Bob's stdout for the rest of the run, same pipe-deadlock
 	// guard the stderr drain gives.
 	drain_in_background(reader);
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Fail> {
 
 	// The `Session`/`Server` are `!Send`, so the gifter runs on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
-	let result = match tokio::time::timeout(helpers::INTEROP_TIMEOUT, local.run_until(gift(port))).await {
+	let result = match tokio::time::timeout(client_gate::INTEROP_TIMEOUT, local.run_until(gift(port))).await {
 		Ok(result) => result,
 		Err(_) => Err("rust-goblins-gift timed out".into()),
 	};

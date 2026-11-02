@@ -97,7 +97,9 @@ const file_length = @import("source_check/file_length.zig");
 const zig_duplicate_bodies = @import("source_check/zig_duplicate_bodies.zig");
 const namespaces = @import("source_check/namespaces.zig");
 const signing_domain = @import("source_check/signing_domain.zig");
-const util = @import("source_check/util.zig");
+const source_tree = @import("source_check/source_tree.zig");
+const text_match = @import("source_check/text_match.zig");
+const markdown = @import("source_check/markdown.zig");
 
 /// Create the `source-check` build step.
 pub fn create(b: *Build) *Step {
@@ -375,7 +377,9 @@ test {
     _ = zig_doc_names;
     _ = zig_dead_fns;
     _ = signing_domain;
-    _ = util;
+    _ = source_tree;
+    _ = text_match;
+    _ = markdown;
     _ = @import("source_check/docs/reader_voice.zig");
     _ = @import("source_check/docs/threat_model.zig");
     _ = @import("source_check/rooms_ui/text_voice.zig");

@@ -6,11 +6,11 @@
 //! declaration-to-classification completeness for the standard gate suites.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 const syntax = @import("execution_deadlines/syntax.zig");
 const zig_tests = @import("execution_deadlines/zig_tests.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 const gates_path = "tools/build/gates.zig";
 
 pub fn check(
@@ -60,10 +60,8 @@ const process_calls = [_]struct {
     .{ .marker = "execution.addZigTest(", .posture_arg = 2, .zig_test = true },
     .{ .marker = "execution.addArtifact(", .posture_arg = 1 },
     .{ .marker = "execution.addSystemCommand(", .posture_arg = 1 },
-    .{ .marker = "common.addGlowcapRun(", .posture_arg = 1 },
-    .{ .marker = "common.addRootedSystemCommand(", .posture_arg = 1 },
-    .{ .marker = "common.addInstalledSystemRun(", .posture_arg = 1 },
-    .{ .marker = "addGlowcapRun(", .posture_arg = 1 },
+    .{ .marker = "commands.addRootedSystemCommand(", .posture_arg = 1 },
+    .{ .marker = "commands.addInstalledSystemRun(", .posture_arg = 1 },
     .{ .marker = "addRootedSystemCommand(", .posture_arg = 1 },
     .{ .marker = "addInstalledSystemRun(", .posture_arg = 1 },
 };
@@ -104,7 +102,7 @@ fn checkBuildFile(
             cursor = call_at + spec.marker.len;
             if (isFunctionDeclaration(code, call_at)) continue;
             // Qualified markers are substrings of their unqualified form.
-            if (spec.marker[0] != 'e' and spec.marker[0] != 'c' and call_at > 0 and code[call_at - 1] == '.') continue;
+            if (std.mem.indexOfScalar(u8, spec.marker, '.') == null and call_at > 0 and code[call_at - 1] == '.') continue;
             const open = call_at + spec.marker.len - 1;
             const close = syntax.matchingDelimiter(code, open, '(', ')') orelse {
                 try appendViolation(gpa, violations, "{s}: unterminated `{s}` execution call", .{ path, spec.marker[0 .. spec.marker.len - 1] });
@@ -220,7 +218,7 @@ fn validateExecutionPosture(
             if (identifier.len == owner.len) return;
         }
     }
-    if (std.mem.eql(u8, path, "tools/build/common.zig") and std.mem.eql(u8, value, "posture")) return;
+    if ((std.mem.eql(u8, path, "tools/build/commands.zig") or std.mem.eql(u8, path, "tools/build/modules.zig")) and std.mem.eql(u8, value, "posture")) return;
     try appendViolation(gpa, violations, "{s}: unknown or invalid execution posture `{s}`; Zig tests use `.unit_test`, deterministic subprocesses use a literal 1..30s budget, and every unbounded process names its exact posture", .{ path, std.mem.trim(u8, text, " \t\r\n") });
 }
 

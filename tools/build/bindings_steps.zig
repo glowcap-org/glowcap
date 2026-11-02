@@ -6,12 +6,13 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common.zig");
+const cargo = @import("cargo.zig");
+const commands = @import("commands.zig");
 const execution = @import("execution.zig");
 const site_build = @import("site.zig");
 
-const addRootedSystemCommand = common.addRootedSystemCommand;
-const addInstalledSystemRun = common.addInstalledSystemRun;
+const addRootedSystemCommand = commands.addRootedSystemCommand;
+const addInstalledSystemRun = commands.addInstalledSystemRun;
 
 pub const suites = [_]struct {
     step_name: []const u8,
@@ -112,11 +113,11 @@ pub fn register(
     const python_suite = suite_runs[suiteIndex("python-test")];
     python_suite.step.dependOn(&python_wheel_check.step);
     // `test/main.py` imports the package from the checkout, not an installed wheel.
-    python_suite.setEnvironmentVariable("PYTHONPATH", common.rootPath(b, "bindings/python"));
+    python_suite.setEnvironmentVariable("PYTHONPATH", commands.rootPath(b, "bindings/python"));
     // The macOS Rust test executable resolves glowcap's installed dylibs at
     // load time. Bind both Cargo's resolver and the test process to the archives
     // this step installed. The suite's compile prep shares its environment.
-    const lib_dir = common.rootPath(b, "zig-out/lib");
+    const lib_dir = commands.rootPath(b, "zig-out/lib");
     // Pin every runtime to these installed archives. Otherwise a language's
     // ordinary cold-cache resolver may select an older versioned package first.
     for (suite_runs) |run| run.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
@@ -145,7 +146,7 @@ pub fn register(
             "uv", "run", "--project", "bindings/python", "--extra", "rendezvous", "--locked", "python3", test_file,
         });
         run.step.dependOn(b.getInstallStep());
-        run.setEnvironmentVariable("PYTHONPATH", common.rootPath(b, "bindings/python"));
+        run.setEnvironmentVariable("PYTHONPATH", commands.rootPath(b, "bindings/python"));
         run.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
         switch (builtin.os.tag) {
             .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir),
@@ -365,7 +366,7 @@ pub fn registerChecks(
         const write = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--all", "--manifest-path", manifest });
         write.has_side_effects = true;
         bindings_fmt_step.dependOn(&write.step);
-        const check = common.rustFmtCheck(b, manifest);
+        const check = cargo.rustFmtCheck(b, manifest);
         bindings_fmt_check_step.dependOn(&check.step);
         // Rooms has its own feature-complete workspace lint step, the binding
         // has the async whole-target leg registered above, and the Loam browser
@@ -446,7 +447,7 @@ pub fn registerChecks(
     bindings_fmt_check_step.dependOn(&deno_check.step);
     // Pure binding-edge invariants: no FFI permissions, but still a real
     // executable test because codec/profile input refusal is behavior.
-    const deno_stack_test = common.addSystemCommandIn(b, .{ .deterministic = 30 }, b.path("bindings/ts"), &.{
+    const deno_stack_test = commands.addSystemCommandIn(b, .{ .deterministic = 30 }, b.path("bindings/ts"), &.{
         "deno",
         "test",
         "runtime/test/errors_test.ts",
@@ -490,7 +491,7 @@ pub fn registerChecks(
         "bindings/ts/tcp/test/driver_listener_test.ts",
     });
     bindings_fmt_check_step.dependOn(&deno_driver_listener_test.step);
-    const deno_onion_test = common.addSystemCommandIn(b, .{ .deterministic = 30 }, b.path("bindings/ts"), &.{
+    const deno_onion_test = commands.addSystemCommandIn(b, .{ .deterministic = 30 }, b.path("bindings/ts"), &.{
         "deno",
         "test",
         "--allow-ffi",

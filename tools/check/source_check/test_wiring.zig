@@ -1,7 +1,7 @@
 //! Test compile-root wiring and separate build-family registration.
 
 const std = @import("std");
-const appendViolation = @import("util.zig").appendViolation;
+const appendViolation = @import("violation_log.zig").appendViolation;
 
 const suite_roots = [_][]const u8{ "test/all_test.zig", "test/oracle_check.zig", "test/loam_lmdb_test.zig", "test/loam_sqlite_test.zig" };
 
@@ -138,7 +138,7 @@ fn checkTypeScriptSuite(
     var owners: std.ArrayList(u8) = .empty;
     defer owners.deinit(gpa);
     for (suite.owners) |owner| {
-        const body = (try @import("util.zig").readSourceSubject(io, gpa, root, owner)) orelse {
+        const body = (try @import("source_tree.zig").readSourceSubject(io, gpa, root, owner)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to read the owner of the {s} tests", .{ owner, suite.dir });
             return;
         };

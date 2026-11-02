@@ -2,15 +2,17 @@
 //! allowlist, and the rule that no ADR number rides in a runtime string.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const json_files = @import("../json_files.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
-const firstIntIn = util.firstIntIn;
-const parseJsonFile = util.parseJsonFile;
-const getField = util.getField;
-const jsonStringEquals = util.jsonStringEquals;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const fileContains = text_match.fileContains;
+const firstIntIn = text_match.firstIntIn;
+const parseJsonFile = json_files.parseJsonFile;
+const getField = json_files.getField;
+const jsonStringEquals = json_files.jsonStringEquals;
 
 /// HostAction / C embedder_pump arm parity: a new action kind must fail the
 /// build rather than silently drop from either switch spine. Node actions have

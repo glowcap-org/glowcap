@@ -13,7 +13,7 @@
          (combine-in "host.rkt" "host/state.rkt")
          (combine-in "session.rkt" "session/state.rkt")
          "transport.rkt"
-         "loop/core.rkt"
+         "loop/stepper.rkt"
          "loop/dial.rkt"
          "loop/listeners.rkt"
          "loop/lifecycle.rkt")

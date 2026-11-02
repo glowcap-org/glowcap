@@ -13,14 +13,14 @@
 //! (`tools/check/source_check.zig`).
 
 const std = @import("std");
-const util = @import("util.zig");
-const shared = @import("rooms_ui/shared.zig");
+const violation_log = @import("violation_log.zig");
+const ui_sources = @import("rooms_ui/ui_sources.zig");
 
-const appendViolation = util.appendViolation;
-pub const ui_dir = shared.ui_dir;
-const keepRoomsSheet = shared.keepRoomsSheet;
-pub const loadRoomsCss = shared.loadRoomsCss;
-const codeOnly = shared.codeOnly;
+const appendViolation = violation_log.appendViolation;
+pub const ui_dir = ui_sources.ui_dir;
+const keepRoomsSheet = ui_sources.keepRoomsSheet;
+pub const loadRoomsCss = ui_sources.loadRoomsCss;
+const codeOnly = ui_sources.codeOnly;
 
 pub const checkRoomsTextCatalog = @import("rooms_ui/text_catalog.zig").checkRoomsTextCatalog;
 pub const checkRoomsTextVoice = @import("rooms_ui/text_voice.zig").checkRoomsTextVoice;
@@ -369,7 +369,7 @@ pub fn checkRoomsConfig(
         }
     }
 
-    const store_path = ui_dir ++ "/store/core.ts";
+    const store_path = ui_dir ++ "/store/projection.ts";
     const sheet_path = ui_dir ++ "/stream.css";
     const store = root.readFileAlloc(io, store_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: cannot be read for the layout breakpoint ({s})", .{ store_path, @errorName(err) });

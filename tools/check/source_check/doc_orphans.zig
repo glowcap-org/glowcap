@@ -17,9 +17,10 @@
 //! `/* … */` comment, which this does not read.
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Where this holds. Widening it is a cleanup first: the rule cannot land on a
 /// tree that still has orphans in it, so a new directory joins this list in the
@@ -85,7 +86,7 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (roots) |root_path| {
-        const files = (try util.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to open for the doc-orphan check", .{root_path});
             continue;
         };

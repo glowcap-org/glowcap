@@ -20,7 +20,7 @@
 import { durableIdentityAuthenticated, Runtime } from "@glowcap/runtime";
 import { locator } from "@glowcap/webrtc";
 import { listen, provider, type SignalingAuthority } from "@glowcap/webrtc/driver";
-import { fail } from "../_common/deno/helpers.ts";
+import { fail } from "../_common/deno/client_gate.ts";
 
 const GATE = "deno-webrtc-driver-provider";
 const DEADLINE_MS = 25_000;

@@ -18,22 +18,22 @@
 const std = @import("std");
 const model = @import("model");
 const limits = @import("codec_limits");
-const shared = @import("../shared.zig");
+const layout = @import("../layout.zig");
 
-const Error = shared.Error;
-const RefTag = shared.RefTag;
-const ArgKind = shared.ArgKind;
-const ResolutionKind = shared.ResolutionKind;
-const HandoffKind = shared.HandoffKind;
-const StructLoc = shared.StructLoc;
-const CompositeList = shared.CompositeList;
-const followList = shared.followList;
-const enumFromWire = shared.enumFromWire;
-const compositeList = shared.compositeList;
-const compositeListAt = shared.compositeListAt;
-const ListLoc = shared.ListLoc;
+const Error = layout.Error;
+const RefTag = layout.RefTag;
+const ArgKind = layout.ArgKind;
+const ResolutionKind = layout.ResolutionKind;
+const HandoffKind = layout.HandoffKind;
+const StructLoc = layout.StructLoc;
+const CompositeList = layout.CompositeList;
+const followList = layout.followList;
+const enumFromWire = layout.enumFromWire;
+const compositeList = layout.compositeList;
+const compositeListAt = layout.compositeListAt;
+const ListLoc = layout.ListLoc;
 const wire = @import("../wire.zig");
-const Reader = shared.Reader;
+const Reader = layout.Reader;
 
 const HintListObserver = *const fn (reader: Reader, hints: CompositeList) Error!void;
 
@@ -119,7 +119,7 @@ fn neutralArgsLen(ctx: model.view.Args.Ctx) model.view.ProjectError!usize {
 
 fn neutralArgsAt(ctx: model.view.Args.Ctx, index: usize) model.view.ProjectError!model.view.Argument {
     if (index >= ctx.w2) return error.MalformedView;
-    const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
+    const reader = layout.readerFromFrame(ctx.bytes) catch return error.MalformedView;
     return neutralArgument(reader, compositeElem(ctx, index), null, null, 0) catch return error.MalformedView;
 }
 
@@ -235,7 +235,7 @@ pub fn neutralReferenceView(reader: Reader, loc: StructLoc, comptime observe_hin
     const data0 = try reader.dataWord(loc, 0);
     const disc = try enumFromWire(RefTag, data0);
     const scalar = try reader.dataWord(loc, 1);
-    const is_promise = data0 & shared.data0_flag != 0;
+    const is_promise = data0 & layout.data0_flag != 0;
     return switch (disc) {
         .near => .{ .far = .{ .import_position = model.ImportPosition.from(scalar), .kind = if (is_promise) .promise else .object } },
         .far => .{ .near = .{ .export_position = model.ExportPosition.from(scalar), .kind = if (is_promise) .promise else .object } },
@@ -247,7 +247,7 @@ pub fn neutralReferenceView(reader: Reader, loc: StructLoc, comptime observe_hin
         else
             .{ .promise = .{ .answer_position = model.AnswerPosition.from(scalar) } },
         .sturdy => blk: {
-            // The metered pass walks the locator's hint list now; the
+            // The metered pass walks the locator's hint list; the
             // projection stays lazy (`model.view.Lazy`).
             if (comptime observe_hints != null) _ = try sturdyRefFromStruct(reader, loc, observe_hints);
             break :blk .{ .sturdy = .fromBacking(recordCtx(reader, loc), projectSturdyRef) };
@@ -263,12 +263,12 @@ fn sturdyRefFromStruct(reader: Reader, loc: StructLoc, comptime observe_hints: ?
 }
 
 fn projectSturdyRef(ctx: RecordCtx) model.view.ProjectError!model.view.SturdyRef {
-    const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
+    const reader = layout.readerFromFrame(ctx.bytes) catch return error.MalformedView;
     return sturdyRefFromStruct(reader, recordLoc(ctx), null) catch return error.MalformedView;
 }
 
 fn projectHandoff(ctx: RecordCtx) model.view.ProjectError!model.view.Handoff {
-    const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
+    const reader = layout.readerFromFrame(ctx.bytes) catch return error.MalformedView;
     return neutralHandoffFromStruct(reader, recordLoc(ctx), null) catch return error.MalformedView;
 }
 
@@ -310,7 +310,7 @@ fn hintEntryAt(reader: Reader, hl: model.view.HintList, index: usize) Error!mode
 fn capnpFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?model.HintValue {
     const count: usize = @intCast(hl.w2);
     if (count == 0) return null;
-    const reader = shared.readerFromFrame(hl.bytes) catch return error.MalformedView;
+    const reader = layout.readerFromFrame(hl.bytes) catch return error.MalformedView;
     var index: usize = 0;
     while (index < count) : (index += 1) {
         const entry = hintEntryAt(reader, hl, index) catch return error.MalformedView;
@@ -327,7 +327,7 @@ fn capnpValidateHintShape(
     if (count == 0) return;
     if (count > model.max_locator_hint_count or wire_form == .boolean_false)
         return error.MalformedView;
-    const reader = shared.readerFromFrame(hl.bytes) catch return error.MalformedView;
+    const reader = layout.readerFromFrame(hl.bytes) catch return error.MalformedView;
     var index: usize = 0;
     while (index < count) : (index += 1) {
         const entry = hintEntryAt(reader, hl, index) catch return error.MalformedView;
@@ -349,7 +349,7 @@ fn capnpMaterializeHintList(
     const count: usize = @intCast(hl.w2);
     if (count == 0) return .{ .wire_form = wire_form };
     try capnpValidateHintShape(hl, wire_form);
-    const reader = shared.readerFromFrame(hl.bytes) catch return error.MalformedView;
+    const reader = layout.readerFromFrame(hl.bytes) catch return error.MalformedView;
     const entries = try allocator.alloc(model.HintEntry, count);
     errdefer allocator.free(entries);
     var initialized: usize = 0;
@@ -374,12 +374,12 @@ const capnp_hint_list_vtable = model.view.HintList.VTable{
 
 pub fn hintEntry(reader: Reader, loc: StructLoc) Error!model.HintEntry {
     const data0 = try reader.dataWord(loc, 0);
-    const kind = try enumFromWire(shared.HintValueKind, data0);
+    const kind = try enumFromWire(layout.HintValueKind, data0);
     const name = try borrowedText(reader, loc, 0);
     const value: model.HintValue = switch (kind) {
         .string => .{ .string = try borrowedText(reader, loc, 1) },
         .bytes => .{ .bytes = try borrowedData(reader, loc, 1) },
-        .boolean => .{ .boolean = data0 & shared.data0_flag != 0 },
+        .boolean => .{ .boolean = data0 & layout.data0_flag != 0 },
         .integer => .{ .integer = @bitCast(try reader.dataWord(loc, 1)) },
     };
     return .{ .name = name, .value = value };
@@ -447,14 +447,14 @@ pub fn neutralArgument(
         .@"error" => .{ .@"error" = try neutralErrorView(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
         .handoff => blk: {
             const handoff_loc = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
-            // The metered pass walks the envelope's hint lists now; the
+            // The metered pass walks the envelope's hint lists; the
             // projection stays lazy (`model.view.Lazy`).
             if (comptime observe_hints != null) _ = try neutralHandoffFromStruct(reader, handoff_loc, observe_hints);
             break :blk .{ .handoff = .fromBacking(recordCtx(reader, handoff_loc), projectHandoff) };
         },
         .string => .{ .string = try borrowedText(reader, loc, 0) },
         .integer => .{ .integer = @bitCast(try reader.dataWord(loc, 1)) },
-        .boolean => .{ .boolean = data0 & shared.data0_flag != 0 },
+        .boolean => .{ .boolean = data0 & layout.data0_flag != 0 },
         .list => .{ .list = try neutralListArgs(reader, loc, observe_hints, slab, depth + 1) },
         .void => .{ .void = {} },
         .float64 => .{ .float64 = @bitCast(try reader.dataWord(loc, 1)) },
@@ -482,7 +482,7 @@ pub fn neutralArgument(
         .@"struct" => .{ .@"struct" = try neutralStructBacking(reader, loc, 0, observe_hints, slab, depth + 1) },
         .big_integer => blk: {
             const big = model.BigInteger{
-                .negative = data0 & shared.data0_flag != 0,
+                .negative = data0 & layout.data0_flag != 0,
                 .digits = try borrowedData(reader, loc, 0),
             };
             // The codec owns parse validity: leading zeros, non-digits, or a
@@ -507,7 +507,7 @@ fn neutralStructLen(ctx: model.view.StructEntries.Ctx) model.view.ProjectError!u
 
 fn neutralStructAt(ctx: model.view.StructEntries.Ctx, index: usize) model.view.ProjectError!model.view.StructEntry {
     if (index >= ctx.w2) return error.MalformedView;
-    const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
+    const reader = layout.readerFromFrame(ctx.bytes) catch return error.MalformedView;
     return neutralStructEntry(reader, compositeElem(ctx, index)) catch return error.MalformedView;
 }
 

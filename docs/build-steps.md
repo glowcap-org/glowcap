@@ -361,12 +361,12 @@ zig build racket-goblins-gift       # Live three-party handoff: the Racket bindi
 ## The shared sidecar runtime
 
 The iroh and WebRTC sidecars are Rust crates behind a C ABI. They share
-`transports/sidecar-common`: the private Tokio runtime a C call runs on, the
+`transports/sidecar-runtime`: the private Tokio runtime a C call runs on, the
 release barrier for tasks that outlive their handle, and the self-pipe
 readiness channel. Each sidecar's cargo steps build it by path.
 
 ```sh
-zig build sidecar-common-test # Run the Rust unit tests of the runtime plumbing both transport sidecars share: private-runtime calls from inside an ambient runtime and the task barrier (needs cargo)
+zig build sidecar-runtime-test # Run the Rust unit tests of the runtime plumbing both transport sidecars share: private-runtime calls from inside an ambient runtime and the task barrier (needs cargo)
 ```
 
 ## The iroh transport

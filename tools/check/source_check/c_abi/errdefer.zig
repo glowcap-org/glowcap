@@ -12,9 +12,10 @@
 //! C-convention body can shift where it thinks the body ends.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 pub fn checkCConventionErrdefer(
     io: std.Io,
@@ -22,7 +23,7 @@ pub fn checkCConventionErrdefer(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const files = (try util.collectSourceFiles(io, gpa, root, "src", &keepZig)) orelse {
+    const files = (try source_tree.collectSourceFiles(io, gpa, root, "src", &keepZig)) orelse {
         try appendViolation(gpa, violations, "src: unreadable for the C-convention errdefer check", .{});
         return;
     };

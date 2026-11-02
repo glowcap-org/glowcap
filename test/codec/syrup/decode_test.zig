@@ -64,16 +64,16 @@ test "text validity holds at every length and every position of a non-ASCII byte
     var len: usize = 0;
     while (len <= buf.len) : (len += 1) {
         @memset(buf[0..len], 'a');
-        try std.testing.expect(syrup.shared.textValid(buf[0..len]));
+        try std.testing.expect(glowcap.foundation.utf8.valid(buf[0..len]));
         var pos: usize = 0;
         while (pos < len) : (pos += 1) {
             @memset(buf[0..len], 'a');
             buf[pos] = 0xff;
-            try std.testing.expect(!syrup.shared.textValid(buf[0..len]));
+            try std.testing.expect(!glowcap.foundation.utf8.valid(buf[0..len]));
             if (pos + 1 < len) {
                 buf[pos] = 0xc3;
                 buf[pos + 1] = 0xa9;
-                try std.testing.expect(syrup.shared.textValid(buf[0..len]));
+                try std.testing.expect(glowcap.foundation.utf8.valid(buf[0..len]));
             }
         }
     }

@@ -2,7 +2,8 @@
 //! gives it.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 const kinds = @import("kinds.zig");
 
 pub const Entry = struct { path: []const u8, text: []const u8, doc: kinds.Doc };
@@ -18,7 +19,7 @@ pub fn load(
     var paths: std.ArrayList([]const u8) = .empty;
     for (kinds.root_docs) |path| try paths.append(arena, path);
     for (kinds.doc_trees) |tree| {
-        const files = try util.collectSourceFiles(io, arena, root, tree, kinds.isDoc) orelse continue;
+        const files = try source_tree.collectSourceFiles(io, arena, root, tree, kinds.isDoc) orelse continue;
         for (files) |path| try paths.append(arena, path);
     }
     var entries: std.ArrayList(Entry) = .empty;
@@ -27,7 +28,7 @@ pub fn load(
             // tolerant: a root doc this checkout does not carry holds nothing.
             error.FileNotFound => continue,
             else => {
-                try util.appendViolation(gpa, violations, "{s}: cannot read it to check it as a doc ({s})", .{ path, @errorName(err) });
+                try violation_log.appendViolation(gpa, violations, "{s}: cannot read it to check it as a doc ({s})", .{ path, @errorName(err) });
                 continue;
             },
         };

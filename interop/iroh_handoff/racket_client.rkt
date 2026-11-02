@@ -29,7 +29,7 @@
 
 (require "../../bindings/racket/glowcap.rkt"
          "../../bindings/racket/glowcap-iroh.rkt"
-         "../_common/racket/helpers.rkt")
+         "../_common/racket/client_gate.rkt")
 
 (define NAME "racket-iroh-carol")
 

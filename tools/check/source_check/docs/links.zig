@@ -4,9 +4,10 @@
 //! repository's own GitHub blob links resolving to real tree paths.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 const paths = @import("paths.zig");
 const anchors = @import("anchors.zig");
 
@@ -58,7 +59,7 @@ fn checkMarkdownLinksUnder(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind == .directory) {
-            try util.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
+            try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
             continue;
         }
         if (entry.kind != .file) continue;
@@ -183,7 +184,7 @@ fn checkRepoBlobLinksUnder(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind == .directory) {
-            try util.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
+            try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
             continue;
         }
         if (entry.kind != .file) continue;

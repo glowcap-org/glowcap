@@ -3,10 +3,11 @@
 //! module imports the generated names.
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const readSourceSubject = util.readSourceSubject;
+const appendViolation = violation_log.appendViolation;
+const readSourceSubject = source_tree.readSourceSubject;
 
 pub fn check(
     io: std.Io,
@@ -45,7 +46,7 @@ pub fn check(
             defer walker.deinit();
             while (try walker.next(io)) |entry| {
                 if (entry.kind == .directory) {
-                    try util.enterSourceDirectory(io, gpa, &walker, bind_root, entry);
+                    try source_tree.enterSourceDirectory(io, gpa, &walker, bind_root, entry);
                     continue;
                 }
                 if (entry.kind != .file) continue;

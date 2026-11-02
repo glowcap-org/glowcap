@@ -1,10 +1,10 @@
 //! Shared npm packages move together across Deno configuration scopes.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 const packages = @import("packages.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Deno config inheritance does not merge import maps. Application scopes must
 /// repeat shared packages, so this check makes each required copy move as one

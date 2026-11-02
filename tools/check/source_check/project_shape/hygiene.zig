@@ -3,11 +3,13 @@
 //! scripts held to their contract.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const markdown = @import("../markdown.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
+const appendViolation = violation_log.appendViolation;
+const sectionBody = markdown.sectionBody;
+const collectBulletSpans = markdown.collectBulletSpans;
 
 const text_extensions = [_][]const u8{
     ".c",    ".css",   ".Dockerfile", ".h",      ".html",  ".js",
@@ -47,7 +49,7 @@ pub fn checkRawNuls(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
                 continue;
             }
             if (entry.kind != .file or !isTextSource(entry.path) or vendoredOrGenerated(entry.path)) continue;
@@ -147,7 +149,7 @@ pub fn checkRemoveDiscards(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
                 continue;
             }
             if (entry.kind != .file) continue;
@@ -274,7 +276,7 @@ pub fn checkDiscardedErrors(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
                 continue;
             }
             if (entry.kind != .file) continue;

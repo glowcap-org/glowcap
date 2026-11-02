@@ -11,9 +11,9 @@ const std = @import("std");
 
 const codec_order = @import("codec_order");
 const render = @import("render.zig");
-const shared = @import("shared.zig");
+const errors = @import("errors.zig");
 
-const WalkError = shared.WalkError;
+const WalkError = errors.WalkError;
 
 pub fn write(
     allocator: std.mem.Allocator,

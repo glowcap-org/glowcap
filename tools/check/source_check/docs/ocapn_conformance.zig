@@ -8,9 +8,9 @@
 //! alongside test modules so a shared hello change always forces review.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 const manifest_path = "docs/ocapn-conformance.md";
 const draft_path = "conformance/ocapn-spec/upstream/draft-specifications/CapTP Specification.md";

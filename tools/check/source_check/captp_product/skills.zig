@@ -2,10 +2,11 @@
 //! inventory of its own.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
 
 /// CapTP leaf names from `cli/registry.zig`'s `commands` table.
 /// Command rows put `.name` / `.help` on consecutive lines, positional structs

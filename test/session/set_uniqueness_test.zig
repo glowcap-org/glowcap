@@ -117,7 +117,7 @@ test "a Cap'n Proto set with duplicate elements is refused on the session inboun
     // duplicate-key struct cases in `test/codec/capnp_test.zig`. Strings,
     // because a list of integers rides as a word run, which is no set form.
     const allocator = std.testing.allocator;
-    const ArgKind = capnp.shared.ArgKind;
+    const ArgKind = capnp.layout.ArgKind;
 
     const dup = [_]model.Argument{ .{ .string = "four" }, .{ .string = "four" } };
     const list_args = [_]model.Argument{.{ .list = &dup }};

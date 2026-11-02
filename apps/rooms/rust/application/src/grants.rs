@@ -3,14 +3,14 @@
 //! this ledger. No browser or transport adapter owns grant policy.
 mod model;
 pub(crate) use model::{validate_id, validate_label};
+mod handle;
 pub mod protocol;
-mod shared;
 mod storage;
+pub use handle::{GrantPolicy, GrantState};
 pub use model::{
 	Access, Change, Command, Error, Grant, MAX_ACTIVE_GRANTS, MAX_DOCUMENT_BYTES, MAX_GRANT_LABEL_UNITS,
 	MAX_GRANT_NOTE_UNITS, MAX_LIFETIME_GRANTS, PolicyPatch, Rights,
 };
-pub use shared::{GrantPolicy, GrantState};
 use storage::Phase;
 pub use storage::{ApplyError, GrantStorage, PersistedGrant, PreparedGrant};
 

@@ -8,13 +8,16 @@
 const driver_core = @import("driver_core");
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const hosted_behavior = @import("hosted_behavior.zig");
+const instance = @import("instance.zig");
+const marshal = @import("marshal.zig");
 
-const turnFrom = common.turnFrom;
-const instOf = common.instOf;
-const errToCode = common.errToCode;
-const valueMessageFromC = common.valueMessageFromC;
-const steady_scratch_bytes = common.steady_scratch_bytes;
+const turnFrom = instance.turnFrom;
+const instOf = instance.instOf;
+const errToCode = host_error.errToCode;
+const valueMessageFromC = marshal.valueMessageFromC;
+const steady_scratch_bytes = instance.steady_scratch_bytes;
 
 const GlowcapHostTurn = c.GlowcapHostTurn;
 
@@ -98,7 +101,7 @@ pub fn glowcap_host_turn_forward(
     var call = turnCall(turn, target, verb, verb_len, args, args_len) catch |err| return errToCode(err);
     const reply = call.host_turn.forward(call.target, call.msg.verb, call.msg.args) catch |err| return errToCode(err);
     _ = call.inst.turn_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
-    slot.* = common.valueToC(call.inst.turn_scratch.allocator(), reply) catch |err| return errToCode(err);
+    slot.* = marshal.valueToC(call.inst.turn_scratch.allocator(), reply) catch |err| return errToCode(err);
     return GLOWCAP_OK;
 }
 
@@ -144,9 +147,9 @@ pub fn glowcap_host_turn_tell(
 /// message. A null handle or target is `NullPointer`.
 const TurnCall = struct {
     host_turn: driver_core.HostTurn,
-    inst: *common.Instance,
+    inst: *instance.Instance,
     target: driver_core.Capability,
-    msg: common.ValueMessage,
+    msg: marshal.ValueMessage,
 };
 
 fn turnCall(
@@ -184,7 +187,7 @@ pub fn glowcap_host_turn_spawn(
     const slot = out_ref orelse return GLOWCAP_ERR_NULL_POINTER;
     var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
     const inst = instOf(host_turn.host);
-    const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
+    const hosted = hosted_behavior.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
     const reference = host_turn.spawnHosted(hosted) catch |err| return errToCode(err);
     slot.* = .{ .id = reference.raw() };
     return GLOWCAP_OK;

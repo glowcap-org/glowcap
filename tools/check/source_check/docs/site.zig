@@ -4,9 +4,9 @@
 //! override, and per-page metadata.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 const paths = @import("paths.zig");
 
 /// The site content pages are `.smd` (Zine), whose intra-site links use

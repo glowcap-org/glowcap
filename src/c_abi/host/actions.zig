@@ -12,30 +12,32 @@ const shared = @import("c_abi_shared");
 const driver_core = @import("driver_core");
 const model = @import("model");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const instance = @import("instance.zig");
+const marshal = @import("marshal.zig");
 
 pub fn resolverFulfill(
     host: ?*c.GlowcapHost,
     resolver_id: u64,
     value: ?*const shared.GlowcapArgument,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const c_value = value orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    const converted = common.plainArgumentFromC(inst, c_value.*) catch |err|
-        return common.errToCode(err);
-    inst.core.resolverFulfill(resolver_id, converted) catch |err| return common.errToCode(err);
+    const converted = marshal.plainArgumentFromC(inst, c_value.*) catch |err|
+        return host_error.errToCode(err);
+    inst.core.resolverFulfill(resolver_id, converted) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
 pub fn resolverFulfillValue(host: ?*c.GlowcapHost, resolver_id: u64, value: ?*const shared.GlowcapArgument) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const c_value = value orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    const converted = common.valueMessageFromC(inst, null, 0, @ptrCast(c_value), 1) catch |err| return common.errToCode(err);
+    const converted = marshal.valueMessageFromC(inst, null, 0, @ptrCast(c_value), 1) catch |err| return host_error.errToCode(err);
     // Lowering rollback receipts must survive listener reentry, independently
     // of the C argument scratch a nested top-level call may reuse.
     var arena = @import("std").heap.ArenaAllocator.init(inst.allocator);
     defer arena.deinit();
-    inst.core.resolverFulfillValue(resolver_id, converted.args[0], arena.allocator()) catch |err| return common.errToCode(err);
+    inst.core.resolverFulfillValue(resolver_id, converted.args[0], arena.allocator()) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -45,10 +47,10 @@ pub fn resolverBreak(
     message: ?[*]const u8,
     message_len: usize,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const reason = shared.sliceFromC(message, message_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.resolverBreak(resolver_id, reason) catch |err| return common.errToCode(err);
+    inst.core.resolverBreak(resolver_id, reason) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -58,10 +60,10 @@ pub fn resolverAbandon(
     message: ?[*]const u8,
     message_len: usize,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const reason = shared.sliceFromC(message, message_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.resolverAbandon(resolver_id, reason) catch |err| return common.errToCode(err);
+    inst.core.resolverAbandon(resolver_id, reason) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -71,11 +73,11 @@ pub fn enliven(
     sturdyref_uri_len: usize,
     out_vow: ?*u64,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err|
         return shared.marshalErrorToCode(err);
-    slot.* = inst.core.enlivenUri(uri) catch |err| return common.errToCode(err);
+    slot.* = inst.core.enlivenUri(uri) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -86,7 +88,7 @@ pub fn enlivenForVersion(
     sturdyref_uri_len: usize,
     out_vow: ?*u64,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const version = shared.captpVersionFromC(captp_version) orelse {
         shared.setLastError("host: enliven captp_version must be a GLOWCAP_CAPTP_* value", .{});
         return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -94,7 +96,7 @@ pub fn enlivenForVersion(
     const slot = out_vow orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err|
         return shared.marshalErrorToCode(err);
-    slot.* = inst.core.enlivenUriForVersion(version, uri) catch |err| return common.errToCode(err);
+    slot.* = inst.core.enlivenUriForVersion(version, uri) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -105,14 +107,14 @@ pub fn fetchAt(
     name_len: usize,
     out_vow: ?*u64,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const view = locator_view orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const swiss = shared.sliceFromC(name, name_len) catch |err|
         return shared.marshalErrorToCode(err);
     var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var locator = shared.locator_adapter.BorrowedLocator.init(inst.allocator, view, &hint_stack) catch |err| {
-        if (err == error.OutOfMemory) return common.errToCode(err);
+        if (err == error.OutOfMemory) return host_error.errToCode(err);
         shared.setLastError("host: fetch_at received an invalid locator view", .{});
         return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     };
@@ -120,37 +122,37 @@ pub fn fetchAt(
     slot.* = inst.core.enlivenSelectOrDial(.{
         .peer = locator.value,
         .swissnum = swiss,
-    }) catch |err| return common.errToCode(err);
+    }) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
 /// The embedder parks when this drain runs dry, so an empty queue is where
 /// the core's held answer releases leave: their flush is the last action.
-fn popAction(inst: *common.Instance) !?driver_core.HostAction {
+fn popAction(inst: *instance.Instance) !?driver_core.HostAction {
     if (try inst.core.nextAction()) |action| return action;
     if (!try inst.core.flushHeldReleases()) return null;
     return inst.core.nextAction();
 }
 
 pub fn next(host: ?*c.GlowcapHost, out_action: ?*c.GlowcapHostAction) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "next_action")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "next_action")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_action orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     // A refused core pop leaves the preceding action and all of its borrowed C
     // views intact. Reset projection scratch only after the pop commits.
-    var popped = popAction(inst) catch |err| return common.errToCode(err);
-    _ = inst.completion_scratch.reset(.{ .retain_with_limit = common.steady_scratch_bytes });
-    while (popped) |action| : (popped = popAction(inst) catch |err| return common.errToCode(err)) {
+    var popped = popAction(inst) catch |err| return host_error.errToCode(err);
+    _ = inst.completion_scratch.reset(.{ .retain_with_limit = instance.steady_scratch_bytes });
+    while (popped) |action| : (popped = popAction(inst) catch |err| return host_error.errToCode(err)) {
         switch (action) {
             .dial => |dial| {
-                slot.* = common.zero_action;
+                slot.* = marshal.zero_action;
                 slot.kind = c.GLOWCAP_HOST_ACTION_DIAL;
                 slot.ticket = dial.ticket;
                 slot.route_index = dial.route_index;
                 return shared.GLOWCAP_OK;
             },
             .cancel_dial => |dial| {
-                slot.* = common.zero_action;
+                slot.* = marshal.zero_action;
                 slot.kind = c.GLOWCAP_HOST_ACTION_CANCEL_DIAL;
                 slot.ticket = dial.ticket;
                 slot.route_index = dial.route_index;
@@ -158,14 +160,14 @@ pub fn next(host: ?*c.GlowcapHost, out_action: ?*c.GlowcapHostAction) i32 {
             },
             .flush => |peer_handle| {
                 const session = inst.core.sessionForPeer(peer_handle) orelse continue;
-                slot.* = common.zero_action;
+                slot.* = marshal.zero_action;
                 slot.kind = c.GLOWCAP_HOST_ACTION_FLUSH;
                 slot.session = @ptrCast(session);
                 return shared.GLOWCAP_OK;
             },
             .close => |peer_handle| {
                 const session = inst.core.sessionForPeer(peer_handle) orelse continue;
-                slot.* = common.zero_action;
+                slot.* = marshal.zero_action;
                 slot.kind = c.GLOWCAP_HOST_ACTION_CLOSE;
                 slot.session = @ptrCast(session);
                 if (inst.core.sessionCloseOutcome(session, true) == .timed_out)
@@ -173,24 +175,24 @@ pub fn next(host: ?*c.GlowcapHost, out_action: ?*c.GlowcapHostAction) i32 {
                 return shared.GLOWCAP_OK;
             },
             .resume_work => {
-                slot.* = common.zero_action;
+                slot.* = marshal.zero_action;
                 slot.kind = c.GLOWCAP_HOST_ACTION_RESUME;
                 return shared.GLOWCAP_OK;
             },
             .need_gift_id => |request| {
-                slot.* = common.zero_action;
+                slot.* = marshal.zero_action;
                 slot.kind = c.GLOWCAP_HOST_ACTION_NEED_GIFT_ID;
                 slot.ticket = request.ticket;
                 return shared.GLOWCAP_OK;
             },
-            .settled, .failed => return common.projectCompletionInto(inst, action, slot),
+            .settled, .failed => return marshal.projectCompletionInto(inst, action, slot),
         }
     }
     return shared.GLOWCAP_ERR_WOULD_BLOCK;
 }
 
 pub fn retryBorrowed(host: ?*c.GlowcapHost) bool {
-    const inst = common.instanceFrom(host) orelse return false;
+    const inst = instance.instanceFrom(host) orelse return false;
     return inst.core.retryBorrowedAction();
 }
 
@@ -201,16 +203,16 @@ pub fn dialed(
     raw: ?*c.GlowcapHostSession,
     out_adopted: ?*u8,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const adopted_slot = out_adopted orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     adopted_slot.* = 0;
-    if (!common.embedderOwnsDrive(inst, "dialed")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
-    const session = common.sessionFrom(raw) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (common.instOf(session.host) != inst) {
+    if (!instance.embedderOwnsDrive(inst, "dialed")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const session = instance.sessionFrom(raw) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (instance.instOf(session.host) != inst) {
         shared.setLastError("host: dialed: session belongs to another host", .{});
         return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
-    const adopted = inst.core.exporterDialed(ticket, route_index, session) catch |err| return common.errToCode(err);
+    const adopted = inst.core.exporterDialed(ticket, route_index, session) catch |err| return host_error.errToCode(err);
     adopted_slot.* = @intFromBool(adopted);
     return shared.GLOWCAP_OK;
 }
@@ -222,18 +224,18 @@ pub fn dialFailed(
     reason: ?[*]const u8,
     reason_len: usize,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "dial_failed")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "dial_failed")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const reason_bytes = shared.sliceFromC(reason, reason_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.dialFailed(ticket, route_index, reason_bytes) catch |err| return common.errToCode(err);
+    inst.core.dialFailed(ticket, route_index, reason_bytes) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
 pub fn dialCancelled(host: ?*c.GlowcapHost, ticket: u64, route_index: usize) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "dial_cancelled")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
-    inst.core.dialCancelled(ticket, route_index) catch |err| return common.errToCode(err);
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "dial_cancelled")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    inst.core.dialCancelled(ticket, route_index) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -243,17 +245,17 @@ pub fn provideGiftId(
     gift_id: ?[*]const u8,
     gift_id_len: usize,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "provide_gift_id")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "provide_gift_id")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(gift_id, gift_id_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.provideGiftId(ticket, bytes) catch |err| return common.errToCode(err);
+    inst.core.provideGiftId(ticket, bytes) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
 pub fn giftIdFailed(host: ?*c.GlowcapHost, ticket: u64) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "gift_id_failed")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
-    inst.core.giftIdFailed(ticket) catch |err| return common.errToCode(err);
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "gift_id_failed")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    inst.core.giftIdFailed(ticket) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }

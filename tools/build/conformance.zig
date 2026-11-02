@@ -5,11 +5,11 @@
 //! matrix that stays inside `check`.
 
 const std = @import("std");
-const common = @import("common.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 const goblins_build = @import("goblins.zig");
 
-const glowcapExecutable = common.glowcapExecutable;
+const glowcapExecutable = modules.glowcapExecutable;
 
 pub fn register(
     b: *std.Build,

@@ -56,9 +56,10 @@
 //! and abort diagnostics.
 //!
 //! `turn.zig` owns the turn-time verbs. `pump.zig` owns the optional
-//! `glowcap_host_pump_drain` convenience. `common.zig` holds the internal glue
-//! those files share (the `Instance` state, the behavior bridge, marshalling,
-//! and the error projection).
+//! `glowcap_host_pump_drain` convenience. `instance.zig` holds the `Instance`
+//! state and handle recovery, `marshal.zig` the C argument and action layout,
+//! `hosted_behavior.zig` the behavior bridge, and `error.zig` the error
+//! projection those files share.
 
 pub const std_options = @import("c_abi_shared").library_options;
 
@@ -84,7 +85,8 @@ const session_lifecycle = @import("session/lifecycle.zig");
 const session_pump = @import("session/pump.zig");
 const turn = @import("turn.zig");
 const pump = @import("pump.zig");
-const common = @import("common.zig");
+const instance = @import("instance.zig");
+const marshal = @import("marshal.zig");
 const trace_abi = @import("trace_abi.zig");
 const planning_abi = @import("planning_abi.zig");
 
@@ -110,7 +112,7 @@ pub const embedding = @import("embedding.zig");
 /// another ABI symbol. Production consumers cannot name this through a header.
 pub const testing = if (builtin.is_test) struct {
     pub fn importObject(raw: ?*GlowcapHostSession, position: u64) !void {
-        const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
+        const session_ptr = instance.sessionFrom(raw) orelse return error.NullPointer;
         try session_ptr.served.port.peer.importObject(position);
     }
 
@@ -120,23 +122,23 @@ pub const testing = if (builtin.is_test) struct {
         allocator: @import("std").mem.Allocator,
         args: []const model.Argument,
     ) !void {
-        const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
-        const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
-        _ = try inst.core.projectValues(session_ptr, allocator, .fromOwnedSlice(args), allocator, common.valuesToC);
+        const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
+        const session_ptr = instance.sessionFrom(raw) orelse return error.NullPointer;
+        _ = try inst.core.projectValues(session_ptr, allocator, .fromOwnedSlice(args), allocator, marshal.valuesToC);
     }
 
     pub fn liveCapabilityCount(host_handle: ?*GlowcapHost) !usize {
-        const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
+        const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
         return inst.core.capabilities.liveCount();
     }
 
     pub fn configuredSessionLimits(host_handle: ?*GlowcapHost) !engine.SessionLimits {
-        const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
+        const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
         return inst.core.opts.limits;
     }
 
     pub fn importRefcount(raw: ?*GlowcapHostSession, position: u64) !u64 {
-        const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
+        const session_ptr = instance.sessionFrom(raw) orelse return error.NullPointer;
         return session_ptr.served.port.peer.session_state.importRefcount(.from(position));
     }
 } else struct {};

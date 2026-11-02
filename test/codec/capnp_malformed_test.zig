@@ -339,7 +339,7 @@ test "decodeOwned bounds nesting depth: an over-deep frame fails loud, never ove
     // untrusted peer would craft to drive the decoder's recursion off the stack. The
     // encoder has no depth limit, so it produces exactly the over-deep frame the
     // decoder must reject. 260 sits just past the shared view materializer's bound
-    // (`model.view.max_owned_depth`, 256), which is the one owned path now that
+    // (`model.view.max_owned_depth`, 256), which is the one owned path because
     // `decodeOwned` is `decodeBody` + `toOwned`.
     var arg: model.Argument = .{ .void = {} };
     var i: usize = 0;
@@ -373,8 +373,8 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     // (`shared.traversalBudget`, seeded from the segment word count), which
     // must refuse the frame in bounded time with the malformed-frame error.
     const levels_deep: usize = 30;
-    const list_arg: u64 = @backingInt(capnp.shared.ArgKind.list);
-    const void_arg: u64 = @backingInt(capnp.shared.ArgKind.void);
+    const list_arg: u64 = @backingInt(capnp.layout.ArgKind.list);
+    const void_arg: u64 = @backingInt(capnp.layout.ArgKind.void);
     // Each level: composite tag + 2 elements of stride 2 (1 data word for the
     // ArgKind discriminant, 1 pointer word to the next level).
     const list_body_words: u29 = 4;
@@ -394,12 +394,12 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     }
 
     b.set(root, wire.encodeStructPointer(wire.Builder.offsetTo(root, env), 1, 1));
-    b.set(env, @backingInt(capnp.shared.Kind.deliver));
+    b.set(env, @backingInt(capnp.layout.Kind.deliver));
     b.set(env + 1, wire.encodeStructPointer(wire.Builder.offsetTo(env + 1, body), 1, 2));
     b.set(body, 0); // flags: no answer, no resolve-me
     b.set(body + 1, wire.encodeStructPointer(wire.Builder.offsetTo(body + 1, target), 2, 0));
     b.set(body + 2, wire.encodeListPointer(wire.Builder.offsetTo(body + 2, levels[0]), .composite, list_body_words));
-    b.set(target, @backingInt(capnp.shared.RefTag.far));
+    b.set(target, @backingInt(capnp.layout.RefTag.far));
     b.set(target + 1, 0);
 
     for (0..levels_deep + 1) |i| {
@@ -475,7 +475,7 @@ test "an aliasing hint list is charged against the traversal budget" {
     b.setBytes(small, "aaaaaaaa");
 
     b.set(root, wire.encodeStructPointer(wire.Builder.offsetTo(root, env), 1, 1));
-    b.set(env, @backingInt(capnp.shared.Kind.start_session));
+    b.set(env, @backingInt(capnp.layout.Kind.start_session));
     b.set(env + 1, wire.encodeStructPointer(wire.Builder.offsetTo(env + 1, body), 0, 4));
 
     b.set(body, wire.encodeListPointer(wire.Builder.offsetTo(body, ver), .byte, 3));
@@ -491,7 +491,7 @@ test "an aliasing hint list is charged against the traversal budget" {
     b.set(tag, wire.Builder.compositeTag(@intCast(entry_count), data_words, ptr_words));
     for (0..entry_count) |i| {
         const e = block + i * stride;
-        b.set(e, @backingInt(capnp.shared.HintValueKind.string));
+        b.set(e, @backingInt(capnp.layout.HintValueKind.string));
         b.set(e + 1, 0);
         // Name and value both point at the one shared blob: the aliasing edge.
         b.set(e + 2, wire.encodeListPointer(wire.Builder.offsetTo(e + 2, blob), .byte, @intCast(blob_words * 8)));
@@ -610,7 +610,7 @@ test "a composite tag wearing a non-struct pointer kind is refused" {
     const message_view = try capnp.decodeMessageView(mutable_view);
     // The args list is deliver's pointer field 1; its content begins with the
     // struct-pointer-shaped tag word this test corrupts.
-    const clist = (try capnp.shared.compositeList(message_view.reader, message_view.body, 1)) orelse
+    const clist = (try capnp.layout.compositeList(message_view.reader, message_view.body, 1)) orelse
         return error.TestUnexpectedResult;
     const tag_bytes = bytes[(clist.tag_idx + 1) * wire.word_bytes ..][0..wire.word_bytes];
     const tag_word = std.mem.readInt(u64, tag_bytes, .little);

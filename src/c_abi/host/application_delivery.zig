@@ -1,7 +1,9 @@
 //! Sessionless application admission over the existing owning Host queue.
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const instance = @import("instance.zig");
+const marshal = @import("marshal.zig");
 
 /// Eventual-send through this Host without borrowing a network session. The
 /// actual target determines its local or foreign home. Input values borrow
@@ -19,12 +21,12 @@ pub fn glowcap_host_send(
     out_vow: ?*u64,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(raw) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(raw) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const destination = target orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const output = out_vow orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    inst.core.refuseReentry() catch |err| return common.errToCode(err);
-    const message = common.valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return common.errToCode(err);
-    output.* = inst.core.sendApplicationValues(inst.core.capabilityFromRaw(destination.id), message.verb, message.args, inst.arg_scratch.allocator()) catch |err| return common.errToCode(err);
+    inst.core.refuseReentry() catch |err| return host_error.errToCode(err);
+    const message = marshal.valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return host_error.errToCode(err);
+    output.* = inst.core.sendApplicationValues(inst.core.capabilityFromRaw(destination.id), message.verb, message.args, inst.arg_scratch.allocator()) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -40,10 +42,10 @@ pub fn glowcap_host_tell(
     args_len: usize,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(raw) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(raw) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const destination = target orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    inst.core.refuseReentry() catch |err| return common.errToCode(err);
-    const message = common.valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return common.errToCode(err);
-    inst.core.tellApplicationValues(inst.core.capabilityFromRaw(destination.id), message.verb, message.args, inst.arg_scratch.allocator()) catch |err| return common.errToCode(err);
+    inst.core.refuseReentry() catch |err| return host_error.errToCode(err);
+    const message = marshal.valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return host_error.errToCode(err);
+    inst.core.tellApplicationValues(inst.core.capabilityFromRaw(destination.id), message.verb, message.args, inst.arg_scratch.allocator()) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }

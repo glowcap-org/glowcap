@@ -8,11 +8,11 @@ const std = @import("std");
 const model = @import("model");
 const codec_order = @import("codec_order");
 
-const shared = @import("../shared.zig");
+const errors = @import("../errors.zig");
 const syntax = @import("syntax.zig");
 const values = @import("values.zig");
 
-const Error = shared.Error;
+const Error = errors.Error;
 
 /// Borrowed peer locator: empty hint spellings and lazy non-empty dicts land in
 /// `BorrowedHints` (one arm). `acceptable_location_raw` remains the signing
@@ -198,7 +198,7 @@ fn readHintsView(bytes: []const u8, cursor: *usize) Error!model.view.BorrowedHin
 /// duped so the result outlives the frame. Free with `model.freeHints`.
 /// Allocation failure propagates as `OutOfMemory`, never as a frame error:
 /// running out of heap is not evidence the partner sent untrusted bytes.
-fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.Hints {
+fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) errors.WalkError!model.Hints {
     if (cursor.* >= bytes.len) return Error.MalformedFrame;
     if (bytes[cursor.*] == 'f') {
         cursor.* += 1;
@@ -237,7 +237,7 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
 /// Read a locator into owned storage: the borrowed view materialized, then
 /// validated as a whole. Free it with `model.freePeerLocator`. Allocation
 /// failure propagates as `OutOfMemory`, never as a frame error.
-pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.PeerLocator {
+pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) errors.WalkError!model.PeerLocator {
     const view = try readPeerLocatorView(bytes, cursor);
     const locator = view.toOwned(allocator) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,

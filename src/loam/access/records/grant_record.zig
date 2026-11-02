@@ -30,7 +30,7 @@ pub const GrantRecord = struct {
     const label = "access:grant";
 
     /// Exact owned output. No selections are retained by the encoder.
-    pub fn encodeAlloc(self: GrantRecord, allocator: std.mem.Allocator) (Error || syrup.shared.WalkError)![]u8 {
+    pub fn encodeAlloc(self: GrantRecord, allocator: std.mem.Allocator) (Error || syrup.WalkError)![]u8 {
         try self.validate();
         return syrup.render.renderRecordExact(allocator, write, .{self});
     }

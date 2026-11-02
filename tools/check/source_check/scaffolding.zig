@@ -3,15 +3,18 @@
 //! Claude, Pi, Codex, and Cursor, and the ignored Serena state.
 
 const std = @import("std");
-const util = @import("util.zig");
+const json_files = @import("json_files.zig");
+const markdown = @import("markdown.zig");
+const text_match = @import("text_match.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const getField = util.getField;
-const jsonStringEquals = util.jsonStringEquals;
-const parseJsonFile = util.parseJsonFile;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const getField = json_files.getField;
+const jsonStringEquals = json_files.jsonStringEquals;
+const parseJsonFile = json_files.parseJsonFile;
+const sectionBody = markdown.sectionBody;
+const collectBulletSpans = markdown.collectBulletSpans;
 
 // Cursor and Claude Code do not share a cwd guarantee for a hook command:
 // Cursor runs `afterFileEdit` from the workspace root, but a Claude Code

@@ -250,7 +250,7 @@ console.log(`authored: "alice" on ${first.id} and ${second.id}`);
 console.log(`authored: second session ${extra} between them`);
 await page.waitForTimeout(400);
 
-// ── the end-attachment picker, now that two peers collide ──────────────
+// ── the end-attachment picker with two colliding peers ──────────────
 const sessionId = await selectFirstSessionOfFirstPeer();
 await shootPicker(
 	page,

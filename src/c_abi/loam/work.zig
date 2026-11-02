@@ -1,8 +1,8 @@
 //! A submitted effect retains borrowed effect memory until its worker retires.
-const common = @import("common.zig");
+const owners = @import("owners.zig");
 const attached = @import("attachment.zig");
-const core = common.core;
-pub const Worker = common.hosting.Worker;
+const core = owners.core;
+pub const Worker = owners.hosting.Worker;
 pub const Request = Worker.Request;
 pub const Result = Worker.Result;
 
@@ -35,9 +35,9 @@ pub const Work = struct {
         self.evaluation = null;
     }
 };
-pub fn from(raw: ?*common.c.GlowcapLoamWork) !*Work {
+pub fn from(raw: ?*owners.c.GlowcapLoamWork) !*Work {
     const work: *Work = @ptrCast(@alignCast(raw orelse return error.NullPointer));
     if (!work.slot.active) return error.StaleCompletion;
-    try common.EvaluationGuard.check(work.owner.store);
+    try owners.EvaluationGuard.check(work.owner.store);
     return work;
 }

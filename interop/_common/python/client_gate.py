@@ -1,4 +1,5 @@
-"""Shared helpers for Python interop client scripts."""
+"""The gate protocol a Python interop client speaks: reach the bindings, fail a
+named gate, and parse or ignore the port argument."""
 
 from __future__ import annotations
 

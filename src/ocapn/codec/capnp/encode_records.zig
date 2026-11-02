@@ -8,23 +8,23 @@
 const std = @import("std");
 
 const model = @import("model");
-const layout = @import("encode_layout.zig");
-const shared = @import("shared.zig");
-const wire = shared.wire;
+const encode_layout = @import("encode_layout.zig");
+const layout = @import("layout.zig");
+const wire = layout.wire;
 const view = model.view;
 
-const Error = shared.Error;
-const EncodeError = shared.EncodeError;
-const RefTag = shared.RefTag;
-const HandoffKind = shared.HandoffKind;
-const StructLoc = shared.StructLoc;
-const ListContent = layout.ListContent;
-const allocStruct = layout.allocStruct;
-const allocComposite = layout.allocComposite;
-const ptrIndex = layout.ptrIndex;
-const setStructPtr = layout.setStructPtr;
-const setListPtr = layout.setListPtr;
-const setData = layout.setData;
+const Error = layout.Error;
+const EncodeError = layout.EncodeError;
+const RefTag = layout.RefTag;
+const HandoffKind = layout.HandoffKind;
+const StructLoc = layout.StructLoc;
+const ListContent = encode_layout.ListContent;
+const allocStruct = encode_layout.allocStruct;
+const allocComposite = encode_layout.allocComposite;
+const ptrIndex = encode_layout.ptrIndex;
+const setStructPtr = encode_layout.setStructPtr;
+const setListPtr = encode_layout.setListPtr;
+const setData = encode_layout.setData;
 
 /// Write a text field, refusing malformed UTF-8 as `UnsupportedArgument`.
 /// Validating where the text is written is the one pass over it, and the
@@ -62,11 +62,11 @@ pub fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference
     const loc = try allocStruct(b, allocator, 2, 2);
     switch (reference) {
         .near => |near| {
-            b.set(loc.data_idx, @backingInt(RefTag.near) | (if (near.kind == .promise) shared.data0_flag else 0));
+            b.set(loc.data_idx, @backingInt(RefTag.near) | (if (near.kind == .promise) layout.data0_flag else 0));
             b.set(loc.data_idx + 1, near.export_position.int());
         },
         .far => |far| {
-            b.set(loc.data_idx, @backingInt(RefTag.far) | (if (far.kind == .promise) shared.data0_flag else 0));
+            b.set(loc.data_idx, @backingInt(RefTag.far) | (if (far.kind == .promise) layout.data0_flag else 0));
             b.set(loc.data_idx + 1, far.import_position.int());
         },
         .routed => return Error.UnsupportedReference,
@@ -127,18 +127,18 @@ fn encodeHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: []
         try setText(b, allocator, loc, 0, entry.name);
         switch (entry.value) {
             .string => |s| {
-                b.set(loc.data_idx, @backingInt(shared.HintValueKind.string));
+                b.set(loc.data_idx, @backingInt(layout.HintValueKind.string));
                 try setText(b, allocator, loc, 1, s);
             },
             .bytes => |by| {
-                b.set(loc.data_idx, @backingInt(shared.HintValueKind.bytes));
+                b.set(loc.data_idx, @backingInt(layout.HintValueKind.bytes));
                 try setData(b, allocator, loc, 1, by);
             },
             .boolean => |bo| {
-                b.set(loc.data_idx, @backingInt(shared.HintValueKind.boolean) | (if (bo) shared.data0_flag else 0));
+                b.set(loc.data_idx, @backingInt(layout.HintValueKind.boolean) | (if (bo) layout.data0_flag else 0));
             },
             .integer => |int| {
-                b.set(loc.data_idx, @backingInt(shared.HintValueKind.integer));
+                b.set(loc.data_idx, @backingInt(layout.HintValueKind.integer));
                 b.set(loc.data_idx + 1, @bitCast(int));
             },
         }

@@ -6,7 +6,7 @@
 // that toggles the first and the subscriber that writes the second are the only
 // authorities for either.
 
-import type { PageProjection } from "./store/core.ts";
+import type { PageProjection } from "./store/projection.ts";
 
 export function maybeNotify(projection: PageProjection, title: string, text: string): void {
 	const { notifyOn, visible } = projection.get();

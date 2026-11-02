@@ -6,10 +6,10 @@
 //! their additional declaration-to-classification completeness check.
 
 const std = @import("std");
-const util = @import("../../util.zig");
+const violation_log = @import("../../violation_log.zig");
 const syntax = @import("syntax.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 const gates_path = "tools/build/gates.zig";
 
 const Kind = enum { unit_test, search, memcheck };

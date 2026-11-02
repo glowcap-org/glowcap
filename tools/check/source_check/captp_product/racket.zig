@@ -2,10 +2,11 @@
 //! before a live run does.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
 
 /// The Racket suite's root module is a thin aggregate, while its
 /// scenario modules stay outside the package. Hold all three facts together:

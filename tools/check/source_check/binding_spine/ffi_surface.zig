@@ -3,12 +3,14 @@
 //! the sidecar crate pins.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const containsAsSymbol = util.containsAsSymbol;
-const extractBraceBlock = util.extractBraceBlock;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const containsAsSymbol = text_match.containsAsSymbol;
+const extractBraceBlock = text_match.extractBraceBlock;
 
 /// The iroh sidecar C ABI is spelled four times by hand, the Rust
 /// definitions (`transports/iroh/src/lib.rs`), the C header
@@ -165,7 +167,7 @@ pub fn checkBindingReflectedFfiWired(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind == .directory) {
-            try util.enterSourceDirectory(io, gpa, &walker, "bindings", entry);
+            try source_tree.enterSourceDirectory(io, gpa, &walker, "bindings", entry);
             continue;
         }
         if (entry.kind != .file) continue;
@@ -473,7 +475,7 @@ const pinned_sidecar_crates = [_]struct { manifest: []const u8, lockfile: []cons
     .{ .manifest = "transports/Cargo.toml", .lockfile = "transports/Cargo.lock" },
     .{ .manifest = "transports/iroh/Cargo.toml", .lockfile = "transports/Cargo.lock" },
     .{ .manifest = "transports/webrtc/Cargo.toml", .lockfile = "transports/Cargo.lock" },
-    .{ .manifest = "transports/sidecar-common/Cargo.toml", .lockfile = "transports/Cargo.lock" },
+    .{ .manifest = "transports/sidecar-runtime/Cargo.toml", .lockfile = "transports/Cargo.lock" },
 };
 
 /// ADR-0021 commits the sidecar to reproducible dependency resolution: the

@@ -15,7 +15,7 @@ import type { DragMode } from "./scrubber-drag.ts";
 import type { TimelineGesture } from "./timeline-cursor.ts";
 import { endScrubberDrag, onScrubberPointerDown, onScrubberPointerUp } from "./scrubber-pointers/press.ts";
 import { onScrubberPointerMove, refreshScrubberModifierHover } from "./scrubber-pointers/move.ts";
-import type { ScrubberPointerHost, ScrubberPointerLive } from "./scrubber-pointers/types.ts";
+import type { ScrubberPointerHost, ScrubberPointerLive } from "./scrubber-pointers/host.ts";
 
 const SCRUBBER_SURFACE_TAG = "timeline";
 

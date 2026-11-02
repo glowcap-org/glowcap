@@ -22,7 +22,7 @@ import {
 	railIn,
 } from "../../../lib/text/rail.ts";
 import { useRoomsState, useSessionPaused } from "../hooks.ts";
-import { NO_MEMBERS } from "../store/core.ts";
+import { NO_MEMBERS } from "../store/projection.ts";
 import { MAX_NICK } from "../limits.ts";
 import { Avatar, PresenceAvatar } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";

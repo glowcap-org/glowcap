@@ -14,23 +14,23 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const codec_order = @import("codec_order");
-const layout = @import("encode_layout.zig");
+const encode_layout = @import("encode_layout.zig");
 const records = @import("encode_records.zig");
-const shared = @import("shared.zig");
-const wire = shared.wire;
+const layout = @import("layout.zig");
+const wire = layout.wire;
 const view = model.view;
 
-const Error = shared.Error;
-const EncodeError = shared.EncodeError;
-const ArgKind = shared.ArgKind;
-const StructLoc = shared.StructLoc;
-const ListContent = layout.ListContent;
-const allocStruct = layout.allocStruct;
-const allocComposite = layout.allocComposite;
-const ptrIndex = layout.ptrIndex;
-const setStructPtr = layout.setStructPtr;
-const setListPtr = layout.setListPtr;
-const setData = layout.setData;
+const Error = layout.Error;
+const EncodeError = layout.EncodeError;
+const ArgKind = layout.ArgKind;
+const StructLoc = layout.StructLoc;
+const ListContent = encode_layout.ListContent;
+const allocStruct = encode_layout.allocStruct;
+const allocComposite = encode_layout.allocComposite;
+const ptrIndex = encode_layout.ptrIndex;
+const setStructPtr = encode_layout.setStructPtr;
+const setListPtr = encode_layout.setListPtr;
+const setData = encode_layout.setData;
 const setText = records.setText;
 
 const argument_data_words: u16 = 2;
@@ -76,14 +76,14 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: anyty
             b.set(loc.data_idx + 1, @bitCast(integer));
         },
         .boolean => |boolean| {
-            b.set(loc.data_idx, @backingInt(ArgKind.boolean) | (if (boolean) shared.data0_flag else 0));
+            b.set(loc.data_idx, @backingInt(ArgKind.boolean) | (if (boolean) layout.data0_flag else 0));
         },
         .big_integer => |big| {
             // Symmetric refusal (ADR-0001): a non-canonical big integer,
             // leading zeros, non-digits, or a magnitude that belongs to the
             // `integer` arm, never reaches the wire.
             if (!big.isCanonical()) return Error.UnsupportedArgument;
-            b.set(loc.data_idx, @backingInt(ArgKind.big_integer) | (if (big.negative) shared.data0_flag else 0));
+            b.set(loc.data_idx, @backingInt(ArgKind.big_integer) | (if (big.negative) layout.data0_flag else 0));
             try setData(b, allocator, loc, 0, big.digits);
         },
         .list => |list| {

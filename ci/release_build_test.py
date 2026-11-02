@@ -210,13 +210,13 @@ class ReleaseBuild(unittest.TestCase):
     def test_macos_shared_archive_records_its_abi_major(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            for name in ("common.zig", "execution.zig", "shard.zig"):
+            for name in ("archives.zig", "commands.zig", "execution.zig", "shard.zig"):
                 (directory / name).write_bytes((ROOT / "tools/build" / name).read_bytes())
             (directory / "library.zig").write_text("export fn answer() u32 { return 42; }\n")
             (directory / "build.zig").write_text(
                 textwrap.dedent("""\
                 const std = @import("std");
-                const common = @import("common.zig");
+                const archives = @import("archives.zig");
                 pub fn build(b: *std.Build) void {
                     const library = b.addLibrary(.{
                         .name = "probe", .linkage = .dynamic,
@@ -227,7 +227,7 @@ class ReleaseBuild(unittest.TestCase):
                             .optimize = .Debug,
                         }),
                     });
-                    common.configureSharedArchive(library);
+                    archives.configureSharedArchive(library);
                     b.installArtifact(library);
                 }
                 """)
@@ -261,14 +261,14 @@ class ReleaseBuild(unittest.TestCase):
             sdk = directory / "SDK with spaces"
             (sdk / "usr/lib").mkdir(parents=True)
             (sdk / "System/Library/Frameworks").mkdir(parents=True)
-            for name in ("common.zig", "execution.zig", "shard.zig"):
+            for name in ("archives.zig", "cargo.zig", "commands.zig", "execution.zig", "shard.zig"):
                 (directory / name).write_bytes((ROOT / "tools/build" / name).read_bytes())
             (directory / "sidecar.a").write_bytes(b"!<arch>\n")
             (directory / "main.zig").write_text("pub fn main() void {}\n")
             (directory / "build.zig").write_text(
                 textwrap.dedent("""\
                 const std = @import("std");
-                const common = @import("common.zig");
+                const cargo = @import("cargo.zig");
                 pub fn build(b: *std.Build) void {
                     const target = b.resolveTargetQuery(.{
                         .cpu_arch = .aarch64, .os_tag = .macos,
@@ -278,7 +278,7 @@ class ReleaseBuild(unittest.TestCase):
                         .root_source_file = b.path("main.zig"),
                         .target = target, .optimize = .Debug,
                     });
-                    common.linkRustSidecar(b, module, target, b.path("sidecar.a"));
+                    cargo.linkRustSidecar(b, module, target, b.path("sidecar.a"));
                     b.installArtifact(b.addExecutable(.{ .name = "probe", .root_module = module }));
                 }
                 """)

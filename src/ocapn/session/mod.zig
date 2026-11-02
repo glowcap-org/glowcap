@@ -34,7 +34,7 @@ const positions = @import("references/positions.zig");
 const bootstrap_references = @import("references/bootstrap.zig");
 const pipeline = @import("answers/pipeline.zig");
 const answer_lifecycle = @import("answers/lifecycle.zig");
-const promise_types = @import("promises/types.zig");
+const promise_records = @import("promises/records.zig");
 const lifecycle = @import("lifecycle.zig");
 const held_releases = @import("held_releases.zig");
 
@@ -80,15 +80,15 @@ pub const Error = @import("errors.zig").Error;
 /// the session.
 pub const bootstrap_position: u64 = 0;
 
-pub const PromiseIncarnation = promise_types.PromiseIncarnation;
-pub const RetiredResolverState = promise_types.RetiredResolverState;
-pub const RetiredResolver = promise_types.RetiredResolver;
-pub const ResolverPurpose = promise_types.ResolverPurpose;
+pub const PromiseIncarnation = promise_records.PromiseIncarnation;
+pub const RetiredResolverState = promise_records.RetiredResolverState;
+pub const RetiredResolver = promise_records.RetiredResolver;
+pub const ResolverPurpose = promise_records.ResolverPurpose;
 pub const ShorteningNomination = shortening.Nomination;
 pub const SettlingMovePlan = imported_promise.SettlingMovePlan;
-/// `promise_types` documents the inbound resolver link and the purposes an
+/// `promise_records` documents the inbound resolver link and the purposes an
 /// export row carries.
-const InboundResolverLink = promise_types.InboundResolverLink;
+const InboundResolverLink = promise_records.InboundResolverLink;
 
 pub const State = enum {
     negotiating,
@@ -130,7 +130,7 @@ pub const ExportView = inspect.ExportView;
 pub const ImportView = inspect.ImportView;
 pub const AnswerRowView = inspect.AnswerRowView;
 
-pub const ImportedPromise = promise_types.ImportedPromise;
+pub const ImportedPromise = promise_records.ImportedPromise;
 
 /// Supported alias for the row owned by `sturdyref_cache.zig`.
 pub const SturdyrefCacheEntry = sturdyref_cache.Entry;

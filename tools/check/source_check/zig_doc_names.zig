@@ -8,9 +8,9 @@
 //! (std, a wire spec) sit in `foreign_names`.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Names a `src/` doc comment may cite that no first-party code spells.
 const foreign_names = [_][]const u8{

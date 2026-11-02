@@ -17,7 +17,7 @@ import { entitiesInRect, hitTestGutter } from "../hit-test.ts";
 import { eventIdOfPlan } from "../scrubber-drag.ts";
 import { scrubberHoverAt } from "../timeline-cursor.ts";
 import { resolveTimelineGesture } from "../timeline-gesture.ts";
-import type { ScrubberPointerHost } from "./types.ts";
+import type { ScrubberPointerHost } from "./host.ts";
 
 export function onScrubberPointerDown(
 	h: ScrubberPointerHost,

@@ -2,7 +2,7 @@
 // Rust reserves receiver capacity and streams directly to a browser Blob.
 import type { RoomsManagedFile } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { AttachedSessionFiles, type FileDescription, type FileSources } from "../attached_files.ts";
-import type { PageProjection } from "../../store/core.ts";
+import type { PageProjection } from "../../store/projection.ts";
 import type { ArchiveSource } from "./history.ts";
 import type { ArchiveLine } from "../../../../lib/archive/protocol.ts";
 

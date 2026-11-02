@@ -1,59 +1,62 @@
-//! Optional Loam archives share the existing Host and storage Store modules.
+//! Optional Loam archives share the existing Host and storage Store layers.
 const std = @import("std");
-const common = @import("common.zig");
+const archives = @import("archives.zig");
+const cargo = @import("cargo.zig");
+const commands = @import("commands.zig");
+const modules = @import("modules.zig");
 const root = @import("../../build.zig");
 const execution = @import("execution.zig");
 const Gates = @import("gates.zig").Registered;
 pub const Registered = struct { portable: *std.Build.Module, lmdb: *std.Build.Module, sqlite: *std.Build.Module, volatile_abi: *std.Build.Module, zig_installs: [4]*std.Build.Step };
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, modules: []*std.Build.Module, host: *std.Build.Module, lmdb: *std.Build.Module, sqlite: *std.Build.Module, gates: Gates) Registered {
-    const imports = [_]common.AbiImport{
-        .{ .name = "loam_core", .module = modules[root.layerIndex("loam_core")] },
-        .{ .name = "loam_access", .module = modules[root.layerIndex("loam_access")] },
-        .{ .name = "loam_hosting", .module = modules[root.layerIndex("loam_hosting")] },
-        .{ .name = "driver_core", .module = modules[root.layerIndex("driver_core")] },
-        .{ .name = "c_abi_shared", .module = modules[root.layerIndex("c_abi_shared")] },
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, layers: []*std.Build.Module, host: *std.Build.Module, lmdb: *std.Build.Module, sqlite: *std.Build.Module, gates: Gates) Registered {
+    const imports = [_]modules.AbiImport{
+        .{ .name = "loam_core", .module = layers[root.layerIndex("loam_core")] },
+        .{ .name = "loam_access", .module = layers[root.layerIndex("loam_access")] },
+        .{ .name = "loam_hosting", .module = layers[root.layerIndex("loam_hosting")] },
+        .{ .name = "driver_core", .module = layers[root.layerIndex("driver_core")] },
+        .{ .name = "c_abi_shared", .module = layers[root.layerIndex("c_abi_shared")] },
         .{ .name = "c_abi_host", .module = host },
     };
-    const portable = common.transportAbiModule(b, target, optimize, "src/c_abi/loam/mod.zig", &imports);
-    const archive = common.transportAbiModule(b, target, optimize, "src/c_abi/loam/archive.zig", &imports);
-    const portable_archive = common.installArchive(b, "glowcap_loam", archive, version);
-    const storage_imports = [_]common.AbiImport{
-        .{ .name = "loam_core", .module = modules[root.layerIndex("loam_core")] },
+    const portable = modules.transportAbiModule(b, target, optimize, "src/c_abi/loam/mod.zig", &imports);
+    const archive = modules.transportAbiModule(b, target, optimize, "src/c_abi/loam/archive.zig", &imports);
+    const portable_archive = archives.installArchive(b, "glowcap_loam", archive, version);
+    const storage_imports = [_]modules.AbiImport{
+        .{ .name = "loam_core", .module = layers[root.layerIndex("loam_core")] },
         .{ .name = "loam_lmdb", .module = lmdb },
-        .{ .name = "c_abi_shared", .module = modules[root.layerIndex("c_abi_shared")] },
+        .{ .name = "c_abi_shared", .module = layers[root.layerIndex("c_abi_shared")] },
         .{ .name = "c_abi_loam", .module = portable },
     };
-    const lmdb_abi = common.transportAbiModule(b, target, optimize, "src/c_abi/loam_lmdb/mod.zig", &storage_imports);
-    const lmdb_root = common.transportAbiModule(b, target, optimize, "src/c_abi/loam_lmdb/archive.zig", &storage_imports);
-    const lmdb_archive = common.installArchive(b, "glowcap_loam_lmdb", lmdb_root, version);
-    const sqlite_imports = [_]common.AbiImport{
-        .{ .name = "loam_core", .module = modules[root.layerIndex("loam_core")] },
+    const lmdb_abi = modules.transportAbiModule(b, target, optimize, "src/c_abi/loam_lmdb/mod.zig", &storage_imports);
+    const lmdb_root = modules.transportAbiModule(b, target, optimize, "src/c_abi/loam_lmdb/archive.zig", &storage_imports);
+    const lmdb_archive = archives.installArchive(b, "glowcap_loam_lmdb", lmdb_root, version);
+    const sqlite_imports = [_]modules.AbiImport{
+        .{ .name = "loam_core", .module = layers[root.layerIndex("loam_core")] },
         .{ .name = "loam_sqlite", .module = sqlite },
-        .{ .name = "c_abi_shared", .module = modules[root.layerIndex("c_abi_shared")] },
+        .{ .name = "c_abi_shared", .module = layers[root.layerIndex("c_abi_shared")] },
         .{ .name = "c_abi_loam", .module = portable },
     };
-    const sqlite_abi = common.transportAbiModule(b, target, optimize, "src/c_abi/loam_sqlite/mod.zig", &sqlite_imports);
-    const sqlite_root = common.transportAbiModule(b, target, optimize, "src/c_abi/loam_sqlite/archive.zig", &sqlite_imports);
-    const sqlite_archive = common.installArchive(b, "glowcap_loam_sqlite", sqlite_root, version);
-    const volatile_imports = [_]common.AbiImport{
-        .{ .name = "loam_core", .module = modules[root.layerIndex("loam_core")] },
-        .{ .name = "loam_volatile", .module = modules[root.layerIndex("loam_volatile")] },
-        .{ .name = "net", .module = modules[root.layerIndex("net")] },
-        .{ .name = "c_abi_shared", .module = modules[root.layerIndex("c_abi_shared")] },
+    const sqlite_abi = modules.transportAbiModule(b, target, optimize, "src/c_abi/loam_sqlite/mod.zig", &sqlite_imports);
+    const sqlite_root = modules.transportAbiModule(b, target, optimize, "src/c_abi/loam_sqlite/archive.zig", &sqlite_imports);
+    const sqlite_archive = archives.installArchive(b, "glowcap_loam_sqlite", sqlite_root, version);
+    const volatile_imports = [_]modules.AbiImport{
+        .{ .name = "loam_core", .module = layers[root.layerIndex("loam_core")] },
+        .{ .name = "loam_volatile", .module = layers[root.layerIndex("loam_volatile")] },
+        .{ .name = "net", .module = layers[root.layerIndex("net")] },
+        .{ .name = "c_abi_shared", .module = layers[root.layerIndex("c_abi_shared")] },
         .{ .name = "c_abi_loam", .module = portable },
     };
-    const volatile_abi = common.transportAbiModule(b, target, optimize, "src/c_abi/loam_volatile/mod.zig", &volatile_imports);
-    const volatile_root = common.transportAbiModule(b, target, optimize, "src/c_abi/loam_volatile/archive.zig", &volatile_imports);
-    const volatile_archive = common.installArchive(b, "glowcap_loam_volatile", volatile_root, version);
+    const volatile_abi = modules.transportAbiModule(b, target, optimize, "src/c_abi/loam_volatile/mod.zig", &volatile_imports);
+    const volatile_root = modules.transportAbiModule(b, target, optimize, "src/c_abi/loam_volatile/archive.zig", &volatile_imports);
+    const volatile_archive = archives.installArchive(b, "glowcap_loam_volatile", volatile_root, version);
     const test_mod = b.createModule(.{ .root_source_file = b.path("test/c_abi/loam_test.zig"), .target = target, .optimize = optimize });
     test_mod.addImport("c_abi_loam", portable);
-    test_mod.addImport("c_abi", modules[root.layerIndex("c_abi")]);
-    test_mod.addImport("loam_core", modules[root.layerIndex("loam_core")]);
-    test_mod.addImport("loam_access", modules[root.layerIndex("loam_access")]);
-    test_mod.addImport("loam_hosting", modules[root.layerIndex("loam_hosting")]);
-    test_mod.addImport("driver_core", modules[root.layerIndex("driver_core")]);
+    test_mod.addImport("c_abi", layers[root.layerIndex("c_abi")]);
+    test_mod.addImport("loam_core", layers[root.layerIndex("loam_core")]);
+    test_mod.addImport("loam_access", layers[root.layerIndex("loam_access")]);
+    test_mod.addImport("loam_hosting", layers[root.layerIndex("loam_hosting")]);
+    test_mod.addImport("driver_core", layers[root.layerIndex("driver_core")]);
     const counting = b.createModule(.{ .root_source_file = b.path("test/support/c_abi_counting_alloc.zig"), .target = target, .optimize = optimize });
-    counting.addImport("c_abi", modules[root.layerIndex("c_abi")]);
+    counting.addImport("c_abi", layers[root.layerIndex("c_abi")]);
     test_mod.addImport("support_c_abi_counting_alloc", counting);
     test_mod.addImport("support_alloc_metrics", b.createModule(.{ .root_source_file = b.path("test/support/alloc_metrics.zig"), .target = target, .optimize = optimize }));
     test_mod.addImport("c_abi_loam_lmdb", lmdb_abi);
@@ -61,22 +64,22 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     test_mod.addImport("c_abi_loam_volatile", volatile_abi);
     test_mod.addImport("c_abi_host", host);
     test_mod.addImport("loam_engine_temp", b.createModule(.{ .root_source_file = b.path("test/loam/engines/temp.zig"), .target = target, .optimize = optimize }));
-    test_mod.addImport("c_abi_shared", modules[root.layerIndex("c_abi_shared")]);
+    test_mod.addImport("c_abi_shared", layers[root.layerIndex("c_abi_shared")]);
     const suite = b.addTest(.{ .root_module = test_mod });
     const run = execution.addZigTest(b, suite, .unit_test);
     const step = b.step("loam-abi-test", "Check Loam C ownership and atomic resource creation through atomic storage");
     step.dependOn(&run.step);
     const effect_tests = b.createModule(.{ .root_source_file = b.path("test/c_abi/loam_execution_test.zig"), .target = target, .optimize = optimize });
     effect_tests.addImport("c_abi_loam", portable);
-    effect_tests.addImport("loam_core", modules[root.layerIndex("loam_core")]);
-    effect_tests.addImport("c_abi_shared", modules[root.layerIndex("c_abi_shared")]);
+    effect_tests.addImport("loam_core", layers[root.layerIndex("loam_core")]);
+    effect_tests.addImport("c_abi_shared", layers[root.layerIndex("c_abi_shared")]);
     const effects = execution.addZigTest(b, b.addTest(.{ .root_module = effect_tests }), .unit_test);
     step.dependOn(&effects.step);
     gates.check_step.dependOn(step);
-    const compile = common.addRootedSystemCommand(b, .build_tool, &.{ "cargo", "test", "--no-run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "loam" });
-    const standalone = common.addRootedSystemCommand(b, .build_tool, &.{ "cargo", "test", "--no-run", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", "loam" });
-    const lint = common.addRootedSystemCommand(b, .build_tool, &.{ "cargo", "clippy", "--manifest-path", "bindings/rust/Cargo.toml", "--all-targets", "--features", "loam", "--", "-D", "warnings" });
-    const rust = common.addRootedSystemCommand(b, .{ .deterministic = 15 }, &.{ "cargo", "test", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "loam", "loam::" });
+    const compile = commands.addRootedSystemCommand(b, .build_tool, &.{ "cargo", "test", "--no-run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "loam" });
+    const standalone = commands.addRootedSystemCommand(b, .build_tool, &.{ "cargo", "test", "--no-run", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features", "--features", "loam" });
+    const lint = commands.addRootedSystemCommand(b, .build_tool, &.{ "cargo", "clippy", "--manifest-path", "bindings/rust/Cargo.toml", "--all-targets", "--features", "loam", "--", "-D", "warnings" });
+    const rust = commands.addRootedSystemCommand(b, .{ .deterministic = 15 }, &.{ "cargo", "test", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "loam", "loam::" });
     compile.step.dependOn(b.getInstallStep());
     lint.step.dependOn(b.getInstallStep());
     standalone.step.dependOn(b.getInstallStep());
@@ -84,11 +87,11 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     rust.step.dependOn(&lint.step);
     rust.step.dependOn(&standalone.step);
     for ([_]*std.Build.Step.Run{ compile, standalone, lint, rust }) |command| {
-        command.setEnvironmentVariable("GLOWCAP_LIB_DIR", common.rootPath(b, "zig-out/lib"));
+        command.setEnvironmentVariable("GLOWCAP_LIB_DIR", commands.rootPath(b, "zig-out/lib"));
     }
     const rust_step = b.step("loam-rust-test", "Prove Loam create/share/edit/restart/reopen and ownership through Rust (needs cargo)");
     rust_step.dependOn(&rust.step);
-    rust_step.dependOn(&common.rustFmtCheck(b, "bindings/rust/Cargo.toml").step);
+    rust_step.dependOn(&cargo.rustFmtCheck(b, "bindings/rust/Cargo.toml").step);
     gates.runtime_gate.add(rust_step);
     @import("loam_browser.zig").register(b, gates);
     return .{ .portable = portable, .lmdb = lmdb_abi, .sqlite = sqlite_abi, .volatile_abi = volatile_abi, .zig_installs = .{ portable_archive.static_install, lmdb_archive.static_install, sqlite_archive.static_install, volatile_archive.static_install } };

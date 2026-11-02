@@ -8,7 +8,7 @@
 // moved and a needless rewrite re-renders a roster.
 
 import type { RoomConv } from "../types.ts";
-import type { PageProjection, State } from "./core.ts";
+import type { PageProjection, State } from "./projection.ts";
 import { getConv, put } from "./convs.ts";
 import { retireRoomLineIds } from "./items.ts";
 import { roomAuthorityToken } from "../application.ts";

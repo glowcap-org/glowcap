@@ -3,12 +3,12 @@
 //! own under `docs/planning/`, or the plan to plan, which says how to write one.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 const kinds = @import("kinds.zig");
 const corpus = @import("corpus.zig");
 const paths = @import("paths.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 const roadmap_path = "docs/roadmap.md";
 const plan_link = "](planning/";

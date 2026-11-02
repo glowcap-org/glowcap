@@ -12,7 +12,8 @@ const std = @import("std");
 const foundation = @import("foundation");
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const instance = @import("instance.zig");
 const capability_ids = @import("capability_ids.zig");
 const host_actions = @import("actions.zig");
 const host_lifecycle = @import("lifecycle.zig");
@@ -22,10 +23,10 @@ const driver_core = @import("driver_core");
 
 const crypto = foundation.crypto;
 
-const Instance = common.Instance;
-const Host = common.Host;
-const instanceFrom = common.instanceFrom;
-const errToCode = common.errToCode;
+const Instance = instance.Instance;
+const Host = driver_core.Host;
+const instanceFrom = instance.instanceFrom;
+const errToCode = host_error.errToCode;
 
 const GlowcapContext = c.GlowcapContext;
 const GlowcapHost = c.GlowcapHost;

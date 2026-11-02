@@ -13,7 +13,7 @@
          (combine-in "../host.rkt" "../host/state.rkt")
          (combine-in "../session.rkt" "../session/state.rkt")
          "../transport.rkt"
-         "core.rkt")
+         "stepper.rkt")
 
 (provide loop-connect-session
          wrap-loop-session)

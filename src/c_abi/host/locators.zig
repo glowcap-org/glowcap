@@ -9,7 +9,8 @@ const model = @import("model");
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const instance = @import("instance.zig");
 
 /// Derive the canonical key designator (exactly 64 lowercase hex digits) from
 /// a 32-byte Ed25519 durable-identity seed, the public half represented by
@@ -45,17 +46,17 @@ pub fn glowcap_host_designator_from_seed(
 /// validates and deep-copies the borrowed locator view before returning.
 pub fn glowcap_host_set_advertised_locator(host: ?*c.GlowcapHost, locator: ?*const shared.GlowcapLocatorView) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "set_advertised_locator")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "set_advertised_locator")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const view = locator orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = shared.locator_adapter.BorrowedLocator.init(inst.allocator, view, &hint_stack) catch |err| {
-        if (err == error.OutOfMemory) return common.errToCode(err);
+        if (err == error.OutOfMemory) return host_error.errToCode(err);
         shared.setLastError("host: set_advertised_locator received an invalid locator view", .{});
         return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     };
     defer borrowed.deinit(inst.allocator);
-    inst.core.setAdvertisedLocator(borrowed.value) catch |err| return common.errToCode(err);
+    inst.core.setAdvertisedLocator(borrowed.value) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -63,10 +64,10 @@ pub fn glowcap_host_set_advertised_locator(host: ?*c.GlowcapHost, locator: ?*con
 /// an acceptable location already selected for another transport.
 pub fn glowcap_host_ensure_advertised_locator(host: ?*c.GlowcapHost, transport: ?[*]const u8, transport_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "ensure_advertised_locator")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "ensure_advertised_locator")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
-    inst.core.ensureAdvertisedLocator(bytes) catch |err| return common.errToCode(err);
+    inst.core.ensureAdvertisedLocator(bytes) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -74,9 +75,9 @@ pub fn glowcap_host_ensure_advertised_locator(host: ?*c.GlowcapHost, transport: 
 /// leaves no acceptable location. Existing sessions retain their signed hello.
 pub fn glowcap_host_remove_advertised_locator(host: ?*c.GlowcapHost, transport: ?[*]const u8, transport_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "remove_advertised_locator")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "remove_advertised_locator")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
-    inst.core.removeAdvertisedLocator(bytes) catch |err| return common.errToCode(err);
+    inst.core.removeAdvertisedLocator(bytes) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }

@@ -4,10 +4,11 @@
 
 const std = @import("std");
 const root = @import("../../build.zig");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 
-const AbiImport = common.AbiImport;
+const AbiImport = modules.AbiImport;
 const layerIndex = root.layerIndex;
 const iroh_build = @import("iroh.zig");
 const webrtc_build = @import("webrtc.zig");
@@ -222,7 +223,7 @@ pub fn register(ctx: Context) void {
         },
     });
 
-    const interface_fixtures = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/check_fixtures.py" });
+    const interface_fixtures = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/check_fixtures.py" });
     const interface_step = b.step("interface-fixtures-check", "Verify authored interface contract and message fixtures");
     interface_step.dependOn(&interface_fixtures.step);
     check_step.dependOn(interface_step);

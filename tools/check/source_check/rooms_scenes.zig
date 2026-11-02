@@ -25,9 +25,10 @@
 //! as "this is unreachable", never as "the scenes are covered".
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// The trees whose files exist to be used by something else. A `_test.ts` is a
 /// root and answers to the build registration rule instead.
@@ -101,7 +102,7 @@ pub fn check(
     var tree: std.ArrayList(u8) = .empty;
     defer tree.deinit(gpa);
     for (consumer_roots) |subject_path| {
-        const part = (try util.readSourceSubject(io, gpa, root, subject_path)) orelse {
+        const part = (try source_tree.readSourceSubject(io, gpa, root, subject_path)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to read for the scene reachability check", .{subject_path});
             return;
         };
@@ -111,7 +112,7 @@ pub fn check(
     }
 
     for (helper_dirs) |dir_path| {
-        const files = (try util.collectSourceFiles(io, gpa, root, dir_path, isTypeScript)) orelse {
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, dir_path, isTypeScript)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to open for the scene reachability check", .{dir_path});
             continue;
         };

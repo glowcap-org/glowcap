@@ -115,9 +115,9 @@ change therefore fails the check even when no test module moved.
 
 The baseline TCP runner runs
 all discovered test modules except `tests.op_abort`, replaced by the strict
-portable abort probe. The next lane consumes these rows as execution policy: every
-pending source blocks the run, a deferred module reports its decision, and an
-adopted module must run without skips. The onion runner has its own exclusions.
+portable abort probe. These rows are execution policy: every pending source blocks
+the run, a deferred module reports its decision, and an adopted module must run
+without skips. The onion runner has its own exclusions.
 
 `zig build ocapn-conformance-next` first runs the baseline lane, then the
 adopted upstream assertions through a next wire fixture and locally written draft

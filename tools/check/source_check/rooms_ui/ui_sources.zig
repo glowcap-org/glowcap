@@ -1,11 +1,12 @@
-//! Shared rooms-UI check vocabulary: the interface directory, concatenated
+//! The rooms UI sources the checks read: the interface directory, concatenated
 //! stylesheets, and comment-stripped source. Layer bans, the token checks, and
 //! config checks each import this rather than owning a copy.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 pub const ui_dir = "apps/rooms/web/ui";
 
@@ -19,7 +20,7 @@ pub fn loadRoomsCss(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !?[]u8 {
-    const sheet = util.concatDirFiles(io, gpa, root, ui_dir, keepRoomsSheet) catch {
+    const sheet = source_tree.concatDirFiles(io, gpa, root, ui_dir, keepRoomsSheet) catch {
         try appendViolation(gpa, violations, "{s}: failed to concatenate rooms stylesheets", .{ui_dir});
         return null;
     };

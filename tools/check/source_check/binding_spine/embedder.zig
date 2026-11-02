@@ -2,15 +2,17 @@
 //! generated constant, never as a bare literal on an error-context line.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 const constants = @import("constants.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
-const containsAsSymbol = util.containsAsSymbol;
-const extractBraceBlock = util.extractBraceBlock;
-const readSourceSubject = util.readSourceSubject;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const fileContains = text_match.fileContains;
+const containsAsSymbol = text_match.containsAsSymbol;
+const extractBraceBlock = text_match.extractBraceBlock;
+const readSourceSubject = source_tree.readSourceSubject;
 
 /// Handwritten binding contexts that discuss, inspect, or raise an ABI error.
 /// A negative integer on one of these lines restates generated ABI vocabulary.
@@ -42,7 +44,7 @@ pub fn checkBindingMagicErrorCodes(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind == .directory) {
-            try util.enterSourceDirectory(io, gpa, &walker, "bindings", entry);
+            try source_tree.enterSourceDirectory(io, gpa, &walker, "bindings", entry);
             continue;
         }
         if (entry.kind != .file) continue;

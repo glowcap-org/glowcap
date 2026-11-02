@@ -25,7 +25,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, ignore_port_args, insert_bindings_path
+from client_gate import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
 

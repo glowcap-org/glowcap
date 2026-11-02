@@ -11,7 +11,7 @@
 
 import { type PeerProfile, UNNAMED_PROFILE } from "../../schema/topology.ts";
 import type { TimelineEvent } from "../timeline.ts";
-import { type LivePeer, type LiveWire, sideOf } from "./types.ts";
+import { type LivePeer, type LiveWire, sideOf } from "./rows.ts";
 
 /** How many names claimed for sessions that have not opened the
  * ledger holds at once. A producer states a session's partner name

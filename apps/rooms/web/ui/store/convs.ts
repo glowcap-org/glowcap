@@ -7,7 +7,7 @@ import type { Conv, ConvBase, DirectoryConv, DirId, DirView, DmConv, DmLine, Roo
 import type { WorkspaceRoomBridgeIntent } from "../../../lib/rooms_state.ts";
 import { openRoomPolicy, privateRoomPolicy, roomPoliciesEqual, type RoomPolicy, roomPreset } from "../room_policy.ts";
 import type { RoomMembershipKind } from "../../../lib/room/membership.ts";
-import type { PageProjection, State } from "./core.ts";
+import type { PageProjection, State } from "./projection.ts";
 import { isSelf } from "./dirs.ts";
 import { roomAuthorityToken as authorityToken } from "../application.ts";
 

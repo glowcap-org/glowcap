@@ -4,7 +4,7 @@
 import * as store from "../store.ts";
 import type { CommandPowers } from "../commands.ts";
 import type { Conv } from "../types.ts";
-import type { PageProjection } from "../store/core.ts";
+import type { PageProjection } from "../store/projection.ts";
 import {
 	applyComposerPlan,
 	type ComposerDraft,

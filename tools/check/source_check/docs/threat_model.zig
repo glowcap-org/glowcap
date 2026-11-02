@@ -6,15 +6,17 @@
 //! page to them.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const markdown = @import("../markdown.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 const paths = @import("paths.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 const doc_path = "docs/threat-model.md";
 const limits_path = "src/ocapn/session/limits.zig";
 const body_path = "src/ocapn/model/view_body.zig";
-const ops_path = "src/ocapn/codec/syrup/shared.zig";
+const ops_path = "src/ocapn/codec/syrup/ops.zig";
 const limits_marker = "pub const SessionLimits = struct {";
 const body_marker = "pub const Body = union(enum) {";
 const section_heading = "## Untrusted inputs";
@@ -34,7 +36,7 @@ pub fn checkThreatModelCoverage(
     const ops = readOrReport(io, gpa, root, ops_path, violations) orelse return;
     defer gpa.free(ops);
 
-    const section = util.sectionBody(doc, section_heading) orelse {
+    const section = markdown.sectionBody(doc, section_heading) orelse {
         try appendViolation(gpa, violations, "{s}: has no `{s}` section for the coverage check to read", .{ doc_path, section_heading });
         return;
     };
@@ -49,10 +51,10 @@ pub fn checkThreatModelCoverage(
         try appendViolation(gpa, violations, "{s}: `{s}` declares no fields the coverage check can read", .{ limits_path, limits_marker });
     }
     for (fields.items) |field| {
-        if (!util.containsAsSymbol(rows.bounded.items, field)) {
+        if (!text_match.containsAsSymbol(rows.bounded.items, field)) {
             try appendViolation(gpa, violations, "{s}: `{s}` is a SessionLimits field with no \"Bounded by\" row under {s}", .{ doc_path, field, section_heading });
         }
-        if (!util.containsAsSymbol(rows.proved.items, field)) {
+        if (!text_match.containsAsSymbol(rows.proved.items, field)) {
             try appendViolation(gpa, violations, "{s}: no \"Refusal proved by\" row under {s} names `{s}`", .{ doc_path, section_heading, field });
         }
     }
@@ -94,7 +96,7 @@ fn readOrReport(
 /// identifier. Lines inside the block's functions begin with `.`, a keyword,
 /// or a call, so none of them match.
 fn declaredNames(gpa: std.mem.Allocator, text: []const u8, marker: []const u8, out: *std.ArrayList([]const u8)) !void {
-    const block = util.extractBraceBlock(text, marker) orelse return;
+    const block = text_match.extractBraceBlock(text, marker) orelse return;
     var lines = std.mem.splitScalar(u8, block, '\n');
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
@@ -239,11 +241,11 @@ test "rows gather each kind with its sub-bullets and stop at the next entry" {
         \\- Bounded by: `cap_d`
     ;
     try rows.collect(gpa, section);
-    try std.testing.expect(util.containsAsSymbol(rows.bounded.items, "cap_a"));
-    try std.testing.expect(util.containsAsSymbol(rows.bounded.items, "cap_b"));
-    try std.testing.expect(util.containsAsSymbol(rows.bounded.items, "cap_d"));
-    try std.testing.expect(!util.containsAsSymbol(rows.bounded.items, "cap_c"));
-    try std.testing.expect(util.containsAsSymbol(rows.proved.items, "cap_b"));
-    try std.testing.expect(!util.containsAsSymbol(rows.proved.items, "cap_c"));
-    try std.testing.expect(!util.containsAsSymbol(rows.proved.items, "cap_d"));
+    try std.testing.expect(text_match.containsAsSymbol(rows.bounded.items, "cap_a"));
+    try std.testing.expect(text_match.containsAsSymbol(rows.bounded.items, "cap_b"));
+    try std.testing.expect(text_match.containsAsSymbol(rows.bounded.items, "cap_d"));
+    try std.testing.expect(!text_match.containsAsSymbol(rows.bounded.items, "cap_c"));
+    try std.testing.expect(text_match.containsAsSymbol(rows.proved.items, "cap_b"));
+    try std.testing.expect(!text_match.containsAsSymbol(rows.proved.items, "cap_c"));
+    try std.testing.expect(!text_match.containsAsSymbol(rows.proved.items, "cap_d"));
 }

@@ -26,7 +26,7 @@ const PositionSlab = @import("position_slab.zig").PositionSlab;
 const bootstrap_position = @import("mod.zig").bootstrap_position;
 
 pub const Slot = slot_ops.Slot;
-const ResolverPurpose = @import("promises/types.zig").ResolverPurpose;
+const ResolverPurpose = @import("promises/records.zig").ResolverPurpose;
 
 /// One live export position: its wire-delta count, the binding its CapTP
 /// cell carries, and what the export is for when it is a resolver

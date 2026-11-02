@@ -1,4 +1,6 @@
-//! Shared helpers for Rust interop example scripts.
+//! The gate protocol a Rust interop client speaks: the port argument, the
+//! readiness fields in a partner's stdout line, and serving accepted iroh
+//! sessions.
 #![allow(dead_code)]
 
 use std::time::Duration;

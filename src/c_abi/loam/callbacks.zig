@@ -1,10 +1,11 @@
 //! Foreign callbacks borrow views. Copied effects remain in the retained call arena.
 const std = @import("std");
-const common = @import("common.zig");
-const c = common.c;
-const access = common.access;
-const driver = common.driver;
-const shared = common.shared;
+const foreign_values = @import("foreign_values.zig");
+const owners = @import("owners.zig");
+const c = owners.c;
+const access = owners.access;
+const driver = owners.driver;
+const shared = owners.shared;
 
 /// Registration copies the bounded declaration inventory once. Contexts remain
 /// borrowed until successful attachment release. Projection child arrays use
@@ -22,7 +23,7 @@ pub const Content = struct {
     /// freed on refused construction or successful detach. Contexts stay borrowed.
     pub fn init(gpa: std.mem.Allocator, raw: c.GlowcapLoamContent) !Content {
         if (raw.requirement == null or raw.invoke == null or raw.method_count == 0 or raw.method_count > max_methods) return error.InvalidArgument;
-        const methods = try gpa.dupe(c.GlowcapLoamMethod, try common.slice(c.GlowcapLoamMethod, raw.methods, raw.method_count));
+        const methods = try gpa.dupe(c.GlowcapLoamMethod, try foreign_values.slice(c.GlowcapLoamMethod, raw.methods, raw.method_count));
         var count: usize = 0;
         errdefer {
             for (methods[0..count]) |method| gpa.free(method.verb.?[0..method.verb_len]);
@@ -73,14 +74,14 @@ pub fn input(arena: std.mem.Allocator, invocation: access.hosting.ContentInvocat
     const resource = invocation.bound_resource;
     // C resource creation reserves the first strong edge for the managed row.
     // Application field indices omit that binding, so edits cannot replace it.
-    const binding = try common.hosting.references.edgeAt(view, 0);
+    const binding = try owners.hosting.references.edgeAt(view, 0);
     if (binding.restoration != .object or binding.strength != .strong or !binding.target.eql(resource.object)) return error.InvalidRecord;
     const projected = try arena.alloc(shared.GlowcapArgument, args.len);
-    for (args, projected) |value, *target| target.* = try common.host.embedding.valueToC(arena, value);
+    for (args, projected) |value, *target| target.* = try owners.host.embedding.valueToC(arena, value);
     var owner: [16]u8 = undefined;
     std.mem.writeInt(u128, &owner, @backingInt(resource.id.owner), .big);
     const pages = try @import("graph_callbacks.zig").project(arena, invocation.graph);
-    return .{ .bound_resource = .{ .id = .{ .owner = owner, .slot = resource.id.slot, .generation = resource.id.generation }, .kind = @backingInt(resource.kind), .object = common.objectToC(resource.object), .revision = @backingInt(resource.revision) }, .delivery = if (invocation.delivery == .local) 0 else 1, .content = common.objectToC(view.id), .content_revision = view.revision, .payload = view.payload.ptr, .payload_len = view.payload.len, .verb = verb.ptr, .verb_len = verb.len, .args = projected.ptr, .args_len = projected.len, .field_count = if (graph) 0 else view.edge_count - 1, .graph_prepared = @intFromBool(invocation.graph != null), .pages = pages.ptr, .page_count = pages.len };
+    return .{ .bound_resource = .{ .id = .{ .owner = owner, .slot = resource.id.slot, .generation = resource.id.generation }, .kind = @backingInt(resource.kind), .object = foreign_values.objectToC(resource.object), .revision = @backingInt(resource.revision) }, .delivery = if (invocation.delivery == .local) 0 else 1, .content = foreign_values.objectToC(view.id), .content_revision = view.revision, .payload = view.payload.ptr, .payload_len = view.payload.len, .verb = verb.ptr, .verb_len = verb.len, .args = projected.ptr, .args_len = projected.len, .field_count = if (graph) 0 else view.edge_count - 1, .graph_prepared = @intFromBool(invocation.graph != null), .pages = pages.ptr, .page_count = pages.len };
 }
 fn requirement(ctx: ?*anyopaque, arena: std.mem.Allocator, invocation: access.hosting.ContentInvocation) !access.core.Policy.Requirement {
     const registration = content(ctx);
@@ -180,7 +181,7 @@ pub fn disclose(raw: ?*c.GlowcapLoamCall, index: usize, dependent: bool, out: ?*
     const target = out orelse return error.NullPointer;
     const field = try std.math.add(usize, index, 1);
     const value = if (dependent) try call.content_call.discloseDependent(field) else try call.content_call.discloseExact(field);
-    target.* = try common.host.embedding.valueToC(call.content_call.allocator(), value);
+    target.* = try owners.host.embedding.valueToC(call.content_call.allocator(), value);
 }
 
 pub fn editReference(raw: ?*c.GlowcapLoamCall, index: ?usize, replacement: ?shared.GlowcapReference) !void {

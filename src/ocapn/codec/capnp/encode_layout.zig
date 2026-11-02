@@ -4,12 +4,12 @@
 
 const std = @import("std");
 
-const shared = @import("shared.zig");
-const wire = shared.wire;
+const layout = @import("layout.zig");
+const wire = layout.wire;
 
-const Error = shared.Error;
-const EncodeError = shared.EncodeError;
-const StructLoc = shared.StructLoc;
+const Error = layout.Error;
+const EncodeError = layout.EncodeError;
+const StructLoc = layout.StructLoc;
 
 pub const ListContent = struct { data_idx: usize, elem: wire.ElementSize, count: usize };
 

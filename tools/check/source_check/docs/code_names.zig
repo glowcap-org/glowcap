@@ -5,10 +5,11 @@
 //! gone, the doc is stale. A name wholly from outside the repository passes.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 const corpus = @import("corpus.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// The trees whose source the names point into.
 const code_trees = [_][]const u8{ "src", "cli", "apps", "bindings", "tools", "bench", "conformance", "examples", "test", "interop", "include", "site/examples" };
@@ -30,7 +31,7 @@ pub fn check(
 
     var words: std.StringHashMapUnmanaged(void) = .empty;
     for (code_trees) |tree| {
-        const files = try util.collectSourceFiles(io, arena, root, tree, isCode) orelse continue;
+        const files = try source_tree.collectSourceFiles(io, arena, root, tree, isCode) orelse continue;
         for (files) |path| {
             // tolerant: an unreadable source adds no words, and the doc that
             // names it fails, which points at the file.

@@ -5,10 +5,11 @@
 //! in the goblins family module.
 
 const std = @import("std");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
+const goblins_build = @import("goblins.zig");
 const execution = @import("execution.zig");
 
-const addInstalledSystemRun = common.addInstalledSystemRun;
+const addInstalledSystemRun = commands.addInstalledSystemRun;
 const iroh_rows = @import("binding_families/iroh.zig");
 const webrtc_rows = @import("binding_families/webrtc.zig");
 
@@ -59,7 +60,7 @@ fn addBindingFamily(
     for (family.rows) |client| {
         const run = addInstalledSystemRun(b, client.posture, client.argv);
         if (family.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
-        if (family.spawns_goblins_vat) run.step.dependOn(common.goblinsPeerModules(b));
+        if (family.spawns_goblins_vat) run.step.dependOn(goblins_build.goblinsPeerModules(b));
         if (family.needs_webrtc_peers) {
             run.step.dependOn(webrtc.abi_step);
             run.step.dependOn(webrtc.answerer_step);
@@ -478,7 +479,7 @@ pub fn register(b: *std.Build, pin_port: ?u16, iroh_abi_step: *std.Build.Step, w
     // The process-owned harnesses share this injected-timeout regression. A
     // family declares that dependency beside its rows, so the table remains
     // the authority when another harness adopts the owner.
-    const harness_test = common.addRootedSystemCommand(b, .{ .deterministic = 5 }, &.{
+    const harness_test = commands.addRootedSystemCommand(b, .{ .deterministic = 5 }, &.{
         "deno", "test", "-A", "bindings/proofs/_support/harness_test.ts",
     });
     for (binding_families) |family| {

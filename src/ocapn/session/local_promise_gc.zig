@@ -18,7 +18,7 @@ const model = @import("model");
 const session = @import("mod.zig");
 const answers = @import("answers/store.zig");
 const local_promise = @import("local_promise.zig");
-const LocalPromiseAnswer = @import("promises/types.zig").LocalPromiseAnswer;
+const LocalPromiseAnswer = @import("promises/records.zig").LocalPromiseAnswer;
 
 /// Collections a session performs between traces at the least, so a small
 /// session amortizes too, and the most projections the answer cap refusal

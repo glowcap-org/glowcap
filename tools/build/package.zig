@@ -7,7 +7,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     const webrtc = b.option(bool, "webrtc", "Expose glowcap_webrtc and build its Rust backend") orelse false;
     if (iroh or webrtc) {
         // One Rust link unit resolves shared crate features and owns libstd.
-        const sidecar = @import("common.zig").rustSidecar(b, "transports/Cargo.toml", "glowcap_sidecars");
+        const sidecar = @import("cargo.zig").rustSidecar(b, "transports/Cargo.toml", "glowcap_sidecars");
         const features = if (iroh and webrtc) "iroh,webrtc" else if (iroh) "iroh" else "webrtc";
         sidecar.build.addArgs(&.{ "--features", features });
         if (iroh) @import("iroh.zig").addModule(b, target, optimize, mods, sidecar.archive);

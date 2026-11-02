@@ -7,7 +7,7 @@
 // this reader stands, and what they have been offered.
 
 import type { BridgeFacts, DirId, RoomCarries, RoomConv } from "./types.ts";
-import { NO_MEMBERS, NO_TYPERS, type PageProjection, type State } from "./store/core.ts";
+import { NO_MEMBERS, NO_TYPERS, type PageProjection, type State } from "./store/projection.ts";
 import type { RoomMemberState } from "../../lib/room/presence.ts";
 import { isSubjectEmpty, type Subject } from "../../lib/room/subject.ts";
 import { getConv, put } from "./store/convs.ts";
@@ -15,7 +15,7 @@ import { patchDir } from "./store/dirs.ts";
 
 // Reached through one name, as it always was: splitting where the code lives is
 // not a change to what a caller may ask for.
-export * from "./store/core.ts";
+export * from "./store/projection.ts";
 export * from "./store/chrome.ts";
 export * from "./store/archive.ts";
 export * from "./store/convs.ts";

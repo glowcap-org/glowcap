@@ -9,12 +9,13 @@ const driver_core = @import("driver_core");
 
 const shared = @import("c_abi_shared");
 const c = @import("../mod.zig");
-const common = @import("../common.zig");
+const host_error = @import("../error.zig");
+const instance = @import("../instance.zig");
 
-const instanceFrom = common.instanceFrom;
-const sessionFrom = common.sessionFrom;
-const instOf = common.instOf;
-const errToCode = common.errToCode;
+const instanceFrom = instance.instanceFrom;
+const sessionFrom = instance.sessionFrom;
+const instOf = instance.instOf;
+const errToCode = host_error.errToCode;
 
 const GlowcapHost = c.GlowcapHost;
 const GlowcapHostSession = c.GlowcapHostSession;
@@ -25,7 +26,7 @@ const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 const GLOWCAP_ERR_CLOSED = shared.GLOWCAP_ERR_CLOSED;
 
-fn sessionCloseOutcomeCode(inst: *const common.Instance, session: *const driver_core.HostSession) i32 {
+fn sessionCloseOutcomeCode(inst: *const instance.Instance, session: *const driver_core.HostSession) i32 {
     const delivered = inst.core.sessionCloseActionDelivered(session);
     return if (inst.core.sessionCloseOutcome(session, delivered) == .timed_out)
         shared.GLOWCAP_ERR_TIMEOUT
@@ -33,7 +34,7 @@ fn sessionCloseOutcomeCode(inst: *const common.Instance, session: *const driver_
         GLOWCAP_OK;
 }
 
-fn projectSessionLifecycle(inst: *const common.Instance, session: *const driver_core.HostSession) u32 {
+fn projectSessionLifecycle(inst: *const instance.Instance, session: *const driver_core.HostSession) u32 {
     const delivered = inst.core.sessionCloseActionDelivered(session);
     return switch (inst.core.sessionCloseOutcome(session, delivered)) {
         .closed, .timed_out => c.GLOWCAP_LIFECYCLE_CLOSED,
@@ -46,7 +47,7 @@ fn projectSessionLifecycle(inst: *const common.Instance, session: *const driver_
     };
 }
 
-fn progressSessionCloses(inst: *common.Instance, now_ms: i64) i32 {
+fn progressSessionCloses(inst: *instance.Instance, now_ms: i64) i32 {
     inst.core.progressSessionCloses(now_ms) catch |err| return errToCode(err);
     return GLOWCAP_OK;
 }
@@ -62,7 +63,7 @@ pub fn glowcap_host_session_close(
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
-    if (!common.embedderOwnsDrive(inst, "session_close")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(inst, "session_close")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const policy = c.parseCloseOptions(options) catch |err| return c.closeOptionsErrorCode("host", err);
     inst.core.beginSessionClose(session, policy, now_ms) catch |err| return errToCode(err);
     return GLOWCAP_OK;
@@ -77,7 +78,7 @@ pub fn glowcap_host_session_close_progress(
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
-    if (!common.embedderOwnsDrive(inst, "session_close_progress")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(inst, "session_close_progress")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_state orelse return GLOWCAP_ERR_NULL_POINTER;
     const rc = progressSessionCloses(inst, now_ms);
     if (rc != GLOWCAP_OK) return rc;
@@ -100,7 +101,7 @@ pub fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, out_state
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
-    if (!common.embedderOwnsDrive(inst, "session_lifecycle_state")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(inst, "session_lifecycle_state")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_state orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = projectSessionLifecycle(inst, session);
     return sessionCloseOutcomeCode(inst, session);
@@ -132,7 +133,7 @@ pub fn glowcap_host_session_open_dialed_locator(
 ) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "session_open_dialed_locator")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(inst, "session_open_dialed_locator")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
     const view = locator orelse return GLOWCAP_ERR_NULL_POINTER;
     var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
@@ -172,7 +173,7 @@ pub fn glowcap_host_session_open_accepted(
 ) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "session_open_accepted")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(inst, "session_open_accepted")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
     const transport_bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     const sd = shared.sliceFromC(server_designator, server_designator_len) catch |err| return shared.marshalErrorToCode(err);
@@ -203,7 +204,7 @@ pub fn glowcap_host_session_release(raw: ?*GlowcapHostSession) callconv(.c) i32 
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_OK;
     const inst = instOf(session.host);
-    if (!common.embedderOwnsDrive(inst, "session_release")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(inst, "session_release")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     inst.core.releaseSession(session) catch |err| {
         const code = errToCode(err);
         shared.setLastError("host: session_release: {s}", .{@errorName(err)});

@@ -1,11 +1,13 @@
 //! Callback-borrowed page tokens project shared graph selection and staging.
-const common = @import("common.zig");
+const foreign_values = @import("foreign_values.zig");
+const owners = @import("owners.zig");
+const refusal = @import("refusal.zig");
 const graph = @import("graph_callbacks.zig");
-const c = common.c;
-const shared = common.shared;
+const c = owners.c;
+const shared = owners.shared;
 
 /// A grant chain is at most `max_depth` deep, plus its root.
-pub const max_accounting_path = common.access.core.max_depth + 1;
+pub const max_accounting_path = owners.access.core.max_depth + 1;
 
 /// Copy the admitted source grant's durable record names, nearest first.
 /// The call's validated working set supplies every ancestor. These names are
@@ -18,11 +20,11 @@ pub fn glowcap_loam_call_accounting_path(raw: ?*c.GlowcapLoamCall, out_path: ?[*
     count.* = 0;
     const out = out_path orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const call: *@import("callbacks.zig").Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
-    if (!call.active) return common.code(error.WrongPhase);
-    var buffer: [max_accounting_path]common.core.ObjectId = undefined;
-    const path = call.content_call.accountingPath(&buffer) catch |err| return common.code(err);
-    if (capacity < path.len) return common.code(error.InvalidArgument);
-    for (path, out[0..path.len]) |id, *target| target.* = common.objectToC(id);
+    if (!call.active) return refusal.code(error.WrongPhase);
+    var buffer: [max_accounting_path]owners.core.ObjectId = undefined;
+    const path = call.content_call.accountingPath(&buffer) catch |err| return refusal.code(err);
+    if (capacity < path.len) return refusal.code(error.InvalidArgument);
+    for (path, out[0..path.len]) |id, *target| target.* = foreign_values.objectToC(id);
     count.* = path.len;
     return shared.GLOWCAP_OK;
 }
@@ -33,9 +35,9 @@ pub fn glowcap_loam_call_accounting_path(raw: ?*c.GlowcapLoamCall, out_path: ?[*
 pub fn glowcap_loam_call_refuse_copying(raw: ?*c.GlowcapLoamCall, reason: ?[*]const u8, len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const call: *@import("callbacks.zig").Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
-    if (!call.active or call.reply != null or call.refused) return common.code(error.WrongPhase);
+    if (!call.active or call.reply != null or call.refused) return refusal.code(error.WrongPhase);
     const bytes = reason orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    call.content_call.refuseCopying(bytes[0..len]) catch |err| return common.code(err);
+    call.content_call.refuseCopying(bytes[0..len]) catch |err| return refusal.code(err);
     call.refused = true;
     return shared.GLOWCAP_OK;
 }
@@ -49,8 +51,8 @@ pub fn glowcap_loam_call_retain_prepared_reference(raw: ?*c.GlowcapLoamCall, ref
     out.* = .{ .id = 0 };
     const target = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const call: *@import("callbacks.zig").Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
-    if (!call.active) return common.code(error.WrongPhase);
-    const retained = call.content_call.retainPreparedReference(call.host.capabilityFromRaw(target.id)) catch |err| return common.code(err);
+    if (!call.active) return refusal.code(error.WrongPhase);
+    const retained = call.content_call.retainPreparedReference(call.host.capabilityFromRaw(target.id)) catch |err| return refusal.code(err);
     out.* = .{ .id = retained.raw() };
     return shared.GLOWCAP_OK;
 }
@@ -61,34 +63,34 @@ pub fn glowcap_loam_call_source(raw: ?*c.GlowcapLoamCall, out_reference: ?*share
     shared.lastErrorClear();
     const out = out_reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const call: *@import("callbacks.zig").Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
-    if (!call.active) return common.code(error.WrongPhase);
-    const source = call.content_call.retainSource() catch |err| return common.code(err);
+    if (!call.active) return refusal.code(error.WrongPhase);
+    const source = call.content_call.retainSource() catch |err| return refusal.code(err);
     out.* = .{ .id = source.raw() };
     return shared.GLOWCAP_OK;
 }
 
 pub fn glowcap_loam_call_replace_graph_copying(call: ?*c.GlowcapLoamCall, payload: ?[*]const u8, payload_len: usize, pages: ?[*]const c.GlowcapLoamPageReplacement, count: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    graph.replaceCopying(call, payload, payload_len, pages, count) catch |err| return common.code(err);
+    graph.replaceCopying(call, payload, payload_len, pages, count) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
 pub fn glowcap_loam_call_page_reference(call: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
-    graph.reference(call, page, index, out_reference) catch |err| return common.code(err);
+    graph.reference(call, page, index, out_reference) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
 pub fn glowcap_loam_call_disclose_page(call: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize, dependent: u32, out_value: ?*shared.GlowcapArgument) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (dependent > 1) return common.code(error.InvalidArgument);
-    graph.disclose(call, page, index, dependent == 1, out_value) catch |err| return common.code(err);
+    if (dependent > 1) return refusal.code(error.InvalidArgument);
+    graph.disclose(call, page, index, dependent == 1, out_value) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
 pub fn glowcap_loam_references_restore_page(references: ?*c.GlowcapLoamReferences, page: ?*const c.GlowcapLoamPageHandle, index: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    @import("reference_callbacks.zig").restorePage(references, page, index) catch |err| return common.code(err);
+    @import("reference_callbacks.zig").restorePage(references, page, index) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -96,7 +98,7 @@ pub fn glowcap_loam_references_restore_page(references: ?*c.GlowcapLoamReference
 /// through callback return. Local and live metadata remain null.
 pub fn glowcap_loam_references_restore_page_with_uri(references: ?*c.GlowcapLoamReferences, page: ?*const c.GlowcapLoamPageHandle, index: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    @import("reference_callbacks.zig").restorePageWithUri(references, page, index, true) catch |err| return common.code(err);
+    @import("reference_callbacks.zig").restorePageWithUri(references, page, index, true) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -104,7 +106,7 @@ pub fn glowcap_loam_references_restore_page_with_uri(references: ?*c.GlowcapLoam
 /// The URI borrows the bounded retained Call. Local and live recipes return null.
 pub fn glowcap_loam_references_inspect_page_uri(references: ?*c.GlowcapLoamReferences, page: ?*const c.GlowcapLoamPageHandle, index: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    @import("reference_callbacks.zig").inspectPageUri(references, page, index) catch |err| return common.code(err);
+    @import("reference_callbacks.zig").inspectPageUri(references, page, index) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -116,7 +118,7 @@ pub fn glowcap_loam_call_page_saved_uri(call: ?*c.GlowcapLoamCall, page: ?*const
     const len = out_len orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     uri.* = null;
     len.* = 0;
-    if (graph.savedUri(call, page, index) catch |err| return common.code(err)) |bytes| {
+    if (graph.savedUri(call, page, index) catch |err| return refusal.code(err)) |bytes| {
         uri.* = bytes.ptr;
         len.* = bytes.len;
     }

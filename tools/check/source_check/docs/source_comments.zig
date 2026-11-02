@@ -1,6 +1,6 @@
 //! Narration in first-party comments obeys the same lifetime rule as static docs.
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
 const narration = @import("static_docs.zig");
 
 pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *std.ArrayList([]const u8)) !void {
@@ -8,7 +8,7 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind == .directory) {
-            if (util.sourceTreeDirectory(entry.path) and !in(entry.basename, &.{ "upstream", "vendor", "third_party" })) try walker.enter(io, entry);
+            if (source_tree.sourceTreeDirectory(entry.path) and !in(entry.basename, &.{ "upstream", "vendor", "third_party" })) try walker.enter(io, entry);
             continue;
         }
         if (entry.kind != .file) continue;

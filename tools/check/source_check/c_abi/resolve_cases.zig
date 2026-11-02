@@ -1,13 +1,14 @@
 //! The resolve-cases oracle over the canonical contract (ADR-0023).
 
 const std = @import("std");
-const util = @import("../util.zig");
-const shared = @import("shared.zig");
+const json_files = @import("../json_files.zig");
+const violation_log = @import("../violation_log.zig");
+const resolve_contract = @import("resolve_contract.zig");
 
-const appendViolation = util.appendViolation;
-const parseJsonFile = util.parseJsonFile;
-const getField = util.getField;
-const jsonStringEquals = util.jsonStringEquals;
+const appendViolation = violation_log.appendViolation;
+const parseJsonFile = json_files.parseJsonFile;
+const getField = json_files.getField;
+const jsonStringEquals = json_files.jsonStringEquals;
 
 /// The shared resolve-cases oracle: derive URL, cache path, and want_fetch
 /// from the canonical contract's own templates and pin the case table, so the
@@ -18,7 +19,7 @@ pub fn checkCAbiResolveCases(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var contract_doc = try parseJsonFile(io, gpa, root, violations, shared.contract_path) orelse return;
+    var contract_doc = try parseJsonFile(io, gpa, root, violations, resolve_contract.contract_path) orelse return;
     defer contract_doc.deinit();
     const contract = contract_doc.value;
 
@@ -163,7 +164,7 @@ pub fn checkCAbiResolveCases(
     }
 
     // Loaders must still implement the same want_fetch / template verbs.
-    const resolve_ports = shared.c_abi_binding_loaders ++ [_][]const u8{shared.operator_script};
+    const resolve_ports = resolve_contract.c_abi_binding_loaders ++ [_][]const u8{resolve_contract.operator_script};
     for (resolve_ports) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot be read for the resolve-verb check ({s})", .{ path, @errorName(err) });
