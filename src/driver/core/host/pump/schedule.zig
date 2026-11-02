@@ -1,9 +1,9 @@
 //! Host pump scheduling and embedder action admission.
 //!
 //! The pump executor alternates between dirty sessions, Node actions, and
-//! handoff changes. This leaf owns the mutable queue mechanics behind that:
-//! deduplicated dirty-session encode work, host-global resume wakes, unique
-//! per-session FLUSH/CLOSE notifications, and the one reserved action append.
+//! handoff changes. The mutable queue mechanics behind that are deduplicated
+//! dirty-session encode work, host-global resume wakes, unique per-session
+//! FLUSH/CLOSE notifications, and the one reserved action append.
 
 const std = @import("std");
 const builtin = @import("builtin");

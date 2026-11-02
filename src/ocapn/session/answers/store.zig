@@ -1,7 +1,7 @@
 //! Answer-table storage for a direct CapTP session.
 //!
-//! `Session` remains the authority boundary: validation and state transitions stay
-//! in `mod.zig`, `validate.zig`, and `apply.zig`. This module owns only the
+//! `Session` remains the authority boundary: validation and state transitions
+//! stay in `mod.zig`, `validate.zig`, and `apply.zig`. The store holds only the
 //! concrete answer rows, lazy payload, snapshots, and cleanup mechanics.
 
 const std = @import("std");

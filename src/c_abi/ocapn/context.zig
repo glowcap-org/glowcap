@@ -15,9 +15,9 @@
 //! object itself is allocated through the host allocator, so a host-backed
 //! handle family, context included, frees through host policy.
 //!
-//! The allocator machinery itself (`library_allocator`, `ContextAllocator`,
-//! `Context`, `ctxFromOpaque`) lives in the shared leaf (`src/c_abi/shared/`) so the iroh
-//! transport ABI shares one allocation policy without this file's `export fn`s.
+//! The allocator machinery (`library_allocator`, `ContextAllocator`, `Context`,
+//! `ctxFromOpaque`) sits in `src/c_abi/shared/`, so the iroh transport ABI
+//! shares one allocation policy without these `export fn`s.
 
 const c = @import("mod.zig");
 const abi = @import("c_abi_shared");

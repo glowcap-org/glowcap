@@ -1,10 +1,8 @@
-//! A frame is a chunk of wire bytes, and this file pins down who owns it.
-//!
-//! Ownership comes in two shapes. A `Frame` owns its bytes and frees them when
-//! it's done. A `FrameView` only borrows them, and only for the length of a
-//! single call. Production code either moves an owned frame or takes a brief
-//! borrow. It never copies behind your back. The copy helpers you'd want for a
-//! test live in `test/support`, not in here.
+//! Wire-byte frames and who owns them. A `Frame` owns its bytes and frees them
+//! when done. A `FrameView` borrows them for the length of a single call.
+//! Production code either moves an owned frame or takes a brief borrow, and
+//! never copies implicitly. The copy helpers a test wants live in
+//! `test/support`.
 
 const std = @import("std");
 

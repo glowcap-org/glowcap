@@ -1,8 +1,7 @@
-//! C-stable borrowed OCapN locator vocabulary.
-//!
-//! OCapN owns locator values and the `glowcap_locator_*` handle API. This leaf
-//! owns only the layout that lets independently linked archives borrow the
-//! same value without sharing symbols or allocation ownership.
+//! C-stable borrowed OCapN locator vocabulary. OCapN owns locator values and
+//! the `glowcap_locator_*` handle API. The layout lets independently linked
+//! archives borrow the same value without sharing symbols or allocation
+//! ownership.
 
 pub const GLOWCAP_LOCATOR_VIEW_ABI_VERSION: u32 = 1;
 pub const GLOWCAP_HINT_STRING: u32 = 1;

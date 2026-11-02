@@ -1,28 +1,28 @@
 //! The Zig application surface over CapTP sessions and transport I/O.
 //!
-//! `actors.Vat` is a sync, no-I/O turn loop. `net` is where I/O lives.
-//! A networked Zig app normally has to open a socket, bind a vat to the peer, pump
-//! the connection, and dispatch each surfaced event into the vat. `HostRuntime`
-//! is that composition: one thread serves every session of one Host over its
-//! transport residents (ADR-0018). `Session` and `Server` are its
+//! `actors.Vat` is a sync, no-I/O turn loop. `net` is where I/O lives. A
+//! networked Zig app normally has to open a socket, bind a vat to the peer,
+//! pump the connection, and dispatch each surfaced event into the vat.
+//! `HostRuntime` is that composition: one thread serves every session of one
+//! Host over its transport residents (ADR-0018). `Session` and `Server` are its
 //! one-call views, handed back by `connect` and `listen`. It owns no protocol
-//! the engine lacks, and it hides no allocation or I/O: every read and write
-//! is one explicit `Session.step`, and a host that wants to answer until the
-//! partner leaves calls `Session.serve`. This layer is above both `actors`
-//! and `net`, so it is the one place that may touch `std.Io` and the actor
-//! turn loop at the same time. It is not part of the no-I/O core.
+//! the engine lacks, and it hides no allocation or I/O: every read and write is
+//! one explicit `Session.step`, and a host that wants to answer until the
+//! partner leaves calls `Session.serve`.
 //!
-//! The sans-io half of the driver lives one layer down in
-//! `driver_core`. It holds the serve core `Served` (which carries the
-//! publish/spawn/fetch verbs), its `ServeOptions`, the byte-fed `Host` the
-//! runtime feeds, and the shared vocabulary (`Error`, `Identity`,
-//! `Capability`, `Settled`). `arch-check` bans `driver_core` from touching
-//! I/O. This root re-exports them so callers keep reaching them as
-//! `driver.Served`, `driver.Error`, and so on, and adds the I/O members that
-//! must stay above the ban: the `drawSessionSecret` entropy boundary and the
-//! runtime itself. The runtime and its views live in sibling files and are
-//! re-exported here, so every driver surface is reached through this one
-//! root.
+//! This layer is above both `actors` and `net`, so it is the one place that may
+//! touch `std.Io` and the actor turn loop at the same time. It is not part of
+//! the no-I/O core.
+//!
+//! The sans-io half of the driver lives one layer down in `driver_core`. It
+//! holds the serve core `Served` (which carries the publish/spawn/fetch verbs),
+//! its `ServeOptions`, the byte-fed `Host` the runtime feeds, and the shared
+//! vocabulary (`Error`, `Identity`, `Capability`, `Settled`). `arch-check` bans
+//! `driver_core` from touching I/O. The root re-exports them so callers reach
+//! them as `driver.Served`, `driver.Error`, and so on, and adds the I/O members
+//! that must stay above the ban: the `drawSessionSecret` entropy boundary and
+//! the runtime itself. The runtime and its views live in sibling files and are
+//! re-exported here, so every driver surface is reached through this one root.
 
 const std = @import("std");
 

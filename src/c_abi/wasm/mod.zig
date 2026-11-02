@@ -3,16 +3,16 @@
 //! A freestanding `wasm32` module that exposes the byte-fed CapTP Host
 //! (`libglowcap_host`, ADR-0022) and the shared `libglowcap_ocapn` vocabulary
 //! to a JavaScript host that instantiates it in a browser. The Host is sans-io
-//! and draws no entropy, so the browser drives it as a C embedder does:
-//! feed inbound frames, drain outbound frames, honor the action queue, and
-//! answer the two entropy seams, the `glowcap_host_new` seed and the
-//! NEED_GIFT_ID action, from `crypto.getRandomValues`.
+//! and draws no entropy, so the browser drives it as a C embedder does. It
+//! feeds inbound frames, drains outbound frames, honors the action queue, and
+//! answers the two entropy seams (the `glowcap_host_new` seed and the
+//! NEED_GIFT_ID action) from `crypto.getRandomValues`.
 //!
-//! This root exists only to force the `glowcap_*` (ocapn) and `glowcap_host_*`
-//! export families into the wasm module and to add the two JS<->wasm linear-
-//! memory primitives below, so the host can place `ptr + len` inputs into wasm
-//! memory and reclaim them. It declares no CapTP surface of its own: every
-//! capability decision stays in the core.
+//! The root forces the `glowcap_*` (ocapn) and `glowcap_host_*` export families
+//! into the wasm module and adds the two JS<->wasm linear-memory primitives
+//! below, so the host can place `ptr + len` inputs into wasm memory and reclaim
+//! them. It declares no CapTP surface of its own: every capability decision
+//! stays in the core.
 
 pub const std_options = @import("c_abi_shared").library_options;
 

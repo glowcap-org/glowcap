@@ -1,8 +1,7 @@
-//! Signed-handoff locator-record projection for the C ABI.
-//!
-//! URI parsing and formatting live in the parent facade. This leaf owns the
-//! narrower C crossing that turns a borrowed locator view into owned
-//! `<ocapn-peer>` record bytes for handoff signatures.
+//! Signed-handoff locator-record projection for the C ABI. It is the narrow C
+//! crossing that turns a borrowed locator view into owned `<ocapn-peer>` record
+//! bytes for handoff signatures. URI parsing and formatting live in the parent
+//! facade.
 
 const engine = @import("engine");
 const model = @import("model");

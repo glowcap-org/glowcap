@@ -1,5 +1,5 @@
-//! The HostRuntime's public construction types and their defaults.
-//! Runtime mechanics consume these values. This leaf owns no I/O or state.
+//! The HostRuntime's public construction types and their defaults. Runtime
+//! mechanics consume these values, and the types carry no I/O or state.
 
 const std = @import("std");
 

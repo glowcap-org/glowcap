@@ -3,7 +3,7 @@
 //! One inline aggregate owns admission, delayed gift entropy, recursive
 //! rewrite, commit or rollback, pressure reservations, and terminal teardown.
 //! `passable.zig` owns the carrier vocabulary and `walk.zig` owns the shared
-//! tree passes. This module owns the transaction that applies them.
+//! tree passes. The batches own the transaction that applies them.
 
 const std = @import("std");
 const node_services = @import("../../node_services.zig");

@@ -1,6 +1,6 @@
 //! Rooms' self-contained Deno test inventory and build steps. The application
-//! build composes this subject. This module owns how the suite is cached,
-//! divided into bounded processes, and attached to `runtime-check`.
+//! build composes this subject. It owns how the suite is cached, divided into
+//! bounded processes, and attached to `runtime-check`.
 
 const std = @import("std");
 const common = @import("../common.zig");

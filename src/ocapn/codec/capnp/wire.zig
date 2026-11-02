@@ -4,10 +4,10 @@
 //! segments. You reach structured data by following pointers, struct or list,
 //! each of which packs a signed word offset to whatever it points at.
 //!
-//! Nothing in this file knows about glowcap's messages. It's purely mechanical:
-//! framing segments, packing and unpacking pointer bits, a small single-segment
-//! builder, and bounds-checked word reads. Mapping all of that onto the model is
-//! `decode.zig` and `encode.zig`'s job.
+//! Nothing here knows about glowcap's messages. The plumbing is purely
+//! mechanical: framing segments, packing and unpacking pointer bits, a small
+//! single-segment builder, and bounds-checked word reads. Mapping all of that
+//! onto the model is `decode.zig` and `encode.zig`'s job.
 //!
 //! Every read names its endianness (`std.mem.readInt(..., .little)`), so decoding
 //! comes out right on any host, and the builder writes the same way, so encoding

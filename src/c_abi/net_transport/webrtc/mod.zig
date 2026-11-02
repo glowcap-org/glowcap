@@ -1,32 +1,32 @@
 //! The WebRTC transport's public C ABI: a host-driven peer boundary for C, the
 //! peer-to-peer DataChannel sibling of the iroh QUIC companion (ADR-0035).
 //!
-//! This is a separate artifact from `libglowcap_ocapn` (ADR-0022): it links
-//! the Rust webrtc sidecar, so folding it into the pure-Zig core would drag
-//! cargo into every consumer of the protocol library. The artifact
-//! (`libglowcap_net_transport_webrtc`) is a companion, not a superset. It
-//! imports only the shared vocabulary leaf (`@import("c_abi_shared")`: codes,
-//! allocation, the last-error slot), so it exports just the `glowcap_webrtc_*`
-//! family and shares no core symbol with `libglowcap_ocapn`. A consumer links
-//! both libraries (core for the peer surface, this for the transport) and reuses
-//! the shared types by layout, as a C program including both headers
-//! does. The core archives never import this file and stay cargo-free.
+//! The archive (`libglowcap_net_transport_webrtc`) is separate from
+//! `libglowcap_ocapn` (ADR-0022): it links the Rust webrtc sidecar, so folding
+//! it into the pure-Zig core would drag cargo into every consumer of the
+//! protocol library. It is a companion, not a superset. It imports only the
+//! shared vocabulary (`@import("c_abi_shared")`: codes, allocation, the
+//! last-error slot), so it exports only the `glowcap_webrtc_*` family and
+//! shares no core symbol with `libglowcap_ocapn`. A consumer links both
+//! libraries (core for the peer surface, this for the transport) and reuses the
+//! shared types by layout, as a C program including both headers does. The core
+//! archives never import it and stay cargo-free.
 //!
 //! Unlike iroh, a WebRTC peer has no dialable address, so there is no
 //! `connect(addr)`. Signaling brings a channel up, in one of two ways. A
 //! netlayer created with `GlowcapWebrtcConfig.signaling` runs the exchange
-//! itself, calling the application to carry each offer, answer, and
-//! candidate. For the driver's dials it takes the answer back through
-//! `glowcap_webrtc_netlayer_provide_answer` (ADR-0035, `dial.zig`), and for
-//! the driver's listener it takes each inbound offer through
-//! `glowcap_webrtc_netlayer_provide_offer` (ADR-0035, `accept.zig`). An
-//! application can instead drive the exchange by hand with the
-//! `glowcap_webrtc_peer_*` calls (`peer_signaling.zig`) and give the open
-//! peer to the driver through the provider's `claim_external`. Either way,
-//! channel establishment and byte
-//! I/O use the same reactor discipline: one netlayer readiness fd reports
-//! stable peer-id OPEN/CANDIDATE/READABLE/WRITABLE/CLOSED events, and every
-//! drain or try-I/O call returns immediately.
+//! itself, calling the application to carry each offer, answer, and candidate.
+//! For the driver's dials it takes the answer back through
+//! `glowcap_webrtc_netlayer_provide_answer` (ADR-0035, `dial.zig`). For the
+//! driver's listener it takes each inbound offer through
+//! `glowcap_webrtc_netlayer_provide_offer` (ADR-0035, `accept.zig`).
+//!
+//! An application can instead drive the exchange by hand with the
+//! `glowcap_webrtc_peer_*` calls (`peer_signaling.zig`) and give the open peer
+//! to the driver through the provider's `claim_external`. Either way, channel
+//! establishment and byte I/O use the same reactor discipline: one netlayer
+//! readiness fd reports stable peer-id OPEN/CANDIDATE/READABLE/WRITABLE/CLOSED
+//! events, and every drain or try-I/O call returns immediately.
 //!
 //! Symbol names avoid the sidecar's own `glowcap_webrtc_sidecar_*`
 //! exports, so the private byte-level seam and this public ABI share no prefix

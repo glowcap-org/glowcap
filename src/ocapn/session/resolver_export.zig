@@ -18,10 +18,9 @@
 //! The pairing is authoritative session state held in two rows that leave
 //! together: the export's row says what the export is for
 //! (`ExportRow.purpose`), and the answer's row holds the export back
-//! (`AnswerCell.resolverExport`), both under ADR-0038. No table outlives
-//! either row.
-//! This file owns the operations over both, and `Session` aliases each one so
-//! call sites read as ordinary methods.
+//! (`AnswerCell.resolverExport`), both under ADR-0038. No table outlives either
+//! row. `Session` aliases each operation over both so call sites read as
+//! ordinary methods.
 
 const std = @import("std");
 

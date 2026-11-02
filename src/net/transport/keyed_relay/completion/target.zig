@@ -1,7 +1,6 @@
-//! Locator resolution for the completion-backed relay transport.
-//!
-//! This module selects the relay target. The completion backend owns channel
-//! acquisition and WebSocket I/O after resolution.
+//! Locator resolution for the completion-backed relay transport, which selects
+//! the relay target. The completion backend owns channel acquisition and
+//! WebSocket I/O after resolution.
 
 const std = @import("std");
 

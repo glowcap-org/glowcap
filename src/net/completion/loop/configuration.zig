@@ -1,10 +1,8 @@
-//! Completion-loop configuration and embedder callback vocabulary.
-//!
-//! This module owns policy and callback shapes only. Runtime state remains
-//! inline in `Loop`, and the supported completion namespace aliases these
-//! declarations without exporting this internal leaf. The callback types keep
-//! `anyerror` return sets: their implementors are application code unknown at
-//! these declarations.
+//! Completion-loop configuration and embedder callback vocabulary: policy and
+//! callback shapes only. Runtime state remains inline in `Loop`, and the
+//! supported completion namespace aliases these declarations without exporting
+//! the module. The callback types keep `anyerror` return sets, because their
+//! implementors are application code unknown at these declarations.
 
 const std = @import("std");
 const engine = @import("engine");

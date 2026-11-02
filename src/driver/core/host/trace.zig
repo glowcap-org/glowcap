@@ -1,8 +1,6 @@
-//! Host-owned trace emission.
-//!
-//! `../trace.zig` owns the callback vocabulary. This leaf owns the facts read
-//! from live Host/session state, their transitions, and explicit replay of
-//! open sessions. It performs no formatting or clock reads.
+//! Host-owned trace emission: the facts read from live Host/session state,
+//! their transitions, and explicit replay of open sessions. `../trace.zig` owns
+//! the callback vocabulary. Emission performs no formatting or clock reads.
 
 const std = @import("std");
 

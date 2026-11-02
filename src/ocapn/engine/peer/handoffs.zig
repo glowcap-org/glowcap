@@ -1,7 +1,7 @@
 //! Peer-local three-party handoff admission, parking, and settlement.
 //!
-//! The Session and gift registry retain protocol authority. This module owns
-//! the bounded scheduler-facing transaction that parks a verified early
+//! The Session and gift registry retain protocol authority. The handoff code
+//! owns the bounded scheduler-facing transaction that parks a verified early
 //! withdrawal, wakes only its exact dependency, and retires each owned receive
 //! after its settlement has entered the ordinary outbound path.
 

@@ -1,15 +1,13 @@
-//! Shared internal glue for the byte-fed host tier's C ABI
-//! (`libglowcap_host`).
+//! Shared internal glue for the byte-fed host tier's C ABI (`libglowcap_host`),
+//! outside the public surface and declaring no `export fn`.
 //!
-//! This leaf declares no `export fn`: it is not part of the public surface.
-//! It owns the host instance state (`Instance`), the C-behavior bridge
-//! (`HostedBehavior`), the handle-recovery casts, the host-error to C-code
-//! projection (`errToCode`), and the per-call marshalling the send / tell /
-//! turn exports share (`valueMessageFromC`, hosted-behavior marshalling).
-//! The `host`,
-//! `session`, `turn`, and `pump` leaves import it. The module root
-//! (`mod.zig`) re-exports their `glowcap_host_*` exports and owns the public C
-//! types those exports fill.
+//! It holds the host instance state (`Instance`), the C-behavior bridge
+//! (`HostedBehavior`), the handle-recovery casts, and the host-error to C-code
+//! projection (`errToCode`). It also holds the per-call marshalling the send,
+//! tell, and turn exports share (`valueMessageFromC` and hosted-behavior
+//! marshalling). The `host`, `session`, `turn`, and `pump` files import it. The
+//! module root (`mod.zig`) re-exports their `glowcap_host_*` exports and owns
+//! the public C types those exports fill.
 
 const std = @import("std");
 

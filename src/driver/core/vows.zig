@@ -1,13 +1,12 @@
 //! Host vows and resolver pairs: the read side every asynchronous host verb
 //! returns, and the reservation/attachment machinery behind it.
 //!
-//! One of `host.zig`'s responsibilities, kept in a sibling file. The
-//! `Host` owns the state (the vow map, the resolver index, the id
-//! sources) and presents the `vow*`, `deferTurn`, and `resolver*`
-//! verbs through decl aliases, so a caller reads one `Host`
-//! surface. This file holds the operation side of that lifecycle: mint,
-//! listener attachment, eventual sends, and projections. `vows/settlement.zig`
-//! owns the row's one terminal transition and completion dispatch.
+//! `Host` owns the state (the vow map, the resolver index, the id sources) and
+//! presents the `vow*`, `deferTurn`, and `resolver*` verbs through decl
+//! aliases, so a caller reads one `Host` surface. The operation side of that
+//! lifecycle is mint, listener attachment, eventual sends, and projections.
+//! `vows/settlement.zig` owns the row's one terminal transition and completion
+//! dispatch.
 
 const std = @import("std");
 

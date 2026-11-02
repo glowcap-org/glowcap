@@ -11,14 +11,14 @@
 //! timers are required so the failure mode is chosen at the API boundary, not
 //! inherited as a silent default.
 //!
-//! Configuration is transactional and fallible. If `SO_KEEPALIVE` enables but
-//! a timer `setsockopt` then fails, keepalive is rolled back off and the refusal
+//! Configuration is transactional and fallible. If `SO_KEEPALIVE` enables but a
+//! timer `setsockopt` then fails, keepalive is rolled back off and the refusal
 //! reaches the caller. A requested liveness window is never silently absent or
-//! left riding the OS multi-hour default. Platform differences
-//! stay named: Linux `TCP_KEEPIDLE` vs
-//! Darwin `TCP_KEEPALIVE` for the idle second. Option numbers are written as
-//! named locals (not a platform OS module import) so this file stays under the
-//! portable `std.posix` arch-check rule. The numbers match the kernel ABIs.
+//! left riding the OS multi-hour default. Platform differences stay named:
+//! Linux `TCP_KEEPIDLE` vs Darwin `TCP_KEEPALIVE` for the idle second. Option
+//! numbers are written as named locals (not a platform OS module import) so the
+//! module stays under the portable `std.posix` arch-check rule. The numbers
+//! match the kernel ABIs.
 
 const std = @import("std");
 const builtin = @import("builtin");

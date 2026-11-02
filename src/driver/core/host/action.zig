@@ -1,7 +1,7 @@
 //! The embedder-facing host action queue: the payload shapes, how their owned
-//! bytes are released, and the queue verbs themselves (the borrowed and owned
-//! pops, the reservation ceiling, and the drain-resume). `Host` owns the FIFO
-//! storage. This module owns everything done to it.
+//! bytes are released, and the queue verbs (the borrowed and owned pops, the
+//! reservation ceiling, and the drain-resume). `Host` owns the FIFO storage,
+//! and these verbs operate on it.
 
 const std = @import("std");
 

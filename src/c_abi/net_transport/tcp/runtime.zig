@@ -1,9 +1,10 @@
 //! TCP runtime and generic driver-provider projection.
 //!
-//! This module owns the pinned `std.Io.Threaded` backend, its cancellable
+//! The runtime owns the pinned `std.Io.Threaded` backend, its cancellable
 //! operation lifetime, and the raw stream/listener callbacks installed into a
 //! generic driver. The archive facade in `mod.zig` owns the blocking framed C
-//! handles. Both borrow this one runtime authority. Neither mirrors its state.
+//! handles. Both borrow this one runtime authority and neither mirrors its
+//! state.
 
 const std = @import("std");
 

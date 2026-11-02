@@ -1,6 +1,6 @@
 //! Comparing two model values for structural equality.
 //!
-//! OCapN never puts an equality marker on the wire. This file compares the
+//! OCapN never puts an equality marker on the wire. The comparison covers the
 //! in-memory representation that codecs and session tables hold. It does not
 //! canonicalize targets that arrived through different sessions or network
 //! paths. Which codec carried the same representation does not matter.

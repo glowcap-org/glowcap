@@ -4,12 +4,11 @@
 //! A netlayer is a locator transport symbol (`tcp`, `keyed-tcp`, `inproc`,
 //! `iroh`). Its job is CapTP over a byte stream. The OS plumbing beneath it,
 //! opening and binding sockets, packing sockaddrs, stream options, and the
-//! pinned reader/writer stream wrapper, is a different concern, and
-//! it lives here. Residents reach socket bits through `net.socket`, never by
-//! importing `completion/` internals or `@import`-ing a sibling file, so "tcp
-//! logic" cannot leak back into a netlayer or across a module boundary. The
-//! implementation files live under `completion/`. This module is the boundary
-//! that names them as one library.
+//! pinned reader/writer stream wrapper, is a different concern. Residents reach
+//! socket bits through `net.socket`, never by importing `completion/` internals
+//! or `@import`-ing a sibling file, so "tcp logic" cannot leak back into a
+//! netlayer or across a module boundary. The implementation files live under
+//! `completion/`. `net.socket` is the boundary that names them as one library.
 
 const std = @import("std");
 const socket_tcp = @import("completion/socket_tcp.zig");

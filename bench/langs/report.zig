@@ -1,7 +1,7 @@
 //! Report rendering for the per-language consumer-cost bench: the terminal
 //! comparison, the markdown artifact, and the SVG charts written under
-//! `zig-out/bench-reports/`. Measurement stays in `orchestrator.zig`. This file
-//! only renders the rows it produced.
+//! `zig-out/bench-reports/`. Measurement stays in `orchestrator.zig`, which
+//! produces the rows rendered here.
 
 const std = @import("std");
 const Io = std.Io;

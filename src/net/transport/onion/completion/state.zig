@@ -1,9 +1,9 @@
 //! Owned state and operation vocabulary for the completion-backed onion leg.
 //!
-//! The backend drives SOCKS and Tor control transitions. This module owns the
-//! data whose lifetimes those transitions coordinate. Keeping connection
-//! footprint, retry links, retained receives, and configuration together makes
-//! them one reviewable subject instead of reactor declarations.
+//! The backend drives SOCKS and Tor control transitions. The data whose
+//! lifetimes those transitions coordinate (connection footprint, retry links,
+//! retained receives, and configuration) forms one reviewable subject instead
+//! of reactor declarations.
 
 const std = @import("std");
 

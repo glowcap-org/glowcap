@@ -1,6 +1,6 @@
 //! Construction, posture, Node detachment, and teardown for one Peer.
 //!
-//! Peer remains the state aggregate. This module owns the only complete
+//! Peer remains the state aggregate. The lifecycle owns the only complete
 //! constructor/retirement pairing and the Node-dependent authority retirement
 //! that must run while projection callbacks are still valid.
 

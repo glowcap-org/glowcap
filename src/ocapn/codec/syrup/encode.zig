@@ -1,14 +1,14 @@
-//! The Syrup encoder: a borrowed `model.view.Body` to wire bytes.
+//! The Syrup encoder: a borrowed `model.view.Body` to wire bytes. It is the
+//! encode half of the Syrup codec, and the decode half is `decode`.
 //!
-//! This is the encode half of the Syrup codec. It owns `encodeBody` and
-//! `encodeBodyForProfile`, which walk a borrowed body, and `encodeMessage`
-//! and `encodeMessageForProfile`, which project an owned `model.Message`
-//! through `view.Body.fromOwned` onto the same walk. One walk serves every
-//! source a view can borrow: an owned tree, a decoded frame, or a caller's
-//! values behind a sequence table. Signing records and locator records live
-//! in `signing.zig`. Canonical set/struct ordering lives in
-//! `canonical_collection.zig`. The shared errors live in `shared`. This file
-//! builds bytes and holds no session authority. The decode half is `decode`.
+//! The encoder owns `encodeBody` and `encodeBodyForProfile`, which walk a
+//! borrowed body, and `encodeMessage` and `encodeMessageForProfile`, which
+//! project an owned `model.Message` through `view.Body.fromOwned` onto the same
+//! walk. One walk serves every source a view can borrow: an owned tree, a
+//! decoded frame, or a caller's values behind a sequence table. Signing records
+//! and locator records live in `signing.zig`, canonical set/struct ordering in
+//! `canonical_collection.zig`, and the shared errors in `shared`. The encoder
+//! builds bytes and holds no session authority.
 //!
 //! Every entry point renders measure-then-fill: one non-allocating length pass
 //! over the message, then a single exact allocation filled in place, one
@@ -17,7 +17,7 @@
 //! generic walker parameterized on a sink that either counts or writes, so the
 //! measured length and the emitted bytes cannot drift. The fill sink ratifies
 //! that agreement with a bounds check that is live in every build mode, because
-//! an overrun would be an out-of-bounds write, not just a wrong answer.
+//! an overrun would be an out-of-bounds write, not only a wrong answer.
 
 const std = @import("std");
 

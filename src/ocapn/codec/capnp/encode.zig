@@ -1,13 +1,12 @@
 //! Cap'n Proto encode path.
 //!
-//! This module renders a borrowed `model.view.Body` into glowcap's
-//! self-consistent Cap'n Proto dialect. `encodeBody` and
-//! `encodeBodyForProfile` walk a borrowed body, and `encodeMessage` and
-//! `encodeMessageForProfile` project an owned `model.Message` through
-//! `view.Body.fromOwned` onto the same walk, so one walk serves an owned
-//! tree, a decoded frame, and a caller's values behind a sequence table. It
-//! owns builder allocation and the message-level layout. The record layouts
-//! live in `encode_records.zig` and the argument tree in
+//! It renders a borrowed `model.view.Body` into glowcap's self-consistent Cap'n
+//! Proto dialect. `encodeBody` and `encodeBodyForProfile` walk a borrowed body,
+//! and `encodeMessage` and `encodeMessageForProfile` project an owned
+//! `model.Message` through `view.Body.fromOwned` onto the same walk, so one
+//! walk serves an owned tree, a decoded frame, and a caller's values behind a
+//! sequence table. It owns builder allocation and the message-level layout. The
+//! record layouts live in `encode_records.zig` and the argument tree in
 //! `encode_arguments.zig`. It does not decode or materialize owned values.
 //!
 //! Text is validated where it is written (`encode_records.setText`), so a

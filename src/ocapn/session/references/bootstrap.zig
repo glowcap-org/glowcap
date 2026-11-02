@@ -1,9 +1,9 @@
 //! Bootstrap swiss-number namespace and publication mappings for one Session.
 //!
-//! The reserved durable namespace and mutable bootstrap registry meet here so
-//! the mutable door cannot accidentally admit a durable name. Session owns the
-//! table and arena. This module owns allocation, replacement, lookup, and the
-//! infallible rollback paired with a failed publication.
+//! The reserved durable namespace and mutable bootstrap registry meet in one
+//! place so the mutable door cannot accidentally admit a durable name. Session
+//! owns the table and arena. The mappings own allocation, replacement, lookup,
+//! and the infallible rollback paired with a failed publication.
 
 const std = @import("std");
 const model = @import("model");

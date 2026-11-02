@@ -1,18 +1,20 @@
 //! The Linux io_uring completion backend for `completion.Loop`.
 //!
-//! This file implements the completion-backend interface documented in
-//! `completion.Loop` (`loop.zig`). It provides the io_uring primitive and Zig
+//! It implements the completion-backend interface documented in
+//! `completion.Loop` (`loop.zig`) and provides the io_uring primitive and Zig
 //! TCP socket operations. All portable connection orchestration lives in
-//! `completion.Loop`, which is generic over this backend. Linux reaches this
-//! backend through `linux.zig`. That selector uses the epoll sibling when the
-//! host cannot supply the required io_uring facilities. The kqueue (Darwin)
-//! sibling implements the same interface. A Windows IOCP backend is not
-//! implemented. The portable server does not change when a backend is added.
+//! `completion.Loop`, which is generic over this backend.
 //!
-//! io_uring is a true completion (proactor) model: operations are submitted to a
-//! ring and the kernel posts a completion when each finishes. `submit*` queues an
-//! SQE. `poll` flushes the queue, waits for at least one completion, and hands
-//! the results back to the server.
+//! Linux reaches this backend through `linux.zig`. That selector uses the epoll
+//! sibling when the host cannot supply the required io_uring facilities. The
+//! kqueue (Darwin) sibling implements the same interface. A Windows IOCP
+//! backend is not implemented. The portable server does not change when a
+//! backend is added.
+//!
+//! io_uring is a true completion (proactor) model: operations are submitted to
+//! a ring and the kernel posts a completion when each finishes. `submit*`
+//! queues an SQE. `poll` flushes the queue, waits for at least one completion,
+//! and hands the results back to the server.
 //!
 //! The shared read-buffer pool (ADR-0019) is a kernel provided-buffer ring: one
 //! buffer group is registered at init, recvs are submitted with buffer select

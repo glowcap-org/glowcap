@@ -1,7 +1,7 @@
 //! Handoff redeem route-bundle aliases.
 //!
 //! The parser and route-list limits live in `model.route_bundle` so handoff
-//! fallback and id route-bundle locators cannot drift. This module keeps the
+//! fallback and id route-bundle locators cannot drift. The aliases keep the
 //! Node-facing error spelling and names.
 
 const model = @import("model");

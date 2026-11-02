@@ -3,20 +3,20 @@
 //! work enters through `libglowcap_host`. The protocol engine stays a Zig
 //! surface.
 //!
-//! This file is the crate root: it owns the shared vocabulary (return codes,
-//! discriminants, the C-visible types) and the per-thread last-error boundary,
-//! then pulls in the handle-family files so every `export fn` they declare is
-//! compiled into the library. The families are `context` (allocation policy),
-//! `frame` (managed-frame ownership), and `uri` (the OCapN locator grammar).
-//! This archive is sans-io: the transports
-//! (`libglowcap_net_transport_*`) carry the netlayer handles in their own
-//! companion modules (ADR-0022). Each family `@import`s this root for the shared
-//! types and codes. This root re-exports their `export fn`s so the header
-//! generator, which reflects over the `c_abi` namespace, sees the full ABI in
-//! one place.
-//! The allocator behind a context may be called from transport threads, so a
-//! caller-supplied allocator must be thread-safe. `glowcap_last_error` reports
-//! the calling thread's last error.
+//! The crate root owns the shared vocabulary (return codes, discriminants, the
+//! C-visible types) and the per-thread last-error boundary, then pulls in the
+//! handle-family files so every `export fn` they declare is compiled into the
+//! library. The families are `context` (allocation policy), `frame`
+//! (managed-frame ownership), and `uri` (the OCapN locator grammar). This
+//! archive is sans-io: the transports (`libglowcap_net_transport_*`) carry the
+//! netlayer handles in their own companion modules (ADR-0022).
+//!
+//! Each family `@import`s the root for the shared types and codes. The root
+//! re-exports their `export fn`s so the header generator, which reflects over
+//! the `c_abi` namespace, sees the full ABI in one place. The allocator behind
+//! a context may be called from transport threads, so a caller-supplied
+//! allocator must be thread-safe. `glowcap_last_error` reports the calling
+//! thread's last error.
 
 /// Shared C-ABI vocabulary factored into a leaf module with no `export fn`, so the
 /// iroh transport ABI can reuse it without inheriting libglowcap_ocapn's exported

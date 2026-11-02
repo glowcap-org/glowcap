@@ -1,7 +1,7 @@
 //! C stream-provider connection handles for the onion adapter.
 //!
 //! Dial and accept paths transfer an owned stream plus a retained netlayer
-//! lease here. This module owns the raw C handle, readiness descriptor,
+//! lease into a handle. The handle owns the raw C handle, readiness descriptor,
 //! nonblocking read/write with its failure latch, and final release of that
 //! lease.
 

@@ -10,21 +10,19 @@
 //! A `var(--name, fallback)` is not this: it says what to do when the name is
 //! missing, so it is read and skipped.
 //!
-//! What a green run here means, measured by breaking the code rather than
-//! assumed. It was validated against a name written nowhere at all, a typo in
-//! a `var()`, or a token deleted out from under its readers, and it catches
-//! that.
+//! The check was validated by breaking the code. It catches a name written
+//! nowhere at all, a typo in a `var()`, and a token deleted out from under its
+//! readers.
 //!
-//! It does **not** reach the case it was first written for, and that was
-//! measured too: a property defined on one plane and read by a well standing
-//! on another. This reads the sheets as one text, so a definition anywhere
-//! counts as a definition everywhere, and the half-applied edit that left
-//! every modal well transparent while `.ops-panel` still named the property
-//! passed here green. Whether a definition reaches a given element is the
+//! It does **not** reach a property defined on one plane and read by a well
+//! standing on another. The check reads the sheets as one text, so a definition
+//! anywhere counts as a definition everywhere, and the half-applied edit that
+//! left every modal well transparent while `.ops-panel` still named the
+//! property passed green. Whether a definition reaches a given element is the
 //! cascade's answer, and only a browser computes it, so that case is measured
 //! in the page proof instead (`apps/rooms/test/page/operations.ts` reads the
-//! computed background of every well). Do not widen this file toward it. A
-//! stylesheet read as text cannot answer it.
+//! computed background of every well). A stylesheet read as text cannot answer
+//! it, so the check stays at name presence.
 
 const std = @import("std");
 const util = @import("../util.zig");

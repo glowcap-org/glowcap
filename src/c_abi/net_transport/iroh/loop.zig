@@ -1,9 +1,9 @@
 //! Public raw-connection projection of iroh's event-driven readiness loop.
 //!
-//! This leaf translates the endpoint's stable readiness records and
-//! nonblocking sidecar verbs into the C archive's exact result vocabulary. It
-//! owns no endpoint or connection state. `ownership.zig` owns every payload and
-//! teardown edge, while the caller continues to own framing.
+//! It translates the endpoint's stable readiness records and nonblocking
+//! sidecar verbs into the C archive's exact result vocabulary and holds no
+//! endpoint or connection state. `ownership.zig` owns every payload and
+//! teardown edge, and the caller owns framing.
 
 const model = @import("model");
 const net = @import("net");

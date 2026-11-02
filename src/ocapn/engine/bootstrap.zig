@@ -1,9 +1,9 @@
 //! Bootstrap-object methods the engine answers automatically (ADR-0002 / ADR-0039).
 //!
-//! `fetch` resolves a swissnum to a local export. `deposit-gift` / `withdraw-gift`
-//! are the exporter-side handoff bootstrap methods. Each Peer owns its session's
-//! `gifts.GiftRegistry` (ADR-0039). The session spine still validates frame
-//! well-formedness, while the verified responders in this module resolve the
+//! `fetch` resolves a swissnum to a local export. `deposit-gift` /
+//! `withdraw-gift` are the exporter-side handoff bootstrap methods. Each Peer
+//! owns its session's `gifts.GiftRegistry` (ADR-0039). The session spine still
+//! validates frame well-formedness, while the verified responders resolve the
 //! required live sessions before any gift moves.
 
 const std = @import("std");

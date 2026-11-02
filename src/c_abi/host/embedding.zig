@@ -1,8 +1,7 @@
-//! Zig-only ownership bridge from `libglowcap_host` to the sibling driver.
-//!
-//! The C handle remains owned by this archive. This leaf gives the driver one
-//! transactional claim over transport/action draining and projects the few
-//! Host internals the driver must consume without exporting another C symbol.
+//! Zig-only ownership bridge from `libglowcap_host` to the sibling driver. The
+//! C handle remains owned by this archive. The bridge gives the driver one
+//! transactional claim over transport/action draining and projects the few Host
+//! internals the driver must consume without exporting another C symbol.
 
 const std = @import("std");
 

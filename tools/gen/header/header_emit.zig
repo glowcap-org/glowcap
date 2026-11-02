@@ -13,8 +13,8 @@
 //! `special` (a hook mapping a Zig type to a C typedef name the base spelling
 //! does not know), and `specialField` when ABI-identical callback aliases need
 //! distinct semantic names on individual struct fields. The
-//! `gen-header-*-check` gates verify the emitted bytes,
-//! so a drift in this module fails loudly at the header it breaks.
+//! `gen-header-*-check` gates verify the emitted bytes, so a drift in the
+//! emitter fails loudly at the header it breaks.
 
 const std = @import("std");
 

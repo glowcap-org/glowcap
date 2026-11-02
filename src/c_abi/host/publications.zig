@@ -1,8 +1,7 @@
-//! Host-wide publication projection for the C ABI Host subject.
-//!
-//! The core Host owns names and actors. This leaf owns the host-wide publish
-//! exports, their C argument admission, and the exactly-once transfer of a
-//! foreign behavior context.
+//! Host-wide publication projection for the C ABI Host subject. The core Host
+//! owns names and actors. The projection owns the host-wide publish exports,
+//! their C argument admission, and the exactly-once transfer of a foreign
+//! behavior context.
 
 const engine = @import("engine");
 

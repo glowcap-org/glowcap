@@ -1,7 +1,6 @@
-//! Archive-neutral C layout for terminal owner-close policy.
-//!
-//! This leaf carries vocabulary only. Each archive face validates the record
-//! and projects it onto `driver_core.PendingWork` at its own crossing.
+//! Archive-neutral C layout for terminal owner-close policy, as vocabulary
+//! only. Each archive face validates the record and projects it onto
+//! `driver_core.PendingWork` at its own crossing.
 
 const std = @import("std");
 

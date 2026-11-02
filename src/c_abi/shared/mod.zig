@@ -1,19 +1,19 @@
-//! The shared C-ABI waist. Subject modules own each layout and mechanism. This
-//! root re-exports the stable vocabulary every symbol-disjoint
-//! archive and generated binding consumes.
+//! The shared C-ABI waist: the stable vocabulary every symbol-disjoint archive
+//! and generated binding consumes. Subject modules own each layout and
+//! mechanism, and the root re-exports them.
 //!
-//! This leaf declares **no `export fn`**. The public `glowcap_*` entry points
-//! live in the `c_abi/ocapn` families (context, frame, uri), the Host, and
-//! the `c_abi/net_transport/{tcp,inproc}` transport families, and the
+//! It declares **no `export fn`**. The public `glowcap_*` entry points live in
+//! the `c_abi/ocapn` families (context, frame, uri), the Host, and the
+//! `c_abi/net_transport/{tcp,inproc}` transport families, and the
 //! `glowcap_iroh_*` entry points in `c_abi_net_transport_iroh`. All reach this
-//! vocabulary through `@import("c_abi_shared")`. Because importing the leaf pulls the
-//! vocabulary without pulling either library's exported surface, `libglowcap_ocapn`
-//! carries the core families and `libglowcap_net_transport_iroh` carries only
-//! the iroh family, each reusing these types, and each from `glowcap_ocapn.h`
-//! on the C side
-//! (ADR-0021 companion split). The two artifacts therefore share no exported
-//! core symbol. They share the layout of these types, as a C consumer
-//! including both headers does.
+//! vocabulary through `@import("c_abi_shared")`. Importing the vocabulary pulls
+//! neither library's exported surface. So `libglowcap_ocapn` carries the core
+//! families and `libglowcap_net_transport_iroh` carries only the iroh family,
+//! each reusing these types, and each from `glowcap_ocapn.h` on the C side
+//! (ADR-0021 companion split).
+//!
+//! The two artifacts therefore share no exported core symbol. They share the
+//! layout of these types, as a C consumer including both headers does.
 
 /// Process signal handlers and alternate signal stacks belong to the embedder.
 /// Each separately compiled archive otherwise contributes Zig's 256 KiB TLS

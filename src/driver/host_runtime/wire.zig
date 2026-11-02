@@ -1,8 +1,6 @@
-//! Runtime-owned transport binding state.
-//!
-//! The HostRuntime orchestrates these rows, but this leaf defines the owned
-//! storage and stable identities that must move together through close and
-//! release. No I/O or lifecycle policy lives here.
+//! Runtime-owned transport binding state: the owned storage and stable
+//! identities that must move together through close and release. The
+//! HostRuntime orchestrates these rows. They carry no I/O or lifecycle policy.
 
 const std = @import("std");
 

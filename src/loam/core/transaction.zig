@@ -1,6 +1,6 @@
 //! Shared batch validation and exact commit metadata for storage adapters.
 //! Adapters invoke this code inside their atomic transaction on the embedding's
-//! executor. This module owns no I/O, worker, or backend policy.
+//! executor. It holds no I/O, worker, or backend policy.
 const std = @import("std");
 const records = @import("loam_records");
 const collection = @import("collection.zig");

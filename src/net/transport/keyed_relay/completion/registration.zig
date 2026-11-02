@@ -10,10 +10,10 @@
 //!
 //! The registration tracks every leg it started until that leg leaves the
 //! backend's tables, and row reservation skips a tracked id, so a retired id
-//! cannot be reissued while this module still names it. Its legs retire only
-//! inside a poll turn, from platform completions or from the release this
-//! module makes for a leg that ended with no seat to close it. `service` runs
-//! at both ends of every turn, so it observes each retirement in the turn
+//! cannot be reissued while the registration still names it. Its legs retire
+//! only inside a poll turn, from platform completions or from the release the
+//! registration makes for a leg that ended with no seat to close it. `service`
+//! runs at both ends of every turn, so it observes each retirement in the turn
 //! that caused it and starts the replacement before the turn sleeps.
 //!
 //! A relay that refuses or drops registration is retried every

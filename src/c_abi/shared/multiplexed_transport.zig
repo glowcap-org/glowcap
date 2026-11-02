@@ -4,12 +4,12 @@
 //! try-I/O plug into the driver archive (`libglowcap_driver`) across a
 //! compulsory artifact boundary (a sidecar no Zig archive can contain).
 //!
-//! This leaf declares no `export fn` (the `c_abi_shared` charter): the
-//! transport archive exports one filler for the table, and the driver archive
-//! adapts the filled table back into the Zig `net.MultiplexedResident`
-//! contract. Nothing allocates across the table: listener metadata and bytes
-//! land in caller buffers, events drain into caller arrays, and connection ids
-//! are the transport runtime's stable integers, never addresses.
+//! It declares no `export fn` (the `c_abi_shared` charter). The transport
+//! archive exports one filler for the table, and the driver archive adapts the
+//! filled table back into the Zig `net.MultiplexedResident` contract. Nothing
+//! allocates across the table: listener metadata and bytes land in caller
+//! buffers, events drain into caller arrays, and connection ids are the
+//! transport runtime's stable integers, never addresses.
 //!
 //! Every function is called from the one thread that steps the loop, and
 //! `ctx` must outlive its registration.

@@ -1,15 +1,15 @@
-//! A fake Tor daemon: a control endpoint and a SOCKS endpoint on loopback.
+//! A fake Tor daemon: a control endpoint and a SOCKS endpoint on loopback, so
+//! the onion transport's checks run in the ordinary suite with no Tor and no
+//! network. It is not a Tor emulator. It answers the exact requests glowcap
+//! sends, in the exact shapes the two reference implementations use, and it
+//! forwards a dial to a local address the test names.
 //!
-//! It exists so the onion transport's checks run in the ordinary suite with no Tor
-//! and no network. It is not a Tor emulator. It answers the exact
-//! requests glowcap sends, in the exact shapes the two reference implementations
-//! use, and it forwards a dial to a local address the test names.
-//!
-//! **What it cannot prove is that a real Tor answers the same way.** The bytes are
-//! pinned against the pinned Spritely Goblins netlayer and the upstream OCapN
-//! suite in `test/net/onion_socks5_test.zig` and `test/net/onion_control_test.zig`.
-//! This file only replays what those tests hold. A green run here means the
-//! transport agrees with those pinned bytes, never that it agrees with Tor.
+//! **What it cannot prove is that a real Tor answers the same way.** The bytes
+//! are pinned against the pinned Spritely Goblins netlayer and the upstream
+//! OCapN suite in `test/net/onion_socks5_test.zig` and
+//! `test/net/onion_control_test.zig`, and the daemon only replays what those
+//! tests hold. A green run means the transport agrees with those pinned bytes,
+//! never that it agrees with Tor.
 
 const std = @import("std");
 

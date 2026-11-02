@@ -1,8 +1,7 @@
-//! Completion-loop operation identity and inline connection state.
-//!
-//! The root Loop embeds this state directly. This module adds no owner object.
-//! It names the exact slot representation and the compact completion ticket
-//! shared by the loop's internal transaction owners.
+//! Completion-loop operation identity and inline connection state: the exact
+//! slot representation and the compact completion ticket shared by the loop's
+//! internal transaction owners. The root Loop embeds this state directly, so it
+//! adds no owner object.
 
 const std = @import("std");
 const engine = @import("engine");

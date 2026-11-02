@@ -1,9 +1,10 @@
 //! Atomic protocol admission and validate-to-apply dispatch for one Session.
 //!
-//! `Session` owns the authoritative tables and scratch arenas. This module owns
-//! the operation that changes them: admit the current state, validate without
-//! mutation, then apply exactly once. The owned and borrowed receive paths meet
-//! here so a codec representation cannot acquire different authority rules.
+//! `Session` owns the authoritative tables and scratch arenas. Protocol
+//! dispatch is the operation that changes them: admit the current state,
+//! validate without mutation, then apply exactly once. The owned and borrowed
+//! receive paths meet in it so a codec representation cannot acquire different
+//! authority rules.
 //!
 //! Every function operates in place. This boundary adds no allocation, copy,
 //! or second argument walk. The borrowed path keeps the introduced-import

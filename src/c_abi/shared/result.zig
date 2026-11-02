@@ -1,8 +1,8 @@
 //! Stable return-code vocabulary shared by every Glowcap C archive.
 //!
-//! The generic code classifies a result for portable branching. Concrete
-//! causes remain in the immediate last-error slot or a structured failure
-//! report. This leaf only owns the stable numeric family and its validation.
+//! The generic code classifies a result for portable branching. Concrete causes
+//! remain in the immediate last-error slot or a structured failure report. The
+//! module holds only the stable numeric family and its validation.
 
 const failure_diagnostics = @import("failure_diagnostics.zig");
 const locator_adapter = @import("locator_adapter.zig");

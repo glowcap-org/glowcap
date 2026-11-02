@@ -1,6 +1,6 @@
 //! In-process byte pipes and their pinned stream projection.
 //!
-//! This module owns byte movement and duplex lifetime. The switchboard in
+//! The pipes own byte movement and duplex lifetime. The switchboard in
 //! `../inproc.zig` only matches dialers to listeners and transfers one shared
 //! `Duplex`. It does not know how the bytes are buffered or framed.
 

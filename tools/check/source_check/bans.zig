@@ -1,8 +1,8 @@
 //! Data-driven ban engine for `source-check`: one table row per needle claim,
 //! one runner that resolves scopes, caches file reads, and appends violations.
-//! `tools/check/source_check.zig` imports this file and runs `all` once per
-//! gate invocation, checks that need more than substring presence stay in the
-//! module that owns their concern.
+//! `tools/check/source_check.zig` runs `all` once per gate invocation. Checks
+//! that need more than substring presence stay in the module that owns their
+//! concern.
 
 const std = @import("std");
 const util = @import("util.zig");

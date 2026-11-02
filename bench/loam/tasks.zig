@@ -1,11 +1,11 @@
 //! The Tasks app measured through its own storage: one board, filled, read hot
 //! and cold, rearranged, shared and watched, all by hosted calls.
 //!
-//! The server's `Storage` opens a disk engine and the Loam attachment, and
-//! this file drives it with the local owning call, so a row holds the
-//! Host/Vat, the attachment and the engine and no socket. Each run names its
-//! engine, so one board shape compares the engines. Smoke runs a small board
-//! and holds the structural budgets. Timings carry no threshold.
+//! The run drives the server's `Storage`, which opens a disk engine and the
+//! Loam attachment, with the local owning call, so a row holds the Host/Vat,
+//! the attachment and the engine and no socket. Each run names its engine, so
+//! one board shape compares the engines. Smoke runs a small board and holds the
+//! structural budgets. Timings carry no threshold.
 const std = @import("std");
 const g = @import("glowcap");
 const tasks = @import("tasks_storage");

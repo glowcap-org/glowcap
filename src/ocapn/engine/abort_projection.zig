@@ -1,17 +1,17 @@
 //! Turning a rejected inbound frame into an outbound `op:abort`.
 //!
-//! When we reject an inbound frame, whether the codec couldn't parse it or the
-//! session ruled it a protocol violation, the right thing to do is tell the
-//! partner with a typed `op:abort` rather than swallow a host error and leave
-//! the other side hanging. That's the fail-loud posture. This module is the
-//! pure mapping from a dispatch error to the abort shape. `engine.Peer` plugs
-//! it into both inbound entry points, the inbound-dispatch arm of `Peer.step`
-//! and `Peer.recvBorrowed`. Every projected abort is
-//! terminal: CapTP does not admit a corrected message after either side aborts.
+//! When an inbound frame is rejected, whether the codec could not parse it or
+//! the session ruled it a protocol violation, the engine tells the partner with
+//! a typed `op:abort` rather than swallow a host error and leave the other side
+//! hanging. That is the fail-loud posture. The mapping is pure: a dispatch
+//! error in, an abort shape out. `engine.Peer` plugs it into both inbound entry
+//! points, the inbound-dispatch arm of `Peer.step` and `Peer.recvBorrowed`.
+//! Every projected abort is terminal: CapTP does not admit a corrected message
+//! after either side aborts.
 //!
-//! Session `Error` values don't carry a payload, so the abort's `message` is a
-//! fixed per-kind string, not something with an id in it. The part a well-behaved
-//! partner keys on is the `kind`.
+//! Session `Error` values carry no payload, so the abort's `message` is a fixed
+//! per-kind string with no id in it. The part a well-behaved partner keys on is
+//! the `kind`.
 
 const model = @import("model");
 

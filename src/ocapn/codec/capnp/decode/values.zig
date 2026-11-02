@@ -1,10 +1,10 @@
 //! Allocation-free Cap'n Proto projection of borrowed semantic values.
 //!
-//! This leaf owns the one Reference, Argument, collection-backing, locator,
-//! hint, handoff, Resolution, and StartSession vocabulary used by the metered
-//! first walk over a frame and by the lazy re-walks a wire-backed sequence
-//! makes later. It borrows directly from one bounded Reader and owns no
-//! session authority.
+//! It defines the one Reference, Argument, collection-backing, locator, hint,
+//! handoff, Resolution, and StartSession vocabulary used by the metered first
+//! walk over a frame and by the lazy re-walks a wire-backed sequence makes
+//! later. It borrows directly from one bounded Reader and owns no session
+//! authority.
 //!
 //! The first walk projects each value once, charging the frame's traversal
 //! budget as it reads, and parses every list, set, and tagged value it meets

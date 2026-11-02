@@ -1,8 +1,8 @@
 //! WebSocket receive progression for the completion-backed relay carrier.
 //!
 //! The owning backend supplies the small set of reactor effects through
-//! `Access`. This module owns parsing and buffer-lifetime decisions. It does
-//! not own connection admission, platform polling, or terminal teardown.
+//! `Access`. Receive owns parsing and buffer-lifetime decisions. It does not
+//! own connection admission, platform polling, or terminal teardown.
 
 const std = @import("std");
 

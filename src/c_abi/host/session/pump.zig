@@ -1,6 +1,6 @@
 //! C ABI session pump verbs: inbound frame/byte/packet admission, retained
 //! input resumption, and outbound transport drains. The Host core owns the
-//! semantics. This file owns only the C pointer, layout, and error projection.
+//! semantics. The verbs own only the C pointer, layout, and error projection.
 
 const shared = @import("c_abi_shared");
 

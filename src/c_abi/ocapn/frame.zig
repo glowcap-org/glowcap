@@ -1,9 +1,8 @@
-//! Managed-frame ownership helpers for the shared C vocabulary.
-//!
-//! The frame vocabulary and the owned-frame builder (`managedFrame`, the
-//! shape conversions) live in the shared leaf (`src/c_abi/shared/`) so the iroh transport
-//! ABI can reuse them without this file's `export fn`s. They are re-exported
-//! here so the peer/endpoint families keep calling them as `frame.*`.
+//! Managed-frame ownership helpers for the shared C vocabulary. The frame
+//! vocabulary and the owned-frame builder (`managedFrame`, the shape
+//! conversions) are defined in `src/c_abi/shared/` so the iroh transport ABI
+//! can reuse them, and are re-exported so the peer/endpoint families call them
+//! as `frame.*`.
 
 const std = @import("std");
 

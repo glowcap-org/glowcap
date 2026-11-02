@@ -2,9 +2,9 @@
 //! actor or one session-scoped wire observation into a canonical opaque Host
 //! reference, then commits, rolls back, or releases the authority it claimed.
 //!
-//! `capability.zig` remains the independent registry/data-structure owner.
-//! This module owns the cross-authority ordering between that registry, the
-//! Session import memo and wire retain, Node routes, and Vat actor roots.
+//! `capability.zig` remains the independent registry/data-structure owner. The
+//! transaction orders that registry against the Session import memo and wire
+//! retain, Node routes, and Vat actor roots.
 
 const std = @import("std");
 

@@ -1,8 +1,7 @@
-//! Fixed completion-backend contract shared by the loop and its adapters.
-//!
-//! This module owns namespace composition, operation results, and ready-queue
-//! mechanics. The loop owns connection orchestration. Platform and transport
-//! adapters own how operations reach this contract.
+//! Fixed completion-backend contract shared by the loop and its adapters:
+//! namespace composition, operation results, and ready-queue mechanics. The
+//! loop owns connection orchestration. Platform and transport adapters own how
+//! operations reach this contract.
 //!
 //! ## Backend interface
 //!

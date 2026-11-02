@@ -15,9 +15,8 @@
 //! functions breaks cross-codec handoff in a way no single-codec test would
 //! catch.
 //!
-//! This module exists so the engine has one import that says all of the above,
-//! rather than seventeen call sites reading as if Syrup were an incidental
-//! choice at each one. `arch-check` holds the boundary: `codec.syrup` and
+//! The engine imports this one module for signed bytes instead of choosing
+//! Syrup at each call site. `arch-check` holds the boundary: `codec.syrup` and
 //! `codec.capnp` may be named only under `src/ocapn/codec/`.
 
 const syrup = @import("syrup");

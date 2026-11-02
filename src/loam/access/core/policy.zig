@@ -1,7 +1,7 @@
-//! Runtime policy vocabulary shared by Zig and foreign consumers.
-//! Stable keys name Boolean permissions and unsigned lower or upper bounds.
-//! Applications supply operation requirements and committed facts. This module
-//! owns their set and bound algebra. It performs no allocation or callbacks.
+//! Runtime policy vocabulary shared by Zig and foreign consumers: stable keys
+//! naming Boolean permissions and unsigned lower or upper bounds, and the set
+//! and bound algebra over them. Applications supply operation requirements and
+//! committed facts. The algebra performs no allocation or callbacks.
 
 const std = @import("std");
 const KindId = @import("identity.zig").KindId;
