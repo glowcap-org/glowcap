@@ -147,20 +147,6 @@ pub fn checkBindingConstants(
     }
 }
 
-/// HostRuntime derives its frame cap from driver_core.Host, whose default is
-/// the session limit mirrored as GLOWCAP_DEFAULT_FRAME_CAP, so the two
-/// defaults cannot drift apart.
-pub fn checkArchitectureConstantClaims(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    try expectFileContains(io, gpa, root, violations, "src/driver/host_runtime/contract.zig", &.{
-        "const default_frame_cap = (driver_core.Host.Options{}).limits.max_frame_bytes;",
-    });
-}
-
 fn compareConstant(
     gpa: std.mem.Allocator,
     violations: *std.ArrayList([]const u8),

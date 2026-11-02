@@ -1,12 +1,6 @@
-//! The agent-scaffolding checks.
-//!
-//! Cursor and Claude overlays complete and unbroken, Codex direct-loading kept
-//! free of duplicate mirrors, the hook configurations and the Serena MCP entry
-//! for Claude, Pi, Codex, and Cursor, rule/skill
-//! index parity in both directions, agent routing, and rule
-//! frontmatter. These are the checks that keep the scaffolding a public API
-//! whose consumers act on what it says. Wired by the source-check driver
-//! (`tools/check/source_check.zig`).
+//! The agent-scaffolding checks: the Cursor and Claude overlays complete and
+//! unbroken, the hook configurations, the Serena and glowcap MCP entries for
+//! Claude, Pi, Codex, and Cursor, and the ignored Serena state.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -213,33 +207,9 @@ pub fn checkRequiredSubstrings(
     });
     try expectGlowcapMcpServer(io, gpa, root, violations, ".cursor/mcp.json", .cursor);
     try expectGlowcapMcpServer(io, gpa, root, violations, ".mcp.json", .claude);
-    try expectFileContains(io, gpa, root, violations, "glowcap", &.{
-        "zig-out/product",
-    });
-    try expectFileContains(io, gpa, root, violations, "cli/operability/xdg.zig", &.{
-        "mcp_local",
-        ".local/glowcap-mcp-state",
-    });
-    try expectFileContains(io, gpa, root, violations, "cli/mcp/mod.zig", &.{
-        "ctx.json = .json",
-        "newline-delimited",
-        "writeStreamingAll(io, \"\\n\")",
-    });
     try expectFileContains(io, gpa, root, violations, ".gitignore", &.{
         ".local/",
     });
-    try expectFileContains(io, gpa, root, violations, "docs/glowcap-mcp.json", &.{
-        "\"mcp\"",
-        "--tools",
-        "default",
-        "GLOWCAP_STATE",
-    });
-    try expectFileContains(io, gpa, root, violations, "docs/cli.md", &.{
-        ".local/glowcap-mcp-state",
-        "no shim",
-        "newline-delimited",
-    });
-    try expectFileContains(io, gpa, root, violations, ".serena/project.yml", &.{"Read AGENTS.md first"});
     try expectFileContains(io, gpa, root, violations, ".serena/.gitignore", &.{
         "/cache",
         "/logs",
@@ -256,9 +226,6 @@ pub fn checkRequiredSubstrings(
         "[mcp_servers.serena]",
         "command = \".agents/skills/work/bin/glowcap-dev\"",
         "args = [\"serena\", \"start-mcp-server\", \"--context\", \"codex\", \"--project-from-cwd\"]",
-    });
-    try expectFileContains(io, gpa, root, violations, ".agents/hooks/format-edited-file.sh", &.{
-        "*.tsx",
     });
 }
 

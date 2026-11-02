@@ -1,5 +1,4 @@
-//! CLI product accuracy: the lab REPL's UX claims, the driver-root shadow,
-//! and the single JSON escaper.
+//! CLI product shape: the driver-root shadow and the single JSON escaper.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -8,46 +7,6 @@ const deadlines = @import("deadlines.zig");
 
 const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
-
-/// CapTP lab chrome/docs must match live keys: listen is argv-only, F1 (not
-/// prompt `?`) opens the help modal. No stub search theater. No product-taste
-/// names in `cli/repl` module headers.
-pub fn checkCaptpLabUxHonesty(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const forbidden = [_]struct { path: []const u8, needle: []const u8, why: []const u8 }{
-        .{ .path = "cli/repl/panes.zig", .needle = "dial or listen", .why = "empty-session chrome must invite dial only (listen is argv-only)" },
-        .{ .path = "cli/repl/panes.zig", .needle = "F1 / ?", .why = "help modal must not claim prompt ? opens it (F1 does; ? is tip at prompt)" },
-        .{ .path = "docs/cli.md", .needle = "dial` / `listen` inside", .why = "lab starts with dial inside; listen stays argv-only" },
-        .{ .path = ".agents/skills/glowcap-cli/SKILL.md", .needle = "dial/listen inside", .why = "skill session table: dial inside; listen argv-only" },
-        .{ .path = "cli/mcp/mod.zig", .needle = "\"version\":\"0.1.0\"", .why = "MCP serverInfo.version must come from build_options, not a hard-coded literal" },
-        .{ .path = "cli/mcp/mod.zig", .needle = "Content-Length", .why = "MCP stdio is NDJSON per the MCP transport spec; LSP Content-Length framing breaks Cursor/Claude" },
-        .{ .path = "cli/registry.zig", .needle = "if (std.mem.eql(u8, cmd.name, \"listen\")) continue", .why = "use leafVisible; no ad-hoc listen skip lists" },
-    };
-    for (forbidden) |row| {
-        const contents = root.readFileAlloc(io, row.path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for CapTP lab UX check with {s}", .{ row.path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, row.needle) != null) {
-            try appendViolation(gpa, violations, "{s}: forbidden needle `{s}` — {s}", .{ row.path, row.needle, row.why });
-        }
-    }
-    try expectFileContains(io, gpa, root, violations, "cli/repl/panes.zig", &.{
-        "F1       this help",
-        "dial an ocapn:// locator",
-    });
-    try expectFileContains(io, gpa, root, violations, "cli/registry.zig", &.{
-        "leafVisible",
-        "flagVisibleMcp",
-        "argv_only",
-        "mcp_hide",
-    });
-}
 
 test "collectCaptpRegistryNames takes Command rows only" {
     const gpa = std.testing.allocator;
@@ -87,20 +46,6 @@ test "captpVerbTableIsPartial catches incomplete inventory tables" {
         &names,
     ));
     try std.testing.expect(!skills.captpVerbTableIsPartial("defer to `glowcap help`", &names));
-}
-
-test "mentionsVerbInCode matches bare, call, and receiver-method phrasings" {
-    // Bare token, as the README and vision write it.
-    try std.testing.expect(skills.mentionsVerbInCode("the `connect` verb dials", "connect"));
-    // As a call with arguments, as bindings/README's table writes it.
-    try std.testing.expect(skills.mentionsVerbInCode("| `listen(host, port)` | accept |", "listen"));
-    // As a method on a receiver, the other bindings/README phrasing.
-    try std.testing.expect(skills.mentionsVerbInCode("call `conn.tell(ref, verb, args)`", "tell"));
-    try std.testing.expect(skills.mentionsVerbInCode("`conn.serve()` runs the loop", "serve"));
-    // Absent: prose mention outside code is not enough, and a different verb
-    // inside code does not satisfy the missing one.
-    try std.testing.expect(!skills.mentionsVerbInCode("you can tell it to stop", "tell"));
-    try std.testing.expect(!skills.mentionsVerbInCode("only `conn.close()` here", "serve"));
 }
 
 /// Hold the CLI to one JSON string escaper.

@@ -5,9 +5,8 @@
 // scene, in order.
 //
 // The family exists because the four bindings' promise, dial, listen, and GC
-// modules were held together by quoted grep markers in
-// `tools/check/source_check/binding_spine/verb_spines.zig`. A textual presence
-// check cannot see whether a verb behaves, and one already escaped it: the
+// modules share a contract no text check can see: whether a verb behaves. The
+// case that showed it: the
 // `failed` arm of a send that could never be issued existed in Rust alone, so
 // two bindings shipped a promise-returning `send` that raised synchronously and
 // no caller's failure handler could see it. `promise-failed` below is that

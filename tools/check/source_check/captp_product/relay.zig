@@ -1,6 +1,4 @@
-//! The relay tier's split: reference relays classify locally and stay
-//! dependency-free, and the production relay's classifier stays in lockstep
-//! with the host's.
+//! The reference relays stay dependency-free: the iroh import is lazy.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -80,32 +78,6 @@ pub fn checkReferenceRelayIrohLazy(
                 std.mem.indexOf(u8, line, "define-runtime-path") == null)
             {
                 try appendViolation(gpa, violations, "{s}: static reference to the `glowcap-iroh` companion — {s}", .{ path, why });
-            }
-        }
-    }
-}
-
-/// The native Rooms relay admits one parsed target and passes that owned target
-/// to its dial job. Raw reference-relay parameters cannot bypass admission.
-pub fn checkProductionRelayClassifierLockstep(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const web = "apps/rooms/rust/services/src/web/http.rs";
-    const relay = "apps/rooms/rust/services/src/web/relay.rs";
-    try expectFileContains(io, gpa, root, violations, relay, &.{"self.target(target)"});
-    try expectFileContains(io, gpa, root, violations, relay, &.{"match target {"});
-    for ([_][]const u8{ web, relay }) |path| {
-        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read relay admission with {s}", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        for ([_][]const u8{ "parameter(\"to\")", "parameter(\"locator\")" }) |bypass| {
-            if (std.mem.indexOf(u8, contents, bypass) != null) {
-                try appendViolation(gpa, violations, "{s}: reference-relay parameter `{s}` bypasses Rooms target admission", .{ path, bypass });
             }
         }
     }

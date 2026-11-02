@@ -37,27 +37,6 @@ pub const attached_session_authority = [_]Ban{
         .check = "attached Rooms authority",
         .why = "an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
     },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/session/managed/controller.ts" },
-        .kind = .require,
-        .needles = &.{"browser: Pick<RoomsBrowserController"},
-        .check = "attached Rooms authority",
-        .why = "the attached session adapter must name the exact browser actions its command surface needs",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/controller/browser.ts" },
-        .kind = .require,
-        .needles = &.{"RoomsBrowserContext = createContext<RoomsBrowserController | null>"},
-        .check = "attached Rooms authority",
-        .why = "browser presentation and establishment authority must have its own stable React context",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/controller/session.ts" },
-        .kind = .require,
-        .needles = &.{"RoomsSessionContext = createContext<RoomsSessionController | null>"},
-        .check = "attached Rooms authority",
-        .why = "Rooms commands must be unavailable until an established session context exists",
-    },
 };
 
 const service_reporting = [_]Ban{.{

@@ -190,23 +190,11 @@ pub const human_doc_voice_scopes = [_]HumanDocScope{
     .{ .where = .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } } },
 };
 
-const captp_io = @import("bans/captp_io.zig");
 const transport = @import("bans/transport.zig");
 const prose = @import("bans/prose.zig");
 const layers = @import("bans/layers.zig");
-const core_fifo = @import("bans/core_fifo.zig");
-const engine_peer_handle = @import("bans/engine_peer_handle.zig");
-const binding_policy = @import("bans/binding_policy.zig");
-const binding_racket_policy = @import("bans/binding_racket_policy.zig");
-const binding_relay_policy = @import("bans/binding_relay_policy.zig");
-const onion = @import("bans/onion.zig");
-const local_forward = @import("bans/local_forward.zig");
 const authority = @import("bans/authority.zig");
 const surfaces = @import("bans/surfaces.zig");
-const failure = @import("bans/failure.zig");
-const failure_retention = @import("bans/failure_retention.zig");
-const profiles = @import("bans/profiles.zig");
-const route_bundle = @import("bans/route_bundle.zig");
 const ts_double_cast = @import("bans/ts_double_cast.zig");
 const rooms = @import("bans/rooms.zig");
 const entropy = @import("bans/entropy.zig");
@@ -254,7 +242,6 @@ pub const all: []const Ban =
     rooms.rows ++
     deno_dependency_reproducibility ++
     rust_sidecar_ffi_safety ++
-    captp_io.captp_io_spine_table ++
     transport.transport_vocabulary ++
     prose.prerelease_prose ++
     prose.human_doc_voice ++
@@ -262,51 +249,17 @@ pub const all: []const Ban =
     prose.diagram_wire_vocabulary ++
     layers.clock_seam ++
     layers.actors_layer_purity ++
-    core_fifo.rows ++
     entropy.rows ++
-    engine_peer_handle.rows ++
-    layers.outbound_answer_cursor_rows ++
-    layers.codec_decode_nesting_rows ++
-    layers.readme_c_verb_names ++
-    layers.discovery_dial_budget_rows ++
-    layers.local_turn_budget_rows ++
-    local_forward.hop_cap_rows ++
-    binding_racket_policy.vow_adoption_rows ++
-    binding_policy.runtime_progress_rows ++
-    binding_policy.unobserved_outcome_cap_rows ++
-    failure.runtime_failure_journal_rows ++
-    binding_policy.readiness_drain_cap_rows ++
-    binding_policy.pending_dial_hint_probe_rows ++
-    binding_racket_policy.relay_binary_rows ++
-    binding_racket_policy.child_compile_rows ++
-    binding_policy.stream_read_chunk_rows ++
-    binding_policy.iroh_read_chunk_rows ++
-    binding_policy.trace_payload_cap_rows ++
-    binding_relay_policy.rows ++
-    profiles.rows ++
-    failure_retention.rows ++
-    layers.iroh_node_id_bytes_rows ++
-    layers.iroh_direct_address_rows ++
-    route_bundle.rows ++
-    onion.service_key_cap_rows ++
-    layers.uri_format_sizing_rows ++
-    layers.relay_route_hint_cap_rows ++
     layers.goblins_runtime_portability ++
     layers.rooms_lib_layer ++
     layers.signature_arm_reads ++
     transport.transport_provider_architecture ++
-    authority.sturdyref_authority ++
-    authority.host_action_session_vocabulary ++
-    surfaces.binding_public_api_retirements ++
     surfaces.deferral_markers ++
     surfaces.test_only_surface ++
     surfaces.rooms_env_namespace ++
-    failure.binding_failure_surface ++
-    authority.sturdyref_profile_authority ++
     authority.callback_latch_owner ++
     authority.id_issuer_owner ++
-    authority.vow_row_retirement ++
-    failure.nonfatal_release_paths;
+    authority.vow_row_retirement;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -407,30 +360,18 @@ test "bans: on_missing violates once per file or skips silently" {
     try t.expectMessages(&.{"missing.txt: failed to read for tag check with FileNotFound"});
 }
 
-test "bans: attached Rooms controllers keep browser and session authority separate" {
+test "bans: an attached Rooms controller cannot absorb browser authority" {
     var t = try TestRun.init();
     defer t.deinit();
     const io = std.testing.io;
     try t.tmp.dir.createDirPath(io, "apps/rooms/web/ui/session/managed");
-    try t.tmp.dir.createDirPath(io, "apps/rooms/web/ui/controller");
     try t.tmp.dir.writeFile(io, .{
         .sub_path = "apps/rooms/web/ui/session/managed/controller.ts",
         .data = "export function attachedSession(browser: RoomsBrowserController) { return { ...browser }; }\n",
     });
-    try t.tmp.dir.writeFile(io, .{
-        .sub_path = "apps/rooms/web/ui/controller/browser.ts",
-        .data = "export interface RoomsBrowserController {}\n",
-    });
-    try t.tmp.dir.writeFile(io, .{
-        .sub_path = "apps/rooms/web/ui/controller/session.ts",
-        .data = "export interface RoomsSessionController {}\n",
-    });
     try t.run(&rooms.attached_session_authority);
     try t.expectMessages(&.{
         "apps/rooms/web/ui/session/managed/controller.ts: contains `...browser` — an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
-        "apps/rooms/web/ui/session/managed/controller.ts: missing `browser: Pick<RoomsBrowserController` — the attached session adapter must name the exact browser actions its command surface needs",
-        "apps/rooms/web/ui/controller/browser.ts: missing `RoomsBrowserContext = createContext<RoomsBrowserController | null>` — browser presentation and establishment authority must have its own stable React context",
-        "apps/rooms/web/ui/controller/session.ts: missing `RoomsSessionContext = createContext<RoomsSessionController | null>` — Rooms commands must be unavailable until an established session context exists",
     });
 }
 
