@@ -1,8 +1,21 @@
 # @glowcap/webrtc
 
-Use this package to connect two peers directly over WebRTC, for example two browsers. A browser
-dials and listens with `RtcPeer`, and Deno does the same through the WebRTC C library. Each keyed
-session runs over one `RTCDataChannel`, with one CapTP frame per packet.
+`@glowcap/webrtc` connects two [OCapN](https://glowcap.org/protocol/) peers directly over WebRTC,
+for example two browsers. A browser dials and listens with `RtcPeer`, and Deno does the same
+through the WebRTC C library. Each keyed session runs over one `RTCDataChannel`, with one CapTP
+frame per packet. The [WebRTC page](https://glowcap.org/transports/webrtc/) explains signaling,
+identity, and staying direct.
+
+## Install
+
+```sh
+deno add jsr:@glowcap/webrtc jsr:@glowcap/runtime
+```
+
+In the browser, add [`@glowcap/web`](https://jsr.io/@glowcap/web). In Deno, the package loads the
+WebRTC C library on first use, which the runtime's C SDK download includes.
+
+## Signaling
 
 WebRTC peers cannot find each other alone. Your application supplies signaling, the exchange of
 offers, answers, and network candidates that sets up the connection, usually through an OCapN
@@ -36,13 +49,13 @@ for await (const accepted of answering) {
 - `provideOffer` takes the offerer's key, which the accepted session names as its authenticated
   partner. It refuses an offer when the listener is closed, the key is malformed, or too many
   accepts are in flight. A failure after it returns ends that accept and is recorded on the Host,
-  where `Host.takeFailures()` reads it (see the [runtime README](../runtime/README.md#the-transports)).
+  where `Host.takeFailures()` reads it (the [runtime package](https://jsr.io/@glowcap/runtime)
+  describes that list).
 - `failExchange` gives up an accept whose offerer went quiet.
 - Pass `iceServers` in `options` as a list, or as a function that fetches short-lived TURN
   credentials for each connection. ICE servers help two peers find a route to each other.
 
-The public API is [`mod.ts`](mod.ts). `zig build webrtc-browser-to-browser`
-runs two Chromium peers, one dialing and one listening.
+The public API is [`mod.ts`](mod.ts).
 
 ## Dial and listen from Deno
 
@@ -83,8 +96,8 @@ for await (const session of server) {
 }
 ```
 
-The entry loads the WebRTC C library on first use (`zig build webrtc-abi`), so the browser API in
-`mod.ts` never imports it. Failures behave as follows:
+The entry loads the WebRTC C library on first use, so the browser API in `mod.ts` never imports
+it. Failures behave as follows:
 
 - A dial whose answer never arrives fails at the handshake deadline.
 - When `offer` or `candidate` rejects, the dial is given up and fails at the driver's next step. The
@@ -96,5 +109,15 @@ Candidates route by exchange id, so a dial to a peer and that peer's own offer r
 as two exchanges in a browser and in Deno alike. When two peers dial each other at once, CapTP
 keeps one of the two sessions. Your signaling object must key its candidate handlers by exchange
 id and never by designator. Two peers on one machine need
-`includeLoopbackCandidates: true`. `zig build deno-webrtc-driver-provider`
-dials the Zig answerer and accepts the Zig offerer this way.
+`includeLoopbackCandidates: true`.
+
+## Learn more
+
+- [WebRTC page](https://glowcap.org/transports/webrtc/) and the
+  [browser guide](https://glowcap.org/bindings/browser/).
+- The [repository](https://github.com/glowcap-org/glowcap) for the C libraries and the other
+  bindings.
+
+glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
+what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
+explains.

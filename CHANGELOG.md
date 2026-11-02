@@ -20,6 +20,11 @@ and storage formats before 1.0.
   loaders and the relay's serve entry reach their own package by relative path,
   which JSR requires, and the browser import maps carry the file entry that
   keeps the Wasm adapter in place of the C library loader.
+- The package pages on crates.io, PyPI, JSR, and the Racket catalog read as
+  package home pages: each opens with the package name and install line, leaves
+  the package only through absolute links, and keeps contributor checks in the
+  repository. Every `@glowcap/*` package ships a README, and `source-check`
+  holds both rules.
 
 ## [0.1.1] - 2026-10-31
 

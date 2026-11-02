@@ -1,10 +1,23 @@
 # @glowcap/web
 
-Run a browser tab as an OCapN peer over WebSocket or WebRTC. The protocol core
-runs in WebAssembly (`wasm32`) through the `@glowcap/runtime` Session and Host
-API ([ADR-0034]).
+`@glowcap/web` runs a browser tab as an [OCapN](https://glowcap.org/protocol/) peer over
+WebSocket or WebRTC. The protocol core runs in WebAssembly through the
+[`@glowcap/runtime`](https://jsr.io/@glowcap/runtime) Session and Host API, so a page hosts
+objects, calls objects on other peers, and passes references between them like any other peer.
+The [browser guide](https://glowcap.org/bindings/browser/) walks through the dial paths and
+accepting peers.
 
-[ADR-0034]: ../../../docs/decisions/adr/ADR-0034-browser-peers.md
+## Install
+
+```sh
+deno add jsr:@glowcap/web jsr:@glowcap/runtime jsr:@glowcap/relay
+```
+
+The page also needs `glowcap_host.wasm`, the Wasm build of the protocol core. In a checkout of the
+[repository](https://github.com/glowcap-org/glowcap), `zig build wasm-driver` writes it to
+`zig-out/wasm/`.
+
+## A first session
 
 ```ts
 import { init } from "@glowcap/web";
@@ -26,9 +39,9 @@ console.log(await session.send(greeter, "greet", ["world"]));
 The peer must register at that relay under its key. `noise-relay` encrypts the
 session between the browser and the peer, including through the relay.
 
-Build `glowcap_host.wasm` with `zig build wasm-driver`. The
-[`runtime` guide](../runtime/README.md) covers hosting objects, promise
-pipelining, and handoffs. The [complete browser example](../../../site/examples/browser/noise-relay.ts)
+The [runtime package](https://jsr.io/@glowcap/runtime) covers hosting objects, promise
+pipelining, and handoffs. The
+[complete browser example](https://github.com/glowcap-org/glowcap/blob/main/site/examples/browser/noise-relay.ts)
 shows this fetch-and-call with its relay configuration.
 
 ## How the adapter works
@@ -71,37 +84,14 @@ shared runtime to the browser. It supplies what Deno and Bun get from the operat
 Browser peers cannot dial TCP sockets directly. A relay endpoint accepts a WebSocket connection
 and forwards CapTP bytes. Pass `wsUrl` to `init()` with a function that maps
 `(host, port)` to the relay's URL, for example `` (h, p) => `ws://relay/relay?to=${h}:${p}` ``. The
-reference relay ships as [`@glowcap/relay`](../relay/README.md). The rooms app wraps it at
-[`apps/rooms/rust/services/src/web/relay.rs`](../../../apps/rooms/rust/services/src/web/relay.rs), which allow-lists the room server's
-own port for TCP targets, checks the `Origin` header on the upgrade, caps live sessions, times out
-idle pairs, and bounds bytes per session. `zig build deno-relay-test` checks a keyed OCapN session
-from this binding through that relay to a TCP host.
+reference relay ships as [`@glowcap/relay`](https://jsr.io/@glowcap/relay). The Rooms app wraps it
+in [its relay endpoint](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/rust/services/src/web/relay.rs),
+which allow-lists the room server's own port for TCP targets, checks the `Origin` header on the
+upgrade, caps live sessions, times out idle pairs, and bounds bytes per session.
 
 An [iroh gateway](https://glowcap.org/relay/) selected by `relayUrl` can read
 traffic and vouches for the far peer's key. Use `noise-relay` when the relay
 must not read the session.
-
-## What the tests cover
-
-`zig build web-peer-test` checks both codecs through
-[`test/web_peer_test.ts`](test/web_peer_test.ts):
-
-1. A Deno host ([`test/serve_ws_host.ts`](test/serve_ws_host.ts)) accepts WebSocket connections
-   straight into `Session.establishAccepted`.
-2. A second process loads the runtime through `@glowcap/web`, with the Wasm module and a WebSocket
-   channel and no `Deno.dlopen` anywhere in its graph.
-3. That peer completes the keyed handshake, fetches and calls a published object, and receives a
-   call back into an object it hosts. The same check then launches Chromium, registers the page's Wasm Host at the
-reference relay under `noise-relay`, and has the installed CLI cold-dial and call it.
-That rendezvous leg is WSS with a test certificate authority supplied independently to the browser and the CLI
-process. The relay also audits a plaintext canary.
-
-[`test/wasm_handshake_smoke.ts`](test/wasm_handshake_smoke.ts) (`zig build
-wasm-driver-test`) is the layer
-below: two wasm Hosts complete the keyed handshake over an in-memory byte pipe, driven through raw
-exports with no binding at all.
-
-`zig build rooms-web-dm-noise` checks browser-to-browser handoff over an encrypted relay.
 
 ## Shipping a page
 
@@ -121,6 +111,16 @@ flattens every module's top-level await into one file, and the runtime's import
 graph deadlocks there. `internal/ffi/runtime.ts` resolves its adapter
 synchronously, and the archive symbol tables `dlopen` lazily on first use.
 
-Browser-to-browser transport ships as [`@glowcap/webrtc`](../webrtc/README.md), a direct DTLS
-DataChannel opened through a signaling capability. `zig build webrtc-browser-to-browser` runs two
-Chromium peers over one.
+Browser-to-browser transport ships as [`@glowcap/webrtc`](https://jsr.io/@glowcap/webrtc), a
+direct DTLS DataChannel opened through a signaling capability.
+
+## Learn more
+
+- [Browser guide](https://glowcap.org/bindings/browser/) and the
+  [relay page](https://glowcap.org/relay/).
+- The [repository](https://github.com/glowcap-org/glowcap) for the Wasm build, the C libraries,
+  and the other bindings.
+
+glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
+what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
+explains.

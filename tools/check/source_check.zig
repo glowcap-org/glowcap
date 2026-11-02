@@ -169,6 +169,7 @@ pub fn check(
     try agents_catalog.checkAgentsRouting(io, gpa, root, &violations);
     try docs_links.checkMarkdownLinks(io, gpa, root, &violations);
     try docs_links.checkRepoBlobLinks(io, gpa, root, &violations);
+    try docs_links.checkRegistryReadmeLinks(io, gpa, root, &violations);
     try docs_adr.checkAdrCitations(io, gpa, root, &violations, root_path);
     try docs_adr.checkAdrFrontmatter(io, gpa, root, &violations);
     try docs_adr.checkAdrRelations(io, gpa, root, &violations);

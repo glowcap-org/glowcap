@@ -388,5 +388,33 @@ pub fn checkTsPackagePublishSurface(
                 .{deno_path},
             );
         }
+        // JSR renders README.md as the package's home page, so every package
+        // ships one and names it in `publish.include`.
+        const includes = switch (publish.get("include") orelse .null) {
+            .array => |array| array,
+            else => {
+                try appendViolation(gpa, violations, "{s}: `publish.include` must be an array", .{deno_path});
+                continue;
+            },
+        };
+        var includes_readme = false;
+        for (includes.items) |value| switch (value) {
+            .string => |string| if (std.mem.eql(u8, string, "README.md")) {
+                includes_readme = true;
+                break;
+            },
+            else => {},
+        };
+        if (!includes_readme) {
+            try appendViolation(gpa, violations, "{s}: `publish.include` must name `README.md`, the package's page on JSR", .{deno_path});
+        }
+        var readme_path_buf: [80]u8 = undefined;
+        const readme_path = std.fmt.bufPrint(&readme_path_buf, "{s}/README.md", .{pkg_path}) catch {
+            try appendViolation(gpa, violations, "{s}: the README path overflows the publish-surface buffer; grow it", .{pkg_path});
+            continue;
+        };
+        root.access(io, readme_path, .{}) catch {
+            try appendViolation(gpa, violations, "{s}: missing; JSR shows it as the package's page", .{readme_path});
+        };
     }
 }

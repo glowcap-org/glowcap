@@ -1,8 +1,13 @@
-# Rust binding
+# glowcap for Rust
 
-This crate lets Rust connect to OCapN peers, call their objects, and host objects of its own.
-Terms such as locator, Host, and sturdyref are defined in the
-[glossary](../../docs/capabilities.md#glossary).
+The `glowcap` crate connects a Rust program to [OCapN](https://glowcap.org/protocol/) peers. It
+calls their objects, hosts objects of its own, and passes references between peers, with glowcap's
+C libraries doing the protocol work and Cargo features selecting the transports. The
+[Rust guide](https://glowcap.org/bindings/rust/) walks through the round trip, listening, and
+actors. Terms such as locator, Host, and sturdyref are defined in the
+[glossary](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md#glossary).
+
+## Install
 
 Add the crate with the `async` feature for the session API:
 
@@ -20,6 +25,8 @@ crate by path instead:
 [dependencies]
 glowcap = { path = "/path/to/glowcap/bindings/rust", features = ["async"] }
 ```
+
+## A first session
 
 The calling side of a session looks like this:
 
@@ -184,10 +191,77 @@ exporter.
   feature or the Host still owns.
 - `Session::close` closes the named connection regardless of other handles.
 
+## Features
+
+| Feature | Adds | Default |
+| --- | --- | --- |
+| `tcp` | Blocking TCP netlayer handles. | yes |
+| `inproc` | Blocking in-process netlayer handles. | yes |
+| `onion` | Tor transport through a Tor daemon you run, and raw frame handles. With `async`, also adds `onion::Server` and Session dial and listen helpers. | no |
+| `loam` | Durable shared resources on the Host, stored in SQLite, LMDB, memory, or the browser. It implies `async`. | no |
+| `async` | Tokio `Session`, `Host`, and managed `Runtime`. | no |
+| `iroh` | Encrypted iroh transport and `iroh::Server`. It implies `async`. | no |
+| `relay` | `keyed-relay`/`noise-relay` provider package and managed listeners. It implies `async`. | no |
+| `webrtc` | WebRTC provider with application signaling, and the raw readiness and try-I/O ABI. It implies `async`. | no |
+
+The core value and locator types are always available, including
+`tcp::locator`, `tcp::keyed::locator`, `tcp::noise::locator`, and
+`tcp::address_designator`. Constructing a TCP locator does not enable socket
+I/O. The `tcp` feature supplies the `tcp`, `keyed-tcp`, and `noise-tcp` provider
+package and the blocking TCP handles. [Choosing a transport](https://glowcap.org/transports/choosing/)
+compares them.
+
+`onion` needs a running Tor daemon. glowcap does not start, supervise, or
+configure one, so `Config` names where an existing daemon listens. With
+`async,onion`, `onion::listen` and `onion::connect` compose that provider into
+the generic driver and yield ordinary Sessions. `onion::Netlayer` remains the
+raw frame handle. The [onion page](https://glowcap.org/transports/onion/) explains what Tor proves.
+
+The crate's own check, `zig build rust-dogfood`, uses a fake daemon and does not test live Tor.
+Repository-level on-demand checks cross Tor with two glowcap peers, Goblins in both directions, the
+upstream conformance suite, service restoration, and Rooms, and the
+[stability page](https://glowcap.org/stability/) records that evidence.
+
+The `iroh` and `webrtc` features link each transport's own shared library,
+which the C SDK download includes. For [iroh](https://glowcap.org/transports/iroh/), construct a
+`Runtime` with an iroh provider and use its `connect` method. A TCP-only build links no iroh
+provider.
+
+For [WebRTC](https://glowcap.org/transports/webrtc/), implement `webrtc::SignalingAuthority`
+to carry the offer, the answer, and each ICE candidate, build a `Runtime` with
+`webrtc::provider(signaling, config)`, and connect to a `webrtc::locator`. Each
+signaling call names its `webrtc::Target`: the dialed peer, and the session
+that introduced it when the dial follows a handed-over reference.
+
+To accept offers, `webrtc::listen(signaling, config, options)` returns a
+`webrtc::Server`. Hand each inbound offer to its `provide_offer` with the
+offerer's designator. The library answers through the signaling object's `answer`,
+and `accept` yields the keyed session, which names the offerer. A listening
+Host dials too: build a `Runtime` with no providers that adopts
+`server.host()`. Drive
+the `Runtime` from a tokio `LocalSet`, because the signaling callbacks run on the
+thread that steps the loop. A dial whose answer never arrives fails at the
+handshake deadline, and one whose signaling fails is given up at the driver's
+next step.
+
+The wire codec belongs to the host. `Host::with_codec(Codec::Capnp)?` creates a
+host whose sessions negotiate Cap'n Proto. The default is Syrup. Host
+construction and publication verbs return `Result`, including entropy,
+allocation, lifecycle, and refusal diagnostics.
+
+### Closing a server
+
+- `Server::close()` on each transport module stops the listener accepting new connections
+  and preserves sessions already returned by `accept`.
+- `server.host().close(PendingWork::Cancel).await` shuts the server down for
+  good. It releases those sessions, joins the driver loop, and releases the endpoint.
+- A `Stream` you own directly closes with its own `close().await`.
+
 ## Browser and Wasm
 
-The base binding supports `wasm32-unknown-unknown` with default features disabled. Build the
-Wasm libraries and the generated struct-layout checks with `zig build gen-rust-wasm-layouts`. `GLOWCAP_LIB_DIR` selects the Wasm archive
+The base binding supports `wasm32-unknown-unknown` with default features disabled. In a checkout,
+build the Wasm libraries and the generated struct-layout checks with
+`zig build gen-rust-wasm-layouts`. `GLOWCAP_LIB_DIR` selects the Wasm archive
 directory when consuming outside the checkout. Compile-time layout assertions
 and runtime archive fingerprint checks stay enabled.
 
@@ -201,9 +275,6 @@ features are excluded from this target.
 - Browser timers are cancelled when their futures are dropped.
 - Host and Session close use one monotonic clock domain.
 - Default Wasm contexts route Host allocations through Rust's global allocator.
-
-`zig build rooms-rust-browser-host-test` exercises this boundary in Node and
-Chromium.
 
 ### Channels
 
@@ -267,101 +338,12 @@ between that SDP and the expected key before supplying Session identity proof.
   callbacks to retire, even when the browser leaves the original WebRTC
   operation unfinished.
 
-The Chromium test loads the `rooms-web` build over a real WebSocket and exchanges calls between
-two Rust Hosts over local RTCDataChannels. It also covers dropped SDP observers, shutdown during
-ICE and `createOffer`, failure callbacks outside Tokio polling, and close ordering. It does not
-cover browser storage, production page integration, transport pressure, or deadline expiry. The
-[Rooms build setup](../../apps/rooms/rust/README.md) lists the required Wasm
-tools.
-
-## Features
-
-| Feature | Adds | Default |
-| --- | --- | --- |
-| `tcp` | Blocking TCP netlayer handles. | yes |
-| `inproc` | Blocking in-process netlayer handles. | yes |
-| `onion` | Tor transport through a Tor daemon you run, and raw frame handles. With `async`, also adds `onion::Server` and Session dial and listen helpers. | no |
-| `loam` | Durable shared resources on the Host, stored in SQLite, LMDB, memory, or the browser. It implies `async`. | no |
-| `async` | Tokio `Session`, `Host`, and managed `Runtime`. | no |
-| `iroh` | Encrypted iroh transport and `iroh::Server`. It implies `async`. | no |
-| `relay` | `keyed-relay`/`noise-relay` provider package and managed listeners. It implies `async`. | no |
-| `webrtc` | WebRTC provider with application signaling, and the raw readiness and try-I/O ABI. It implies `async`. | no |
-
-The core value and locator types are always available, including
-`tcp::locator`, `tcp::keyed::locator`, `tcp::noise::locator`, and
-`tcp::address_designator`. Constructing a TCP locator does not enable socket
-I/O. The `tcp` feature supplies the `tcp`, `keyed-tcp`, and `noise-tcp` provider
-package and the blocking TCP handles.
-
-`onion` needs a running Tor daemon. glowcap does not start, supervise, or
-configure one, so `Config` names where an existing daemon listens. With
-`async,onion`, `onion::listen` and `onion::connect` compose that provider into
-the generic driver and yield ordinary Sessions. `onion::Netlayer` remains the
-raw frame handle.
-
-`zig build rust-dogfood` uses a fake daemon and does not test live Tor.
-Repository-level on-demand checks cross Tor with two glowcap peers, Goblins in
-both directions, the upstream conformance suite, service restoration, and
-Rooms. They need Tor and outbound network access.
-
-iroh requires `zig build iroh-abi`. Construct a `Runtime` with an iroh provider
-and use its `connect` method. A TCP-only build links no iroh provider.
-
-WebRTC requires `zig build webrtc-abi`. Implement `webrtc::SignalingAuthority`
-to carry the offer, the answer, and each ICE candidate, build a `Runtime` with
-`webrtc::provider(signaling, config)`, and connect to a `webrtc::locator`. Each
-signaling call names its `webrtc::Target`: the dialed peer, and the session
-that introduced it when the dial follows a handed-over reference.
-
-To accept offers, `webrtc::listen(signaling, config, options)` returns a
-`webrtc::Server`. Hand each inbound offer to its `provide_offer` with the
-offerer's designator. The library answers through the signaling object's `answer`,
-and `accept` yields the keyed session, which names the offerer. A listening
-Host dials too: build a `Runtime` with no providers that adopts
-`server.host()`. Drive
-the `Runtime` from a tokio `LocalSet`, because the signaling callbacks run on the
-thread that steps the loop. A dial whose answer never arrives fails at the
-handshake deadline, and one whose signaling fails is given up at the driver's
-next step.
-
-The wire codec belongs to the host. `Host::with_codec(Codec::Capnp)?` creates a
-host whose sessions negotiate Cap'n Proto. The default is Syrup. Host
-construction and publication verbs return `Result`, including entropy,
-allocation, lifecycle, and refusal diagnostics.
-
-### Closing a server
-
-- `Server::close()` on each transport module stops the listener accepting new connections
-  and preserves sessions already returned by `accept`.
-- `server.host().close(PendingWork::Cancel).await` shuts the server down for
-  good. It releases those sessions, joins the driver loop, and releases the endpoint.
-- A `Stream` you own directly closes with its own `close().await`.
-
-## Checks
-
-```sh
-zig build rust-dogfood
-zig build rust-goblins-interop
-
-cargo build --no-default-features
-cargo build --no-default-features --features tcp
-cargo build --features async
-```
-
-The iroh path has live tests for handoffs, many connections, and handoff policy, and the crate's
-ordinary unit tests do not cover it. For WebRTC dial and listen, `zig build
-rust-webrtc-driver-provider` dials the Zig answerer and accepts the Zig offerer.
-
-For the shared API, read the [binding overview](../README.md). Maintainers of
-the C pump and generated FFI should read
-[Developing a binding](../DEVELOPING.md).
-
 ## Persistent resources
 
-Enable the optional `loam` feature for `loam::{Store, Attachment, Content, Policy}`. Loam is
-glowcap's storage layer for durable shared resources. On desktop and server targets the feature
-links Loam and its SQLite, LMDB, and in-memory storage backends, and reuses `Host`, `Ref`, and
-Session.
+Enable the optional `loam` feature for `loam::{Store, Attachment, Content, Policy}`.
+[Loam](https://glowcap.org/loam/) is glowcap's storage layer for durable shared resources. On
+desktop and server targets the feature links Loam and its SQLite, LMDB, and in-memory storage
+backends, and reuses `Host`, `Ref`, and Session.
 
 - Your startup code opens a Store and attaches its content to a Host. Opening,
   creation, and privileged restoration are blocking startup operations.
@@ -372,10 +354,22 @@ Session.
 - Host close retires quiescent attachments. Close the Store after its borrows
   finish.
 
-The [lifecycle guide](../../docs/loam/c-and-rust.md) describes create, share,
-edit, restart, reopen, receipt calls, and indeterminate creation recovery.
-`Resource::encode` is trusted local metadata, not an invokable capability.
-The same feature uses [IndexedDB in the browser](../../docs/loam/browser.md)
+The [lifecycle guide](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/c-and-rust.md)
+describes create, share, edit, restart, reopen, receipt calls, and indeterminate creation recovery.
+`Resource::encode` is trusted local metadata, not an invokable capability. The same feature uses
+[IndexedDB in the browser](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/browser.md)
 when compiled for Wasm. The lifecycle guide covers graph and owner views.
-`zig build loam-rust-test` exercises the consumer lifecycle, ownership, and
-Clippy, including a Loam-only feature build.
+
+## Learn more
+
+- [Rust guide](https://glowcap.org/bindings/rust/): the round trip, listening, async, and actors.
+- [Choosing a transport](https://glowcap.org/transports/choosing/), and the pages for
+  [iroh](https://glowcap.org/transports/iroh/), [WebRTC](https://glowcap.org/transports/webrtc/),
+  [Tor](https://glowcap.org/transports/onion/), and [relays](https://glowcap.org/relay/).
+- [The API every binding shares](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md),
+  and the [repository](https://github.com/glowcap-org/glowcap) for the C libraries and the other
+  bindings.
+
+glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
+what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
+explains.
