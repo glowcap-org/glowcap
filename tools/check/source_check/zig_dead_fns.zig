@@ -8,6 +8,7 @@
 //! other than its declaration.
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -48,16 +49,9 @@ fn checkFile(
     defer uses.deinit();
     var lines = std.mem.splitScalar(u8, contents, '\n');
     while (lines.next()) |line| {
-        const code = line[0 .. std.mem.indexOf(u8, line, "//") orelse line.len];
-        var i: usize = 0;
-        while (i < code.len) {
-            if (!isIdentStart(code[i])) {
-                i += 1;
-                continue;
-            }
-            const start = i;
-            while (i < code.len and isIdentChar(code[i])) i += 1;
-            const slot = try uses.getOrPut(code[start..i]);
+        var idents: text_match.IdentIter = .init(text_match.codeOfLine(line));
+        while (idents.next()) |word| {
+            const slot = try uses.getOrPut(word);
             if (!slot.found_existing) slot.value_ptr.* = 0;
             slot.value_ptr.* += 1;
         }
@@ -89,16 +83,8 @@ fn privateFnName(line: []const u8) ?[]const u8 {
     const open = std.mem.indexOfScalar(u8, rest, '(') orelse return null;
     const name = rest[0..open];
     if (name.len == 0) return null;
-    for (name) |c| if (!isIdentChar(c)) return null;
+    for (name) |c| if (!text_match.isIdentChar(c)) return null;
     return name;
-}
-
-fn isIdentStart(c: u8) bool {
-    return std.ascii.isAlphabetic(c) or c == '_';
-}
-
-fn isIdentChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
 test "a private fn named only by its declaration or a comment is dead" {

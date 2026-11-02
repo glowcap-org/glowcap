@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const source_tree = @import("../source_tree.zig");
+const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 const corpus = @import("corpus.zig");
 
@@ -73,16 +74,8 @@ fn isCode(path: []const u8) bool {
 }
 
 fn addWords(arena: std.mem.Allocator, words: *std.StringHashMapUnmanaged(void), text: []const u8) !void {
-    var at: usize = 0;
-    while (at < text.len) {
-        if (!isIdentStart(text[at])) {
-            at += 1;
-            continue;
-        }
-        const start = at;
-        while (at < text.len and isIdent(text[at])) at += 1;
-        try words.put(arena, text[start..at], {});
-    }
+    var idents: text_match.IdentIter = .init(text);
+    while (idents.next()) |word| try words.put(arena, word, {});
 }
 
 /// The first segment of a qualified name that the code lacks, when another
@@ -93,9 +86,9 @@ fn missing(span: []const u8, words: *const std.StringHashMapUnmanaged(void)) ?[]
     var count: usize = 0;
     var at: usize = 0;
     while (true) {
-        if (at >= name.len or !isIdentStart(name[at]) or count == segments.len) return null;
+        if (at >= name.len or !text_match.isIdentStart(name[at]) or count == segments.len) return null;
         const start = at;
-        while (at < name.len and isIdent(name[at])) at += 1;
+        while (at < name.len and text_match.isIdentChar(name[at])) at += 1;
         segments[count] = name[start..at];
         count += 1;
         if (at == name.len) break;
@@ -113,14 +106,6 @@ fn missing(span: []const u8, words: *const std.StringHashMapUnmanaged(void)) ?[]
         if (words.contains(segment)) known = true else if (gone == null) gone = segment;
     }
     return if (known) gone else null;
-}
-
-fn isIdentStart(c: u8) bool {
-    return std.ascii.isAlphabetic(c) or c == '_';
-}
-
-fn isIdent(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
 test "a qualified name is stale when part of it left the code" {

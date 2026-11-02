@@ -353,14 +353,7 @@ fn providerFinishConnect(
     }
 }
 
-fn providerCancelConnect(attempt_raw: ?*anyopaque, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const attempt: *ProviderDialAttempt = @ptrCast(@alignCast(attempt_raw orelse return GLOWCAP_OK));
-    if (attempt.completion.cancel())
-        _ = attempt.owner.tasks.reap(&attempt.operation)
-    else
-        _ = attempt.owner.tasks.cancel(&attempt.operation);
-    return GLOWCAP_OK;
-}
+const providerCancelConnect = c.transport_provider.cancelCallback(ProviderDialAttempt);
 
 fn providerListen(
     ctx: ?*anyopaque,

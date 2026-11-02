@@ -262,14 +262,7 @@ fn providerFinishConnect(
     }
 }
 
-fn providerCancelConnect(attempt_raw: ?*anyopaque, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const attempt: *attempts.Dial = @ptrCast(@alignCast(attempt_raw orelse return GLOWCAP_OK));
-    if (attempt.completion.cancel())
-        _ = attempt.owner.tasks.reap(&attempt.operation)
-    else
-        _ = attempt.owner.tasks.cancel(&attempt.operation);
-    return GLOWCAP_OK;
-}
+const providerCancelConnect = c.transport_provider.cancelCallback(attempts.Dial);
 
 fn providerListen(
     ctx: ?*anyopaque,
@@ -396,14 +389,7 @@ fn providerFinishListen(
     }
 }
 
-fn providerCancelListen(attempt_raw: ?*anyopaque, _: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const attempt: *attempts.Listen = @ptrCast(@alignCast(attempt_raw orelse return GLOWCAP_OK));
-    if (attempt.completion.cancel())
-        _ = attempt.owner.tasks.reap(&attempt.operation)
-    else
-        _ = attempt.owner.tasks.cancel(&attempt.operation);
-    return GLOWCAP_OK;
-}
+const providerCancelListen = c.transport_provider.cancelCallback(attempts.Listen);
 
 fn providerListenerWaitAcceptable(_: ?*anyopaque, listener: ?*anyopaque, timeout_ms: i32, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const raw = rawListener(listener);

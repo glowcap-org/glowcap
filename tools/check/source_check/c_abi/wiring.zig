@@ -32,15 +32,7 @@ pub fn checkHostActionArmLockstep(
 
     var action_names: std.ArrayList([]const u8) = .empty;
     defer action_names.deinit(gpa);
-    const needle = "#define GLOWCAP_HOST_ACTION_";
-    var rest = header;
-    while (std.mem.indexOf(u8, rest, needle)) |start| {
-        const after = rest[start + needle.len ..];
-        const name_end = std.mem.indexOfAny(u8, after, " \t\r\n") orelse after.len;
-        const name = after[0..name_end];
-        if (name.len != 0) try action_names.append(gpa, name);
-        rest = after[name_end..];
-    }
+    try text_match.namesAfterPrefix(gpa, header, "#define GLOWCAP_HOST_ACTION_", &action_names);
     if (action_names.items.len == 0) {
         try appendViolation(gpa, violations, "{s}: no GLOWCAP_HOST_ACTION_* for HostAction arm lockstep", .{header_path});
         return;

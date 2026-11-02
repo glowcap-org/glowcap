@@ -32,6 +32,48 @@ pub const css_dirs = [_][]const u8{
     "site/assets",
 };
 
+/// Run `visit` on every product stylesheet: the listed files, then each listed
+/// directory's `.css` files. The symlinked copies of `tokens.css` and
+/// `mark.css` are visited once at their canonical path, so they are skipped
+/// here. A directory that cannot be listed is a violation, not a skipped scan.
+pub fn forEachStylesheet(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    comptime visit: anytype,
+) !void {
+    for (css_files) |path| {
+        try visit(io, gpa, root, violations, path);
+    }
+    for (css_dirs) |dir_path| {
+        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch {
+            try appendViolation(gpa, violations, "{s}: could not be read", .{dir_path});
+            continue;
+        };
+        defer dir.close(io);
+        var it = dir.iterate();
+        while (true) {
+            const entry = (it.next(io) catch |err| {
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s}: failed while listing stylesheets with {s}",
+                    .{ dir_path, @errorName(err) },
+                );
+                break;
+            }) orelse break;
+            if (entry.kind == .directory) continue;
+            if (!std.mem.endsWith(u8, entry.name, ".css")) continue;
+            if (std.mem.eql(u8, entry.name, "tokens.css")) continue;
+            if (std.mem.eql(u8, entry.name, "mark.css")) continue;
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.name });
+            defer gpa.free(path);
+            try visit(io, gpa, root, violations, path);
+        }
+    }
+}
+
 /// The shared UI core is one directory that two independently-built surfaces
 /// consume through symlinks. Four things can silently break that, and none of
 /// them fails a build on its own:

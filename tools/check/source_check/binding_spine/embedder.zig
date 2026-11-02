@@ -26,6 +26,16 @@ const binding_error_context_patterns = [_][]const u8{
     "(check -", // Racket: (check ERR-…)
 };
 
+/// A binding source file that is not a generated constant mirror. `path` is
+/// relative to `bindings/`.
+fn keepHandwrittenBindingSource(path: []const u8) bool {
+    const is_source = std.mem.endsWith(u8, path, ".rs") or
+        std.mem.endsWith(u8, path, ".py") or
+        std.mem.endsWith(u8, path, ".ts") or
+        std.mem.endsWith(u8, path, ".rkt");
+    return is_source and !constants.isGeneratedBindingConstantFile(path);
+}
+
 /// Reject numeric error-code literals in handwritten binding claims and raise
 /// sites. Generated constant files are the sole numeric mirrors of the C ABI,
 /// binding code, tests, and docs must name those constants or typed errors.
@@ -35,27 +45,15 @@ pub fn checkBindingMagicErrorCodes(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, "bindings", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "bindings: failed to open for magic-error-code check with {s}", .{@errorName(err)});
+    const files = (try source_tree.collectSourceFiles(io, gpa, root, "bindings", keepHandwrittenBindingSource)) orelse {
+        try appendViolation(gpa, violations, "bindings: failed to open for magic-error-code check", .{});
         return;
     };
-    defer dir.close(io);
-    var walker = try dir.walkSelectively(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind == .directory) {
-            try source_tree.enterSourceDirectory(io, gpa, &walker, "bindings", entry);
-            continue;
-        }
-        if (entry.kind != .file) continue;
-        const is_source = std.mem.endsWith(u8, entry.path, ".rs") or
-            std.mem.endsWith(u8, entry.path, ".py") or
-            std.mem.endsWith(u8, entry.path, ".ts") or
-            std.mem.endsWith(u8, entry.path, ".rkt");
-        if (!is_source) continue;
-        if (constants.isGeneratedBindingConstantFile(entry.path)) continue;
-        const path = try std.fmt.allocPrint(gpa, "bindings/{s}", .{entry.path});
-        defer gpa.free(path);
+    defer {
+        for (files) |path| gpa.free(path);
+        gpa.free(files);
+    }
+    for (files) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for magic-error-code check with {s}", .{ path, @errorName(err) });
             continue;

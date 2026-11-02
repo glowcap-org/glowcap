@@ -71,33 +71,19 @@ pub fn checkPlaywrightPin(
     if (try checkPlaywrightImportMap(io, gpa, root, violations, "deno.json", expected, version, pins_path)) mapped_scopes += 1;
 
     for (playwright_scan_trees) |tree| {
-        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be opened for the Playwright pin check ({s})", .{ tree, @errorName(err) });
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, tree, keepPlaywrightScanned)) orelse {
+            try appendViolation(gpa, violations, "{s}: cannot be opened for the Playwright pin check", .{tree});
             continue;
         };
-        defer dir.close(io);
-        var walker = try dir.walkSelectively(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind == .directory) {
-                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
-                continue;
-            }
-            if (entry.kind != .file) continue;
-            // Vendored and generated trees carry no glowcap rule, and a lock
-            // file records a resolution rather than declaring one.
-            if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
-            if (std.mem.indexOf(u8, entry.path, "upstream/") != null) continue;
-            if (std.mem.indexOf(u8, entry.path, "dist/") != null) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
-            defer gpa.free(path);
-
-            if (std.mem.endsWith(u8, entry.path, "deno.json")) {
+        defer {
+            for (files) |path| gpa.free(path);
+            gpa.free(files);
+        }
+        for (files) |path| {
+            if (std.mem.endsWith(u8, path, "deno.json")) {
                 if (try checkPlaywrightImportMap(io, gpa, root, violations, path, expected, version, pins_path)) mapped_scopes += 1;
                 continue;
             }
-            if (!std.mem.endsWith(u8, entry.path, ".ts") and !std.mem.endsWith(u8, entry.path, ".tsx") and
-                !std.mem.endsWith(u8, entry.path, ".js") and !std.mem.endsWith(u8, entry.path, ".mjs")) continue;
 
             const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: cannot be read for the Playwright pin check ({s})", .{ path, @errorName(err) });
@@ -119,6 +105,18 @@ pub fn checkPlaywrightPin(
     if (mapped_scopes == 0) {
         try appendViolation(gpa, violations, "no deno.json maps `playwright`, so nothing anchors the browser proofs to the {s} pin any more", .{pins_path});
     }
+}
+
+/// The import maps and script sources a Playwright pin can sit in. Vendored
+/// and generated trees carry no glowcap rule, and a lock file records a
+/// resolution rather than declaring one.
+fn keepPlaywrightScanned(path: []const u8) bool {
+    if (std.mem.indexOf(u8, path, "node_modules/") != null) return false;
+    if (std.mem.indexOf(u8, path, "upstream/") != null) return false;
+    if (std.mem.indexOf(u8, path, "dist/") != null) return false;
+    if (std.mem.endsWith(u8, path, "deno.json")) return true;
+    return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx") or
+        std.mem.endsWith(u8, path, ".js") or std.mem.endsWith(u8, path, ".mjs");
 }
 
 /// One import map checked against the pin. Returns whether this file maps

@@ -212,6 +212,25 @@ pub fn retainCallback(comptime Payload: type) fn (?*anyopaque, ?*GlowcapProvider
     }.retain;
 }
 
+/// The provider table's `cancel_connect` or `cancel_listen` callback for an
+/// attempt that holds its `completion` and its owner's `tasks`: a completion
+/// that was still pending is cancelled and its operation cancelled with it,
+/// and one that already settled has its finished operation reaped. A null
+/// attempt is a no-op, since cancel is only for an attempt never passed to
+/// finish.
+pub fn cancelCallback(comptime Attempt: type) fn (?*anyopaque, ?*GlowcapProviderFailure) callconv(.c) i32 {
+    return struct {
+        fn cancel(attempt_raw: ?*anyopaque, _: ?*GlowcapProviderFailure) callconv(.c) i32 {
+            const attempt: *Attempt = @ptrCast(@alignCast(attempt_raw orelse return codes.GLOWCAP_OK));
+            if (attempt.completion.cancel())
+                _ = attempt.owner.tasks.reap(&attempt.operation)
+            else
+                _ = attempt.owner.tasks.cancel(&attempt.operation);
+            return codes.GLOWCAP_OK;
+        }
+    }.cancel;
+}
+
 pub fn setProviderFailure(out: ?*GlowcapProviderFailure, result: i32, cause: anyerror) void {
     const slot = out orelse return;
     const name = @errorName(cause);

@@ -4,9 +4,9 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libglowcap_net_transport_inproc`. The
-// hand-written sibling (`inproc.rs`) owns the opaque types and re-exports
-// this block, so consumers keep their `sys::inproc::glowcap_inproc_*` paths.
+// The raw extern block of `libglowcap_net_transport_inproc`. The hand-written
+// sibling (`inproc.rs`) owns the opaque types and re-exports this block, so
+// consumers keep their `sys::inproc::glowcap_inproc_*` paths.
 
 #![allow(dead_code)]
 

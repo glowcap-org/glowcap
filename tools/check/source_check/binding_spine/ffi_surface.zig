@@ -88,6 +88,26 @@ fn declaredDeferredReason(binding: []const u8, symbol: []const u8) ?[]const u8 {
     return null;
 }
 
+/// The index of the reflected binding that owns `rel_path` (relative to
+/// `bindings/`), or null for a path in no reflected binding or the binding's
+/// own generated declaration table.
+fn reflectedBindingOf(rel_path: []const u8) ?usize {
+    for (reflected_ffi_bindings, 0..) |b, bi| {
+        if (!std.mem.startsWith(u8, rel_path, b.prefix)) continue;
+        if (std.mem.eql(u8, rel_path, b.gen_ffi)) return null;
+        return bi;
+    }
+    return null;
+}
+
+fn keepReflectedBindingSource(rel_path: []const u8) bool {
+    const is_source = std.mem.endsWith(u8, rel_path, ".rs") or
+        std.mem.endsWith(u8, rel_path, ".py") or
+        std.mem.endsWith(u8, rel_path, ".ts") or
+        std.mem.endsWith(u8, rel_path, ".rkt");
+    return is_source and reflectedBindingOf(rel_path) != null;
+}
+
 /// One reflected driver symbol and whether the binding wires it anywhere.
 const ReflectedSymbol = struct { name: []const u8, seen: bool = false };
 
@@ -158,35 +178,16 @@ pub fn checkBindingReflectedFfiWired(
 
     // 2. Walk the binding sources; a symbol is wired once it appears in any file
     //    other than its own declaration table.
-    var dir = root.openDir(io, "bindings", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "bindings: failed to open for reflected-wired check with {s}", .{@errorName(err)});
+    const files = (try source_tree.collectSourceFiles(io, gpa, root, "bindings", keepReflectedBindingSource)) orelse {
+        try appendViolation(gpa, violations, "bindings: failed to open for reflected-wired check", .{});
         return;
     };
-    defer dir.close(io);
-    var walker = try dir.walkSelectively(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind == .directory) {
-            try source_tree.enterSourceDirectory(io, gpa, &walker, "bindings", entry);
-            continue;
-        }
-        if (entry.kind != .file) continue;
-        const is_source = std.mem.endsWith(u8, entry.path, ".rs") or
-            std.mem.endsWith(u8, entry.path, ".py") or
-            std.mem.endsWith(u8, entry.path, ".ts") or
-            std.mem.endsWith(u8, entry.path, ".rkt");
-        if (!is_source) continue;
-        var bi_opt: ?usize = null;
-        for (reflected_ffi_bindings, 0..) |b, bi| {
-            if (std.mem.startsWith(u8, entry.path, b.prefix)) {
-                bi_opt = bi;
-                break;
-            }
-        }
-        const bi = bi_opt orelse continue;
-        if (std.mem.eql(u8, entry.path, reflected_ffi_bindings[bi].gen_ffi)) continue;
-        const path = try std.fmt.allocPrint(gpa, "bindings/{s}", .{entry.path});
-        defer gpa.free(path);
+    defer {
+        for (files) |path| gpa.free(path);
+        gpa.free(files);
+    }
+    for (files) |path| {
+        const bi = reflectedBindingOf(path["bindings/".len..]) orelse continue;
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for reflected-wired check with {s}", .{ path, @errorName(err) });
             continue;

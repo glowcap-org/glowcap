@@ -49,26 +49,19 @@ fn checkMarkdownLinksUnder(
     violations: *std.ArrayList([]const u8),
     dir_path: []const u8,
 ) !void {
-    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to open for Markdown link check with {s}", .{ dir_path, @errorName(err) });
+    const files = (try source_tree.collectSourceFiles(io, gpa, root, dir_path, isMarkdown)) orelse {
+        try appendViolation(gpa, violations, "{s}: failed to open for Markdown link check", .{dir_path});
         return;
     };
-    defer dir.close(io);
-
-    var walker = try dir.walkSelectively(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind == .directory) {
-            try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
-            continue;
-        }
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
-
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
-        defer gpa.free(path);
-        try checkMarkdownLinksInFile(io, gpa, root, violations, path);
+    defer {
+        for (files) |path| gpa.free(path);
+        gpa.free(files);
     }
+    for (files) |path| try checkMarkdownLinksInFile(io, gpa, root, violations, path);
+}
+
+fn isMarkdown(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".md");
 }
 
 fn checkMarkdownLinksInFile(
@@ -174,31 +167,23 @@ fn checkRepoBlobLinksUnder(
     violations: *std.ArrayList([]const u8),
     dir_path: []const u8,
 ) !void {
-    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to open for blob link check with {s}", .{ dir_path, @errorName(err) });
+    const files = (try source_tree.collectSourceFiles(io, gpa, root, dir_path, isBlobLinkProse)) orelse {
+        try appendViolation(gpa, violations, "{s}: failed to open for blob link check", .{dir_path});
         return;
     };
-    defer dir.close(io);
-
-    var walker = try dir.walkSelectively(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind == .directory) {
-            try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
-            continue;
-        }
-        if (entry.kind != .file) continue;
-        const is_prose = std.mem.endsWith(u8, entry.path, ".md") or
-            std.mem.endsWith(u8, entry.path, ".smd");
-        if (!is_prose) continue;
-        // Vendored trees and dependency caches are not ours to fix.
-        if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
-        if (std.mem.indexOf(u8, entry.path, "upstream/") != null) continue;
-
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
-        defer gpa.free(path);
-        try checkRepoBlobLinksInFile(io, gpa, root, violations, path);
+    defer {
+        for (files) |path| gpa.free(path);
+        gpa.free(files);
     }
+    for (files) |path| try checkRepoBlobLinksInFile(io, gpa, root, violations, path);
+}
+
+fn isBlobLinkProse(path: []const u8) bool {
+    const is_prose = std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".smd");
+    // Vendored trees and dependency caches are not ours to fix.
+    return is_prose and
+        std.mem.indexOf(u8, path, "node_modules/") == null and
+        std.mem.indexOf(u8, path, "upstream/") == null;
 }
 
 const blob_link_prefix = "github.com/glowcap-org/glowcap/";

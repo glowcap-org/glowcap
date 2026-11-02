@@ -1,6 +1,7 @@
 //! Text matching over source contents: required-text and presence checks on a
 //! file, whitespace-insensitive and whole-symbol matching, brace-block
-//! extraction, and leading-integer parsing.
+//! extraction, leading-integer parsing, and the identifier scans over code
+//! lines.
 
 const std = @import("std");
 const violation_log = @import("violation_log.zig");
@@ -146,4 +147,74 @@ pub fn containsAsSymbol(haystack: []const u8, needle: []const u8) bool {
 /// header text stops at.
 pub fn isIdentChar(byte: u8) bool {
     return std.ascii.isAlphanumeric(byte) or byte == '_';
+}
+
+/// Whether `byte` can begin an identifier.
+pub fn isIdentStart(byte: u8) bool {
+    return std.ascii.isAlphabetic(byte) or byte == '_';
+}
+
+/// `line` before its `//` comment, or all of it. A `//` inside a string
+/// literal cuts the line short, which only drops identifiers and never
+/// invents one.
+pub fn codeOfLine(line: []const u8) []const u8 {
+    return line[0 .. std.mem.indexOf(u8, line, "//") orelse line.len];
+}
+
+/// Identifiers of one code line, in order.
+pub const IdentIter = struct {
+    code: []const u8,
+    i: usize = 0,
+
+    pub fn init(code: []const u8) IdentIter {
+        return .{ .code = code };
+    }
+
+    pub fn next(self: *IdentIter) ?[]const u8 {
+        while (self.i < self.code.len) {
+            if (!isIdentStart(self.code[self.i])) {
+                self.i += 1;
+                continue;
+            }
+            const start = self.i;
+            while (self.i < self.code.len and isIdentChar(self.code[self.i])) self.i += 1;
+            return self.code[start..self.i];
+        }
+        return null;
+    }
+};
+
+test "IdentIter walks the identifiers before a comment" {
+    var it = IdentIter.init(codeOfLine("const x_1 = f(\"word\", 7); // skipped name"));
+    const expected = [_][]const u8{ "const", "x_1", "f", "word" };
+    for (expected) |name| try std.testing.expectEqualStrings(name, it.next().?);
+    try std.testing.expect(it.next() == null);
+}
+
+/// Every name that follows `prefix` in `text`, up to the next whitespace, in
+/// order of appearance. Empty names are skipped.
+pub fn namesAfterPrefix(
+    gpa: std.mem.Allocator,
+    text: []const u8,
+    prefix: []const u8,
+    out: *std.ArrayList([]const u8),
+) !void {
+    var rest = text;
+    while (std.mem.indexOf(u8, rest, prefix)) |start| {
+        const after = rest[start + prefix.len ..];
+        const name_end = std.mem.indexOfAny(u8, after, " \t\r\n") orelse after.len;
+        const name = after[0..name_end];
+        if (name.len != 0) try out.append(gpa, name);
+        rest = after[name_end..];
+    }
+}
+
+test "namesAfterPrefix collects each name, skips an empty one, and reads a trailing one" {
+    const gpa = std.testing.allocator;
+    var names: std.ArrayList([]const u8) = .empty;
+    defer names.deinit(gpa);
+    try namesAfterPrefix(gpa, "#define A_ONE 1\n#define A_ \n#define A_TWO", "#define A_", &names);
+    try std.testing.expectEqual(@as(usize, 2), names.items.len);
+    try std.testing.expectEqualStrings("ONE", names.items[0]);
+    try std.testing.expectEqualStrings("TWO", names.items[1]);
 }

@@ -39,9 +39,9 @@ pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/ocapn_fns_gen.rs", .generate = generateOcapn },
     .{ .path = "bindings/rust/src/sys/host_fns_gen.rs", .generate = generateHost },
     .{ .path = "bindings/rust/src/sys/driver_fns_gen.rs", .generate = generateLoop },
-    .{ .path = "bindings/rust/src/sys/tcp_fns_gen.rs", .generate = generateTcp },
-    .{ .path = "bindings/rust/src/sys/inproc_fns_gen.rs", .generate = generateInproc },
-    .{ .path = "bindings/rust/src/sys/onion_fns_gen.rs", .generate = generateOnion },
+    .{ .path = "bindings/rust/src/sys/tcp_fns_gen.rs", .generate = transportGenerator(tcp) },
+    .{ .path = "bindings/rust/src/sys/inproc_fns_gen.rs", .generate = transportGenerator(inproc) },
+    .{ .path = "bindings/rust/src/sys/onion_fns_gen.rs", .generate = transportGenerator(onion) },
     .{ .path = "bindings/rust/src/sys/iroh_fns_gen.rs", .generate = generateIroh },
     .{ .path = "bindings/rust/src/sys/webrtc_fns_gen.rs", .generate = generateWebrtc },
     .{ .path = "bindings/rust/src/sys/relay_fns_gen.rs", .generate = generateRelay },
@@ -298,50 +298,62 @@ fn generateHost(gpa: std.mem.Allocator) ![]u8 {
     });
 }
 
-fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, ct, "include/glowcap_net_transport_tcp.h",
-        \\// The raw extern block of `libglowcap_net_transport_tcp`. The hand-written
-        \\// sibling (`tcp.rs`) owns the opaque types and re-exports this block, so
-        \\// consumers keep their `sys::tcp::glowcap_tcp_*` paths.
-        \\
-        \\
-    , "use core::ffi::{c_int, c_uchar, c_uint};\n\n" ++
-        "use super::tcp::{GlowcapTcpConfig, GlowcapTcpConn, GlowcapTcpListener, GlowcapTcpNetlayer, GlowcapTcpStreamOptions};\n" ++
-        "use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};\n", &.{});
+/// A transport archive whose hand-written sibling owns the opaque types and
+/// re-exports the generated block.
+const Transport = struct {
+    module: type,
+    name: []const u8,
+    uses: []const u8,
+};
+
+fn transportGenerator(comptime t: Transport) *const fn (std.mem.Allocator) anyerror![]u8 {
+    return struct {
+        const note = "// The raw extern block of `libglowcap_net_transport_" ++ t.name ++ "`. The hand-written\n" ++
+            "// sibling (`" ++ t.name ++ ".rs`) owns the opaque types and re-exports this block, so\n" ++
+            "// consumers keep their `sys::" ++ t.name ++ "::glowcap_" ++ t.name ++ "_*` paths.\n\n";
+
+        fn generate(gpa: std.mem.Allocator) anyerror![]u8 {
+            return renderArchive(gpa, t.module, "include/glowcap_net_transport_" ++ t.name ++ ".h", note, t.uses, &.{});
+        }
+    }.generate;
 }
 
-fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, cin, "include/glowcap_net_transport_inproc.h",
-        \\// The raw extern block of `libglowcap_net_transport_inproc`. The
-        \\// hand-written sibling (`inproc.rs`) owns the opaque types and re-exports
-        \\// this block, so consumers keep their `sys::inproc::glowcap_inproc_*` paths.
-        \\
-        \\
+const tcp = Transport{
+    .module = ct,
+    .name = "tcp",
+    .uses =
+    \\use core::ffi::{c_int, c_uchar, c_uint};
+    \\
+    \\use super::tcp::{GlowcapTcpConfig, GlowcapTcpConn, GlowcapTcpListener, GlowcapTcpNetlayer, GlowcapTcpStreamOptions};
+    \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
+    \\
     ,
-        \\use core::ffi::{c_int, c_uchar, c_uint};
-        \\
-        \\use super::inproc::{GlowcapInprocConn, GlowcapInprocListener, GlowcapInprocNetlayer};
-        \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame};
-        \\
-    , &.{});
-}
+};
 
-fn generateOnion(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, con, "include/glowcap_net_transport_onion.h",
-        \\// The raw extern block of `libglowcap_net_transport_onion`. The
-        \\// hand-written sibling (`onion.rs`) owns the opaque types and re-exports
-        \\// this block, so consumers keep their `sys::onion::glowcap_onion_*` paths.
-        \\
-        \\
+const inproc = Transport{
+    .module = cin,
+    .name = "inproc",
+    .uses =
+    \\use core::ffi::{c_int, c_uchar, c_uint};
+    \\
+    \\use super::inproc::{GlowcapInprocConn, GlowcapInprocListener, GlowcapInprocNetlayer};
+    \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame};
+    \\
     ,
-        \\use core::ffi::{c_int, c_uchar, c_uint};
-        \\
-        \\use super::onion::{GlowcapOnionConfig, GlowcapOnionConn};
-        \\use super::onion::{GlowcapOnionListener, GlowcapOnionNetlayer};
-        \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
-        \\
-    , &.{});
-}
+};
+
+const onion = Transport{
+    .module = con,
+    .name = "onion",
+    .uses =
+    \\use core::ffi::{c_int, c_uchar, c_uint};
+    \\
+    \\use super::onion::{GlowcapOnionConfig, GlowcapOnionConn};
+    \\use super::onion::{GlowcapOnionListener, GlowcapOnionNetlayer};
+    \\use crate::sys::{GlowcapContext, GlowcapFrame, GlowcapManagedFrame, GlowcapTransportProvider};
+    \\
+    ,
+};
 
 fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
     return renderArchive(gpa, ci, "include/glowcap_net_transport_iroh.h",
