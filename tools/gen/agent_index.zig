@@ -97,7 +97,10 @@ fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8
                 .{ entry.path[0 .. entry.path.len - ".md".len], entry.path }
             else
                 continue,
-            .hook => if (entry.kind == .file and std.mem.endsWith(u8, entry.path, ".sh")) .{ entry.path[0 .. entry.path.len - ".sh".len], entry.path } else continue,
+            .hook => if (entry.kind == .file and !std.mem.endsWith(u8, entry.path, ".md"))
+                .{ if (std.mem.endsWith(u8, entry.path, ".sh")) entry.path[0 .. entry.path.len - ".sh".len] else entry.path, entry.path }
+            else
+                continue,
         };
         const full = try std.fs.path.join(gpa, &.{ path, file });
         const text = try cwd.readFileAlloc(io, full, gpa, .limited(1 << 20));

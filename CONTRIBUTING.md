@@ -65,6 +65,10 @@ finishes, run `zig build check`. A host setup can use
 [the dependency list](docs/dependencies.md) and
 `conformance/bootstrap-submodules.sh` instead.
 
+Opening the devcontainer also installs the pre-commit hook, which formats
+staged Zig, Rust, TypeScript, JavaScript, and Python files. A plain clone runs
+`git config core.hooksPath .agents/hooks` once to install the same hook.
+
 ## Preview startup
 
 `zig build docs-serve` and `zig build rooms-dev` build their prerequisites

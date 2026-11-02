@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# glowcap: Format the staged Zig, Rust, TypeScript, JavaScript, and Python files and stage the result.
+#
+# Caller: git, as the pre-commit hook, once `core.hooksPath` is `.agents/hooks`.
+# The devcontainer sets it (.devcontainer/hooks/post-create.sh) and a plain
+# clone runs `git config core.hooksPath .agents/hooks`.
+#
+# Effect: formats the staged files of those extensions through lib/format.sh and
+# re-stages them. A file with unstaged changes is refused, because formatting
+# the working copy would fold those edits into the commit. A formatter that
+# rejects a file refuses the commit.
+#
+# Formatters on PATH run directly. When one is missing, the formatting step runs
+# through the devcontainer front (.devcontainer/bin/run.sh) instead, and a
+# failure of the front refuses the commit and names `git commit --no-verify`.
+#
+# Environment: GLOWCAP_HOOK_FRONT replaces the front's path, for the hook's test.
+# Output: only what the formatters print on success, and one message on refusal.
+# Exit status: 0 to commit, 1 to refuse. Written for bash 3.2.
+
+set -uo pipefail
+
+hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/format.sh
+source "${hook_dir}/lib/format.sh"
+repo_root="$(git rev-parse --show-toplevel)" || exit 1
+cd "${repo_root}" || exit 1
+
+# Every path below is a literal file name, never a pathspec pattern.
+export GIT_LITERAL_PATHSPECS=1
+
+kept=()
+while IFS= read -r -d '' path; do
+  glowcap_format_supports "${path}" && kept+=("${path}")
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+
+[[ ${#kept[@]} -gt 0 ]] || exit 0
+
+partial=()
+while IFS= read -r -d '' path; do
+  partial+=("${path}")
+done < <(git diff --name-only -z -- "${kept[@]}")
+
+if [[ ${#partial[@]} -gt 0 ]]; then
+  {
+    printf 'pre-commit: these files have unstaged changes, and formatting them would fold those edits into the commit:\n'
+    printf '  %s\n' "${partial[@]}"
+    printf 'Stage the whole file (git add <file>) or stash the rest (git stash push --keep-index), then commit again.\n'
+  } >&2
+  exit 1
+fi
+
+missing="$(glowcap_format_missing_tools "${kept[@]}")"
+if [[ -z "${missing}" ]]; then
+  if ! glowcap_format_files "${kept[@]}"; then
+    printf 'pre-commit: a formatter rejected the staged files above. Fix them and commit again.\n' >&2
+    exit 1
+  fi
+else
+  front="${GLOWCAP_HOOK_FRONT:-${repo_root}/.devcontainer/bin/run.sh}"
+  if ! "${front}" bash .agents/hooks/lib/format.sh "${kept[@]}" </dev/null; then
+    {
+      printf 'pre-commit: %s is not on PATH, and formatting through the devcontainer front failed (see above).\n' \
+        "${missing//$'\n'/ }"
+      printf 'Fix the reported file, start the devcontainer, or skip the hook once with: git commit --no-verify\n'
+    } >&2
+    exit 1
+  fi
+fi
+
+git add -- "${kept[@]}"

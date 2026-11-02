@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # glowcap: Format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript, Python).
 # Racket has no single-file formatter on PATH; the `bindings-fmt-check` gate
-# holds it.
+# holds it. The formatters and their per-extension rules live in lib/format.sh,
+# which the pre-commit hook shares.
 #
 # Wired from:
 #   .cursor/hooks.json    (afterFileEdit), input is .file_path
@@ -21,40 +22,12 @@ file_path="$(jq -r '.file_path // .tool_input.file_path // empty')"
 [[ -z "$file_path" ]] && exit 0
 [[ ! -f "$file_path" ]] && exit 0
 
-abs_path="$(realpath "$file_path")"
+hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/format.sh
+source "${hook_dir}/lib/format.sh"
 
-case "$abs_path" in
-  *.zig)
-    if ! command -v zig >/dev/null 2>&1; then
-      printf 'glowcap hook: zig not on PATH; skipping %s\n' "$abs_path" >&2
-      exit 0
-    fi
-    zig fmt "$abs_path" >&2 || true
-    ;;
-  *.rs)
-    if ! command -v rustfmt >/dev/null 2>&1; then
-      printf 'glowcap hook: rustfmt not on PATH; skipping %s\n' "$abs_path" >&2
-      exit 0
-    fi
-    # Discover the file's config, but never walk its child modules: this hook
-    # owns only the edited file. infrastructure-check exercises that boundary.
-    rustfmt --config skip_children=true "$abs_path" >&2 || true
-    ;;
-  *.ts|*.tsx|*.js)
-    if ! command -v deno >/dev/null 2>&1; then
-      printf 'glowcap hook: deno not on PATH; skipping %s\n' "$abs_path" >&2
-      exit 0
-    fi
-    # Run from the file's directory so deno discovers the nearest deno.json
-    # (the bindings workspace and the root scope carry different fmt blocks).
-    (cd "$(dirname "$abs_path")" && deno fmt "$abs_path") >&2 || true
-    ;;
-  *.py)
-    if ! command -v ruff >/dev/null 2>&1; then
-      printf 'glowcap hook: ruff not on PATH; skipping %s\n' "$abs_path" >&2
-      exit 0
-    fi
-    # Run from the file's directory so ruff discovers the root ruff.toml.
-    (cd "$(dirname "$abs_path")" && ruff format "$abs_path") >&2 || true
-    ;;
-esac
+# The caller's directory decides where ruff runs, so start from the file's own.
+file_dir="$(cd "$(dirname "$file_path")" && pwd -P)"
+cd "$file_dir" || exit 0
+glowcap_format_files "${file_dir}/$(basename "$file_path")" || true
+exit 0

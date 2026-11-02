@@ -69,4 +69,5 @@ wiring, frontmatter, the index, and links.
 | Hook | Purpose |
 | --- | --- |
 | [format-edited-file](hooks/format-edited-file.sh) | Format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript, Python). |
+| [pre-commit](hooks/pre-commit) | Format the staged Zig, Rust, TypeScript, JavaScript, and Python files and stage the result. |
 <!-- /agent-index -->
