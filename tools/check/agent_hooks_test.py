@@ -25,12 +25,7 @@ class EditHookTests(unittest.TestCase):
 
     def run_hook(self, payload):
         result = subprocess.run(
-            ["bash", str(HOOK)],
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            cwd=self.caller,
-            timeout=10,
+            ["bash", str(HOOK)], input=json.dumps(payload), text=True, capture_output=True, cwd=self.caller, timeout=10
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return result

@@ -45,22 +45,11 @@ from ._constants import (
 from ._constants import OK as _OK
 from ._errors import GlowcapError
 from ._ffi import FfiHandle, _FfiHandleOwner
-from ._ffi_ocapn import (
-    _borrowed_byte_frame,
-    _copy_managed_frame,
-    _ManagedFrame,
-    _read_last_error,
-    _str_buf,
-)
+from ._ffi_ocapn import _borrowed_byte_frame, _copy_managed_frame, _ManagedFrame, _read_last_error, _str_buf
 from ._ffi_tcp import _tcp_lib, _TcpConfig, _TcpStreamOptions
 from ._locator import Locator, designator_host_port
 from ._socket_address import address_designator
-from ._transport import (
-    Connector,
-    Provider,
-    _rollback_failed_provider,
-    _rollback_failed_transport,
-)
+from ._transport import Connector, Provider, _rollback_failed_provider, _rollback_failed_transport
 
 __all__ = [
     "Server",
@@ -107,11 +96,7 @@ def _stream_options(value: StreamOptions) -> _TcpStreamOptions:
     keepalive = value.keepalive
     if keepalive is None:
         return _TcpStreamOptions()
-    return _TcpStreamOptions(
-        keepalive.idle_seconds,
-        keepalive.interval_seconds,
-        keepalive.count,
-    )
+    return _TcpStreamOptions(keepalive.idle_seconds, keepalive.interval_seconds, keepalive.count)
 
 
 def _stream_options_ptr(value: StreamOptions | None):
@@ -151,12 +136,7 @@ async def _open_byte_channel(host: str, port: int) -> _TcpByteChannel:
 
 def locator(host: str, port: int) -> Locator:
     """Build the plain TCP profile's typed OCapN locator."""
-    return Locator(
-        TRANSPORT_TCP,
-        address_designator(host, port),
-        {},
-        "boolean-false",
-    )
+    return Locator(TRANSPORT_TCP, address_designator(host, port), {}, "boolean-false")
 
 
 class _KeyAddressedProfile:
@@ -167,12 +147,7 @@ class _KeyAddressedProfile:
 
     def locator(self, designator: str, host: str, port: int) -> Locator:
         """Build this key-addressed TCP profile's typed locator."""
-        return Locator(
-            self._transport,
-            designator,
-            {HINT_DIRECT_ADDRESSES: address_designator(host, port)},
-            "map",
-        )
+        return Locator(self._transport, designator, {HINT_DIRECT_ADDRESSES: address_designator(host, port)}, "map")
 
     async def listen(
         self,
@@ -190,13 +165,7 @@ class _KeyAddressedProfile:
 
         bind = listen_keyed if self._transport == TRANSPORT_KEYED_TCP else listen_noise
         return await bind(
-            bind_host,
-            port,
-            seed=seed,
-            codec=codec,
-            advertised_host=advertised_host,
-            host=host,
-            config=config,
+            bind_host, port, seed=seed, codec=codec, advertised_host=advertised_host, host=host, config=config
         )
 
 
@@ -242,11 +211,7 @@ class TcpConnection(_FfiHandleOwner):
     def __init__(self, raw, netlayer: TcpNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
-            raw,
-            _release_connection,
-            _shutdown_connection,
-            label="TCP connection",
-            keepalive=netlayer,
+            raw, _release_connection, _shutdown_connection, label="TCP connection", keepalive=netlayer
         )
         self._reads = threading.Lock()
         self._writes = threading.Lock()
@@ -283,11 +248,7 @@ class TcpListener(_FfiHandleOwner):
     def __init__(self, raw, netlayer: TcpNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
-            raw,
-            _release_listener,
-            _tcp_lib.glowcap_tcp_listener_shutdown,
-            label="TCP listener",
-            keepalive=netlayer,
+            raw, _release_listener, _tcp_lib.glowcap_tcp_listener_shutdown, label="TCP listener", keepalive=netlayer
         )
         self._accepts = threading.Lock()
         if not netlayer._adopt(self):
@@ -333,14 +294,7 @@ class TcpListener(_FfiHandleOwner):
             out = ctypes.c_void_p()
             _check_tcp(
                 _tcp_lib.glowcap_tcp_accept(
-                    raw,
-                    options_ptr,
-                    _codec_id(codec),
-                    max_frame_bytes,
-                    ctypes.byref(out),
-                    None,
-                    0,
-                    None,
+                    raw, options_ptr, _codec_id(codec), max_frame_bytes, ctypes.byref(out), None, 0, None
                 )
             )
             _ = raw_options
@@ -355,12 +309,7 @@ class TcpNetlayer(_FfiHandleOwner):
         out = ctypes.c_void_p()
         raw_config = _TcpConfig(_stream_options(config.stream))
         _check_tcp(_tcp_lib.glowcap_tcp_netlayer_new(ctypes.byref(raw_config), ctypes.byref(out)))
-        self._ffi = FfiHandle(
-            out,
-            _release_netlayer,
-            _tcp_lib.glowcap_tcp_netlayer_shutdown,
-            label="TCP netlayer",
-        )
+        self._ffi = FfiHandle(out, _release_netlayer, _tcp_lib.glowcap_tcp_netlayer_shutdown, label="TCP netlayer")
         # Children borrow this netlayer's pinned std.Io backend. A weak set
         # lets each child retain the owner without forming an ownership cycle;
         # explicit release still retires every child before the backend.
@@ -480,12 +429,7 @@ def connector() -> Connector:
         try:
             from ._session import Session
 
-            return await Session.establish_dialed_locator(
-                host,
-                locator,
-                channel,
-                handshake_timeout_ms,
-            )
+            return await Session.establish_dialed_locator(host, locator, channel, handshake_timeout_ms)
         except BaseException as primary:
             await _rollback_failed_transport(primary, channel)
             raise

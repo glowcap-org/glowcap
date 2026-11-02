@@ -26,13 +26,7 @@ def ignore_port_args(gate: str, *, argv: list[str] | None = None) -> None:
             fail(gate, f"unknown argument '{arg}'")
 
 
-def parse_port(
-    gate: str,
-    default: int,
-    *,
-    max_port: int = 65535,
-    argv: list[str] | None = None,
-) -> int:
+def parse_port(gate: str, default: int, *, max_port: int = 65535, argv: list[str] | None = None) -> int:
     port = default
     for arg in argv if argv is not None else sys.argv[1:]:
         if arg.startswith("--port="):
@@ -44,31 +38,17 @@ def parse_port(
     return port
 
 
-async def read_swiss(
-    proc: asyncio.subprocess.Process,
-    gate: str,
-    *,
-    miss: str = "never saw the readiness line",
-) -> str:
+async def read_swiss(proc: asyncio.subprocess.Process, gate: str, *, miss: str = "never saw the readiness line") -> str:
     return await _read_readiness_field(proc, gate, "swiss", miss=miss)
 
 
 async def read_sturdyref_path(
-    proc: asyncio.subprocess.Process,
-    gate: str,
-    *,
-    miss: str = "never saw the sturdyref path readiness field",
+    proc: asyncio.subprocess.Process, gate: str, *, miss: str = "never saw the sturdyref path readiness field"
 ) -> str:
     return await _read_readiness_field(proc, gate, "sturdyref-path", miss=miss)
 
 
-async def _read_readiness_field(
-    proc: asyncio.subprocess.Process,
-    gate: str,
-    field: str,
-    *,
-    miss: str,
-) -> str:
+async def _read_readiness_field(proc: asyncio.subprocess.Process, gate: str, field: str, *, miss: str) -> str:
     assert proc.stdout is not None
     deadline = asyncio.get_running_loop().time() + 30.0
     while asyncio.get_running_loop().time() < deadline:
@@ -89,10 +69,7 @@ async def accept_loop(server) -> None:
 
 
 async def await_greeter_ready(
-    proc: asyncio.subprocess.Process,
-    gate: str,
-    *,
-    miss: str = "never saw the exporter's greeter readiness line",
+    proc: asyncio.subprocess.Process, gate: str, *, miss: str = "never saw the exporter's greeter readiness line"
 ) -> None:
     assert proc.stdout is not None
     deadline = asyncio.get_running_loop().time() + 30.0

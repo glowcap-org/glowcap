@@ -63,11 +63,7 @@ _Argument._fields_ = [
 
 
 class _Frame(ctypes.Structure):
-    _fields_ = [
-        ("bytes", ctypes.c_void_p),
-        ("len", ctypes.c_size_t),
-        ("shape", ctypes.c_uint32),
-    ]
+    _fields_ = [("bytes", ctypes.c_void_p), ("len", ctypes.c_size_t), ("shape", ctypes.c_uint32)]
 
 
 class _ManagedFrame(ctypes.Structure):
@@ -261,11 +257,7 @@ def _borrowed_byte_frame(data: bytes) -> tuple[_Frame, ctypes.c_char_p]:
 
 def _load():
     ocapn = ctypes.CDLL(str(_lib_path("glowcap_ocapn")))
-    require_archive_fingerprint(
-        lambda: ocapn.glowcap_ocapn_archive_fingerprint,
-        "ocapn",
-        OCAPN_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: ocapn.glowcap_ocapn_archive_fingerprint, "ocapn", OCAPN_ARCHIVE_FINGERPRINT)
     facade = _Lib(ocapn)
     _bind(
         facade,

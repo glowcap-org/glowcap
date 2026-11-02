@@ -11,29 +11,10 @@ import threading
 from contextvars import ContextVar
 
 import glowcap
-from glowcap import (
-    Forward,
-    GlowcapError,
-    Host,
-    Ref,
-    Runtime,
-    SendRedeemingResult,
-    VowBroken,
-    tcp,
-)
-from glowcap.onion import (
-    AUTH_COOKIE,
-    AUTH_PASSWORD,
-    SERVICE_ID_LENGTH,
-    OnionConfig,
-    OnionNetlayer,
-)
-from glowcap.onion import (
-    listen as onion_listen,
-)
-from glowcap.onion import (
-    provider as onion_provider,
-)
+from glowcap import Forward, GlowcapError, Host, Ref, Runtime, SendRedeemingResult, VowBroken, tcp
+from glowcap.onion import AUTH_COOKIE, AUTH_PASSWORD, SERVICE_ID_LENGTH, OnionConfig, OnionNetlayer
+from glowcap.onion import listen as onion_listen
+from glowcap.onion import provider as onion_provider
 
 from smoke.runtime import tcp_connect
 
@@ -102,15 +83,9 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         # must retain the exact inbox the broker holds, not whatever the name
         # resolves to at withdrawal (ADR-0026, on the binding path).
         decoy_delivered: list = []
-        bob.host.publish(
-            "dm",
-            lambda verb, args: decoy_delivered.append(args[0]) if verb == "dm" else None,
-        )
+        bob.host.publish("dm", lambda verb, args: decoy_delivered.append(args[0]) if verb == "dm" else None)
 
-        broker.host.publish(
-            "introducer",
-            lambda verb, args: bob_dm if verb == "introduce" else "no capability here",
-        )
+        broker.host.publish("introducer", lambda verb, args: bob_dm if verb == "introduce" else "no capability here")
 
         # Keep Carol's Host on the byte-fed tier. The handoff redeem below must
         # open its exporter TCP channel on that same active Host; attempting to
@@ -119,11 +94,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         carol_host = Host()
         from glowcap.tcp import connector as tcp_connector
 
-        runtime = await Runtime.open(
-            adopt_host=carol_host,
-            connector=tcp_connector(),
-            handshake_timeout_ms=10_000,
-        )
+        runtime = await Runtime.open(adopt_host=carol_host, connector=tcp_connector(), handshake_timeout_ms=10_000)
         carol = await runtime.connect(carol_locator)
         carol.serve()
         introducer = await carol.fetch("introducer")
@@ -272,10 +243,7 @@ def _listen_with_auth(auth_kind: int, secret) -> str:
     thread = threading.Thread(target=_fake_control, args=(control, seen), daemon=True)
     thread.start()
     with OnionNetlayer(
-        socks=_ABSENT_SOCKS,
-        control=_address_of(control),
-        auth_kind=auth_kind,
-        auth_secret=secret,
+        socks=_ABSENT_SOCKS, control=_address_of(control), auth_kind=auth_kind, auth_secret=secret
     ) as nl:
         nl.listen().close()
     control.close()
@@ -406,11 +374,7 @@ def _onion_against_a_fake_daemon() -> None:
     async def driver_server_surface() -> None:
         server = None
         try:
-            server = await onion_listen(
-                socks=_ABSENT_SOCKS,
-                control=_address_of(control),
-                host=supplied,
-            )
+            server = await onion_listen(socks=_ABSENT_SOCKS, control=_address_of(control), host=supplied)
             assert server.uri == f"ocapn://{_ONION_SERVICE_ID}.onion", server.uri
             assert server.service_id == _ONION_SERVICE_ID, server.service_id
             assert server.service_key == _ONION_SERVICE_KEY, server.service_key

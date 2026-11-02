@@ -44,19 +44,12 @@ def _direct_address(locator: Locator, who: str) -> str:
 
 
 def _advertise_loop_listener(
-    loop: DriverLoop,
-    listener: ListenerOwner,
-    locator: Locator,
-    advertised_host: str | None,
-    who: str,
+    loop: DriverLoop, listener: ListenerOwner, locator: Locator, advertised_host: str | None, who: str
 ) -> None:
     direct = _direct_address(locator, who)
     bound_host, bound_port = designator_host_port(direct)
     if _wildcard(bound_host) and advertised_host is None:
-        raise GlowcapError(
-            _ERR_INVALID_ARGUMENT,
-            "a wildcard bind has no dialable address; provide advertised_host",
-        )
+        raise GlowcapError(_ERR_INVALID_ARGUMENT, "a wildcard bind has no dialable address; provide advertised_host")
     if advertised_host is not None and _wildcard(advertised_host):
         raise GlowcapError(_ERR_INVALID_ARGUMENT, "an advertised host must be dialable")
     if advertised_host is None:
@@ -118,13 +111,7 @@ async def _listen_tcp_profile(
         listener = loop.listen(transport, f"{bind_host}:{port}")
         loop.start()
         await loop.wait_listener(listener)
-        _advertise_loop_listener(
-            loop,
-            listener,
-            loop.listener_locator(listener),
-            advertised_host,
-            who,
-        )
+        _advertise_loop_listener(loop, listener, loop.listener_locator(listener), advertised_host, who)
         return Server(loop, listener, retire_loop=prepared.owns_loop)
     except BaseException as error:
         _rollback_listener_construction(error, loop, listener, prepared.owns_loop)
@@ -141,16 +128,7 @@ async def listen(
     config: Config | None = None,
 ) -> Server:
     """Bind a driver-owned TCP listener, optionally adopting ``host``."""
-    return await _listen_tcp_profile(
-        _abi.TRANSPORT_TCP,
-        bind_host,
-        port,
-        None,
-        codec,
-        advertised_host,
-        host,
-        config,
-    )
+    return await _listen_tcp_profile(_abi.TRANSPORT_TCP, bind_host, port, None, codec, advertised_host, host, config)
 
 
 async def listen_keyed(
@@ -165,14 +143,7 @@ async def listen_keyed(
 ) -> Server:
     """Bind a driver-owned keyed-TCP listener, optionally adopting ``host``."""
     return await _listen_tcp_profile(
-        _abi.TRANSPORT_KEYED_TCP,
-        bind_host,
-        port,
-        seed,
-        codec,
-        advertised_host,
-        host,
-        config,
+        _abi.TRANSPORT_KEYED_TCP, bind_host, port, seed, codec, advertised_host, host, config
     )
 
 
@@ -188,12 +159,5 @@ async def listen_noise(
 ) -> Server:
     """Bind a driver-owned noise-TCP listener, optionally adopting ``host``."""
     return await _listen_tcp_profile(
-        _abi.TRANSPORT_NOISE_TCP,
-        bind_host,
-        port,
-        seed,
-        codec,
-        advertised_host,
-        host,
-        config,
+        _abi.TRANSPORT_NOISE_TCP, bind_host, port, seed, codec, advertised_host, host, config
     )

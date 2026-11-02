@@ -95,10 +95,7 @@ class Outbound:
         first closed the transport, so frames it had not taken never leave."""
         while self._finished < covering:
             if self._phase == "exited":
-                raise GlowcapError(
-                    _abi.ERR_CLOSED,
-                    "the connection closed before its queued frames were written",
-                )
+                raise GlowcapError(_abi.ERR_CLOSED, "the connection closed before its queued frames were written")
             self._progress.clear()
             await self._progress.wait()
 

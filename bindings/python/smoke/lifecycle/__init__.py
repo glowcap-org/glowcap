@@ -34,30 +34,16 @@ from smoke.runtime import tcp_connect
 from .close import (
     _cancelled_session_close_waiter_does_not_stop_driver as _cancelled_session_close_waiter_does_not_stop_driver,
 )
-from .close import (
-    _host_close_joins_session_transport_failure as _host_close_joins_session_transport_failure,
-)
-from .close import (
-    _host_close_shuts_a_still_open_listener as _host_close_shuts_a_still_open_listener,
-)
-from .close import (
-    _loop_close_joins_session_retirement as _loop_close_joins_session_retirement,
-)
-from .close import (
-    _loop_finish_close_reports_finite_grace_timeout as _loop_finish_close_reports_finite_grace_timeout,
-)
+from .close import _host_close_joins_session_transport_failure as _host_close_joins_session_transport_failure
+from .close import _host_close_shuts_a_still_open_listener as _host_close_shuts_a_still_open_listener
+from .close import _loop_close_joins_session_retirement as _loop_close_joins_session_retirement
+from .close import _loop_finish_close_reports_finite_grace_timeout as _loop_finish_close_reports_finite_grace_timeout
 from .close import (
     _observe_session_retirement_without_serve_or_close as _observe_session_retirement_without_serve_or_close,
 )
-from .close import (
-    _repeated_host_close_observes_recorded_timeout as _repeated_host_close_observes_recorded_timeout,
-)
-from .close import (
-    _session_wire_failure_is_exact_and_retired as _session_wire_failure_is_exact_and_retired,
-)
-from .close import (
-    _silent_loop_dial_reaches_ffi_handshake_deadline as _silent_loop_dial_reaches_ffi_handshake_deadline,
-)
+from .close import _repeated_host_close_observes_recorded_timeout as _repeated_host_close_observes_recorded_timeout
+from .close import _session_wire_failure_is_exact_and_retired as _session_wire_failure_is_exact_and_retired
+from .close import _silent_loop_dial_reaches_ffi_handshake_deadline as _silent_loop_dial_reaches_ffi_handshake_deadline
 from .session_coordinator import (
     cancelled_close_waiter_preserves_transport_coordinator as cancelled_close_waiter_preserves_transport_coordinator,
 )
@@ -330,13 +316,7 @@ async def _proof_refusal_releases_minted_session() -> None:
             self.close_count += 1
 
     host = Host()
-    host.set_advertised_locator(
-        Locator(
-            TRANSPORT_TCP,
-            tcp.address_designator("127.0.0.1", 1),
-            {},
-        )
-    )
+    host.set_advertised_locator(Locator(TRANSPORT_TCP, tcp.address_designator("127.0.0.1", 1), {}))
     transport = Transport()
     releases = 0
     original_bind = session_module._host.glowcap_host_session_bind_verified_channel_key

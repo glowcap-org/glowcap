@@ -78,13 +78,7 @@ class _ListenersMixin(DriverLoopMixinBase):
         listener = ctypes.c_uint64(0)
         _check(
             _driver.glowcap_driver_listen(
-                self._h,
-                transport_b,
-                len(transport_b),
-                designator_b,
-                len(designator_b),
-                None,
-                ctypes.byref(listener),
+                self._h, transport_b, len(transport_b), designator_b, len(designator_b), None, ctypes.byref(listener)
             )
         )
         owner = ListenerOwner(cast("DriverLoop", self), listener.value)
@@ -124,18 +118,11 @@ class _ListenersMixin(DriverLoopMixinBase):
         copied = ctypes.c_size_t()
         _check(
             _driver.glowcap_driver_listener_restoration_state(
-                self._h,
-                listener,
-                ctypes.cast(buffer, ctypes.c_void_p),
-                needed.value,
-                ctypes.byref(copied),
+                self._h, listener, ctypes.cast(buffer, ctypes.c_void_p), needed.value, ctypes.byref(copied)
             )
         )
         if copied.value != needed.value:
-            raise GlowcapError(
-                _c.ERR_INTERNAL,
-                "driver listener restoration state changed during copy",
-            )
+            raise GlowcapError(_c.ERR_INTERNAL, "driver listener restoration state changed during copy")
         return bytes(buffer)
 
     def advertise_listener(self, listener: ListenerLike, locator: Locator | str) -> None:
@@ -266,10 +253,7 @@ class _ListenersMixin(DriverLoopMixinBase):
         if owner.failure is not None:
             raise owner.failure
         if not owner.ready:
-            raise GlowcapError(
-                _c.ERR_INTERNAL,
-                "listener became ready without a READY event",
-            )
+            raise GlowcapError(_c.ERR_INTERNAL, "listener became ready without a READY event")
         return owner
 
     def _release_unclaimed(self, listener: int) -> None:

@@ -42,13 +42,7 @@ from helpers import fail, ignore_port_args, insert_bindings_path
 insert_bindings_path()
 
 from glowcap import Locator, Ref, Runtime  # noqa: E402
-from glowcap.iroh import (  # noqa: E402
-    IrohConfig,
-    Reachability,
-    listen,
-    locator,
-    provider,
-)
+from glowcap.iroh import IrohConfig, Reachability, listen, locator, provider  # noqa: E402
 
 NAME = "python-redeem-posture-carol"
 

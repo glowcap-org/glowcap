@@ -69,16 +69,10 @@ def _park_actions(host) -> tuple[list[HostAction], bool]:
     hooks = _HostPumpHooks(None, park, park, park, park, park)
     acted = ctypes.c_uint32(0)
     yielded = ctypes.c_uint32(0)
-    rc = _host.glowcap_host_pump_drain(
-        host.raw,
-        ctypes.byref(hooks),
-        ctypes.byref(acted),
-        ctypes.byref(yielded),
-    )
+    rc = _host.glowcap_host_pump_drain(host.raw, ctypes.byref(hooks), ctypes.byref(acted), ctypes.byref(yielded))
     if callback_failure is not None:
         raise GlowcapError(
-            _abi.ERR_INTERNAL,
-            f"glowcap ABI returned an invalid host action: {callback_failure}",
+            _abi.ERR_INTERNAL, f"glowcap ABI returned an invalid host action: {callback_failure}"
         ) from callback_failure
     _check_host(rc)
     return parked, yielded.value != 0
@@ -103,9 +97,7 @@ class _Handlers:
         from ._dial import run_dial_ticket
 
         self._host.start_dial_task(
-            a.ticket,
-            a.route_index,
-            lambda: run_dial_ticket(self._host, a.ticket, a.route_index),
+            a.ticket, a.route_index, lambda: run_dial_ticket(self._host, a.ticket, a.route_index)
         )
 
     async def cancel_dial(self, a: CancelDial) -> None:
@@ -129,14 +121,7 @@ class _Handlers:
     async def need_gift_id(self, a: NeedGiftId) -> None:
         def provide(gift_id: bytes) -> None:
             buf, ptr = _byte_buf(gift_id)
-            _check_host(
-                _host.glowcap_host_provide_gift_id(
-                    self._host.raw,
-                    a.ticket,
-                    ptr,
-                    32,
-                )
-            )
+            _check_host(_host.glowcap_host_provide_gift_id(self._host.raw, a.ticket, ptr, 32))
 
         _answer_gift_id(
             lambda: secrets.token_bytes(32),

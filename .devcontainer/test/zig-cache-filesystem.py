@@ -34,15 +34,7 @@ def libc_call(name: str, argument_types: list[type], *args: object) -> None:
 def publish_unnamed(tmp_fd: int, dir_fd: int, destination: bytes) -> None:
     argument_types = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
     try:
-        libc_call(
-            "linkat",
-            argument_types,
-            tmp_fd,
-            b"",
-            dir_fd,
-            destination,
-            AT_EMPTY_PATH,
-        )
+        libc_call("linkat", argument_types, tmp_fd, b"", dir_fd, destination, AT_EMPTY_PATH)
     except OSError as error:
         if error.errno != errno.ENOENT:
             raise
@@ -60,12 +52,7 @@ def publish_unnamed(tmp_fd: int, dir_fd: int, destination: bytes) -> None:
 
 
 def publish_named(dir_fd: int, temporary: bytes, destination: bytes) -> None:
-    tmp_fd = os.open(
-        temporary,
-        os.O_CREAT | os.O_EXCL | os.O_RDWR,
-        0o600,
-        dir_fd=dir_fd,
-    )
+    tmp_fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=dir_fd)
     try:
         os.write(tmp_fd, PROBE_BYTES)
     finally:
@@ -111,10 +98,7 @@ def main() -> int:
             publish_unnamed(tmp_fd, dir_fd, destination)
         published = True
     except (AttributeError, OSError) as error:
-        print(
-            f"zig-cache-filesystem: {cache_dir} cannot publish Zig response files: {error}",
-            file=sys.stderr,
-        )
+        print(f"zig-cache-filesystem: {cache_dir} cannot publish Zig response files: {error}", file=sys.stderr)
         return 1
     finally:
         if published:

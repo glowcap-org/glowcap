@@ -20,25 +20,13 @@ from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _read_last_error, _str_buf
 from ._ffi_relay import _relay_lib, _RelayConfig
 from ._locator import Locator
-from ._transport import (
-    Connector,
-    Provider,
-    _rollback_failed_provider,
-    _rollback_failed_transport,
-)
+from ._transport import Connector, Provider, _rollback_failed_provider, _rollback_failed_transport
 
 if TYPE_CHECKING:
     from ._host import Host
     from ._server import DriverServer
 
-__all__ = [
-    "RelayConfig",
-    "RelayRuntime",
-    "provider",
-    "connector",
-    "keyed",
-    "noise",
-]
+__all__ = ["RelayConfig", "RelayRuntime", "provider", "connector", "keyed", "noise"]
 
 _RENDEZVOUS_RELAY_HINT = "rendezvous-relay"
 _RENDEZVOUS_QUERY = "rendezvous"
@@ -133,12 +121,7 @@ class _Profile:
     def locator(self, designator: str, relay_url: str) -> Locator:
         """Build this relay profile's routed typed locator."""
         _validate_designator(designator)
-        return Locator(
-            self._transport,
-            designator,
-            {_RENDEZVOUS_RELAY_HINT: _relay_route(relay_url)},
-            "map",
-        )
+        return Locator(self._transport, designator, {_RENDEZVOUS_RELAY_HINT: _relay_route(relay_url)}, "map")
 
     async def listen(
         self,
@@ -163,12 +146,7 @@ class _Profile:
         routes is refused.
         """
         from ._abi_value import _DEFAULT_CODEC
-        from ._server import (
-            DriverServer,
-            _rollback_listener_construction,
-            listener_seed,
-            prepare_driver_loop,
-        )
+        from ._server import DriverServer, _rollback_listener_construction, listener_seed, prepare_driver_loop
 
         config = RelayConfig(relay_url, register_url, trust_pem)
         selected_seed = listener_seed(seed, host)
@@ -299,34 +277,22 @@ def connector(config: RelayConfig | str) -> Connector:
     if isinstance(config, str):
         config = RelayConfig(config)
     if config.relay_alias_url:
-        raise GlowcapError(
-            _c.ERR_INVALID_ARGUMENT,
-            "relay aliases require the relay archive's provider",
-        )
+        raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "relay aliases require the relay archive's provider")
 
     async def realize(host, locator, handshake_timeout_ms):
         route = _route_from_locator(locator) or config.relay_url
         if not route:
             raise GlowcapError(
-                _c.ERR_INVALID_ARGUMENT,
-                "relay connector requires a rendezvous route in the locator or config",
+                _c.ERR_INVALID_ARGUMENT, "relay connector requires a rendezvous route in the locator or config"
             )
         from ._session import Session
         from ._ws import connect_websocket
 
         channel = await connect_websocket(_dial_url(route, locator.designator))
         try:
-            return await Session.establish_dialed_locator(
-                host,
-                locator,
-                channel,
-                handshake_timeout_ms,
-            )
+            return await Session.establish_dialed_locator(host, locator, channel, handshake_timeout_ms)
         except BaseException as primary:
             await _rollback_failed_transport(primary, channel)
             raise
 
-    return Connector(
-        (_c.TRANSPORT_KEYED_RELAY, _c.TRANSPORT_NOISE_RELAY),
-        realize,
-    )
+    return Connector((_c.TRANSPORT_KEYED_RELAY, _c.TRANSPORT_NOISE_RELAY), realize)

@@ -69,10 +69,7 @@ class _WebSocketTransport:
             raise
         if not isinstance(message, bytes):
             await self._ws.close(code=1003, reason="binary messages required")
-            raise GlowcapError(
-                ERR_INVALID_ARGUMENT,
-                "keyed-relay WebSocket received a text message",
-            )
+            raise GlowcapError(ERR_INVALID_ARGUMENT, "keyed-relay WebSocket received a text message")
         return message
 
     async def write(self, data: bytes) -> None:
@@ -103,8 +100,5 @@ class _WebSocketTransport:
         self.close()
         task = self._close_task
         if task is None:
-            raise GlowcapError(
-                _abi.ERR_INTERNAL,
-                "keyed-relay WebSocket close requires a running event loop",
-            )
+            raise GlowcapError(_abi.ERR_INTERNAL, "keyed-relay WebSocket close requires a running event loop")
         await asyncio.shield(task)

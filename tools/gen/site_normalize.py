@@ -70,20 +70,14 @@ def webpDimensions(path: Path) -> tuple[int, int]:
         size = int.from_bytes(data[offset + 4 : offset + 8], "little")
         payload = data[offset + 8 : offset + 8 + size]
         if kind == b"VP8 " and len(payload) >= 10 and payload[3:6] == b"\x9d\x01\x2a":
-            return (
-                int.from_bytes(payload[6:8], "little") & 0x3FFF,
-                int.from_bytes(payload[8:10], "little") & 0x3FFF,
-            )
+            return (int.from_bytes(payload[6:8], "little") & 0x3FFF, int.from_bytes(payload[8:10], "little") & 0x3FFF)
         if kind == b"VP8L" and len(payload) >= 5 and payload[0] == 0x2F:
             return (
                 1 + payload[1] + ((payload[2] & 0x3F) << 8),
                 1 + (payload[2] >> 6) + (payload[3] << 2) + ((payload[4] & 0x0F) << 10),
             )
         if kind == b"VP8X" and len(payload) >= 10:
-            return (
-                1 + int.from_bytes(payload[4:7], "little"),
-                1 + int.from_bytes(payload[7:10], "little"),
-            )
+            return (1 + int.from_bytes(payload[4:7], "little"), 1 + int.from_bytes(payload[7:10], "little"))
         offset += 8 + size + (size & 1)
     raise SystemExit(f"site_normalize: {path}: no supported WebP image chunk")
 
@@ -328,8 +322,7 @@ def toMarkdown(source: Path, base: str) -> tuple[str, str, str]:
     dark_captures = len(re.findall(r"\$image\.siteAsset\('rooms-[^']+-dark\.webp'\)", body))
     light_captures = len(re.findall(r"\$image\.siteAsset\('rooms-[^']+-light\.webp'\)", body))
     body, theme_images = THEME_IMAGE_PAIR.subn(
-        lambda m: f"[{m.group('caption')}]($image.siteAsset('{m.group('stem')}-dark.webp'))",
-        body,
+        lambda m: f"[{m.group('caption')}]($image.siteAsset('{m.group('stem')}-dark.webp'))", body
     )
     if dark_captures != light_captures or theme_images != dark_captures:
         raise SystemExit(
@@ -431,8 +424,7 @@ def main() -> int:
                         '<meta property="og:image:alt" content="The glowcap mark.">'
                     )
                 rewritten = rewritten.replace(
-                    head_close,
-                    f'<link rel="canonical" href="{base}/{loc}">{social}{head_close}',
+                    head_close, f'<link rel="canonical" href="{base}/{loc}">{social}{head_close}'
                 )
             if rewritten != original:
                 page.write_text(rewritten, encoding="utf-8")

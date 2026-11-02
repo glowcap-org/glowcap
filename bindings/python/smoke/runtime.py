@@ -8,14 +8,7 @@ import asyncio
 from contextvars import ContextVar
 
 import glowcap._loop as _loop_module
-from glowcap import (
-    GlowcapError,
-    Host,
-    Locator,
-    PendingWork,
-    Runtime,
-    tcp,
-)
+from glowcap import GlowcapError, Host, Locator, PendingWork, Runtime, tcp
 from glowcap._constants import (
     ERR_CLOSED,
     ERR_INTERNAL,
@@ -136,11 +129,7 @@ async def _cancelled_dial_does_not_report_failure() -> None:
     original_dial = dial_module.dial_exporter
     dial_module._host.glowcap_host_pending_dial = pending_dial
     dial_module._host.glowcap_host_dial_failed = dial_failed
-    setattr(
-        dial_module._OwnedLocator,
-        "clone_view",
-        classmethod(lambda _cls, _view: OwnedLocatorStub()),
-    )
+    setattr(dial_module._OwnedLocator, "clone_view", classmethod(lambda _cls, _view: OwnedLocatorStub()))
     dial_module.dial_exporter = blocked_dial
     try:
         task = asyncio.create_task(dial_module.run_dial_ticket(HostStub(), 7, 0))
@@ -243,10 +232,7 @@ async def _runtime_open_is_transactional() -> None:
         raise AssertionError("Runtime accepted grace for cancel close")
     await retryable
     await retryable.close()
-    for operation in (
-        lambda: retryable,
-        lambda: retryable.connect(Locator("runtime-test", "peer", {})),
-    ):
+    for operation in (lambda: retryable, lambda: retryable.connect(Locator("runtime-test", "peer", {}))):
         try:
             await operation()
         except GlowcapError as error:
@@ -341,10 +327,7 @@ async def _runtime_open_is_transactional() -> None:
         assert len(created) == 1
         assert created[0].released, "a newly created Host survived failed open"
         assert runtime._host is None, "failed open published a Host before commit"
-        assert runtime.terminal_failures == (
-            setup_failure,
-            cleanup_failure,
-        ), runtime.terminal_failures
+        assert runtime.terminal_failures == (setup_failure, cleanup_failure), runtime.terminal_failures
 
         adopted_host = Host()
         adopted = Runtime.open(adopt_host=adopted_host, connector=connector)
@@ -418,10 +401,7 @@ async def _runtime_open_is_transactional() -> None:
     assert slow_loop is not None and slow_loop._released, "cancelled close leaked its installed loop"
 
     supplied = Host()
-    runtime = Runtime.open(
-        adopt_host=supplied,
-        provider=Provider(fail_provider),
-    )
+    runtime = Runtime.open(adopt_host=supplied, provider=Provider(fail_provider))
     try:
         try:
             await runtime
@@ -450,10 +430,7 @@ async def _runtime_open_is_transactional() -> None:
 
     existing_host = Host()
     existing_loop = DriverLoop.take_host(existing_host)
-    runtime = Runtime.open(
-        adopt_host=existing_host,
-        provider=Provider(fail_existing_install),
-    )
+    runtime = Runtime.open(adopt_host=existing_host, provider=Provider(fail_existing_install))
     try:
         try:
             await runtime

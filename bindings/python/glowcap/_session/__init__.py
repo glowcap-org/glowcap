@@ -91,21 +91,12 @@ class Session(_LifecycleMixin, _VerbsMixin):
     # ── Construction: establish, dial, accept ───────────────────────────────
 
     @classmethod
-    def _open_dialed_locator(
-        cls,
-        host: Host,
-        locator: Locator,
-        transport,
-    ) -> Session:
+    def _open_dialed_locator(cls, host: Host, locator: Locator, transport) -> Session:
         """Mint a dialing half without driving the signed handshake."""
         out = ctypes.c_void_p()
         with _OwnedLocator.create(locator) as owned:
             _check_host(
-                _host.glowcap_host_session_open_dialed_locator(
-                    host.raw,
-                    owned.borrow_view(),
-                    ctypes.byref(out),
-                )
+                _host.glowcap_host_session_open_dialed_locator(host.raw, owned.borrow_view(), ctypes.byref(out))
             )
         return cls(out, host, transport)
 
@@ -144,8 +135,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
         if designator_scheme is None:
             transport.close()
             raise GlowcapError(
-                _abi.ERR_INVALID_ARGUMENT,
-                "accepted byte-channel provider must declare its designator scheme",
+                _abi.ERR_INVALID_ARGUMENT, "accepted byte-channel provider must declare its designator scheme"
             )
         out = ctypes.c_void_p()
         _check_host(
@@ -166,9 +156,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
         return await session._bind_channel_proof_and_establish(verified_channel_key, handshake_timeout_ms)
 
     async def _bind_channel_proof_and_establish(
-        self,
-        verified_channel_key: str | None,
-        handshake_timeout_ms: int | None,
+        self, verified_channel_key: str | None, handshake_timeout_ms: int | None
     ) -> Session:
         """Consume post-mint setup under this Session's transport ownership."""
         try:
@@ -179,25 +167,18 @@ class Session(_LifecycleMixin, _VerbsMixin):
             self.close_transport()
             raise
 
-    async def _establish(
-        self,
-        handshake_timeout_ms: int | None = _HANDSHAKE_TIMEOUT_MS,
-    ) -> Session:
+    async def _establish(self, handshake_timeout_ms: int | None = _HANDSHAKE_TIMEOUT_MS) -> Session:
         """Drive the bounded signed handshake and abandon on every failure."""
         try:
             if handshake_timeout_ms:
-                await asyncio.wait_for(
-                    _pump._run_handshake(self),
-                    handshake_timeout_ms / 1000,
-                )
+                await asyncio.wait_for(_pump._run_handshake(self), handshake_timeout_ms / 1000)
             else:
                 await _pump._run_handshake(self)
             return self
         except TimeoutError:
             self.close_transport()
             raise GlowcapError(
-                _ERR_TIMEOUT,
-                f"the partner did not finish the OCapN handshake within {handshake_timeout_ms}ms",
+                _ERR_TIMEOUT, f"the partner did not finish the OCapN handshake within {handshake_timeout_ms}ms"
             ) from None
         except BaseException:
             self.close_transport()

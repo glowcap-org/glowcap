@@ -104,13 +104,7 @@ async def _serve_loop(session) -> None:
         try:
             msg = b"connection closed"
             buf, ptr = _byte_buf(msg)
-            _check_host(
-                _host.glowcap_host_session_transport_closed(
-                    session.raw,
-                    ptr,
-                    len(msg),
-                )
-            )
+            _check_host(_host.glowcap_host_session_transport_closed(session.raw, ptr, len(msg)))
             # The physical loss retires close-relevant session state; wake
             # any parked close driver.
             session.host.signal_close_activity()

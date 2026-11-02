@@ -15,16 +15,7 @@ ROOT = 8
 MASK = 0xFFFFFFFF
 
 # Blake3's initial chaining value is the SHA-256 IV.
-IV = (
-    0x6A09E667,
-    0xBB67AE85,
-    0x3C6EF372,
-    0xA54FF53A,
-    0x510E527F,
-    0x9B05688C,
-    0x1F83D9AB,
-    0x5BE0CD19,
-)
+IV = (0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19)
 
 MSG_PERMUTATION = (2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8)
 
@@ -57,16 +48,7 @@ def _round(s: list[int], m: list[int]) -> None:
 
 def _compress(cv: list[int], block: list[int], counter: int, block_len: int, flags: int) -> list[int]:
     """One Blake3 compression: seven rounds over a 64-byte block, permuted between."""
-    s = (
-        list(cv[:8])
-        + list(IV[:4])
-        + [
-            counter & MASK,
-            (counter >> 32) & MASK,
-            block_len,
-            flags,
-        ]
-    )
+    s = list(cv[:8]) + list(IV[:4]) + [counter & MASK, (counter >> 32) & MASK, block_len, flags]
     m = list(block)
     for r in range(7):
         _round(s, m)
@@ -96,13 +78,7 @@ def _compress_chunk(chunk: bytes, counter: int, final_flags: int) -> list[int]:
         flags = CHUNK_START if b == 0 else 0
         if b == blocks - 1:
             flags |= CHUNK_END | final_flags
-        state = _compress(
-            cv,
-            _block_words(block.ljust(BLOCK_LEN, b"\0")),
-            counter,
-            len(block),
-            flags,
-        )
+        state = _compress(cv, _block_words(block.ljust(BLOCK_LEN, b"\0")), counter, len(block), flags)
         if b == blocks - 1:
             return state
         cv = state[:8]
@@ -126,9 +102,7 @@ def _subtree_cv(data: bytes, counter: int) -> list[int]:
         return _compress_chunk(data, counter, 0)[:8]
     split = _left_len(len(data))
     return _compress_parent(
-        _subtree_cv(data[:split], counter),
-        _subtree_cv(data[split:], counter + split // CHUNK_LEN),
-        0,
+        _subtree_cv(data[:split], counter), _subtree_cv(data[split:], counter + split // CHUNK_LEN), 0
     )[:8]
 
 
@@ -138,9 +112,5 @@ def blake3(data: bytes) -> bytes:
         state = _compress_chunk(data, 0, ROOT)
     else:
         split = _left_len(len(data))
-        state = _compress_parent(
-            _subtree_cv(data[:split], 0),
-            _subtree_cv(data[split:], split // CHUNK_LEN),
-            ROOT,
-        )
+        state = _compress_parent(_subtree_cv(data[:split], 0), _subtree_cv(data[split:], split // CHUNK_LEN), ROOT)
     return b"".join(word.to_bytes(4, "little") for word in state[:8])

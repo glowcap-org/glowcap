@@ -19,13 +19,7 @@ PLANNED_MARKER = "PLANNED:"
 # Line-comment prefix per snippet extension present under site/examples/. A
 # planned snippet is excluded from the compile checks below, so it must be
 # comment-only: live-looking code no check can fail would mislead.
-COMMENT_PREFIXES = {
-    ".zig": "//",
-    ".ts": "//",
-    ".rust": "//",
-    ".python": "#",
-    ".racket": ";",
-}
+COMMENT_PREFIXES = {".zig": "//", ".ts": "//", ".rust": "//", ".python": "#", ".racket": ";"}
 
 
 def example_files(suffix: str) -> list[Path]:
@@ -64,13 +58,7 @@ def check_python() -> None:
             tree = ast.parse(source_path.read_text(), filename=str(source_path))
             wrapper = ast.AsyncFunctionDef(
                 name=f"example_{source_path.parent.name}_{source_path.stem.replace('-', '_')}",
-                args=ast.arguments(
-                    posonlyargs=[],
-                    args=[],
-                    kwonlyargs=[],
-                    kw_defaults=[],
-                    defaults=[],
-                ),
+                args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
                 body=tree.body,
                 decorator_list=[],
                 returns=ast.Constant(value=None),

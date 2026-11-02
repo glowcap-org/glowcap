@@ -148,9 +148,7 @@ async def dial_proof() -> None:
     if not ANSWERER.exists():
         fail(GATE, f"missing {ANSWERER}: run `zig build webrtc-answerer`")
     proc = await asyncio.create_subprocess_exec(
-        str(ANSWERER),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
+        str(ANSWERER), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
     )
     pump_task = None
     try:
@@ -197,10 +195,7 @@ async def listen_proof() -> None:
             fail(GATE, f"the listener advertised {advertised!r}")
 
         proc = await asyncio.create_subprocess_exec(
-            str(OFFERER),
-            server.designator,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
+            str(OFFERER), server.designator, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
         )
         signaling.proc = proc
         identity = await asyncio.wait_for(read_line(proc), timeout=DEADLINE_S)

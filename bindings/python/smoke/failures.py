@@ -12,12 +12,7 @@ from contextvars import ContextVar
 import glowcap
 import glowcap._driver.finalizer as _driver_finalizer
 import glowcap._host as _host_module
-from glowcap import (
-    FailureLayer,
-    GlowcapError,
-    Host,
-    Runtime,
-)
+from glowcap import FailureLayer, GlowcapError, Host, Runtime
 from glowcap._action import _answer_gift_id
 from glowcap._archive_contract import require_archive_fingerprint
 from glowcap._constants import (
@@ -53,11 +48,7 @@ def _gift_id_completion_preserves_ffi_refusal() -> None:
     def unexpected_provide(_gift_id: bytes) -> None:
         raise AssertionError("entropy failure reached provide")
 
-    _answer_gift_id(
-        refuse_entropy,
-        unexpected_provide,
-        mark_failed,
-    )
+    _answer_gift_id(refuse_entropy, unexpected_provide, mark_failed)
     assert failed == 1, failed
 
     refusal = RuntimeError("ticket refused")
@@ -88,11 +79,7 @@ def _stale_archive_is_refused_before_use() -> None:
         glowcap_test_archive_fingerprint = _ReadFingerprint(0x5678)
 
     try:
-        require_archive_fingerprint(
-            lambda: _Archive.glowcap_test_archive_fingerprint,
-            "test",
-            0x1234,
-        )
+        require_archive_fingerprint(lambda: _Archive.glowcap_test_archive_fingerprint, "test", 0x1234)
     except RuntimeError as error:
         assert "callable surface does not match" in str(error), error
         assert "rebuild the FFI libraries" in str(error), error
@@ -103,11 +90,7 @@ def _stale_archive_is_refused_before_use() -> None:
         pass
 
     try:
-        require_archive_fingerprint(
-            lambda: _MissingArchive.glowcap_test_archive_fingerprint,
-            "test",
-            0x1234,
-        )
+        require_archive_fingerprint(lambda: _MissingArchive.glowcap_test_archive_fingerprint, "test", 0x1234)
     except RuntimeError as error:
         assert "missing archive fingerprint" in str(error), error
         assert "from this checkout" in str(error), error
@@ -210,11 +193,7 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
     drain = asyncio.create_task(fail_drain())
     host._own_action_drain(drain)
     await asyncio.gather(drain, return_exceptions=True)
-    assert host.terminal_failures == (
-        failure,
-        consequence,
-        drain_failure,
-    ), host.terminal_failures
+    assert host.terminal_failures == (failure, consequence, drain_failure), host.terminal_failures
     try:
         host._raise_terminal_failure()
     except BaseException as observed:
@@ -241,11 +220,7 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
     assert transport.closed, "connector rollback did not start transport close"
     assert connector_primary.secondary == (rollback_failure,)
     assert connector_primary.secondary_count == 1
-    assert host.terminal_failures == (
-        failure,
-        consequence,
-        drain_failure,
-    ), host.terminal_failures
+    assert host.terminal_failures == (failure, consequence, drain_failure), host.terminal_failures
 
     provider_failure = RuntimeError("provider rollback failed")
     provider_primary = GlowcapError(ERR_INTERNAL, "provider install failed")
@@ -256,11 +231,7 @@ async def _host_owns_async_behavior_settlement_failure() -> None:
     _rollback_failed_provider(provider_primary, fail_provider_rollback)
     assert provider_primary.secondary == (provider_failure,)
     assert provider_primary.secondary_count == 1
-    assert host.terminal_failures == (
-        failure,
-        consequence,
-        drain_failure,
-    ), host.terminal_failures
+    assert host.terminal_failures == (failure, consequence, drain_failure), host.terminal_failures
 
 
 async def _iroh_readiness_failure_settles_waiters_exactly() -> None:
@@ -396,10 +367,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
         assert observed is explicit_failure, "explicit release replaced its failure"
     else:
         raise AssertionError("explicit FFI release failure disappeared")
-    assert explicit.terminal_failures == (
-        explicit_failure,
-        release_failure,
-    ), explicit.terminal_failures
+    assert explicit.terminal_failures == (explicit_failure, release_failure), explicit.terminal_failures
     try:
         explicit.close()
     except BaseException as observed:
@@ -503,11 +471,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
         def _report_failure(self, **_kwargs) -> None:
             raise recorder
 
-    owner = type(
-        "BrokenDiagnosticOwner",
-        (),
-        {"_context": BrokenContext(), "_diagnostic_id": 17},
-    )()
+    owner = type("BrokenDiagnosticOwner", (), {"_context": BrokenContext(), "_diagnostic_id": 17})()
     _host_module.Host._record_callerless_failure(owner, "trace.sink", original)
     fallback = glowcap.take_runtime_failures()
     assert len(fallback) == 2, fallback

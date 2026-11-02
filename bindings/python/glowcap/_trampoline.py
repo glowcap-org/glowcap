@@ -285,15 +285,7 @@ def _settle_reply(turn: int, result, out_reply) -> int:
         ref = _ref_to_c(result.target)
         vbuf, vptr, verb_len = _selector_buf(result.verb)
         arr, count = _args_to_c(result.args, keep)
-        rc = _host.glowcap_host_turn_forward(
-            turn,
-            ctypes.byref(ref),
-            vptr,
-            verb_len,
-            arr,
-            count,
-            out_reply,
-        )
+        rc = _host.glowcap_host_turn_forward(turn, ctypes.byref(ref), vptr, verb_len, arr, count, out_reply)
         if rc != _OK:
             return _turn_break(turn, _host_last_error() or "forward refused")
         return _OK
@@ -378,28 +370,10 @@ async def _tell_far(session, target: Ref | RemotePromise, verb: str | None, args
     with _FarArguments(session, args) as (arr, count):
         if isinstance(target, RemotePromise):
             source_vow = target.far_vow(session.host)
-            _check_host(
-                _host.glowcap_host_vow_tell(
-                    session.host.raw,
-                    source_vow,
-                    vptr,
-                    verb_len,
-                    arr,
-                    count,
-                )
-            )
+            _check_host(_host.glowcap_host_vow_tell(session.host.raw, source_vow, vptr, verb_len, arr, count))
         else:
             ref = _ref_to_c(target)
-            _check_host(
-                _host.glowcap_host_session_tell(
-                    session.raw,
-                    ctypes.byref(ref),
-                    vptr,
-                    verb_len,
-                    arr,
-                    count,
-                )
-            )
+            _check_host(_host.glowcap_host_session_tell(session.raw, ctypes.byref(ref), vptr, verb_len, arr, count))
     await session.host.kick_actions()
 
 
@@ -430,10 +404,7 @@ def _register_actor(session, behavior) -> int:
     # chains compose in process and an arriving Port can run it in a turn.
     hosted = session.hosted
     return session.host._register_behavior(
-        _BehaviorEntry(
-            run=behavior,
-            resolve_local=lambda ref_id: _entry_for(hosted.get(ref_id)),
-        )
+        _BehaviorEntry(run=behavior, resolve_local=lambda ref_id: _entry_for(hosted.get(ref_id)))
     )
 
 
@@ -451,11 +422,7 @@ def _spawn_hosted(session, behavior) -> Ref:
             out = _Reference()
             _check_host(
                 _host.glowcap_host_session_spawn(
-                    session.raw,
-                    _TRAMPOLINE,
-                    ctypes.c_void_p(ctx),
-                    None,
-                    ctypes.byref(out),
+                    session.raw, _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out)
                 )
             )
             ref_id = out.id
@@ -478,13 +445,7 @@ def _publish_hosted(session, name: str, behavior) -> Ref:
     try:
         _check_host(
             _host.glowcap_host_session_publish(
-                session.raw,
-                ptr,
-                len(swiss),
-                _TRAMPOLINE,
-                ctypes.c_void_p(ctx),
-                None,
-                ctypes.byref(out),
+                session.raw, ptr, len(swiss), _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out)
             )
         )
     except BaseException:

@@ -59,9 +59,7 @@ GROUPS = (
         "source",
         shards=0,
         phases={
-            "source": [
-                gate("zig build source-check"),
-            ],
+            "source": [gate("zig build source-check")],
             "infrastructure": [
                 gate("bash .devcontainer/hooks/post-create.sh"),
                 # The deadline wrapper bounds every gate, and ci/gates.py branches
@@ -75,14 +73,8 @@ GROUPS = (
         "core",
         shards=2,
         phases={
-            "core": [
-                build("zig build check-build"),
-                gate("zig build check"),
-            ],
-            "memcheck": [
-                build("zig build test-memcheck-build"),
-                long("zig build test-memcheck"),
-            ],
+            "core": [build("zig build check-build"), gate("zig build check")],
+            "memcheck": [build("zig build test-memcheck-build"), long("zig build test-memcheck")],
         },
     ),
     # The process, application, and language-workspace proofs run against the
@@ -95,20 +87,12 @@ GROUPS = (
             "runtime": [
                 build("zig build runtime-check-build -Doptimize=ReleaseSafe"),
                 long("zig build runtime-check -Doptimize=ReleaseSafe"),
-            ],
+            ]
         },
     ),
     # The optional Mbed TLS relay is absent from the base library graph, so
     # `check` cannot prove it. Its own group reports without waiting for Rooms.
-    Group(
-        "tls",
-        shards=1,
-        phases={
-            "tls": [
-                gate("zig build relay-tls-build"),
-            ],
-        },
-    ),
+    Group("tls", shards=1, phases={"tls": [gate("zig build relay-tls-build")]}),
     Group(
         "shipped",
         shards=2,
@@ -247,7 +231,7 @@ GROUPS = (
                 gate("zig build bindings-relay"),
                 gate("zig build bindings-wss-relay"),
                 gate("zig build bindings-relay-iroh"),
-            ],
+            ]
         },
     ),
 )

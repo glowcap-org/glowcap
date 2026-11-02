@@ -64,13 +64,9 @@ class _LifecycleMixin:
             transport = self._transport
             if getattr(transport, "_driver_loop", None) is not None:
                 transport._driver_loop.serve_session(self._key)
-                self._serve_task = asyncio.get_running_loop().create_task(
-                    transport.wait_closed(),
-                )
+                self._serve_task = asyncio.get_running_loop().create_task(transport.wait_closed())
             else:
-                self._serve_task = asyncio.get_running_loop().create_task(
-                    _pump._serve_loop(self),
-                )
+                self._serve_task = asyncio.get_running_loop().create_task(_pump._serve_loop(self))
         return self._serve_task
 
     def _publish_retirement(self) -> None:
@@ -237,12 +233,7 @@ class _LifecycleMixin:
 
     # ── Teardown ─────────────────────────────────────────────────────────────
 
-    async def close(
-        self,
-        *,
-        pending: PendingWork = PendingWork.CANCEL,
-        grace: object = _UNSET,
-    ) -> None:
+    async def close(self, *, pending: PendingWork = PendingWork.CANCEL, grace: object = _UNSET) -> None:
         """Close this session and join its one complete retirement outcome."""
         options = _close_options(pending, grace)
         signature = (options.pending, options.grace_mode, options.grace_ms)
@@ -262,13 +253,7 @@ class _LifecycleMixin:
                     self._request_loop_close(loop_ref, ptr, options)
                     self._close_request_signature = signature
                 else:
-                    _check_host(
-                        _host.glowcap_host_session_close(
-                            ptr,
-                            ctypes.byref(options),
-                            _monotonic_ms(),
-                        )
-                    )
+                    _check_host(_host.glowcap_host_session_close(ptr, ctypes.byref(options), _monotonic_ms()))
                     self._close_request_signature = signature
                     self._closing = True
                     self._host.signal_close_activity()
@@ -300,13 +285,7 @@ class _LifecycleMixin:
             self._start_terminal_coordinator(result)
         else:
             close_future = asyncio.get_running_loop().create_future()
-            _check_host(
-                _host.glowcap_host_session_close(
-                    ptr,
-                    ctypes.byref(options),
-                    _monotonic_ms(),
-                )
-            )
+            _check_host(_host.glowcap_host_session_close(ptr, ctypes.byref(options), _monotonic_ms()))
             self._closing = True
             self._host.signal_close_activity()
             self._close_future = close_future
@@ -337,11 +316,7 @@ class _LifecycleMixin:
                     break
                 self._host.arm_close_activity()
                 state = ctypes.c_uint32()
-                rc = _host.glowcap_host_session_close_progress(
-                    ptr,
-                    _monotonic_ms(),
-                    ctypes.byref(state),
-                )
+                rc = _host.glowcap_host_session_close_progress(ptr, _monotonic_ms(), ctypes.byref(state))
                 if rc not in (_abi.OK, _abi.ERR_TIMEOUT):
                     _check_host(rc)
                 _lifecycle_closed(state.value)

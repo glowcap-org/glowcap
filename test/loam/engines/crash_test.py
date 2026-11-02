@@ -21,10 +21,7 @@ def run(probe, mode, directory, scenario):
 
 def interrupt(probe, mode, directory, scenario):
     child = subprocess.Popen(
-        [probe, mode, directory, *scenario],
-        cwd=directory,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        [probe, mode, directory, *scenario], cwd=directory, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
     )
     try:
         ready, _, _ = select.select([child.stderr], [], [], 5)

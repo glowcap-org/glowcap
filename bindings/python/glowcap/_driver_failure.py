@@ -75,10 +75,7 @@ def _decode(code: int, raw: _DriverFailure, operation: str) -> _Outcome:
     if (failure.secondary_count == 0 and (failure.secondary_result != _c.OK or failure.secondary_name)) or (
         failure.secondary_count > 0 and (failure.secondary_result == _c.OK or not failure.secondary_name)
     ):
-        raise GlowcapError(
-            _c.ERR_INTERNAL,
-            f"{operation} returned an inconsistent secondary failure",
-        )
+        raise GlowcapError(_c.ERR_INTERNAL, f"{operation} returned an inconsistent secondary failure")
     return _Outcome(code, failure, _error(failure, operation))
 
 
@@ -99,8 +96,7 @@ def _release(driver, handle, operation: str) -> _Outcome:
 
 def _add_provider(driver, handle, package) -> None:
     outcome = _call_driver(
-        "driver add_provider",
-        lambda out: driver.glowcap_driver_add_provider(handle, ctypes.byref(package), out),
+        "driver add_provider", lambda out: driver.glowcap_driver_add_provider(handle, ctypes.byref(package), out)
     )
     if outcome.error is not None:
         raise outcome.error
@@ -108,8 +104,7 @@ def _add_provider(driver, handle, package) -> None:
 
 def _close_listener(handle, listener: int) -> bool:
     outcome = _call_driver(
-        "driver listener_close",
-        lambda out: _driver.glowcap_driver_listener_close(handle, listener, out),
+        "driver listener_close", lambda out: _driver.glowcap_driver_listener_close(handle, listener, out)
     )
     if outcome.code == _c.WOULD_BLOCK:
         return False

@@ -20,13 +20,7 @@ if TYPE_CHECKING:
 class DriverServer:
     """One driver listener yielding application-facing CapTP sessions."""
 
-    def __init__(
-        self,
-        driver_loop: DriverLoop,
-        listener: ListenerOwner,
-        *,
-        retire_loop: bool,
-    ) -> None:
+    def __init__(self, driver_loop: DriverLoop, listener: ListenerOwner, *, retire_loop: bool) -> None:
         self._driver_loop = driver_loop
         self._listener = listener
         self._retire_loop = retire_loop
@@ -96,10 +90,7 @@ class _PreparedDriverLoop:
 
 
 def _rollback_listener_construction(
-    primary: BaseException,
-    loop: DriverLoop,
-    listener: ListenerOwner | None,
-    owns_loop: bool,
+    primary: BaseException, loop: DriverLoop, listener: ListenerOwner | None, owns_loop: bool
 ) -> BaseException:
     """Retire every admitted owner while preserving construction as primary."""
     cleanups = []
@@ -122,39 +113,24 @@ def listener_seed(seed: bytes | None, host: Host | None) -> bytes:
     if seed is not None and len(seed) != 32:
         raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "listen: seed must be 32 bytes")
     if seed is not None and host is not None:
-        raise GlowcapError(
-            _c.ERR_INVALID_ARGUMENT,
-            "listen: seed and host are alternative identity sources",
-        )
+        raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "listen: seed and host are alternative identity sources")
     if seed is not None:
         return seed
     return host.seed if host is not None else secrets.token_bytes(32)
 
 
-def prepare_driver_loop(
-    host: Host | None,
-    codec: str,
-    *,
-    seed: bytes | None = None,
-) -> _PreparedDriverLoop:
+def prepare_driver_loop(host: Host | None, codec: str, *, seed: bytes | None = None) -> _PreparedDriverLoop:
     """Prepare a loop without conflating startup with ownership."""
     from ._loop import DriverLoop
 
     if host is not None:
         if codec != host.codec:
-            raise GlowcapError(
-                _c.ERR_INVALID_ARGUMENT,
-                f'codec "{codec}" conflicts with the host\'s "{host.codec}"',
-            )
+            raise GlowcapError(_c.ERR_INVALID_ARGUMENT, f'codec "{codec}" conflicts with the host\'s "{host.codec}"')
         if host.driver_loop is not None:
             return _PreparedDriverLoop(cast("DriverLoop", host._driver_loop), False)
         return _PreparedDriverLoop(DriverLoop.take_host(host), False)
     if seed is None:
         loop = DriverLoop.open(codec=codec, handshake_ms=_c.HANDSHAKE_TIMEOUT_MS)
     else:
-        loop = DriverLoop.open(
-            seed=seed + secrets.token_bytes(32),
-            codec=codec,
-            handshake_ms=_c.HANDSHAKE_TIMEOUT_MS,
-        )
+        loop = DriverLoop.open(seed=seed + secrets.token_bytes(32), codec=codec, handshake_ms=_c.HANDSHAKE_TIMEOUT_MS)
     return _PreparedDriverLoop(loop, True)

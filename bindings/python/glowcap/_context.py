@@ -13,21 +13,8 @@ from collections.abc import Callable
 
 from . import _constants as _abi
 from ._errors import GlowcapError, _check, last_error
-from ._failure import (
-    FailureEvent,
-    FailureLayer,
-    _layer,
-    _record_runtime_failure,
-    _scope,
-)
-from ._ffi_ocapn import (
-    _Allocator,
-    _AllocFn,
-    _FailureEvent,
-    _FailureReport,
-    _FreeFn,
-    _lib,
-)
+from ._failure import FailureEvent, FailureLayer, _layer, _record_runtime_failure, _scope
+from ._ffi_ocapn import _Allocator, _AllocFn, _FailureEvent, _FailureReport, _FreeFn, _lib
 
 
 class Context:
@@ -55,11 +42,7 @@ class Context:
         self._callbacks: tuple = ()
 
     @classmethod
-    def with_allocator(
-        cls,
-        alloc: Callable[[int, int], int],
-        free: Callable[[int, int, int], None],
-    ) -> Context:
+    def with_allocator(cls, alloc: Callable[[int, int], int], free: Callable[[int, int, int], None]) -> Context:
         """A context that routes every allocation through host callables.
 
         ``alloc(size, alignment)`` returns the address of a fresh block (or 0 on
@@ -73,11 +56,7 @@ class Context:
             try:
                 return alloc(size, alignment) or 0
             except BaseException as error:
-                _record_runtime_failure(
-                    FailureLayer.BINDING,
-                    "context.allocator.alloc",
-                    error,
-                )
+                _record_runtime_failure(FailureLayer.BINDING, "context.allocator.alloc", error)
                 return 0
 
         def _free(_user_data, ptr, size, alignment):
@@ -87,11 +66,7 @@ class Context:
                 # The callback cannot return a failure through C. Keep the
                 # process alive and retain the exact callerless fact; the
                 # allocation may leak, but ownership is never fabricated.
-                _record_runtime_failure(
-                    FailureLayer.BINDING,
-                    "context.allocator.free",
-                    error,
-                )
+                _record_runtime_failure(FailureLayer.BINDING, "context.allocator.free", error)
 
         # Hold the CFUNCTYPE trampolines (and the Python callables they close
         # over) alive for as long as the context can call them.
@@ -133,11 +108,7 @@ class Context:
             capacity = 0 if payload is None else ctypes.sizeof(payload)
             pointer = None if payload is None else payload
             rc = _lib.glowcap_context_next_failure(
-                self._raw,
-                ctypes.byref(event),
-                pointer,
-                capacity,
-                ctypes.byref(required),
+                self._raw, ctypes.byref(event), pointer, capacity, ctypes.byref(required)
             )
             if rc == _abi.WOULD_BLOCK:
                 return None
@@ -211,13 +182,7 @@ class Context:
         primary_message_buf, primary_message_ptr, primary_message_len = encoded(primary_message)
         secondary_name_buf, secondary_name_ptr, secondary_name_len = encoded(secondary_name)
         secondary_message_buf, secondary_message_ptr, secondary_message_len = encoded(secondary_message)
-        keepalive = (
-            operation_buf,
-            primary_name_buf,
-            primary_message_buf,
-            secondary_name_buf,
-            secondary_message_buf,
-        )
+        keepalive = (operation_buf, primary_name_buf, primary_message_buf, secondary_name_buf, secondary_message_buf)
         report = _FailureReport(
             1,
             ctypes.sizeof(_FailureReport),

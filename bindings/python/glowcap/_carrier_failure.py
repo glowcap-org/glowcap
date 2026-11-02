@@ -41,11 +41,7 @@ _PHASES = {
 
 
 def _decode(
-    phase: int,
-    detail_flags: int,
-    verification_flags: int,
-    peer_alert: int,
-    engine_code: int,
+    phase: int, detail_flags: int, verification_flags: int, peer_alert: int, engine_code: int
 ) -> CarrierFailure | None:
     if phase == _c.CARRIER_PHASE_NONE:
         if detail_flags == verification_flags == peer_alert == engine_code == 0:
@@ -65,10 +61,7 @@ def _decode(
     ):
         raise _invalid("inconsistent carrier failure detail")
     return CarrierFailure(
-        decoded,
-        verification_flags,
-        peer_alert if peer_present else None,
-        engine_code if engine_present else None,
+        decoded, verification_flags, peer_alert if peer_present else None, engine_code if engine_present else None
     )
 
 

@@ -14,10 +14,7 @@ from .state import DriverLoopMixinBase
 class _DialingMixin(DriverLoopMixinBase):
     _progress_timer: asyncio.TimerHandle | None
 
-    async def dial(
-        self,
-        locator: Locator | str,
-    ) -> int:
+    async def dial(self, locator: Locator | str) -> int:
         """Begin a nonblocking dial and await its session handle. Connect
         completion and the handshake advance through zero-timeout FFI steps
         on the event-loop thread."""
@@ -25,12 +22,7 @@ class _DialingMixin(DriverLoopMixinBase):
         owned = (
             parse_locator(locator)
             if isinstance(locator, str)
-            else Locator(
-                locator.transport,
-                locator.designator,
-                dict(locator.hints),
-                locator.hint_wire_form,
-            )
+            else Locator(locator.transport, locator.designator, dict(locator.hints), locator.hint_wire_form)
         )
         future: asyncio.Future[int] = aio.create_future()
         self._begin_dial(owned, future)
@@ -38,11 +30,7 @@ class _DialingMixin(DriverLoopMixinBase):
         self._rearm_progress_timer()
         return await future
 
-    def _begin_dial(
-        self,
-        locator: Locator,
-        future: asyncio.Future[int],
-    ) -> None:
+    def _begin_dial(self, locator: Locator, future: asyncio.Future[int]) -> None:
         operation_id = ctypes.c_uint64(0)
         with _OwnedLocator.create(locator) as owned:
             _check(_driver.glowcap_driver_dial(self._h, owned.borrow_view(), None, ctypes.byref(operation_id)))

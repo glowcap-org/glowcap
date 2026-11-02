@@ -41,17 +41,9 @@ pin_struct(_RelayConfig, "GLOWCAP_RELAY_CONFIG")
 
 def _load():
     lib = ctypes.CDLL(str(_lib_path("glowcap_net_transport_relay")))
-    require_archive_fingerprint(
-        lambda: lib.glowcap_relay_archive_fingerprint,
-        "relay",
-        RELAY_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: lib.glowcap_relay_archive_fingerprint, "relay", RELAY_ARCHIVE_FINGERPRINT)
     facade = _Lib(lib)
-    _bind(
-        facade,
-        lib,
-        relay_sigs(_RelayConfig, _TransportProvider),
-    )
+    _bind(facade, lib, relay_sigs(_RelayConfig, _TransportProvider))
     return facade
 
 

@@ -22,14 +22,7 @@ VALIDATING = {("push", "dev"), ("workflow_dispatch", "dev"), ("workflow_dispatch
 def lookup(endpoint, key, kind, *fields):
     try:
         response = subprocess.run(
-            [
-                "gh",
-                "api",
-                "--method",
-                "GET",
-                endpoint,
-                *fields,
-            ],
+            ["gh", "api", "--method", "GET", endpoint, *fields],
             stdout=subprocess.PIPE,
             text=True,
             check=False,

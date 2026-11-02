@@ -193,13 +193,7 @@ def consumer_config(config, compose, image, compose_path):
     # intermediate build state.
     work = service["environment"]["ZIG_LOCAL_CACHE_DIR"].rsplit("/", 1)[0]
     for name, target in ci_stores(work, service["environment"]).items():
-        service.setdefault("volumes", []).append(
-            {
-                "type": "bind",
-                "source": str(CI_CACHE / name),
-                "target": target,
-            }
-        )
+        service.setdefault("volumes", []).append({"type": "bind", "source": str(CI_CACHE / name), "target": target})
     return config, compose
 
 

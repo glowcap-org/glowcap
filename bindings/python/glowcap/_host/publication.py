@@ -12,16 +12,9 @@ from .._constants_gen import SESSION_LIMIT_OPTIONS_ABI_VERSION
 from .._errors import GlowcapError, _check_host
 from .._ffi_host import _host, _SessionLimitOptions
 from .._ffi_ocapn import _byte_buf
-from .._trampoline import (
-    _TRAMPOLINE,
-    _BehaviorEntry,
-)
-from .._trampoline import (
-    _register_behavior as _register_global_behavior,
-)
-from .._trampoline import (
-    _unregister_behavior as _unregister_global_behavior,
-)
+from .._trampoline import _TRAMPOLINE, _BehaviorEntry
+from .._trampoline import _register_behavior as _register_global_behavior
+from .._trampoline import _unregister_behavior as _unregister_global_behavior
 from .._value import Behavior, Ref
 from .state import HostMixinBase
 
@@ -59,14 +52,12 @@ class _PublicationMixin(HostMixinBase):
                 prior = self._connectors.get(transport)
                 if prior is not None and prior is not connector:
                     raise GlowcapError(
-                        _ERR_INVALID_ARGUMENT,
-                        f"host already has a different connector for {transport!r}",
+                        _ERR_INVALID_ARGUMENT, f"host already has a different connector for {transport!r}"
                     )
                 pending_prior = pending.get(transport)
                 if pending_prior is not None and pending_prior is not connector:
                     raise GlowcapError(
-                        _ERR_INVALID_ARGUMENT,
-                        f"connector set has conflicting authorities for {transport!r}",
+                        _ERR_INVALID_ARGUMENT, f"connector set has conflicting authorities for {transport!r}"
                     )
                 pending[transport] = connector
         self._connectors.update(pending)
@@ -90,11 +81,7 @@ class _PublicationMixin(HostMixinBase):
             from .._abi_value import _captp_version_id
 
             code = _host.glowcap_host_enliven_for_version(
-                self.raw,
-                _captp_version_id(captp_version),
-                ptr,
-                len(swiss),
-                ctypes.byref(out),
+                self.raw, _captp_version_id(captp_version), ptr, len(swiss), ctypes.byref(out)
             )
         _check_host(code)
         return await self._await_host_capability(out.value, sturdyref)
@@ -108,13 +95,7 @@ class _PublicationMixin(HostMixinBase):
         out = ctypes.c_uint64()
         with _OwnedLocator.create(locator) as owned:
             _check_host(
-                _host.glowcap_host_fetch_at(
-                    self.raw,
-                    owned.borrow_view(),
-                    ptr,
-                    len(encoded),
-                    ctypes.byref(out),
-                )
+                _host.glowcap_host_fetch_at(self.raw, owned.borrow_view(), ptr, len(encoded), ctypes.byref(out))
             )
         return await self._await_host_capability(out.value, name)
 
@@ -157,20 +138,10 @@ class _PublicationMixin(HostMixinBase):
         separate from transient outbound flow pressure. ``max_sessions`` is
         the Host-wide cap on live sessions.
         """
-        values = (
-            max_frame_bytes,
-            queue_cap,
-            outbound_high_water_bytes,
-            max_retained_sent_answer_bytes,
-            max_sessions,
-        )
+        values = (max_frame_bytes, queue_cap, outbound_high_water_bytes, max_retained_sent_answer_bytes, max_sessions)
         if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in values):
             raise ValueError("session limits must be non-negative integers")
-        options = _SessionLimitOptions(
-            SESSION_LIMIT_OPTIONS_ABI_VERSION,
-            ctypes.sizeof(_SessionLimitOptions),
-            *values,
-        )
+        options = _SessionLimitOptions(SESSION_LIMIT_OPTIONS_ABI_VERSION, ctypes.sizeof(_SessionLimitOptions), *values)
         _check_host(_host.glowcap_host_set_session_limits(self.raw, ctypes.byref(options)))
 
     def set_ingress_limits(self, *, max_pending_turns: int, max_pending_bytes: int, max_chunk_bytes: int) -> None:
@@ -208,16 +179,7 @@ class _PublicationMixin(HostMixinBase):
         data = name.encode()
         buf, ptr = _byte_buf(data)
         try:
-            _check_host(
-                _host.glowcap_host_publish(
-                    self.raw,
-                    ptr,
-                    len(data),
-                    _TRAMPOLINE,
-                    ctypes.c_void_p(ctx),
-                    None,
-                )
-            )
+            _check_host(_host.glowcap_host_publish(self.raw, ptr, len(data), _TRAMPOLINE, ctypes.c_void_p(ctx), None))
         except BaseException:
             # free = NULL: the C tier never owns the row, so a refused publish
             # must drop it here or the registry pins the behavior forever.
@@ -290,24 +252,14 @@ class _PublicationMixin(HostMixinBase):
         else:
             entropy_bytes = bytes(entropy)
             if len(entropy_bytes) != width:
-                raise GlowcapError(
-                    _ERR_INVALID_ARGUMENT,
-                    f"durable entropy must be exactly {width} bytes",
-                )
+                raise GlowcapError(_ERR_INVALID_ARGUMENT, f"durable entropy must be exactly {width} bytes")
         ctx = self._register_behavior(_BehaviorEntry(run=behavior, resolve_local=None))
         ebuf, eptr = _byte_buf(entropy_bytes)
         swiss_len = _abi.HOST_DURABLE_SWISS_LEN
         out = (ctypes.c_ubyte * swiss_len)()
         try:
             written = _host.glowcap_host_publish_durable(
-                raw,
-                eptr,
-                len(entropy_bytes),
-                _TRAMPOLINE,
-                ctypes.c_void_p(ctx),
-                None,
-                out,
-                swiss_len,
+                raw, eptr, len(entropy_bytes), _TRAMPOLINE, ctypes.c_void_p(ctx), None, out, swiss_len
             )
             if written <= 0:
                 _check_host(written)
@@ -376,13 +328,7 @@ class _PublicationMixin(HostMixinBase):
             out_value = self._driver_loop.claim_reference_exporter(c_ref)
         else:
             out = ctypes.c_void_p()
-            _check_host(
-                _host.glowcap_host_reference_exporter(
-                    self.raw,
-                    ctypes.byref(c_ref),
-                    ctypes.byref(out),
-                )
-            )
+            _check_host(_host.glowcap_host_reference_exporter(self.raw, ctypes.byref(c_ref), ctypes.byref(out)))
             out_value = out.value
         # The handle is host-owned and lives with the exporter session, so the
         # registry lookup is the whole answer: a pointer with no live row is a

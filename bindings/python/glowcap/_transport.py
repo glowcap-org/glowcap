@@ -96,12 +96,7 @@ class Connector:
     def handles(self, transport: str) -> bool:
         return transport in self.transports
 
-    async def connect(
-        self,
-        host: Host,
-        locator: Locator,
-        handshake_timeout_ms: int | None,
-    ) -> Session:
+    async def connect(self, host: Host, locator: Locator, handshake_timeout_ms: int | None) -> Session:
         if not self.handles(locator.transport):
             raise ValueError(f"connector does not advertise locator transport {locator.transport!r}")
         return await self.realize(host, locator, handshake_timeout_ms)

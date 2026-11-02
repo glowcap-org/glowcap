@@ -179,10 +179,7 @@ class RunWithTimeoutTest(unittest.TestCase):
 
     def test_an_ordinary_failure_is_final(self) -> None:
         marker = self.scratch / "retry-count"
-        failing = child(
-            "import sys; open(sys.argv[1], 'a').write('run\\n'); raise SystemExit(3)",
-            str(marker),
-        )
+        failing = child("import sys; open(sys.argv[1], 'a').write('run\\n'); raise SystemExit(3)", str(marker))
         self.assertEqual(self.code("5s", *failing), 3)
         self.assertEqual(self.count_lines(marker), 1)
 
@@ -278,12 +275,7 @@ class RunWithTimeoutTest(unittest.TestCase):
             "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]])\n"
             "time.sleep(30)\n"
         )
-        wrapper = self.start(
-            "--kill-after",
-            "0.2s",
-            deadline,
-            *child(leader_code, descendant_code, str(marker)),
-        )
+        wrapper = self.start("--kill-after", "0.2s", deadline, *child(leader_code, descendant_code, str(marker)))
         descendant = None
         try:
             wait_for_file(marker)

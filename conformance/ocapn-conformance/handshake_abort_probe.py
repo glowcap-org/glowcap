@@ -93,12 +93,7 @@ def case_pre_setup_abort(netlayer, uri):
 
 def main():
     parser = argparse.ArgumentParser(description="Handshake abort probe against glowcap peer")
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="TCP port of the running glowcap-ocapn-peer",
-    )
+    parser.add_argument("--port", type=int, default=None, help="TCP port of the running glowcap-ocapn-peer")
     parser.add_argument("--locator", help="onion locator of the running glowcap peer")
     args = parser.parse_args()
     if args.locator is not None and args.port is not None:

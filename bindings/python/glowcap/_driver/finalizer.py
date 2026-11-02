@@ -17,14 +17,7 @@ from .._lifecycle import _release_consumed
 class _DriverFinalizerState:
     """Raw driver authority. Only a refused live release retains completion."""
 
-    __slots__ = (
-        "handle",
-        "host_state",
-        "context",
-        "release_failure_reported",
-        "operation",
-        "completion",
-    )
+    __slots__ = ("handle", "host_state", "context", "release_failure_reported", "operation", "completion")
 
     def __init__(self, handle: int, context=None) -> None:
         self.handle: ctypes.c_void_p | None = ctypes.c_void_p(handle)
@@ -58,16 +51,8 @@ def _release_driver_finalizer_state(state: _DriverFinalizerState) -> None:
                     **_report_fields(outcome, state.operation),
                 )
             except BaseException as recorder_error:
-                _record_runtime_failure(
-                    FailureLayer.BINDING,
-                    state.operation,
-                    error,
-                )
-                _record_runtime_failure(
-                    FailureLayer.BINDING,
-                    f"{state.operation}.diagnostic",
-                    recorder_error,
-                )
+                _record_runtime_failure(FailureLayer.BINDING, state.operation, error)
+                _record_runtime_failure(FailureLayer.BINDING, f"{state.operation}.diagnostic", recorder_error)
         if not _release_consumed(rc):
             with _deferred_driver_finalizers_lock:
                 if state.handle and state not in _deferred_driver_finalizers:
@@ -90,9 +75,7 @@ def _release_driver_finalizer_state(state: _DriverFinalizerState) -> None:
 
 
 def _defer_live_driver_release(
-    state: _DriverFinalizerState,
-    operation: str,
-    completion: Callable[[BaseException | None], None],
+    state: _DriverFinalizerState, operation: str, completion: Callable[[BaseException | None], None]
 ) -> None:
     """Transfer a refused live-loop release to the process retry owner."""
     if not state.handle:

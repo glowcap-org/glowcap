@@ -57,17 +57,9 @@ pin_struct(_OnionConfig, "GLOWCAP_ONION_CONFIG")
 
 def _load():
     onion = ctypes.CDLL(str(_lib_path("glowcap_net_transport_onion")))
-    require_archive_fingerprint(
-        lambda: onion.glowcap_onion_archive_fingerprint,
-        "onion",
-        ONION_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: onion.glowcap_onion_archive_fingerprint, "onion", ONION_ARCHIVE_FINGERPRINT)
     facade = _Lib(onion)
-    _bind(
-        facade,
-        onion,
-        onion_sigs(_Frame, _ManagedFrame, _OnionConfig, _TransportProvider),
-    )
+    _bind(facade, onion, onion_sigs(_Frame, _ManagedFrame, _OnionConfig, _TransportProvider))
     return facade
 
 

@@ -122,13 +122,7 @@ class _VerbsMixin:
         as :class:`VowBroken`. A fulfillment that is not a live capability is
         :class:`FetchFailed`.
         """
-        return await _fetch_like(
-            self,
-            name.encode(),
-            name,
-            _host.glowcap_host_session_fetch,
-            track=True,
-        )
+        return await _fetch_like(self, name.encode(), name, _host.glowcap_host_session_fetch, track=True)
 
     async def enliven(self, sturdyref: str) -> Ref:
         """Enliven a sturdyref against this already-open session.
@@ -136,13 +130,7 @@ class _VerbsMixin:
         The complete locator is verified before the Host's dedup cache is
         consulted. This Session-level verb never dials.
         """
-        return await _fetch_like(
-            self,
-            sturdyref.encode(),
-            sturdyref,
-            _host.glowcap_host_session_enliven,
-            track=True,
-        )
+        return await _fetch_like(self, sturdyref.encode(), sturdyref, _host.glowcap_host_session_enliven, track=True)
 
     def send(self, target: Ref | RemotePromise, verb: str | None, args: list | None = None) -> RemotePromise:
         """Eventual-send ``verb(args)`` and return a pipelineable promise.
@@ -175,10 +163,7 @@ class _VerbsMixin:
             return RemotePromise.failed(err)
 
     async def send_redeeming(
-        self,
-        target: Ref | RemotePromise,
-        verb: str | None,
-        args: list | None = None,
+        self, target: Ref | RemotePromise, verb: str | None, args: list | None = None
     ) -> SendRedeemingResult:
         """Send and surface the direct exporter Session opened by redemption.
 
@@ -195,12 +180,7 @@ class _VerbsMixin:
             via = None
         return SendRedeemingResult(reply, via)
 
-    async def tell(
-        self,
-        target: Ref | RemotePromise,
-        verb: str | None,
-        args: list | None = None,
-    ) -> None:
+    async def tell(self, target: Ref | RemotePromise, verb: str | None, args: list | None = None) -> None:
         """Fire-and-forget eventual-send without allocating an answer.
 
         Returns once the deliver is queued, and the session's writer sends it.
@@ -232,12 +212,7 @@ class _VerbsMixin:
         """
         self.guard_open()
         info = _PartnerIdentity()
-        _check_host(
-            _host.glowcap_host_session_partner_identity(
-                self._ptr,
-                ctypes.byref(info),
-            )
-        )
+        _check_host(_host.glowcap_host_session_partner_identity(self._ptr, ctypes.byref(info)))
 
         def owned(ptr, length) -> bytes:
             return ctypes.string_at(ptr, length) if ptr and length else b""
@@ -264,13 +239,7 @@ class _VerbsMixin:
         self.guard_open()
         raw = designator.encode()
         buf, ptr = _byte_buf(raw)
-        _check_host(
-            _host.glowcap_host_session_bind_verified_channel_key(
-                self._ptr,
-                ptr,
-                len(raw),
-            )
-        )
+        _check_host(_host.glowcap_host_session_bind_verified_channel_key(self._ptr, ptr, len(raw)))
         del buf
 
     def with_gc(self) -> Session:

@@ -13,12 +13,7 @@ import ctypes
 from typing import TYPE_CHECKING
 
 from . import _constants as _abi
-from ._abi_value import (
-    _INTEROP_CAPTP_VERSION,
-    _INTEROP_CODEC,
-    _OWN_CAPTP_VERSION,
-    _OWN_CODEC,
-)
+from ._abi_value import _INTEROP_CAPTP_VERSION, _INTEROP_CODEC, _OWN_CAPTP_VERSION, _OWN_CODEC
 from ._errors import GlowcapError, _check_host, _retain_terminal_failure
 from ._ffi_host import _host
 from ._ffi_ocapn import _LocatorHintView, _LocatorView
@@ -40,18 +35,12 @@ def _validate_handshake_timeout(handshake_timeout_ms: int | None) -> None:
         or handshake_timeout_ms < 0
         or handshake_timeout_ms > ctypes.c_uint32(-1).value
     ):
-        raise GlowcapError(
-            _ERR_INVALID_ARGUMENT,
-            "handshake_timeout_ms must be None or an unsigned 32-bit integer",
-        )
+        raise GlowcapError(_ERR_INVALID_ARGUMENT, "handshake_timeout_ms must be None or an unsigned 32-bit integer")
 
 
 def _composition(value, values, label):
     if value is not None and values is not None:
-        raise GlowcapError(
-            _ERR_INVALID_ARGUMENT,
-            f"Runtime.open accepts either {label}= or {label}s=, not both",
-        )
+        raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime.open accepts either {label}= or {label}s=, not both")
     if value is not None:
         result = (value,)
     elif values is not None:
@@ -162,10 +151,7 @@ class Runtime:
             else ()
         )
         if bool(selected_providers) == bool(selected_connectors):
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "Runtime.open requires providers or connectors, but not both",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "Runtime.open requires providers or connectors, but not both")
         if selected_providers:
             _validate_composition(selected_providers, Provider, "provider")
         else:
@@ -179,14 +165,10 @@ class Runtime:
                 (_OWN_CODEC, _OWN_CAPTP_VERSION) if profile == "glowcap" else (_INTEROP_CODEC, _INTEROP_CAPTP_VERSION)
             )
             if wanted != (adopt_host.codec, adopt_host.captp_version):
-                raise GlowcapError(
-                    _ERR_INVALID_ARGUMENT,
-                    f'profile "{profile}" conflicts with the adopted host',
-                )
+                raise GlowcapError(_ERR_INVALID_ARGUMENT, f'profile "{profile}" conflicts with the adopted host')
         if adopt_host is not None and codec is not None and codec != adopt_host.codec:
             raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                f'codec "{codec}" conflicts with the adopted host\'s "{adopt_host.codec}"',
+                _ERR_INVALID_ARGUMENT, f'codec "{codec}" conflicts with the adopted host\'s "{adopt_host.codec}"'
             )
         return cls(
             selected_providers,
@@ -253,8 +235,7 @@ class Runtime:
             else:
                 if host.driver_loop is not None:
                     raise GlowcapError(
-                        _ERR_INVALID_ARGUMENT,
-                        "a byte-fed Runtime cannot use a Host already owned by a driver loop",
+                        _ERR_INVALID_ARGUMENT, "a byte-fed Runtime cannot use a Host already owned by a driver loop"
                     )
                 host.install_connectors(self._connectors)
                 # Host._connectors is the one durable byte-fed authority used by
@@ -282,12 +263,7 @@ class Runtime:
             raise GlowcapError(_ERR_INVALID_ARGUMENT, "Runtime is not open")
         return self._host
 
-    async def connect(
-        self,
-        partner: Locator,
-        *,
-        handshake_timeout_ms: int | None = None,
-    ):
+    async def connect(self, partner: Locator, *, handshake_timeout_ms: int | None = None):
         """Connect using the runtime's retained transport authority."""
         await self._ensure_open()
         if handshake_timeout_ms is not None:
@@ -296,26 +272,17 @@ class Runtime:
         if self._loop is not None:
             if handshake_timeout_ms is not None and timeout != self._handshake_timeout_ms:
                 raise GlowcapError(
-                    _ERR_INVALID_ARGUMENT,
-                    "FFI Runtime handshake_timeout_ms is configured at Runtime.open",
+                    _ERR_INVALID_ARGUMENT, "FFI Runtime handshake_timeout_ms is configured at Runtime.open"
                 )
             from ._loop import dial_shared_loop
 
             return await dial_shared_loop(self._loop, partner)
         connector = self.host._connector_for(partner.transport)
         if connector is None:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                f"Runtime has no connector for {partner.transport!r}",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime has no connector for {partner.transport!r}")
         return await connector.connect(self.host, partner, timeout)
 
-    async def close(
-        self,
-        pending: PendingWork = PendingWork.CANCEL,
-        *,
-        grace: object = _UNSET,
-    ) -> None:
+    async def close(self, pending: PendingWork = PendingWork.CANCEL, *, grace: object = _UNSET) -> None:
         _close_options(pending, grace)
         if self._closed:
             self._raise_terminal_failure()
@@ -359,35 +326,21 @@ class Runtime:
 
 
 async def dial_parsed_locator(
-    locator: Locator,
-    host: Host,
-    *,
-    connector: Connector,
-    handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS,
+    locator: Locator, host: Host, *, connector: Connector, handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS
 ):
     """Binding-internal byte-fed dial used by handoff redemption."""
     _validate_handshake_timeout(handshake_timeout_ms)
     return await connector.connect(host, locator, handshake_timeout_ms)
 
 
-async def dial_exporter(
-    locator: Locator,
-    host: Host,
-    handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS,
-):
+async def dial_exporter(locator: Locator, host: Host, handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS):
     """Redeem a DIAL action through the Host's retained connector authority."""
     connector = host._connector_for(locator.transport)
     if connector is None:
         raise GlowcapError(
-            _ERR_INVALID_ARGUMENT,
-            f"handoff redeem has no registered connector for {locator.transport!r}",
+            _ERR_INVALID_ARGUMENT, f"handoff redeem has no registered connector for {locator.transport!r}"
         )
-    return await dial_parsed_locator(
-        locator,
-        host,
-        connector=connector,
-        handshake_timeout_ms=handshake_timeout_ms,
-    )
+    return await dial_parsed_locator(locator, host, connector=connector, handshake_timeout_ms=handshake_timeout_ms)
 
 
 async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
@@ -402,13 +355,7 @@ async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
         count = ctypes.c_size_t()
         hints = None
         rc = _host.glowcap_host_pending_dial(
-            host.raw,
-            ticket,
-            route_index,
-            None,
-            0,
-            ctypes.byref(view),
-            ctypes.byref(count),
+            host.raw, ticket, route_index, None, 0, ctypes.byref(view), ctypes.byref(count)
         )
         if rc == _abi.ERR_BUFFER_TOO_SMALL:
             capacity = count.value
@@ -416,13 +363,7 @@ async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
             view = _LocatorView()
             count = ctypes.c_size_t()
             rc = _host.glowcap_host_pending_dial(
-                host.raw,
-                ticket,
-                route_index,
-                hints,
-                capacity,
-                ctypes.byref(view),
-                ctypes.byref(count),
+                host.raw, ticket, route_index, hints, capacity, ctypes.byref(view), ctypes.byref(count)
             )
         _check_host(rc)
         with _OwnedLocator.clone_view(ctypes.cast(ctypes.byref(view), ctypes.c_void_p)) as owned:

@@ -434,14 +434,7 @@ def _signature_sexp(sig_64: bytes):
     ``['sig-val ['eddsa ['r r_value] ['s s_value]]]`` (RFC 8032 r||s).
     """
     assert len(sig_64) == 64, "Ed25519 signature must be 64 bytes"
-    return [
-        Symbol("sig-val"),
-        [
-            Symbol("eddsa"),
-            [Symbol("r"), sig_64[:32]],
-            [Symbol("s"), sig_64[32:]],
-        ],
-    ]
+    return [Symbol("sig-val"), [Symbol("eddsa"), [Symbol("r"), sig_64[:32]], [Symbol("s"), sig_64[32:]]]]
 
 
 def _ocapn_peer_no_hints(transport: str, designator: str):
@@ -478,13 +471,7 @@ def signed_handoff_give() -> Record:
     ``desc:sig-envelope`` wrapping the 5-field handoff-give
     certificate plus the gcrypt-canonical signature s-expression.
     """
-    return Record(
-        Symbol("desc:sig-envelope"),
-        (
-            _handoff_give_record(),
-            _signature_sexp(bytes([0xAA] * 64)),
-        ),
-    )
+    return Record(Symbol("desc:sig-envelope"), (_handoff_give_record(), _signature_sexp(bytes([0xAA] * 64))))
 
 
 def signed_handoff_receive() -> Record:
@@ -500,11 +487,7 @@ def signed_handoff_receive() -> Record:
     glowcap's ``ocapn_tests::handoff_receive_roundtrips_through_syrup``.
     """
     nested_signed_give = Record(
-        Symbol("desc:sig-envelope"),
-        (
-            _handoff_give_record(),
-            _signature_sexp(bytes([0xAA] * 64)),
-        ),
+        Symbol("desc:sig-envelope"), (_handoff_give_record(), _signature_sexp(bytes([0xAA] * 64)))
     )
     inner_receive = Record(
         Symbol("desc:handoff-receive"),
@@ -515,13 +498,7 @@ def signed_handoff_receive() -> Record:
             nested_signed_give,
         ),
     )
-    return Record(
-        Symbol("desc:sig-envelope"),
-        (
-            inner_receive,
-            _signature_sexp(bytes([0xBB] * 64)),
-        ),
-    )
+    return Record(Symbol("desc:sig-envelope"), (inner_receive, _signature_sexp(bytes([0xBB] * 64))))
 
 
 def op_deliver_withdraw_gift() -> Record:
@@ -550,11 +527,7 @@ def op_deliver_withdraw_gift() -> Record:
     only the outer ``op:deliver`` envelope differs.
     """
     nested_signed_give = Record(
-        Symbol("desc:sig-envelope"),
-        (
-            _handoff_give_record(),
-            _signature_sexp(bytes([0xAA] * 64)),
-        ),
+        Symbol("desc:sig-envelope"), (_handoff_give_record(), _signature_sexp(bytes([0xAA] * 64)))
     )
     inner_receive = Record(
         Symbol("desc:handoff-receive"),
@@ -565,13 +538,7 @@ def op_deliver_withdraw_gift() -> Record:
             nested_signed_give,
         ),
     )
-    signed_receive = Record(
-        Symbol("desc:sig-envelope"),
-        (
-            inner_receive,
-            _signature_sexp(bytes([0xBB] * 64)),
-        ),
-    )
+    signed_receive = Record(Symbol("desc:sig-envelope"), (inner_receive, _signature_sexp(bytes([0xBB] * 64))))
     target = Record(Symbol("desc:export"), (0,))
     args = [Symbol("withdraw-gift"), signed_receive]
     return Record(Symbol("op:deliver"), (target, args, 99, False))

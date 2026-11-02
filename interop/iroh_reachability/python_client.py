@@ -32,12 +32,7 @@ from helpers import fail, ignore_port_args, insert_bindings_path
 insert_bindings_path()
 
 from glowcap import TRANSPORT_IROH, Runtime, format_peer_uri  # noqa: E402
-from glowcap.iroh import (  # noqa: E402
-    IrohConfig,
-    Reachability,
-    listen,
-    provider,
-)
+from glowcap.iroh import IrohConfig, Reachability, listen, provider  # noqa: E402
 
 NAME = "python-iroh-world"
 

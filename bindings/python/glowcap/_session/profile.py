@@ -25,18 +25,10 @@ def read_session_profile(ptr: ctypes.c_void_p) -> SessionProfile:
     codec = ctypes.c_uint32()
     features = ctypes.c_uint32()
     _check_host(
-        _host.glowcap_host_session_profile(
-            ptr,
-            ctypes.byref(version),
-            ctypes.byref(codec),
-            ctypes.byref(features),
-        )
+        _host.glowcap_host_session_profile(ptr, ctypes.byref(version), ctypes.byref(codec), ctypes.byref(features))
     )
     if features.value & ~_abi.FEATURE_FULL:
-        raise GlowcapError(
-            _abi.ERR_INTERNAL,
-            f"glowcap ABI returned unknown session feature mask {features.value}",
-        )
+        raise GlowcapError(_abi.ERR_INTERNAL, f"glowcap ABI returned unknown session feature mask {features.value}")
     try:
         return SessionProfile(
             captp_version=_captp_version_name(version.value, "session"),
@@ -50,17 +42,10 @@ def read_session_profile(ptr: ctypes.c_void_p) -> SessionProfile:
 def read_session_transport_name(ptr: ctypes.c_void_p) -> str:
     out = ctypes.c_void_p()
     length = ctypes.c_size_t()
-    _check_host(
-        _host.glowcap_host_session_transport_name(
-            ptr,
-            ctypes.byref(out),
-            ctypes.byref(length),
-        )
-    )
+    _check_host(_host.glowcap_host_session_transport_name(ptr, ctypes.byref(out), ctypes.byref(length)))
     try:
         return ctypes.string_at(out, length.value).decode("utf-8")
     except UnicodeDecodeError as error:
         raise GlowcapError(
-            _abi.ERR_INTERNAL,
-            f"glowcap ABI returned non-UTF-8 session transport name: {error}",
+            _abi.ERR_INTERNAL, f"glowcap ABI returned non-UTF-8 session transport name: {error}"
         ) from error

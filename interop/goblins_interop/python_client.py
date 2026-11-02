@@ -33,18 +33,11 @@ HOST_SCRIPT = "conformance/goblins-peer/racket/goblins-host.rkt"
 
 async def converse() -> None:
     proc = await asyncio.create_subprocess_exec(
-        RACKET,
-        HOST_SCRIPT,
-        HOST,
-        str(PORT),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        RACKET, HOST_SCRIPT, HOST, str(PORT), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     try:
         sturdyref_path = await read_sturdyref_path(
-            proc,
-            "python-goblins-interop",
-            miss="never saw the Goblins echo sturdyref path readiness field",
+            proc, "python-goblins-interop", miss="never saw the Goblins echo sturdyref path readiness field"
         )
         print(f"python-goblins-interop: goblins published its echo sturdyref path on {HOST}:{PORT}")
 
@@ -66,10 +59,7 @@ async def converse() -> None:
             # driver's bar), not merely that something resolved.
             def assert_echoed(reply, expected):
                 if reply != [expected]:
-                    fail(
-                        "python-goblins-interop",
-                        f"echo returned {reply!r}, expected [{expected!r}]",
-                    )
+                    fail("python-goblins-interop", f"echo returned {reply!r}, expected [{expected!r}]")
 
             assert_echoed(await session.send(echo, None, [b"glowcap-ping"]), b"glowcap-ping")
 
@@ -79,10 +69,7 @@ async def converse() -> None:
             # observable: a binding cannot see the wire import behind it, which is
             # the point of the identity being opaque.
             if echo.id != again.id:
-                fail(
-                    "python-goblins-interop",
-                    "repeat enliven did not return the same capability (dedup miss)",
-                )
+                fail("python-goblins-interop", "repeat enliven did not return the same capability (dedup miss)")
             assert_echoed(await session.send(again, None, [b"glowcap-ping-again"]), b"glowcap-ping-again")
             print("python-goblins-interop: repeat enliven same import (dedup), second call resolved")
 

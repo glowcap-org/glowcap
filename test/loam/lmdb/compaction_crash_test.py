@@ -20,10 +20,7 @@ def run(probe, mode, directory):
 
 def interrupt(probe, boundary, directory):
     child = subprocess.Popen(
-        [probe, boundary, directory],
-        cwd=directory,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        [probe, boundary, directory], cwd=directory, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
     )
     try:
         ready, _, _ = select.select([child.stderr], [], [], 5)

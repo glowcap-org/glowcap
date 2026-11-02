@@ -32,13 +32,7 @@ from helpers import fail, ignore_port_args, insert_bindings_path
 insert_bindings_path()
 
 from glowcap import TRANSPORT_IROH, Runtime, format_peer_uri  # noqa: E402
-from glowcap.iroh import (  # noqa: E402
-    IrohConfig,
-    Reachability,
-    dial_locator_for_relay,
-    listen,
-    provider,
-)
+from glowcap.iroh import IrohConfig, Reachability, dial_locator_for_relay, listen, provider  # noqa: E402
 
 # Concurrent connections, each served on the one server loop; calls each makes
 # before closing, several turns per connection so the proof is sustained
@@ -94,10 +88,7 @@ async def main() -> None:
 
     # An accepted QUIC stream that sends no CapTP hello must consume one bounded
     # handshake seat, not serialize every later admission behind its timeout.
-    silent = await dial_locator_for_relay(
-        format_peer_uri(TRANSPORT_IROH, server_id),
-        Reachability.LOCAL_DISCOVERY,
-    )
+    silent = await dial_locator_for_relay(format_peer_uri(TRANSPORT_IROH, server_id), Reachability.LOCAL_DISCOVERY)
     try:
         # QUIC streams are lazy: a valid but incomplete outer length prefix makes
         # the stream visible while leaving the CapTP frame delimiter waiting.
@@ -110,10 +101,7 @@ async def main() -> None:
 
     # Fan out all clients at once: they share nothing, so the only thing that can
     # serve them all is the one server loop multiplexing.
-    results = await asyncio.gather(
-        *(_client_once(server_id) for _ in range(NUM_CONNS)),
-        return_exceptions=True,
-    )
+    results = await asyncio.gather(*(_client_once(server_id) for _ in range(NUM_CONNS)), return_exceptions=True)
 
     # Bring the server-side connections and the server down so the gate never
     # hangs and no fd reader outlives the endpoint it watches.

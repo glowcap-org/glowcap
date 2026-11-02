@@ -48,15 +48,7 @@ class OcapnvizChecks(unittest.TestCase):
                 (app / "main.ts").write_text(main)
                 (app / "phase_test.ts").write_text(source)
                 (app / "deno.json").write_text(
-                    json.dumps(
-                        {
-                            "tasks": {
-                                "typecheck": "deno check main.ts",
-                                "fmt:check": "true",
-                                "build": "true",
-                            }
-                        }
-                    )
+                    json.dumps({"tasks": {"typecheck": "deno check main.ts", "fmt:check": "true", "build": "true"}})
                 )
                 for name in ("ocapnviz-build-check.sh", "ocapnviz-test.sh"):
                     shutil.copy2(ROOT / "tools/check" / name, scripts / name)

@@ -23,22 +23,14 @@ from glowcap import (
     format_locator_uri,
     tcp,
 )
-from glowcap._constants import (
-    ERR_INVALID_ARGUMENT,
-)
+from glowcap._constants import ERR_INVALID_ARGUMENT
 
 from smoke.conversation import _start_relay
 from smoke.runtime import tcp_connect
 
-from .authority import (
-    _forwarding_proxies_over_the_wire as _forwarding_proxies_over_the_wire,
-)
-from .authority import (
-    _forwarding_proxy_local_call as _forwarding_proxy_local_call,
-)
-from .authority import (
-    _mid_turn_driving_verb_breaks_the_answer as _mid_turn_driving_verb_breaks_the_answer,
-)
+from .authority import _forwarding_proxies_over_the_wire as _forwarding_proxies_over_the_wire
+from .authority import _forwarding_proxy_local_call as _forwarding_proxy_local_call
+from .authority import _mid_turn_driving_verb_breaks_the_answer as _mid_turn_driving_verb_breaks_the_answer
 from .authority import (
     _mid_turn_host_release_orders_sessions_before_host as _mid_turn_host_release_orders_sessions_before_host,
 )
@@ -422,10 +414,7 @@ async def _turn_spawn_survives_originating_port_close() -> None:
                     root_ref = origin.spawn(root)
                     continue
 
-                session.publish(
-                    "introducer",
-                    lambda verb, args: root_ref if verb == "get" else None,
-                )
+                session.publish("introducer", lambda verb, args: root_ref if verb == "get" else None)
                 await accepted[0].close()
                 ready.set()
                 await session.serve()

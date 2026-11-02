@@ -33,10 +33,7 @@ class ReleaseTransportTest(unittest.TestCase):
             if redirect:
                 headers["Location"] = destination
             response = urllib.response.addinfourl(
-                io.BytesIO(b"" if redirect else b"archive"),
-                headers,
-                request.full_url,
-                code if redirect else 200,
+                io.BytesIO(b"" if redirect else b"archive"), headers, request.full_url, code if redirect else 200
             )
             response.msg = "Found" if redirect else "OK"
             return response

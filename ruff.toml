@@ -14,3 +14,11 @@ extend-exclude = ["conformance/*/upstream", "*_gen.py"]
 # read worse split.
 select = ["E", "F", "I", "UP", "EXE", "RUF100"]
 ignore = ["E501"]
+
+[format]
+# The formatter owns every line break. A trailing comma a human left asks for
+# nothing, so a call or literal that fits on one line stays on one line.
+skip-magic-trailing-comma = true
+
+[lint.isort]
+split-on-trailing-comma = false

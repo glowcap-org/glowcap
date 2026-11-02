@@ -27,11 +27,7 @@ from pathlib import Path
 
 def run(probe, directory, *args):
     result = subprocess.run(
-        [probe, args[0], directory, *map(str, args[1:])],
-        cwd=directory,
-        capture_output=True,
-        text=True,
-        timeout=5,
+        [probe, args[0], directory, *map(str, args[1:])], cwd=directory, capture_output=True, text=True, timeout=5
     )
     if result.returncode:
         raise AssertionError(f"{args}: {result.stdout}{result.stderr}")
@@ -55,11 +51,7 @@ def read_case(probe, *args):
     with tempfile.TemporaryDirectory(prefix="glowcap loam faults ") as directory:
         run(probe, directory, "create")
         result = subprocess.run(
-            [probe, args[0], directory, *map(str, args[1:])],
-            cwd=directory,
-            capture_output=True,
-            text=True,
-            timeout=5,
+            [probe, args[0], directory, *map(str, args[1:])], cwd=directory, capture_output=True, text=True, timeout=5
         )
         if result.returncode < 0:
             raise AssertionError(f"{args}: killed by signal {-result.returncode}: {result.stderr}")

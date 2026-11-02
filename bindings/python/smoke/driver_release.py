@@ -91,11 +91,7 @@ async def _deferred_consuming_failure_retires_once_and_stays_ordered() -> None:
         await boundary.close()
         assert attempts == 2
         assert loop._released and host.released
-        assert [failure.code for failure in loop.terminal_failures] == [
-            ERR_INTERNAL,
-            ERR_INVALID_ARGUMENT,
-            ERR_IO,
-        ]
+        assert [failure.code for failure in loop.terminal_failures] == [ERR_INTERNAL, ERR_INVALID_ARGUMENT, ERR_IO]
         assert _driver_finalizer._pending_driver_finalizer_retry_count() == 0
         assert not glowcap.take_runtime_failures(), "live terminal ownership leaked into process finalizer diagnostics"
 

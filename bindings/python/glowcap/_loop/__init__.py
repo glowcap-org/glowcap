@@ -21,11 +21,7 @@ from .._abi_value import _DEFAULT_CODEC, _codec_id
 from .._driver.release import _DriverReleaseOwner
 from .._driver_event import LoopEvent as LoopEvent
 from .._driver_failure import _add_provider
-from .._errors import (
-    GlowcapError,
-    _check_host,
-    _retain_cleanup_failure,
-)
+from .._errors import GlowcapError, _check_host, _retain_cleanup_failure
 from .._ffi_driver import _driver, _TransportProvider
 from .._ffi_host import _host
 from .._listener import ListenerOwner
@@ -119,12 +115,7 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
         contract (durable identity, then a fresh session-key root). ``None``
         draws both halves fresh."""
         options = _driver_options(
-            wire_buffer_bytes,
-            max_pending_opens,
-            handshake_ms,
-            listener_setup_ms,
-            settle_ms,
-            busy_poll_ns,
+            wire_buffer_bytes, max_pending_opens, handshake_ms, listener_setup_ms, settle_ms, busy_poll_ns
         )
         material = seed if seed is not None else secrets.token_bytes(64)
         if len(material) != 64:
@@ -156,13 +147,7 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
         assert host.value is not None
         slot = ctypes.c_void_p(None)
         try:
-            _check(
-                _driver.glowcap_driver_take_host(
-                    host,
-                    ctypes.byref(options),
-                    ctypes.byref(slot),
-                )
-            )
+            _check(_driver.glowcap_driver_take_host(host, ctypes.byref(options), ctypes.byref(slot)))
         except BaseException as primary:
             from .._host import _release_unpublished_host
 
@@ -199,21 +184,10 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
             raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "host already belongs to a driver loop")
         raw = host.raw
         options = _driver_options(
-            wire_buffer_bytes,
-            max_pending_opens,
-            handshake_ms,
-            listener_setup_ms,
-            settle_ms,
-            busy_poll_ns,
+            wire_buffer_bytes, max_pending_opens, handshake_ms, listener_setup_ms, settle_ms, busy_poll_ns
         )
         out = ctypes.c_void_p(None)
-        _check(
-            _driver.glowcap_driver_take_host(
-                raw,
-                ctypes.byref(options),
-                ctypes.byref(out),
-            )
-        )
+        _check(_driver.glowcap_driver_take_host(raw, ctypes.byref(options), ctypes.byref(out)))
         assert out.value is not None
         assert raw.value is not None
         loop = cls(out.value, raw.value)
@@ -374,9 +348,6 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
     # ── Vows ─────────────────────────────────────────────────────────────────
 
 
-async def dial_shared_loop(
-    driver_loop: DriverLoop,
-    locator: Locator,
-):
+async def dial_shared_loop(driver_loop: DriverLoop, locator: Locator):
     """Begin one dial through an already-composed provider package."""
     return await driver_loop.connect_session(locator)

@@ -53,12 +53,7 @@ from ._abi_value import _DEFAULT_CODEC, _codec_id
 from ._constants import OK as _OK
 from ._errors import GlowcapError
 from ._ffi import FfiHandle, _FfiHandleOwner
-from ._ffi_ocapn import (
-    _borrowed_byte_frame,
-    _copy_managed_frame,
-    _ManagedFrame,
-    _read_last_error,
-)
+from ._ffi_ocapn import _borrowed_byte_frame, _copy_managed_frame, _ManagedFrame, _read_last_error
 from ._ffi_onion import _onion_lib, _OnionConfig
 from ._host import Host
 from ._locator import Locator
@@ -156,13 +151,7 @@ class OnionConnection(_FfiHandleOwner):
 
     def __init__(self, raw, netlayer: OnionNetlayer):
         self._netlayer = netlayer
-        self._ffi = FfiHandle(
-            raw,
-            _release_conn,
-            _shutdown_conn,
-            label="onion connection",
-            keepalive=netlayer,
-        )
+        self._ffi = FfiHandle(raw, _release_conn, _shutdown_conn, label="onion connection", keepalive=netlayer)
         self._reads = threading.Lock()
         self._writes = threading.Lock()
         if not netlayer._adopt(self):
@@ -266,9 +255,7 @@ class OnionListener(_FfiHandleOwner):
         return out.value != 0
 
     def accept(
-        self,
-        codec: str = _DEFAULT_CODEC,
-        max_frame_bytes: int = _c.RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+        self, codec: str = _DEFAULT_CODEC, max_frame_bytes: int = _c.RAW_TRANSPORT_DEFAULT_FRAME_CAP
     ) -> OnionConnection:
         """Block until Tor forwards a circuit to this service.
 
@@ -278,13 +265,7 @@ class OnionListener(_FfiHandleOwner):
             out = ctypes.c_void_p()
             _check_onion(
                 _onion_lib.glowcap_onion_accept(
-                    raw,
-                    _codec_id(codec),
-                    max_frame_bytes,
-                    ctypes.byref(out),
-                    None,
-                    0,
-                    None,
+                    raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out), None, 0, None
                 )
             )
             return OnionConnection(out, self._netlayer)
@@ -338,10 +319,7 @@ class OnionNetlayer(_FfiHandleOwner):
         _check_onion(_onion_lib.glowcap_onion_netlayer_new(ctypes.byref(cfg), ctypes.byref(out)))
         # Annotated because `release` clears it, the same shape `_host.py` uses.
         self._ffi = FfiHandle(
-            out,
-            _release_netlayer,
-            _onion_lib.glowcap_onion_netlayer_shutdown,
-            label="onion netlayer",
+            out, _release_netlayer, _onion_lib.glowcap_onion_netlayer_shutdown, label="onion netlayer"
         )
         # Children retain this owner; weak membership avoids an ownership cycle
         # while still letting explicit release retire them before std.Io.
@@ -422,18 +400,10 @@ class OnionNetlayer(_FfiHandleOwner):
                     None,
                 )
             )
-            return OnionListener(
-                out,
-                id_buf.raw[: id_len.value].decode(),
-                key_buf.raw[: key_len.value],
-                self,
-            )
+            return OnionListener(out, id_buf.raw[: id_len.value].decode(), key_buf.raw[: key_len.value], self)
 
     def connect(
-        self,
-        service_id: str,
-        codec: str = _DEFAULT_CODEC,
-        max_frame_bytes: int = _c.RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+        self, service_id: str, codec: str = _DEFAULT_CODEC, max_frame_bytes: int = _c.RAW_TRANSPORT_DEFAULT_FRAME_CAP
     ) -> OnionConnection:
         """Dial the onion service ``service_id`` through the configured Tor.
 
@@ -468,14 +438,7 @@ class OnionServer(DriverServer):
     API. CapTP remains owned by each yielded session.
     """
 
-    def __init__(
-        self,
-        driver_loop,
-        listener,
-        service_key: bytes,
-        *,
-        retire_loop: bool,
-    ):
+    def __init__(self, driver_loop, listener, service_key: bytes, *, retire_loop: bool):
         super().__init__(driver_loop, listener, retire_loop=retire_loop)
         self._service_key = bytes(service_key)
 
@@ -519,12 +482,7 @@ async def listen(
         await loop.wait_listener(listener)
         loop.select_listener(listener)
         restored_key = loop.listener_restoration_state(listener)
-        return OnionServer(
-            loop,
-            listener,
-            restored_key,
-            retire_loop=prepared.owns_loop,
-        )
+        return OnionServer(loop, listener, restored_key, retire_loop=prepared.owns_loop)
     except BaseException as error:
         _rollback_listener_construction(error, loop, listener, prepared.owns_loop)
         raise

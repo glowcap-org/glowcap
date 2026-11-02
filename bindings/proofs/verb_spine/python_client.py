@@ -18,14 +18,7 @@ from helpers import insert_bindings_path
 
 insert_bindings_path()
 
-from glowcap import (  # noqa: E402
-    GlowcapError,
-    Ref,
-    Runtime,
-    Session,
-    parse_locator,
-    tcp,
-)
+from glowcap import GlowcapError, Ref, Runtime, Session, parse_locator, tcp  # noqa: E402
 
 
 def fail(message: str) -> None:

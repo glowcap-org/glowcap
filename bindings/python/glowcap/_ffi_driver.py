@@ -111,10 +111,7 @@ pin_struct(_TransportProvider, "GLOWCAP_TRANSPORT_PROVIDER")
 
 
 class _TransportOperationOptions(ctypes.Structure):
-    _fields_ = [
-        ("data", ctypes.c_void_p),
-        ("size", ctypes.c_size_t),
-    ]
+    _fields_ = [("data", ctypes.c_void_p), ("size", ctypes.c_size_t)]
 
 
 pin_struct(_TransportOperationOptions, "GLOWCAP_TRANSPORT_OPERATION_OPTIONS")
@@ -132,11 +129,7 @@ def _load():
         _TransportProvider,
     )
     lib = ctypes.CDLL(str(_lib_path("glowcap_driver")))
-    require_archive_fingerprint(
-        lambda: lib.glowcap_driver_archive_fingerprint,
-        "driver",
-        DRIVER_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: lib.glowcap_driver_archive_fingerprint, "driver", DRIVER_ARCHIVE_FINGERPRINT)
     facade = _Lib(lib)
     _bind(facade, lib, sigs)
     return facade

@@ -29,12 +29,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import (
-    await_greeter_ready,
-    fail,
-    insert_bindings_path,
-    parse_port,
-)
+from helpers import await_greeter_ready, fail, insert_bindings_path, parse_port
 
 insert_bindings_path()
 
@@ -58,12 +53,7 @@ async def run() -> None:
     # deadlocks the child once its OS pipe fills, Goblins logs to stderr during
     # operation, so drain stderr in the background and print it only on failure.
     bob = await asyncio.create_subprocess_exec(
-        RACKET,
-        EXPORTER_SCRIPT,
-        HOST,
-        str(PORT),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        RACKET, EXPORTER_SCRIPT, HOST, str(PORT), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     bob_stderr_chunks: list[bytes] = []
 

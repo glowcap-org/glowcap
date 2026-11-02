@@ -61,15 +61,7 @@ from _protocol_gen import (  # noqa: E402
     WATCH_PUBLICATIONS,
     WATCH_SNAPSHOT_FIELDS,
 )
-from glowcap import (  # noqa: E402
-    Host,
-    Ref,
-    Runtime,
-    Session,
-    designator_host_port,
-    parse_locator,
-    tcp,
-)
+from glowcap import Host, Ref, Runtime, Session, designator_host_port, parse_locator, tcp  # noqa: E402
 from glowcap._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
 from glowcap.iroh import IrohConfig, Reachability  # noqa: E402
 from glowcap.iroh import provider as iroh_provider  # noqa: E402
@@ -217,9 +209,7 @@ async def _dial(locator: str) -> tuple[Runtime, Session]:
     if "://" in locator:
         loc = parse_locator(locator)
         if loc.transport != TRANSPORT_IROH:
-            raise ValueError(
-                f'rooms expected an iroh ocapn:// URI, got "{loc.transport}": {locator}',
-            )
+            raise ValueError(f'rooms expected an iroh ocapn:// URI, got "{loc.transport}": {locator}')
         hints = loc.hints.get(HINT_DIRECT_ADDRESSES, "")
         reach = Reachability.DIRECT if hints else Reachability.DISCOVERY
         runtime = await Runtime.open(provider=iroh_provider(IrohConfig(reach)), adopt_host=rooms_host())
@@ -289,8 +279,7 @@ class Directory:
         observer = self.session.spawn(lambda _verb, _args: None)
         try:
             reply = await asyncio.wait_for(
-                self.session.send(self._directory, REGISTER, [nick, locator, observer]),
-                REGISTER_TIMEOUT_S,
+                self.session.send(self._directory, REGISTER, [nick, locator, observer]), REGISTER_TIMEOUT_S
             )
         finally:
             self.session.release(observer)
@@ -312,8 +301,7 @@ class Directory:
     async def member_registration(self, peer: str) -> str:
         """Return the exact live generation of ``peer``'s nickname."""
         return _registration_id(
-            await self.session.send(self._directory, MEMBER_REGISTRATION, [peer]),
-            f'memberRegistration("{peer}")',
+            await self.session.send(self._directory, MEMBER_REGISTRATION, [peer]), f'memberRegistration("{peer}")'
         )
 
     async def introduce(self, nick: str, registration_id: str | None = None):

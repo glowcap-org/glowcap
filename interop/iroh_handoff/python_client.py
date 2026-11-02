@@ -38,20 +38,8 @@ from helpers import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
 
-from glowcap import (  # noqa: E402
-    HINT_DIRECT_ADDRESSES,
-    TRANSPORT_IROH,
-    Locator,
-    Ref,
-    Runtime,
-    format_peer_uri,
-)
-from glowcap.iroh import (  # noqa: E402
-    IrohConfig,
-    Reachability,
-    listen,
-    provider,
-)
+from glowcap import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH, Locator, Ref, Runtime, format_peer_uri  # noqa: E402
+from glowcap.iroh import IrohConfig, Reachability, listen, provider  # noqa: E402
 
 NAME = "python-iroh-carol"
 
@@ -106,13 +94,7 @@ async def run() -> None:
     # The exporter's own signed session record names it by node id alone, not
     # dialable under the relay-less Direct posture, so record its full dialable
     # location (id + direct-addresses) as the give's exporter location.
-    to_exporter.set_exporter_locator(
-        Locator(
-            "iroh",
-            exporter_id,
-            {HINT_DIRECT_ADDRESSES: exporter_addrs},
-        )
-    )
+    to_exporter.set_exporter_locator(Locator("iroh", exporter_id, {HINT_DIRECT_ADDRESSES: exporter_addrs}))
 
     def introducer(verb: str, args: list):
         if verb == "get-greeter":

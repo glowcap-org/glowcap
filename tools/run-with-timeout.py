@@ -116,9 +116,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kill-after", type=duration, default=None)
     parser.add_argument(
-        "--quiet-success",
-        action="store_true",
-        help="replay combined child output only when the command fails",
+        "--quiet-success", action="store_true", help="replay combined child output only when the command fails"
     )
     parser.add_argument("--heartbeat", type=duration, default=0)
     parser.add_argument("timeout", type=duration)

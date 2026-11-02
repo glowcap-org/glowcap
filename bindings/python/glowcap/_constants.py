@@ -16,10 +16,7 @@ the whole session layer.
 import enum
 
 from ._constants_gen import *  # noqa: F403
-from ._constants_gen import (
-    DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
-    DURABLE_PROVENANCE_UNAUTHENTICATED,
-)
+from ._constants_gen import DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT, DURABLE_PROVENANCE_UNAUTHENTICATED
 
 
 class DurableProvenance(enum.Enum):

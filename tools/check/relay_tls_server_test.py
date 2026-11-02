@@ -69,11 +69,7 @@ class CleanCloseTest(unittest.TestCase):
             patch.object(server, "clean_close"),
         ):
             server.serve_one(raw, args)
-        context.wrap_socket.assert_called_once_with(
-            raw,
-            server_side=True,
-            suppress_ragged_eofs=False,
-        )
+        context.wrap_socket.assert_called_once_with(raw, server_side=True, suppress_ragged_eofs=False)
 
 
 class LiveCloseTest(unittest.TestCase):
@@ -82,9 +78,7 @@ class LiveCloseTest(unittest.TestCase):
         for notified in (True, False):
             with self.subTest(notified=notified):
                 args = argparse.Namespace(
-                    mode="clean-close",
-                    cert=str(fixtures / "tls_server.pem"),
-                    key=str(fixtures / "tls_server.key"),
+                    mode="clean-close", cert=str(fixtures / "tls_server.pem"), key=str(fixtures / "tls_server.key")
                 )
                 outcomes = []
                 incoming, outgoing = socket.socketpair()
@@ -130,14 +124,7 @@ class LiveCloseTest(unittest.TestCase):
                     self.assertEqual(outcomes, [])
                 else:
                     self.assertEqual(len(outcomes), 1)
-                    self.assertIsInstance(
-                        outcomes[0],
-                        (
-                            ssl.SSLEOFError,
-                            ConnectionResetError,
-                            BrokenPipeError,
-                        ),
-                    )
+                    self.assertIsInstance(outcomes[0], (ssl.SSLEOFError, ConnectionResetError, BrokenPipeError))
 
 
 if __name__ == "__main__":

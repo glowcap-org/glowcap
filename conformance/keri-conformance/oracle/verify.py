@@ -248,8 +248,7 @@ def verify_kel(aid: str, kel_records: list) -> bool:
 
         # SAID check: re-compute and compare.
         recomputed, computed_said = saidify(
-            {k: v for k, v in evt.items() if k != "d" and (not is_icp or k != "i")},
-            is_icp,
+            {k: v for k, v in evt.items() if k != "d" and (not is_icp or k != "i")}, is_icp
         )
         if computed_said != evt["d"]:
             err(f"event {i} ({evt['t']}): SAID mismatch, computed {computed_said}, stored {evt['d']}")

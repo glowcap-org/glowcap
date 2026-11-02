@@ -44,10 +44,7 @@ def _abort_domain_label(domain: int) -> str:
         return "session"
     if domain == _abi.ABORT_DOMAIN_FOREIGN:
         return "foreign"
-    raise GlowcapError(
-        _abi.ERR_INTERNAL,
-        f"glowcap ABI returned unknown abort domain {domain}",
-    )
+    raise GlowcapError(_abi.ERR_INTERNAL, f"glowcap ABI returned unknown abort domain {domain}")
 
 
 @dataclass(frozen=True)
@@ -81,12 +78,7 @@ class GlowcapError(Exception):
     and why.
     """
 
-    def __init__(
-        self,
-        code: int,
-        message: str | None = None,
-        abort: AbortDetail | None = None,
-    ):
+    def __init__(self, code: int, message: str | None = None, abort: AbortDetail | None = None):
         if message:
             super().__init__(f"glowcap error {code}: {message}")
         else:

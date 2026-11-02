@@ -16,10 +16,7 @@ from helpers import insert_bindings_path
 
 insert_bindings_path()
 
-from glowcap import (  # noqa: E402
-    Argument,
-    relay,
-)
+from glowcap import Argument, relay  # noqa: E402
 
 
 async def main() -> None:

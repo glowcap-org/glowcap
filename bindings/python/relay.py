@@ -41,15 +41,7 @@ from glowcap import _constants_gen as _abi
 # The bounded resource defaults come from generated binding policy. The
 # conformance idle-timeout proof sets GLOWCAP_RELAY_IDLE_MS low; a production run
 # leaves it unset.
-IDLE_TIMEOUT_S = (
-    float(
-        os.environ.get(
-            "GLOWCAP_RELAY_IDLE_MS",
-            str(_abi.BINDING_RELAY_IDLE_TIMEOUT_MS),
-        )
-    )
-    / 1000.0
-)
+IDLE_TIMEOUT_S = float(os.environ.get("GLOWCAP_RELAY_IDLE_MS", str(_abi.BINDING_RELAY_IDLE_TIMEOUT_MS))) / 1000.0
 MAX_BYTES_PER_SESSION = _abi.BINDING_RELAY_MAX_BYTES_PER_SESSION
 READ_CHUNK = _abi.BINDING_RELAY_READ_CHUNK_BYTES
 CLOSE_TIMEOUT_S = _abi.BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS / 1000.0
@@ -115,9 +107,7 @@ async def _close_channel(channel) -> None:
 
 async def _close_pair(channel, websocket) -> tuple[BaseException, ...]:
     outcomes = await asyncio.gather(
-        _close_channel(channel),
-        asyncio.wait_for(websocket.close(), CLOSE_TIMEOUT_S),
-        return_exceptions=True,
+        _close_channel(channel), asyncio.wait_for(websocket.close(), CLOSE_TIMEOUT_S), return_exceptions=True
     )
     return tuple(outcome for outcome in outcomes if isinstance(outcome, BaseException))
 
@@ -145,20 +135,13 @@ async def _pump(websocket) -> None:
     target_to = target_to_values[0] if target_to_values else None
     target_locator = target_locator_values[0] if target_locator_values else None
     if target_locator is None and (not target_to or ":" not in target_to):
-        await asyncio.wait_for(
-            websocket.close(1008, "relay requires ?to=host:port or ?locator=<uri>"),
-            CLOSE_TIMEOUT_S,
-        )
+        await asyncio.wait_for(websocket.close(1008, "relay requires ?to=host:port or ?locator=<uri>"), CLOSE_TIMEOUT_S)
         return
 
     try:
         channel = await _open_channel(target_to, target_locator)
     except BaseException as error:
-        print(
-            f"relay: dial failed: {type(error).__name__}: {error}",
-            file=sys.stderr,
-            flush=True,
-        )
+        print(f"relay: dial failed: {type(error).__name__}: {error}", file=sys.stderr, flush=True)
         # 1011 tells the browser the relay leg failed, not the session.
         try:
             await asyncio.wait_for(websocket.close(1011, "relay dial failed"), CLOSE_TIMEOUT_S)

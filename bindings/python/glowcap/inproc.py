@@ -39,13 +39,7 @@ from ._constants import RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC
 from ._errors import GlowcapError
 from ._ffi import FfiHandle, _FfiHandleOwner
 from ._ffi_inproc import _inproc_lib
-from ._ffi_ocapn import (
-    _borrowed_byte_frame,
-    _copy_managed_frame,
-    _ManagedFrame,
-    _read_last_error,
-    _str_buf,
-)
+from ._ffi_ocapn import _borrowed_byte_frame, _copy_managed_frame, _ManagedFrame, _read_last_error, _str_buf
 from ._locator import Locator
 
 __all__ = ["InprocNetlayer", "InprocListener", "InprocConnection", "locator"]
@@ -92,11 +86,7 @@ class InprocConnection(_FfiHandleOwner):
     def __init__(self, raw, netlayer: InprocNetlayer):
         self._netlayer = netlayer
         self._ffi = FfiHandle(
-            raw,
-            _release_conn,
-            _inproc_lib.glowcap_inproc_conn_shutdown,
-            label="inproc connection",
-            keepalive=netlayer,
+            raw, _release_conn, _inproc_lib.glowcap_inproc_conn_shutdown, label="inproc connection", keepalive=netlayer
         )
         self._reads = threading.Lock()
         self._writes = threading.Lock()
@@ -156,9 +146,7 @@ class InprocListener(_FfiHandleOwner):
         self._netlayer._forget(self)
 
     def accept(
-        self,
-        codec: str = _DEFAULT_CODEC,
-        max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+        self, codec: str = _DEFAULT_CODEC, max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP
     ) -> InprocConnection:
         """Block until a dialer connects, returning an owned connection framing
         on ``codec``."""
@@ -166,13 +154,7 @@ class InprocListener(_FfiHandleOwner):
             out = ctypes.c_void_p()
             _check_inproc(
                 _inproc_lib.glowcap_inproc_accept(
-                    raw,
-                    _codec_id(codec),
-                    max_frame_bytes,
-                    ctypes.byref(out),
-                    None,
-                    0,
-                    None,
+                    raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out), None, 0, None
                 )
             )
             return InprocConnection(out, self._netlayer)
@@ -243,10 +225,7 @@ class InprocNetlayer(_FfiHandleOwner):
             return InprocListener(out, self)
 
     def connect(
-        self,
-        designator: str,
-        codec: str = _DEFAULT_CODEC,
-        max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP,
+        self, designator: str, codec: str = _DEFAULT_CODEC, max_frame_bytes: int = RAW_TRANSPORT_DEFAULT_FRAME_CAP
     ) -> InprocConnection:
         """Dial the listener bound at ``designator`` and return a framed
         connection."""

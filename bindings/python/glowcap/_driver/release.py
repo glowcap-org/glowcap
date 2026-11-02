@@ -9,11 +9,7 @@ from dataclasses import dataclass
 from .._driver_failure import _release
 from .._ffi_driver import _driver
 from .._lifecycle import _release_consumed
-from .finalizer import (
-    _defer_live_driver_release,
-    _DriverFinalizerState,
-    _release_driver_finalizer_state,
-)
+from .finalizer import _defer_live_driver_release, _DriverFinalizerState, _release_driver_finalizer_state
 
 
 @dataclass(frozen=True)
@@ -48,11 +44,7 @@ class _DriverReleaseOwner:
         self._state.host_state = state
         self._state.context = None
 
-    def release(
-        self,
-        operation: str,
-        completion: Callable[[BaseException | None], None],
-    ) -> _ReleaseAttempt:
+    def release(self, operation: str, completion: Callable[[BaseException | None], None]) -> _ReleaseAttempt:
         handle = self._state.handle
         if not handle:
             raise RuntimeError("driver release authority was already consumed")

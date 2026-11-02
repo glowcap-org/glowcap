@@ -30,13 +30,7 @@ insert_bindings_path()
 
 from glowcap._ffi_host import _host as _host_ffi  # noqa: E402
 from glowcap._loop import DriverLoop  # noqa: E402
-from glowcap.iroh import (  # noqa: E402
-    IrohConfig,
-    Reachability,
-    adopt_loop_provider,
-    listen,
-    locator,
-)
+from glowcap.iroh import IrohConfig, Reachability, adopt_loop_provider, listen, locator  # noqa: E402
 
 GREETING = "hello through the Python iroh transport"
 

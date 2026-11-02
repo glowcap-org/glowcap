@@ -137,22 +137,14 @@ _HOST_ALIAS_CORPUS = (
 def _host_target_triple() -> str:
     """Host → zig build release-pack target (`tools/c-abi/c-abi-host-aliases.json`)."""
     machine = platform.machine().lower()
-    arch = {
-        "x86_64": "x86_64",
-        "amd64": "x86_64",
-        "x64": "x86_64",
-        "aarch64": "aarch64",
-        "arm64": "aarch64",
-    }.get(machine, machine)
+    arch = {"x86_64": "x86_64", "amd64": "x86_64", "x64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(
+        machine, machine
+    )
     # system is .lower()'d so Darwin/Linux appear via lower; macosx/win32 mapped.
     system = platform.system().lower()
-    zig_os = {
-        "darwin": "macos",
-        "macosx": "macos",
-        "linux": "linux",
-        "windows": "windows",
-        "win32": "windows",
-    }.get(system, system)
+    zig_os = {"darwin": "macos", "macosx": "macos", "linux": "linux", "windows": "windows", "win32": "windows"}.get(
+        system, system
+    )
     return f"{arch}-{zig_os}"
 
 
@@ -238,12 +230,7 @@ def _verify_sha256(sums_text: str, tarball: str, tarball_path: pathlib.Path) -> 
         raise OSError(f"SHA256 mismatch for {tarball}: got {got}, want {expect}")
 
 
-def _safe_extract_lib(
-    tarball_path: pathlib.Path,
-    stage: pathlib.Path,
-    *,
-    prefix: str,
-) -> None:
+def _safe_extract_lib(tarball_path: pathlib.Path, stage: pathlib.Path, *, prefix: str) -> None:
     """Extract only regular files under prefix/, rejecting traversal and links."""
     stage_resolved = stage.resolve()
     prefix_slash = prefix + "/"
@@ -272,10 +259,7 @@ def _safe_extract_lib(
 
 
 def _fetch_into_cache(contract: dict, version: str, target: str, cache_lib: pathlib.Path) -> None:
-    base = os.environ.get(
-        "GLOWCAP_RELEASE_BASE_URL",
-        contract["default_release_base_url"],
-    )
+    base = os.environ.get("GLOWCAP_RELEASE_BASE_URL", contract["default_release_base_url"])
     _require_https(base)
     max_bytes = int(contract["max_tarball_bytes"])
     max_sums = int(contract["max_sums_bytes"])
@@ -403,8 +387,5 @@ def _lib_path(stem: str) -> str:
             f"{name}; set GLOWCAP_LIB_DIR or populate the abi-versioned cache "
             "(Windows refuses bare DLL names to avoid search-order plants)"
         )
-    print(
-        f"glowcap: warning: loading bare {name} via the OS search path",
-        file=sys.stderr,
-    )
+    print(f"glowcap: warning: loading bare {name} via the OS search path", file=sys.stderr)
     return name

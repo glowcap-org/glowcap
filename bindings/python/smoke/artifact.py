@@ -23,25 +23,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="glowcap-python-wheel-") as raw_tmp:
         tmp = Path(raw_tmp)
         staged = tmp / "project"
-        shutil.copytree(
-            project,
-            staged,
-            ignore=shutil.ignore_patterns(".venv", "build", "*.egg-info", "__pycache__"),
-        )
+        shutil.copytree(project, staged, ignore=shutil.ignore_patterns(".venv", "build", "*.egg-info", "__pycache__"))
         wheel_dir = tmp / "wheel"
         wheel_dir.mkdir()
         subprocess.run(
-            [
-                "uv",
-                "build",
-                "--wheel",
-                "--no-build-logs",
-                "--out-dir",
-                str(wheel_dir),
-                str(staged),
-            ],
-            cwd=tmp,
-            check=True,
+            ["uv", "build", "--wheel", "--no-build-logs", "--out-dir", str(wheel_dir), str(staged)], cwd=tmp, check=True
         )
         wheels = tuple(wheel_dir.glob("*.whl"))
         assert len(wheels) == 1, wheels

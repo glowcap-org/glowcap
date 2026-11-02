@@ -40,12 +40,7 @@ HOST_SCRIPT = "conformance/goblins-peer/racket/handoff-introducer-host.rkt"
 
 async def converse() -> None:
     proc = await asyncio.create_subprocess_exec(
-        RACKET,
-        HOST_SCRIPT,
-        str(PORT),
-        str(PORT + 1),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        RACKET, HOST_SCRIPT, str(PORT), str(PORT + 1), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     try:
         swiss = await read_swiss(proc, "python-goblins-handoff", miss="never saw the introducer readiness line")

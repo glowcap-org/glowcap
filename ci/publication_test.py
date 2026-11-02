@@ -236,8 +236,7 @@ else:
         # The verify step, not this condition, requires the commit's
         # successful check run.
         self.assertEqual(
-            workflow(".github/workflows/pages.yml")["on"],
-            {"push": {"branches": ["main"]}, "workflow_dispatch": None},
+            workflow(".github/workflows/pages.yml")["on"], {"push": {"branches": ["main"]}, "workflow_dispatch": None}
         )
         condition = jobs(".github/workflows/pages.yml")["build"]["if"]
         for event in ("push", "workflow_dispatch"):

@@ -94,10 +94,7 @@ def run() -> None:
         host = Host()
         # Close the ownership cycle: Host -> behavior -> Host.
         # The process-global trampoline lookup must not turn it into a root.
-        host.publish(
-            "finalized",
-            lambda _verb, _args: host.released,
-        )
+        host.publish("finalized", lambda _verb, _args: host.released)
         return host, host._publications["finalized"]
 
     finalizer_loop = asyncio.new_event_loop()

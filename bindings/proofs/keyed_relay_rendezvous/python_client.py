@@ -40,15 +40,9 @@ async def expect_wss_refusal(partner, route: str, trust_pem: bytes | None, cause
             fail("keyed-relay-rendezvous", f"WSS did not return {cause}")
         carrier = refused.carrier_failure
         if carrier is None or carrier.phase is not CarrierPhase.SECURE_HANDSHAKE or carrier.verification_flags == 0:
-            fail(
-                "keyed-relay-rendezvous",
-                f"WSS omitted secure-handshake verification detail: {refused}",
-            )
+            fail("keyed-relay-rendezvous", f"WSS omitted secure-handshake verification detail: {refused}")
         if cause not in str(refused):
-            fail(
-                "keyed-relay-rendezvous",
-                f"WSS reported {refused!s}, expected {cause}",
-            )
+            fail("keyed-relay-rendezvous", f"WSS reported {refused!s}, expected {cause}")
 
 
 async def main() -> None:
@@ -64,19 +58,13 @@ async def main() -> None:
         transport = {"connector": connector("ws://127.0.0.1:1/relay")}
     else:
         if wss_ca_file is None:
-            fail(
-                "keyed-relay-rendezvous",
-                "WSS proof needs GLOWCAP_PROOF_WSS_RELAY_CA_FILE",
-            )
+            fail("keyed-relay-rendezvous", "WSS proof needs GLOWCAP_PROOF_WSS_RELAY_CA_FILE")
         pem = Path(wss_ca_file).read_bytes()
         wrong_host = wss_relay_url.replace("//localhost:", "//127.0.0.1:", 1)
         await expect_wss_refusal(partner, wrong_host, pem, "CertificateNameMismatch")
         await expect_wss_refusal(partner, wss_relay_url, None, "CertificateUntrusted")
         transport = {"provider": provider(RelayConfig(wss_relay_url, trust_pem=pem))}
-    async with Runtime.open(
-        **transport,
-        adopt_host=host,
-    ) as runtime:
+    async with Runtime.open(**transport, adopt_host=host) as runtime:
         session = await runtime.connect(partner)
         try:
             greeter = await session.fetch("greeter")

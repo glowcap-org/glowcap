@@ -176,10 +176,7 @@ class _ProgressMixin(HostMixinBase):
         """Join each Session's shared outcome without cancelling its effects."""
         while self._session_retirements:
             pending = tuple(self._session_retirements)
-            await asyncio.gather(
-                *(session._await_terminal() for session in pending),
-                return_exceptions=True,
-            )
+            await asyncio.gather(*(session._await_terminal() for session in pending), return_exceptions=True)
             for session in pending:
                 for error in session.terminal_failures:
                     self._record_terminal_failure(error)
@@ -197,12 +194,7 @@ class _ProgressMixin(HostMixinBase):
             # gather the same done tasks again and starve those callbacks.
             self._action_drains.difference_update(pending)
 
-    def start_dial_task(
-        self,
-        ticket: int,
-        route_index: int,
-        run: Callable[[], Coroutine[Any, Any, None]],
-    ) -> None:
+    def start_dial_task(self, ticket: int, route_index: int, run: Callable[[], Coroutine[Any, Any, None]]) -> None:
         """Retain a popped DIAL independently of the drain that discovered it."""
         if not self._raw:
             return

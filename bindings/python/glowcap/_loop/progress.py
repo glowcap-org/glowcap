@@ -41,8 +41,7 @@ class _ProgressMixin(DriverLoopMixinBase):
         loop = self._aio
         if loop is None:
             raise GlowcapError(
-                _c.ERR_INVALID_ARGUMENT,
-                "call DriverLoop.start() before using asynchronous loop operations",
+                _c.ERR_INVALID_ARGUMENT, "call DriverLoop.start() before using asynchronous loop operations"
             )
         return loop
 
@@ -124,10 +123,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                 _c.DRIVER_EVENT_LISTENER_READY,
                 _c.DRIVER_EVENT_LISTENER_FAILED,
             ):
-                raise GlowcapError(
-                    _c.ERR_INTERNAL,
-                    f"glowcap ABI returned unknown loop event kind {event.kind}",
-                )
+                raise GlowcapError(_c.ERR_INTERNAL, f"glowcap ABI returned unknown loop event kind {event.kind}")
             primary_name = ""
             secondary_name = ""
             settled_ok = False
@@ -135,11 +131,7 @@ class _ProgressMixin(DriverLoopMixinBase):
             listener_id = event.listener_id
             if (
                 event.kind
-                in (
-                    _c.DRIVER_EVENT_OPEN_FAILED,
-                    _c.DRIVER_EVENT_LISTENER_FAILED,
-                    _c.DRIVER_EVENT_SESSION_CLOSED,
-                )
+                in (_c.DRIVER_EVENT_OPEN_FAILED, _c.DRIVER_EVENT_LISTENER_FAILED, _c.DRIVER_EVENT_SESSION_CLOSED)
                 and event.primary_name
             ):
                 primary_name = ctypes.string_at(event.primary_name, event.primary_name_len).decode("utf-8", "replace")
@@ -158,8 +150,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                     decoded = decode(event.action)
                 except BaseException as error:
                     raise GlowcapError(
-                        _c.ERR_INTERNAL,
-                        f"glowcap ABI returned an invalid completion action: {error}",
+                        _c.ERR_INTERNAL, f"glowcap ABI returned an invalid completion action: {error}"
                     ) from error
                 if not settled_ok and event.action.message:
                     primary_name = ctypes.string_at(event.action.message, event.action.message_len).decode(
@@ -238,10 +229,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                 else:
                     self._unclaimed_sessions[event.session] = (False, None)
                     self._ffi_session_release(ctypes.c_void_p(event.session))
-                    raise GlowcapError(
-                        _c.ERR_INTERNAL,
-                        f"accepted session names unknown listener {event.listener_id}",
-                    )
+                    raise GlowcapError(_c.ERR_INTERNAL, f"accepted session names unknown listener {event.listener_id}")
         elif event.kind == _c.DRIVER_EVENT_SESSION_CLOSED:
             if event.session is not None:
                 session_failure = _driver_event_failure(event, "session") if event.primary_result != _c.OK else None
@@ -275,9 +263,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                     host.settle_vow(event.decoded.ticket, True, event.decoded.value)
                 else:
                     host.settle_vow(
-                        event.decoded.ticket,
-                        False,
-                        _vow_failure(event.decoded.result, event.decoded.message),
+                        event.decoded.ticket, False, _vow_failure(event.decoded.result, event.decoded.message)
                     )
             if isinstance(event.decoded, (Settle, Fail)):
                 done = self._completions.pop(event.decoded.ticket, None)
@@ -288,7 +274,4 @@ class _ProgressMixin(DriverLoopMixinBase):
                         assert isinstance(event.decoded, Fail)
                         done.set_exception(_vow_failure(event.decoded.result, event.decoded.message))
         else:
-            raise GlowcapError(
-                _c.ERR_INTERNAL,
-                f"glowcap ABI returned unknown loop event kind {event.kind}",
-            )
+            raise GlowcapError(_c.ERR_INTERNAL, f"glowcap ABI returned unknown loop event kind {event.kind}")

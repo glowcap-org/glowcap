@@ -86,11 +86,7 @@ _WebrtcSendAnswerFn = ctypes.CFUNCTYPE(
     ctypes.c_size_t,
 )
 _WebrtcSendCandidateFn = ctypes.CFUNCTYPE(
-    ctypes.c_int32,
-    ctypes.c_void_p,
-    ctypes.c_uint64,
-    ctypes.POINTER(ctypes.c_uint8),
-    ctypes.c_size_t,
+    ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t
 )
 _WebrtcExchangeDoneFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint64)
 
@@ -132,11 +128,7 @@ pin_struct(_WebrtcConfig, "GLOWCAP_WEBRTC_CONFIG")
 
 def _load_webrtc():
     lib = ctypes.CDLL(str(_WEBRTC_LIB_PATH))
-    require_archive_fingerprint(
-        lambda: lib.glowcap_webrtc_archive_fingerprint,
-        "webrtc",
-        WEBRTC_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: lib.glowcap_webrtc_archive_fingerprint, "webrtc", WEBRTC_ARCHIVE_FINGERPRINT)
     for name, (argtypes, restype) in webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider).items():
         fn = getattr(lib, name)
         fn.argtypes = argtypes

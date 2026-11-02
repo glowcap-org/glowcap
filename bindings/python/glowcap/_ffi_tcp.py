@@ -45,23 +45,9 @@ pin_struct(_TcpConfig, "GLOWCAP_TCP_CONFIG")
 
 def _load():
     tcp = ctypes.CDLL(str(_lib_path("glowcap_net_transport_tcp")))
-    require_archive_fingerprint(
-        lambda: tcp.glowcap_tcp_archive_fingerprint,
-        "tcp",
-        TCP_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: tcp.glowcap_tcp_archive_fingerprint, "tcp", TCP_ARCHIVE_FINGERPRINT)
     facade = _Lib(tcp)
-    _bind(
-        facade,
-        tcp,
-        tcp_sigs(
-            _Frame,
-            _ManagedFrame,
-            _TcpConfig,
-            _TcpStreamOptions,
-            _TransportProvider,
-        ),
-    )
+    _bind(facade, tcp, tcp_sigs(_Frame, _ManagedFrame, _TcpConfig, _TcpStreamOptions, _TransportProvider))
     return facade
 
 

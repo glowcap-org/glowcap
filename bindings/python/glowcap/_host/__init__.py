@@ -26,9 +26,7 @@ import secrets
 import threading
 import weakref
 from collections.abc import Awaitable
-from typing import (
-    TYPE_CHECKING,
-)
+from typing import TYPE_CHECKING
 
 from .. import _constants as _abi
 from .. import _trace
@@ -44,11 +42,7 @@ from .._abi_value import (
     _codec_id,
     _feature_mask,
 )
-from .._errors import (
-    GlowcapError,
-    _check_host,
-    _retain_cleanup_failure,
-)
+from .._errors import GlowcapError, _check_host, _retain_cleanup_failure
 from .finalizer import (
     _drain_deferred_finalizer_states,
     _HostFinalizerState,
@@ -125,10 +119,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         if profile not in (None, "interop", "glowcap"):
             raise GlowcapError(_ERR_INVALID_ARGUMENT, f"unknown Host profile {profile!r}")
         if profile is not None and (codec is not None or captp_version is not None):
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "Host profile cannot be combined with codec or captp_version",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "Host profile cannot be combined with codec or captp_version")
         codec = (
             _OWN_CODEC
             if profile == "glowcap"
@@ -240,12 +231,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             _check_host(_host.glowcap_host_diagnostic_id(self._raw, ctypes.byref(diagnostic_id)))
             self._diagnostic_id = diagnostic_id.value
             self._finalizer_state = _HostFinalizerState(
-                self._raw,
-                self._publications,
-                self._displaced_publications,
-                self._hosted,
-                context,
-                self._diagnostic_id,
+                self._raw, self._publications, self._displaced_publications, self._hosted, context, self._diagnostic_id
             )
             self._finalizer = None
             assert _driver_loop is not None
@@ -294,19 +280,9 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             raise
         self._diagnostic_id = diagnostic_id.value
         self._finalizer_state = _HostFinalizerState(
-            out,
-            self._publications,
-            self._displaced_publications,
-            self._hosted,
-            context,
-            self._diagnostic_id,
+            out, self._publications, self._displaced_publications, self._hosted, context, self._diagnostic_id
         )
-        self._finalizer = weakref.finalize(
-            self,
-            _release_finalizer_state,
-            self._finalizer_state,
-            checked=False,
-        )
+        self._finalizer = weakref.finalize(self, _release_finalizer_state, self._finalizer_state, checked=False)
         # The host's own key designator, the name a partner knows it by:
         # the live trace reports it as this host's endpoint so one peer stays
         # one node in a feed several producers share. The raw-only finalizer is
@@ -356,33 +332,21 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
     def _bind_running_loop(self) -> None:
         """Bind a loop-created session to the host's first driving loop."""
         if not self._on_owner_thread():
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "host must be driven from its owning event-loop thread",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "host must be driven from its owning event-loop thread")
         try:
             running = asyncio.get_running_loop()
         except RuntimeError:
             if self._loop is not None:
-                raise GlowcapError(
-                    _ERR_INVALID_ARGUMENT,
-                    "host must be driven from its owning event loop",
-                )
+                raise GlowcapError(_ERR_INVALID_ARGUMENT, "host must be driven from its owning event loop")
             return
         if self._loop is None:
             self._loop = running
         elif running is not self._loop:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "host must be driven from its owning event loop",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "host must be driven from its owning event loop")
 
     def _assert_owner(self) -> None:
         if not self._on_owner_thread():
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "host must be driven from its owning event-loop thread",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "host must be driven from its owning event-loop thread")
         self._bind_running_loop()
         if self._trace_refresh_pending:
             _trace._refresh_host(self)

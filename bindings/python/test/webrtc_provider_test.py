@@ -24,10 +24,7 @@ class FakeHost:
 
 class Signaling:
     def __init__(
-        self,
-        *,
-        candidate_error: BaseException | None = None,
-        answer_error: BaseException | None = None,
+        self, *, candidate_error: BaseException | None = None, answer_error: BaseException | None = None
     ) -> None:
         self.candidates: list[tuple[int, str]] = []
         self.offers: list[tuple[int, webrtc.Target]] = []
@@ -100,10 +97,7 @@ class WebrtcSignalerTests(SignalerCase):
         keep_s, sdp, slen = _bytes("v=0")
         keep_i, ice, ilen = _bytes("{}")
         target = webrtc.Target(DESIGNATOR, "introducer-key")
-        self.assertEqual(
-            signaler.send_offer(None, 3, designator, dlen, introducer, nlen, sdp, slen),
-            _c.OK,
-        )
+        self.assertEqual(signaler.send_offer(None, 3, designator, dlen, introducer, nlen, sdp, slen), _c.OK)
         self.assertEqual(signaler.send_candidate(None, 3, ice, ilen), _c.OK)
         await asyncio.sleep(0)
         self.assertEqual(signaling.subscribed, [(3, target)])

@@ -191,10 +191,7 @@ class PackageValidation(unittest.TestCase):
 
 
 class ImageInventory(unittest.TestCase):
-    FILES = {
-        "bin/glowcap": (b"product executable", True),
-        "share/glowcap/release.json": (b"{}\n", False),
-    }
+    FILES = {"bin/glowcap": (b"product executable", True), "share/glowcap/release.json": (b"{}\n", False)}
 
     def fixture(self, *, contents=None, modes=None, special=None, base_program=None):
         contents = contents or {}
@@ -283,10 +280,7 @@ class ImageContainerOwnership(unittest.TestCase):
         remove.assert_called_once_with("owned-inventory", False)
 
     def test_service_cleanup_covers_run_timeout(self):
-        for proof, role in (
-            (image.check_web_and_directory, "web"),
-            (image.check_session, "session"),
-        ):
+        for proof, role in ((image.check_web_and_directory, "web"), (image.check_session, "session")):
             with (
                 self.subTest(role=role),
                 patch.object(image, "container_name", return_value=f"owned-{role}"),

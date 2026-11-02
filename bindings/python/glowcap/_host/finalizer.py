@@ -12,12 +12,8 @@ from .._errors import _host_error
 from .._failure import FailureLayer, _record_runtime_failure
 from .._ffi_host import _host
 from .._lifecycle import _release_consumed
-from .._trampoline import (
-    _inside_turn,
-)
-from .._trampoline import (
-    _unregister_behavior as _unregister_global_behavior,
-)
+from .._trampoline import _inside_turn
+from .._trampoline import _unregister_behavior as _unregister_global_behavior
 
 # A finalizer cannot report an FFI release refusal. Same-thread callback
 # finalization uses the post-turn queue below; any other refusal transfers into
@@ -38,14 +34,7 @@ class _HostFinalizerState:
     allocator alive until that release completes.
     """
 
-    __slots__ = (
-        "raw",
-        "publications",
-        "displaced",
-        "hosted",
-        "context",
-        "diagnostic_id",
-    )
+    __slots__ = ("raw", "publications", "displaced", "hosted", "context", "diagnostic_id")
 
     def __init__(self, raw, publications, displaced, hosted, context, diagnostic_id) -> None:
         self.raw = raw
@@ -102,11 +91,7 @@ def _report_finalizer_release_failure(state: _HostFinalizerState, failure: BaseE
         )
     except BaseException as recorder_error:
         _record_runtime_failure(FailureLayer.BINDING, "host.finalizer.release", failure)
-        _record_runtime_failure(
-            FailureLayer.BINDING,
-            "host.finalizer.release.diagnostic",
-            recorder_error,
-        )
+        _record_runtime_failure(FailureLayer.BINDING, "host.finalizer.release.diagnostic", recorder_error)
 
 
 def _retire_finalizer_state(state: _HostFinalizerState) -> None:

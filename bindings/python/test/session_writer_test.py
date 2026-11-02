@@ -87,9 +87,7 @@ class SessionWriterTest(unittest.TestCase):
             host, remote = Host(), Host()
             host.set_advertised_locator(Locator(_abi.TRANSPORT_NOISE_TCP, host.designator(), {}, "boolean-false"))
             session = Session._open_dialed_locator(
-                host,
-                Locator(_abi.TRANSPORT_NOISE_TCP, remote.designator(), {}, "boolean-false"),
-                _SilentTransport(),
+                host, Locator(_abi.TRANSPORT_NOISE_TCP, remote.designator(), {}, "boolean-false"), _SilentTransport()
             )
             await host.kick_actions()
             await session.written(session.request_flush())
@@ -118,12 +116,7 @@ class SessionWriterTest(unittest.TestCase):
             host = Host()
             session = Session._open_dialed_locator(
                 host,
-                Locator(
-                    _abi.TRANSPORT_TCP,
-                    tcp.address_designator("127.0.0.1", 1),
-                    {},
-                    "boolean-false",
-                ),
+                Locator(_abi.TRANSPORT_TCP, tcp.address_designator("127.0.0.1", 1), {}, "boolean-false"),
                 _SilentTransport(),
             )
             closing = asyncio.create_task(session.close())
@@ -170,12 +163,7 @@ class SessionWriterTest(unittest.TestCase):
             host = Host()
             session = Session._open_dialed_locator(
                 host,
-                Locator(
-                    _abi.TRANSPORT_TCP,
-                    tcp.address_designator("127.0.0.1", 1),
-                    {},
-                    "boolean-false",
-                ),
+                Locator(_abi.TRANSPORT_TCP, tcp.address_designator("127.0.0.1", 1), {}, "boolean-false"),
                 Transport(),
             )
             try:
@@ -210,10 +198,7 @@ class SessionWriterTest(unittest.TestCase):
                 # replace a failing assertion with a second teardown exception.
                 await asyncio.gather(host.close(), return_exceptions=True)
 
-        for chunk, code in (
-            (b"this is not a frame", _abi.ERR_CODEC),
-            (b"2000000:", _abi.ERR_FRAME_TOO_LARGE),
-        ):
+        for chunk, code in ((b"this is not a frame", _abi.ERR_CODEC), (b"2000000:", _abi.ERR_FRAME_TOO_LARGE)):
             for fail_write in (False, True):
                 for fail_diagnostic in (False, True):
                     with self.subTest(code=code, fail_write=fail_write, fail_diagnostic=fail_diagnostic):
@@ -252,10 +237,7 @@ class SessionWriterTest(unittest.TestCase):
             self.assertTrue(outbound.close_delivered)
             owner.gate.set()
             await outbound.exited()
-            self.assertEqual(
-                owner.events,
-                ["flush", "kick", "flush", "close_transport", "finish_close 0"],
-            )
+            self.assertEqual(owner.events, ["flush", "kick", "flush", "close_transport", "finish_close 0"])
 
         asyncio.run(run())
 
@@ -266,10 +248,7 @@ class SessionWriterTest(unittest.TestCase):
             outbound.request()
             await outbound.exited()
             outbound.close_after_flush(5)
-            self.assertEqual(
-                owner.events,
-                ["flush", "retired", "close_transport", "finish_close 5"],
-            )
+            self.assertEqual(owner.events, ["flush", "retired", "close_transport", "finish_close 5"])
 
         asyncio.run(run())
 

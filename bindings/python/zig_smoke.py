@@ -139,11 +139,7 @@ def main() -> int:
     assert sturdyref.swissnum == bytes.fromhex(
         "79 08 cf e2 74 76 f1 f7 d7 e5 ea 0d 08 ae 43 58 7e 83 4f f7 7b 04 8a 83 df e3 32 e3 9f 42 51 b5"
     )
-    formatted_sturdyref = format_sturdyref(
-        tcp.locator("127.0.0.1", 9045),
-        b"durable:0123456789abcdef",
-        "next",
-    )
+    formatted_sturdyref = format_sturdyref(tcp.locator("127.0.0.1", 9045), b"durable:0123456789abcdef", "next")
     assert parse_sturdyref(formatted_sturdyref, "next").swissnum == b"durable:0123456789abcdef"
 
     try:

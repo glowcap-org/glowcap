@@ -56,9 +56,7 @@ def git(*args: str, env: dict[str, str] | None = None) -> str:
 
 def attach_note(path: Path, commit: str) -> None:
     result = subprocess.run(
-        ["git", "notes", f"--ref={NOTES_REF}", "add", "-f", "-F", str(path), commit],
-        capture_output=True,
-        text=True,
+        ["git", "notes", f"--ref={NOTES_REF}", "add", "-f", "-F", str(path), commit], capture_output=True, text=True
     )
     if result.returncode != 0:
         fail(f"record written at {path}; note not attached: {result.stderr.strip()}", 3)
@@ -153,10 +151,7 @@ def record(gates: list[dict[str, Any]], started: str, outcome: str) -> dict[str,
         "branch": None if branch == "HEAD" else branch,
         "dirty": tree != git("rev-parse", "HEAD^{tree}"),
         "submodules": submodules(),
-        "toolchain": {
-            "zig": zig_version(),
-            "pins": {name: digest(Path(name)) for name in PIN_FILES},
-        },
+        "toolchain": {"zig": zig_version(), "pins": {name: digest(Path(name)) for name in PIN_FILES}},
         "host": {
             "system": platform.system(),
             "release": platform.release(),

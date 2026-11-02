@@ -143,11 +143,7 @@ async def projections_reach_a_field() -> None:
     # Structural projection operations belong to v1.0; multi-location does not.
     expected_features = FEATURE_FULL & ~FEATURE_MULTI_LOCATION
     serve_task = None
-    server = await tcp.listen(
-        "127.0.0.1",
-        0,
-        host=Host(codec="capnp", captp_version="v1_0", features="full"),
-    )
+    server = await tcp.listen("127.0.0.1", 0, host=Host(codec="capnp", captp_version="v1_0", features="full"))
     published = asyncio.Event()
     release_make = asyncio.Event()
     pipeline_sent = asyncio.Event()
@@ -159,7 +155,7 @@ async def projections_reach_a_field() -> None:
             and event.get("outbound")
             and event.get("op") == "pipeline-sentinel"
             else None
-        ),
+        )
     )
     try:
 

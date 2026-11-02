@@ -69,10 +69,7 @@ class _OwnedLocator:
 
     @classmethod
     def create(cls, locator: Locator) -> _OwnedLocator:
-        wire_form = {
-            "map": _abi.HINTS_MAP,
-            "boolean-false": _abi.HINTS_BOOLEAN_FALSE,
-        }.get(locator.hint_wire_form)
+        wire_form = {"map": _abi.HINTS_MAP, "boolean-false": _abi.HINTS_BOOLEAN_FALSE}.get(locator.hint_wire_form)
         if wire_form is None:
             raise ValueError("unknown locator hint wire form")
         transport = locator.transport.encode("utf-8")
@@ -80,12 +77,7 @@ class _OwnedLocator:
         raw = ctypes.c_void_p()
         _check(
             _lib.glowcap_locator_new(
-                transport,
-                len(transport),
-                designator,
-                len(designator),
-                wire_form,
-                ctypes.byref(raw),
+                transport, len(transport), designator, len(designator), wire_form, ctypes.byref(raw)
             )
         )
         owned = cls(raw)
@@ -165,18 +157,10 @@ class _OwnedLocator:
             hints[name] = value
         raw_wire_form = ctypes.c_uint32()
         _check(_lib.glowcap_locator_hint_wire_form(self.handle, ctypes.byref(raw_wire_form)))
-        wire_form = {
-            _abi.HINTS_MAP: "map",
-            _abi.HINTS_BOOLEAN_FALSE: "boolean-false",
-        }.get(raw_wire_form.value)
+        wire_form = {_abi.HINTS_MAP: "map", _abi.HINTS_BOOLEAN_FALSE: "boolean-false"}.get(raw_wire_form.value)
         if wire_form is None:
             raise GlowcapError(_abi.ERR_INVALID_ARGUMENT, "OCapN returned an invalid hint wire form")
-        return Locator(
-            field(_lib.glowcap_locator_transport),
-            field(_lib.glowcap_locator_designator),
-            hints,
-            wire_form,
-        )
+        return Locator(field(_lib.glowcap_locator_transport), field(_lib.glowcap_locator_designator), hints, wire_form)
 
 
 class _OwnedSturdyRef:
@@ -290,18 +274,7 @@ def _format_uri(
     def call_format(buf, cap: int, out_len) -> int:
         if swissnum is None:
             return _lib.glowcap_uri_format_peer(
-                t,
-                len(t),
-                d,
-                len(d),
-                key_ptr,
-                key_len_ptr,
-                val_ptr,
-                val_len_ptr,
-                n,
-                buf,
-                cap,
-                ctypes.byref(out_len),
+                t, len(t), d, len(d), key_ptr, key_len_ptr, val_ptr, val_len_ptr, n, buf, cap, ctypes.byref(out_len)
             )
         assert captp_version is not None
         return _lib.glowcap_uri_format_sturdyref(
@@ -363,11 +336,7 @@ def designator_host_port(designator: str) -> tuple[str, int]:
     hport = ctypes.c_uint16()
     _check(
         _lib.glowcap_designator_host_port(
-            ctypes.cast(buf, ctypes.c_void_p),
-            len(data),
-            ctypes.byref(hp),
-            ctypes.byref(hn),
-            ctypes.byref(hport),
+            ctypes.cast(buf, ctypes.c_void_p), len(data), ctypes.byref(hp), ctypes.byref(hn), ctypes.byref(hport)
         )
     )
     host = ctypes.string_at(hp, hn.value).decode("utf-8") if hp.value and hn.value else ""

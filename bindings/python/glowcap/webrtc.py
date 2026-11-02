@@ -45,17 +45,8 @@ from ._ffi_webrtc import (
 )
 from ._host import Host
 from ._locator import Locator
-from ._server import (
-    DriverServer,
-    _rollback_listener_construction,
-    listener_seed,
-    prepare_driver_loop,
-)
-from ._transport import (
-    Provider,
-    _record_transport_cleanup_failure,
-    _rollback_failed_provider,
-)
+from ._server import DriverServer, _rollback_listener_construction, listener_seed, prepare_driver_loop
+from ._transport import Provider, _record_transport_cleanup_failure, _rollback_failed_provider
 
 __all__ = [
     "IceServer",
@@ -314,10 +305,7 @@ class _Signaler:
 
     def _on_send_offer(self, _ctx, exchange, designator, dlen, introducer, ilen, sdp, slen) -> int:
         try:
-            target = Target(
-                _text(designator, dlen),
-                _text(introducer, ilen) if introducer and ilen else None,
-            )
+            target = Target(_text(designator, dlen), _text(introducer, ilen) if introducer and ilen else None)
             offer = _text(sdp, slen)
             entry = self._register(exchange, target)
             entry.offer = self._spawn("webrtc.offer", self._offer(exchange, target, offer), exchange)
@@ -382,13 +370,7 @@ class _Netlayer(_FfiHandleOwner):
     live here for the netlayer's life because the archive keeps their
     addresses."""
 
-    def __init__(
-        self,
-        config: WebrtcConfig,
-        signaler: _Signaler,
-        *,
-        _construction_token=None,
-    ) -> None:
+    def __init__(self, config: WebrtcConfig, signaler: _Signaler, *, _construction_token=None) -> None:
         if _construction_token is not _NETLAYER_CONSTRUCTION:
             raise RuntimeError("use 'await _Netlayer.open(...)'")
         keep: list = []
@@ -404,9 +386,7 @@ class _Netlayer(_FfiHandleOwner):
         self._signaler = signaler
         signaler.netlayer = out
         self._ffi = FfiHandle(
-            out,
-            lambda raw: _check_webrtc(_webrtc().glowcap_webrtc_netlayer_release(raw)),
-            label="webrtc netlayer",
+            out, lambda raw: _check_webrtc(_webrtc().glowcap_webrtc_netlayer_release(raw)), label="webrtc netlayer"
         )
 
     @classmethod
@@ -528,9 +508,7 @@ class Server(DriverServer):
 
 
 async def listen(
-    signaling: SignalingAuthority,
-    config: WebrtcConfig = WebrtcConfig(),
-    options: ListenOptions = ListenOptions(),
+    signaling: SignalingAuthority, config: WebrtcConfig = WebrtcConfig(), options: ListenOptions = ListenOptions()
 ) -> Server:
     """Compose a WebRTC netlayer into the Host ``options`` names, open its
     listener, and select it as the Host's advertised location. Needs the WebRTC
@@ -545,9 +523,7 @@ async def listen(
     yields the session once the channel opens."""
     host = options.host
     prepared = prepare_driver_loop(
-        host,
-        host.codec if host is not None else _DEFAULT_CODEC,
-        seed=listener_seed(options.seed, host),
+        host, host.codec if host is not None else _DEFAULT_CODEC, seed=listener_seed(options.seed, host)
     )
     loop = prepared.loop
     listener = None

@@ -5,20 +5,8 @@ from __future__ import annotations
 import asyncio
 import socket
 
-from glowcap import (
-    GlowcapError,
-    Host,
-    Locator,
-    PendingWork,
-    Runtime,
-    Symbol,
-    tcp,
-)
-from glowcap._constants import (
-    DESIGNATOR_SCHEME_ADDRESS,
-    ERR_TIMEOUT,
-    TRANSPORT_TCP,
-)
+from glowcap import GlowcapError, Host, Locator, PendingWork, Runtime, Symbol, tcp
+from glowcap._constants import DESIGNATOR_SCHEME_ADDRESS, ERR_TIMEOUT, TRANSPORT_TCP
 
 
 async def _session_wire_failure_is_exact_and_retired() -> None:
@@ -69,16 +57,9 @@ async def _session_wire_failure_is_exact_and_retired() -> None:
     client_host = Host()
     server_host = Host()
     designator = tcp.address_designator("127.0.0.1", 1)
-    accepted = Session.establish_accepted(
-        server_host,
-        TRANSPORT_TCP,
-        designator,
-        server_channel,
-    )
+    accepted = Session.establish_accepted(server_host, TRANSPORT_TCP, designator, server_channel)
     dialed = Session.establish_dialed_locator(
-        client_host,
-        Locator(TRANSPORT_TCP, designator, {}, "boolean-false"),
-        client_channel,
+        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel
     )
     server_session, session = await asyncio.gather(accepted, dialed)
     server_session.publish("svc", lambda _verb, _args: Symbol("alive"))
@@ -165,16 +146,9 @@ async def _host_close_joins_session_transport_failure(*, asynchronous: bool = Fa
     client_host = Host()
     server_host = Host()
     designator = tcp.address_designator("127.0.0.1", 1)
-    accepted = Session.establish_accepted(
-        server_host,
-        TRANSPORT_TCP,
-        designator,
-        server_channel,
-    )
+    accepted = Session.establish_accepted(server_host, TRANSPORT_TCP, designator, server_channel)
     dialed = Session.establish_dialed_locator(
-        client_host,
-        Locator(TRANSPORT_TCP, designator, {}, "boolean-false"),
-        client_channel,
+        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel
     )
     _, client_session = await asyncio.gather(accepted, dialed)
     close_failure = OSError("injected Host transport-close failure")
@@ -283,9 +257,7 @@ async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
 
     host = ObservedHost()
     session = Session._open_dialed_locator(
-        host,
-        Locator(TRANSPORT_TCP, "pending-session", {}, "boolean-false"),
-        PendingTransport(),
+        host, Locator(TRANSPORT_TCP, "pending-session", {}, "boolean-false"), PendingTransport()
     )
 
     first = asyncio.create_task(session.close(pending=PendingWork.FINISH, grace=0.02))
@@ -335,9 +307,7 @@ async def _repeated_host_close_observes_recorded_timeout() -> None:
     host = Host()
     # The wrapper stays referenced so only Host.close drives the teardown.
     pending_session = Session._open_dialed_locator(
-        host,
-        Locator(TRANSPORT_TCP, "pending-session", {}, "boolean-false"),
-        PendingTransport(),
+        host, Locator(TRANSPORT_TCP, "pending-session", {}, "boolean-false"), PendingTransport()
     )
 
     try:
@@ -400,18 +370,12 @@ async def _silent_loop_dial_reaches_ffi_handshake_deadline() -> None:
     listener.setblocking(False)
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
-    runtime = await Runtime.open(
-        provider=tcp.provider(),
-        handshake_timeout_ms=50,
-    )
+    runtime = await Runtime.open(provider=tcp.provider(), handshake_timeout_ms=50)
     accepted: socket.socket | None = None
     try:
         port = listener.getsockname()[1]
         dial = asyncio.create_task(runtime.connect(tcp.locator("127.0.0.1", port)))
-        accepted, _address = await asyncio.wait_for(
-            asyncio.get_running_loop().sock_accept(listener),
-            timeout=1,
-        )
+        accepted, _address = await asyncio.wait_for(asyncio.get_running_loop().sock_accept(listener), timeout=1)
         try:
             await asyncio.wait_for(dial, timeout=1)
         except GlowcapError as error:
@@ -489,16 +453,9 @@ async def _observe_session_retirement_without_serve_or_close() -> None:
     client_host = Host()
     server_host = Host()
     designator = tcp.address_designator("127.0.0.1", 1)
-    accepted = Session.establish_accepted(
-        server_host,
-        TRANSPORT_TCP,
-        designator,
-        server_channel,
-    )
+    accepted = Session.establish_accepted(server_host, TRANSPORT_TCP, designator, server_channel)
     dialed = Session.establish_dialed_locator(
-        client_host,
-        Locator(TRANSPORT_TCP, designator, {}, "boolean-false"),
-        client_channel,
+        client_host, Locator(TRANSPORT_TCP, designator, {}, "boolean-false"), client_channel
     )
     server_session, session = await asyncio.gather(accepted, dialed)
     first = asyncio.create_task(session.closed())

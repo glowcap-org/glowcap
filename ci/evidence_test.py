@@ -81,8 +81,7 @@ class RecordTest(unittest.TestCase):
         self.assertFalse(body["dirty"])
         self.assertEqual(body["submodules"], [])
         self.assertEqual(
-            body["toolchain"]["pins"][".devcontainer/pins.sh"],
-            hashlib.sha256(self.pins.read_bytes()).hexdigest(),
+            body["toolchain"]["pins"][".devcontainer/pins.sh"], hashlib.sha256(self.pins.read_bytes()).hexdigest()
         )
         self.assertEqual(
             body["gates"],

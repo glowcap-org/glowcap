@@ -17,13 +17,7 @@ from helpers import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
 
-from glowcap import (  # noqa: E402
-    DurableProvenance,
-    GlowcapError,
-    Locator,
-    Runtime,
-    tcp,
-)
+from glowcap import DurableProvenance, GlowcapError, Locator, Runtime, tcp  # noqa: E402
 
 ignore_port_args("python-keyed-tcp-restart")
 
@@ -66,10 +60,7 @@ async def call_greeter(partner: Locator, expected: str) -> None:
             # Raw keyed TCP carries the stable key-shaped locator but does not prove
             # that whoever answered controls it.
             if proved.provenance is not DurableProvenance.UNAUTHENTICATED:
-                fail(
-                    "keyed-tcp-restart",
-                    f"keyed-tcp durable provenance is {proved.provenance}, not unauthenticated",
-                )
+                fail("keyed-tcp-restart", f"keyed-tcp durable provenance is {proved.provenance}, not unauthenticated")
             if proved.durable_identity_authenticated():
                 fail("keyed-tcp-restart", "raw keyed-tcp authenticated an unproved locator claim")
             greeter_ref = await session.fetch("greeter")

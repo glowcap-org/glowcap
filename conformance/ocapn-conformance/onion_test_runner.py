@@ -117,19 +117,8 @@ def main():
 
     try:
         os.chdir(UPSTREAM)
-        runner = CapTPTestRunner(
-            netlayer,
-            peer,
-            args.captp_version,
-            verbosity=2 if args.verbose else 1,
-        )
-        suite = load_selected_test(
-            runner,
-            args.test_module,
-            netlayer,
-            peer,
-            args.captp_version,
-        )
+        runner = CapTPTestRunner(netlayer, peer, args.captp_version, verbosity=2 if args.verbose else 1)
+        suite = load_selected_test(runner, args.test_module, netlayer, peer, args.captp_version)
         if args.exclude_module:
             excluded = {prefix: 0 for prefix in args.exclude_module}
             suite = excluding_modules(suite, args.exclude_module, excluded)

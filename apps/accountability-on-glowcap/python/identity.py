@@ -79,15 +79,7 @@ def _render_inception(said: str, verkey: str, next_digest: str) -> str:
     )
 
 
-def _render_rotation(
-    said: str,
-    aid: str,
-    sn: int,
-    prior: str,
-    verkey: str,
-    next_digest: str,
-    sig: str,
-) -> str:
+def _render_rotation(said: str, aid: str, sn: int, prior: str, verkey: str, next_digest: str, sig: str) -> str:
     return (
         f'{{"v":"KERIa","t":"rot","d":"{said}","i":"{aid}","s":"{sn}",'
         f'"p":"{prior}","kt":"1","k":["{verkey}"],"nt":"1","n":["{next_digest}"],'
@@ -136,32 +128,14 @@ class Identity:
         # Two passes: the first renders the draft, with the SAID and the signature
         # blanked, and hashes it; the second fills both in.
         said = _said_of(
-            _render_rotation(
-                BLANK_SAID,
-                self.aid,
-                self._sn,
-                prior,
-                new_current.verkey,
-                next_digest,
-                BLANK_SIG,
-            )
+            _render_rotation(BLANK_SAID, self.aid, self._sn, prior, new_current.verkey, next_digest, BLANK_SIG)
         )
         # The rotation is signed by the key it retires, proving that the holder of
         # the old key authorized the handover. The SAID is a digest over every status-allow: replacement state identity
         # other field, so signing these three commits to the whole event.
         sig = b64url(retiring.sign(f"{said}|{new_current.verkey}|{next_digest}"))
 
-        self._events.append(
-            _render_rotation(
-                said,
-                self.aid,
-                self._sn,
-                prior,
-                new_current.verkey,
-                next_digest,
-                sig,
-            )
-        )
+        self._events.append(_render_rotation(said, self.aid, self._sn, prior, new_current.verkey, next_digest, sig))
         self._next = new_next
         self._said = said
         self.retired = retiring

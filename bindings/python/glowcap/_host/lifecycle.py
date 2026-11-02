@@ -9,28 +9,13 @@ from typing import TYPE_CHECKING, Any, cast
 from .. import _constants as _abi
 from .. import _trace
 from .._abi_value import _arg_to_c
-from .._errors import (
-    GlowcapError,
-    _check_host,
-    _host_last_error,
-    _retain_terminal_failure,
-)
+from .._errors import GlowcapError, _check_host, _host_last_error, _retain_terminal_failure
 from .._failure import FailureLayer, _record_runtime_failure
 from .._ffi_host import _host
 from .._ffi_ocapn import _byte_buf
-from .._lifecycle import (
-    _UNSET,
-    PendingWork,
-    _close_options,
-    _lifecycle_closed,
-    _monotonic_ms,
-)
+from .._lifecycle import _UNSET, PendingWork, _close_options, _lifecycle_closed, _monotonic_ms
 from .._trampoline import _inside_turn
-from .finalizer import (
-    _HostFinalizerState,
-    _release_finalizer_state,
-    _retire_finalizer_state,
-)
+from .finalizer import _HostFinalizerState, _release_finalizer_state, _retire_finalizer_state
 from .state import HostMixinBase
 
 if TYPE_CHECKING:
@@ -129,11 +114,7 @@ class _LifecycleMixin(HostMixinBase):
             # not permission to lose either fact. The process queue survives a
             # dead/broken Context and uses the same bounded schema.
             _record_runtime_failure(FailureLayer.APPLICATION_OBSERVER, operation, error)
-            _record_runtime_failure(
-                FailureLayer.BINDING,
-                f"{operation}.diagnostic",
-                recorder_error,
-            )
+            _record_runtime_failure(FailureLayer.BINDING, f"{operation}.diagnostic", recorder_error)
 
     def _driver_failed(self, error: GlowcapError) -> None:
         """Fail loop-projected waits before driver teardown clears them."""
@@ -346,12 +327,7 @@ class _LifecycleMixin(HostMixinBase):
         await self._join_behavior_tasks()
         self._raise_terminal_failure()
 
-    async def close(
-        self,
-        pending: PendingWork = PendingWork.CANCEL,
-        *,
-        grace: object = _UNSET,
-    ) -> None:
+    async def close(self, pending: PendingWork = PendingWork.CANCEL, *, grace: object = _UNSET) -> None:
         """Close through the core-owned pending-work policy and completion barrier."""
         self._assert_owner()
         options = _close_options(pending, grace)
@@ -393,8 +369,7 @@ class _LifecycleMixin(HostMixinBase):
                         or self._session_retirements
                     ):
                         raise GlowcapError(
-                            _ERR_INVALID_ARGUMENT,
-                            "host owner loop is closed with asynchronous work still active",
+                            _ERR_INVALID_ARGUMENT, "host owner loop is closed with asynchronous work still active"
                         )
                     self._loop = None
                 else:
@@ -403,10 +378,7 @@ class _LifecycleMixin(HostMixinBase):
         if self._schedule_cleanup(self._request_close):
             return
         if not self._on_owner_loop():
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "host close must run on its owning thread",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "host close must run on its owning thread")
         if self._loop is not None:
             self._assert_owner()
         self._start_release()

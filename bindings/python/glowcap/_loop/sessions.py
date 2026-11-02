@@ -24,10 +24,7 @@ from .state import DriverLoopMixinBase
 class _SessionsMixin(DriverLoopMixinBase):
     _wrapper: Host | None
 
-    async def connect_session(
-        self,
-        locator: Locator | str,
-    ):
+    async def connect_session(self, locator: Locator | str):
         """Dial through the loop and wrap the opened session as the public
         :class:`glowcap.Session`, over the adopted wrapper Host: every session
         verb, promise, and trampoline works on it, with the driver loop as
@@ -83,13 +80,7 @@ class _SessionsMixin(DriverLoopMixinBase):
     def claim_reference_exporter(self, reference) -> int | None:
         """Resolve and claim the exporter session named by one Host capability."""
         out = ctypes.c_void_p()
-        _check(
-            _driver.glowcap_driver_claim_reference_exporter(
-                self._h,
-                ctypes.byref(reference),
-                ctypes.byref(out),
-            )
-        )
+        _check(_driver.glowcap_driver_claim_reference_exporter(self._h, ctypes.byref(reference), ctypes.byref(out)))
         return out.value
 
     async def close_session(self, session: ctypes.c_void_p, options: _CloseOptions) -> None:
@@ -104,13 +95,7 @@ class _SessionsMixin(DriverLoopMixinBase):
             future = aio.create_future()
             self._session_closes[key] = future
         try:
-            _check(
-                _driver.glowcap_driver_session_close(
-                    self._h,
-                    session,
-                    ctypes.byref(options),
-                )
-            )
+            _check(_driver.glowcap_driver_session_close(self._h, session, ctypes.byref(options)))
         except BaseException:
             if created:
                 self._session_closes.pop(key, None)
@@ -152,11 +137,7 @@ class _SessionsMixin(DriverLoopMixinBase):
         if future is None:
             return
         state = ctypes.c_uint32()
-        rc = _driver.glowcap_driver_session_lifecycle_state(
-            self._h,
-            ctypes.c_void_p(session),
-            ctypes.byref(state),
-        )
+        rc = _driver.glowcap_driver_session_lifecycle_state(self._h, ctypes.c_void_p(session), ctypes.byref(state))
         if rc not in (_c.OK, _c.ERR_TIMEOUT):
             self._session_closes.pop(session, None)
             future.set_exception(GlowcapError(rc, "FFI session close failed"))
