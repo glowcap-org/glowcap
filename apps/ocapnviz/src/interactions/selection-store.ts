@@ -11,18 +11,62 @@
  */
 
 import { parseEndpointStageId } from "../schema/session-end.ts";
-import {
-	assertNever,
-	type DeclaredEntities,
-	EMPTY_SELECTION,
-	entityKey,
-	type EntityRef,
-	type EntityRefKey,
-	parseEntityKey,
-	type SelectionAction,
-	type SelectionState,
-	type SelectMode,
-} from "./types.ts";
+import { assertNever } from "./assert-never.ts";
+import { entityKey, type EntityKind, type EntityRef, type EntityRefKey, parseEntityKey } from "./entity-ref.ts";
+import type { SelectMode } from "./select-mode.ts";
+
+export type SelectionState = {
+	/** Inspector follow target. The current entity moves to the most
+	 *  recent selection member and is null when nothing is selected.
+	 *  Null when nothing is anchored (selection size 0 implies
+	 *  anchor null. Selection size ≥ 1 implies anchor set). */
+	anchor: EntityRef | null;
+	/** THE selection. The set of entities the user has selected.
+	 *  property edits, group delete, group drag, group nudge all
+	 *  operate on this set. Heterogeneous: peers, sessions, and
+	 *  messages may coexist. There is no separate "multi", a
+	 *  selection of size 1 is still the selection. */
+	selection: ReadonlySet<EntityRefKey>;
+};
+
+export const EMPTY_SELECTION: SelectionState = {
+	anchor: null,
+	selection: new Set(),
+};
+
+/** The identity side of a document: which entities it declares, by kind and id.
+ *
+ *  Named on its own because the one question it answers, does this document
+ *  still hold this entity, is asked from outside the store too, and a caller
+ *  with a document in hand can ask it directly (`documentHolds`). */
+export type DeclaredEntities = {
+	peers?: Readonly<Record<string, unknown>> | undefined;
+	sessions?: Readonly<Record<string, unknown>> | undefined;
+	messages?: Readonly<Record<string, unknown>> | undefined;
+} | undefined;
+
+export type SelectionAction =
+	// selection (THE set; size 0+; uniform vocabulary)
+	| { kind: "set-selection"; entities: ReadonlySet<EntityRefKey> }
+	| { kind: "add-to-selection"; entities: ReadonlySet<EntityRefKey> }
+	| { kind: "remove-from-selection"; entities: ReadonlySet<EntityRefKey> }
+	// Drop whatever the document no longer holds. Undo and redo move status-allow: lifecycle transition
+	// ids under the selection, a rename taken back leaves it pointing
+	// at a name nothing answers to, and this is how it catches up.
+	// `undoWithSelection` / `redoWithSelection` in `builder/selection-history.ts`
+	// are what dispatch it, and the top bar and the Cmd-Z binding both
+	// take history back through them.
+	| { kind: "reconcile-with-doc"; entities: DeclaredEntities }
+	// Surgical id rewrite after a rename, see `selection-store.ts`
+	// for why this is distinct from `set-selection`.
+	| {
+		kind: "rename-entity";
+		entityKind: EntityKind;
+		oldId: string;
+		newId: string;
+	}
+	| { kind: "clear-all" }
+	| { kind: "clear-on-empty-click" };
 
 /** The one interpretation of a modifier select-mode against the
  * selection: which store action a surface's gesture becomes. Every

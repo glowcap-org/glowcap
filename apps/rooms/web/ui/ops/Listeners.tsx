@@ -29,7 +29,7 @@ import { Field } from "../Field.tsx";
 import { Said } from "../Said.tsx";
 import { Switch } from "../Switch.tsx";
 import { identifierField } from "../field.ts";
-import type { ListenerRow } from "../types.ts";
+import type { ListenerRow } from "../../../lib/room/client.ts";
 import { OpsHead } from "./Head.tsx";
 import { actionRefusal } from "../error_text.ts";
 import { Input } from "../Input.tsx";

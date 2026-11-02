@@ -27,8 +27,8 @@ import {
 	titleMembersHere,
 	titleNoRoomYet,
 } from "../../../lib/text/conversation.ts";
-import type { Conv, DirId } from "../types.ts";
-import { awayByPeer, awayOf, membersHere } from "../types.ts";
+import { awayByPeer, awayOf, type Conv, membersHere } from "../conversation.ts";
+import type { DirId } from "../directory.ts";
 import { PresenceAvatar } from "../Avatar.tsx";
 import { Icon } from "../icons.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";

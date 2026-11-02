@@ -7,7 +7,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import type { HaloTier } from "../types.ts";
+import type { HaloTier } from "../stage-selection.ts";
 import { drawNodeHalo, type HaloCanvas, LOOSE_END_ALONE, LOOSE_END_CLAIMING, looseEndStyle } from "../draw-helpers.ts";
 import { at } from "./harness.ts";
 

@@ -25,7 +25,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { Engine } from "../engine/engine.ts";
 import type { EngineError } from "../engine/errors.ts";
-import type { BuilderTool } from "../state/app-state.ts";
+import type { BuilderTool } from "../interactions/builder-tool.ts";
 import {
 	type BuiltinCaptpVersion,
 	type BuiltinCodec,

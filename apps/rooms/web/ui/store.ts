@@ -6,7 +6,9 @@
 // lines, and directories live in `store/`. This file is who is in a room, where
 // this reader stands, and what they have been offered.
 
-import type { BridgeFacts, DirId, RoomCarries, RoomConv } from "./types.ts";
+import type { BridgeFacts, RoomConv } from "./conversation.ts";
+import type { DirId } from "./directory.ts";
+import type { RoomCarries } from "../../lib/room/message.ts";
 import { NO_MEMBERS, NO_TYPERS, type PageProjection, type State } from "./store/projection.ts";
 import type { RoomMemberState } from "../../lib/room/presence.ts";
 import { isSubjectEmpty, type Subject } from "../../lib/room/subject.ts";

@@ -17,7 +17,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
-import type { ToastKind, ToastNotice } from "./types.ts";
+import type { ToastKind, ToastNotice } from "./toast.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsProjection } from "./hooks.ts";
 import { useOpenModal, useTopModalLayer } from "./modal.ts";

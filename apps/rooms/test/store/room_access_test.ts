@@ -9,7 +9,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 
 Deno.test("live admission replaces a restored room's provisional access", () => {
 	const dir = dirId("restored-observer-directory");

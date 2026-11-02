@@ -8,7 +8,8 @@
 // reads as a step up rather than a second page listing the
 // same rooms.
 
-import { OPS_CAPS, type OpsCap, type OpsHeld } from "../types.ts";
+import { type OpsHeld } from "./capabilities.ts";
+import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "../application_data.ts";
 import {
 	opsPaneDirectory,
 	opsPaneIrc,
@@ -26,7 +27,7 @@ export interface OpsPaneFace {
 	/** The destination's name in pane navigation. */
 	label: string;
 	/** Holding any one of these opens the pane. */
-	caps: readonly OpsCap[];
+	caps: readonly OperationsCapability[];
 }
 
 export const OPS_PANES: readonly OpsPaneFace[] = [
@@ -42,7 +43,7 @@ export const OPS_PANES: readonly OpsPaneFace[] = [
  * they still answer rather than becoming a bookmark that leads nowhere. */
 export function paneOf(segment: string): OpsPaneFace | null {
 	for (const pane of OPS_PANES) if (pane.path === segment) return pane;
-	for (const cap of OPS_CAPS) {
+	for (const cap of OPERATIONS_CAPABILITIES) {
 		if (cap !== segment) continue;
 		for (const pane of OPS_PANES) if (pane.caps.includes(cap)) return pane;
 	}
@@ -62,12 +63,12 @@ export function opsAddress(pane: OpsPaneFace): string {
 }
 
 /** The pane that draws a capability, for a landing that remembers one. */
-export function paneForCap(cap: OpsCap): OpsPaneFace {
+export function paneForCap(cap: OperationsCapability): OpsPaneFace {
 	for (const pane of OPS_PANES) if (pane.caps.includes(cap)) return pane;
 	throw new Error(`no operations pane draws ${cap}`);
 }
 
 /** Every capability of this pane this tab holds, in the pane's own order. */
-export function paneCapsHeld(pane: OpsPaneFace, held: OpsHeld): readonly OpsCap[] {
+export function paneCapsHeld(pane: OpsPaneFace, held: OpsHeld): readonly OperationsCapability[] {
 	return pane.caps.filter((cap) => held[cap]);
 }

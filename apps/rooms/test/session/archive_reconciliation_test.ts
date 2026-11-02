@@ -14,7 +14,7 @@ type ArchiveLine = import("../../lib/archive/protocol.ts").ArchiveLine;
 type Attachment = import("../../lib/attachment.ts").Attachment;
 const store = await import("../../web/ui/store.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 const { assertEquals } = await import("../assert.ts");
 const { reconcileAttachedHistory } = await import("../../web/ui/session/history_reconciliation.ts");
 

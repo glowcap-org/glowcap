@@ -20,7 +20,7 @@ Object.defineProperty(globalThis, "localStorage", {
 const store = await import("../../web/ui/store.ts");
 const { reconcileSharedArchive } = await import("../../web/ui/session/shared_archive_projection.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 
 function shared(id: string, order: number, text: string, over: Partial<ArchiveLine> = {}): ArchiveLine {
 	return {

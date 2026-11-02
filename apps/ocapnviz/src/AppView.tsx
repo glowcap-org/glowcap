@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { docTitle } from "./engine/timeline.ts";
 import { allEntityKeys } from "./interactions/selection-store.ts";
-import { parseEntityKey, type SurfaceGestureCtx } from "./interactions/types.ts";
+import { parseEntityKey } from "./interactions/entity-ref.ts";
+import type { SurfaceGestureCtx } from "./interactions/gesture-resolver.ts";
 import { DEFAULT_REFERENCE_SECTION, ReferenceDialog, type ReferenceSectionId } from "./ui/reference/Reference.tsx";
 import { inspectorView } from "./ui/Sidebar.tsx";
 import { bindBuilderEditor } from "./ui/inspector/bind-editor.ts";
@@ -17,7 +18,7 @@ import { deletionPhrase } from "./ui/inspector/selection-summary.ts";
 import { CURRENT_SOURCE_OPTION } from "./ui/SourcePicker.tsx";
 import { ToolDraftStore } from "./ui/ToolOptionsBar.tsx";
 import { requestConfirm } from "./ui/confirm.ts";
-import type { BuilderTool } from "./state/app-state.ts";
+import type { BuilderTool } from "./interactions/builder-tool.ts";
 import { useShortcutBindings } from "./state/hooks.ts";
 import { useSelectionClipboard } from "./state/use-selection-clipboard.ts";
 import { asOneEdit } from "./builder/as-one-edit.ts";

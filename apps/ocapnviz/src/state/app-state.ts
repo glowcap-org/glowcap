@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import type { StageVisibility } from "../render/types.ts";
+import type { StageVisibility } from "../render/stage-visibility.ts";
 import { scenarios } from "../fixtures/index.ts";
 import type { LaneKind } from "../ui/Timeline/state.ts";
 import { loadStoredValue, persistStoredValue } from "./storage.ts";
@@ -23,11 +23,7 @@ import { loadStoredValue, persistStoredValue } from "./storage.ts";
  * `build`: edit the buffer with authoring tools. */
 export type AppMode = "live" | "play" | "build";
 
-/** The tool vocabulary is owned by the interaction layer (the
- * resolver and FSM act on tools, never on modes). Re-exported here
- * so app-level consumers keep one import site for UI state. */
-export type { BuilderTool } from "../interactions/types.ts";
-import type { BuilderTool } from "../interactions/types.ts";
+import type { BuilderTool } from "../interactions/builder-tool.ts";
 
 /** Which tools a mode offers. Select and Hand are observation
  * affordances, inspecting and panning mutate nothing, so every

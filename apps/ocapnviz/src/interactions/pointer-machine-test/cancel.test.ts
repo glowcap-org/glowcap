@@ -5,8 +5,7 @@
 
 import { assertEquals } from "@std/assert";
 import { dummyHit } from "../gesture-resolver-test/harness.ts";
-import { pointerReducer } from "../pointer-machine.ts";
-import { IDLE_MACHINE } from "../types.ts";
+import { IDLE_MACHINE, pointerReducer } from "../pointer-machine.ts";
 import { dispatch, gctx, snap } from "./harness.ts";
 
 // ─────────────────────── Cancel ───────────────────────────────────────

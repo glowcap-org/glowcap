@@ -13,7 +13,7 @@ import type { RoomsConversationController } from "../../controller/session.ts";
 import { interpretComposerSend } from "../../composer/commit.ts";
 import { composerLineRefusal, type ComposerPlan, planComposerSend } from "../../composer/send.ts";
 import { draftWithMention, recalledDraft } from "../../composer/draft.ts";
-import { isSessionConv } from "../../types.ts";
+import { type Conv, isSessionConv } from "../../conversation.ts";
 import { applicationModule } from "../../application.ts";
 import { pickedSource } from "../../file_source.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
@@ -21,7 +21,6 @@ import type { RoomsBrowserSource } from "../../../../../../zig-out/wasm/rooms/ro
 import { type ManagedOperation, ResultAcquisitionError, ResultExpired, TerminalObservationError } from "./operation.ts";
 import { managedSessionText, resultAcquisitionFailure } from "../../../../lib/text/managed_session.ts";
 import { CompletedLine, isLineResult } from "./completed_line.ts";
-import type { Conv } from "../../types.ts";
 
 type Draft = ReturnType<typeof store.draftFor>;
 interface Send {

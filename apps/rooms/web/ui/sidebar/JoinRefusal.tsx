@@ -5,7 +5,7 @@ import { ActionFeedback, useActionCooldown } from "../ActionFeedback.tsx";
 import { Button } from "../Button.tsx";
 import { useRoomsState } from "../hooks.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { dirId } from "../types.ts";
+import { dirId } from "../directory.ts";
 import { joinRefusalKeys } from "../admission_feedback.ts";
 export function JoinRefusal() {
 	const refusals = useRoomsState((state) => state.actionRefusals);

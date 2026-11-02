@@ -42,7 +42,7 @@
  * Pure and DOM-free, like the shortcut table it fronts.
  */
 
-import type { ModifierSet } from "../interactions/types.ts";
+import type { ModifierSet } from "../interactions/pointer-input.ts";
 import { dispatchShortcut, type KeyboardShortcutBindings, type KeyEventFacts } from "./keyboard-shortcuts.ts";
 
 /** Every gesture whose meaning is "while this key is held". */

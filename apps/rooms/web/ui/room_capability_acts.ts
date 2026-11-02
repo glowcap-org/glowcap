@@ -13,7 +13,7 @@ import { useRoomsSession } from "./controller/session.ts";
 import { useRoomsBrowser } from "./controller/browser.ts";
 import { useRoomsState } from "./hooks.ts";
 import { actionRefusal, locatorRefusal } from "./error_text.ts";
-import type { RoomConv } from "./types.ts";
+import type { RoomConv } from "./conversation.ts";
 import { useChangeGroup, useCommitSettling } from "./commitment.tsx";
 import { policyForRoomPreset, type RoomPreset } from "./room_policy.ts";
 

@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { type DirId, dirMarkIn, type DirView } from "../types.ts";
+import { type DirId, dirMarkIn, type DirView } from "../directory.ts";
 import { directoryName, footState } from "../text.ts";
 import { Avatar } from "../Avatar.tsx";
 import { StandingMenu } from "../Standing.tsx";

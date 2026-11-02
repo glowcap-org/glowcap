@@ -14,7 +14,7 @@ const { AttachedSessionFiles } = await import("../../web/ui/session/attached_fil
 const store = await import("../../web/ui/store.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { assertEquals } = await import("../assert.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 
 function resetRoom(page: InstanceType<typeof RoomsPage>, name: string) {
 	page.projection.reset();

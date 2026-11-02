@@ -20,9 +20,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Engine } from "../../engine/engine.ts";
 import type { MoveIntent } from "../../engine/authoring/moves.ts";
-import type { StageSelection } from "../../render/types.ts";
-import { parseEntityKey } from "../../interactions/types.ts";
-import type { EntityRefKey } from "../../interactions/types.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
+import { type EntityRefKey, parseEntityKey } from "../../interactions/entity-ref.ts";
 import { c, PANEL, SIZE, SPACE } from "../tokens.ts";
 import { ScrubInput } from "../Timeline/ScrubInput.tsx";
 import { BulkEnumSelect, Field, FieldGroup } from "./fields.tsx";

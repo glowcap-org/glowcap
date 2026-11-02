@@ -8,9 +8,15 @@
  * starts a resize, retime, selection, or visibility mutation instead.
  */
 
-import { navigationOverride, resolveGesture } from "../../interactions/gesture-resolver.ts";
+import {
+	navigationOverride,
+	type ResolvedGesture,
+	resolveGesture,
+	type SurfaceGestureCtx,
+} from "../../interactions/gesture-resolver.ts";
 import type { CursorContext } from "../../interactions/cursor.ts";
-import { type Hit, navigationToolOf, type ResolvedGesture, type SurfaceGestureCtx } from "../../interactions/types.ts";
+import type { Hit } from "../../interactions/surface-hit.ts";
+import { navigationToolOf } from "../../interactions/builder-tool.ts";
 
 /** The context every Timeline surface presents to the shared cursor ladder. */
 export function timelineCursorContext(

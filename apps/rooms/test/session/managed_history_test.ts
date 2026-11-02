@@ -11,7 +11,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 const { ManagedHistory } = await import("../../web/ui/session/managed/history.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const store = await import("../../web/ui/store.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 type ArchivePage = {
 	next: string;
 	more: boolean;
@@ -361,7 +361,7 @@ Deno.test("managed history hydrates only changed exact conversations and archive
 		import("../../web/ui/session/managed/history.ts"),
 		import("../../web/ui/page.ts"),
 		import("../../web/ui/store.ts"),
-		import("../../web/ui/types.ts"),
+		import("../../web/ui/directory.ts"),
 	]);
 	const accepted = snapshot();
 	const page = new RoomsPage();

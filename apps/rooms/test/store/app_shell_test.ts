@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 const { Foot } = await import("../../web/ui/sidebar/Foot.tsx");
 const { RoomsBrowserProvider } = await import("../../web/ui/controller/browser.ts");
 const { RoomsSessionProvider } = await import("../../web/ui/controller/session.ts");

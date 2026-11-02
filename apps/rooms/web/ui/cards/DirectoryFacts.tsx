@@ -9,7 +9,7 @@
 // the directory for the length of a connection and taken back when it ends, so
 // the name you go by on one is not a name you own anywhere else.
 
-import type { DirView } from "../types.ts";
+import type { DirView } from "../directory.ts";
 import { dirConnection, directoryDmBlocked } from "../text.ts";
 import {
 	directoryConnection,

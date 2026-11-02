@@ -1,5 +1,5 @@
 import type { UseView } from "../session/managed/model.ts";
-import { DEFAULT_ROOMS_VIEW_STATE } from "../../../lib/view_state.ts";
+import { DEFAULT_ROOMS_VIEW_STATE, type RoomsSettingsTab } from "../../../lib/view_state.ts";
 // The one place a page's presentation state lives.
 //
 // Everything the interface shows is a field here, and everything that changes it
@@ -20,28 +20,20 @@ import type { Act, Edits, Remembered } from "../intent.ts";
 import type { DraftPreview } from "../link_preview.ts";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ArchiveShareView, ArchiveTargetView } from "../archive_model.ts";
+import type { AttachmentView, Conv, Invitation, Item, Standing, Unread } from "../conversation.ts";
+import type { DiagnosticRow, ListenerRow } from "../../../lib/room/client.ts";
+import type { DirId, DirView } from "../directory.ts";
 import type {
-	AttachmentView,
-	Conv,
-	DiagnosticRow,
-	DirId,
-	DirView,
-	Invitation,
 	IrcGatewayState,
-	Item,
-	ListenerRow,
-	MemberRef,
-	OpsCap,
 	OpsHeld,
 	PeeringState,
 	RoomsOperatorState,
-	SettingsTab,
-	Standing,
-	ToastNotice,
 	TracePublishState,
 	TroubleRow,
-	Unread,
-} from "../types.ts";
+} from "../ops/capabilities.ts";
+import type { OperationsCapability } from "../application_data.ts";
+import type { MemberRef } from "../member_ref.ts";
+import type { ToastNotice } from "../toast.ts";
 
 // Must match the `@media (max-width: 820px)` block in the rooms stylesheets:
 // the grid into the list/conversation stack, and this decides which layout's
@@ -231,7 +223,7 @@ export interface State {
 	/** Settings dialog: the query-param facts (DM transport, trace URL). */
 	settingsOpen: boolean;
 	/** Which Settings panel to show when the dialog mounts. */
-	settingsTab: SettingsTab;
+	settingsTab: RoomsSettingsTab;
 	/** The glossary modal, which Settings closes beneath. */
 	helpOpen: boolean;
 	/** The Help tab on screen, kept across closings the way `settingsTab` is,
@@ -261,7 +253,7 @@ export interface State {
 	 * owns the ring. */
 	trouble: readonly TroubleRow[];
 	/** Which operations pane is selected while more than one is held. */
-	opsPane: OpsCap;
+	opsPane: OperationsCapability;
 	/** Possession projected from canonical custody, independent of loaded rows. */
 	opsHeld: OpsHeld;
 	/** What the inspect capability last said, or null while this tab holds none.

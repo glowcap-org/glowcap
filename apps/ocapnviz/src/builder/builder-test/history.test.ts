@@ -9,13 +9,13 @@ import { assert, assertEquals } from "@std/assert";
 import { Engine } from "../../engine/engine.ts";
 import { asOneEdit } from "../as-one-edit.ts";
 import { discardAllEdits, redoWithSelection, undoAllWithSelection, undoWithSelection } from "../selection-history.ts";
-import { selectionReducer } from "../../interactions/selection-store.ts";
 import {
 	EMPTY_SELECTION,
-	type EntityRefKey,
 	type SelectionAction,
+	selectionReducer,
 	type SelectionState,
-} from "../../interactions/types.ts";
+} from "../../interactions/selection-store.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 import { engineTest, looseDoc, peerPin, PIN_A } from "./harness.ts";
 
 /** The selection store, driven the way the App drives it. */

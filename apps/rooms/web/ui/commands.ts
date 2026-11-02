@@ -69,7 +69,7 @@ export type {
 export { held, hereOf, known } from "./commands/catalog.ts";
 export { inviteWhy } from "./commands/targets.ts";
 import type { Command, CommandPowers } from "./commands/types.ts";
-import type { LineCarried } from "./types.ts";
+import type { LineCarried } from "./conversation.ts";
 import { known } from "./commands/catalog.ts";
 import { applicationModule } from "./application.ts";
 

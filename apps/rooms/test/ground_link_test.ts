@@ -10,7 +10,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 const { PageProjection } = await import("../web/ui/store/projection.ts");
 const { forgetDir, openDir, setDirSession } = await import("../web/ui/store/dirs.ts");
 const { bindGroundToConnections } = await import("../web/ui/mycelium/link.ts");
-const { dirId } = await import("../web/ui/types.ts");
+const { dirId } = await import("../web/ui/directory.ts");
 const a = dirId("ocapn://a");
 const b = dirId("ocapn://b");
 

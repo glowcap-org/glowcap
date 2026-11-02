@@ -21,7 +21,7 @@ import {
 	sessionStateAt,
 } from "../../engine/temporal/doc-resolver.ts";
 import type { CaptpVersion, Codec, PeerProfile, SessionState } from "../../schema/topology.ts";
-import type { EntityKind, EntityRefKey } from "../../interactions/types.ts";
+import type { EntityKind, EntityRefKey } from "../../interactions/entity-ref.ts";
 import type { LifecycleStatus } from "../EntityChips.tsx";
 
 /** "Is this entity also in the multi-select set?", the cross-

@@ -31,7 +31,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsState } from "../hooks.ts";
 import { Button } from "../Button.tsx";
-import { type OpsHeld } from "../types.ts";
+import type { OpsHeld } from "./capabilities.ts";
 import { peeringSourcesOf } from "../text.ts";
 import { operationsTitle } from "../../../lib/text/settings.ts";
 import { loadIrcPane, loadListenersPane, loadOpsPane, loadPeeringPane, loadTracePane, prefetch } from "../chunks.ts";

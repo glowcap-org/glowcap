@@ -14,9 +14,9 @@
 
 import type { Graphics } from "pixi.js";
 import type { TimelineDocument } from "../../engine/timeline.ts";
-import { entityKey, type EntityRefKey } from "../../interactions/types.ts";
+import { entityKey, type EntityRefKey } from "../../interactions/entity-ref.ts";
 import type { ThemedColors } from "../../render/palette.ts";
-import type { StageSelection } from "../../render/types.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
 import { drawCategoryHeader, drawRowGutter, type EyeGlyphMode } from "./gutter-paint.ts";
 import { type LaneBundle, laneRowLabel } from "./lane-bundle.ts";
 import { drawLaneGlyphs, drawLaneSpans } from "./lane-paint.ts";

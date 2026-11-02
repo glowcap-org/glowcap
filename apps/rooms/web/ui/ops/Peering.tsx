@@ -28,7 +28,7 @@ import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
 import { Said } from "../Said.tsx";
 import { identifierField } from "../field.ts";
-import type { PeeringSource, PeeringState } from "../types.ts";
+import type { PeeringSource, PeeringState } from "./capabilities.ts";
 import { OpsHead } from "./Head.tsx";
 import { SectionTitle } from "./Section.tsx";
 import { actionRefusal } from "../error_text.ts";

@@ -2,10 +2,10 @@
 //
 // The same capability wears several faces on this surface: the bundle toggle
 // that includes it, the short name a notice calls it by, and the value
-// modal's ask. Four lists about one fact would drift, so this table is the one they all read, keyed by the `OpsCap` vocabulary the
+// modal's ask. Four lists about one fact would drift, so this table is the one they all read, keyed by the `OperationsCapability` vocabulary the
 // store already speaks.
 
-import type { OpsCap } from "../types.ts";
+import type { OperationsCapability } from "../application_data.ts";
 import {
 	opsDiagnosticsLabel,
 	opsDiagnosticsLead,
@@ -44,7 +44,7 @@ export interface OpsCapFace {
 	lead: string;
 }
 
-export const OPS_CATALOG: Record<OpsCap, OpsCapFace> = {
+export const OPS_CATALOG: Record<OperationsCapability, OpsCapFace> = {
 	listeners: {
 		label: opsListenersLabel,
 		toggleId: "opsListenersToggle",

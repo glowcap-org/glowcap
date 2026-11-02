@@ -2,7 +2,7 @@
 import * as store from "../store.ts";
 import { MAX_MESSAGE_FILES } from "../limits.ts";
 import type { RoomsPageContext } from "../page.ts";
-import { conversationTakesFiles } from "../types.ts";
+import { conversationTakesFiles } from "../conversation.ts";
 import { filesLeftOut, filesNotCarried, tooManyFiles } from "../../../lib/text/attached.ts";
 
 /** Put files on the draft, whichever way they arrived: the picker, a paste,

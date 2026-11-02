@@ -1,7 +1,7 @@
 // Present an attributed archive account without acquiring archive authority.
 import * as store from "../store.ts";
 import type { RoomsPageContext } from "../page.ts";
-import type { Item } from "../types.ts";
+import type { Item } from "../conversation.ts";
 import type { ArchiveLine, ArchiveRecord } from "../../../lib/archive/protocol.ts";
 import { archivedAttachmentsMatch, archivedAttachmentViews } from "../archive_attachments.ts";
 import { sharedArchiveDivider, sharedArchiveStanding } from "../../../lib/text/attached.ts";

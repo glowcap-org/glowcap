@@ -49,7 +49,7 @@ import * as net from "./page_navigation.ts";
 import { useRoomsSession } from "./controller/session.ts";
 import { implied, named } from "./intent.ts";
 import { useRoomsState } from "./hooks.ts";
-import type { DmConv } from "./types.ts";
+import type { DmConv } from "./conversation.ts";
 import {
 	directoryAddress,
 	joinAddress,

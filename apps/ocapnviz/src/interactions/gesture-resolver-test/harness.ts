@@ -2,7 +2,10 @@
 // exhaustiveness checks, and a minimal valid Hit for a surface. Production
 // code uses surface-specific hit-testers and never needs either.
 
-import { assertNever, type BuilderTool, type EntityRef, type Hit, stageHitFor, type SurfaceId } from "../types.ts";
+import { assertNever } from "../assert-never.ts";
+import type { BuilderTool } from "../builder-tool.ts";
+import type { EntityRef } from "../entity-ref.ts";
+import { type Hit, stageHitFor, type SurfaceId } from "../surface-hit.ts";
 
 /** All surface ids, used by exhaustive-switch totality tests. */
 export const ALL_SURFACES: ReadonlySet<SurfaceId> = new Set<SurfaceId>([

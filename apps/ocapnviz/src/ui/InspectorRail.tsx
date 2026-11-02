@@ -8,9 +8,9 @@
  */
 
 import type { Engine } from "../engine/engine.ts";
-import type { EntityRefKey } from "../interactions/types.ts";
+import type { EntityRefKey } from "../interactions/entity-ref.ts";
 import type { LayoutSizes } from "../state/app-state.ts";
-import type { StageSelection } from "../render/types.ts";
+import type { StageSelection } from "../render/stage-selection.ts";
 import { rightPane } from "./app-shell.ts";
 import type { EditorBindings } from "./inspector/bindings.ts";
 import { ResizeHandle } from "./ResizeHandle.tsx";

@@ -37,7 +37,7 @@ import {
 	archiveWhatStandingSaid,
 	archiveWhatTitle,
 } from "../../../lib/text/archive.ts";
-import type { Conv, RoomConv } from "../types.ts";
+import type { Conv, RoomConv } from "../conversation.ts";
 import type { ArchiveShareView } from "../archive_model.ts";
 import { useArchiveShareBearer, useConversationMembers, useRoomsState } from "../hooks.ts";
 import { useRoomsSession } from "../controller/session.ts";

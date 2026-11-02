@@ -10,7 +10,8 @@
  * unaffected by Pixi sprite event modes).
  */
 
-import { assertNever, type BuilderTool } from "./types.ts";
+import { assertNever } from "./assert-never.ts";
+import type { BuilderTool } from "./builder-tool.ts";
 
 /** One of Pixi's `EventMode` values that we actually use. */
 export type EventMode = "static" | "none";

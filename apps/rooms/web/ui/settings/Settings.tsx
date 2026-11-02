@@ -32,7 +32,9 @@ import { CopyField } from "../Copy.tsx";
 import { SettingsHead } from "./SettingsHead.tsx";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { type TabFace, Tabs } from "../Tabs.tsx";
-import { anyOpsHeld, type DirView, type OpsHeld, type SettingsTab } from "../types.ts";
+import { anyOpsHeld, type OpsHeld } from "../ops/capabilities.ts";
+import type { DirView } from "../directory.ts";
+import type { RoomsSettingsTab } from "../../../lib/view_state.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { SessionSettings } from "./Session.tsx";
 import { Holdings } from "./Holdings.tsx";
@@ -59,7 +61,7 @@ interface SettingsProps {
 	/** Where member-owned history is written. */
 	archiveTarget: ArchiveTargetView;
 	/** Which panel to show when this dialog mounts. */
-	tab: SettingsTab;
+	tab: RoomsSettingsTab;
 	/** Keep the tree while another native dialog has the top layer. */
 	retain?: boolean;
 }
@@ -107,7 +109,7 @@ function SettingsDialog(
 	const chosenTab = useRef<HTMLButtonElement>(null);
 	const managed = useManagedSession();
 	const [live] = useState(() => current(managed.current?.intent));
-	const tabs: readonly TabFace<SettingsTab>[] = [
+	const tabs: readonly TabFace<RoomsSettingsTab>[] = [
 		{ id: "session", domId: "sessionTab", label: settingsSessionTab, panelId: "sessionPanel" },
 		...(canAdminister
 			? [
@@ -121,7 +123,7 @@ function SettingsDialog(
 			panelId: "reachabilityPanel",
 		},
 	];
-	const [pane, setPane] = useState<SettingsTab>(
+	const [pane, setPane] = useState<RoomsSettingsTab>(
 		tabs.some((candidate) => candidate.id === tab) ? tab : "session",
 	);
 	const [dm, setDm] = useState<DmMode>(live.dm);
@@ -161,7 +163,7 @@ function SettingsDialog(
 			setDmError("");
 		},
 	});
-	const selectPane = (next: SettingsTab) => {
+	const selectPane = (next: RoomsSettingsTab) => {
 		setPane(next);
 		browser.setSettingsTab(next);
 	};

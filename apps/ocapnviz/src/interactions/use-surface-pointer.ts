@@ -17,20 +17,19 @@
  */
 
 import { useEffect, useRef } from "react";
-import { hasSomethingToCommit, pointerReducer } from "./pointer-machine.ts";
+import {
+	type Effect,
+	hasSomethingToCommit,
+	IDLE_MACHINE,
+	type PointerMachineState,
+	pointerReducer,
+} from "./pointer-machine.ts";
 import { type GestureEndReason, type SurfaceTag } from "./gesture-router.ts";
 import { useGestureSurface } from "./use-gesture-surface.ts";
-import {
-	type BuilderTool,
-	type Effect,
-	type GestureContext,
-	type Hit,
-	IDLE_MACHINE,
-	type ModifierSet,
-	type PointerMachineState,
-	type PointerSnapshot,
-	type SurfaceId,
-} from "./types.ts";
+import type { BuilderTool } from "./builder-tool.ts";
+import type { GestureContext } from "./gesture-resolver.ts";
+import type { Hit, SurfaceId } from "./surface-hit.ts";
+import type { ModifierSet, PointerSnapshot } from "./pointer-input.ts";
 
 /** What the host tells the machine about a press beyond the pointer event
  *  itself. Exactly what `resolveGesture` reads: the modifiers come off the

@@ -9,7 +9,8 @@
  */
 
 import { type MutableRefObject, type PointerEvent, type RefObject, useCallback, useEffect, useRef } from "react";
-import type { EntityRefKey, SurfaceGestureCtx } from "../../interactions/types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
+import type { SurfaceGestureCtx } from "../../interactions/gesture-resolver.ts";
 import { useGestureSurface } from "../../interactions/use-gesture-surface.ts";
 import type { DragMode } from "./scrubber-drag.ts";
 import type { TimelineGesture } from "./timeline-cursor.ts";

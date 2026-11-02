@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import type { SurfaceId } from "./types.ts";
+import type { SurfaceId } from "./surface-hit.ts";
 import { type WheelEffect, type WheelPolicy, wheelToEffect } from "./wheel-helpers.ts";
 
 export {

@@ -9,7 +9,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 const { AttachedLineProjection } = await import("../../web/ui/session/line_projection.ts");
 const store = await import("../../web/ui/store.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 const { assertEquals } = await import("../assert.ts");
 
 Deno.test("attached image lines and refiles start their bounded automatic fetch", () => {

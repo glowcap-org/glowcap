@@ -1,7 +1,6 @@
 // The operations-capability vocabulary: which capabilities the page can hold,
 // what each one's possession rows look like, and where a remembered swiss is
-// keyed. Its own file beside the panes that draw it; `types.ts` re-exports it,
-// so a consumer of the page vocabulary still has one import surface.
+// keyed. Its own file beside the panes that draw it.
 
 import type {
 	OperatorCategory,
@@ -16,19 +15,10 @@ import type {
 } from "../../../lib/room/client.ts";
 import type { BridgeGateway } from "../../../lib/bridge/gateway.ts";
 
-/** One named object the inspect capability reported on this directory. */
-export type { DiagnosticRow } from "../../../lib/room/client.ts";
-export type { OperatorCategory } from "../../../lib/room/client.ts";
-export type { OperatorReferenceRow } from "../../../lib/room/client.ts";
-
-/** One live listener the admin capability reported on this directory. */
-export type { ListenerRow } from "../../../lib/room/client.ts";
-
 /** The operations capabilities the page knows how to hold. Holdings keeps one
  * toggle per capability. The Operations page draws one pane per held one.
  * The order here is the tab order when more than one is held. */
-export { OPERATIONS_CAPABILITIES as OPS_CAPS, type OperationsCapability as OpsCap } from "../application_data.ts";
-import { OPERATIONS_CAPABILITIES as OPS_CAPS } from "../application_data.ts";
+import { OPERATIONS_CAPABILITIES } from "../application_data.ts";
 
 /** One durable room this tab published into this directory while it holds the
  * peering capability. The lease behind the row lives in the data layer. What
@@ -78,6 +68,12 @@ export interface TracePublishState {
 	readonly connected: boolean;
 	/** Why the endpoint refused this swiss. A refusal is final. It is not a redial. */
 	readonly refusal: string | null;
+}
+
+export interface TroubleRow {
+	readonly source: string;
+	readonly reason: string;
+	readonly count: number;
 }
 
 /** The gateway's last description. Custody intent separately owns possession. */
@@ -133,5 +129,5 @@ export interface OpsHeld {
 /** Whether any operations capability is held. This one answer controls its
  * appearance in the head, the modal, and App. */
 export function anyOpsHeld(held: OpsHeld): boolean {
-	return OPS_CAPS.some((cap) => held[cap]);
+	return OPERATIONS_CAPABILITIES.some((cap) => held[cap]);
 }

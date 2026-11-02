@@ -19,7 +19,8 @@ import {
 	unattributedEndpoint,
 	UNNAMED_END_LABEL,
 } from "../schema/session-end.ts";
-import { entityKey, type EntityRef, type EntityRefKey, type SelectionAction } from "../interactions/types.ts";
+import { entityKey, type EntityRef, type EntityRefKey } from "../interactions/entity-ref.ts";
+import type { SelectionAction } from "../interactions/selection-store.ts";
 import { type NodeKind, toolAcceptsNode } from "../interactions/gesture-resolver.ts";
 import { asOneEdit } from "./as-one-edit.ts";
 

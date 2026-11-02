@@ -21,18 +21,11 @@
 
 import { assertEquals } from "@std/assert";
 import { type CSSCursor, type CursorContext, cursorFor } from "./cursor.ts";
-import { pointerReducer } from "./pointer-machine.ts";
+import { IDLE_MACHINE, type PointerEvent_, type PointerMachineState, pointerReducer } from "./pointer-machine.ts";
 import { dummyHit } from "./gesture-resolver-test/harness.ts";
-import {
-	type BuilderTool,
-	type GestureContext,
-	IDLE_MACHINE,
-	type ModifierSet,
-	NO_MODIFIERS,
-	type PointerEvent_,
-	type PointerMachineState,
-	type PointerSnapshot,
-} from "./types.ts";
+import type { BuilderTool } from "./builder-tool.ts";
+import type { GestureContext } from "./gesture-resolver.ts";
+import { type ModifierSet, NO_MODIFIERS, type PointerSnapshot } from "./pointer-input.ts";
 import {
 	type HeldGestures,
 	isClaimed,

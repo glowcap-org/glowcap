@@ -36,7 +36,8 @@ import {
 	privateRoomNameRefusal,
 } from "../joining.ts";
 import { policyForRoomPreset } from "../room_policy.ts";
-import { CAUGHT_UP, type DirId, dirId, type DirView, type Invitation, liveRoomNames } from "../types.ts";
+import { CAUGHT_UP, type Invitation } from "../conversation.ts";
+import { type DirId, dirId, type DirView, liveRoomNames } from "../directory.ts";
 import { DirectMessages } from "../sidebar/dms.tsx";
 import { JoinRefusal } from "../sidebar/JoinRefusal.tsx";
 import { YourRooms } from "../sidebar/rooms.tsx";

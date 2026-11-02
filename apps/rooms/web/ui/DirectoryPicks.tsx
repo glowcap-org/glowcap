@@ -25,7 +25,7 @@ import { useRoomsSession } from "./controller/session.ts";
 import { MenuList, MenuRow } from "./Menu.tsx";
 import { directoryName } from "./text.ts";
 import { type DirectoryDestinationContext, thisDirectoryLocator } from "./joining.ts";
-import type { DirId, DirView } from "./types.ts";
+import type { DirId, DirView } from "./directory.ts";
 import { anotherAddress } from "../../lib/text/page.ts";
 
 export function DirectoryPicks(

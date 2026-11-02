@@ -7,7 +7,7 @@
 // question can therefore be answered in a test without a page.
 
 import * as z from "zod/mini";
-import { type DirId, dirId, dirMarkIn, type DirView, liveRoomNames, type RoomDestination } from "./types.ts";
+import { type DirId, dirId, dirMarkIn, type DirView, liveRoomNames } from "./directory.ts";
 import type { JoinNickTarget } from "./join_nick.ts";
 import { directoryName } from "./text.ts";
 import { applicationModule, inspectCapability, inspectDirectory } from "./application.ts";
@@ -130,6 +130,13 @@ export function submittedRoomName(
 ): string {
 	if (linked === null) return typedRoom || JOIN_DEFAULT_ROOM;
 	return roomFrom === "edited" || roomFrom === "named" ? linked.label : "";
+}
+
+export interface RoomDestination {
+	room: string;
+	locator: string;
+	hidden?: boolean;
+	policy?: RoomPolicy;
 }
 
 /** The destination a submitted join acts on. A room link stays authority,

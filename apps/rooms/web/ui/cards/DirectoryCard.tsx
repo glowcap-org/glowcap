@@ -10,7 +10,7 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { DirId, DirView } from "../types.ts";
+import type { DirId, DirView } from "../directory.ts";
 import { useRoomsState } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";

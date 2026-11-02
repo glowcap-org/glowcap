@@ -15,7 +15,7 @@ const { AttachedSessionFiles, EARLIER_CONNECTION_BYTES_UNAVAILABLE } = await imp
 	"../../web/ui/session/attached_files.ts"
 );
 const { AttachedLineProjection } = await import("../../web/ui/session/line_projection.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 const { reconcileAttachedHistory } = await import("../../web/ui/session/history_reconciliation.ts");
 const store = await import("../../web/ui/store.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");

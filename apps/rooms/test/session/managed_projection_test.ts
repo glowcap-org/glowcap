@@ -12,7 +12,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 });
 const store = await import("../../web/ui/store.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 await initializeApplication();
 
 const { fixture, room, direct } = await import("./managed_projection/fixture.ts");

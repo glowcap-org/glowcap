@@ -15,7 +15,7 @@ import { type Command, type CommandHere, type CommandPowers, held, hereOf, known
 import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY } from "../web/ui/commands/targets.ts";
 import { prepareComposerSend } from "../web/ui/composer/send.ts";
 import type { ComposerDraft } from "../web/ui/composer/send.ts";
-import type { Conv } from "../web/ui/types.ts";
+import type { Conv } from "../web/ui/conversation.ts";
 import {
 	SESSION_COMMAND_REQUIREMENTS,
 	SESSION_CONTENT,

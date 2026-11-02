@@ -13,15 +13,9 @@
 // facts about this conversation.
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-	type AdministeredBridge,
-	awayByPeer,
-	awayOf,
-	type DirId,
-	type DirView,
-	type RoomConv,
-	type SessionConv,
-} from "../types.ts";
+import type { AdministeredBridge } from "../ops/capabilities.ts";
+import { awayByPeer, awayOf, type RoomConv, type SessionConv } from "../conversation.ts";
+import type { DirId, DirView } from "../directory.ts";
 import { useConversationMembers, useRoomsState } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";

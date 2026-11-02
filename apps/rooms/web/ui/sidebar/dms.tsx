@@ -28,18 +28,8 @@ import { Avatar, PresenceAvatar } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
 import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, dirWhere, nothingWhilePaused } from "../text.ts";
-import {
-	awayByPeer,
-	awayOf,
-	CAUGHT_UP,
-	type Conv,
-	type DirId,
-	type DirView,
-	type DmConv,
-	type SessionPhase,
-	type Standing,
-	type Unread,
-} from "../types.ts";
+import { awayByPeer, awayOf, CAUGHT_UP, type Conv, type DmConv, type Standing, type Unread } from "../conversation.ts";
+import type { DirId, DirView, SessionPhase } from "../directory.ts";
 import { dmRow, type RailRow, unreadCount } from "./filter.ts";
 import { Empty, heldBack, nothingMatches, RowClose } from "./rows.tsx";
 import { RailSection } from "./Section.tsx";

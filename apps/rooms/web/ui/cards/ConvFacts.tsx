@@ -9,7 +9,8 @@
 // Durable authority for either kind remains visible in the separate
 // Capabilities tab.
 
-import { type Conv, conversationCarries, conversationTakesFiles, type DirView, membersHere } from "../types.ts";
+import { type Conv, conversationCarries, conversationTakesFiles, membersHere } from "../conversation.ts";
+import type { DirView } from "../directory.ts";
 import { useConversationMembers, useRoomBearer } from "../hooks.ts";
 import { conversationReach, dirConnection } from "../text.ts";
 import { roomLinkTitle } from "../../../lib/text/room_authority.ts";

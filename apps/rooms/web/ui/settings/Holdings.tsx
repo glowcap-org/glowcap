@@ -11,7 +11,7 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsState } from "../hooks.ts";
-import type { RoomConv } from "../types.ts";
+import type { RoomConv } from "../conversation.ts";
 import { CapabilitySetForm } from "./CapabilitySet.tsx";
 import { ArchiveHolding } from "./History.tsx";
 import { IssuedArchiveShares } from "./ArchiveShares.tsx";

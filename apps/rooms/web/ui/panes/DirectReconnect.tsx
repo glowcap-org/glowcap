@@ -1,7 +1,7 @@
 // Reconnection is an explicit gesture for one exact directory registration.
 // It never resubmits an uncertain message or treats a reused name as identity.
 import { useRef, useState } from "react";
-import type { DmConv } from "../types.ts";
+import type { DmConv } from "../conversation.ts";
 import { useRoomsState, useSessionPermission } from "../hooks.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { actionRefusal } from "../error_text.ts";

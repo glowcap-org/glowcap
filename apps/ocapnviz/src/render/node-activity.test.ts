@@ -8,14 +8,14 @@
  */
 
 import { assertEquals } from "@std/assert";
-import { foldActivityByNode, nodeActivityIn, type PeerActivity } from "./types.ts";
+import { foldActivityByNode, nodeActivityIn, type PeerActivity } from "./node-activity.ts";
 
 function flight(from: string, to: string) {
 	return { messageInFlight: { from, to } };
 }
 
-/** Every node either message names, which is what the two readings are
- *  compared over. */
+/** Every node either message names, the set the two readings are compared
+ *  over. */
 function nodesIn(
 	messages: Array<{ messageInFlight: { from: string; to: string } }>,
 ) {

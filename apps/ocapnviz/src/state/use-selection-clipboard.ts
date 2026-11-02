@@ -12,7 +12,7 @@ import { useCallback, useRef } from "react";
 import type { Engine } from "../engine/engine.ts";
 import type { ClipboardPayload } from "../engine/schema/clipboard.ts";
 import type { IdRemap } from "../engine/schema/paste.ts";
-import { type EntityRefKey, parseEntityKey } from "../interactions/types.ts";
+import { type EntityRefKey, parseEntityKey } from "../interactions/entity-ref.ts";
 
 export type SelectionClipboard = {
 	handleCopySelection: () => void;

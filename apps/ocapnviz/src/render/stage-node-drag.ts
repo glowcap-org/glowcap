@@ -13,11 +13,14 @@
 import type { MutableRefObject } from "react";
 import { type Application, type Container, type FederatedPointerEvent } from "pixi.js";
 import type { Viewport } from "pixi-viewport";
-import { entityKey, type EntityRefKey, isTwoClickTool, type SurfaceGestureCtx } from "../interactions/types.ts";
+import { entityKey, type EntityRefKey } from "../interactions/entity-ref.ts";
+import { isTwoClickTool } from "../interactions/builder-tool.ts";
+import type { SurfaceGestureCtx } from "../interactions/gesture-resolver.ts";
 import type { Engine } from "../engine/engine.ts";
 import type { Vec2 } from "../engine/world.ts";
 import { safeListener } from "./safeTick.ts";
-import type { SelectMode, StageHover, StageSelection } from "./types.ts";
+import type { SelectMode } from "../interactions/select-mode.ts";
+import type { StageHover, StageSelection } from "./stage-selection.ts";
 import type { PeerSprite, StartNodeDrag } from "./sprites/types.ts";
 
 /** World cursor the wire preview reads. Node-drag writes it while

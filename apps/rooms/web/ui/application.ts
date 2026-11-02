@@ -4,7 +4,7 @@
 import * as z from "zod/mini";
 import type { InitInput } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { ROOMS_FAILURES, type RoomsErrorCode, type RoomsFailureRetry } from "../../lib/error_codes.ts";
-import { type DirId, dirId } from "./types.ts";
+import { type DirId, dirId } from "./directory.ts";
 
 /** Parse a JSON projection from the Rust application, proving its shape
  * before any consumer reads it. A wrong shape names a defect in the shared

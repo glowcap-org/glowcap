@@ -2,7 +2,8 @@
 import * as store from "./store.ts";
 import { actLocator } from "./page_bootstrap.ts";
 import type { RoomsPageContext } from "./page.ts";
-import type { DirId, MemberRef } from "./types.ts";
+import type { DirId } from "./directory.ts";
+import type { MemberRef } from "./member_ref.ts";
 import type { Reach } from "./intent.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
 import { notificationsBlocked, notificationsUnsupported } from "../../lib/text/attached.ts";

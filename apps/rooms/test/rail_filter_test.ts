@@ -10,7 +10,8 @@
 
 import { assertEquals } from "./assert.ts";
 import { registrationId } from "./support/registration.ts";
-import { type DirId, dirId, type DirView, type DmConv, type Invitation, type RoomConv } from "../web/ui/types.ts";
+import { type DirId, dirId, type DirView } from "../web/ui/directory.ts";
+import type { DmConv, Invitation, RoomConv } from "../web/ui/conversation.ts";
 import {
 	askedNothing,
 	dirRow,

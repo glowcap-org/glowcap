@@ -8,9 +8,9 @@
  * delete.
  */
 
-import type { StageSelection } from "../render/types.ts";
+import type { StageSelection } from "../render/stage-selection.ts";
 import type { Engine } from "../engine/engine.ts";
-import { type EntityKind, type EntityRefKey, parseEntityKey } from "../interactions/types.ts";
+import { type EntityKind, type EntityRefKey, parseEntityKey } from "../interactions/entity-ref.ts";
 import { documentHolds } from "../interactions/selection-store.ts";
 import { PANEL, SPACE } from "./tokens.ts";
 import { useClockSnapshot } from "./useClockSnapshot.ts";

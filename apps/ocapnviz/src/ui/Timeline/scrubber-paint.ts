@@ -15,9 +15,9 @@
 
 import type { Graphics } from "pixi.js";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
-import type { EntityRefKey } from "../../interactions/types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 import { themedColors } from "../../render/palette.ts";
-import type { StageSelection } from "../../render/types.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
 import { buildLaneBundle, laneBundleColorsFromTheme } from "./lane-bundle.ts";
 import { orderEntities } from "./lane-paint.ts";
 import { drawLaneStack } from "./lane-stack-paint.ts";

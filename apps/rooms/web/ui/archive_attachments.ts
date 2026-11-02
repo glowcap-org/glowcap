@@ -1,7 +1,7 @@
 // Pure projection of archived file facts into presentation state.
 
 import type { ArchivedAttachment, ArchiveLine } from "../../lib/archive/protocol.ts";
-import type { AttachmentView, Item } from "./types.ts";
+import type { AttachmentView, Item } from "./conversation.ts";
 
 import { archivedBytesUnavailable } from "../../lib/text/attached.ts";
 

@@ -28,7 +28,7 @@
  *   4. Select / others, null (no banner)
  */
 
-import type { BuilderTool } from "../state/app-state.ts";
+import type { BuilderTool } from "../interactions/builder-tool.ts";
 import { c, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
 export function ToolHint(

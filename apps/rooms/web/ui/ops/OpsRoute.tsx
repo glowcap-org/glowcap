@@ -12,7 +12,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsProjection, useRoomsState } from "../hooks.ts";
-import { OPS_CAPS } from "../types.ts";
+import { OPERATIONS_CAPABILITIES } from "../application_data.ts";
 import { opsAddress, paneCapsHeld, paneForCap, paneOf } from "./panes.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 
@@ -34,7 +34,7 @@ export function OpsRoute() {
 	}, [projection]);
 	const held = s.opsHeld;
 	const pane = segment === undefined ? null : paneOf(segment);
-	const heldCaps = OPS_CAPS.filter((c) => held[c]);
+	const heldCaps = OPERATIONS_CAPABILITIES.filter((c) => held[c]);
 	const heldKey = heldCaps.join(",");
 	const paneCaps = pane === null ? [] : paneCapsHeld(pane, held);
 	const paneKey = paneCaps.join(",");

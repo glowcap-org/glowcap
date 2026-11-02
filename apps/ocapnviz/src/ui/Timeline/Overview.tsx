@@ -30,7 +30,7 @@ import { type EyeGlyphMode, eyeGlyphStatus } from "./gutter-paint.ts";
 import { drawOverviewScene } from "./overview-paint.ts";
 import { overviewHitAt, timelineCursor, type TimelineGesture } from "./timeline-cursor.ts";
 import { resolveTimelineGesture } from "./timeline-gesture.ts";
-import type { SurfaceGestureCtx } from "../../interactions/types.ts";
+import type { SurfaceGestureCtx } from "../../interactions/gesture-resolver.ts";
 
 export const OVERVIEW_HEIGHT = 26;
 

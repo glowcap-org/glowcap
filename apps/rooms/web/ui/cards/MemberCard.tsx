@@ -14,7 +14,9 @@
 // about names rather than about whose card this is.
 
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
-import type { DirId, DirView, MemberRef, Standing } from "../types.ts";
+import type { DirId, DirView } from "../directory.ts";
+import type { MemberRef } from "../member_ref.ts";
+import type { Standing } from "../conversation.ts";
 import { useConversationMembers, useRoomsState } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";

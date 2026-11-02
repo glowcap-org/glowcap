@@ -45,7 +45,7 @@ import type { Engine } from "../engine/engine.ts";
 import { authoredPins } from "../engine/event-helpers.ts";
 import { clearAllPins, discardAllEdits, undoAllWithSelection } from "../builder/selection-history.ts";
 import type { AppMode } from "../state/app-state.ts";
-import type { SelectionAction } from "../interactions/types.ts";
+import type { SelectionAction } from "../interactions/selection-store.ts";
 import { useDocVersion } from "./useDocVersion.ts";
 import { type ConfirmRequest, requestConfirm } from "./confirm.ts";
 import { SIZE, SPACE } from "./tokens.ts";

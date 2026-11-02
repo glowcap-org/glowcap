@@ -4,7 +4,7 @@ import { assert } from "../assert.ts";
 // How this page names and colors directories, and how a locator field treats
 // this directory as the empty destination rather than a second address.
 
-const types = await import("../../web/ui/types.ts");
+const types = await import("../../web/ui/directory.ts");
 const text = await import("../../web/ui/text.ts");
 const joining = await import("../../web/ui/joining.ts");
 const { dirId } = types;
@@ -83,8 +83,8 @@ Deno.test("a directory is named in words however many are held, and colored only
 				return [id, { id, slot: i + 1 }];
 			}),
 		) as unknown as ReadonlyMap<
-			import("../../web/ui/types.ts").DirId,
-			import("../../web/ui/types.ts").DirView
+			import("../../web/ui/directory.ts").DirId,
+			import("../../web/ui/directory.ts").DirView
 		>;
 
 	const alone = held(1);

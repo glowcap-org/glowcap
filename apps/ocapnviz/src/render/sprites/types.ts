@@ -9,7 +9,9 @@
 
 import type { Container, Graphics, Text } from "pixi.js";
 import type { CodecLineStyle, ThemedColors } from "../palette.ts";
-import type { HaloTier, PeerActivity, SelectMode } from "../types.ts";
+import type { HaloTier } from "../stage-selection.ts";
+import type { PeerActivity } from "../node-activity.ts";
+import type { SelectMode } from "../../interactions/select-mode.ts";
 
 /** Hand a pointerdown on a node body to `createStageNodeDrag`. Declared
  *  once because two sprite kinds raise it and `RenderFrameArgs` carries it. */

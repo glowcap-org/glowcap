@@ -9,7 +9,8 @@
 import type { Graphics, StrokeStyle, Text } from "pixi.js";
 import type { ThemedColors } from "./palette.ts";
 import type { LabelPill } from "./stage-labels.ts";
-import type { HaloTier, PeerActivity } from "./types.ts";
+import type { HaloTier } from "./stage-selection.ts";
+import type { PeerActivity } from "./node-activity.ts";
 
 // ─────────────────────── two-click overlay ───────────────────────
 

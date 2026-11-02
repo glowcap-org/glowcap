@@ -2,7 +2,7 @@
 // The mycelium dims from this, and the page checks its build from it.
 
 import type { PageProjection } from "./store/projection.ts";
-import type { DirId, DirView } from "./types.ts";
+import type { DirId, DirView } from "./directory.ts";
 
 /** The page's connections after one change to its directories. A directory
  * counts once it has been seen connected, because the arrival already grew the

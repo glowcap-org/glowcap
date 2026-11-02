@@ -2,15 +2,9 @@
 // Markdown structure and mention effects live in the shared application path.
 // This module retains presentation vocabulary such as emoji and IRC runs.
 
-import {
-	type Conv,
-	type DirId,
-	dirMarkIn,
-	dirsAreNamed,
-	type DirView,
-	type PeeringSource,
-	type SessionPhase,
-} from "./types.ts";
+import type { Conv } from "./conversation.ts";
+import { type DirId, dirMarkIn, dirsAreNamed, type DirView, type SessionPhase } from "./directory.ts";
+import type { PeeringSource } from "./ops/capabilities.ts";
 import { lineCost, MAX_LINE, MAX_NICK } from "./limits.ts";
 import { reachDirect, reachPublicRoom, reachRoomHeld, reachRoomLink } from "../../lib/text/conversation.ts";
 import { messageTimeAm, messageTimePm } from "../../lib/text/conversation.ts";

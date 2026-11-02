@@ -19,7 +19,7 @@
 
 import { TRANSPORT_OPTIONS } from "../../schema/topology.ts";
 import { endpointStageId, SESSION_SIDES } from "../../schema/session-end.ts";
-import type { StageSelection } from "../../render/types.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findSession } from "../../engine/world.ts";
 import {
@@ -41,7 +41,7 @@ import { kv, linkRowList, PanelHeading, placeholder, valueMono, valueText } from
 import { Identifier } from "../identifier.tsx";
 import { isInSelection, peerInfo, sessionInfo } from "./entity-info.ts";
 import { sessionEndName } from "../session-name.ts";
-import type { EntityRefKey } from "../../interactions/types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 import { SessionEndFields, SessionEndNames } from "./session-end-fields.tsx";
 
 export function SessionFields(

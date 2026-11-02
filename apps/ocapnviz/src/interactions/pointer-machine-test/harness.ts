@@ -3,16 +3,10 @@
  * a reducer run. Every family below drives the same machine.
  */
 
-import {
-	type Effect,
-	type GestureContext,
-	type Hit,
-	NO_MODIFIERS,
-	type PointerEvent_,
-	type PointerMachineState,
-	type PointerSnapshot,
-} from "../types.ts";
-import { pointerReducer } from "../pointer-machine.ts";
+import { type Effect, type PointerEvent_, type PointerMachineState, pointerReducer } from "../pointer-machine.ts";
+import type { GestureContext } from "../gesture-resolver.ts";
+import type { Hit } from "../surface-hit.ts";
+import { NO_MODIFIERS, type PointerSnapshot } from "../pointer-input.ts";
 
 export function snap(opts: Partial<PointerSnapshot> = {}): PointerSnapshot {
 	return {

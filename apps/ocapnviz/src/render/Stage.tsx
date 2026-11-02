@@ -3,7 +3,8 @@ import { Container } from "pixi.js";
 import { Viewport } from "pixi-viewport";
 import { layerInteractivity } from "../interactions/layer-interactivity.ts";
 import { isTextInputTarget } from "../interactions/text-input-target.ts";
-import { type EntityRefKey, type SurfaceGestureCtx } from "../interactions/types.ts";
+import type { EntityRefKey } from "../interactions/entity-ref.ts";
+import type { SurfaceGestureCtx } from "../interactions/gesture-resolver.ts";
 import { useSurfaceWheel } from "../interactions/use-surface-wheel.ts";
 import type { Engine } from "../engine/engine.ts";
 import { type Theme } from "../ui/tokens.ts";
@@ -12,10 +13,13 @@ import { useStageEmptyGestures } from "./use-stage-empty-gestures.ts";
 import { useStageScene } from "./use-stage-scene.ts";
 import { applyStageWheel } from "./stage-camera-commands.ts";
 
-// Stage's pure data types live in `./types.ts` so consumers that only need a
-// `StageSelection` shape don't drag in Pixi + React. Imported from there, not
-// re-exported from here: a second door onto one type is a second name for it.
-import { type SelectMode, type StageHover, type StageSelection, type StageVisibility } from "./types.ts";
+// Stage's pure data types live in `./stage-selection.ts` and `./stage-visibility.ts`
+// so consumers that only need a `StageSelection` shape don't drag in Pixi + React.
+// Imported from there, not re-exported from here: a second door onto one type is
+// a second name for it.
+import type { SelectMode } from "../interactions/select-mode.ts";
+import type { StageHover, StageSelection } from "./stage-selection.ts";
+import type { StageVisibility } from "./stage-visibility.ts";
 
 /**
  * Stage scene. A sub-container of the unified PixiJS canvas, bound
@@ -136,7 +140,8 @@ export type StageProps = {
 // Sprite shapes and their per-entity sync live in `./sprites/`; `renderFrame`
 // in `./render-frame.ts` is the tick that calls them. Empty-stage gestures
 // (rubber-band, spacebar-pan, empty clicks) live in `./use-stage-empty-gestures.ts`.
-// Pure-data render types (`PeerActivity`, `StageSelection`) live in `./types.ts`.
+// Pure-data render types (`PeerActivity`, `StageSelection`) live in `./node-activity.ts`
+// and `./stage-selection.ts`.
 // `use-stage-scene.ts` owns scene wiring (viewport, drag, layer creation).
 
 /** Shared empty-set sentinel for the `selection` / `previewSelection`

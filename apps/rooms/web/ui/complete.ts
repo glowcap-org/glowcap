@@ -12,7 +12,8 @@
 import { type CommandHere, commandIn, held, hereOf } from "./commands.ts";
 import { MENTION_QUERY, ROOM_MENTIONS_OFFERED } from "./text.ts";
 import { EMOJI_TABLE } from "./emoji.ts";
-import { type Conv, liveRoomNames, type LiveRooms } from "./types.ts";
+import type { Conv } from "./conversation.ts";
+import { liveRoomNames, type LiveRooms } from "./directory.ts";
 import { foreignName } from "./member_identity.ts";
 
 export type TriggerKind = "nick" | "room" | "emoji" | "command";

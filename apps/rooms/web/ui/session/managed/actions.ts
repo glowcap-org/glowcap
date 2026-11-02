@@ -14,16 +14,14 @@ import { type ActivityPage, type Coordinate, fieldKey, type WorkspaceIntent, typ
 import type { JoinNicknameIntent } from "../../controller/session.ts";
 import type { RoomPolicy } from "../../room_policy.ts";
 import { applicationModule } from "../../application.ts";
-import { AcquisitionConflict, MAX_CONFLICT_REPREPARATIONS, submitAcquisition } from "./acquisition.ts";
+import {
+	AcquisitionConflict,
+	MAX_CONFLICT_REPREPARATIONS,
+	OperationsAcquisitionRefused,
+	submitAcquisition,
+} from "./acquisition.ts";
 import { retainedIntentConversation } from "./admission.ts";
-import type { OpsCap } from "../../types.ts";
 import { CompletedLine } from "./completed_line.ts";
-
-export class OperationsAcquisitionRefused extends Error {
-	constructor(readonly failures: readonly { capability: OpsCap; reason: string; advice: string | null }[]) {
-		super(managedText.operationsAcquisitionRefused);
-	}
-}
 
 import { LOCAL_LIMITS } from "./local_gestures.ts";
 import { gestureScope } from "./gestures.ts";

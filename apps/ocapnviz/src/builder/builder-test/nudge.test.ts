@@ -8,7 +8,7 @@ import { assert, assertEquals } from "@std/assert";
 import { Engine } from "../../engine/engine.ts";
 import { findNode } from "../../engine/world.ts";
 import { nudgeSelection } from "../selection-history.ts";
-import type { EntityRefKey } from "../../interactions/types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 import { endPin, engineTest, LOOSE_END, looseDoc, peerPin } from "./harness.ts";
 
 /** Where the stage is holding a node right now, copied out of the world so a

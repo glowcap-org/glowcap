@@ -1,6 +1,6 @@
 // Recipes come from the session selected custody under ShareCustody admission.
 // Presentation tokens identify local fields. They are never publication names.
-import type { RoomConv } from "../types.ts";
+import type { RoomConv } from "../conversation.ts";
 import type { ManagedRoomsSession } from "./managed/session.ts";
 import { coordinate } from "./managed/model.ts";
 

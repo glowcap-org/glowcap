@@ -21,8 +21,10 @@ Object.defineProperty(globalThis, "matchMedia", {
 const store = await import("../../web/ui/store.ts");
 const { authorityToken } = await import("../../web/ui/store/rooms.ts");
 const projection = new store.PageProjection();
-const types = await import("../../web/ui/types.ts");
-const { canRetry, dirId, isUnsent, sendControlsFor } = types;
+const types = await import("../../web/ui/conversation.ts");
+const { canRetry, isUnsent } = types;
+const { dirId } = await import("../../web/ui/directory.ts");
+const { sendControlsFor } = await import("../../web/ui/send_controls.ts");
 const { MAX_SCROLLBACK } = await import("../../lib/limits.ts");
 const { registrationId } = await import("../support/registration.ts");
 const { roomAuthorityToken } = await import("../../lib/room/authority.ts");
@@ -416,7 +418,7 @@ Deno.test("a direct row relays the rooms' word on who is away", () => {
 	const dir = dirId("ocapn://abc.iroh");
 	const other = dirId("ocapn://other.iroh");
 	const room = (key: string, at: typeof dir) =>
-		({ type: "room", dir: at, key }) as unknown as import("../../web/ui/types.ts").Conv;
+		({ type: "room", dir: at, key }) as unknown as import("../../web/ui/conversation.ts").Conv;
 	const roster = (members: Record<string, { online: boolean; away: string }>) => new Map(Object.entries(members));
 	const convs = new Map([
 		// Away in one room, present in another: present wins, because a direct

@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useState, useSyncExt
 import { useStore } from "zustand";
 import { NO_MEMBERS, type PageProjection, type State } from "./store.ts";
 import type { RoomsPermission } from "../../lib/session_content_data.ts";
-import type { RoomConv, Standing } from "./types.ts";
+import type { RoomConv, Standing } from "./conversation.ts";
 import { archiveShareBearer, roomBearer, type RoomBearerKind } from "./session/bearer.ts";
 import { useManagedSession } from "./session/managed/context.tsx";
 import { noteTrouble } from "./store.ts";

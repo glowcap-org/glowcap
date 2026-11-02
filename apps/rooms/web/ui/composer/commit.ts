@@ -3,7 +3,7 @@
 
 import * as store from "../store.ts";
 import type { CommandPowers } from "../commands.ts";
-import type { Conv } from "../types.ts";
+import type { Conv } from "../conversation.ts";
 import type { PageProjection } from "../store/projection.ts";
 import {
 	applyComposerPlan,

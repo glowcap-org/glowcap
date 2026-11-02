@@ -23,7 +23,7 @@ import { themedColors } from "./palette.ts";
 import { EdgeStrokeBatch } from "./edge-stroke-batch.ts";
 import { renderFrame } from "./render-frame.ts";
 import type { EdgeSprite, EndpointSprite, MessageSprite, PeerSprite } from "./sprites/types.ts";
-import type { PeerActivity } from "./types.ts";
+import type { PeerActivity } from "./node-activity.ts";
 
 installHeadlessCanvas();
 

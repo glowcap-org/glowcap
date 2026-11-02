@@ -4,7 +4,7 @@ export type FileData = Uint8Array | import("../../../../../zig-out/wasm/rooms/ro
 
 import * as store from "../store.ts";
 import { blobOf } from "../blob.ts";
-import type { AttachmentView, Item, ViewerDirection } from "../types.ts";
+import type { AttachmentView, Item, ViewerDirection } from "../conversation.ts";
 
 import { ARCHIVED_BYTES_UNAVAILABLE } from "../archive_attachments.ts";
 import { settleViewCleanup } from "./cleanup.ts";

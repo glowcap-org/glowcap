@@ -13,18 +13,103 @@
  *     wins for click. Modifier-at-drag-start wins for drag).
  */
 
-import {
-	assertNever,
-	type BuilderTool,
-	type DefaultVerb,
-	type EntityKind,
-	type GestureContext,
-	type Hit,
-	isTwoClickTool,
-	type ResolvedGesture,
-	type SurfaceId,
-	type ToolCreateVerb,
-} from "./types.ts";
+import { assertNever } from "./assert-never.ts";
+import { type BuilderTool, isTwoClickTool, type TwoClickTool } from "./builder-tool.ts";
+import type { EntityKind, EntityRef } from "./entity-ref.ts";
+import type { ModifierSet } from "./pointer-input.ts";
+import type { SelectMode } from "./select-mode.ts";
+import type { Hit, LaneCategory, SurfaceId, VisibilityScope } from "./surface-hit.ts";
+
+// ─────────────────────── Gesture context and resolved gesture (§ 2.4, § 2.5)
+
+export type GestureContext = {
+	hit: Hit;
+	modifiers: ModifierSet;
+	spaceHeld: boolean;
+	activeTool: BuilderTool;
+};
+
+/** What a surface knows about a gesture apart from where the pointer is:
+ *  the keys held now, whether Space is down, and which tool is active. It is
+ *  {@link GestureContext} without the hit, so a host carrying one can answer
+ *  for whatever hit the pointer finds. The App builds a single value and
+ *  hands it to every host that draws a cursor. */
+export type SurfaceGestureCtx = Omit<GestureContext, "hit">;
+
+/** Modes the rubber-band drag commits in, latched at the resolver
+ *  step (so the drag handler knows how to combine the rect's hits
+ *  with the current multi-selection). */
+export type RubberBandMode = SelectMode;
+
+export type DefaultVerb =
+	// Pointer-down verbs, resolved at pointer-down; drive both click
+	// and drag effects. The FSM decides click vs drag from threshold.
+	| { kind: "select-or-drag-peer"; peerId: string; entityRef: EntityRef }
+	/** An unattributed end drags and selects exactly as a peer does. The verb
+	 *  is separate so the handler knows which table holds its position. */
+	| {
+		kind: "select-or-drag-endpoint";
+		endpointId: string;
+		entityRef: EntityRef;
+	}
+	| { kind: "select-edge"; sessionId: string; entityRef: EntityRef }
+	| { kind: "select-message"; messageId: string; entityRef: EntityRef }
+	/** Sweep a rectangle and commit what it covers into the selection. Two
+	 *  surfaces start one, the empty stage and an empty timeline lane, so the
+	 *  verb names the gesture and the hit says where it happened. */
+	| { kind: "rubber-band"; mode: RubberBandMode }
+	| { kind: "scrub" }
+	| { kind: "pan-view" } // overview drag
+	/** `eventId` is null for a pill no observation names, see the hit's own
+	 *  note in `surface-hit.ts`. */
+	| {
+		kind: "select-or-drag-event";
+		eventId: string | null;
+		entityRef: EntityRef;
+	}
+	| {
+		kind: "drag-event-edge";
+		eventId: string | null;
+		entityRef: EntityRef;
+	}
+	| { kind: "toggle-category"; category: LaneCategory }
+	| { kind: "toggle-row-visibility"; scope: VisibilityScope }
+	| { kind: "reorder-row"; category: LaneCategory; entityId: string }
+	/** Drag the gutter/plot seam sideways, widening or narrowing the gutter. */
+	| { kind: "resize-gutter" }
+	/** Drag one end of the overview's visible-window rect, widening or
+	 *  narrowing the window the Scrubber shows. */
+	| { kind: "resize-time-window"; edge: "start" | "end" };
+
+export type ToolCreateVerb =
+	| { kind: "create-peer-at"; t: number }
+	| {
+		kind: "two-click-pick";
+		tool: TwoClickTool;
+		/** The stage node picked. A peer, or, for `send-message`, an end
+		 *  nothing has attributed. The two share one node namespace.
+		 *
+		 *  First-pick vs second-pick disambiguated by the adapter via
+		 *  `toolState`, when null this is the first pick, when non-
+		 *  null with matching tool this is the second. */
+		nodeId: string;
+	};
+
+export type ResolvedGesture =
+	| { tier: "space-pan"; verb: { kind: "pan-surface" } }
+	| { tier: "hand-tool"; verb: { kind: "pan-surface" } }
+	| { tier: "tool-create"; verb: ToolCreateVerb }
+	/** The active tool claims this surface and declines it. A stage node the
+	 *  tool cannot use. It carries no verb because nothing happens: no ring
+	 *  lights, no click acts, and the cursor says so before the click rather
+	 *  than an error saying so after it.
+	 *
+	 *  Distinct from falling through to the surface default, which would let
+	 *  the node be selected mid-gesture, and from a surface the tool simply has
+	 *  no opinion about (empty stage, an edge), which keeps its ordinary
+	 *  meaning. */
+	| { tier: "tool-refuses" }
+	| { tier: "default"; verb: DefaultVerb };
 
 // ─────────────────────── Resolver entrypoint (§ 4.2) ──────────────────
 

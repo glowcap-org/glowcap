@@ -3,7 +3,7 @@ import { assert, assertEquals } from "../../assert.ts";
 import { activityNotice } from "../../../web/ui/session/managed/model.ts";
 import { ActivityDelivery } from "../../../web/ui/session/managed/activity.ts";
 import * as store from "../../../web/ui/store.ts";
-import { dirId } from "../../../web/ui/types.ts";
+import { dirId } from "../../../web/ui/directory.ts";
 import { direct, fixture, room } from "./fixture.ts";
 
 for (const conversation of [room, direct]) {

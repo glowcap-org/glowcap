@@ -6,7 +6,7 @@
 // projected onto that membership. Which prefix, and what to call either of
 // them, is the room's to say and this module's to read.
 
-import type { BridgeFacts, Standing } from "./types.ts";
+import type { BridgeFacts, Standing } from "./conversation.ts";
 
 // A stable per-name avatar tint, so every speaker keeps one colour. The ten
 // values live in the rooms stylesheets as `--avatar-1` … `--avatar-10`, beside
