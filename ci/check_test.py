@@ -76,6 +76,9 @@ class EventsTest(unittest.TestCase):
         )
         group = workflow(CHECK)["concurrency"]["group"]
         self.assertIn("${{ github.event.inputs.suite || 'check' }}", group, "a fuzz run cancels no check run")
+        self.assertTrue(
+            workflow(CHECK)["concurrency"]["cancel-in-progress"], "a newer push cancels the run it supersedes"
+        )
         self.assertEqual(
             found["gates"]["if"].removeprefix("always() && (").removesuffix(")").strip(), found["plan"]["if"]
         )

@@ -1,11 +1,10 @@
-//! Scenario traces compared against the scenarios.
-//!
-//! Each test drives a whole CapTP conversation through the `oracle` layer and
-//! asserts the observable trace it produces. The authority here is the oracle's
-//! canonical trace, so a failure points at a behavior change in the session or
-//! engine, not at a codec or a transport. The cross-codec and cross-entry-point
-//! cases assert that the same conversation produces the same trace regardless of
-//! which codec carried it or which inbound entry point dispatched it.
+//! Scenario traces: each test drives a whole CapTP conversation through the
+//! scenario drivers and asserts the trace it produces. The authority is the
+//! driver's canonical trace, so a failure points at a behavior change in the
+//! session or engine, not at a codec or a transport. The cross-codec and
+//! cross-entry-point cases assert that the same conversation produces the same
+//! trace regardless of which codec carried it or which inbound entry point
+//! dispatched it.
 
 const std = @import("std");
 const scenarios = @import("scenarios");

@@ -101,6 +101,8 @@ Then rewrite:
   gets capitals. A table cell that loses its subject gets one back.
 - A comparison names the familiar precedent first, then the difference. If
   nothing differs, leave the claim out.
+- Say what the reader sees or must do, not the mechanism behind it, unless
+  the mechanism is what they act on.
 - Shared pages (`CONTRIBUTING.md`, `ui/README.md`, ADRs, `docs/`,
   `bindings/proofs/`) may keep working words. `contributor_scopes` in
   `voice.zig` still holds them to the punctuation rule.

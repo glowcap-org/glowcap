@@ -108,15 +108,6 @@ pub fn encodeOutboundBody(self: *Peer, body: *const model.view.Body, values: ?us
     );
 }
 
-/// Encode a wire message for the settled profile and push its owned frame.
-/// The frame is freed on refusal and owned by the queue on success.
-pub fn pushEncoded(self: *Peer, message: model.Message) !void {
-    var frame = try encodeOutbound(self, message);
-    errdefer frame.deinit();
-    try self.checkOutboundWaterline();
-    try self.outbound.push(self.allocator, frame);
-}
-
 /// Encode the front staged carrier without removing it. Encoding and queue
 /// capacity may fail while the carrier remains retryable. The caller consumes
 /// it only after this succeeds. No waterline stands here: the carrier's bytes

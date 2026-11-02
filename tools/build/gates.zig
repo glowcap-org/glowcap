@@ -69,14 +69,6 @@ fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Op
     return mods[layerIndex("actors")];
 }
 
-/// The browser binding's freestanding `wasm32` artifact (ADR-0034): the byte-fed
-/// CapTP Host (`libglowcap_host`) and the shared `libglowcap_ocapn` vocabulary
-/// compiled to one loadable wasm module. It roots on `src/c_abi/wasm/mod.zig`,
-/// which forces both export families in and adds the JS<->wasm linear-memory
-/// primitives. The module graph is the sans-io core (the `core = true` prefix)
-/// plus the two ocapn C ABI vocabulary rows. The I/O layers (`net`, `driver`)
-/// wasm lacks are excluded. ReleaseSmall keeps the download small and
-/// drops the runtime-safety-only `std.Thread.getCurrentId` owner assert.
 /// The CapTP scenario drivers under `test/oracle/scenarios/`: test code that
 /// drives a `Peer` through fixed protocol scenarios and returns the wire bytes
 /// the oracle, fuzz, and memcheck suites compare. Built once per module graph
@@ -91,6 +83,14 @@ fn scenariosModule(b: *std.Build, mods: []*std.Build.Module, t: std.Build.Resolv
     return mod;
 }
 
+/// The browser binding's freestanding `wasm32` artifact (ADR-0034): the byte-fed
+/// CapTP Host (`libglowcap_host`) and the shared `libglowcap_ocapn` vocabulary
+/// compiled to one loadable wasm module. It roots on `src/c_abi/wasm/mod.zig`,
+/// which forces both export families in and adds the JS<->wasm linear-memory
+/// primitives. The module graph is the sans-io core (the `core = true` prefix)
+/// plus the two ocapn C ABI vocabulary rows. The I/O layers (`net`, `driver`)
+/// wasm lacks are excluded. ReleaseSmall keeps the download small and
+/// drops the runtime-safety-only `std.Thread.getCurrentId` owner assert.
 /// The `layer_table` rows the wasm driver's base module graph transitively
 /// needs, as a keep-mask over `layer_table`.
 ///
