@@ -266,8 +266,8 @@ project from their manifests, and the repository from `gh`.
 | Registry | What a person does once |
 | --- | --- |
 | PyPI | Registers a pending trusted publisher for the project. It becomes the project's publisher at the first upload, and the command reports it as waiting until then. |
-| crates.io | Stores a publish token as the `CARGO_REGISTRY_TOKEN` secret of the `crates-io` environment for the first upload, because a trusted publisher binds to an existing crate. After that upload, adds the trusted publisher, and the command deletes the secret. |
-| JSR | Creates each workspace package in the `@glowcap` scope and links it to this repository. |
+| crates.io | Verifies the account's email address, which crates.io requires before any upload. Stores a publish token as the `CARGO_REGISTRY_TOKEN` secret of the `crates-io` environment for the first upload, because a trusted publisher binds to an existing crate. After that upload, adds the trusted publisher, and the command deletes the secret. |
+| JSR | Creates each workspace package in the `@glowcap` scope and links it to this repository. In the scope's settings, turns off the option that requires the user who triggered the workflow to be a scope member, because the release workflow dispatches the publication as `github-actions[bot]`. |
 | Racket catalog | Creates the `glowcap` entry with the source the command prints, and moves its tag after each release. |
 
 ## Promotion app
