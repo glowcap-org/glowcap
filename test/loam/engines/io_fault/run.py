@@ -19,16 +19,15 @@ startup, compaction, arbitrary page damage and power loss.
 """
 
 import errno
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 
 def run(probe, directory, *args):
     result = subprocess.run(
-        [probe, args[0], directory, *map(str, args[1:])],
-        cwd=directory, capture_output=True, text=True, timeout=5,
+        [probe, args[0], directory, *map(str, args[1:])], cwd=directory, capture_output=True, text=True, timeout=5
     )
     if result.returncode:
         raise AssertionError(f"{args}: {result.stdout}{result.stderr}")
@@ -52,8 +51,7 @@ def read_case(probe, *args):
     with tempfile.TemporaryDirectory(prefix="glowcap loam faults ") as directory:
         run(probe, directory, "create")
         result = subprocess.run(
-            [probe, args[0], directory, *map(str, args[1:])],
-            cwd=directory, capture_output=True, text=True, timeout=5,
+            [probe, args[0], directory, *map(str, args[1:])], cwd=directory, capture_output=True, text=True, timeout=5
         )
         if result.returncode < 0:
             raise AssertionError(f"{args}: killed by signal {-result.returncode}: {result.stderr}")
@@ -116,8 +114,10 @@ def main():
                 cases += 1
     read_count, read_cases, cuts = reads(probe, sys.argv[2])
     read_report = f"{read_count} reads, {read_cases} injected read failures"
-    print(f"{Path(probe).name}: {writes} writes, {syncs} syncs, {cases} injected failures passed;"
-          f" {read_report}; {cuts} file cuts and a borrowed value checked without process loss")
+    print(
+        f"{Path(probe).name}: {writes} writes, {syncs} syncs, {cases} injected failures passed;"
+        f" {read_report}; {cuts} file cuts and a borrowed value checked without process loss"
+    )
 
 
 if __name__ == "__main__":

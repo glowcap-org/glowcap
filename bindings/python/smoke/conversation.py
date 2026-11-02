@@ -5,32 +5,17 @@ admission, and a disconnect rejecting the pending send."""
 from __future__ import annotations
 
 import asyncio
-from contextvars import ContextVar
-import re
-
 import ctypes
+import re
+from contextvars import ContextVar
 
-from glowcap import (
-    tcp,
-    Context,
-    Keyword,
-    Locator,
-    Host,
-    GlowcapError,
-    VowBroken,
-    Runtime,
-)
-from glowcap._constants import (
-    DESIGNATOR_SCHEME_ADDRESS,
-    ERR_FRAME_TOO_LARGE,
-    TRANSPORT_TCP,
-)
+from glowcap import Context, GlowcapError, Host, Keyword, Locator, Runtime, VowBroken, tcp
+from glowcap._constants import DESIGNATOR_SCHEME_ADDRESS, ERR_FRAME_TOO_LARGE, TRANSPORT_TCP
 
 from smoke.runtime import tcp_connect
 
-
-
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+
 
 async def _start_relay(target_port: int, rewrite=None, observe=None):
     """A byte-level TCP relay between a client and a server that are both real
@@ -230,9 +215,7 @@ async def _async_behavior_defers() -> None:
         else:
             raise AssertionError("an unsupported async result must break the caller")
         late = asyncio.gather(
-            client.send(worker, "late-work", []),
-            client.send(worker, "late-fail", []),
-            return_exceptions=True,
+            client.send(worker, "late-work", []), client.send(worker, "late-fail", []), return_exceptions=True
         )
         await entered["late-work"].wait()
         await entered["late-fail"].wait()
@@ -408,10 +391,7 @@ async def _empty_codec_is_not_the_default() -> None:
     opened or a Host is minted with Syrup by accident."""
     for verb, action in (
         ("listen", lambda: tcp.listen("127.0.0.1", 0, codec="")),
-        (
-            "connect",
-            lambda: Runtime.open(provider=tcp.provider(), codec="", handshake_timeout_ms=10_000),
-        ),
+        ("connect", lambda: Runtime.open(provider=tcp.provider(), codec="", handshake_timeout_ms=10_000)),
     ):
         try:
             opened = await action()
@@ -447,9 +427,7 @@ def _dial_injected(host: Host):
     from glowcap._session import Session as _Session
 
     return _Session._open_dialed_locator(
-        host,
-        Locator(TRANSPORT_TCP, tcp.address_designator("127.0.0.1", 1), {}, "boolean-false"),
-        _InjectTransport(),
+        host, Locator(TRANSPORT_TCP, tcp.address_designator("127.0.0.1", 1), {}, "boolean-false"), _InjectTransport()
     )
 
 
@@ -507,15 +485,8 @@ async def _tightened_admission_cap_refuses() -> None:
         session.close_transport()
 
     tightened = Host()
-    tightened.set_ingress_limits(
-        max_pending_turns=4096,
-        max_pending_bytes=1024 * 1024,
-        max_chunk_bytes=128 * 1024,
-    )
-    tightened.set_session_limits(
-        max_frame_bytes=1024,
-        max_retained_sent_answer_bytes=8 * 1024 * 1024,
-    )
+    tightened.set_ingress_limits(max_pending_turns=4096, max_pending_bytes=1024 * 1024, max_chunk_bytes=128 * 1024)
+    tightened.set_session_limits(max_frame_bytes=1024, max_retained_sent_answer_bytes=8 * 1024 * 1024)
     session = _dial_injected(tightened)
     try:
         await _pump._feed(session, prefix)
@@ -540,6 +511,7 @@ async def _disconnect_rejects_pending_send() -> None:
 
         async def serve_one() -> None:
             async for session in server:
+
                 async def service(verb, args):
                     if verb == "ping":
                         return None

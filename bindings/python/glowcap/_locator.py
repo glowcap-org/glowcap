@@ -12,33 +12,31 @@ gifter embeds in a give. Re-exported from the
 
 from __future__ import annotations
 
-from typing import NamedTuple, Optional, Union
-
 import ctypes
+from typing import NamedTuple
 
 from . import _constants as _abi
 from ._abi_value import _captp_version_id
-from ._errors import _check, GlowcapError
+from ._errors import GlowcapError, _check
 from ._ffi_ocapn import _lib, _LocatorHintView, _LocatorView
 
 _OK = _abi.OK
 _ERR_BUFFER_TOO_SMALL = _abi.ERR_BUFFER_TOO_SMALL
 
-def encode_peer_locator(locator: "Locator") -> bytes:
+
+def encode_peer_locator(locator: Locator) -> bytes:
     """Encode a complete typed locator as the canonical signed handoff record."""
     out_loc = ctypes.c_void_p()
     out_len = ctypes.c_size_t()
     with _OwnedLocator.create(locator) as owned:
-        _check(_lib.glowcap_locator_record_encode(
-            owned.borrow_view(), ctypes.byref(out_loc), ctypes.byref(out_len)
-        ))
+        _check(_lib.glowcap_locator_record_encode(owned.borrow_view(), ctypes.byref(out_loc), ctypes.byref(out_len)))
     try:
         return ctypes.string_at(out_loc, out_len.value)
     finally:
         _lib.glowcap_locator_record_bytes_release(out_loc, out_len.value)
 
 
-HintValue = Union[str, bytes, bool, int]
+HintValue = str | bytes | bool | int
 
 
 class Locator(NamedTuple):
@@ -50,7 +48,7 @@ class Locator(NamedTuple):
 
     transport: str
     designator: str
-    hints: "dict[str, HintValue]"
+    hints: dict[str, HintValue]
     hint_wire_form: str = "map"
 
 
@@ -70,20 +68,18 @@ class _OwnedLocator:
         self.handle = handle
 
     @classmethod
-    def create(cls, locator: Locator) -> "_OwnedLocator":
-        wire_form = {
-            "map": _abi.HINTS_MAP,
-            "boolean-false": _abi.HINTS_BOOLEAN_FALSE,
-        }.get(locator.hint_wire_form)
+    def create(cls, locator: Locator) -> _OwnedLocator:
+        wire_form = {"map": _abi.HINTS_MAP, "boolean-false": _abi.HINTS_BOOLEAN_FALSE}.get(locator.hint_wire_form)
         if wire_form is None:
             raise ValueError("unknown locator hint wire form")
         transport = locator.transport.encode("utf-8")
         designator = locator.designator.encode("utf-8")
         raw = ctypes.c_void_p()
-        _check(_lib.glowcap_locator_new(
-            transport, len(transport), designator, len(designator), wire_form,
-            ctypes.byref(raw),
-        ))
+        _check(
+            _lib.glowcap_locator_new(
+                transport, len(transport), designator, len(designator), wire_form, ctypes.byref(raw)
+            )
+        )
         owned = cls(raw)
         try:
             for name, value in locator.hints.items():
@@ -109,18 +105,16 @@ class _OwnedLocator:
             raise
 
     @classmethod
-    def adopt(cls, handle: ctypes.c_void_p) -> "_OwnedLocator":
+    def adopt(cls, handle: ctypes.c_void_p) -> _OwnedLocator:
         return cls(handle)
 
     @classmethod
-    def clone_view(cls, view: ctypes.c_void_p) -> "_OwnedLocator":
+    def clone_view(cls, view: ctypes.c_void_p) -> _OwnedLocator:
         raw = ctypes.c_void_p()
-        _check(_lib.glowcap_locator_clone(
-            ctypes.cast(view, ctypes.POINTER(_LocatorView)), ctypes.byref(raw)
-        ))
+        _check(_lib.glowcap_locator_clone(ctypes.cast(view, ctypes.POINTER(_LocatorView)), ctypes.byref(raw)))
         return cls(raw)
 
-    def borrow_view(self) -> "ctypes._Pointer[_LocatorView]":
+    def borrow_view(self) -> ctypes._Pointer[_LocatorView]:
         raw = ctypes.c_void_p()
         _check(_lib.glowcap_locator_borrow_view(self.handle, ctypes.byref(raw)))
         return ctypes.cast(raw, ctypes.POINTER(_LocatorView))
@@ -130,7 +124,7 @@ class _OwnedLocator:
             _lib.glowcap_locator_release(self.handle)
             self.handle = ctypes.c_void_p()
 
-    def __enter__(self) -> "_OwnedLocator":
+    def __enter__(self) -> _OwnedLocator:
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:
@@ -145,7 +139,7 @@ class _OwnedLocator:
 
         count = ctypes.c_size_t()
         _check(_lib.glowcap_locator_hint_count(self.handle, ctypes.byref(count)))
-        hints: "dict[str, HintValue]" = {}
+        hints: dict[str, HintValue] = {}
         for index in range(count.value):
             hint = _LocatorHintView()
             _check(_lib.glowcap_locator_hint_at(self.handle, index, ctypes.byref(hint)))
@@ -163,18 +157,10 @@ class _OwnedLocator:
             hints[name] = value
         raw_wire_form = ctypes.c_uint32()
         _check(_lib.glowcap_locator_hint_wire_form(self.handle, ctypes.byref(raw_wire_form)))
-        wire_form = {
-            _abi.HINTS_MAP: "map",
-            _abi.HINTS_BOOLEAN_FALSE: "boolean-false",
-        }.get(raw_wire_form.value)
+        wire_form = {_abi.HINTS_MAP: "map", _abi.HINTS_BOOLEAN_FALSE: "boolean-false"}.get(raw_wire_form.value)
         if wire_form is None:
             raise GlowcapError(_abi.ERR_INVALID_ARGUMENT, "OCapN returned an invalid hint wire form")
-        return Locator(
-            field(_lib.glowcap_locator_transport),
-            field(_lib.glowcap_locator_designator),
-            hints,
-            wire_form,
-        )
+        return Locator(field(_lib.glowcap_locator_transport), field(_lib.glowcap_locator_designator), hints, wire_form)
 
 
 class _OwnedSturdyRef:
@@ -190,7 +176,7 @@ class _OwnedSturdyRef:
             _lib.glowcap_sturdyref_release(self.handle)
             self.handle = ctypes.c_void_p()
 
-    def __enter__(self) -> "_OwnedSturdyRef":
+    def __enter__(self) -> _OwnedSturdyRef:
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:
@@ -204,9 +190,7 @@ class _OwnedSturdyRef:
 
         ptr = ctypes.c_void_p()
         length = ctypes.c_size_t()
-        _check(_lib.glowcap_sturdyref_swissnum(
-            self.handle, ctypes.byref(ptr), ctypes.byref(length)
-        ))
+        _check(_lib.glowcap_sturdyref_swissnum(self.handle, ctypes.byref(ptr), ctypes.byref(length)))
         swissnum = b"" if length.value == 0 else ctypes.string_at(ptr, length.value)
         return SturdyRef(locator_value, swissnum)
 
@@ -234,14 +218,12 @@ def parse_sturdyref(uri: str, captp_version: str) -> SturdyRef:
     without losing authority."""
     raw = uri.encode("utf-8")
     out = ctypes.c_void_p()
-    _check(_lib.glowcap_uri_parse_sturdyref(
-        _captp_version_id(captp_version), raw, len(raw), ctypes.byref(out)
-    ))
+    _check(_lib.glowcap_uri_parse_sturdyref(_captp_version_id(captp_version), raw, len(raw), ctypes.byref(out)))
     with _OwnedSturdyRef(out) as owned:
         return owned.value()
 
 
-def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, str]]" = None) -> str:
+def format_peer_uri(transport: str, designator: str, hints: dict[str, str] | None = None) -> str:
     """Format a peer locator as an ``ocapn://<designator>.<transport>[?hints]``
     URI through the core grammar."""
     return _format_uri(transport, designator, None, hints)
@@ -261,9 +243,9 @@ def format_sturdyref(locator: Locator, swissnum: bytes, captp_version: str) -> s
 def _format_uri(
     transport: str,
     designator: str,
-    swissnum: "Optional[bytes]",
-    hints: "Optional[dict[str, str]]" = None,
-    captp_version: "Optional[str]" = None,
+    swissnum: bytes | None,
+    hints: dict[str, str] | None = None,
+    captp_version: str | None = None,
 ) -> str:
     items = list((hints or {}).items())
     t = transport.encode("utf-8")
@@ -292,16 +274,25 @@ def _format_uri(
     def call_format(buf, cap: int, out_len) -> int:
         if swissnum is None:
             return _lib.glowcap_uri_format_peer(
-                t, len(t), d, len(d),
-                key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
-                buf, cap, ctypes.byref(out_len),
+                t, len(t), d, len(d), key_ptr, key_len_ptr, val_ptr, val_len_ptr, n, buf, cap, ctypes.byref(out_len)
             )
         assert captp_version is not None
         return _lib.glowcap_uri_format_sturdyref(
             _captp_version_id(captp_version),
-            t, len(t), d, len(d), swissnum, len(swissnum),
-            key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
-            buf, cap, ctypes.byref(out_len),
+            t,
+            len(t),
+            d,
+            len(d),
+            swissnum,
+            len(swissnum),
+            key_ptr,
+            key_len_ptr,
+            val_ptr,
+            val_len_ptr,
+            n,
+            buf,
+            cap,
+            ctypes.byref(out_len),
         )
 
     out_len = ctypes.c_size_t()
@@ -334,8 +325,7 @@ def format_locator_uri(locator: Locator) -> str:
     return format_peer_uri(locator.transport, locator.designator, hints)
 
 
-
-def designator_host_port(designator: str) -> "tuple[str, int]":
+def designator_host_port(designator: str) -> tuple[str, int]:
     """Split a bare designator as ``host:port`` through the core grammar
     (``glowcap_designator_host_port``). Prefer this over minting a peer URI
     just to call :func:`parse_locator`."""
@@ -344,9 +334,10 @@ def designator_host_port(designator: str) -> "tuple[str, int]":
     hp = ctypes.c_void_p()
     hn = ctypes.c_size_t()
     hport = ctypes.c_uint16()
-    _check(_lib.glowcap_designator_host_port(
-        ctypes.cast(buf, ctypes.c_void_p), len(data),
-        ctypes.byref(hp), ctypes.byref(hn), ctypes.byref(hport),
-    ))
-    host = (ctypes.string_at(hp, hn.value).decode("utf-8") if hp.value and hn.value else "")
+    _check(
+        _lib.glowcap_designator_host_port(
+            ctypes.cast(buf, ctypes.c_void_p), len(data), ctypes.byref(hp), ctypes.byref(hn), ctypes.byref(hport)
+        )
+    )
+    host = ctypes.string_at(hp, hn.value).decode("utf-8") if hp.value and hn.value else ""
     return host, int(hport.value)

@@ -4,40 +4,33 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    Coroutine,
-    Optional,
-    Protocol,
-    TYPE_CHECKING,
-)
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Protocol
 
-from .._gc import HostGc
 from .._errors import GlowcapError
+from .._gc import HostGc
 from .finalizer import _HostFinalizerState
 from .vows import VowTable
 
 if TYPE_CHECKING:
     from .._context import Context
+    from .._lifecycle import PendingWork
     from .._loop import DriverLoop
     from .._session import Session
-    from .._transport import Connector
     from .._trampoline import _BehaviorEntry
+    from .._transport import Connector
     from .._value import Ref
-    from .._lifecycle import PendingWork
 
 
 class HostState(Protocol):
-    _driver_loop: Optional[DriverLoop]
-    _raw: Optional[ctypes.c_void_p]
+    _driver_loop: DriverLoop | None
+    _raw: ctypes.c_void_p | None
     _release_started: bool
     _finalizer: Any
-    _finalizer_state: Optional[_HostFinalizerState]
-    _context: Optional[Context]
+    _finalizer_state: _HostFinalizerState | None
+    _context: Context | None
     _diagnostic_id: int
-    _loop: Optional[asyncio.AbstractEventLoop]
+    _loop: asyncio.AbstractEventLoop | None
     _trace_refresh_pending: bool
     _seed: bytes
     _gc: HostGc
@@ -51,7 +44,7 @@ class HostState(Protocol):
     _session_writers: set[asyncio.Task[Any]]
     _close_activity: asyncio.Event
     _dial_tasks: dict[tuple[int, int], asyncio.Task[Any]]
-    _release_task: Optional[asyncio.Task[Any]]
+    _release_task: asyncio.Task[Any] | None
     _publications: dict[str, int]
     _hosted: dict[int, int]
     _displaced_publications: list[int]
@@ -62,10 +55,10 @@ class HostState(Protocol):
     def raw(self) -> ctypes.c_void_p: ...
 
     @property
-    def raw_or_none(self) -> Optional[ctypes.c_void_p]: ...
+    def raw_or_none(self) -> ctypes.c_void_p | None: ...
 
     @property
-    def driver_loop(self) -> Optional[DriverLoop]: ...
+    def driver_loop(self) -> DriverLoop | None: ...
 
     @property
     def gc(self) -> HostGc: ...
@@ -101,26 +94,16 @@ class HostState(Protocol):
     def await_vow(self, vow: int) -> asyncio.Future[Any]: ...
     def settle_vow(self, vow: int, ok: bool, payload: Any) -> None: ...
     def abandon_vow(self, vow: int) -> None: ...
-    def get_session(self, ptr: int) -> Optional[Session]: ...
-    def start_dial_task(
-        self,
-        ticket: int,
-        route_index: int,
-        run: Callable[[], Coroutine[Any, Any, None]],
-    ) -> None: ...
+    def get_session(self, ptr: int) -> Session | None: ...
+    def start_dial_task(self, ticket: int, route_index: int, run: Callable[[], Coroutine[Any, Any, None]]) -> None: ...
     def cancel_dial_task(self, ticket: int, route_index: int) -> Awaitable[None]: ...
     def designator(self) -> str: ...
     def register_session(self, ptr: int, session: Session) -> None: ...
     def unregister_session(self, ptr: int) -> None: ...
-    def exporter_for(self, ref: Ref) -> Optional[Session]: ...
+    def exporter_for(self, ref: Ref) -> Session | None: ...
     def _register_behavior(self, entry: _BehaviorEntry) -> int: ...
     def _unregister_behavior(self, ctx: int) -> None: ...
-    def close(
-        self,
-        pending: PendingWork = ...,
-        *,
-        grace: object = ...,
-    ) -> Awaitable[None]: ...
+    def close(self, pending: PendingWork = ..., *, grace: object = ...) -> Awaitable[None]: ...
 
 
 if TYPE_CHECKING:

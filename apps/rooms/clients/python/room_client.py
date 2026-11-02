@@ -33,21 +33,9 @@ import sys
 from dataclasses import dataclass
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_demo"))
-from python_path import add_bindings_path  # noqa: E402
+from python_path import add_bindings_path
 
 add_bindings_path()
-
-from glowcap import (  # noqa: E402
-    tcp,
-    Host,
-    Ref,
-    Session,
-    Runtime,
-    designator_host_port,
-    parse_locator,
-)
-from glowcap._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
-from glowcap.iroh import IrohConfig, Reachability, provider as iroh_provider  # noqa: E402
 
 from _protocol_gen import (  # noqa: E402
     DIRECTORY,
@@ -73,6 +61,10 @@ from _protocol_gen import (  # noqa: E402
     WATCH_PUBLICATIONS,
     WATCH_SNAPSHOT_FIELDS,
 )
+from glowcap import Host, Ref, Runtime, Session, designator_host_port, parse_locator, tcp  # noqa: E402
+from glowcap._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
+from glowcap.iroh import IrohConfig, Reachability  # noqa: E402
+from glowcap.iroh import provider as iroh_provider  # noqa: E402
 
 # Registration acquires identity and custody in one bounded reply.
 REGISTER_TIMEOUT_S = 10.0
@@ -148,7 +140,7 @@ def _room(raw) -> RoomInfo | None:
     return RoomInfo(*raw) if _fits(PUBLICATION_FIELDS, raw) else None
 
 
-def _rooms(raw) -> "list[RoomInfo]":
+def _rooms(raw) -> list[RoomInfo]:
     """Decode one complete publication list without dropping malformed rows."""
     if not isinstance(raw, list):
         raise ValueError("the directory answered a room list that is not a list")
@@ -166,7 +158,7 @@ class RoomPage:
     """One page of the live room list, and the cursor that asks for the next
     page when more remain."""
 
-    rooms: "list[RoomInfo]"
+    rooms: list[RoomInfo]
     next: str | None
 
 
@@ -178,7 +170,7 @@ def _room_page(raw) -> RoomPage:
     return RoomPage(_rooms(rows), cursor)
 
 
-def _watch_rooms(raw) -> "list[RoomInfo]":
+def _watch_rooms(raw) -> list[RoomInfo]:
     """Decode the atomic rooms, registrations, and omission-count baseline."""
     if not _fits(WATCH_SNAPSHOT_FIELDS, raw):
         raise ValueError("the directory answered a malformed watch snapshot")
@@ -188,7 +180,7 @@ def _watch_rooms(raw) -> "list[RoomInfo]":
     return _rooms(rooms)
 
 
-def _watch_room_event(args) -> "tuple[str, RoomInfo | None]":
+def _watch_room_event(args) -> tuple[str, RoomInfo | None]:
     """Decode one complete watcher callback without treating malformed rows as
     an event the terminal did not care to display."""
     if not isinstance(args, list) or not args or not isinstance(args[0], str):
@@ -208,7 +200,7 @@ def rooms_host() -> Host:
     return Host(profile="glowcap")
 
 
-async def _dial(locator: str) -> "tuple[Runtime, Session]":
+async def _dial(locator: str) -> tuple[Runtime, Session]:
     """Dial a transport-neutral rooms locator: an ``ocapn://`` URI goes over iroh,
     a bare ``host:port`` over TCP. The room's wire is identical either way. Only
     how a member reaches it differs. A URI carrying direct-addresses dials those
@@ -217,14 +209,10 @@ async def _dial(locator: str) -> "tuple[Runtime, Session]":
     if "://" in locator:
         loc = parse_locator(locator)
         if loc.transport != TRANSPORT_IROH:
-            raise ValueError(
-                f'rooms expected an iroh ocapn:// URI, got "{loc.transport}": {locator}',
-            )
+            raise ValueError(f'rooms expected an iroh ocapn:// URI, got "{loc.transport}": {locator}')
         hints = loc.hints.get(HINT_DIRECT_ADDRESSES, "")
         reach = Reachability.DIRECT if hints else Reachability.DISCOVERY
-        runtime = await Runtime.open(
-            provider=iroh_provider(IrohConfig(reach)), adopt_host=rooms_host()
-        )
+        runtime = await Runtime.open(provider=iroh_provider(IrohConfig(reach)), adopt_host=rooms_host())
         return runtime, await runtime.connect(loc)
     host, port = designator_host_port(locator)
     runtime = await Runtime.open(provider=tcp.provider(), adopt_host=rooms_host())
@@ -244,7 +232,7 @@ class Directory:
         self._name: Ref | None = None
 
     @classmethod
-    async def connect(cls, locator: str) -> "Directory":
+    async def connect(cls, locator: str) -> Directory:
         runtime, session = await _dial(locator)
         session.serve()  # start the inbound loop before fetching
         directory = await session.fetch(DIRECTORY)
@@ -270,10 +258,11 @@ class Directory:
         args = [] if cursor is None else [cursor]
         return _room_page(await self.session.send(self._directory, LIST_PUBLICATIONS, args))
 
-    async def watch(self, on_event) -> "list[RoomInfo]":
+    async def watch(self, on_event) -> list[RoomInfo]:
         """Follow the live room list: hand the directory an inbox it calls back
         with each change, and return the current snapshot as a baseline.
         ``on_event(kind, room)`` then fires with the exact publication record."""
+
         def observer(verb: str, args: list):
             if verb != NOTIFY:
                 raise ValueError(f"watch inbox has no method {verb!r}")
@@ -290,8 +279,7 @@ class Directory:
         observer = self.session.spawn(lambda _verb, _args: None)
         try:
             reply = await asyncio.wait_for(
-                self.session.send(self._directory, REGISTER, [nick, locator, observer]),
-                REGISTER_TIMEOUT_S,
+                self.session.send(self._directory, REGISTER, [nick, locator, observer]), REGISTER_TIMEOUT_S
             )
         finally:
             self.session.release(observer)
@@ -313,8 +301,7 @@ class Directory:
     async def member_registration(self, peer: str) -> str:
         """Return the exact live generation of ``peer``'s nickname."""
         return _registration_id(
-            await self.session.send(self._directory, MEMBER_REGISTRATION, [peer]),
-            f'memberRegistration("{peer}")',
+            await self.session.send(self._directory, MEMBER_REGISTRATION, [peer]), f'memberRegistration("{peer}")'
         )
 
     async def introduce(self, nick: str, registration_id: str | None = None):
@@ -342,7 +329,7 @@ class Presence:
     ``ARRIVE``, ``DEPART``, or ``STAY`` from ``_protocol_gen``."""
 
     kind: str
-    names: "list[str]"
+    names: list[str]
     effect: str
 
 
@@ -358,7 +345,7 @@ def _tail_fits(tail, sender: str, text: str, extra: list) -> bool:
         return False
     if rule == "nonempty" and text == "":
         return False
-    fixed, more = extra[: len(trailing)], extra[len(trailing):]
+    fixed, more = extra[: len(trailing)], extra[len(trailing) :]
     if not _fits(trailing, fixed):
         return False
     if rest is None:
@@ -366,7 +353,7 @@ def _tail_fits(tail, sender: str, text: str, extra: list) -> bool:
     return all(_admits_type(rest, value) for value in more)
 
 
-def _read_presence(sender: str, text: str, args: list) -> "Presence | None":
+def _read_presence(sender: str, text: str, args: list) -> Presence | None:
     """The structured presence after a room line's display text, when the tag
     names a presence tail and the arguments are its shape. Ordinary chat lines
     carry none, and a malformed tail reads as none, so the line still draws."""
@@ -375,7 +362,7 @@ def _read_presence(sender: str, text: str, args: list) -> "Presence | None":
     if tail is None or tail[4] is None or not _tail_fits(tail, sender, text, args[3:]):
         return None
     trailing, rest, _who, _rule, effect = tail
-    fixed, more = args[3:3 + len(trailing)], args[3 + len(trailing):]
+    fixed, more = args[3 : 3 + len(trailing)], args[3 + len(trailing) :]
     names = [value for field, value in zip(trailing, fixed) if field[0] == "name"]
     if rest is not None:
         names.extend(more)
@@ -391,7 +378,7 @@ class Message:
     sender: str
     text: str
     system: bool
-    presence: "Presence | None" = None
+    presence: Presence | None = None
 
 
 class DirectMessage:
@@ -403,7 +390,7 @@ class DirectMessage:
         self.peer = peer
 
     @classmethod
-    async def open(cls, directory: Directory, peer: str) -> "DirectMessage":
+    async def open(cls, directory: Directory, peer: str) -> DirectMessage:
         """Open a line to ``peer``. Call :meth:`Directory.register` on
         ``directory`` first, and expect ``introduction-pending`` on first contact:
         both preconditions are :meth:`Directory.introduce`'s."""
@@ -438,7 +425,7 @@ class Room:
         self._failure: Exception | None = None
 
     @classmethod
-    async def subscribe(cls, session: Session, room_ref, nick: str) -> "Room":
+    async def subscribe(cls, session: Session, room_ref, nick: str) -> Room:
         self = cls(session)
 
         # The room calls this back with every line; surface it on the stream.
@@ -502,15 +489,13 @@ class Room:
         self._failure = RuntimeError(f"the room ended this membership: {reason}")
         self._ended = True
 
-    def _emit(self, sender: str, text: str, presence: "Presence | None" = None) -> None:
+    def _emit(self, sender: str, text: str, presence: Presence | None = None) -> None:
         if self._ended:
             raise RuntimeError("the room inbox is closed")
         try:
             self._lines.put_nowait(Message(sender, text, sender == ROOM_SENDER, presence))
         except asyncio.QueueFull:
-            self._failure = RuntimeError(
-                f"the room retained its maximum {MAX_UNREAD_LINES} unread lines"
-            )
+            self._failure = RuntimeError(f"the room retained its maximum {MAX_UNREAD_LINES} unread lines")
             self._ended = True
             raise self._failure
 
@@ -531,7 +516,7 @@ class Room:
             await self._session.serve()
             if not self._leaving:
                 print("rooms: the room closed the connection", file=sys.stderr)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             if not self._leaving:
                 print(f"rooms: lost the connection, {err}", file=sys.stderr)
         finally:

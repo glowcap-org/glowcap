@@ -2,11 +2,11 @@
 
 import argparse
 import os
-from pathlib import Path
 import socket
 import ssl
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import relay_tls_server as server
@@ -63,12 +63,13 @@ class CleanCloseTest(unittest.TestCase):
         raw = Mock()
         context = Mock()
         args = argparse.Namespace(mode="clean-close")
-        with patch.object(server, "tls_context", return_value=context), \
-                patch.object(server, "upgrade"), patch.object(server, "clean_close"):
+        with (
+            patch.object(server, "tls_context", return_value=context),
+            patch.object(server, "upgrade"),
+            patch.object(server, "clean_close"),
+        ):
             server.serve_one(raw, args)
-        context.wrap_socket.assert_called_once_with(
-            raw, server_side=True, suppress_ragged_eofs=False,
-        )
+        context.wrap_socket.assert_called_once_with(raw, server_side=True, suppress_ragged_eofs=False)
 
 
 class LiveCloseTest(unittest.TestCase):
@@ -77,8 +78,7 @@ class LiveCloseTest(unittest.TestCase):
         for notified in (True, False):
             with self.subTest(notified=notified):
                 args = argparse.Namespace(
-                    mode="clean-close", cert=str(fixtures / "tls_server.pem"),
-                    key=str(fixtures / "tls_server.key"),
+                    mode="clean-close", cert=str(fixtures / "tls_server.pem"), key=str(fixtures / "tls_server.key")
                 )
                 outcomes = []
                 incoming, outgoing = socket.socketpair()
@@ -100,8 +100,7 @@ class LiveCloseTest(unittest.TestCase):
                 try:
                     with context.wrap_socket(outgoing, server_hostname="localhost") as peer:
                         peer.sendall(
-                            b"GET /relay?peer=test HTTP/1.1\r\n"
-                            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+                            b"GET /relay?peer=test HTTP/1.1\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
                         )
                         response = bytearray()
                         while not response.endswith(b"\r\n\r\n"):
@@ -125,9 +124,7 @@ class LiveCloseTest(unittest.TestCase):
                     self.assertEqual(outcomes, [])
                 else:
                     self.assertEqual(len(outcomes), 1)
-                    self.assertIsInstance(outcomes[0], (
-                        ssl.SSLEOFError, ConnectionResetError, BrokenPipeError,
-                    ))
+                    self.assertIsInstance(outcomes[0], (ssl.SSLEOFError, ConnectionResetError, BrokenPipeError))
 
 
 if __name__ == "__main__":

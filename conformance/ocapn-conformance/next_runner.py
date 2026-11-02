@@ -3,20 +3,21 @@
 The build owns peer supervision and the per-module deadline. Deferred modules
 exit 77 and name their decision, pending work fails, and unittest skips fail.
 """
+
 import argparse
 import json
 import secrets
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "upstream"))
 
-from utils.ocapn_uris import OCapNPeer
-from utils.test_suite import CapTPTestLoader
-from next_wire import NextNetlayer
+from next_wire import NextNetlayer  # noqa: E402
+from utils.ocapn_uris import OCapNPeer  # noqa: E402
+from utils.test_suite import CapTPTestLoader  # noqa: E402
 
 
 class NextTestLoader(CapTPTestLoader):
@@ -28,6 +29,7 @@ class NextTestLoader(CapTPTestLoader):
             class CanonicalGift(case_class):
                 def make_valid_handoff(self, gift_id=None):
                     return super().make_valid_handoff(secrets.token_bytes(32) if gift_id is None else gift_id)
+
             CanonicalGift.__name__ = case_class.__name__
             CanonicalGift.__qualname__ = case_class.__qualname__
             CanonicalGift.__module__ = case_class.__module__
@@ -58,8 +60,9 @@ def main():
     parser.add_argument("--module", required=True)
     parser.add_argument("--adoption-tool", required=True)
     args = parser.parse_args()
-    checked = subprocess.run([args.adoption_tool, "--next-suite-plan"], check=True,
-                             capture_output=True, text=True, timeout=10)
+    checked = subprocess.run(
+        [args.adoption_tool, "--next-suite-plan"], check=True, capture_output=True, text=True, timeout=10
+    )
     plan = {row["name"]: row for row in json.loads(checked.stdout)}
     deferred = suite_policy(plan, args.module)
     if deferred:

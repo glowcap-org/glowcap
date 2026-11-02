@@ -24,19 +24,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+from helpers import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
 
 from glowcap._ffi_host import _host as _host_ffi  # noqa: E402
 from glowcap._loop import DriverLoop  # noqa: E402
-from glowcap.iroh import (  # noqa: E402
-    IrohConfig,
-    Reachability,
-    adopt_loop_provider,
-    listen,
-    locator,
-)
+from glowcap.iroh import IrohConfig, Reachability, adopt_loop_provider, listen, locator  # noqa: E402
 
 GREETING = "hello through the Python iroh transport"
 
@@ -57,18 +51,14 @@ async def _run_accepts(server, served: list) -> None:
 
 
 async def main() -> None:
-    server = await listen(
-        IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)
-    )
+    server = await listen(IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1))
     server_id = server.node_id
     print(f"python-iroh-driver-provider: server endpoint id {server_id}")
     served: list = []
     accept_task = asyncio.create_task(_run_accepts(server, served))
 
     loop = DriverLoop.open()
-    await adopt_loop_provider(
-        loop, IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)
-    )
+    await adopt_loop_provider(loop, IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1))
     loop.start()
 
     session = await asyncio.wait_for(loop.dial(locator(server_id)), timeout=20)
@@ -79,9 +69,7 @@ async def main() -> None:
     )
 
     vow = ctypes.c_uint64(0)
-    rc = _host_ffi.glowcap_host_session_fetch(
-        ctypes.c_void_p(session), b"greeter", 7, ctypes.byref(vow)
-    )
+    rc = _host_ffi.glowcap_host_session_fetch(ctypes.c_void_p(session), b"greeter", 7, ctypes.byref(vow))
     if rc != 0:
         fail("python-iroh-driver-provider", f"fetch refused with code {rc}")
     outcome = loop.completion(vow.value)
@@ -89,10 +77,7 @@ async def main() -> None:
     settled = await asyncio.wait_for(outcome, timeout=20)
     if settled is not True:
         fail("python-iroh-driver-provider", f"fetch settled oddly: {settled!r}")
-    print(
-        "python-iroh-driver-provider: the fetch's settle arrived as a COMPLETION "
-        "event on the loop's queue"
-    )
+    print("python-iroh-driver-provider: the fetch's settle arrived as a COMPLETION event on the loop's queue")
 
     loop.session_release(session)
     loop.close()

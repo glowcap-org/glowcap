@@ -49,22 +49,19 @@ jobs:
             exit 1
           fi
 
-      - name: Read the Python pin
-        id: python
-        run: |
-          source .devcontainer/pins.sh
-          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/pins
+        id: pins
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: ${{ steps.python.outputs.version }}
+          python-version: ${{ steps.pins.outputs.python }}
 
       - name: Verify the public release behind the tag
         id: released
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: python3 tools/check/github_release.py published "$RELEASE_TAG"
+        run: python3 ci/github_release.py published "$RELEASE_TAG"
 
   pypi:
     needs: contract
@@ -80,20 +77,16 @@ jobs:
           ref: ${{ needs.contract.outputs.commit }}
           persist-credentials: false
 
-      - name: Read the Python and uv pins
-        id: python
-        run: |
-          source .devcontainer/pins.sh
-          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
-          echo "uv=$UV_VERSION" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/pins
+        id: pins
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: ${{ steps.python.outputs.version }}
+          python-version: ${{ steps.pins.outputs.python }}
 
       - name: Build the distributions
         env:
-          UV_VERSION: ${{ steps.python.outputs.uv }}
+          UV_VERSION: ${{ steps.pins.outputs.uv }}
         run: |
           python3 -m pip install "uv==$UV_VERSION"
           uv build --sdist --wheel --out-dir dist bindings/python
@@ -127,9 +120,13 @@ jobs:
           ref: ${{ needs.contract.outputs.commit }}
           persist-credentials: false
 
+      - uses: ./.github/actions/pins
+        id: pins
+
       - name: Install the pinned Rust
+        env:
+          RUST_VERSION: ${{ steps.pins.outputs.rust }}
         run: |
-          source .devcontainer/pins.sh
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
 
@@ -174,15 +171,12 @@ jobs:
           ref: ${{ needs.contract.outputs.commit }}
           persist-credentials: false
 
-      - name: Read the Deno pin
-        id: deno
-        run: |
-          source .devcontainer/pins.sh
-          echo "version=$DENO_VERSION" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/pins
+        id: pins
 
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
-          deno-version: ${{ steps.deno.outputs.version }}
+          deno-version: ${{ steps.pins.outputs.deno }}
 
       - name: Publish the workspace packages
         # Every member publishes at the workspace's one version. A version JSR

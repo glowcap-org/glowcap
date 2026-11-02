@@ -308,7 +308,7 @@ pub const iroh_direct_address_rows: []const Ban = &.{
     .{
         .where = .{ .file = "bindings/python/glowcap/_iroh_ffi.py" },
         .kind = .require,
-        .needles = &.{"raw,\n                None,\n                0,"},
+        .needles = &.{"glowcap_iroh_netlayer_direct_addrs(raw, None, 0,"},
         .check = "iroh-direct-address-sizing",
         .why = "Python queries direct-address size through the C ABI before allocating",
     },

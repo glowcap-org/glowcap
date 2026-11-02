@@ -203,7 +203,7 @@ pub fn register(ctx: Context) Registered {
     // tool set `in_tree_runtimes` declares in toolchain.zig. The container has it.
     // CI: the checks workflow (.github/workflows/)
     // runs `check` and the sibling gates inside the committed devcontainer
-    // image via ci/gates.sh.
+    // image, as ci/groups.py lists them.
     // Each section below wires its gated runs into `check` where the artifacts
     // are built.
     const check_step = b.step("check", "Run in-process Zig, static, generated, performance, and compile-time checks");
@@ -469,6 +469,17 @@ pub fn register(ctx: Context) Registered {
     const devcontainer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/env-sync.sh" });
     devcontainer_contracts.has_side_effects = true;
     source_check_step.dependOn(&devcontainer_contracts.step);
+    // The pinned ruff formats and lints every first-party Python file, from
+    // the CI programs to the binding, under the root ruff.toml.
+    const python_format = common.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "format", "--check", "." });
+    const python_lint = common.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "check", "." });
+    const python_check_step = b.step("python-check", "Check the formatting and lint of every first-party Python file with the pinned ruff");
+    python_check_step.dependOn(&python_format.step);
+    python_check_step.dependOn(&python_lint.step);
+    source_check_step.dependOn(python_check_step);
+    const python_format_write = common.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "format", "." });
+    python_format_write.has_side_effects = true;
+    b.step("python-fmt", "Format every first-party Python file in place with the pinned ruff").dependOn(&python_format_write.step);
     const shard_tests = b.addTest(.{ .name = "shard-tests", .root_module = shard_mod });
     source_check_step.dependOn(&execution.addZigTest(b, shard_tests, .unit_test).step);
     check_step.dependOn(source_check_step);

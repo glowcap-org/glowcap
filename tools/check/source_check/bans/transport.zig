@@ -303,8 +303,9 @@ pub const transport_provider_architecture: []const Ban = &.{
         } },
         .kind = .forbid,
         .needles = &.{
-            "_LoopIrohResident", "_loop_iroh_residents", "_provider_owners",
-            "provider_owners",   "providerOwners",       "_netlayer: IrohNetlayer",
+            "_LoopIrohResident",        "_loop_iroh_residents", "_provider_owners",
+            "provider_owners",          "providerOwners",       " _netlayer: IrohNetlayer",
+            "._netlayer: IrohNetlayer",
         },
         .check = "transport-provider-architecture",
         .why = "the driver-held provider lease is the native callback-context owner; bindings retain only immutable provider state",

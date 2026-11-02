@@ -33,7 +33,7 @@ git -C "${repo}" worktree add -qb feature-work "${tree}" main
 printf 'agent\n' >"${tree}/agent"
 git -C "${tree}" add agent
 git -C "${tree}" commit -qm agent
-# The record ci/gates.sh attached to this commit must reach dev through the
+# The record ci/gates.py attached to this commit must reach dev through the
 # rebase and the signed commit that lands.
 git -C "${tree}" notes --ref=refs/notes/evidence add -m '{"outcome":"passed"}' feature-work
 

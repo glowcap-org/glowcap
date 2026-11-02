@@ -1,12 +1,10 @@
-# Pull requests into dev select affected groups. Full validation runs for
-# pushes to dev, PRs into main, CI/build changes, nightly, and manual
-# suite=check. Only full runs report the required gates context, and the main
-# ruleset reads it from the dev push run whose success starts promote.yml.
-# Nightly also runs deep fuzzing.
-# Topology: CONTRIBUTING.md "Continuous integration".
-#
-# One preparation job resolves or builds the toolchain before Linux fans out
-# into groups, each of which compiles once and then tests in parallel.
+# Every check of a commit. ci/README.md is the map: plan selects the groups,
+# one job prepares the toolchain image, each group compiles once and tests in
+# parallel (check-group.yml), macOS and the workflow audit run beside them,
+# and `gates` is the one required result. Pull requests into dev run the
+# groups their paths reach. Everything else runs full validation, and only a
+# full run reports `gates`, which the main ruleset reads from the dev push
+# run whose success starts promote.yml.
 name: check
 
 on:
@@ -36,7 +34,7 @@ permissions:
 
 jobs:
   plan:
-    if: >-
+    if: &check-suite >-
       github.event_name == 'push' || github.event_name == 'pull_request' ||
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
@@ -61,16 +59,10 @@ jobs:
       packages: write
     uses: ./.github/workflows/devcontainer-image.yml
 
-  # Each group builds once, in shards, and then tests every phase in parallel
-  # (check-group.yml). Groups run side by side, so a group's tests wait only
-  # for its own build.
+  # Groups run side by side, so a group's tests wait only for its own build.
   linux:
     needs: [plan, image]
     name: linux (${{ matrix.group.name }})
-    if: >-
-      github.event_name == 'push' || github.event_name == 'pull_request' ||
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
     strategy:
       fail-fast: false
       matrix:
@@ -87,10 +79,7 @@ jobs:
   # persistence, unpinned actions, cache poisoning on release paths. Findings
   # a design answers are listed with their reason in .github/zizmor.yml.
   workflows:
-    if: >-
-      github.event_name == 'push' || github.event_name == 'pull_request' ||
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
+    if: *check-suite
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -136,9 +125,8 @@ jobs:
           fail-on-severity: low
           comment-summary-in-pr: never
 
-  # Keep the branch-protection context stable. Missing, skipped, cancelled,
-  # or failed Linux, macOS, or workflow-audit work must never produce a
-  # successful aggregate.
+  # The one required result. It runs whatever happened above, and
+  # ci/report.py fails it unless every dependency succeeded.
   gates:
     name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}
     needs: [plan, image, linux, macos-runtime, workflows]
@@ -190,7 +178,7 @@ jobs:
           key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
 
       - name: Fetch pinned Zig dependencies
-        run: bash ci/fetch-zig.sh
+        run: python3 ci/gates.py fetch
 
       - name: Deep mutation fuzzing
         run: zig build fuzz -Dfuzz-runs=250K --summary all
@@ -205,10 +193,7 @@ jobs:
           if-no-files-found: error
 
   macos-runtime:
-    if: >-
-      github.event_name == 'push' || github.event_name == 'pull_request' ||
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
+    if: *check-suite
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -230,17 +215,20 @@ jobs:
           key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
 
       - name: Fetch pinned Zig dependencies
-        run: bash ci/fetch-zig.sh
+        run: python3 ci/gates.py fetch
 
-      - name: Read the pinned Deno version
-        id: deno
-        run: |
-          source .devcontainer/pins.sh
-          echo "version=$DENO_VERSION" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/pins
+        id: pins
+
+      - name: Install the pinned uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+          enable-cache: false
 
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
-          deno-version: ${{ steps.deno.outputs.version }}
+          deno-version: ${{ steps.pins.outputs.deno }}
 
       - name: Check host-side infrastructure on macOS
         run: zig build infrastructure-check --test-timeout 30s --summary all

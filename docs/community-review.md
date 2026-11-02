@@ -7,7 +7,7 @@ sources: []
 # Community review
 
 glowcap pins the OCapN suite and Goblins source. Full CI validation schedules
-both through [`ci/gates.sh`](../ci/gates.sh). Development runs select jobs by
+both, as [`ci/groups.py`](../ci/groups.py) lists. Development runs select jobs by
 changed files, as the [CI guide](../CONTRIBUTING.md#continuous-integration)
 explains. A successful run establishes results only for the checks it ran on
 that commit.
@@ -87,11 +87,11 @@ The [conformance manifest](ocapn-conformance.md) lists every section of the
 pinned CapTP draft with the profile that implements it and the check below
 that proves it.
 
-A **yes** in the CI column means the step appears in the full `ci/gates.sh`
-sequence. It does not establish that a development run selected it or that it passed.
+A **yes** in the CI column means the step appears in `ci/groups.py`, the
+full validation inventory. It does not establish that a development run selected it or that it passed.
 The [checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
 must succeed for the commit under review. `zig build source-check`
-derives this column from the script, so a removed step cannot remain marked as
+derives this column from the inventory, so a removed step cannot remain marked as
 a recurring check.
 
 | Evidence | CI | Proves | Does not prove |

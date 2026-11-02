@@ -4,15 +4,14 @@ Uses the pinned upstream Syrup implementation, not a compiler under test.
 No arguments, writes, network, or extra dependencies. Exits nonzero on failure.
 This checks authored fixture facts; it is not the future description validator.
 """
+
 import importlib.util
 import io
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location(
-    "syrup", ROOT / "conformance/ocapn-conformance/upstream/contrib/syrup.py"
-)
+SPEC = importlib.util.spec_from_file_location("syrup", ROOT / "conformance/ocapn-conformance/upstream/contrib/syrup.py")
 syrup = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(syrup)
 
@@ -45,9 +44,7 @@ class Fixtures(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.contract_bytes = (ROOT / "test/interface/contracts.syrup").read_bytes()
-        version, cls.profiles, cls.defs = record(
-            read_canonical(cls.contract_bytes), "glowcap:interface"
-        )
+        version, cls.profiles, cls.defs = record(read_canonical(cls.contract_bytes), "glowcap:interface")
         if version != 1:
             raise ValueError("unexpected description version")
         cls.messages = read_canonical((ROOT / "test/interface/messages.syrup").read_bytes())
@@ -77,7 +74,8 @@ class Fixtures(unittest.TestCase):
 
     def test_integer_ranges_and_hostile_names(self):
         for name, lower, upper in [
-            ("tasks.ListCount", 0, 16), ("tasks.TaskCount", 0, 256),
+            ("tasks.ListCount", 0, 16),
+            ("tasks.TaskCount", 0, 256),
             ("tasks.Index", 0, 9223372036854775807),
             ("loam.Sequence", 1, 9223372036854775807),
         ]:
@@ -91,6 +89,7 @@ class Fixtures(unittest.TestCase):
 
     def test_reference_closure(self):
         found = set()
+
         def visit(value):
             if isinstance(value, syrup.Record):
                 if value.label.name == "ref":
@@ -103,6 +102,7 @@ class Fixtures(unittest.TestCase):
             elif isinstance(value, list):
                 for item in value:
                     visit(item)
+
         visit(self.defs)
         self.assertTrue(found)
         self.assertFalse(found - self.defs.keys())
@@ -110,10 +110,8 @@ class Fixtures(unittest.TestCase):
 
     def test_receipt_envelope_is_not_an_ordinary_method_call(self):
         # Authored separately from the descriptions: exact symbol/string distinction.
-        self.assertEqual(syrup.syrup_encode(self.messages["create"]),
-                         b'[6\'mutate1+3"add11"write tests]')
-        self.assertEqual(syrup.syrup_encode(self.messages["sequence"]),
-                         b"[17'mutation-sequence]")
+        self.assertEqual(syrup.syrup_encode(self.messages["create"]), b'[6\'mutate1+3"add11"write tests]')
+        self.assertEqual(syrup.syrup_encode(self.messages["sequence"]), b"[17'mutation-sequence]")
         self.assertEqual(syrup.syrup_encode(self.messages["direct"]), b'[5"hello]')
 
     def test_direct_and_empty_named_invocation_are_distinct(self):

@@ -6,23 +6,22 @@ import asyncio
 import ctypes
 
 from .. import _constants as _c
-from .._errors import GlowcapError, _vow_failure
-from .._driver_failure import _driver_event_failure
-from .._driver.transport import _LoopTransport
 from .._carrier_failure import _decode as _decode_carrier
+from .._driver.transport import _LoopTransport
 from .._driver_event import LoopEvent
+from .._driver_failure import _driver_event_failure
+from .._errors import GlowcapError, _vow_failure
 from .._ffi_driver import _driver, _DriverEvent
 from .._host_action_gen import HOST_ACTION_SETTLE, Fail, Settle, decode
 from .._trampoline import _enter_host_deliver, _exit_deliver, _inside_turn
-
 from .errors import _check
 from .state import DriverLoopMixinBase
 
 
 class _ProgressMixin(DriverLoopMixinBase):
-    _aio: "asyncio.AbstractEventLoop | None"
+    _aio: asyncio.AbstractEventLoop | None
     _fd: int | None
-    _progress_timer: "asyncio.TimerHandle | None"
+    _progress_timer: asyncio.TimerHandle | None
     _started: bool
     _stepping: bool
 
@@ -42,8 +41,7 @@ class _ProgressMixin(DriverLoopMixinBase):
         loop = self._aio
         if loop is None:
             raise GlowcapError(
-                _c.ERR_INVALID_ARGUMENT,
-                "call DriverLoop.start() before using asynchronous loop operations",
+                _c.ERR_INVALID_ARGUMENT, "call DriverLoop.start() before using asynchronous loop operations"
             )
         return loop
 
@@ -125,10 +123,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                 _c.DRIVER_EVENT_LISTENER_READY,
                 _c.DRIVER_EVENT_LISTENER_FAILED,
             ):
-                raise GlowcapError(
-                    _c.ERR_INTERNAL,
-                    f"glowcap ABI returned unknown loop event kind {event.kind}",
-                )
+                raise GlowcapError(_c.ERR_INTERNAL, f"glowcap ABI returned unknown loop event kind {event.kind}")
             primary_name = ""
             secondary_name = ""
             settled_ok = False
@@ -136,20 +131,14 @@ class _ProgressMixin(DriverLoopMixinBase):
             listener_id = event.listener_id
             if (
                 event.kind
-                in (
-                    _c.DRIVER_EVENT_OPEN_FAILED,
-                    _c.DRIVER_EVENT_LISTENER_FAILED,
-                    _c.DRIVER_EVENT_SESSION_CLOSED,
-                )
+                in (_c.DRIVER_EVENT_OPEN_FAILED, _c.DRIVER_EVENT_LISTENER_FAILED, _c.DRIVER_EVENT_SESSION_CLOSED)
                 and event.primary_name
             ):
-                primary_name = ctypes.string_at(
-                    event.primary_name, event.primary_name_len
-                ).decode("utf-8", "replace")
+                primary_name = ctypes.string_at(event.primary_name, event.primary_name_len).decode("utf-8", "replace")
                 if event.secondary_name:
-                    secondary_name = ctypes.string_at(
-                        event.secondary_name, event.secondary_name_len
-                    ).decode("utf-8", "replace")
+                    secondary_name = ctypes.string_at(event.secondary_name, event.secondary_name_len).decode(
+                        "utf-8", "replace"
+                    )
             decoded: object = None
             if event.kind == _c.DRIVER_EVENT_COMPLETION:
                 settled_ok = event.action.kind == HOST_ACTION_SETTLE
@@ -161,13 +150,12 @@ class _ProgressMixin(DriverLoopMixinBase):
                     decoded = decode(event.action)
                 except BaseException as error:
                     raise GlowcapError(
-                        _c.ERR_INTERNAL,
-                        f"glowcap ABI returned an invalid completion action: {error}",
+                        _c.ERR_INTERNAL, f"glowcap ABI returned an invalid completion action: {error}"
                     ) from error
                 if not settled_ok and event.action.message:
-                    primary_name = ctypes.string_at(
-                        event.action.message, event.action.message_len
-                    ).decode("utf-8", "replace")
+                    primary_name = ctypes.string_at(event.action.message, event.action.message_len).decode(
+                        "utf-8", "replace"
+                    )
             out.append(
                 LoopEvent(
                     event.kind,
@@ -241,25 +229,14 @@ class _ProgressMixin(DriverLoopMixinBase):
                 else:
                     self._unclaimed_sessions[event.session] = (False, None)
                     self._ffi_session_release(ctypes.c_void_p(event.session))
-                    raise GlowcapError(
-                        _c.ERR_INTERNAL,
-                        f"accepted session names unknown listener {event.listener_id}",
-                    )
+                    raise GlowcapError(_c.ERR_INTERNAL, f"accepted session names unknown listener {event.listener_id}")
         elif event.kind == _c.DRIVER_EVENT_SESSION_CLOSED:
             if event.session is not None:
-                session_failure = (
-                    _driver_event_failure(event, "session")
-                    if event.primary_result != _c.OK
-                    else None
-                )
+                session_failure = _driver_event_failure(event, "session") if event.primary_result != _c.OK else None
                 # Observe the FFI barrier before Session.close_transport()
                 # releases the opaque handle below.
                 self._finish_session_close(event.session)
-                wrapped = (
-                    self._wrapper.get_session(event.session)
-                    if self._wrapper is not None
-                    else None
-                )
+                wrapped = self._wrapper.get_session(event.session) if self._wrapper is not None else None
                 if wrapped is not None:
                     # The pump's EOF choreography, one tier up: end the
                     # serve task, then release the dead
@@ -286,9 +263,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                     host.settle_vow(event.decoded.ticket, True, event.decoded.value)
                 else:
                     host.settle_vow(
-                        event.decoded.ticket,
-                        False,
-                        _vow_failure(event.decoded.result, event.decoded.message),
+                        event.decoded.ticket, False, _vow_failure(event.decoded.result, event.decoded.message)
                     )
             if isinstance(event.decoded, (Settle, Fail)):
                 done = self._completions.pop(event.decoded.ticket, None)
@@ -297,11 +272,6 @@ class _ProgressMixin(DriverLoopMixinBase):
                         done.set_result(True)
                     else:
                         assert isinstance(event.decoded, Fail)
-                        done.set_exception(
-                            _vow_failure(event.decoded.result, event.decoded.message)
-                        )
+                        done.set_exception(_vow_failure(event.decoded.result, event.decoded.message))
         else:
-            raise GlowcapError(
-                _c.ERR_INTERNAL,
-                f"glowcap ABI returned unknown loop event kind {event.kind}",
-            )
+            raise GlowcapError(_c.ERR_INTERNAL, f"glowcap ABI returned unknown loop event kind {event.kind}")

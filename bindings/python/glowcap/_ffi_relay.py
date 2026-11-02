@@ -12,7 +12,7 @@ import ctypes
 from ._archive_contract import require_archive_fingerprint
 from ._constants import RELAY_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
-from ._ffi_ocapn import _Lib, _bind
+from ._ffi_ocapn import _bind, _Lib
 from ._lib_resolve import _lib_path
 from ._pin import pin_struct
 from ._sigs_gen import relay_sigs
@@ -41,17 +41,9 @@ pin_struct(_RelayConfig, "GLOWCAP_RELAY_CONFIG")
 
 def _load():
     lib = ctypes.CDLL(str(_lib_path("glowcap_net_transport_relay")))
-    require_archive_fingerprint(
-        lambda: lib.glowcap_relay_archive_fingerprint,
-        "relay",
-        RELAY_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: lib.glowcap_relay_archive_fingerprint, "relay", RELAY_ARCHIVE_FINGERPRINT)
     facade = _Lib(lib)
-    _bind(
-        facade,
-        lib,
-        relay_sigs(_RelayConfig, _TransportProvider),
-    )
+    _bind(facade, lib, relay_sigs(_RelayConfig, _TransportProvider))
     return facade
 
 

@@ -23,7 +23,7 @@ the assertion each destroy it.
 
 A CI phase keeps running after a failed test and lists each failure in its
 summary. A build that runs out of time stops it.
-Fix the whole list before pushing again. `glowcap-dev bash ci/gates.sh <phase>`
+Fix the whole list before pushing again. `glowcap-dev python3 ci/gates.py run <phase>`
 reproduces a phase locally the same way. Then rerun the changed or unresolved
 paths. CI should confirm the repair, not discover its next known gate.
 

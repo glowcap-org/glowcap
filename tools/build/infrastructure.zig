@@ -1,6 +1,6 @@
 //! `infrastructure-check` and `timeout-runner-test`: the executable behaviour
-//! of the devcontainer, worktrees, agent hooks, publication workflow, the
-//! evidence record, the content-stable library install, and the CI deadline
+//! of the devcontainer, worktrees, agent hooks, every Python program under
+//! `ci/` and `tools/`, the content-stable library install, and the CI deadline
 //! wrapper. Static path and pin parity stay in `source-check`; these steps
 //! clone repositories, rewrite temporary Git histories, and wait on real
 //! deadlines, so a focused source edit never pays for them.
@@ -30,48 +30,43 @@ pub fn register(b: *std.Build) void {
     const agent_hooks_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/agent_hooks_test.py" });
     agent_hooks_test.has_side_effects = true;
     infrastructure_check_step.dependOn(&agent_hooks_test.step);
-    // Each subject owns its deadline. One timer for the growing collection
-    // makes unrelated tests compete for the same 30 seconds on slow hosts.
-    b.dependOnDirectoryContents(b.path("ci/test"));
-    const io = b.graph.io;
-    var ci_tests = b.root.root_dir.handle.openDir(io, "ci/test", .{ .iterate = true }) catch |err|
-        std.debug.panic("CI test directory: {s}", .{@errorName(err)});
-    defer ci_tests.close(io);
-    var names: std.ArrayList([]const u8) = .empty;
-    var entries = ci_tests.iterate();
-    while (entries.next(io) catch |err|
-        std.debug.panic("CI test discovery: {s}", .{@errorName(err)})) |entry|
-    {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, "_test.py")) continue;
-        names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
-    }
-    // Compile-shard ownership walks the graph in registration order.
-    std.mem.sort([]const u8, names.items, {}, struct {
-        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
-            return std.mem.lessThan(u8, lhs, rhs);
+    // Each subject owns its deadline: one process per test file, so unrelated
+    // tests never compete for the same 30 seconds on a slow host. A test sits
+    // beside its subject, so these directories are the inventory. tools/check
+    // tests are registered below by name, because some take arguments their
+    // owning step supplies. The ci tests read the workflows with PyYAML, which
+    // ci/uv.lock supplies.
+    for ([_][]const u8{ "ci", "tools", "tools/gen" }) |directory| {
+        const in_project = std.mem.eql(u8, directory, "ci");
+        for (pythonTests(b, directory)) |name| {
+            const unittest = [_][]const u8{ "python3", "-m", "unittest", "discover", "-s", directory, "-p", name };
+            const contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, if (in_project)
+                &([_][]const u8{ "uv", "run", "--project", "ci", "--locked" } ++ unittest)
+            else
+                &unittest);
+            contracts.setName(b.fmt("{s}/{s}", .{ directory, name }));
+            contracts.has_side_effects = true;
+            infrastructure_check_step.dependOn(&contracts.step);
         }
-    }.lessThan);
-    for (names.items) |pattern| {
-        const contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "-m", "unittest", "discover", "-s", "ci/test", "-p", pattern });
-        contracts.setName(b.fmt("CI {s}", .{pattern}));
-        contracts.has_side_effects = true;
-        infrastructure_check_step.dependOn(&contracts.step);
     }
     const publication_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/publication-integration-test.sh" });
     publication_integration_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&publication_integration_contracts.step);
-    const release_tag_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/release-tag-test.sh" });
-    release_tag_contracts.has_side_effects = true;
-    infrastructure_check_step.dependOn(&release_tag_contracts.step);
-    const evidence_record_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/evidence/record_test.py" });
-    evidence_record_contracts.has_side_effects = true;
-    infrastructure_check_step.dependOn(&evidence_record_contracts.step);
     const tls_fixture_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/relay_tls_server_test.py" });
     tls_fixture_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&tls_fixture_contracts.step);
     const rooms_peer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/rooms_peer_test.py" });
     rooms_peer_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&rooms_peer_contracts.step);
+    const ocapnviz_check_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/ocapnviz_test.py" });
+    ocapnviz_check_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&ocapnviz_check_contracts.step);
+    const installer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/install_test.py" });
+    installer_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&installer_contracts.step);
+    const version_lockstep_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/version_lockstep_test.py" });
+    version_lockstep_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&version_lockstep_contracts.step);
     const install_if_changed_tests = b.addTest(.{ .name = "install-if-changed", .root_module = common.installIfChangedExe(b).root_module });
     infrastructure_check_step.dependOn(&execution.addZigTest(b, install_if_changed_tests, .unit_test).step);
 
@@ -79,10 +74,36 @@ pub fn register(b: *std.Build) void {
     // rather than by its source text: a check that greps the file for
     // `return 124` proves the string is present, not that a timed-out child
     // reports 124. Not a member of `check` or `infrastructure-check`: it
-    // spends seconds on real deadline waits, and `ci/gates.sh` runs it first
-    // because the wrapper has to be proven before the sequence under it.
-    const timeout_runner_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/run-with-timeout-test.sh" });
+    // spends seconds on real deadline waits, and the infrastructure phase in
+    // `ci/groups.py` runs it before `infrastructure-check`, because the
+    // wrapper has to be proven before the gates under it.
+    const timeout_runner_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/run_with_timeout_test.py" });
     timeout_runner_test.has_side_effects = true;
     const timeout_runner_step = b.step("timeout-runner-test", "Black-box the CI deadline wrapper: exit codes, relayed signal, no survivors (needs python3)");
     timeout_runner_step.dependOn(&timeout_runner_test.step);
+}
+
+/// The `*_test.py` files of one directory, sorted: compile-shard ownership
+/// walks the graph in registration order, so the order must not depend on
+/// the file system.
+fn pythonTests(b: *std.Build, directory: []const u8) []const []const u8 {
+    b.dependOnDirectoryContents(b.path(directory));
+    const io = b.graph.io;
+    var dir = b.root.root_dir.handle.openDir(io, directory, .{ .iterate = true }) catch |err|
+        std.debug.panic("{s}: {s}", .{ directory, @errorName(err) });
+    defer dir.close(io);
+    var names: std.ArrayList([]const u8) = .empty;
+    var entries = dir.iterate();
+    while (entries.next(io) catch |err|
+        std.debug.panic("{s}: {s}", .{ directory, @errorName(err) })) |entry|
+    {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, "_test.py")) continue;
+        names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
+    }
+    std.mem.sort([]const u8, names.items, {}, struct {
+        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return std.mem.lessThan(u8, lhs, rhs);
+        }
+    }.lessThan);
+    return names.items;
 }

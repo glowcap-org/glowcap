@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from .._errors import GlowcapError
 
@@ -21,7 +21,7 @@ class _LoopTransport:
         self._driver_loop = driver_loop
         self._ptr = ptr
         self._closed = asyncio.Event()
-        self._failure: "Optional[GlowcapError]" = None
+        self._failure: GlowcapError | None = None
 
     def mark_closed(self) -> None:
         self._closed.set()

@@ -13,13 +13,13 @@ from __future__ import annotations
 import asyncio
 import ctypes
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Union
 
 from . import _constants as _abi
 from ._abi_value import _args_to_c, _ref_to_c
 from ._errors import FetchFailed, GlowcapError, _check_host, _retain_cleanup_failure
 from ._ffi_host import _host, _selector_buf
-from ._ffi_ocapn import _Reference, _byte_buf
+from ._ffi_ocapn import _byte_buf, _Reference
 from ._gc import release_ref
 from ._value import Ref, _ref_from_id
 
@@ -85,40 +85,19 @@ def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromi
     def project(op: str, key) -> RemotePromise:
         out = ctypes.c_uint64()
         if op == "index":
-            _check_host(
-                _host.glowcap_host_vow_index(
-                    session.host.raw,
-                    vow,
-                    int(key),
-                    ctypes.byref(out),
-                )
-            )
+            _check_host(_host.glowcap_host_vow_index(session.host.raw, vow, int(key), ctypes.byref(out)))
         else:
             field = str(key).encode()
             fbuf, fptr = _byte_buf(field)
-            fn = (
-                _host.glowcap_host_vow_get
-                if op == "get"
-                else _host.glowcap_host_vow_untag
-            )
-            _check_host(
-                fn(
-                    session.host.raw,
-                    vow,
-                    fptr,
-                    len(field),
-                    ctypes.byref(out),
-                )
-            )
+            fn = _host.glowcap_host_vow_get if op == "get" else _host.glowcap_host_vow_untag
+            _check_host(fn(session.host.raw, vow, fptr, len(field), ctypes.byref(out)))
         projected = out.value
         return _promise_for(session, projected)
 
     try:
         session.host.vow_minted(vow, track_gc=session.gc_enabled)
         promise = (
-            RemotePromise.far(vow, session.host, begin, project)
-            if pipelineable
-            else RemotePromise.observer(vow, begin)
+            RemotePromise.far(vow, session.host, begin, project) if pipelineable else RemotePromise.observer(vow, begin)
         )
         session.serve()
         session.host.schedule_kick()
@@ -167,27 +146,22 @@ class PromiseState:
         error: BaseException
         tag: str = "failed"
 
-    Kind = Union[
-        "PromiseState.Far",
-        "PromiseState.Local",
-        "PromiseState.Observer",
-        "PromiseState.Failed",
-    ]
+    Kind = Union["PromiseState.Far", "PromiseState.Local", "PromiseState.Observer", "PromiseState.Failed"]
 
     @staticmethod
-    def far(vow: int, host_owner: object) -> "PromiseState.Far":
+    def far(vow: int, host_owner: object) -> PromiseState.Far:
         return PromiseState.Far(vow, host_owner)
 
     @staticmethod
-    def local() -> "PromiseState.Local":
+    def local() -> PromiseState.Local:
         return PromiseState.Local()
 
     @staticmethod
-    def observer(vow: int) -> "PromiseState.Observer":
+    def observer(vow: int) -> PromiseState.Observer:
         return PromiseState.Observer(vow)
 
     @staticmethod
-    def failed(error: BaseException) -> "PromiseState.Failed":
+    def failed(error: BaseException) -> PromiseState.Failed:
         return PromiseState.Failed(error)
 
 
@@ -237,22 +211,22 @@ class RemotePromise(asyncio.Future):
         self._started = False
         # The begin task, retained: the event loop holds tasks only weakly, so
         # an unreferenced begin could be collected mid-flight.
-        self._begin_task: "Optional[asyncio.Future]" = None
+        self._begin_task: asyncio.Future | None = None
 
     @classmethod
-    def far(cls, vow: int, host_owner: object, begin, project) -> "RemotePromise":
+    def far(cls, vow: int, host_owner: object, begin, project) -> RemotePromise:
         return cls(PromiseState.far(vow, host_owner), begin, project)
 
     @classmethod
-    def local(cls, begin) -> "RemotePromise":
+    def local(cls, begin) -> RemotePromise:
         return cls(PromiseState.local(), begin, None)
 
     @classmethod
-    def observer(cls, vow: int, begin) -> "RemotePromise":
+    def observer(cls, vow: int, begin) -> RemotePromise:
         return cls(PromiseState.observer(vow), begin, None)
 
     @classmethod
-    def failed(cls, error: BaseException) -> "RemotePromise":
+    def failed(cls, error: BaseException) -> RemotePromise:
         """A handle for a send that never left: awaiting it raises ``error``,
         and projecting at it yields another failed handle carrying the same
         reason, so a pipeline built behind a dead anchor fails where it is
@@ -264,7 +238,7 @@ class RemotePromise(asyncio.Future):
         return cls(PromiseState.failed(error), _raise, None)
 
     @property
-    def vow(self) -> Optional[int]:
+    def vow(self) -> int | None:
         """FFI Host vow when present (convenience, not the discriminant)."""
         if isinstance(self._kind, (PromiseState.Far, PromiseState.Observer)):
             return self._kind.vow
@@ -277,43 +251,34 @@ class RemotePromise(asyncio.Future):
         if isinstance(self._kind, PromiseState.Failed):
             raise self._kind.error
         if not isinstance(self._kind, PromiseState.Far):
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "this promise is await-only and has no remote pipeline target",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "this promise is await-only and has no remote pipeline target")
         if self._kind.host_owner is not host_owner:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "this promise belongs to another Host",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "this promise belongs to another Host")
         return self._kind.vow
 
-    def _project_op(self, op: str, key) -> "RemotePromise":
+    def _project_op(self, op: str, key) -> RemotePromise:
         # A pipeline behind a send that never left is itself a send that never
         # left. Carrying the same reason forward means the whole chain fails
         # where it is awaited rather than raising at the link that was written.
         if isinstance(self._kind, PromiseState.Failed):
             return RemotePromise.failed(self._kind.error)
         if not isinstance(self._kind, PromiseState.Far) or self._project is None:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "this promise is await-only and cannot be projected",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "this promise is await-only and cannot be projected")
         return self._project(op, key)
 
-    def index(self, i: int) -> "RemotePromise":
+    def index(self, i: int) -> RemotePromise:
         """Pipeline an ``op:index`` for ``i`` at this answer (ADR-0004): a new
         :class:`RemotePromise` for the List element of whatever this resolves
         to."""
         return self._project_op("index", int(i))
 
-    def untag(self, tag: str) -> "RemotePromise":
+    def untag(self, tag: str) -> RemotePromise:
         """Pipeline an ``op:untag`` for ``tag`` at this answer (ADR-0004): a new
         :class:`RemotePromise` for the payload of whatever this resolves to,
         which must be a Tagged record whose tag equals ``tag``."""
         return self._project_op("untag", tag)
 
-    def get(self, field: str) -> "RemotePromise":
+    def get(self, field: str) -> RemotePromise:
         """Pipeline an ``op:get`` for ``field`` at this answer (ADR-0004): a new
         :class:`RemotePromise` for the Struct field of whatever this resolves
         to."""
@@ -347,7 +312,7 @@ class RemotePromise(asyncio.Future):
         else:
             super().add_done_callback(callback, context=context)
 
-    def _chain(self, task: "asyncio.Future") -> None:
+    def _chain(self, task: asyncio.Future) -> None:
         # Copy the begin task's outcome onto this future. Guard the states a
         # future can already be in so a late settlement never raises.
         if self.cancelled():
@@ -368,18 +333,12 @@ def _listen_far(session, target) -> RemotePromise:
     plain -- a listen may settle to any value, not only a capability."""
     ref = _ref_to_c(target._live())
     out = ctypes.c_uint64()
-    _check_host(
-        _host.glowcap_host_session_listen(
-            session.raw,
-            ctypes.byref(ref),
-            ctypes.byref(out),
-        )
-    )
+    _check_host(_host.glowcap_host_session_listen(session.raw, ctypes.byref(ref), ctypes.byref(out)))
     vow = out.value
     return _promise_for(session, vow, pipelineable=False)
 
 
-def _lower_promise(session, promise: "RemotePromise", minted: list[Ref]) -> Ref:
+def _lower_promise(session, promise: RemotePromise, minted: list[Ref]) -> Ref:
     """What a far promise passes as (ADR-0068): the capability its Host mints
     for the vow, in whatever state the vow is in while this handle lives, one
     application retain pushed on ``minted`` for the caller to give back.
@@ -429,14 +388,11 @@ class _FarArguments:
 
     def _lower(self, promise: asyncio.Future) -> Ref:
         if not isinstance(promise, RemotePromise):
-            raise GlowcapError(
-                _ERR_UNSUPPORTED_VALUE,
-                "only the promise a send returned is passable as a capability",
-            )
+            raise GlowcapError(_ERR_UNSUPPORTED_VALUE, "only the promise a send returned is passable as a capability")
         return _lower_promise(self._session, promise, self._minted)
 
     def _release(self) -> None:
-        failure: Optional[BaseException] = None
+        failure: BaseException | None = None
         while self._minted:
             try:
                 release_ref(self._session.host.raw, self._minted.pop())
@@ -459,27 +415,13 @@ def _send_far(session, target, verb: str | None, args: list) -> RemotePromise:
             # local send's promise has no wire answer to pipeline against.
             source_vow = target.far_vow(session.host)
             _check_host(
-                _host.glowcap_host_vow_send(
-                    session.host.raw,
-                    source_vow,
-                    vptr,
-                    verb_len,
-                    arr,
-                    count,
-                    ctypes.byref(out),
-                )
+                _host.glowcap_host_vow_send(session.host.raw, source_vow, vptr, verb_len, arr, count, ctypes.byref(out))
             )
         else:
             ref = _ref_to_c(target._live())
             _check_host(
                 _host.glowcap_host_session_send(
-                    session.raw,
-                    ctypes.byref(ref),
-                    vptr,
-                    verb_len,
-                    arr,
-                    count,
-                    ctypes.byref(out),
+                    session.raw, ctypes.byref(ref), vptr, verb_len, arr, count, ctypes.byref(out)
                 )
             )
     vow = out.value

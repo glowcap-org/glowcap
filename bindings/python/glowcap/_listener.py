@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 from ._errors import GlowcapError
 
@@ -25,7 +25,7 @@ class ListenerOwner:
         self.listener = listener
         self._closed = False
         self._ready = False
-        self._failure: Optional[GlowcapError] = None
+        self._failure: GlowcapError | None = None
 
     @property
     def ready(self) -> bool:
@@ -33,7 +33,7 @@ class ListenerOwner:
         return self._ready
 
     @property
-    def failure(self) -> Optional[GlowcapError]:
+    def failure(self) -> GlowcapError | None:
         """The terminal setup failure, if construction was rejected."""
         return self._failure
 
@@ -62,4 +62,4 @@ class ListenerOwner:
         await self._loop.wait_listener_closed(self.listener)
 
 
-ListenerLike = Union[int, ListenerOwner]
+ListenerLike = int | ListenerOwner

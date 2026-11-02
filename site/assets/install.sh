@@ -19,7 +19,7 @@
 # Exit status 1 names the refusal: an unsupported platform, no such release, a
 # failed download, or a checksum mismatch. To remove an installation, delete
 # its directory under ~/.local/lib/glowcap and the ~/.local/bin/glowcap link.
-# ci/test/install_test.py exercises this script against a local release mirror.
+# tools/check/install_test.py exercises this script against a local release mirror.
 set -eu
 
 repository="glowcap-org/glowcap"

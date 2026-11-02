@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import TYPE_CHECKING, Any, Awaitable, Optional, cast
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any, cast
 
 from .. import _constants as _abi
 from .. import _pump
 from .._errors import AbortDetail, GlowcapError, _check_host, _retain_terminal_failure
 from .._ffi_host import _host
-from .._lifecycle import PendingWork, _UNSET, _close_options, _lifecycle_closed, _monotonic_ms
+from .._lifecycle import _UNSET, PendingWork, _close_options, _lifecycle_closed, _monotonic_ms
 from .._trampoline import _inside_turn
 
 if TYPE_CHECKING:
@@ -33,26 +34,26 @@ class _LifecycleMixin:
         _transport: Any
         _ptr: ctypes.c_void_p | None
         _key: int
-        _serve_task: Optional[asyncio.Task]
+        _serve_task: asyncio.Task | None
         _closing: bool
         _released: bool
         _release_pending: bool
-        _close_future: Optional[asyncio.Future[None]]
-        _wire_failure: Optional[BaseException]
+        _close_future: asyncio.Future[None] | None
+        _wire_failure: BaseException | None
         _terminal_failures: list[BaseException]
         _terminal_failure_count: int
-        _terminal_task: Optional[asyncio.Task[None]]
+        _terminal_task: asyncio.Task[None] | None
         _loop_close_tasks: set[asyncio.Task[None]]
-        _close_request_signature: Optional[tuple[int, int, int]]
+        _close_request_signature: tuple[int, int, int] | None
         _transport_lost: bool
         _transport_close_started: bool
-        _close_task: Optional[asyncio.Task[None]]
+        _close_task: asyncio.Task[None] | None
         _retirement: asyncio.Event
         _outbound: Outbound
 
     # ── The pump ────────────────────────────────────────────────────────────
 
-    def serve(self) -> "asyncio.Task":
+    def serve(self) -> asyncio.Task:
         """Run the inbound loop as a background task, started once.
 
         A loop-backed session has no byte pump of its own: the driver loop
@@ -63,13 +64,9 @@ class _LifecycleMixin:
             transport = self._transport
             if getattr(transport, "_driver_loop", None) is not None:
                 transport._driver_loop.serve_session(self._key)
-                self._serve_task = asyncio.get_running_loop().create_task(
-                    transport.wait_closed(),
-                )
+                self._serve_task = asyncio.get_running_loop().create_task(transport.wait_closed())
             else:
-                self._serve_task = asyncio.get_running_loop().create_task(
-                    _pump._serve_loop(self),
-                )
+                self._serve_task = asyncio.get_running_loop().create_task(_pump._serve_loop(self))
         return self._serve_task
 
     def _publish_retirement(self) -> None:
@@ -96,7 +93,7 @@ class _LifecycleMixin:
         # and worker outcome still belongs to the shared terminal coordinator.
         await self._await_terminal()
 
-    def last_abort(self) -> Optional[AbortDetail]:
+    def last_abort(self) -> AbortDetail | None:
         """The typed cause of the most recent local dispatch failure."""
         return _pump.last_abort(self)
 
@@ -147,11 +144,7 @@ class _LifecycleMixin:
 
     def record_outbound_failure(self, error: BaseException) -> None:
         """Retain a write failure only when it precedes transport teardown."""
-        if (
-            not self._released
-            and not self._transport_close_started
-            and not self._transport_lost
-        ):
+        if not self._released and not self._transport_close_started and not self._transport_lost:
             self.record_wire_failure(error)
 
     def raise_wire_failure(self) -> None:
@@ -175,9 +168,7 @@ class _LifecycleMixin:
             for task in tasks:
                 await self._join_terminal_child(task)
 
-    async def _coordinate_terminal(
-        self, result: Optional[Awaitable[None]] = None
-    ) -> None:
+    async def _coordinate_terminal(self, result: Awaitable[None] | None = None) -> None:
         """Own FFI result, physical retirement, serve join, and publication.
 
         This task is retained by the Session. Callers shield this one task, so
@@ -207,14 +198,10 @@ class _LifecycleMixin:
         if failures:
             raise failures[0]
 
-    def _start_terminal_coordinator(
-        self, result: Optional[Awaitable[None]] = None
-    ) -> "asyncio.Task[None]":
+    def _start_terminal_coordinator(self, result: Awaitable[None] | None = None) -> asyncio.Task[None]:
         task = self._terminal_task
         if task is None:
-            task = asyncio.get_running_loop().create_task(
-                self._coordinate_terminal(result)
-            )
+            task = asyncio.get_running_loop().create_task(self._coordinate_terminal(result))
             self._terminal_task = task
         elif result is not None:
             raise AssertionError("terminal result already has an owner")
@@ -226,7 +213,7 @@ class _LifecycleMixin:
             task = self._start_terminal_coordinator()
         await asyncio.shield(task)
 
-    def _request_loop_close(self, loop_ref, ptr, options) -> "asyncio.Task[None]":
+    def _request_loop_close(self, loop_ref, ptr, options) -> asyncio.Task[None]:
         """Start one loop request. The coordinator retains and observes it."""
 
         async def request() -> None:
@@ -246,12 +233,7 @@ class _LifecycleMixin:
 
     # ── Teardown ─────────────────────────────────────────────────────────────
 
-    async def close(
-        self,
-        *,
-        pending: PendingWork = PendingWork.CANCEL,
-        grace: object = _UNSET,
-    ) -> None:
+    async def close(self, *, pending: PendingWork = PendingWork.CANCEL, grace: object = _UNSET) -> None:
         """Close this session and join its one complete retirement outcome."""
         options = _close_options(pending, grace)
         signature = (options.pending, options.grace_mode, options.grace_ms)
@@ -271,13 +253,7 @@ class _LifecycleMixin:
                     self._request_loop_close(loop_ref, ptr, options)
                     self._close_request_signature = signature
                 else:
-                    _check_host(
-                        _host.glowcap_host_session_close(
-                            ptr,
-                            ctypes.byref(options),
-                            _monotonic_ms(),
-                        )
-                    )
+                    _check_host(_host.glowcap_host_session_close(ptr, ctypes.byref(options), _monotonic_ms()))
                     self._close_request_signature = signature
                     self._closing = True
                     self._host.signal_close_activity()
@@ -309,13 +285,7 @@ class _LifecycleMixin:
             self._start_terminal_coordinator(result)
         else:
             close_future = asyncio.get_running_loop().create_future()
-            _check_host(
-                _host.glowcap_host_session_close(
-                    ptr,
-                    ctypes.byref(options),
-                    _monotonic_ms(),
-                )
-            )
+            _check_host(_host.glowcap_host_session_close(ptr, ctypes.byref(options), _monotonic_ms()))
             self._closing = True
             self._host.signal_close_activity()
             self._close_future = close_future
@@ -332,7 +302,7 @@ class _LifecycleMixin:
         task = asyncio.get_running_loop().create_task(self._drive_close())
         self._close_task = task
 
-        def retire(finished: "asyncio.Task[None]") -> None:
+        def retire(finished: asyncio.Task[None]) -> None:
             if self._close_task is finished:
                 self._close_task = None
 
@@ -346,11 +316,7 @@ class _LifecycleMixin:
                     break
                 self._host.arm_close_activity()
                 state = ctypes.c_uint32()
-                rc = _host.glowcap_host_session_close_progress(
-                    ptr,
-                    _monotonic_ms(),
-                    ctypes.byref(state),
-                )
+                rc = _host.glowcap_host_session_close_progress(ptr, _monotonic_ms(), ctypes.byref(state))
                 if rc not in (_abi.OK, _abi.ERR_TIMEOUT):
                     _check_host(rc)
                 _lifecycle_closed(state.value)
@@ -370,9 +336,7 @@ class _LifecycleMixin:
         if self._wire_failure is not None:
             future.set_exception(self._wire_failure)
         elif result == _abi.ERR_TIMEOUT:
-            future.set_exception(
-                GlowcapError(_abi.ERR_TIMEOUT, "finish close exhausted its grace period")
-            )
+            future.set_exception(GlowcapError(_abi.ERR_TIMEOUT, "finish close exhausted its grace period"))
         elif result != _abi.OK:
             future.set_exception(GlowcapError(result, "session close failed"))
         else:
@@ -439,7 +403,7 @@ class _LifecycleMixin:
         else:
             commit_release()
 
-    async def __aenter__(self) -> "Session":
+    async def __aenter__(self) -> Session:
         return cast("Session", self)
 
     async def __aexit__(self, *exc) -> None:

@@ -31,10 +31,7 @@ class TerminalClientContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "malformed room watch"):
             _watch_room_event(["opened", "only-a-name"])
         self.assertEqual(
-            _watch_room_event(
-                ["registered", "ada", 1, "00000000-0000-4000-8000-000000000001"]
-            ),
-            ("registered", None),
+            _watch_room_event(["registered", "ada", 1, "00000000-0000-4000-8000-000000000001"]), ("registered", None)
         )
         with self.assertRaisesRegex(ValueError, "malformed registered watch"):
             _watch_room_event(["registered", "ada", 1, "not-a-registration-id"])

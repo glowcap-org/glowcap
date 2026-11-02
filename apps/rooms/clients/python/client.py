@@ -28,19 +28,23 @@ import asyncio
 import pathlib
 import sys
 
-from room_client import Directory, Room, RoomInfo  # the glowcap-backed clients, next to this file
 from _protocol_gen import ARRIVE, DEPART, SESSION_DEADLINE_MS  # the generated wire grammar, next to this file
+from room_client import Directory, Room, RoomInfo  # the glowcap-backed clients, next to this file
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_demo"))
-from rooms_cli import enter_or_open  # noqa: E402
+from rooms_cli import enter_or_open
 
 # The whole-roster deadline every sibling client holds, in seconds.
 SESSION_DEADLINE_S = SESSION_DEADLINE_MS / 1000
 
 
-def _fmt_rooms(rooms: "list[RoomInfo]") -> str:
+def _fmt_rooms(rooms: list[RoomInfo]) -> str:
     """Render the live room list for one line of output."""
-    return ", ".join(f"{room.name} ({room.count if room.count is not None else 'unknown'})" for room in rooms) if rooms else "(none yet)"
+    return (
+        ", ".join(f"{room.name} ({room.count if room.count is not None else 'unknown'})" for room in rooms)
+        if rooms
+        else "(none yet)"
+    )
 
 
 async def run_client(locator: str, room_name: str, nick: str, line: str, roster: list[str]) -> None:
@@ -88,23 +92,28 @@ async def run_client(locator: str, room_name: str, nick: str, line: str, roster:
         await directory.close()
     if not want <= seen:
         missing = ", ".join(sorted(want - seen))
-        raise RuntimeError(f"{nick} saw lines from {len(seen)}/{len(want)} members before the room ended (missing: {missing})")
+        raise RuntimeError(
+            f"{nick} saw lines from {len(seen)}/{len(want)} members before the room ended (missing: {missing})"
+        )
 
 
 def main() -> int:
     if len(sys.argv) < 5:
-        print("usage: client.py <locator> <room> <nick> <line> [roster]   (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)", file=sys.stderr)
+        print(
+            "usage: client.py <locator> <room> <nick> <line> [roster]   (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)",
+            file=sys.stderr,
+        )
         return 2
     locator, room_name, nick, line = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
     roster = sys.argv[5].split(",") if len(sys.argv) > 5 else [nick]
     try:
         asyncio.run(asyncio.wait_for(run_client(locator, room_name, nick, line, roster), timeout=SESSION_DEADLINE_S))
         return 0
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # str(TimeoutError()) is empty; name the failure so it is never blank.
         print(f"client {nick} failed: timed out after {SESSION_DEADLINE_S:g}s", file=sys.stderr)
         return 1
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"client {nick} failed: {exc}", file=sys.stderr)
         return 1
 

@@ -12,14 +12,14 @@ sources:
   - resource: /.github/workflows/repository-policy.yml
   - resource: /.github/zizmor.yml
   - resource: /.github/repository-policy.json
-  - resource: /tools/check/github_release.py
-  - resource: /tools/release-tag.sh
+  - resource: /ci/github_release.py
+  - resource: /tools/release-tag.py
   - resource: /tools/release-publishers.py
   - resource: /tools/repository-policy.py
   - resource: /tools/check/publication-integration-test.sh
-  - resource: /tools/check/release-tag-test.sh
+  - resource: /tools/release_tag_test.py
   - resource: /tools/gen/set_version.py
-  - resource: /tools/check/require-main-check.py
+  - resource: /ci/require_main_check.py
   - resource: /.github/rulesets/
   - resource: /tools/deps/fetch-mbedtls.sh
 ---
@@ -145,7 +145,7 @@ push run starts promotion. Retry a failed job in the push run with
 `gh run rerun <run-id> --failed`, and its success promotes the commit.
 
 Pages deploys `main`, and a tagged release publishes its tagged commit. Both
-first run `tools/check/require-main-check.py`. It requires the commit to be on
+first run `ci/require_main_check.py`. It requires the commit to be on
 `main` and to have a successful `check.yml` run, either the push run on `dev`
 or a manual full check. Both `gates` and `macos-runtime` must complete
 successfully in the same run attempt. The long fuzz search alone does not
@@ -168,7 +168,7 @@ repository's Pages settings, because a Pages deployment from Actions ignores a
 `CNAME` file in its artifact. The DNS records live with the domain's DNS host
 and the domain verification in the maintainer's GitHub account settings.
 
-Each `ci/gates.sh` run records the commit, working-tree hash and dirty state,
+Each `ci/gates.py` run records the commit, working-tree hash and dirty state,
 submodule revisions, toolchain pins, host, and each gate's exit status and
 duration. A full local run writes `zig-out/evidence/<commit>.json` and, on a
 clean checkout, attaches a Git note under `refs/notes/evidence`. A phase run
@@ -198,7 +198,7 @@ release itself is two commands and two workflows.
    It dates the `Unreleased` entries as the version's changelog section.
    `source-check` and the locked builds refuse a tree where one disagrees.
    Land the bump on `dev` and let promotion move `main`.
-2. Run `tools/release-tag.sh <version>` on the host that
+2. Run `tools/release-tag.py <version>` on the host that
    holds the signing key. It requires that `main` states the version, carries
    its changelog section, has no such tag on origin, and passed full
    validation. Then it signs `v<version>` at that commit and pushes the tag,
@@ -276,11 +276,12 @@ The promote workflow acts as an organization-owned GitHub App, because a
 workflow's own token may not move a branch across commits that change workflow
 files. The app holds four repository permissions on this repository alone:
 Contents and Workflows, both read and write, which promotion needs, and
-Administration, read and write, and Code scanning alerts, read-only, which the
+Administration and Code scanning alerts, both read-only, which the
 [repository policy workflow](../.github/workflows/repository-policy.yml) needs.
 GitHub shows a ruleset's bypass actors and the merge settings only to an
-administrator, so reading them takes the write permission, and the workflow
-runs the command without `--apply`, which changes nothing. Its client ID is the
+administrator, so the weekly reading reports those as unchecked and compares
+everything else. The maintainer's own `--apply` run reads and writes them all.
+Its client ID is the
 `PROMOTE_APP_CLIENT_ID` variable and its private key the
 `PROMOTE_APP_PRIVATE_KEY` secret. Until both exist, promotion fails at its
 first step and `main` stays where it was.
@@ -288,8 +289,8 @@ first step and `main` stays where it was.
 1. Under the organization's **Settings**, **Developer settings**, **GitHub
    Apps**, choose **New GitHub App**. Name it `glowcap-promote`, set the
    homepage to `https://glowcap.org`, clear **Active** under webhooks, set the
-   Contents, Workflows, and Administration repository permissions to **Read
-   and write**, the Code scanning alerts permission to **Read-only**, and
+   Contents and Workflows repository permissions to **Read and write**, the
+   Administration and Code scanning alerts permissions to **Read-only**, and
    allow installation only on this account.
 2. Copy the client ID, generate a private key, and install the app on
    `glowcap-org/glowcap` only.

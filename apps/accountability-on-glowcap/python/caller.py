@@ -24,12 +24,13 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
-from python_path import add_bindings_path  # noqa: E402
+from python_path import add_bindings_path
 
 add_bindings_path()
 
-from identity import Identity, b64url  # noqa: E402
 from glowcap import Runtime, VowBroken, tcp  # noqa: E402
+from identity import Identity, b64url  # noqa: E402
+
 
 async def run(port: int) -> None:
     print("accountability-on-glowcap python caller")
@@ -62,9 +63,7 @@ async def run(port: int) -> None:
 
     print("  sending legitimate invoke…")
     result = await session.send(
-        affordance,
-        "invoke",
-        [caller.aid, caller.current.verkey, request, b64url(sig_raw), caller.kel],
+        affordance, "invoke", [caller.aid, caller.current.verkey, request, b64url(sig_raw), caller.kel]
     )
     if not isinstance(result, str) or not result.startswith("ack:"):
         print(f"  FAIL: unexpected result: {result!r}", file=sys.stderr)
@@ -77,9 +76,7 @@ async def run(port: int) -> None:
     bad_sig[0] ^= 0xFF
 
     tampered = await refusal(
-        session,
-        affordance,
-        [caller.aid, caller.current.verkey, request, b64url(bytes(bad_sig)), caller.kel],
+        session, affordance, [caller.aid, caller.current.verkey, request, b64url(bytes(bad_sig)), caller.kel]
     )
     if tampered is None:
         print("  FAIL: tampered invoke was NOT refused", file=sys.stderr)
@@ -92,9 +89,7 @@ async def run(port: int) -> None:
     # the caller hands over rotated past that key.
     print("  sending invoke signed by a retired key (should be refused)…")
     stale = await refusal(
-        session,
-        affordance,
-        [caller.aid, retired.verkey, request, b64url(retired.sign(preimage)), caller.kel],
+        session, affordance, [caller.aid, retired.verkey, request, b64url(retired.sign(preimage)), caller.kel]
     )
     if stale is None:
         print("  FAIL: a retired pre-rotation key was NOT refused", file=sys.stderr)

@@ -150,7 +150,7 @@ settled, and glowcap argues with none of them:
 **Loads:** [`PROVENANCE.md`](../../../PROVENANCE.md),
 [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) (Continuous integration, License),
 [`docs/community-review.md`](../../../docs/community-review.md) (the
-proves / does-not-prove table), [`ci/gates.sh`](../../../ci/gates.sh) with
+proves / does-not-prove table), [`ci/groups.py`](../../../ci/groups.py) with
 `.github/workflows/`, and the live check inventory in `build.zig`.
 
 ## Concrete output each lens must produce

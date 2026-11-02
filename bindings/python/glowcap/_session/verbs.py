@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NamedTuple, Optional, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from .. import _constants as _abi
 from .._constants import DurableProvenance, _provenance_from_abi
 from .._errors import GlowcapError, _check_host
-from .._ffi_host import _PartnerIdentity, _host
+from .._ffi_host import _host, _PartnerIdentity
 from .._ffi_ocapn import _byte_buf, _Reference
 from .._gc import release_ref
-from .._locator import _OwnedLocator, Locator
+from .._locator import Locator, _OwnedLocator
 from .._promise import RemotePromise, _fetch_like, _listen_far
 from .._trampoline import (
     Caretaker,
@@ -40,7 +40,7 @@ class SendRedeemingResult(NamedTuple):
     """
 
     reply: Argument
-    via: Optional["Session"]
+    via: Session | None
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ class _VerbsMixin:
         """
         return _caretaker_proxy(self.spawn, target)
 
-    def attenuate(self, target: Ref, verbs: "list[str]") -> Ref:
+    def attenuate(self, target: Ref, verbs: list[str]) -> Ref:
         """Return a proxy that forwards only the named verbs.
 
         Every other call breaks with ``Attenuated``. The target may be local
@@ -122,13 +122,7 @@ class _VerbsMixin:
         as :class:`VowBroken`. A fulfillment that is not a live capability is
         :class:`FetchFailed`.
         """
-        return await _fetch_like(
-            self,
-            name.encode(),
-            name,
-            _host.glowcap_host_session_fetch,
-            track=True,
-        )
+        return await _fetch_like(self, name.encode(), name, _host.glowcap_host_session_fetch, track=True)
 
     async def enliven(self, sturdyref: str) -> Ref:
         """Enliven a sturdyref against this already-open session.
@@ -136,17 +130,9 @@ class _VerbsMixin:
         The complete locator is verified before the Host's dedup cache is
         consulted. This Session-level verb never dials.
         """
-        return await _fetch_like(
-            self,
-            sturdyref.encode(),
-            sturdyref,
-            _host.glowcap_host_session_enliven,
-            track=True,
-        )
+        return await _fetch_like(self, sturdyref.encode(), sturdyref, _host.glowcap_host_session_enliven, track=True)
 
-    def send(
-        self, target: "Ref | RemotePromise", verb: str | None, args: "Optional[list]" = None
-    ) -> RemotePromise:
+    def send(self, target: Ref | RemotePromise, verb: str | None, args: list | None = None) -> RemotePromise:
         """Eventual-send ``verb(args)`` and return a pipelineable promise.
 
         ``target`` may be a :class:`Ref` or an earlier
@@ -160,7 +146,7 @@ class _VerbsMixin:
             self.guard_open()
             self._host.gc.drain_gc()
             return _dispatch_send(self, target, verb, args if args is not None else ())
-        except Exception as err:  # noqa: BLE001 - reported through the handle
+        except Exception as err:
             return RemotePromise.failed(err)
 
     def listen(self, target: Ref) -> RemotePromise:
@@ -173,14 +159,11 @@ class _VerbsMixin:
             self.guard_open()
             self._host.gc.drain_gc()
             return _listen_far(self, target)
-        except Exception as err:  # noqa: BLE001 - reported through the handle
+        except Exception as err:
             return RemotePromise.failed(err)
 
     async def send_redeeming(
-        self,
-        target: "Ref | RemotePromise",
-        verb: str | None,
-        args: "Optional[list]" = None,
+        self, target: Ref | RemotePromise, verb: str | None, args: list | None = None
     ) -> SendRedeemingResult:
         """Send and surface the direct exporter Session opened by redemption.
 
@@ -197,12 +180,7 @@ class _VerbsMixin:
             via = None
         return SendRedeemingResult(reply, via)
 
-    async def tell(
-        self,
-        target: "Ref | RemotePromise",
-        verb: str | None,
-        args: "Optional[list]" = None,
-    ) -> None:
+    async def tell(self, target: Ref | RemotePromise, verb: str | None, args: list | None = None) -> None:
         """Fire-and-forget eventual-send without allocating an answer.
 
         Returns once the deliver is queued, and the session's writer sends it.
@@ -213,23 +191,17 @@ class _VerbsMixin:
         await _dispatch_tell(self, target, verb, args if args is not None else ())
         self.raise_wire_failure()
 
-    def set_exporter_locator(self, locator: "Optional[Locator]") -> None:
+    def set_exporter_locator(self, locator: Locator | None) -> None:
         """Override the exporter location with a complete typed locator.
 
         ``None`` restores the partner's signed location.
         """
         self.guard_open()
         if locator is None:
-            _check_host(
-                _host.glowcap_host_session_set_exporter_location(self._ptr, None)
-            )
+            _check_host(_host.glowcap_host_session_set_exporter_location(self._ptr, None))
             return
         with _OwnedLocator.create(locator) as owned:
-            _check_host(
-                _host.glowcap_host_session_set_exporter_location(
-                    self._ptr, owned.borrow_view()
-                )
-            )
+            _check_host(_host.glowcap_host_session_set_exporter_location(self._ptr, owned.borrow_view()))
 
     def partner_identity(self) -> PartnerIdentity:
         """Return the Python-owned identity facts proved by the handshake.
@@ -240,12 +212,7 @@ class _VerbsMixin:
         """
         self.guard_open()
         info = _PartnerIdentity()
-        _check_host(
-            _host.glowcap_host_session_partner_identity(
-                self._ptr,
-                ctypes.byref(info),
-            )
-        )
+        _check_host(_host.glowcap_host_session_partner_identity(self._ptr, ctypes.byref(info)))
 
         def owned(ptr, length) -> bytes:
             return ctypes.string_at(ptr, length) if ptr and length else b""
@@ -257,9 +224,7 @@ class _VerbsMixin:
 
         return PartnerIdentity(
             session_key=owned(info.session_key, info.session_key_len),
-            designator=owned(info.designator, info.designator_len).decode(
-                errors="replace"
-            ),
+            designator=owned(info.designator, info.designator_len).decode(errors="replace"),
             locator_record=owned(info.locator_record, info.locator_record_len),
             provenance=provenance,
         )
@@ -274,16 +239,10 @@ class _VerbsMixin:
         self.guard_open()
         raw = designator.encode()
         buf, ptr = _byte_buf(raw)
-        _check_host(
-            _host.glowcap_host_session_bind_verified_channel_key(
-                self._ptr,
-                ptr,
-                len(raw),
-            )
-        )
+        _check_host(_host.glowcap_host_session_bind_verified_channel_key(self._ptr, ptr, len(raw)))
         del buf
 
-    def with_gc(self) -> "Session":
+    def with_gc(self) -> Session:
         """Opt this Session into distributed capability GC and return it.
 
         Capability occurrences projected through this Session then release
@@ -292,7 +251,7 @@ class _VerbsMixin:
         self._gc_enabled = True
         return cast("Session", self)
 
-    def published_ref(self, name: str) -> "Ref | None":
+    def published_ref(self, name: str) -> Ref | None:
         """Project the Host publication published under ``name`` onto this Session.
 
         This is the lazy Session projection for a Host publication. It
@@ -303,9 +262,7 @@ class _VerbsMixin:
         buf, ptr = _byte_buf(data)
         out = _Reference()
         try:
-            rc = _host.glowcap_host_session_published_ref(
-                self._ptr, ptr, len(data), ctypes.byref(out)
-            )
+            rc = _host.glowcap_host_session_published_ref(self._ptr, ptr, len(data), ctypes.byref(out))
         finally:
             del buf
         if rc == _abi.ERR_NOT_FOUND:

@@ -27,17 +27,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+from helpers import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
 
-from glowcap import Runtime, format_peer_uri, TRANSPORT_IROH  # noqa: E402
-from glowcap.iroh import (  # noqa: E402
-    IrohConfig,
-    Reachability,
-    listen,
-    provider,
-)
+from glowcap import TRANSPORT_IROH, Runtime, format_peer_uri  # noqa: E402
+from glowcap.iroh import IrohConfig, Reachability, listen, provider  # noqa: E402
 
 NAME = "python-iroh-world"
 
@@ -68,8 +63,7 @@ async def run() -> None:
     served: list = []
     server_task = asyncio.create_task(accept_loop(server, served))
     print(
-        f"python-iroh-reachability: server published greeter on {server_id} "
-        "(pkarr-published; no direct addrs shared)"
+        f"python-iroh-reachability: server published greeter on {server_id} (pkarr-published; no direct addrs shared)"
     )
 
     # ── Client: dial by node id ALONE, empty hints, over real n0 discovery ──────

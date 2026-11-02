@@ -5,17 +5,13 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import os
-from typing import Any, cast
 import unittest
+from typing import Any, cast
 
-from glowcap._ws import _WebSocketTransport, _WS_MESSAGE_HIGH_WATER
+from glowcap._ws import _WS_MESSAGE_HIGH_WATER, _WebSocketTransport
 
-RELAY_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "relay.py"
-)
-RELAY_SPEC = importlib.util.spec_from_file_location(
-    "glowcap_reference_relay", RELAY_PATH
-)
+RELAY_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "relay.py")
+RELAY_SPEC = importlib.util.spec_from_file_location("glowcap_reference_relay", RELAY_PATH)
 assert RELAY_SPEC is not None and RELAY_SPEC.loader is not None
 relay = cast(Any, importlib.util.module_from_spec(RELAY_SPEC))
 RELAY_SPEC.loader.exec_module(relay)
@@ -103,9 +99,7 @@ class RelayFailureTests(unittest.IsolatedAsyncioTestCase):
             relay._open_channel = original_open
         self.assertIs(raised.exception, primary)
         self.assertEqual(getattr(primary, "secondary_count"), 2)
-        self.assertEqual(
-            getattr(primary, "secondary"), (channel_close, websocket_close)
-        )
+        self.assertEqual(getattr(primary, "secondary"), (channel_close, websocket_close))
 
     async def test_tcp_close_runs_and_joins_both_release_phases(self) -> None:
         request_failure = OSError("writer close failed")

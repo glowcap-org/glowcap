@@ -1,8 +1,9 @@
 # One validation group: its build jobs each compile one shard of what the
-# group's phases run, and then one test job per phase runs that phase on their
-# combined state. Called by check.yml once per group the plan selects, so a
-# group's tests wait for its own build and no other. ci/plan.py owns the
-# groups, their phases, and their shard counts.
+# group's phases run, then one test job per phase runs on their combined
+# state. check.yml calls this once per group the plan selects, so a group's
+# tests wait for its own build and no other. ci/groups.py owns the groups.
+# Every step is one command: ci/gates.py runs inside the devcontainer,
+# ci/state.py and image.py on the runner.
 name: check-group
 
 on:
@@ -13,11 +14,11 @@ on:
         type: string
         required: true
       phases:
-        description: JSON array of the ci/gates.sh phases this group runs.
+        description: JSON array of the group's phases, one test job each.
         type: string
         required: true
       shards:
-        description: JSON array of the build shards, 1 to n; empty when the phases compile at run time and there is nothing to hand over.
+        description: JSON array of the build shards, 1 to n; empty when the phases compile at run time and hand nothing over.
         type: string
         required: true
       image:
@@ -31,11 +32,10 @@ permissions:
   contents: read
   packages: read
 
-# Cargo's fingerprint includes these, so the build and test jobs must agree on
-# them or every test job rebuilds. Cargo's intermediate state is cached
-# between runs, so incremental compilation would only add disk, and dev-profile
-# debug info keeps source lines without the variable data that dominates a
-# target directory; the Rooms test profile makes the same choice.
+# Cargo's fingerprint includes these, so the build and test jobs must agree
+# on them or every test job rebuilds. Incremental compilation would only add
+# disk to a cached target directory, and line tables keep source positions
+# without the variable data that dominates debug info.
 env:
   EXEC: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 --remote-env CARGO_PROFILE_DEV_DEBUG=line-tables-only
 
@@ -56,12 +56,13 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Reclaim disk space for the prepared image
-        run: .devcontainer/ci/reclaim-disk.sh
+      - run: python3 ci/image.py reclaim
 
-      # Workflow steps own transfer deadlines; composite steps cannot set one.
-      # The 1.62 GB image measured 255s on hosted runners; allow at least
-      # twice that time for this transfer, independently of test deadlines.
+      # Workflow steps own transfer deadlines, which composite steps cannot
+      # set. A transfer finishes in seconds or stalls with no end of its own,
+      # and a stalled one clears on a fresh attempt, so each required transfer
+      # is bounded and retried once. The 1.62 GB image measured 255 s on a
+      # hosted runner, so its bound is twice that.
       - name: Download the unpublished PR image
         id: receive_image
         if: inputs.archive == 'true'
@@ -78,7 +79,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *image-download
 
-      - uses: ./.devcontainer/ci/start
+      - uses: ./.github/actions/start
         with:
           image: ${{ inputs.image }}
 
@@ -90,122 +91,71 @@ jobs:
         timeout-minutes: 5
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
+          path: &download-stores |
             ~/.cache/glowcap/ci/zig-pkg
             ~/.cache/glowcap/cargo/registry
             ~/.cache/glowcap/cargo/git
             ~/.cache/glowcap/tool/deno/remote
             ~/.cache/glowcap/tool/deno/npm
             ~/.cache/glowcap/tool/uv
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
+          key: &download-key downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
           restore-keys: downloads-${{ runner.os }}-${{ runner.arch }}-
 
       - name: List the compiled-state stores
         id: stores
-        run: |
-          {
-            echo 'paths<<STORES'
-            ci/state.sh stores
-            echo STORES
-          } >> "$GITHUB_OUTPUT"
+        run: printf 'paths<<STORES\n%s\nSTORES\n' "$(python3 ci/state.py stores)" >> "$GITHUB_OUTPUT"
 
-      # Development runs start from the shard's last compile state, because a
+      # A pull request starts from the shard's last compile state, because a
       # hosted runner compiles cold an order of magnitude slower than a
-      # workstation. Zig keys every object by its inputs and every proof
-      # reruns in the test jobs, so a restore saves compile time and skips no
-      # proof. Zig and Cargo validate each object against compiler and source
-      # inputs. A packaging manifest edit must not discard an otherwise valid
-      # store. Every PR may reuse state, including one requiring all groups.
-      # Push, nightly and manual qualification still build cold.
+      # workstation. Zig and Cargo key every object by its inputs and every
+      # proof reruns in the test jobs, so a restore saves compile time and
+      # skips no proof. Pushes, nightly, and manual runs build cold.
       - name: Restore build state
         if: github.event_name == 'pull_request'
         timeout-minutes: 5
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.stores.outputs.paths }}
-          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: &build-key build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-
 
+      # The cache quota is 10 GB compressed across every shard, so a shard's
+      # state is held near its cold size: Zig's cache has no collector. The
+      # build also needs 20 GB free beyond its state for the container image,
+      # zig-out, Cargo outputs, and the packed archive.
       - name: Bound the restored build state
         if: github.event_name == 'pull_request'
-        env:
-          # The repository's cache quota is 10 GB compressed across every
-          # shard, so a shard's state is held near its cold size instead of
-          # growing: Zig's cache has no collector.
-          LIMIT_GB: 12
-          # Free disk the build needs beyond its restored state: the 6 GB
-          # container image, zig-out, cargo outputs, and the packed state.
-          # The check runs after the restore, so the floor is what the build
-          # adds on top of the state, not the whole cold build.
-          FREE_FLOOR_GB: 20
-        run: |
-          names=$(ci/state.sh stores)
-          present=()
-          while IFS= read -r store; do
-            if [ -e "$store" ]; then present+=("$store"); fi
-          done <<<"$names"
-          size_kib=0
-          if [ "${#present[@]}" -gt 0 ]; then
-            du -sh "${present[@]}"
-            # Sum before converting units: rounding each small Deno store to
-            # a GiB can make a healthy cache appear several GiB too large.
-            size_kib=$(du -sk "${present[@]}" | awk '{ total += $1 } END { printf "%.0f", total }')
-          fi
-          free_kib=$(df --output=avail --block-size=1K / | tail -1 | tr -d ' ')
-          limit_kib=$((LIMIT_GB * 1024 * 1024))
-          floor_kib=$((FREE_FLOOR_GB * 1024 * 1024))
-          awk -v used="$size_kib" -v limit="$limit_kib" -v free="$free_kib" \
-            'BEGIN { printf "Restored build state: %.2f GiB of %.2f GiB, %.2f GiB free\n", used/1048576, limit/1048576, free/1048576 }'
-          # The running container mounts the stores, so a drop empties each
-          # in place: a removed directory leaves its mount on a deleted inode,
-          # and every write through it fails.
-          if [ "$size_kib" -gt "$limit_kib" ] || [ "$free_kib" -lt "$floor_kib" ]; then
-            for store in ${present[@]+"${present[@]}"}; do
-              find "$store" -mindepth 1 -delete
-            done
-            echo "Dropped it; this run builds cold."
-          fi
+        run: python3 ci/state.py bound 12 20
 
       - name: Fetch pinned Zig dependencies
         id: fetch
-        run: $EXEC bash ci/fetch-zig.sh
+        run: $EXEC python3 ci/gates.py fetch
 
-      - name: Stamp the checkout to the commit time
-        run: ci/state.sh stamp
+      - run: python3 ci/state.py stamp
 
       - name: Compile this shard of what the group's phases run
         env:
           SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           PHASES: ${{ join(fromJSON(inputs.phases), ' ') }}
-        run: $EXEC bash ci/gates.sh --compile-only "$SHARD" $PHASES
+        run: $EXEC python3 ci/gates.py compile "$SHARD" $PHASES
 
       - name: Save dependency downloads
         if: ${{ !cancelled() && matrix.shard == 1 && steps.fetch.outcome == 'success' && steps.downloads.outputs.cache-hit != 'true' }}
         timeout-minutes: 5
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cache/glowcap/ci/zig-pkg
-            ~/.cache/glowcap/cargo/registry
-            ~/.cache/glowcap/cargo/git
-            ~/.cache/glowcap/tool/deno/remote
-            ~/.cache/glowcap/tool/deno/npm
-            ~/.cache/glowcap/tool/uv
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
+          path: *download-stores
+          key: *download-key
 
       # The test jobs need the state even when one compile failed: each test
-      # job compiles what is missing itself, so one run still reports every
-      # failure in the group.
+      # job compiles what is missing itself, so one run reports every failure
+      # in the group.
       - name: Pack the compiled state
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
         env:
           SHARD: ${{ matrix.shard }}
-        run: ci/state.sh pack "$RUNNER_TEMP/state-$SHARD.tar.zst"
+        run: python3 ci/state.py pack "$RUNNER_TEMP/state-$SHARD.tar.zst"
 
-      # A transfer finishes in seconds or stalls with no end of its own, so
-      # each one is bounded. The handoff is required and a stalled transfer
-      # clears on a fresh attempt, so it retries once. A second failure fails
-      # the job with the transfer's own error.
       - name: Hand the compiled state to the test jobs
         id: hand
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
@@ -227,16 +177,15 @@ jobs:
         with: *hand
 
       # Pushes and nightly runs keep their compile state, even after a failed
-      # compile. Pull requests only read it. A job whose container never
-      # started holds no state, and saving it would hand the next run an
-      # empty cache.
+      # compile. A job whose container never started holds no state, and
+      # saving it would hand the next run an empty cache.
       - name: Save build state
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && github.event_name != 'pull_request' }}
         timeout-minutes: 5
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.stores.outputs.paths }}
-          key: build-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ matrix.shard }}of${{ strategy.job-total }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: *build-key
 
   test:
     needs: build
@@ -256,8 +205,7 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Reclaim disk space for the prepared image
-        run: .devcontainer/ci/reclaim-disk.sh
+      - run: python3 ci/image.py reclaim
 
       - name: Download the unpublished PR image
         id: receive_image
@@ -273,7 +221,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *image-download
 
-      - uses: ./.devcontainer/ci/start
+      - uses: ./.github/actions/start
         with:
           image: ${{ inputs.image }}
 
@@ -281,23 +229,14 @@ jobs:
         timeout-minutes: 5
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cache/glowcap/ci/zig-pkg
-            ~/.cache/glowcap/cargo/registry
-            ~/.cache/glowcap/cargo/git
-            ~/.cache/glowcap/tool/deno/remote
-            ~/.cache/glowcap/tool/deno/npm
-            ~/.cache/glowcap/tool/uv
-          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
+          path: *download-stores
+          key: *download-key
           restore-keys: downloads-${{ runner.os }}-${{ runner.arch }}-
 
-      # A pattern that matches one artifact extracts it into `path` itself, and
-      # one that matches several gives each its own directory. Merging keeps
-      # every shard's uniquely named archive in `path` either way.
-      # Bounded and retried once, like the build job's handoff. Artifact
-      # downloads run at 15 to 90 MB/s depending on the runner: the runtime
-      # group's 4.7 GB state measured 66 s on one and over five minutes on
-      # another. The bound is twice the slow runner's time for that state.
+      # Merging keeps every shard's uniquely named archive in `path`, whether
+      # the pattern matched one artifact or several. Artifact downloads run at
+      # 15 to 90 MB/s depending on the runner: the runtime group's 4.7 GB
+      # state took over five minutes on a slow one, so the bound is twice that.
       - name: Receive the group's compiled state
         id: receive
         if: needs.build.result != 'skipped'
@@ -315,58 +254,34 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: *receive
 
-      # Zig's cache is content-addressed, so the shards' stores merge. The
-      # first shard lands last: it ran every Cargo build, and Cargo judges
-      # freshness by the modification times it recorded. Every shard of a
-      # successful build packed, so a missing archive is a handoff defect. A
-      # shard whose build failed before packing hands over nothing, and this
-      # job compiles its share so the run still reports each phase.
       # The transfer gives every cached file a new inode, and that alone makes
-      # Zig rerun each step whose input is a built artifact: the source
-      # generators and the archives that link C or Rust objects. Zig names
-      # anonymous symbols differently on each compile, so the rebuilt archives
-      # change bytes and Cargo relinks the Rooms peers. The first gate of a
+      # Zig rerun each step whose input is a built artifact. Zig names
+      # anonymous symbols differently on each compile, so those archives
+      # change bytes and Cargo relinks the Rooms peers: the first gate of a
       # test job pays about four minutes for this.
       - name: Restore the group's compiled state
         if: needs.build.result != 'skipped'
         env:
-          BUILD: ${{ needs.build.result }}
           SHARDS: ${{ inputs.shards }}
-        run: |
-          archives=()
-          for shard in $(jq -r '.[]' <<<"$SHARDS" | sort -rn); do
-            archive="$RUNNER_TEMP/state/state-$shard.tar.zst"
-            if [ -e "$archive" ]; then
-              archives+=("$archive")
-            elif [ "$BUILD" = success ]; then
-              echo "::error::Shard $shard built but its state is not at $archive."
-              exit 1
-            else
-              echo "::warning::Shard $shard handed over no state; this job compiles its share."
-            fi
-          done
-          for archive in ${archives[@]+"${archives[@]}"}; do
-            ci/state.sh unpack "$archive"
-            rm -f -- "$archive"
-          done
+          BUILD: ${{ needs.build.result }}
+        run: python3 ci/state.py restore "$RUNNER_TEMP/state" "$SHARDS" "$BUILD"
 
       - name: Fetch pinned Zig dependencies
         id: fetch
-        run: $EXEC bash ci/fetch-zig.sh
+        run: $EXEC python3 ci/gates.py fetch
 
-      - name: Stamp the checkout to the commit time
-        run: ci/state.sh stamp
+      - run: python3 ci/state.py stamp
 
       - name: Run the phase
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
         env:
           PHASE: ${{ matrix.phase }}
-        run: $EXEC bash ci/gates.sh "$PHASE"
+        run: $EXEC python3 ci/gates.py run "$PHASE"
 
       # The evidence record is the run's product: what ran, on what, and how
-      # each gate ended. It is kept on failure too, since a red run's record
-      # is what names the gate that failed. A superseded run can be cancelled
-      # before the recorder starts, so cancellation has no required artifact.
+      # each gate ended. A red run's record names the gate that failed. A
+      # superseded run can be cancelled before the recorder starts, so
+      # cancellation has no required artifact.
       - name: Keep the evidence record
         if: ${{ !cancelled() && hashFiles('zig-out/evidence/**/*.json') != '' }}
         timeout-minutes: 5
@@ -377,8 +292,7 @@ jobs:
           if-no-files-found: error
 
       # A fuzz search never repeats, so the input that crashed a target is
-      # the only way to replay what this run found. The fuzz runner leaves it
-      # in the checkout, outside the build cache.
+      # the only way to replay what this run found.
       - name: Keep a fuzzer finding
         if: ${{ !cancelled() && hashFiles('zig-out/fuzz-finding.bin') != '' }}
         timeout-minutes: 5
@@ -390,16 +304,4 @@ jobs:
 
       - name: Summarize gate results
         if: ${{ !cancelled() }}
-        run: |
-          df -h /
-          docker system df
-          python3 - <<'PYTHON'
-          import glob, json, os
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-              output.write('| Gate | Result | Seconds |\n| --- | --- | ---: |\n')
-              for path in sorted(glob.glob('zig-out/evidence/**/*.json', recursive=True)):
-                  record = json.load(open(path))
-                  for gate in record['gates']:
-                      result = 'passed' if gate['exit'] == 0 else f"failed ({gate['exit']})"
-                      output.write(f"| `{gate['command']}` | {result} | {gate['seconds']} |\n")
-          PYTHON
+        run: python3 ci/gates.py summary

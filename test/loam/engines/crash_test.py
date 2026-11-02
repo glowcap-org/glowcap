@@ -8,11 +8,11 @@ repository working directory is required. Success is silent, failure is nonzero.
 
 import argparse
 import os
-from pathlib import Path
 import select
 import signal
 import subprocess
 import tempfile
+from pathlib import Path
 
 
 def run(probe, mode, directory, scenario):
@@ -21,8 +21,7 @@ def run(probe, mode, directory, scenario):
 
 def interrupt(probe, mode, directory, scenario):
     child = subprocess.Popen(
-        [probe, mode, directory, *scenario], cwd=directory,
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        [probe, mode, directory, *scenario], cwd=directory, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
     )
     try:
         ready, _, _ = select.select([child.stderr], [], [], 5)

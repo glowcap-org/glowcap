@@ -34,9 +34,7 @@ def upgrade(conn: ssl.SSLSocket) -> None:
     key = headers.get(b"sec-websocket-key")
     if key is None:
         raise RuntimeError("missing Sec-WebSocket-Key")
-    accept = base64.b64encode(
-        hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest()
-    )
+    accept = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
     conn.sendall(
         b"HTTP/1.1 101 Switching Protocols\r\n"
         b"Upgrade: websocket\r\n"
@@ -86,11 +84,7 @@ def tls_context(args: argparse.Namespace) -> ssl.SSLContext:
             else ssl.ALERT_DESCRIPTION_ACCESS_DENIED
         )
 
-        def refuse_sni(
-            _socket: ssl.SSLSocket,
-            _server_name: str | None,
-            _context: ssl.SSLContext,
-        ) -> int:
+        def refuse_sni(_socket: ssl.SSLSocket, _server_name: str | None, _context: ssl.SSLContext) -> int:
             return alert
 
         context.set_servername_callback(refuse_sni)
@@ -103,11 +97,7 @@ def serve_one(raw: socket.socket, args: argparse.Namespace) -> None:
         return
 
     context = tls_context(args)
-    expected_refusal = args.mode in {
-        "tls-refusal",
-        "sni-refusal",
-        "peer-alert",
-    }
+    expected_refusal = args.mode in {"tls-refusal", "sni-refusal", "peer-alert"}
     try:
         conn = context.wrap_socket(raw, server_side=True, suppress_ragged_eofs=False)
     except ssl.SSLError:
@@ -133,15 +123,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=(
-            "upgrade",
-            "clean-close",
-            "tls-refusal",
-            "sni-refusal",
-            "peer-alert",
-            "malformed",
-            "abrupt",
-        ),
+        choices=("upgrade", "clean-close", "tls-refusal", "sni-refusal", "peer-alert", "malformed", "abrupt"),
         required=True,
     )
     parser.add_argument("--cert")

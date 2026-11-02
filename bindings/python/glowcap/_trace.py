@@ -22,20 +22,21 @@ import ctypes
 import threading
 import time
 import weakref
-from typing import Callable, NamedTuple, Optional
+from collections.abc import Callable
+from typing import NamedTuple
 
 from . import _constants as _abi
-from ._ffi_host import _TraceCallback, _host
 from ._constants import _provenance_from_abi
+from ._ffi_host import _host, _TraceCallback
 
 TraceSink = Callable[[dict], None]
 
-_sink: Optional[TraceSink] = None
+_sink: TraceSink | None = None
 # The display label the application chose for its own endpoint, or None. The
 # ``a`` endpoint itself is always the host's own key designator, the name a
 # partner knows it by, so one peer stays one node in a feed several producers
 # share.
-_self_label: Optional[str] = None
+_self_label: str | None = None
 # What this producer answers when a record asks what it runs. A constant and
 # not an option: the host behind this binding is a glowcap host, and an
 # application naming itself something else would put a claim on the wire that
@@ -57,6 +58,8 @@ _ffi_cb = None  # type: ignore[assignment]  # ctypes CFUNCTYPE product, not a ty
 # ctypes callback argtypes reject Python ``None`` on Python 3.13. This is the
 # correctly typed null function pointer the C API's nullable callback expects.
 _null_ffi_cb = _TraceCallback()
+
+
 # Every live Host is held weakly beside its cookie and designator. FFI trace
 # installation always goes through the Host owner, never a raw pointer retained
 # in this process-global registry: that keeps installation on the Host's thread
@@ -95,6 +98,8 @@ def _owner_of(cookie: int):
             if row.cookie == cookie:
                 return row.owner()
     return None
+
+
 # Payload bytes forwarded per message (whole frame under the cap, head +
 # true length above it). The binding-policy mirror owns the shared default.
 _PAYLOAD_CAP = _abi.BINDING_TRACE_PAYLOAD_CAP_BYTES
@@ -156,9 +161,7 @@ def _decode_ffi_event(sink: TraceSink, owner, cookie: int, ev) -> None:
     session = f"live-h{cookie}-s{ev.session}"
     if ev.kind == _abi.TRACE_SESSION_OPEN:
         designator = (
-            ctypes.string_at(ev.designator, ev.designator_len).decode(
-                "utf-8", "replace",
-            )
+            ctypes.string_at(ev.designator, ev.designator_len).decode("utf-8", "replace")
             if ev.designator and ev.designator_len
             else "peer"
         )
@@ -175,15 +178,11 @@ def _decode_ffi_event(sink: TraceSink, owner, cookie: int, ev) -> None:
             "provenance": _provenance_from_abi(ev.provenance).spoken,
         }
         if ev.transport and ev.transport_len:
-            record["transport"] = ctypes.string_at(
-                ev.transport, ev.transport_len,
-            ).decode("utf-8", "replace")
+            record["transport"] = ctypes.string_at(ev.transport, ev.transport_len).decode("utf-8", "replace")
         if _self_label is not None:
             record["a_label"] = _self_label
         if ev.session_id and ev.session_id_len:
-            record["session_id"] = ctypes.string_at(
-                ev.session_id, ev.session_id_len,
-            ).decode("utf-8", "replace")
+            record["session_id"] = ctypes.string_at(ev.session_id, ev.session_id_len).decode("utf-8", "replace")
         _emit(sink, record, owner)
         return
     if ev.kind == _abi.TRACE_MESSAGE:
@@ -200,9 +199,7 @@ def _decode_ffi_event(sink: TraceSink, owner, cookie: int, ev) -> None:
             "digest": bytes(ev.digest).hex(),
         }
         if ev.verb:
-            record["op"] = ctypes.string_at(ev.verb, ev.verb_len).decode(
-                "utf-8", "replace",
-            )
+            record["op"] = ctypes.string_at(ev.verb, ev.verb_len).decode("utf-8", "replace")
         # The frame is borrowed for this call, so the payload copy happens
         # here or never: whole frame under the cap, head + true length
         # above it.
@@ -210,27 +207,20 @@ def _decode_ffi_event(sink: TraceSink, owner, cookie: int, ev) -> None:
         if ev.frame and ev.frame_len:
             record["len"] = total_len
             if total_len <= _PAYLOAD_CAP and ev.frame_len >= total_len:
-                record["bytes_b64"] = _b64.b64encode(
-                    ctypes.string_at(ev.frame, total_len),
-                ).decode("ascii")
+                record["bytes_b64"] = _b64.b64encode(ctypes.string_at(ev.frame, total_len)).decode("ascii")
             else:
                 record["summary"] = {
                     "len": total_len,
-                    "head_b64": _b64.b64encode(
-                        ctypes.string_at(ev.frame, min(ev.frame_len, _PAYLOAD_CAP)),
-                    ).decode("ascii"),
+                    "head_b64": _b64.b64encode(ctypes.string_at(ev.frame, min(ev.frame_len, _PAYLOAD_CAP))).decode(
+                        "ascii"
+                    ),
                 }
         elif total_len:
             record["len"] = total_len
         _emit(sink, record, owner)
         return
     if ev.kind == _abi.TRACE_SESSION_CLOSE:
-        _emit(sink, {
-            "v": 1,
-            "sim_t_ns": _now_ns(),
-            "kind": "ocapn.session-closed",
-            "session": session,
-        }, owner)
+        _emit(sink, {"v": 1, "sim_t_ns": _now_ns(), "kind": "ocapn.session-closed", "session": session}, owner)
         return
     raise ValueError(f"glowcap ABI returned unknown trace event kind {ev.kind}")
 
@@ -242,9 +232,7 @@ def _callback():
     return _ffi_cb
 
 
-def enable_trace(
-    sink: TraceSink, *, self_label: Optional[str] = None,
-) -> Callable[[], None]:
+def enable_trace(sink: TraceSink, *, self_label: str | None = None) -> Callable[[], None]:
     """Install the sink (replacing any prior one), start the clock, and
     register the FFI tap on every live Host (a Host minted later registers
     itself). Returns an uninstall that also clears the FFI tap.
@@ -299,13 +287,17 @@ def annotate_session(session, *, label: str) -> None:
     code = _host.glowcap_host_session_trace_id(session._ptr, ctypes.byref(out))
     if code != 0:
         return
-    _emit(sink, {
-        "v": 1,
-        "sim_t_ns": _now_ns(),
-        "kind": "ocapn.session-meta",
-        "session": f"live-h{cookie}-s{out.value}",
-        "meta": {"label": label},
-    }, owner)
+    _emit(
+        sink,
+        {
+            "v": 1,
+            "sim_t_ns": _now_ns(),
+            "kind": "ocapn.session-meta",
+            "session": f"live-h{cookie}-s{out.value}",
+            "meta": {"label": label},
+        },
+        owner,
+    )
 
 
 def _live_hosts_locked() -> list:
@@ -339,6 +331,7 @@ def _current_install(owner):
 
 def _refresh_host(owner) -> None:
     """Apply the latest trace state on a Host's owner thread when possible."""
+
     def install() -> None:
         current = _current_install(owner)
         raw = owner.raw_or_none

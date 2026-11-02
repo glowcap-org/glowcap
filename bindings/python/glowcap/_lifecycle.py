@@ -5,7 +5,7 @@ from __future__ import annotations
 import ctypes
 import math
 import time
-from enum import Enum
+from enum import StrEnum
 from typing import Final
 
 from . import _constants as _abi
@@ -13,7 +13,7 @@ from ._errors import GlowcapError
 from ._ffi_host import _CloseOptions
 
 
-class PendingWork(str, Enum):
+class PendingWork(StrEnum):
     """What close does with operations admitted before its barrier."""
 
     CANCEL = "cancel"
@@ -30,18 +30,11 @@ def _release_consumed(code: int) -> bool:
 
 def _lifecycle_closed(raw: int) -> bool:
     """Decode FFI progress without letting an unknown state become a hang."""
-    if raw in (
-        _abi.LIFECYCLE_ACTIVE,
-        _abi.LIFECYCLE_FINISHING,
-        _abi.LIFECYCLE_TERMINATING,
-    ):
+    if raw in (_abi.LIFECYCLE_ACTIVE, _abi.LIFECYCLE_FINISHING, _abi.LIFECYCLE_TERMINATING):
         return False
     if raw == _abi.LIFECYCLE_CLOSED:
         return True
-    raise GlowcapError(
-        _abi.ERR_INTERNAL,
-        f"glowcap ABI returned unknown lifecycle state {raw}",
-    )
+    raise GlowcapError(_abi.ERR_INTERNAL, f"glowcap ABI returned unknown lifecycle state {raw}")
 
 
 def _monotonic_ms() -> int:
@@ -62,20 +55,17 @@ def _close_options(pending: PendingWork, grace: object = _UNSET) -> _CloseOption
             raise GlowcapError(_abi.ERR_INVALID_ARGUMENT, "grace must be finite")
         if grace > _abi.CLOSE_MAX_GRACE_MS / 1_000:
             raise GlowcapError(
-                _abi.ERR_INVALID_ARGUMENT,
-                f"grace must not exceed {_abi.CLOSE_MAX_GRACE_MS} milliseconds",
+                _abi.ERR_INVALID_ARGUMENT, f"grace must not exceed {_abi.CLOSE_MAX_GRACE_MS} milliseconds"
             )
         grace_ms = math.ceil(grace * 1_000)
         if grace_ms > _abi.CLOSE_MAX_GRACE_MS:
             raise GlowcapError(
-                _abi.ERR_INVALID_ARGUMENT,
-                f"grace must not exceed {_abi.CLOSE_MAX_GRACE_MS} milliseconds",
+                _abi.ERR_INVALID_ARGUMENT, f"grace must not exceed {_abi.CLOSE_MAX_GRACE_MS} milliseconds"
             )
         grace_mode = _abi.CLOSE_GRACE_FINITE
-    pending_id = {
-        PendingWork.CANCEL: _abi.PENDING_CANCEL,
-        PendingWork.FINISH: _abi.PENDING_FINISH,
-    }.get(pending, 0xFFFF_FFFF)
+    pending_id = {PendingWork.CANCEL: _abi.PENDING_CANCEL, PendingWork.FINISH: _abi.PENDING_FINISH}.get(
+        pending, 0xFFFF_FFFF
+    )
     return _CloseOptions(
         abi_version=_abi.CLOSE_OPTIONS_ABI_VERSION,
         struct_size=ctypes.sizeof(_CloseOptions),

@@ -10,20 +10,15 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from . import _constants as _abi
-from ._abi_value import (
-    _INTEROP_CAPTP_VERSION,
-    _INTEROP_CODEC,
-    _OWN_CAPTP_VERSION,
-    _OWN_CODEC,
-)
+from ._abi_value import _INTEROP_CAPTP_VERSION, _INTEROP_CODEC, _OWN_CAPTP_VERSION, _OWN_CODEC
 from ._errors import GlowcapError, _check_host, _retain_terminal_failure
 from ._ffi_host import _host
 from ._ffi_ocapn import _LocatorHintView, _LocatorView
 from ._host import Host
-from ._lifecycle import PendingWork, _UNSET, _close_options
+from ._lifecycle import _UNSET, PendingWork, _close_options
 from ._locator import Locator, _OwnedLocator
 from ._transport import Connector, Provider
 
@@ -33,25 +28,19 @@ if TYPE_CHECKING:
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 
 
-def _validate_handshake_timeout(handshake_timeout_ms: Optional[int]) -> None:
+def _validate_handshake_timeout(handshake_timeout_ms: int | None) -> None:
     if handshake_timeout_ms is not None and (
         isinstance(handshake_timeout_ms, bool)
         or not isinstance(handshake_timeout_ms, int)
         or handshake_timeout_ms < 0
         or handshake_timeout_ms > ctypes.c_uint32(-1).value
     ):
-        raise GlowcapError(
-            _ERR_INVALID_ARGUMENT,
-            "handshake_timeout_ms must be None or an unsigned 32-bit integer",
-        )
+        raise GlowcapError(_ERR_INVALID_ARGUMENT, "handshake_timeout_ms must be None or an unsigned 32-bit integer")
 
 
 def _composition(value, values, label):
     if value is not None and values is not None:
-        raise GlowcapError(
-            _ERR_INVALID_ARGUMENT,
-            f"Runtime.open accepts either {label}= or {label}s=, not both",
-        )
+        raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime.open accepts either {label}= or {label}s=, not both")
     if value is not None:
         result = (value,)
     elif values is not None:
@@ -91,11 +80,11 @@ class Runtime:
         providers: tuple[Provider, ...],
         connectors: tuple[Connector, ...],
         *,
-        adopt_host: Optional[Host],
-        seed: Optional[bytes],
-        profile: Optional[str],
-        codec: Optional[str],
-        handshake_timeout_ms: Optional[int],
+        adopt_host: Host | None,
+        seed: bytes | None,
+        profile: str | None,
+        codec: str | None,
+        handshake_timeout_ms: int | None,
     ) -> None:
         self._providers = providers
         self._connectors = connectors
@@ -104,10 +93,10 @@ class Runtime:
         self._profile = profile
         self._codec = codec
         self._handshake_timeout_ms = handshake_timeout_ms
-        self._host: Optional[Host] = None
-        self._loop: Optional["DriverLoop"] = None
+        self._host: Host | None = None
+        self._loop: DriverLoop | None = None
         self._opened = False
-        self._opening: Optional[asyncio.Task[None]] = None
+        self._opening: asyncio.Task[None] | None = None
         self._closed = False
         self._terminal_failures: list[BaseException] = []
         self._terminal_failure_count = 0
@@ -135,16 +124,16 @@ class Runtime:
     def open(
         cls,
         *,
-        provider: Optional[Provider] = None,
+        provider: Provider | None = None,
         providers=None,
-        connector: Optional[Connector] = None,
+        connector: Connector | None = None,
         connectors=None,
-        adopt_host: Optional[Host] = None,
-        seed: Optional[bytes] = None,
-        profile: Optional[str] = None,
-        codec: Optional[str] = None,
-        handshake_timeout_ms: Optional[int] = _abi.HANDSHAKE_TIMEOUT_MS,
-    ) -> "Runtime":
+        adopt_host: Host | None = None,
+        seed: bytes | None = None,
+        profile: str | None = None,
+        codec: str | None = None,
+        handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS,
+    ) -> Runtime:
         """Construct a runtime. FFI setup is completed on first await/use.
 
         Singular ``provider=`` and ``connector=`` are the idiomatic Python
@@ -162,10 +151,7 @@ class Runtime:
             else ()
         )
         if bool(selected_providers) == bool(selected_connectors):
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "Runtime.open requires providers or connectors, but not both",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "Runtime.open requires providers or connectors, but not both")
         if selected_providers:
             _validate_composition(selected_providers, Provider, "provider")
         else:
@@ -176,19 +162,13 @@ class Runtime:
             raise GlowcapError(_ERR_INVALID_ARGUMENT, "profile cannot be combined with codec")
         if adopt_host is not None and profile is not None:
             wanted = (
-                (_OWN_CODEC, _OWN_CAPTP_VERSION)
-                if profile == "glowcap"
-                else (_INTEROP_CODEC, _INTEROP_CAPTP_VERSION)
+                (_OWN_CODEC, _OWN_CAPTP_VERSION) if profile == "glowcap" else (_INTEROP_CODEC, _INTEROP_CAPTP_VERSION)
             )
             if wanted != (adopt_host.codec, adopt_host.captp_version):
-                raise GlowcapError(
-                    _ERR_INVALID_ARGUMENT,
-                    f'profile "{profile}" conflicts with the adopted host',
-                )
+                raise GlowcapError(_ERR_INVALID_ARGUMENT, f'profile "{profile}" conflicts with the adopted host')
         if adopt_host is not None and codec is not None and codec != adopt_host.codec:
             raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                f'codec "{codec}" conflicts with the adopted host\'s "{adopt_host.codec}"',
+                _ERR_INVALID_ARGUMENT, f'codec "{codec}" conflicts with the adopted host\'s "{adopt_host.codec}"'
             )
         return cls(
             selected_providers,
@@ -203,13 +183,13 @@ class Runtime:
     def __await__(self):
         return self._ensure_open().__await__()
 
-    async def __aenter__(self) -> "Runtime":
+    async def __aenter__(self) -> Runtime:
         return await self._ensure_open()
 
     async def __aexit__(self, *exc) -> None:
         await self.close()
 
-    async def _ensure_open(self) -> "Runtime":
+    async def _ensure_open(self) -> Runtime:
         if self._closed:
             raise GlowcapError(_abi.ERR_CLOSED, "Runtime is closed")
         if self._opened:
@@ -237,7 +217,9 @@ class Runtime:
                     loop = DriverLoop.take_host(
                         host,
                         # No caller deadline: the C ABI's unbounded-wait sentinel.
-                        handshake_ms=_abi.DRIVER_WAIT_UNBOUNDED if self._handshake_timeout_ms is None else self._handshake_timeout_ms,
+                        handshake_ms=_abi.DRIVER_WAIT_UNBOUNDED
+                        if self._handshake_timeout_ms is None
+                        else self._handshake_timeout_ms,
                     )
                     # A caller-supplied Host keeps this valid loop if later
                     # provider setup fails, so the caller can repair and retry.
@@ -253,8 +235,7 @@ class Runtime:
             else:
                 if host.driver_loop is not None:
                     raise GlowcapError(
-                        _ERR_INVALID_ARGUMENT,
-                        "a byte-fed Runtime cannot use a Host already owned by a driver loop",
+                        _ERR_INVALID_ARGUMENT, "a byte-fed Runtime cannot use a Host already owned by a driver loop"
                     )
                 host.install_connectors(self._connectors)
                 # Host._connectors is the one durable byte-fed authority used by
@@ -282,12 +263,7 @@ class Runtime:
             raise GlowcapError(_ERR_INVALID_ARGUMENT, "Runtime is not open")
         return self._host
 
-    async def connect(
-        self,
-        partner: Locator,
-        *,
-        handshake_timeout_ms: Optional[int] = None,
-    ):
+    async def connect(self, partner: Locator, *, handshake_timeout_ms: int | None = None):
         """Connect using the runtime's retained transport authority."""
         await self._ensure_open()
         if handshake_timeout_ms is not None:
@@ -296,32 +272,23 @@ class Runtime:
         if self._loop is not None:
             if handshake_timeout_ms is not None and timeout != self._handshake_timeout_ms:
                 raise GlowcapError(
-                    _ERR_INVALID_ARGUMENT,
-                    "FFI Runtime handshake_timeout_ms is configured at Runtime.open",
+                    _ERR_INVALID_ARGUMENT, "FFI Runtime handshake_timeout_ms is configured at Runtime.open"
                 )
             from ._loop import dial_shared_loop
 
             return await dial_shared_loop(self._loop, partner)
         connector = self.host._connector_for(partner.transport)
         if connector is None:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                f"Runtime has no connector for {partner.transport!r}",
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, f"Runtime has no connector for {partner.transport!r}")
         return await connector.connect(self.host, partner, timeout)
 
-    async def close(
-        self,
-        pending: PendingWork = PendingWork.CANCEL,
-        *,
-        grace: object = _UNSET,
-    ) -> None:
+    async def close(self, pending: PendingWork = PendingWork.CANCEL, *, grace: object = _UNSET) -> None:
         _close_options(pending, grace)
         if self._closed:
             self._raise_terminal_failure()
             return
-        opening_error: Optional[BaseException] = None
-        cancellation: Optional[asyncio.CancelledError] = None
+        opening_error: BaseException | None = None
+        cancellation: asyncio.CancelledError | None = None
         if self._opening is not None:
             try:
                 await asyncio.shield(self._opening)
@@ -336,7 +303,7 @@ class Runtime:
                     opening_error = settled_error
             except BaseException as error:
                 opening_error = error
-        close_error: Optional[BaseException] = None
+        close_error: BaseException | None = None
         if self._host is not None:
             try:
                 await self._host.close(pending, grace=grace)
@@ -359,35 +326,21 @@ class Runtime:
 
 
 async def dial_parsed_locator(
-    locator: Locator,
-    host: Host,
-    *,
-    connector: Connector,
-    handshake_timeout_ms: Optional[int] = _abi.HANDSHAKE_TIMEOUT_MS,
+    locator: Locator, host: Host, *, connector: Connector, handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS
 ):
     """Binding-internal byte-fed dial used by handoff redemption."""
     _validate_handshake_timeout(handshake_timeout_ms)
     return await connector.connect(host, locator, handshake_timeout_ms)
 
 
-async def dial_exporter(
-    locator: Locator,
-    host: Host,
-    handshake_timeout_ms: "Optional[int]" = _abi.HANDSHAKE_TIMEOUT_MS,
-):
+async def dial_exporter(locator: Locator, host: Host, handshake_timeout_ms: int | None = _abi.HANDSHAKE_TIMEOUT_MS):
     """Redeem a DIAL action through the Host's retained connector authority."""
     connector = host._connector_for(locator.transport)
     if connector is None:
         raise GlowcapError(
-            _ERR_INVALID_ARGUMENT,
-            f"handoff redeem has no registered connector for {locator.transport!r}",
+            _ERR_INVALID_ARGUMENT, f"handoff redeem has no registered connector for {locator.transport!r}"
         )
-    return await dial_parsed_locator(
-        locator,
-        host,
-        connector=connector,
-        handshake_timeout_ms=handshake_timeout_ms,
-    )
+    return await dial_parsed_locator(locator, host, connector=connector, handshake_timeout_ms=handshake_timeout_ms)
 
 
 async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
@@ -402,13 +355,7 @@ async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
         count = ctypes.c_size_t()
         hints = None
         rc = _host.glowcap_host_pending_dial(
-            host.raw,
-            ticket,
-            route_index,
-            None,
-            0,
-            ctypes.byref(view),
-            ctypes.byref(count),
+            host.raw, ticket, route_index, None, 0, ctypes.byref(view), ctypes.byref(count)
         )
         if rc == _abi.ERR_BUFFER_TOO_SMALL:
             capacity = count.value
@@ -416,13 +363,7 @@ async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
             view = _LocatorView()
             count = ctypes.c_size_t()
             rc = _host.glowcap_host_pending_dial(
-                host.raw,
-                ticket,
-                route_index,
-                hints,
-                capacity,
-                ctypes.byref(view),
-                ctypes.byref(count),
+                host.raw, ticket, route_index, hints, capacity, ctypes.byref(view), ctypes.byref(count)
             )
         _check_host(rc)
         with _OwnedLocator.clone_view(ctypes.cast(ctypes.byref(view), ctypes.c_void_p)) as owned:
@@ -432,9 +373,7 @@ async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
             session.close_transport()
             return
         adopted = ctypes.c_uint8()
-        _check_host(_host.glowcap_host_dialed(
-            host.raw, ticket, route_index, session.raw, ctypes.byref(adopted)
-        ))
+        _check_host(_host.glowcap_host_dialed(host.raw, ticket, route_index, session.raw, ctypes.byref(adopted)))
         if not adopted.value:
             session.close_transport()
             return
@@ -454,9 +393,7 @@ async def run_dial_ticket(host: Host, ticket: int, route_index: int) -> None:
             return
         reason = (str(error) or type(error).__name__).encode()
         _buf, ptr = _byte_buf(reason)
-        _check_host(_host.glowcap_host_dial_failed(
-            host.raw, ticket, route_index, ptr, len(reason)
-        ))
+        _check_host(_host.glowcap_host_dial_failed(host.raw, ticket, route_index, ptr, len(reason)))
         host.signal_close_activity()
         if not isinstance(error, Exception):
             raise

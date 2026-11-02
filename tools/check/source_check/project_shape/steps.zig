@@ -27,14 +27,15 @@ const fixed_command_docs = [_][]const u8{
     ".serena/project.yml",
 };
 
-/// Command-invoking CI surfaces. These are workflow YAML and shell, not
-/// Markdown, so the whole file is command context, and one invocation may
-/// name several steps (`zig build fmt-check arch-check …`): a `zig build
-/// <step>` here must name a real step and a `bash <script>` must resolve.
+/// Command-invoking CI surfaces. These are workflow YAML and the gate
+/// inventory, not Markdown, so the whole file is command context, and one
+/// invocation may name several steps (`zig build fmt-check arch-check …`): a
+/// `zig build <step>` here must name a real step and a `bash <script>` must
+/// resolve.
 /// That every step has a row in `docs/build-steps.md` is held by
 /// `gen-build-steps-check`, which reads the build graph itself.
 const ci_command_dirs = [_][]const u8{".github/workflows"};
-const ci_command_files = [_][]const u8{"ci/gates.sh"};
+const ci_command_files = [_][]const u8{"ci/groups.py"};
 
 /// Appends each command-context region of a Markdown document to `out`: every
 /// line inside a fenced code block, and the text of every inline backtick span

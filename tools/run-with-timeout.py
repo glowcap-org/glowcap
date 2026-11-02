@@ -3,7 +3,7 @@
 
 macOS ships no GNU `timeout`, so the gate sequence and the conformance runner
 call this instead. The exit codes a caller can act on match GNU timeout, because
-ci/gates.sh reads them: 124 when the deadline fires, 126 when the command cannot
+ci/gates.py reads them: 124 when the deadline fires, 126 when the command cannot
 be executed, 127 when it does not exist, and 128+N when a signal kills the
 child. One does not match, and it is the one nothing reads: a bad argument list
 exits 2, argparse's code, where GNU uses 125. Nothing branches on it. A gate
@@ -46,8 +46,8 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import shutil
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -108,7 +108,7 @@ def escalate(process: subprocess.Popen[bytes], kill_after: float | None) -> None
 def shell_code(returncode: int) -> int:
     """A child's wait status as a shell reports it: 128+N when a signal killed
     it. Python hands back -N there, and `sys.exit(-N)` would truncate to an
-    unrelated code, so ci/gates.sh would stop recognizing 137 (SIGKILL)."""
+    unrelated code, so ci/gates.py would stop recognizing 137 (SIGKILL)."""
     return 128 - returncode if returncode < 0 else returncode
 
 
@@ -116,9 +116,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kill-after", type=duration, default=None)
     parser.add_argument(
-        "--quiet-success",
-        action="store_true",
-        help="replay combined child output only when the command fails",
+        "--quiet-success", action="store_true", help="replay combined child output only when the command fails"
     )
     parser.add_argument("--heartbeat", type=duration, default=0)
     parser.add_argument("timeout", type=duration)
@@ -207,17 +205,24 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 if time.monotonic() >= deadline:
                     raise
-                print(f"run-with-timeout: {shlex.join(command)} still running "
-                      f"({time.monotonic() - started:.0f}s elapsed, "
-                      f"{args.timeout:g}s deadline)", file=sys.stderr, flush=True)
+                print(
+                    f"run-with-timeout: {shlex.join(command)} still running "
+                    f"({time.monotonic() - started:.0f}s elapsed, "
+                    f"{args.timeout:g}s deadline)",
+                    file=sys.stderr,
+                    flush=True,
+                )
     except subprocess.TimeoutExpired:
         signal_group(process, signal.SIGTERM)
         escalate(process, args.kill_after)
         signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
         process = None
         code = finish(124)
-        print(f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline "
-              "and was stopped", file=sys.stderr, flush=True)
+        print(
+            f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline and was stopped",
+            file=sys.stderr,
+            flush=True,
+        )
         signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
         return code
     elapsed = time.monotonic() - started
@@ -237,8 +242,12 @@ def report_headroom(command: list[str], elapsed: float, timeout: float) -> None:
     way."""
     said = shlex.join(command)
     if timeout > 0 and elapsed * HEADROOM > timeout:
-        print(f"run-with-timeout: {said} passed in {elapsed:.0f}s of its {timeout:g}s deadline; "
-              f"a runner {HEADROOM}x slower would stop it", file=sys.stderr, flush=True)
+        print(
+            f"run-with-timeout: {said} passed in {elapsed:.0f}s of its {timeout:g}s deadline; "
+            f"a runner {HEADROOM}x slower would stop it",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

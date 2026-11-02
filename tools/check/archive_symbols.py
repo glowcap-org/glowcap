@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Check an ELF C archive's glowcap exports against its generated header.
 
 Build-owned caller: common.installArchive, before static/shared installation.
@@ -48,7 +47,9 @@ def main():
         actual = exports(library)
         missing, unexpected = expected - actual, actual - expected
         if missing or unexpected:
-            raise ValueError(f"missing: {', '.join(sorted(missing)) or 'none'}; unexpected: {', '.join(sorted(unexpected)) or 'none'}")
+            raise ValueError(
+                f"missing: {', '.join(sorted(missing)) or 'none'}; unexpected: {', '.join(sorted(unexpected)) or 'none'}"
+            )
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         sys.exit(f"archive-symbols: {library}: {error}")
 

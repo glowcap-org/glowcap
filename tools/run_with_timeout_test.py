@@ -1,0 +1,298 @@
+"""Black-box test for tools/run-with-timeout.py.
+
+The wrapper bounds every CI gate, and ci/gates.py branches on the codes it
+returns (ci/gates_test.py holds that half), so the contract is its observable
+behaviour: the exit code a caller sees, the signal the child receives, the text
+on stderr, and whether anything survives the wrapper. A source-string check
+cannot see any of that.
+
+Each test starts the wrapper as a separate process and runs small
+`python -c` programs as the child. Deadlines are fractions of a second, and
+every wait is bounded.
+
+Run it with `python3 tools/run_with_timeout_test.py`. The build registers it as
+the `timeout-runner-test` step in tools/build/infrastructure.zig under a 30
+second process deadline. It needs python3 only and keeps to options that macOS
+and Linux share.
+"""
+
+from __future__ import annotations
+
+import os
+import pathlib
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+WRAPPER = pathlib.Path(__file__).resolve().parent / "run-with-timeout.py"
+WAIT = 20  # seconds a test waits for any one process before failing
+
+
+def wrapper_command(*args: str) -> list[str]:
+    return [sys.executable, str(WRAPPER), *args]
+
+
+def child(code: str, *args: str) -> list[str]:
+    """A child command: a Python program with optional arguments."""
+    return [sys.executable, "-c", code, *args]
+
+
+def process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def wait_for_file(path: pathlib.Path, seconds: float = 5) -> None:
+    end = time.monotonic() + seconds
+    while not path.exists():
+        if time.monotonic() >= end:
+            raise AssertionError(f"{path.name} never appeared")
+        time.sleep(0.01)
+
+
+class RunWithTimeoutTest(unittest.TestCase):
+    def setUp(self) -> None:
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.scratch = pathlib.Path(scratch.name)
+        self.started: list[subprocess.Popen[str]] = []
+        self.addCleanup(self.stop_started)
+
+    def stop_started(self) -> None:
+        """Relay SIGTERM to any wrapper a failed test left running; the
+        wrapper then stops its own child."""
+        for process in self.started:
+            if process.poll() is None:
+                process.send_signal(signal.SIGTERM)
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+    def start(self, *args: str, merge: bool = False) -> subprocess.Popen[str]:
+        process = subprocess.Popen(
+            wrapper_command(*args),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if merge else subprocess.PIPE,
+            text=True,
+        )
+        self.started.append(process)
+        return process
+
+    def run_wrapper(self, *args: str, merge: bool = False) -> subprocess.CompletedProcess[str]:
+        """Run the wrapper to completion. With `merge`, stderr arrives in
+        stdout in the order it was written."""
+        process = self.start(*args, merge=merge)
+        stdout, stderr = process.communicate(timeout=WAIT)
+        return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+
+    def code(self, *args: str) -> int:
+        return self.run_wrapper(*args).returncode
+
+    def count_lines(self, path: pathlib.Path) -> int:
+        return len(path.read_text().splitlines())
+
+    # Exit codes.
+
+    def test_a_clean_exit_reports_0(self) -> None:
+        self.assertEqual(self.code("5s", *child("pass")), 0)
+
+    def test_a_child_exit_code_passes_through(self) -> None:
+        self.assertEqual(self.code("5s", *child("raise SystemExit(3)")), 3)
+
+    def test_a_child_killed_by_a_signal_reports_128_plus_the_signal(self) -> None:
+        kill_self = "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"
+        self.assertEqual(self.code("5s", *child(kill_self)), 137)
+
+    def test_a_missing_command_reports_127(self) -> None:
+        # An absolute path, not a bare name: a PATH search can report EACCES
+        # from an unreadable PATH component and turn "no such command" into 126.
+        missing = self.scratch / "definitely-not-a-command"
+        self.assertEqual(self.code("5s", str(missing)), 127)
+
+    def test_a_command_that_is_not_executable_reports_126(self) -> None:
+        plain = self.scratch / "noexec"
+        plain.write_text("x")
+        plain.chmod(0o644)
+        self.assertEqual(self.code("5s", str(plain)), 126)
+
+    def test_an_infinite_deadline_is_invalid(self) -> None:
+        self.assertEqual(self.code("inf", *child("pass")), 2)
+
+    def test_a_not_a_number_deadline_is_invalid(self) -> None:
+        self.assertEqual(self.code("nan", *child("pass")), 2)
+
+    def test_automatic_deadline_retries_are_unavailable(self) -> None:
+        self.assertEqual(self.code("--deadline-retries", "1", "5s", *child("pass")), 2)
+
+    # Deadlines.
+
+    def test_a_timed_out_child_reports_124(self) -> None:
+        sleeper = child("import time; time.sleep(30)")
+        self.assertEqual(self.code("--kill-after", "0.5s", "0.5s", *sleeper), 124)
+
+    def test_a_child_ignoring_sigterm_is_still_bounded(self) -> None:
+        stubborn = child("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)")
+        self.assertEqual(self.code("--kill-after", "0.5s", "0.8s", *stubborn), 124)
+
+    def test_a_fired_deadline_names_itself_on_stderr(self) -> None:
+        sleeper = child("import time; time.sleep(30)")
+        result = self.run_wrapper("--kill-after", "0.5s", "0.5s", *sleeper)
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("0.5s deadline", result.stderr)
+
+    def test_a_heartbeat_reports_activity_without_extending_the_deadline(self) -> None:
+        sleeper = child("import time; time.sleep(30)")
+        result = self.run_wrapper("--heartbeat", "0.02s", "--kill-after", "0.1s", "0.15s", *sleeper, merge=True)
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("still running", result.stdout)
+        self.assertIn("deadline and was stopped", result.stdout)
+
+    def test_a_heartbeat_preserves_the_child_failure(self) -> None:
+        failing = child("import time; time.sleep(0.05); raise SystemExit(3)")
+        self.assertEqual(self.code("--heartbeat", "0.01s", "5s", *failing), 3)
+
+    # A failure is final.
+
+    def test_a_deadline_failure_is_final(self) -> None:
+        # A child that would pass on its next invocation must still fail this
+        # check, and the marker proves nothing reran it.
+        marker = self.scratch / "retry-count"
+        counting = child(
+            "import sys, time\n"
+            "path = sys.argv[1]\n"
+            "open(path, 'a').write('run\\n')\n"
+            "if len(open(path).read().splitlines()) > 1:\n"
+            "    raise SystemExit(0)\n"
+            "time.sleep(30)\n",
+            str(marker),
+        )
+        self.assertEqual(self.code("--kill-after", "0.5s", "0.8s", *counting), 124)
+        self.assertEqual(self.count_lines(marker), 1)
+
+    def test_an_ordinary_failure_is_final(self) -> None:
+        marker = self.scratch / "retry-count"
+        failing = child("import sys; open(sys.argv[1], 'a').write('run\\n'); raise SystemExit(3)", str(marker))
+        self.assertEqual(self.code("5s", *failing), 3)
+        self.assertEqual(self.count_lines(marker), 1)
+
+    # Stderr reports.
+
+    def test_a_pass_over_half_its_deadline_warns(self) -> None:
+        slow = child("import time; time.sleep(0.9)")
+        result = self.run_wrapper("--quiet-success", "1.5s", *slow, merge=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("of its 1.5s deadline", result.stdout)
+
+    def test_a_pass_with_headroom_stays_quiet(self) -> None:
+        result = self.run_wrapper("--quiet-success", "5s", *child("pass"), merge=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_quiet_success_suppresses_child_output(self) -> None:
+        noisy = child("import sys; print('hidden-out'); print('hidden-error', file=sys.stderr)")
+        result = self.run_wrapper("--quiet-success", "5s", *noisy, merge=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_quiet_failure_replays_combined_child_output(self) -> None:
+        noisy = child(
+            "import sys; print('replayed-out'); print('replayed-error', file=sys.stderr); raise SystemExit(9)"
+        )
+        result = self.run_wrapper("--quiet-success", "5s", *noisy, merge=True)
+        self.assertEqual(result.returncode, 9)
+        self.assertIn("replayed-out", result.stdout)
+        self.assertIn("replayed-error", result.stdout)
+
+    # Signals and survivors.
+
+    def test_the_child_receives_the_signal_that_arrived_not_a_substitute(self) -> None:
+        # The victim records the signal number it actually received. It writes
+        # a ready file once its handler is installed, so the signal cannot
+        # arrive early.
+        saw = self.scratch / "signal"
+        ready = self.scratch / "ready"
+        victim = child(
+            "import pathlib, signal, sys, time\n"
+            "saw, ready = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])\n"
+            "def seen(sig, _frame):\n"
+            "    saw.write_text(str(sig))\n"
+            "    sys.exit(42)\n"
+            "signal.signal(signal.SIGINT, seen)\n"
+            "ready.write_text('ready')\n"
+            "time.sleep(10)\n",
+            str(saw),
+            str(ready),
+        )
+        wrapper = self.start("20s", *victim)
+        wait_for_file(ready)
+        wrapper.send_signal(signal.SIGINT)
+        wrapper.communicate(timeout=WAIT)
+        self.assertEqual(saw.read_text(), str(int(signal.SIGINT)))
+
+    def test_no_child_outlives_the_wrapper(self) -> None:
+        # The child writes its pid, then sleeps past the deadline. After the
+        # wrapper returns, that pid must be gone.
+        pidfile = self.scratch / "pid"
+        sleeper = child(
+            "import os, pathlib, sys, time\npathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\ntime.sleep(30)\n",
+            str(pidfile),
+        )
+        self.run_wrapper("--kill-after", "0.5s", "1s", *sleeper)
+        self.assertTrue(pidfile.exists(), "child never recorded its pid")
+        pid = int(pidfile.read_text())
+        survived = process_exists(pid)
+        if survived:
+            os.kill(pid, signal.SIGKILL)
+        self.assertFalse(survived, f"child {pid} outlived the wrapper")
+
+    def test_deadline_and_cancellation_stop_descendants_after_their_leader_exits(self) -> None:
+        # A leader exiting on TERM must not hide a descendant that ignores it.
+        for mode, deadline, expected in (("deadline", "2s", 124), ("cancel", "20s", 143)):
+            with self.subTest(mode=mode):
+                self.stop_descendant_after_leader_exits(mode, deadline, expected)
+
+    def stop_descendant_after_leader_exits(self, mode: str, deadline: str, expected: int) -> None:
+        marker = self.scratch / ("descendant-" + mode)
+        descendant_code = (
+            "import os, pathlib, signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "marker = pathlib.Path(sys.argv[1])\n"
+            "staged = marker.with_suffix('.ready')\n"
+            "staged.write_text(str(os.getpid()))\n"
+            "staged.replace(marker)\n"
+            "time.sleep(30)\n"
+        )
+        leader_code = (
+            "import subprocess, sys, time\n"
+            "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]])\n"
+            "time.sleep(30)\n"
+        )
+        wrapper = self.start("--kill-after", "0.2s", deadline, *child(leader_code, descendant_code, str(marker)))
+        descendant = None
+        try:
+            wait_for_file(marker)
+            descendant = int(marker.read_text())
+            if mode == "cancel":
+                wrapper.send_signal(signal.SIGTERM)
+            wrapper.communicate(timeout=WAIT)
+            self.assertEqual(wrapper.returncode, expected)
+            # An orphan is reaped by init, so allow that observation to catch up.
+            reaped = time.monotonic() + 2
+            while process_exists(descendant):
+                self.assertLess(time.monotonic(), reaped, f"descendant survived {mode}")
+                time.sleep(0.01)
+        finally:
+            if descendant is not None and process_exists(descendant):
+                os.kill(descendant, signal.SIGKILL)
+
+
+if __name__ == "__main__":
+    unittest.main()

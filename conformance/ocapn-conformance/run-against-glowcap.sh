@@ -61,7 +61,7 @@ PORT=22055
 MODULE=all
 PROFILE=baseline
 ADOPTION_TOOL=
-# Per-module and probe caps, raisable on a slow runner the way ci/gates.sh
+# Per-module and probe caps, raisable on a slow runner the way ci/gates.py
 # takes GATE_TIMEOUT. A cap that fires is reported as a timeout and fails the
 # run, so the only thing a too-tight cap buys is a scheduling hiccup wearing
 # the costume of a protocol failure in a public log. Crossed-hellos cases in

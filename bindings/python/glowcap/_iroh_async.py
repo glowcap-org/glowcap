@@ -4,41 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import Optional, Union
 
-from ._constants import (
-    ERR_CLOSED as _ERR_CLOSED,
-    ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT,
-    HINT_DIRECT_ADDRESSES,
-    TRANSPORT_IROH,
-    WOULD_BLOCK as _WOULD_BLOCK,
-)
-from ._constants_gen import (
-    BINDING_IROH_READ_CHUNK_BYTES,
-    BINDING_READINESS_DRAIN_CAP,
-    IROH_EV_ACCEPT as _IROH_EV_ACCEPT,
-    IROH_EV_CLOSED as _IROH_EV_CLOSED,
-    IROH_EV_CONNECT as _IROH_EV_CONNECT,
-    IROH_EV_READABLE as _IROH_EV_READABLE,
-    IROH_EV_WRITABLE as _IROH_EV_WRITABLE,
-)
 from ._abi_value import _DEFAULT_CODEC
+from ._constants import ERR_CLOSED as _ERR_CLOSED
+from ._constants import ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT
+from ._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH
+from ._constants import WOULD_BLOCK as _WOULD_BLOCK
+from ._constants_gen import BINDING_IROH_READ_CHUNK_BYTES, BINDING_READINESS_DRAIN_CAP
+from ._constants_gen import IROH_EV_ACCEPT as _IROH_EV_ACCEPT
+from ._constants_gen import IROH_EV_CLOSED as _IROH_EV_CLOSED
+from ._constants_gen import IROH_EV_CONNECT as _IROH_EV_CONNECT
+from ._constants_gen import IROH_EV_READABLE as _IROH_EV_READABLE
+from ._constants_gen import IROH_EV_WRITABLE as _IROH_EV_WRITABLE
 from ._errors import GlowcapError
 from ._ffi_iroh import _IrohReadyEvent
 from ._host import Host
-from ._iroh_ffi import (
-    IrohConfig,
-    IrohConnection,
-    IrohNetlayer,
-    Reachability,
-    adopt_loop_provider,
-)
-from ._server import (
-    DriverServer,
-    listener_seed,
-    prepare_driver_loop,
-    _rollback_listener_construction,
-)
+from ._iroh_ffi import IrohConfig, IrohConnection, IrohNetlayer, Reachability, adopt_loop_provider
+from ._server import DriverServer, _rollback_listener_construction, listener_seed, prepare_driver_loop
 from ._transport import Connector, _rollback_failed_transport
 
 
@@ -48,23 +30,12 @@ def connector(config: IrohConfig) -> Connector:
     async def realize(host, locator, handshake_timeout_ms):
         direct = locator.hints.get(HINT_DIRECT_ADDRESSES, "")
         if not isinstance(direct, str):
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "iroh direct-addresses hint must be text",
-            )
-        channel, proof = await _open_byte_channel(
-            locator.designator, direct, config.reachability
-        )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "iroh direct-addresses hint must be text")
+        channel, proof = await _open_byte_channel(locator.designator, direct, config.reachability)
         try:
             from ._session import Session
 
-            return await Session.establish_dialed_locator(
-                host,
-                locator,
-                channel,
-                handshake_timeout_ms,
-                proof,
-            )
+            return await Session.establish_dialed_locator(host, locator, channel, handshake_timeout_ms, proof)
         except BaseException as primary:
             await _rollback_failed_transport(primary, channel)
             raise
@@ -84,19 +55,12 @@ class _ConnWaiters:
     ``*_pending`` flag holds an edge that arrived before its waiter so no wakeup
     is lost."""
 
-    __slots__ = (
-        "conn",
-        "readable",
-        "writable",
-        "readable_pending",
-        "writable_pending",
-        "closed",
-    )
+    __slots__ = ("conn", "readable", "writable", "readable_pending", "writable_pending", "closed")
 
-    def __init__(self, conn: "IrohConnection") -> None:
+    def __init__(self, conn: IrohConnection) -> None:
         self.conn = conn
-        self.readable: "Optional[asyncio.Future]" = None
-        self.writable: "Optional[asyncio.Future]" = None
+        self.readable: asyncio.Future | None = None
+        self.writable: asyncio.Future | None = None
         self.readable_pending = False
         self.writable_pending = False
         self.closed = False
@@ -120,15 +84,15 @@ class _IrohLoop:
 
     def __init__(self, netlayer: IrohNetlayer):
         self._netlayer = netlayer
-        self._conns: "dict[int, _ConnWaiters]" = {}
-        self._dials: "dict[int, asyncio.Future]" = {}
+        self._conns: dict[int, _ConnWaiters] = {}
+        self._dials: dict[int, asyncio.Future] = {}
         self._next_request = 1
-        self._accept_waiter: "Optional[asyncio.Future]" = None
+        self._accept_waiter: asyncio.Future | None = None
         self._accept_pending = 0
         self._closed = False
-        self._failure: "Optional[BaseException]" = None
+        self._failure: BaseException | None = None
         self._fd = -1
-        self._aio_loop: "Optional[asyncio.AbstractEventLoop]" = None
+        self._aio_loop: asyncio.AbstractEventLoop | None = None
         # Reused across `drain_ready` calls; owned by the event-loop thread.
         self._buf = (_IrohReadyEvent * _DRAIN_READY_CAP)()
 
@@ -163,7 +127,7 @@ class _IrohLoop:
         if w is not None:
             self._wake_closed(w)
 
-    def wait_readable(self, conn: IrohConnection) -> "asyncio.Future":
+    def wait_readable(self, conn: IrohConnection) -> asyncio.Future:
         """A future resolving ``True`` when this connection is readable, ``False``
         if it closed."""
         fut = asyncio.get_running_loop().create_future()
@@ -179,7 +143,7 @@ class _IrohLoop:
             w.readable = fut
         return fut
 
-    def wait_writable(self, conn: IrohConnection) -> "asyncio.Future":
+    def wait_writable(self, conn: IrohConnection) -> asyncio.Future:
         """A future resolving ``True`` when this connection is writable, ``False``
         if it closed."""
         fut = asyncio.get_running_loop().create_future()
@@ -195,7 +159,7 @@ class _IrohLoop:
             w.writable = fut
         return fut
 
-    def next_accept(self) -> "asyncio.Future":
+    def next_accept(self) -> asyncio.Future:
         """A future resolving ``True`` when an accepted connection may be claimed,
         ``False`` on close."""
         fut = asyncio.get_running_loop().create_future()
@@ -211,11 +175,11 @@ class _IrohLoop:
         return fut
 
     @property
-    def failure(self) -> "Optional[BaseException]":
+    def failure(self) -> BaseException | None:
         """The exact readiness-dispatch failure, if the endpoint faulted."""
         return self._failure
 
-    def close(self, failure: "Optional[BaseException]" = None) -> None:
+    def close(self, failure: BaseException | None = None) -> None:
         """Remove the fd reader, wake every waiter, and release every connection
         still registered here (TS ``IrohLoop.close`` parity). The caller releases
         the netlayer after this. Each conn's own ``release`` is idempotent."""
@@ -233,9 +197,7 @@ class _IrohLoop:
         for request_id, fut in list(self._dials.items()):
             self._netlayer.cancel_connect(request_id)
             if not fut.done():
-                fut.set_exception(
-                    failure or GlowcapError(_ERR_CLOSED, "iroh loop closed")
-                )
+                fut.set_exception(failure or GlowcapError(_ERR_CLOSED, "iroh loop closed"))
         self._dials.clear()
         if self._accept_waiter is not None:
             a = self._accept_waiter
@@ -246,9 +208,7 @@ class _IrohLoop:
                 else:
                     a.set_result(False)
 
-    def _wake_closed(
-        self, w: _ConnWaiters, failure: "Optional[BaseException]" = None
-    ) -> None:
+    def _wake_closed(self, w: _ConnWaiters, failure: BaseException | None = None) -> None:
         w.closed = True
         for attr in ("readable", "writable"):
             fut = getattr(w, attr)
@@ -346,11 +306,7 @@ class _IrohTransport:
     parks on this connection, so ``close`` cannot race a parked read."""
 
     def __init__(
-        self,
-        conn: IrohConnection,
-        loop: _IrohLoop,
-        owned_netlayer: "Optional[IrohNetlayer]" = None,
-        owns_loop: bool = False,
+        self, conn: IrohConnection, loop: _IrohLoop, owned_netlayer: IrohNetlayer | None = None, owns_loop: bool = False
     ):
         self._conn = conn
         self._loop = loop
@@ -359,13 +315,13 @@ class _IrohTransport:
         self._read_buf = (ctypes.c_uint8 * _READ_CHUNK_BYTES)()
         self._closed = False
 
-    async def read(self) -> "Optional[bytes]":
+    async def read(self) -> bytes | None:
         while True:
             # Drain every byte available (the readiness signal is
             # edge-ish, so leaving bytes buffered in the sidecar could stall
             # until fresh data); the chunks are copied out so the read buffer
             # can be reused by the next read.
-            chunks: "list[bytes]" = []
+            chunks: list[bytes] = []
             while True:
                 n = self._conn.try_read_into(self._read_buf)
                 if n == _WOULD_BLOCK:
@@ -421,20 +377,15 @@ class _IrohTransport:
 
 
 async def _open_byte_channel(
-    node_id: str,
-    direct_addresses: str,
-    reachability: "Union[int, Reachability]",
-    worker_threads: "Optional[int]" = None,
-) -> "tuple[_IrohTransport, str | None]":
+    node_id: str, direct_addresses: str, reachability: int | Reachability, worker_threads: int | None = None
+) -> tuple[_IrohTransport, str | None]:
     """Open one runtime-owned iroh channel and return its remote proof.
 
     One transport attempt. A dial staged through the driver loop retries
     transient faults on the runtime's ``GLOWCAP_DISCOVERY_DIAL_*`` budget
     (ADR-0018); a raw transport dial raises its first fault.
     """
-    netlayer = await IrohNetlayer.open(
-        IrohConfig(reachability, worker_threads=worker_threads)
-    )
+    netlayer = await IrohNetlayer.open(IrohConfig(reachability, worker_threads=worker_threads))
     loop = _IrohLoop(netlayer)
     loop.start()
     try:
@@ -444,15 +395,10 @@ async def _open_byte_channel(
         await netlayer.close()
         raise
     loop.register(conn)
-    return (
-        _IrohTransport(conn, loop, netlayer, owns_loop=True),
-        conn.remote_node_id(),
-    )
+    return (_IrohTransport(conn, loop, netlayer, owns_loop=True), conn.remote_node_id())
 
 
-async def dial_locator_for_relay(
-    locator: str, reachability: "Union[int, Reachability]"
-) -> "_IrohTransport":
+async def dial_locator_for_relay(locator: str, reachability: int | Reachability) -> _IrohTransport:
     """Dial an iroh ``ocapn://`` locator to a raw byte channel for a
     byte-transparent relay: no CapTP handshake, since the relay only pipes bytes
     and the two ends key the session end to end. This is the Python parallel to
@@ -469,20 +415,13 @@ async def dial_locator_for_relay(
 
     parsed = parse_locator(locator)
     if parsed.transport != TRANSPORT_IROH:
-        raise ValueError(
-            f"expected an iroh locator, got transport {parsed.transport!r}"
-        )
+        raise ValueError(f"expected an iroh locator, got transport {parsed.transport!r}")
     node_id = parsed.designator
     direct_addresses = parsed.hints.get(HINT_DIRECT_ADDRESSES, "")
     if not isinstance(direct_addresses, str):
         raise ValueError("iroh direct-addresses hint must be a string")
 
-    channel, _proof = await _open_byte_channel(
-        node_id,
-        direct_addresses,
-        reachability,
-        worker_threads=1,
-    )
+    channel, _proof = await _open_byte_channel(node_id, direct_addresses, reachability, worker_threads=1)
     return channel
 
 
@@ -498,28 +437,14 @@ class IrohServer(DriverServer):
         super().__init__(driver_loop, listener, retire_loop=retire_loop)
 
     @classmethod
-    async def _open(
-        cls,
-        config: IrohConfig,
-        seed: "Optional[bytes]" = None,
-        host: "Optional[Host]" = None,
-    ) -> "IrohServer":
+    async def _open(cls, config: IrohConfig, seed: bytes | None = None, host: Host | None = None) -> IrohServer:
         selected_seed = listener_seed(seed, host)
         return await cls._open_ffi_loop(config, selected_seed, host)
 
     @classmethod
-    async def _open_ffi_loop(
-        cls,
-        config: IrohConfig,
-        secret_seed: bytes,
-        host: "Optional[Host]",
-    ) -> "IrohServer":
+    async def _open_ffi_loop(cls, config: IrohConfig, secret_seed: bytes, host: Host | None) -> IrohServer:
         selected_codec = host.codec if host is not None else _DEFAULT_CODEC
-        prepared = prepare_driver_loop(
-            host,
-            selected_codec,
-            seed=secret_seed,
-        )
+        prepared = prepare_driver_loop(host, selected_codec, seed=secret_seed)
         loop = prepared.loop
         listener = None
         try:
@@ -542,18 +467,11 @@ class IrohServer(DriverServer):
         locator = self._driver_loop.listener_locator(self._listener)
         direct = locator.hints.get(HINT_DIRECT_ADDRESSES, "")
         if not isinstance(direct, str):
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT, "iroh direct-addresses hint is not text"
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "iroh direct-addresses hint is not text")
         return direct
 
 
-async def listen(
-    config: IrohConfig,
-    *,
-    seed: "Optional[bytes]" = None,
-    host: "Optional[Host]" = None,
-) -> IrohServer:
+async def listen(config: IrohConfig, *, seed: bytes | None = None, host: Host | None = None) -> IrohServer:
     """Bind an iroh endpoint and return an :class:`IrohServer` you iterate for
     each accepted :class:`glowcap.Session`. ``reachability`` (a
     :class:`Reachability`) is required and sets the endpoint's addressing

@@ -5,25 +5,23 @@ from __future__ import annotations
 import atexit
 import threading
 from collections import deque
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from .. import _constants as _abi
 from .._errors import _host_error
 from .._failure import FailureLayer, _record_runtime_failure
 from .._ffi_host import _host
 from .._lifecycle import _release_consumed
-from .._trampoline import (
-    _inside_turn,
-    _unregister_behavior as _unregister_global_behavior,
-)
+from .._trampoline import _inside_turn
+from .._trampoline import _unregister_behavior as _unregister_global_behavior
 
 # A finalizer cannot report an FFI release refusal. Same-thread callback
 # finalization uses the post-turn queue below; any other refusal transfers into
 # this process-level retry owner. Safe Host boundaries claim one finite batch,
 # and interpreter shutdown gets the final attempt. The queue keeps
 # the allocator context alive until FFI release really succeeds.
-_deferred_finalizer_states: "deque[_HostFinalizerState]" = deque()
-_deferred_finalizer_ids: "set[int]" = set()
+_deferred_finalizer_states: deque[_HostFinalizerState] = deque()
+_deferred_finalizer_ids: set[int] = set()
 _deferred_finalizer_lock = threading.Lock()
 
 
@@ -36,18 +34,9 @@ class _HostFinalizerState:
     allocator alive until that release completes.
     """
 
-    __slots__ = (
-        "raw",
-        "publications",
-        "displaced",
-        "hosted",
-        "context",
-        "diagnostic_id",
-    )
+    __slots__ = ("raw", "publications", "displaced", "hosted", "context", "diagnostic_id")
 
-    def __init__(
-        self, raw, publications, displaced, hosted, context, diagnostic_id
-    ) -> None:
+    def __init__(self, raw, publications, displaced, hosted, context, diagnostic_id) -> None:
         self.raw = raw
         self.publications = publications
         self.displaced = displaced
@@ -73,9 +62,7 @@ def _release_finalizer_state(state: _HostFinalizerState, *, checked: bool) -> No
         if checked:
             raise failure
         if _inside_turn():
-            _parked_releases().append(
-                lambda: _release_finalizer_state(state, checked=False)
-            )
+            _parked_releases().append(lambda: _release_finalizer_state(state, checked=False))
         else:
             _defer_finalizer_state(state)
         return
@@ -86,9 +73,7 @@ def _release_finalizer_state(state: _HostFinalizerState, *, checked: bool) -> No
         raise failure
 
 
-def _report_finalizer_release_failure(
-    state: _HostFinalizerState, failure: BaseException
-) -> None:
+def _report_finalizer_release_failure(state: _HostFinalizerState, failure: BaseException) -> None:
     """Retain a consumed finalizer failure at the surviving diagnostic owner."""
     context = state.context
     if context is None:
@@ -106,21 +91,13 @@ def _report_finalizer_release_failure(
         )
     except BaseException as recorder_error:
         _record_runtime_failure(FailureLayer.BINDING, "host.finalizer.release", failure)
-        _record_runtime_failure(
-            FailureLayer.BINDING,
-            "host.finalizer.release.diagnostic",
-            recorder_error,
-        )
+        _record_runtime_failure(FailureLayer.BINDING, "host.finalizer.release.diagnostic", recorder_error)
 
 
 def _retire_finalizer_state(state: _HostFinalizerState) -> None:
     """Retire wrapper state after its driver already released the FFI Host."""
     state.raw = None
-    behavior_ids = (
-        set(state.publications.values())
-        | set(state.displaced)
-        | set(state.hosted.values())
-    )
+    behavior_ids = set(state.publications.values()) | set(state.displaced) | set(state.hosted.values())
     for ctx in behavior_ids:
         _unregister_global_behavior(ctx)
     state.publications.clear()
@@ -142,7 +119,7 @@ def _defer_finalizer_state(state: _HostFinalizerState) -> None:
         _deferred_finalizer_states.append(state)
 
 
-def _release_unpublished_host(raw, context) -> Optional[BaseException]:
+def _release_unpublished_host(raw, context) -> BaseException | None:
     """Release construction-owned Host authority without orphaning its Context."""
     state = _HostFinalizerState(raw, {}, [], {}, context, 0)
     rc = _host.glowcap_host_release(raw)
@@ -191,7 +168,7 @@ atexit.register(_drain_deferred_finalizer_states)
 _release_state = threading.local()
 
 
-def _parked_releases() -> "deque[Callable[[], None]]":
+def _parked_releases() -> deque[Callable[[], None]]:
     releases = getattr(_release_state, "releases", None)
     if releases is None:
         releases = deque()

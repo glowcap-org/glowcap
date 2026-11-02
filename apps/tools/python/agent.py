@@ -12,12 +12,13 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
-from python_path import add_bindings_path  # noqa: E402
-from tools_check import make_check  # noqa: E402
+from python_path import add_bindings_path
+from tools_check import make_check
 
 add_bindings_path()
 
 from glowcap import Runtime, VowBroken, tcp  # noqa: E402
+
 TOOLS = "tools"
 GRANT, GRANT_REVOCABLE, REVOKE_LAST = "grant", "grant-revocable", "revoke-last"
 NOW, READ, WRITE = "now", "read", "write"
@@ -43,18 +44,18 @@ async def main() -> None:
         session.serve()
         tools = await session.fetch(TOOLS)
 
-    # 1. Delegation: get a clock capability and call it.
+        # 1. Delegation: get a clock capability and call it.
         clock = await session.send(tools, GRANT, ["clock"])
         now = await session.send(clock, NOW)
         check("delegation: was handed a clock and called it", isinstance(now, int))
 
-    # 2. Attenuation: a read-only file capability reads but refuses writes.
+        # 2. Attenuation: a read-only file capability reads but refuses writes.
         files = await session.send(tools, GRANT, ["files-readonly"])
         contents = await session.send(files, READ, ["report.txt"])
         check("attenuation: read through the read-only view", isinstance(contents, str))
         check("attenuation: write is refused", await broke(session.send(files, WRITE, ["report.txt", "tampered"])))
 
-    # 3. Revocation: a revocable handle works, then breaks after revoke.
+        # 3. Revocation: a revocable handle works, then breaks after revoke.
         revocable_clock = await session.send(tools, GRANT_REVOCABLE, ["clock"])
         before = await session.send(revocable_clock, NOW)
         check("revocation: the handle works before revoke", isinstance(before, int))

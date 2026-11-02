@@ -3,9 +3,10 @@
 Authority: pinned CapTP op:deliver, op:deliver-only, op:listen, and PR293
 projection removals. The crypto representations stay deliberately deferred.
 """
+
 from contrib.syrup import Record, Symbol
-from utils.test_suite import CapTPTestCase
 from utils import captp_types as types
+from utils.test_suite import CapTPTestCase
 
 
 class DraftOperations(CapTPTestCase):
@@ -21,8 +22,7 @@ class DraftOperations(CapTPTestCase):
 
     def test_deliver_result_without_pipeline_slot(self):
         resolver = self.remote.next_import_object
-        self.send("op:deliver", [self.echo().to_syrup_record(), ["result"], False,
-                                 resolver.to_syrup_record(), 3])
+        self.send("op:deliver", [self.echo().to_syrup_record(), ["result"], False, resolver.to_syrup_record(), 3])
         reply = self.remote.expect_promise_resolution(resolver.to_desc_export(), timeout=3)
         self.assertEqual(reply.wire_kind, "op:deliver-only")
         self.assertEqual(reply.args, [Symbol("fulfill"), ["result"]])
@@ -30,8 +30,9 @@ class DraftOperations(CapTPTestCase):
     def test_shortening_only_deliver_can_add_settling_listener(self):
         resolver = self.remote.next_import_object
         answer = self.remote.next_answer
-        self.send("op:deliver", [self.echo().to_syrup_record(), ["settled"], answer.position,
-                                 resolver.to_syrup_record(), 1])
+        self.send(
+            "op:deliver", [self.echo().to_syrup_record(), ["settled"], answer.position, resolver.to_syrup_record(), 1]
+        )
         # A late settling listener observes the stored value. The mode-1
         # resolver must not receive a settled value, including before this.
         settled = self.remote.next_import_object
@@ -104,8 +105,7 @@ class DraftOperations(CapTPTestCase):
 
     def test_deliver_mode_two_is_refused(self):
         resolver = self.remote.next_import_object
-        self.send("op:deliver", [self.echo().to_syrup_record(), [], False,
-                                 resolver.to_syrup_record(), 2])
+        self.send("op:deliver", [self.echo().to_syrup_record(), [], False, resolver.to_syrup_record(), 2])
         reply = self.remote.expect_message_type(types.OpAbort, timeout=3)
         self.assertIsInstance(reply, types.OpAbort)
 
@@ -115,7 +115,9 @@ class DraftOperations(CapTPTestCase):
                 other = self.netlayer.connect(self.ocapn_uri)
                 try:
                     other.setup_session("1.0")
-                    other.connection.send_record(Record(Symbol(operation), [types.DescExport(0).to_syrup_record(), operand, 11]))
+                    other.connection.send_record(
+                        Record(Symbol(operation), [types.DescExport(0).to_syrup_record(), operand, 11])
+                    )
                     self.assertIsInstance(other.expect_message_type(types.OpAbort, timeout=3), types.OpAbort)
                 finally:
                     other.close()

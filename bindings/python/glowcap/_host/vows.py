@@ -70,11 +70,7 @@ class VowTable:
                 future.set_exception(self._terminal_failure)
                 return future
             # Evicted (never awaited until past the cap) or never minted here.
-            future.set_exception(
-                GlowcapError(
-                    _ERR_CLOSED, "the vow's outcome is gone (unobserved past the cap)"
-                )
-            )
+            future.set_exception(GlowcapError(_ERR_CLOSED, "the vow's outcome is gone (unobserved past the cap)"))
             return future
         if not isinstance(row.state, tuple):
             # Minted or re-awaited: park (or replace) the waiter. Replacing a

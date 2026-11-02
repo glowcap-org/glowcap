@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 from collections import deque
 from dataclasses import dataclass, replace
 from enum import Enum
-import threading
 
 from ._constants_gen import (
     DEFAULT_FAILURE_CAPACITY,
@@ -161,11 +161,7 @@ class _RuntimeFailureQueue:
                 dropped = min(_U64_MAX, self._events.popleft().dropped_before + 1)
                 if self._events:
                     self._events[0] = replace(
-                        self._events[0],
-                        dropped_before=min(
-                            _U64_MAX,
-                            self._events[0].dropped_before + dropped,
-                        ),
+                        self._events[0], dropped_before=min(_U64_MAX, self._events[0].dropped_before + dropped)
                     )
                 else:
                     dropped_before = dropped
@@ -199,9 +195,7 @@ class _RuntimeFailureQueue:
 _runtime_failures = _RuntimeFailureQueue()
 
 
-def _record_runtime_failure(
-    layer: FailureLayer, operation: str, error: BaseException
-) -> None:
+def _record_runtime_failure(layer: FailureLayer, operation: str, error: BaseException) -> None:
     _runtime_failures.record(layer, operation, error)
 
 
@@ -215,17 +209,11 @@ def _layer(value: int) -> FailureLayer:
     try:
         return _LAYERS[value]
     except KeyError as error:
-        raise GlowcapError(
-            ERR_INTERNAL,
-            f"glowcap ABI returned unknown failure layer {value}",
-        ) from error
+        raise GlowcapError(ERR_INTERNAL, f"glowcap ABI returned unknown failure layer {value}") from error
 
 
 def _scope(value: int) -> FailureScope:
     try:
         return _SCOPES[value]
     except KeyError as error:
-        raise GlowcapError(
-            ERR_INTERNAL,
-            f"glowcap ABI returned unknown failure scope {value}",
-        ) from error
+        raise GlowcapError(ERR_INTERNAL, f"glowcap ABI returned unknown failure scope {value}") from error

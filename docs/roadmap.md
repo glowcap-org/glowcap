@@ -219,7 +219,7 @@ These follow the publication item above or a release decision. The
 engineering work under [what starts next](#what-starts-next) does not depend
 on them.
 
-- **Evidence that travels with the change.** Each run of `ci/gates.sh`
+- **Evidence that travels with the change.** Each run of `ci/gates.py`
   writes a record, a clean run notes it on the commit, and the integrator
   signs what lands on `dev`. A landing check has to refuse a `dev` commit
   with no record for its tree. The record needs a signed attestation form, so

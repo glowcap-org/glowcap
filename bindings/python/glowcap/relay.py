@@ -7,39 +7,26 @@ all connection, listener, readiness, and session lifetime after registration.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import ipaddress
-from typing import Never, Optional, TYPE_CHECKING
-from urllib.parse import urlsplit
-
 import ctypes
+import ipaddress
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Never
+from urllib.parse import urlsplit
 
 from . import _constants as _c
 from ._errors import GlowcapError
-from ._ffi_driver import _TransportProvider
-from ._ffi_ocapn import _str_buf, _read_last_error
-from ._ffi_relay import _RelayConfig, _relay_lib
-from ._locator import Locator
 from ._ffi import FfiHandle, _FfiHandleOwner
-from ._transport import (
-    Connector,
-    Provider,
-    _rollback_failed_provider,
-    _rollback_failed_transport,
-)
+from ._ffi_driver import _TransportProvider
+from ._ffi_ocapn import _read_last_error, _str_buf
+from ._ffi_relay import _relay_lib, _RelayConfig
+from ._locator import Locator
+from ._transport import Connector, Provider, _rollback_failed_provider, _rollback_failed_transport
 
 if TYPE_CHECKING:
     from ._host import Host
     from ._server import DriverServer
 
-__all__ = [
-    "RelayConfig",
-    "RelayRuntime",
-    "provider",
-    "connector",
-    "keyed",
-    "noise",
-]
+__all__ = ["RelayConfig", "RelayRuntime", "provider", "connector", "keyed", "noise"]
 
 _RENDEZVOUS_RELAY_HINT = "rendezvous-relay"
 _RENDEZVOUS_QUERY = "rendezvous"
@@ -78,9 +65,7 @@ def _relay_route(value: object) -> str:
     except UnicodeEncodeError:
         _invalid("rendezvous-relay must contain visible ASCII URI bytes")
     if len(encoded) > _MAX_RENDEZVOUS_RELAY_HINT_BYTES:
-        _invalid(
-            f"rendezvous-relay exceeds {_MAX_RENDEZVOUS_RELAY_HINT_BYTES} UTF-8 bytes"
-        )
+        _invalid(f"rendezvous-relay exceeds {_MAX_RENDEZVOUS_RELAY_HINT_BYTES} UTF-8 bytes")
     if any(byte < 0x21 or byte > 0x7E for byte in encoded):
         _invalid("rendezvous-relay must contain visible ASCII URI bytes")
     at = 0
@@ -136,22 +121,17 @@ class _Profile:
     def locator(self, designator: str, relay_url: str) -> Locator:
         """Build this relay profile's routed typed locator."""
         _validate_designator(designator)
-        return Locator(
-            self._transport,
-            designator,
-            {_RENDEZVOUS_RELAY_HINT: _relay_route(relay_url)},
-            "map",
-        )
+        return Locator(self._transport, designator, {_RENDEZVOUS_RELAY_HINT: _relay_route(relay_url)}, "map")
 
     async def listen(
         self,
         relay_url: str,
         register_url: str,
         *,
-        seed: "Optional[bytes]" = None,
-        trust_pem: "Optional[bytes]" = None,
-        host: "Optional[Host]" = None,
-    ) -> "DriverServer":
+        seed: bytes | None = None,
+        trust_pem: bytes | None = None,
+        host: Host | None = None,
+    ) -> DriverServer:
         """Register this profile's durable key at the relay and accept sessions.
 
         The relay archive's provider holds the registration socket open and the
@@ -166,12 +146,7 @@ class _Profile:
         routes is refused.
         """
         from ._abi_value import _DEFAULT_CODEC
-        from ._server import (
-            DriverServer,
-            listener_seed,
-            prepare_driver_loop,
-            _rollback_listener_construction,
-        )
+        from ._server import DriverServer, _rollback_listener_construction, listener_seed, prepare_driver_loop
 
         config = RelayConfig(relay_url, register_url, trust_pem)
         selected_seed = listener_seed(seed, host)
@@ -189,7 +164,6 @@ class _Profile:
         except BaseException as error:
             _rollback_listener_construction(error, loop, listener, prepared.owns_loop)
             raise
-
 
 
 keyed = _Profile(_c.TRANSPORT_KEYED_RELAY)
@@ -230,7 +204,7 @@ class RelayConfig:
     relay_alias_url: str = ""
 
     @classmethod
-    def dial_only(cls, relay_url: str) -> "RelayConfig":
+    def dial_only(cls, relay_url: str) -> RelayConfig:
         return cls(relay_url)
 
 
@@ -246,11 +220,7 @@ class RelayRuntime(_FfiHandleOwner):
         register_buf, register_len = _str_buf(config.register_url)
         alias_buf, alias_len = _str_buf(config.relay_alias_url)
         trust_pem = config.trust_pem
-        trust_buf = (
-            ctypes.create_string_buffer(trust_pem, len(trust_pem))
-            if trust_pem
-            else None
-        )
+        trust_buf = ctypes.create_string_buffer(trust_pem, len(trust_pem)) if trust_pem else None
         c_config = _RelayConfig(
             _c.RELAY_CONFIG_ABI_VERSION,
             ctypes.sizeof(_RelayConfig),
@@ -265,11 +235,7 @@ class RelayRuntime(_FfiHandleOwner):
             alias_len,
         )
         out = ctypes.c_void_p()
-        _check_relay(
-            _relay_lib.glowcap_relay_runtime_new(
-                ctypes.byref(c_config), ctypes.byref(out)
-            )
-        )
+        _check_relay(_relay_lib.glowcap_relay_runtime_new(ctypes.byref(c_config), ctypes.byref(out)))
         self._ffi = FfiHandle(out, _release_runtime, label="relay runtime")
 
     def release(self) -> None:
@@ -278,9 +244,7 @@ class RelayRuntime(_FfiHandleOwner):
     def _transport_provider(self) -> _TransportProvider:
         package = _TransportProvider()
         with self._ffi.lease() as raw:
-            _check_relay(
-                _relay_lib.glowcap_relay_transport_provider(raw, ctypes.byref(package))
-            )
+            _check_relay(_relay_lib.glowcap_relay_transport_provider(raw, ctypes.byref(package)))
         return package
 
     def _relinquish_provider_reference(self) -> None:
@@ -295,9 +259,7 @@ def provider(config: RelayConfig | str, register_url: str = "") -> Provider:
     async def install(loop) -> None:
         runtime = RelayRuntime(config)
         try:
-            loop._install_provider(
-                lambda register: register(runtime._transport_provider())
-            )
+            loop._install_provider(lambda register: register(runtime._transport_provider()))
         except BaseException as primary:
             _rollback_failed_provider(primary, runtime.release)
             raise
@@ -315,34 +277,22 @@ def connector(config: RelayConfig | str) -> Connector:
     if isinstance(config, str):
         config = RelayConfig(config)
     if config.relay_alias_url:
-        raise GlowcapError(
-            _c.ERR_INVALID_ARGUMENT,
-            "relay aliases require the relay archive's provider",
-        )
+        raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "relay aliases require the relay archive's provider")
 
     async def realize(host, locator, handshake_timeout_ms):
         route = _route_from_locator(locator) or config.relay_url
         if not route:
             raise GlowcapError(
-                _c.ERR_INVALID_ARGUMENT,
-                "relay connector requires a rendezvous route in the locator or config",
+                _c.ERR_INVALID_ARGUMENT, "relay connector requires a rendezvous route in the locator or config"
             )
         from ._session import Session
         from ._ws import connect_websocket
 
         channel = await connect_websocket(_dial_url(route, locator.designator))
         try:
-            return await Session.establish_dialed_locator(
-                host,
-                locator,
-                channel,
-                handshake_timeout_ms,
-            )
+            return await Session.establish_dialed_locator(host, locator, channel, handshake_timeout_ms)
         except BaseException as primary:
             await _rollback_failed_transport(primary, channel)
             raise
 
-    return Connector(
-        (_c.TRANSPORT_KEYED_RELAY, _c.TRANSPORT_NOISE_RELAY),
-        realize,
-    )
+    return Connector((_c.TRANSPORT_KEYED_RELAY, _c.TRANSPORT_NOISE_RELAY), realize)

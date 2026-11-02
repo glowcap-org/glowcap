@@ -1,0 +1,19 @@
+name: Read the toolchain pins
+description: Export the tool versions .devcontainer/pins.sh declares, for the setup actions a job outside the devcontainer uses.
+outputs:
+  python:
+    value: ${{ steps.read.outputs.python }}
+  deno:
+    value: ${{ steps.read.outputs.deno }}
+  rust:
+    value: ${{ steps.read.outputs.rust }}
+  uv:
+    value: ${{ steps.read.outputs.uv }}
+runs:
+  using: composite
+  steps:
+    - id: read
+      shell: bash
+      run: |
+        source .devcontainer/pins.sh
+        printf 'python=%s\ndeno=%s\nrust=%s\nuv=%s\n' "$PYTHON_VERSION" "$DENO_VERSION" "$RUST_VERSION" "$UV_VERSION" >> "$GITHUB_OUTPUT"

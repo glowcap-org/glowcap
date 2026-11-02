@@ -6,25 +6,23 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from typing import Optional
 from unittest.mock import patch
 
-from glowcap import Host, Locator, PendingWork, tcp
+from glowcap import Host, Locator, PendingWork, _pump, tcp
 from glowcap import _constants as _abi
-from glowcap import _pump
 from glowcap._action import _Handlers
 from glowcap._errors import GlowcapError
 from glowcap._host_action_gen import Close, Flush
-from glowcap._session.writer import Outbound
 from glowcap._session import Session
+from glowcap._session.writer import Outbound
 
 
 class _Owner:
     """The writer's Session seams, recording the order they were called in."""
 
-    def __init__(self, failure: Optional[BaseException] = None) -> None:
+    def __init__(self, failure: BaseException | None = None) -> None:
         self.failure = failure
-        self.gate: Optional[asyncio.Event] = None
+        self.gate: asyncio.Event | None = None
         self.events: list[str] = []
         self.tasks: list[asyncio.Task[None]] = []
 
@@ -46,7 +44,7 @@ class _Owner:
     def _writer_wrote(self) -> None:
         self.events.append("kick")
 
-    def _own_writer(self, task: "asyncio.Task[None]") -> None:
+    def _own_writer(self, task: asyncio.Task[None]) -> None:
         self.tasks.append(task)
 
 
@@ -87,13 +85,9 @@ class SessionWriterTest(unittest.TestCase):
     def test_finish_preserves_a_new_sealed_channel_failure(self) -> None:
         async def run() -> None:
             host, remote = Host(), Host()
-            host.set_advertised_locator(Locator(
-                _abi.TRANSPORT_NOISE_TCP, host.designator(), {}, "boolean-false"
-            ))
+            host.set_advertised_locator(Locator(_abi.TRANSPORT_NOISE_TCP, host.designator(), {}, "boolean-false"))
             session = Session._open_dialed_locator(
-                host,
-                Locator(_abi.TRANSPORT_NOISE_TCP, remote.designator(), {}, "boolean-false"),
-                _SilentTransport(),
+                host, Locator(_abi.TRANSPORT_NOISE_TCP, remote.designator(), {}, "boolean-false"), _SilentTransport()
             )
             await host.kick_actions()
             await session.written(session.request_flush())
@@ -122,12 +116,7 @@ class SessionWriterTest(unittest.TestCase):
             host = Host()
             session = Session._open_dialed_locator(
                 host,
-                Locator(
-                    _abi.TRANSPORT_TCP,
-                    tcp.address_designator("127.0.0.1", 1),
-                    {},
-                    "boolean-false",
-                ),
+                Locator(_abi.TRANSPORT_TCP, tcp.address_designator("127.0.0.1", 1), {}, "boolean-false"),
                 _SilentTransport(),
             )
             closing = asyncio.create_task(session.close())
@@ -152,9 +141,7 @@ class SessionWriterTest(unittest.TestCase):
                 asyncio.run(run(resume))
 
     def test_feed_refusal_precedes_abort_delivery_failure(self) -> None:
-        async def run(
-            chunk: bytes, code: int, fail_write: bool, fail_diagnostic: bool
-        ) -> None:
+        async def run(chunk: bytes, code: int, fail_write: bool, fail_diagnostic: bool) -> None:
             write_failure = OSError("abort delivery failed")
             diagnostic_failure = RuntimeError("abort diagnostic failed")
 
@@ -176,12 +163,7 @@ class SessionWriterTest(unittest.TestCase):
             host = Host()
             session = Session._open_dialed_locator(
                 host,
-                Locator(
-                    _abi.TRANSPORT_TCP,
-                    tcp.address_designator("127.0.0.1", 1),
-                    {},
-                    "boolean-false",
-                ),
+                Locator(_abi.TRANSPORT_TCP, tcp.address_designator("127.0.0.1", 1), {}, "boolean-false"),
                 Transport(),
             )
             try:
@@ -216,15 +198,10 @@ class SessionWriterTest(unittest.TestCase):
                 # replace a failing assertion with a second teardown exception.
                 await asyncio.gather(host.close(), return_exceptions=True)
 
-        for chunk, code in (
-            (b"this is not a frame", _abi.ERR_CODEC),
-            (b"2000000:", _abi.ERR_FRAME_TOO_LARGE),
-        ):
+        for chunk, code in ((b"this is not a frame", _abi.ERR_CODEC), (b"2000000:", _abi.ERR_FRAME_TOO_LARGE)):
             for fail_write in (False, True):
                 for fail_diagnostic in (False, True):
-                    with self.subTest(
-                        code=code, fail_write=fail_write, fail_diagnostic=fail_diagnostic
-                    ):
+                    with self.subTest(code=code, fail_write=fail_write, fail_diagnostic=fail_diagnostic):
                         asyncio.run(run(chunk, code, fail_write, fail_diagnostic))
 
     def test_the_drain_only_wakes_the_writer(self) -> None:
@@ -260,10 +237,7 @@ class SessionWriterTest(unittest.TestCase):
             self.assertTrue(outbound.close_delivered)
             owner.gate.set()
             await outbound.exited()
-            self.assertEqual(
-                owner.events,
-                ["flush", "kick", "flush", "close_transport", "finish_close 0"],
-            )
+            self.assertEqual(owner.events, ["flush", "kick", "flush", "close_transport", "finish_close 0"])
 
         asyncio.run(run())
 
@@ -274,10 +248,7 @@ class SessionWriterTest(unittest.TestCase):
             outbound.request()
             await outbound.exited()
             outbound.close_after_flush(5)
-            self.assertEqual(
-                owner.events,
-                ["flush", "retired", "close_transport", "finish_close 5"],
-            )
+            self.assertEqual(owner.events, ["flush", "retired", "close_transport", "finish_close 5"])
 
         asyncio.run(run())
 

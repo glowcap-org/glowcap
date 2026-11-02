@@ -17,12 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Optional
 
 from . import _constants as _abi
 from ._constants import ERR_INVALID_ARGUMENT
 from ._errors import GlowcapError
-
 
 # A WebSocket message is a transport chunk and may coalesce several CapTP
 # frames. Keep this independent from DEFAULT_FRAME_CAP; `websockets` enforces
@@ -30,7 +28,7 @@ from ._errors import GlowcapError
 _WS_MESSAGE_HIGH_WATER = _abi.BINDING_WEBSOCKET_MESSAGE_CAP_BYTES
 
 
-async def connect_websocket(url: str) -> "_WebSocketTransport":
+async def connect_websocket(url: str) -> _WebSocketTransport:
     """Open a WebSocket to ``url`` and adapt it to the byte-transport record.
     Refuses with a typed error when the optional ``websockets`` package is not
     installed (``pip install glowcap[rendezvous]``)."""
@@ -39,8 +37,7 @@ async def connect_websocket(url: str) -> "_WebSocketTransport":
     except ImportError as exc:
         raise GlowcapError(
             ERR_INVALID_ARGUMENT,
-            "keyed-relay dial needs the optional websockets package: "
-            "pip install glowcap[rendezvous]",
+            "keyed-relay dial needs the optional websockets package: pip install glowcap[rendezvous]",
         ) from exc
     ws = await websockets.connect(url, max_size=_WS_MESSAGE_HIGH_WATER)
     return _WebSocketTransport(ws)
@@ -57,9 +54,9 @@ class _WebSocketTransport:
 
     def __init__(self, ws) -> None:
         self._ws = ws
-        self._close_task: Optional[asyncio.Task[None]] = None
+        self._close_task: asyncio.Task[None] | None = None
 
-    async def read(self) -> Optional[bytes]:
+    async def read(self) -> bytes | None:
         import websockets
 
         try:
@@ -72,10 +69,7 @@ class _WebSocketTransport:
             raise
         if not isinstance(message, bytes):
             await self._ws.close(code=1003, reason="binary messages required")
-            raise GlowcapError(
-                ERR_INVALID_ARGUMENT,
-                "keyed-relay WebSocket received a text message",
-            )
+            raise GlowcapError(ERR_INVALID_ARGUMENT, "keyed-relay WebSocket received a text message")
         return message
 
     async def write(self, data: bytes) -> None:
@@ -106,8 +100,5 @@ class _WebSocketTransport:
         self.close()
         task = self._close_task
         if task is None:
-            raise GlowcapError(
-                _abi.ERR_INTERNAL,
-                "keyed-relay WebSocket close requires a running event loop",
-            )
+            raise GlowcapError(_abi.ERR_INTERNAL, "keyed-relay WebSocket close requires a running event loop")
         await asyncio.shield(task)

@@ -348,7 +348,7 @@ pub fn registerChecks(
         "test/interface/rust/Cargo.toml",
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
-    const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust and TypeScript formatting, the lint and type-check for every TypeScript scope, and ruff plus mypy over the Python binding (needs cargo + deno + uv)");
+    const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust and TypeScript formatting, the lint and type-check for every TypeScript scope, and mypy over the Python binding (needs cargo + deno + mypy)");
     const rust_lint_step = b.step("rust-lint", "Lint every first-party Rust crate and target with Clippy (needs cargo)");
     rust_lint_step.dependOn(reg.rust_binding_lint_step);
     bindings_fmt_check_step.dependOn(rust_lint_step);
@@ -428,19 +428,11 @@ pub fn registerChecks(
     deno_check_root.step.dependOn(rooms_browser);
     bindings_fmt_check_step.dependOn(&deno_check_root.step);
 
-    // The Python binding gets the same two checks the TypeScript one has. It
-    // had neither, and the first run found a `NameError` waiting in
-    // `IrohServer.uri` plus two public annotations naming types the module
-    // never imported: the kind of defect a linter catches for free and a
-    // dogfood run reaches only if it happens to touch that line. `uvx` pins
-    // both tools, so the gate does not drift with whatever the host has
-    // installed; `uv` is already a `check-external` prerequisite.
-    const ruff_check = execution.addSystemCommand(b, .build_tool, &.{
-        "uvx", "ruff@0.9.10", "check", "bindings/python", "tools/run-with-timeout.py",
-    });
-    bindings_fmt_check_step.dependOn(&ruff_check.step);
+    // The Python binding's type check. `python-check` under `source-check`
+    // formats and lints it with the rest of the tree; the image pins mypy
+    // beside ruff, so neither drifts with whatever the host has installed.
     const mypy_check = execution.addSystemCommand(b, .build_tool, &.{
-        "uvx", "mypy@1.15.0", "--ignore-missing-imports", "bindings/python/glowcap", "tools/run-with-timeout.py",
+        "mypy", "--ignore-missing-imports", "bindings/python/glowcap", "tools/run-with-timeout.py",
     });
     bindings_fmt_check_step.dependOn(&mypy_check.step);
 

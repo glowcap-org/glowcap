@@ -54,31 +54,8 @@ every name from :mod:`glowcap`: the submodule layout is internal.
 
 from __future__ import annotations
 
-# Re-export the public surface from the per-responsibility submodules, in
-# dependency order (errors and values first, then the Host and the application
-# surface). A consumer imports every name from :mod:`glowcap`.
-from ._errors import (
-    AbortDetail,
-    FetchFailed,
-    GlowcapError,
-    VowBroken,
-    abi_version,
-    last_error,
-)
 from ._carrier_failure import CarrierFailure, CarrierPhase
-from ._value import (
-    Argument,
-    ErrorValue,
-    Forward,
-    Keyword,
-    Ref,
-    Set,
-    Struct,
-    Symbol,
-    Tagged,
-)
 from ._constants import (
-    HANDSHAKE_TIMEOUT_MS,
     FEATURE_BASELINE,
     FEATURE_FULL,
     FEATURE_HANDOFF,
@@ -88,6 +65,7 @@ from ._constants import (
     FEATURE_STURDYREF,
     FEATURE_UNTAG,
     FEATURE_WIRE_DELTA,
+    HANDSHAKE_TIMEOUT_MS,
     HINT_ALT_LOCATORS,
     HINT_DIRECT_ADDRESSES,
     HINT_VIA,
@@ -101,9 +79,18 @@ from ._constants import (
     TRANSPORT_ONION,
     TRANSPORT_TCP,
     TRANSPORT_WEBRTC,
+    DurableProvenance,
 )
 from ._context import Context
-from ._failure import FailureEvent, FailureLayer, FailureScope
+from ._dial import Runtime
+
+# Re-export the public surface from the per-responsibility submodules, in
+# dependency order (errors and values first, then the Host and the application
+# surface). A consumer imports every name from :mod:`glowcap`.
+from ._errors import AbortDetail, FetchFailed, GlowcapError, VowBroken, abi_version, last_error
+from ._failure import FailureEvent, FailureLayer, FailureScope, take_runtime_failures
+from ._host import Host
+from ._lifecycle import PendingWork
 from ._locator import (
     Locator,
     SturdyRef,
@@ -115,21 +102,12 @@ from ._locator import (
     parse_locator,
     parse_sturdyref,
 )
-from ._host import Host
-from ._lifecycle import PendingWork
-from ._trace import annotate_session, enable_trace
 from ._promise import RemotePromise
-from ._constants import DurableProvenance
-from ._session import (
-    PartnerIdentity,
-    SendRedeemingResult,
-    Session,
-    SessionProfile,
-)
+from ._session import PartnerIdentity, SendRedeemingResult, Session, SessionProfile
+from ._trace import annotate_session, enable_trace
 from ._trampoline import Caretaker
-from ._dial import Runtime
 from ._transport import Connector, Provider
-from ._failure import take_runtime_failures
+from ._value import Argument, ErrorValue, Forward, Keyword, Ref, Set, Struct, Symbol, Tagged
 
 __all__ = [
     # Version and diagnostics

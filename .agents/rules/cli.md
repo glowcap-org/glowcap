@@ -31,7 +31,7 @@ every step is documented. Choose evidence by the boundary that changed:
   changed signature needs every layer that implements it.
 - Run the bare suite once before the final gate, then combine compatible final
   gates in one invocation.
-- Take options from the owning phase in `ci/gates.sh`; gates with different
+- Take options from the owning phase in `ci/groups.py`; gates with different
   optimization modes need separate invocations.
 - Before running, name the changed boundary and the prior evidence it
   invalidates. After a review, compaction, or gate failure, rerun only the
@@ -95,7 +95,7 @@ fails.
 ## Git Posture
 
 [`docs/maintaining.md`](../../docs/maintaining.md) owns the promotion and
-publication workflow, including the `tools/release-tag.sh` tag front. Local integration into `dev` is distinct from
+publication workflow, including the `tools/release-tag.py` tag front. Local integration into `dev` is distinct from
 publication. Only the promote workflow moves `main`, and an agent review is
 never human approval. Remote actions still require the maintainer's direction.
 

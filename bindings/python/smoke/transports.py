@@ -5,36 +5,18 @@ onion listen authentication."""
 from __future__ import annotations
 
 import asyncio
-from contextvars import ContextVar
 import select
 import socket
 import threading
+from contextvars import ContextVar
 
 import glowcap
-
-from glowcap import (
-    tcp,
-    Forward,
-    Host,
-    GlowcapError,
-    SendRedeemingResult,
-    Ref,
-    VowBroken,
-    Runtime,
-)
-from glowcap.onion import (
-    AUTH_COOKIE,
-    AUTH_PASSWORD,
-    OnionConfig,
-    OnionNetlayer,
-    SERVICE_ID_LENGTH,
-    listen as onion_listen,
-    provider as onion_provider,
-)
+from glowcap import Forward, GlowcapError, Host, Ref, Runtime, SendRedeemingResult, VowBroken, tcp
+from glowcap.onion import AUTH_COOKIE, AUTH_PASSWORD, SERVICE_ID_LENGTH, OnionConfig, OnionNetlayer
+from glowcap.onion import listen as onion_listen
+from glowcap.onion import provider as onion_provider
 
 from smoke.runtime import tcp_connect
-
-
 
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
 
@@ -101,15 +83,9 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         # must retain the exact inbox the broker holds, not whatever the name
         # resolves to at withdrawal (ADR-0026, on the binding path).
         decoy_delivered: list = []
-        bob.host.publish(
-            "dm",
-            lambda verb, args: (decoy_delivered.append(args[0]) if verb == "dm" else None),
-        )
+        bob.host.publish("dm", lambda verb, args: decoy_delivered.append(args[0]) if verb == "dm" else None)
 
-        broker.host.publish(
-            "introducer",
-            lambda verb, args: bob_dm if verb == "introduce" else "no capability here",
-        )
+        broker.host.publish("introducer", lambda verb, args: bob_dm if verb == "introduce" else "no capability here")
 
         # Keep Carol's Host on the byte-fed tier. The handoff redeem below must
         # open its exporter TCP channel on that same active Host; attempting to
@@ -118,11 +94,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         carol_host = Host()
         from glowcap.tcp import connector as tcp_connector
 
-        runtime = await Runtime.open(
-            adopt_host=carol_host,
-            connector=tcp_connector(),
-            handshake_timeout_ms=10_000,
-        )
+        runtime = await Runtime.open(adopt_host=carol_host, connector=tcp_connector(), handshake_timeout_ms=10_000)
         carol = await runtime.connect(carol_locator)
         carol.serve()
         introducer = await carol.fetch("introducer")
@@ -176,7 +148,7 @@ _ONION_SERVICE_ID = "wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd"
 _ONION_SERVICE_KEY = b"ED25519-V3:c3RvcmVk"
 
 
-def _fake_control(sock: "socket.socket", seen: list[str]) -> None:
+def _fake_control(sock: socket.socket, seen: list[str]) -> None:
     """Answer one control conversation, recording the AUTHENTICATE line.
 
     Recording the credential is the point of this fake. Every other assertion here
@@ -212,7 +184,7 @@ def _fake_control(sock: "socket.socket", seen: list[str]) -> None:
                     return
 
 
-def _loopback() -> "socket.socket":
+def _loopback() -> socket.socket:
     sock = socket.socket()
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", 0))
@@ -220,7 +192,7 @@ def _loopback() -> "socket.socket":
     return sock
 
 
-def _address_of(sock: "socket.socket") -> str:
+def _address_of(sock: socket.socket) -> str:
     host, port = sock.getsockname()
     return f"{host}:{port}"
 
@@ -232,7 +204,7 @@ def _address_of(sock: "socket.socket") -> str:
 _ABSENT_SOCKS = "/run/glowcap-smoke/absent.socks"
 
 
-def _fake_socks(sock: "socket.socket", wrote: list[bytes]) -> None:
+def _fake_socks(sock: socket.socket, wrote: list[bytes]) -> None:
     """Answer one SOCKS5 handshake, then record the first bytes the dialer sent.
 
     The fake does not proxy. A real Tor splices the circuit onto the service's
@@ -254,7 +226,7 @@ def _fake_socks(sock: "socket.socket", wrote: list[bytes]) -> None:
         wrote.append(conn.recv(256))
 
 
-def _recv_exactly(conn: "socket.socket", count: int) -> bytes:
+def _recv_exactly(conn: socket.socket, count: int) -> bytes:
     out = b""
     while len(out) < count:
         chunk = conn.recv(count - len(out))
@@ -271,10 +243,7 @@ def _listen_with_auth(auth_kind: int, secret) -> str:
     thread = threading.Thread(target=_fake_control, args=(control, seen), daemon=True)
     thread.start()
     with OnionNetlayer(
-        socks=_ABSENT_SOCKS,
-        control=_address_of(control),
-        auth_kind=auth_kind,
-        auth_secret=secret,
+        socks=_ABSENT_SOCKS, control=_address_of(control), auth_kind=auth_kind, auth_secret=secret
     ) as nl:
         nl.listen().close()
     control.close()
@@ -294,7 +263,8 @@ def _loop_archive_stepping_parity() -> None:
     and a missing-name break (``VowBroken``) all cross the loop tier.
     """
     from glowcap._loop import DriverLoop
-    from glowcap.relay import RelayConfig, connector as relay_connector
+    from glowcap.relay import RelayConfig
+    from glowcap.relay import connector as relay_connector
 
     # A managed WebSocket is only the carrier.  The byte-fed Host owns the
     # keyed/noise profile, so one connector truthfully advertises both.
@@ -404,11 +374,7 @@ def _onion_against_a_fake_daemon() -> None:
     async def driver_server_surface() -> None:
         server = None
         try:
-            server = await onion_listen(
-                socks=_ABSENT_SOCKS,
-                control=_address_of(control),
-                host=supplied,
-            )
+            server = await onion_listen(socks=_ABSENT_SOCKS, control=_address_of(control), host=supplied)
             assert server.uri == f"ocapn://{_ONION_SERVICE_ID}.onion", server.uri
             assert server.service_id == _ONION_SERVICE_ID, server.service_id
             assert server.service_key == _ONION_SERVICE_KEY, server.service_key

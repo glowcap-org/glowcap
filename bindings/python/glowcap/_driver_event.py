@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from ._carrier_failure import CarrierFailure
 
 
@@ -33,12 +31,12 @@ class LoopEvent:
         secondary_count: int,
         operation_id: int,
         listener_id: int,
-        session: Optional[int],
+        session: int | None,
         primary_name: str = "",
         secondary_name: str = "",
         settled_ok: bool = False,
         decoded: object = None,
-        carrier_failure: Optional[CarrierFailure] = None,
+        carrier_failure: CarrierFailure | None = None,
     ) -> None:
         self.kind = kind
         self.primary_result = primary_result

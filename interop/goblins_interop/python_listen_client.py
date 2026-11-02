@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import insert_bindings_path  # noqa: E402
+from helpers import insert_bindings_path
 
 insert_bindings_path()
 

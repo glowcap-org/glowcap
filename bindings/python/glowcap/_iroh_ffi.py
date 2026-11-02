@@ -4,39 +4,30 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from dataclasses import dataclass
 import enum
 import threading
-from typing import Optional, Union
+from dataclasses import dataclass
 
 # The core binding owns the value vocabulary, the host/connection machinery, and
 # the shared archives; the iroh transport plugs into that seam as the byte
 # transport a `Session`'s serve loop reads. The raw iroh FFI loader behind
 # ``_iroh()`` lives in the internal :mod:`glowcap._ffi_iroh`.
 from . import _constants as _c
-from ._constants import (
-    ERR_CLOSED as _ERR_CLOSED,
-    ERR_BUFFER_TOO_SMALL as _ERR_BUFFER_TOO_SMALL,
-    ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT,
-    HINT_DIRECT_ADDRESSES,
-    IROH_NODE_ID_BYTES,
-    OK as _OK,
-    TRANSPORT_IROH,
-    WOULD_BLOCK as _WOULD_BLOCK,
-)
+from ._constants import ERR_BUFFER_TOO_SMALL as _ERR_BUFFER_TOO_SMALL
+from ._constants import ERR_CLOSED as _ERR_CLOSED
+from ._constants import ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT
+from ._constants import HINT_DIRECT_ADDRESSES, IROH_NODE_ID_BYTES, TRANSPORT_IROH
+from ._constants import OK as _OK
+from ._constants import WOULD_BLOCK as _WOULD_BLOCK
 from ._errors import GlowcapError
 from ._ffi import FfiHandle, _FfiHandleOwner
-from ._locator import Locator
-from ._ffi_ocapn import _byte_buf, _read_last_error
 from ._ffi_iroh import _iroh, _IrohConfig
-from ._transport import (
-    Provider,
-    _rollback_failed_provider,
-    _record_transport_cleanup_failure,
-)
+from ._ffi_ocapn import _byte_buf, _read_last_error
+from ._locator import Locator
+from ._transport import Provider, _record_transport_cleanup_failure, _rollback_failed_provider
 
 
-def locator(node_id: str, direct_addresses: Optional[str] = None) -> Locator:
+def locator(node_id: str, direct_addresses: str | None = None) -> Locator:
     """Build an iroh locator, optionally carrying direct socket addresses."""
     return Locator(
         TRANSPORT_IROH,
@@ -46,7 +37,7 @@ def locator(node_id: str, direct_addresses: Optional[str] = None) -> Locator:
     )
 
 
-def _iroh_last_error() -> "Optional[str]":
+def _iroh_last_error() -> str | None:
     """The calling thread's last error message from the iroh transport archive
     (``libglowcap_net_transport_iroh``), or ``None`` when there is none. The
     transport keeps its own thread-local slot, so an iroh call's diagnostic is
@@ -58,9 +49,7 @@ def _check_iroh(code: int) -> None:
     # The iroh library carries its own thread-local last-error, so read this
     # archive's own slot rather than scraping libglowcap_ocapn's unrelated one.
     if code != _OK:
-        raise GlowcapError(
-            code, _iroh_last_error() or f"iroh transport call failed (code {code})"
-        )
+        raise GlowcapError(code, _iroh_last_error() or f"iroh transport call failed (code {code})")
 
 
 class Reachability(enum.IntEnum):
@@ -98,14 +87,9 @@ class IrohConnection(_FfiHandleOwner):
     frames its socket bytes. No call here ever parks on the connection, so a
     release never races a read."""
 
-    def __init__(self, raw: ctypes.c_void_p, netlayer: "IrohNetlayer") -> None:
+    def __init__(self, raw: ctypes.c_void_p, netlayer: IrohNetlayer) -> None:
         self._netlayer = netlayer
-        self._ffi = FfiHandle(
-            raw,
-            _iroh().glowcap_iroh_conn_release,
-            label="iroh connection",
-            keepalive=netlayer,
-        )
+        self._ffi = FfiHandle(raw, _iroh().glowcap_iroh_conn_release, label="iroh connection", keepalive=netlayer)
         if not netlayer._adopt_conn(self):
             self._ffi.close()
             raise RuntimeError("iroh netlayer is closed")
@@ -117,7 +101,7 @@ class IrohConnection(_FfiHandleOwner):
         with self._ffi.lease() as raw:
             return int(_iroh().glowcap_iroh_conn_id(raw))
 
-    def remote_node_id(self) -> "str | None":
+    def remote_node_id(self) -> str | None:
         """The far end's node id, as QUIC proved it: this connection completed
         only because the peer held the secret for this key. ``None`` when the
         connection is gone or the handshake proved nothing.
@@ -132,12 +116,7 @@ class IrohConnection(_FfiHandleOwner):
         buf = ctypes.create_string_buffer(cap)
         out_len = ctypes.c_size_t(0)
         with self._ffi.lease() as raw:
-            code = _iroh().glowcap_iroh_conn_remote_node_id(
-                raw,
-                buf,
-                cap,
-                ctypes.byref(out_len),
-            )
+            code = _iroh().glowcap_iroh_conn_remote_node_id(raw, buf, cap, ctypes.byref(out_len))
         if code != _OK:
             return None
         return buf.raw[: out_len.value].decode()
@@ -149,15 +128,11 @@ class IrohConnection(_FfiHandleOwner):
         frames these bytes itself."""
         out = ctypes.c_size_t()
         with self._ffi.lease() as raw:
-            rc = _iroh().glowcap_iroh_conn_try_read(
-                raw, buf, len(buf), ctypes.byref(out)
-            )
+            rc = _iroh().glowcap_iroh_conn_try_read(raw, buf, len(buf), ctypes.byref(out))
         if rc == _WOULD_BLOCK or rc == _ERR_CLOSED:
             return rc
         if rc != _OK:
-            raise GlowcapError(
-                rc, _iroh_last_error() or f"iroh conn try_read failed (code {rc})"
-            )
+            raise GlowcapError(rc, _iroh_last_error() or f"iroh conn try_read failed (code {rc})")
         return out.value
 
     def try_write(self, frame: bytes, offset: int = 0) -> int:
@@ -176,18 +151,14 @@ class IrohConnection(_FfiHandleOwner):
         remaining = len(frame) - offset
         out = ctypes.c_size_t()
         with self._ffi.lease() as raw:
-            rc = _iroh().glowcap_iroh_conn_try_write(
-                raw, buf, remaining, ctypes.byref(out)
-            )
+            rc = _iroh().glowcap_iroh_conn_try_write(raw, buf, remaining, ctypes.byref(out))
         if rc == _WOULD_BLOCK:
             return rc
         if rc != _OK:
-            raise GlowcapError(
-                rc, _iroh_last_error() or f"iroh conn try_write failed (code {rc})"
-            )
+            raise GlowcapError(rc, _iroh_last_error() or f"iroh conn try_write failed (code {rc})")
         return out.value
 
-    def __enter__(self) -> "IrohConnection":
+    def __enter__(self) -> IrohConnection:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -215,10 +186,10 @@ class IrohConfig:
     glowcap's default.
     """
 
-    reachability: "Union[int, Reachability]"
-    connect_timeout_ms: "Optional[int]" = None
-    idle_timeout_ms: "Optional[int]" = None
-    worker_threads: "Optional[int]" = None
+    reachability: int | Reachability
+    connect_timeout_ms: int | None = None
+    idle_timeout_ms: int | None = None
+    worker_threads: int | None = None
 
 
 class IrohNetlayer(_FfiHandleOwner):
@@ -230,13 +201,7 @@ class IrohNetlayer(_FfiHandleOwner):
     ``reachability`` (a :class:`Reachability`) is required, it sets the
     endpoint's addressing posture and has no default."""
 
-    def __init__(
-        self,
-        config: IrohConfig,
-        secret_seed: "Optional[bytes]" = None,
-        *,
-        _construction_token=None,
-    ):
+    def __init__(self, config: IrohConfig, secret_seed: bytes | None = None, *, _construction_token=None):
         if _construction_token is not _NETLAYER_CONSTRUCTION:
             raise RuntimeError("use 'await IrohNetlayer.open(...)' to bind an endpoint")
         seed = secret_seed or b""
@@ -253,44 +218,27 @@ class IrohNetlayer(_FfiHandleOwner):
             cfg.idle_timeout_ms = config.idle_timeout_ms
         if config.worker_threads is not None:
             if config.worker_threads <= 0 or config.worker_threads > 0xFFFFFFFF:
-                raise GlowcapError(
-                    _ERR_INVALID_ARGUMENT,
-                    "iroh worker_threads must be between 1 and 4294967295",
-                )
+                raise GlowcapError(_ERR_INVALID_ARGUMENT, "iroh worker_threads must be between 1 and 4294967295")
             cfg.worker_threads = config.worker_threads
         _check_iroh(
-            _iroh().glowcap_iroh_netlayer_new(
-                ptr,
-                len(seed),
-                ctypes.byref(cfg),
-                ctypes.byref(out),
-                None,
-                0,
-                None,
-            )
+            _iroh().glowcap_iroh_netlayer_new(ptr, len(seed), ctypes.byref(cfg), ctypes.byref(out), None, 0, None)
         )
         self._ffi = FfiHandle(
             out,
-            lambda raw: _check_iroh(
-                _iroh().glowcap_iroh_netlayer_release(raw, None, 0, None)
-            ),
+            lambda raw: _check_iroh(_iroh().glowcap_iroh_netlayer_release(raw, None, 0, None)),
             _iroh().glowcap_iroh_netlayer_close,
             label="iroh netlayer",
         )
         self._children_lock = threading.Lock()
-        self._children: "set[IrohConnection]" = set()
+        self._children: set[IrohConnection] = set()
         self._close_started = False
         # One retained task owns the non-cancelable FFI release. Callers may
         # cancel their wait, but the task remains the join point for every later
         # close call.
-        self._close_task: "Optional[asyncio.Task]" = None
+        self._close_task: asyncio.Task | None = None
 
     @classmethod
-    async def open(
-        cls,
-        config: IrohConfig,
-        secret_seed: "Optional[bytes]" = None,
-    ) -> "IrohNetlayer":
+    async def open(cls, config: IrohConfig, secret_seed: bytes | None = None) -> IrohNetlayer:
         """Bind off-reactor, retaining ownership through caller cancellation.
 
         A worker thread cannot be canceled once FFI endpoint construction
@@ -298,12 +246,7 @@ class IrohNetlayer(_FfiHandleOwner):
         releases the resulting endpoint before it propagates.
         """
         construction = asyncio.create_task(
-            asyncio.to_thread(
-                cls,
-                config,
-                secret_seed,
-                _construction_token=_NETLAYER_CONSTRUCTION,
-            )
+            asyncio.to_thread(cls, config, secret_seed, _construction_token=_NETLAYER_CONSTRUCTION)
         )
         try:
             return await asyncio.shield(construction)
@@ -320,9 +263,7 @@ class IrohNetlayer(_FfiHandleOwner):
             if not construction.cancelled() and construction.exception() is not None:
                 error = construction.exception()
                 assert error is not None
-                _record_transport_cleanup_failure(
-                    "iroh-construction-after-cancel", error
-                )
+                _record_transport_cleanup_failure("iroh-construction-after-cancel", error)
             elif not construction.cancelled():
                 netlayer = construction.result()
                 release = asyncio.create_task(netlayer.close())
@@ -336,9 +277,7 @@ class IrohNetlayer(_FfiHandleOwner):
                 try:
                     release.result()
                 except BaseException as error:
-                    _record_transport_cleanup_failure(
-                        "iroh-release-after-cancel", error
-                    )
+                    _record_transport_cleanup_failure("iroh-release-after-cancel", error)
             raise
 
     def node_id(self) -> str:
@@ -348,9 +287,7 @@ class IrohNetlayer(_FfiHandleOwner):
         out = (ctypes.c_uint8 * cap)()
         n = ctypes.c_size_t()
         with self._ffi.lease() as raw:
-            _check_iroh(
-                _iroh().glowcap_iroh_netlayer_node_id(raw, out, cap, ctypes.byref(n))
-            )
+            _check_iroh(_iroh().glowcap_iroh_netlayer_node_id(raw, out, cap, ctypes.byref(n)))
         return ctypes.string_at(out, n.value).decode()
 
     def direct_addresses(self) -> str:
@@ -358,12 +295,7 @@ class IrohNetlayer(_FfiHandleOwner):
         hint a partner needs because the sidecar binds relay-less."""
         n = ctypes.c_size_t()
         with self._ffi.lease() as raw:
-            rc = _iroh().glowcap_iroh_netlayer_direct_addrs(
-                raw,
-                None,
-                0,
-                ctypes.byref(n),
-            )
+            rc = _iroh().glowcap_iroh_netlayer_direct_addrs(raw, None, 0, ctypes.byref(n))
         if rc != _ERR_BUFFER_TOO_SMALL:
             _check_iroh(rc)
             if n.value == 0:
@@ -373,12 +305,7 @@ class IrohNetlayer(_FfiHandleOwner):
             out = (ctypes.c_uint8 * cap)()
             n = ctypes.c_size_t()
             with self._ffi.lease() as raw:
-                rc = _iroh().glowcap_iroh_netlayer_direct_addrs(
-                    raw,
-                    out,
-                    cap,
-                    ctypes.byref(n),
-                )
+                rc = _iroh().glowcap_iroh_netlayer_direct_addrs(raw, out, cap, ctypes.byref(n))
             if rc == _ERR_BUFFER_TOO_SMALL and n.value > cap:
                 cap = n.value
                 continue
@@ -398,9 +325,7 @@ class IrohNetlayer(_FfiHandleOwner):
         with self._ffi.lease() as raw:
             rc = _iroh().glowcap_iroh_transport_provider(raw, ctypes.byref(package))
         if rc != _OK:
-            raise GlowcapError(
-                rc, _iroh_last_error() or f"iroh transport_provider failed (code {rc})"
-            )
+            raise GlowcapError(rc, _iroh_last_error() or f"iroh transport_provider failed (code {rc})")
         return package
 
     def _relinquish_provider_reference(self) -> None:
@@ -418,9 +343,7 @@ class IrohNetlayer(_FfiHandleOwner):
         with self._ffi.lease() as raw:
             fd = _iroh().glowcap_iroh_netlayer_readiness_fd(raw)
         if fd < 0:
-            raise GlowcapError(
-                fd, _iroh_last_error() or f"iroh readiness_fd failed (code {fd})"
-            )
+            raise GlowcapError(fd, _iroh_last_error() or f"iroh readiness_fd failed (code {fd})")
         return fd
 
     def drain_ready(self, buf, cap: int) -> int:
@@ -430,16 +353,12 @@ class IrohNetlayer(_FfiHandleOwner):
         then again until it returns fewer than ``cap`` records."""
         out = ctypes.c_size_t()
         with self._ffi.lease() as raw:
-            rc = _iroh().glowcap_iroh_netlayer_drain_ready(
-                raw, buf, cap, ctypes.byref(out)
-            )
+            rc = _iroh().glowcap_iroh_netlayer_drain_ready(raw, buf, cap, ctypes.byref(out))
         if rc != _OK:
-            raise GlowcapError(
-                rc, _iroh_last_error() or f"iroh drain_ready failed (code {rc})"
-            )
+            raise GlowcapError(rc, _iroh_last_error() or f"iroh drain_ready failed (code {rc})")
         return out.value
 
-    def try_accept(self) -> "Optional[IrohConnection]":
+    def try_accept(self) -> IrohConnection | None:
         """Claim one accepted non-blocking connection, or ``None`` when none is
         pending."""
         out = ctypes.c_void_p()
@@ -458,34 +377,21 @@ class IrohNetlayer(_FfiHandleOwner):
         hints_buf, hints_ptr = _byte_buf(hints_b)
         with self._ffi.lease() as raw:
             _check_iroh(
-                _iroh().glowcap_iroh_netlayer_start_connect(
-                    raw,
-                    request_id,
-                    id_ptr,
-                    len(id_b),
-                    hints_ptr,
-                    len(hints_b),
-                )
+                _iroh().glowcap_iroh_netlayer_start_connect(raw, request_id, id_ptr, len(id_b), hints_ptr, len(hints_b))
             )
         _ = (id_buf, hints_buf)
 
     def finish_connect(self, request_id: int) -> IrohConnection:
         out = ctypes.c_void_p()
         with self._ffi.lease() as raw:
-            _check_iroh(
-                _iroh().glowcap_iroh_netlayer_finish_connect(
-                    raw,
-                    request_id,
-                    ctypes.byref(out),
-                )
-            )
+            _check_iroh(_iroh().glowcap_iroh_netlayer_finish_connect(raw, request_id, ctypes.byref(out)))
         return IrohConnection(out, self)
 
     def cancel_connect(self, request_id: int) -> None:
         with self._ffi.lease() as raw:
             _check_iroh(_iroh().glowcap_iroh_netlayer_cancel_connect(raw, request_id))
 
-    def __enter__(self) -> "IrohNetlayer":
+    def __enter__(self) -> IrohNetlayer:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -496,7 +402,7 @@ class IrohNetlayer(_FfiHandleOwner):
             child.close()
         self._ffi.close()
 
-    async def __aenter__(self) -> "IrohNetlayer":
+    async def __aenter__(self) -> IrohNetlayer:
         return self
 
     async def __aexit__(self, *exc) -> None:
@@ -513,12 +419,12 @@ class IrohNetlayer(_FfiHandleOwner):
         with self._children_lock:
             self._children.discard(conn)
 
-    def _begin_close(self) -> "list[IrohConnection]":
+    def _begin_close(self) -> list[IrohConnection]:
         with self._children_lock:
             self._close_started = True
             return list(self._children)
 
-    def _start_close_task(self) -> "Optional[asyncio.Task]":
+    def _start_close_task(self) -> asyncio.Task | None:
         """Start or return the one task that owns FFI endpoint release."""
         task = self._close_task
         if task is not None:
@@ -552,33 +458,23 @@ class IrohNetlayer(_FfiHandleOwner):
             raise asyncio.CancelledError
 
 
-async def adopt_loop_provider(
-    loop, config: IrohConfig, *, seed: "Optional[bytes]" = None
-):
+async def adopt_loop_provider(loop, config: IrohConfig, *, seed: bytes | None = None):
     """Install iroh through the generic provider seam and return its node id."""
     selected = seed if seed is not None else loop.wrapper_host().seed
     return await provider(config, seed=selected).install(loop)
 
 
-def provider(
-    config: IrohConfig,
-    *,
-    seed: "Optional[bytes]" = None,
-) -> Provider:
+def provider(config: IrohConfig, *, seed: bytes | None = None) -> Provider:
     """Build the configured FFI iroh provider package."""
 
     async def install(loop):
         selected = seed if seed is not None else loop.wrapper_host().seed
         if len(selected) != 32:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT, "iroh provider seed must be 32 bytes"
-            )
+            raise GlowcapError(_ERR_INVALID_ARGUMENT, "iroh provider seed must be 32 bytes")
         netlayer = await IrohNetlayer.open(config, bytes(selected))
         try:
             node_id = netlayer.node_id()
-            loop._install_provider(
-                lambda register: register(netlayer._transport_provider())
-            )
+            loop._install_provider(lambda register: register(netlayer._transport_provider()))
             netlayer._relinquish_provider_reference()
             return node_id
         except BaseException as primary:

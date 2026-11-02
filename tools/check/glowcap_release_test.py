@@ -1,19 +1,19 @@
-#!/usr/bin/env python3
 """Package checks exercise damaged archives and the exact publication program.
 
 The checksum failure regression was observed against the original file-by-file
 publisher. Injected rename failures and signals cover the shared transaction;
 SIGKILL, power loss, and concurrent external writers are not simulated.
 """
+
 import hashlib
 import io
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import glowcap_release as release
@@ -101,13 +101,17 @@ class PackageValidation(unittest.TestCase):
                 release.check_loader(self.destination)
             output.return_value = f"libglowcap_net_transport_iroh.so.0 => {self.destination}/lib/library.so (0x0)\n"
             release.check_loader(self.destination)
-        with patch.object(release.sys, "platform", "darwin"), patch.object(release.subprocess, "check_output") as output:
+        with (
+            patch.object(release.sys, "platform", "darwin"),
+            patch.object(release.subprocess, "check_output") as output,
+        ):
             (self.destination / "lib/library.dylib").touch()
             output.side_effect = lambda args, **_: self.loader_report(args, "/build/library.dylib")
             with self.assertRaises(AssertionError):
                 release.check_loader(self.destination)
-            output.side_effect = lambda args, **_: (self.loader_report(args, "@rpath/library.dylib")
-                                                   if args[1] == "-L" else "")
+            output.side_effect = lambda args, **_: (
+                self.loader_report(args, "@rpath/library.dylib") if args[1] == "-L" else ""
+            )
             with self.assertRaisesRegex(AssertionError, "missing relocatable"):
                 release.check_loader(self.destination)
             output.side_effect = lambda args, **_: self.loader_report(args, "@rpath/library.dylib")
@@ -119,8 +123,11 @@ class PackageValidation(unittest.TestCase):
         (self.destination / "libexec/rooms-session").touch()
         library = self.destination / "lib/library.0.dylib"
         for name in ("@rpath/library.0.dylib", "@loader_path/../lib/library.0.dylib"):
-            with self.subTest(name=name), patch.object(release.sys, "platform", "darwin"), \
-                    patch.object(release.subprocess, "check_output") as output:
+            with (
+                self.subTest(name=name),
+                patch.object(release.sys, "platform", "darwin"),
+                patch.object(release.subprocess, "check_output") as output,
+            ):
                 output.side_effect = lambda args, **_: self.loader_report(args, name)
                 with self.assertRaisesRegex(AssertionError, "missing packaged library"):
                     release.check_loader(self.destination)
@@ -128,8 +135,11 @@ class PackageValidation(unittest.TestCase):
                 release.check_loader(self.destination)
                 library.unlink()
         for name in ("@rpath/../../outside.dylib", "@loader_path/../../outside.dylib"):
-            with self.subTest(name=name), patch.object(release.sys, "platform", "darwin"), \
-                    patch.object(release.subprocess, "check_output") as output:
+            with (
+                self.subTest(name=name),
+                patch.object(release.sys, "platform", "darwin"),
+                patch.object(release.subprocess, "check_output") as output,
+            ):
                 output.side_effect = lambda args, **_: self.loader_report(args, name)
                 with self.assertRaisesRegex(AssertionError, "library escapes package"):
                     release.check_loader(self.destination)
@@ -144,15 +154,22 @@ class PackageValidation(unittest.TestCase):
             (self.destination / name).mkdir()
         for name in ("bin/glowcap", "libexec/rooms-session", "lib/library.dylib"):
             (self.destination / name).touch()
-        with patch.object(release.sys, "platform", "darwin"), \
-                patch.object(release.subprocess, "check_output") as output, \
-                patch.object(release.time, "monotonic", side_effect=[100, 103, 111]):
+        with (
+            patch.object(release.sys, "platform", "darwin"),
+            patch.object(release.subprocess, "check_output") as output,
+            patch.object(release.time, "monotonic", side_effect=[100, 103, 111]),
+        ):
             output.side_effect = lambda args, **_: self.loader_report(args, "@rpath/library.dylib")
             release.check_loader(self.destination)
         self.assertEqual(output.call_count, 2)
         libraries, rpath = output.call_args_list
-        self.assertEqual(set(libraries.args[0][2:]), {
-            str((self.destination / name).resolve()) for name in ("bin/glowcap", "libexec/rooms-session", "lib/library.dylib")})
+        self.assertEqual(
+            set(libraries.args[0][2:]),
+            {
+                str((self.destination / name).resolve())
+                for name in ("bin/glowcap", "libexec/rooms-session", "lib/library.dylib")
+            },
+        )
         self.assertEqual(libraries.kwargs["timeout"], 27)
         self.assertEqual(rpath.kwargs["timeout"], 19)
 
@@ -161,19 +178,20 @@ class PackageValidation(unittest.TestCase):
             (self.destination / name).mkdir()
         (self.destination / "libexec/rooms-session").touch()
         for report in ("", "unexpected:\n", "\t/usr/lib/libSystem.B.dylib\n"):
-            with self.subTest(report=report), patch.object(release.sys, "platform", "darwin"), \
-                    patch.object(release.subprocess, "check_output") as output:
-                output.side_effect = lambda args, **_: (report if args[1] == "-L"
-                                                       else "path @loader_path/../lib (offset 12)")
+            with (
+                self.subTest(report=report),
+                patch.object(release.sys, "platform", "darwin"),
+                patch.object(release.subprocess, "check_output") as output,
+            ):
+                output.side_effect = lambda args, **_: (
+                    report if args[1] == "-L" else "path @loader_path/../lib (offset 12)"
+                )
                 with self.assertRaises(AssertionError):
                     release.check_loader(self.destination)
 
 
 class ImageInventory(unittest.TestCase):
-    FILES = {
-        "bin/glowcap": (b"product executable", True),
-        "share/glowcap/release.json": (b"{}\n", False),
-    }
+    FILES = {"bin/glowcap": (b"product executable", True), "share/glowcap/release.json": (b"{}\n", False)}
 
     def fixture(self, *, contents=None, modes=None, special=None, base_program=None):
         contents = contents or {}
@@ -186,10 +204,7 @@ class ImageInventory(unittest.TestCase):
             archive.addfile(directory)
             rows = []
             for path, (declared, executable) in sorted(self.FILES.items()):
-                rows.append(
-                    f"{hashlib.sha256(declared).hexdigest()} "
-                    f"{'x' if executable else '-'} {path}\n"
-                )
+                rows.append(f"{hashlib.sha256(declared).hexdigest()} {'x' if executable else '-'} {path}\n")
                 actual = contents.get(path, declared)
                 member = tarfile.TarInfo(f"runtime/{path}")
                 member.size = len(actual)
@@ -254,27 +269,26 @@ class ImageContainerOwnership(unittest.TestCase):
 
     def test_inventory_cleanup_covers_create_timeout(self):
         deadline = image.Deadline()
-        with tempfile.TemporaryDirectory() as temporary, \
-                patch.object(image, "container_name", return_value="owned-inventory"), \
-                patch.object(image, "run", side_effect=subprocess.TimeoutExpired("docker", 1)), \
-                patch.object(image, "remove_container") as remove:
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch.object(image, "container_name", return_value="owned-inventory"),
+            patch.object(image, "run", side_effect=subprocess.TimeoutExpired("docker", 1)),
+            patch.object(image, "remove_container") as remove,
+        ):
             with self.assertRaises(subprocess.TimeoutExpired):
                 image.inspect_runtime_inventory(deadline, "image", Path(temporary))
         remove.assert_called_once_with("owned-inventory", False)
 
     def test_service_cleanup_covers_run_timeout(self):
-        for proof, role in (
-            (image.check_web_and_directory, "web"),
-            (image.check_session, "session"),
-        ):
-            with self.subTest(role=role), \
-                    patch.object(image, "container_name", return_value=f"owned-{role}"), \
-                    patch.object(image, "run", side_effect=subprocess.TimeoutExpired("docker", 1)), \
-                    patch.object(image, "cleanup_run", return_value=subprocess.CompletedProcess(
-                        (), 0, "", ""
-                    )), \
-                    patch.object(image.sys, "stderr", io.StringIO()), \
-                    patch.object(image, "stop") as stop:
+        for proof, role in ((image.check_web_and_directory, "web"), (image.check_session, "session")):
+            with (
+                self.subTest(role=role),
+                patch.object(image, "container_name", return_value=f"owned-{role}"),
+                patch.object(image, "run", side_effect=subprocess.TimeoutExpired("docker", 1)),
+                patch.object(image, "cleanup_run", return_value=subprocess.CompletedProcess((), 0, "", "")),
+                patch.object(image.sys, "stderr", io.StringIO()),
+                patch.object(image, "stop") as stop,
+            ):
                 with self.assertRaises(subprocess.TimeoutExpired):
                     proof(image.Deadline(), "image")
             stop.assert_called_once_with(f"owned-{role}", False)
@@ -298,10 +312,22 @@ class ArchivePublication(unittest.TestCase):
         (self.source / "README.md").write_text("second generation")
 
     def publish(self, injection=""):
-        return subprocess.run(["sh", "-ec", injection + "\n" + ARCHIVE_SCRIPT, "archive-test",
-                               str(self.output), str(self.source), "glowcap-test.tar.gz"],
-                              cwd=self.root, env={**os.environ, "TAR_OPTIONS": ""},
-                              capture_output=True, text=True, timeout=5)
+        return subprocess.run(
+            [
+                "sh",
+                "-ec",
+                injection + "\n" + ARCHIVE_SCRIPT,
+                "archive-test",
+                str(self.output),
+                str(self.source),
+                "glowcap-test.tar.gz",
+            ],
+            cwd=self.root,
+            env={**os.environ, "TAR_OPTIONS": ""},
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
 
     def snapshot(self):
         return {path.name: path.read_bytes() for path in self.output.iterdir()}
@@ -338,15 +364,17 @@ class ArchivePublication(unittest.TestCase):
     def test_rename_failure_and_signals_restore_the_previous_generation(self):
         for action in ("return 82", "kill -HUP $$", "kill -INT $$", "kill -TERM $$"):
             with self.subTest(action=action):
-                result = self.publish('mv() { if [ "$1" = "$stage/tree" ]; then ' + action +
-                                      '; else command mv "$@"; fi; }')
+                result = self.publish(
+                    'mv() { if [ "$1" = "$stage/tree" ]; then ' + action + '; else command mv "$@"; fi; }'
+                )
                 self.assertNotEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.snapshot(), self.previous)
                 self.assertEqual(list(self.root.glob(".glowcap-stage.*")), [])
 
     def test_failed_rollback_keeps_the_recoverable_previous_generation(self):
-        result = self.publish('mv() { case "$1" in "$stage/tree"|"$stage/previous") return 83;; '
-                              '*) command mv "$@";; esac; }')
+        result = self.publish(
+            'mv() { case "$1" in "$stage/tree"|"$stage/previous") return 83;; *) command mv "$@";; esac; }'
+        )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("previous generation preserved at", result.stderr)
         stages = list(self.root.glob(".glowcap-stage.*"))

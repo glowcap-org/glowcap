@@ -13,17 +13,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "interop" / "_common" / "python"))
-from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+from helpers import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
 
-from glowcap import (
-    tcp,  # noqa: E402
-    DurableProvenance,
-    Locator,
-    GlowcapError,
-    Runtime,
-)
+from glowcap import DurableProvenance, GlowcapError, Locator, Runtime, tcp  # noqa: E402
 
 ignore_port_args("python-keyed-tcp-restart")
 
@@ -59,14 +53,14 @@ async def call_greeter(partner: Locator, expected: str) -> None:
             # Every session signs with a fresh key (ADR-0028), distinct
             # from the claimed durable designator.
             if proved.session_key.hex() == expected:
-                fail("keyed-tcp-restart", "session key still equals the durable designator; sessions are not independently keyed")
+                fail(
+                    "keyed-tcp-restart",
+                    "session key still equals the durable designator; sessions are not independently keyed",
+                )
             # Raw keyed TCP carries the stable key-shaped locator but does not prove
             # that whoever answered controls it.
             if proved.provenance is not DurableProvenance.UNAUTHENTICATED:
-                fail(
-                    "keyed-tcp-restart",
-                    f"keyed-tcp durable provenance is {proved.provenance}, not unauthenticated",
-                )
+                fail("keyed-tcp-restart", f"keyed-tcp durable provenance is {proved.provenance}, not unauthenticated")
             if proved.durable_identity_authenticated():
                 fail("keyed-tcp-restart", "raw keyed-tcp authenticated an unproved locator claim")
             greeter_ref = await session.fetch("greeter")

@@ -26,10 +26,7 @@ PATCHES = [
     ('<div id="navWrap">', '<div id="navWrap" role="search">'),
     # Module-doc links render as small adjacent words; give each at least the
     # 24px pointer target WCAG 2.2 asks for without moving the text baseline.
-    (
-        "</head>",
-        "<style>section ul a { display: inline-block; min-height: 24px; }</style></head>",
-    ),
+    ("</head>", "<style>section ul a { display: inline-block; min-height: 24px; }</style></head>"),
 ]
 
 

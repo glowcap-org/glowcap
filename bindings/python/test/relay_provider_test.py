@@ -3,34 +3,25 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from glowcap import relay
 from glowcap._errors import GlowcapError
 
-
 DESIGNATOR = "ab" * 32
-CORPUS = json.loads(
-    (Path(__file__).parents[3] / "test/net/fixtures/relay_routes.json").read_text()
-)
+CORPUS = json.loads((Path(__file__).parents[3] / "test/net/fixtures/relay_routes.json").read_text())
 
 
 class RelayRouteTests(unittest.TestCase):
     def test_managed_connector_refuses_alias_configuration(self) -> None:
-        config = relay.RelayConfig(
-            "ws://127.0.0.1:8080/relay",
-            relay_alias_url="wss://relay.example.test/relay",
-        )
+        config = relay.RelayConfig("ws://127.0.0.1:8080/relay", relay_alias_url="wss://relay.example.test/relay")
         with self.assertRaisesRegex(GlowcapError, "relay archive.s provider"):
             relay.connector(config)
 
     def test_dial_url_preserves_admitted_query_bytes(self) -> None:
         route = "wss://Relay.Example.test/bridge?second=%2f&first=one"
-        self.assertEqual(
-            relay._dial_url(route, DESIGNATOR),
-            f"{route}&rendezvous={DESIGNATOR}",
-        )
+        self.assertEqual(relay._dial_url(route, DESIGNATOR), f"{route}&rendezvous={DESIGNATOR}")
 
     def test_route_refuses_a_noncanonical_designator(self) -> None:
         with self.assertRaises(Exception):
@@ -41,10 +32,7 @@ class RelayRouteTests(unittest.TestCase):
         for case in CORPUS["accepted"]:
             route = case["route"]
             separator = "&" if "?" in route else "?"
-            self.assertEqual(
-                relay._dial_url(route, DESIGNATOR),
-                f"{route}{separator}rendezvous={DESIGNATOR}",
-            )
+            self.assertEqual(relay._dial_url(route, DESIGNATOR), f"{route}{separator}rendezvous={DESIGNATOR}")
         for route in CORPUS["rejected"]:
             with self.subTest(route=route), self.assertRaises(Exception):
                 relay._dial_url(route, DESIGNATOR)

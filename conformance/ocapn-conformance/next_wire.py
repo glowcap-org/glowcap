@@ -5,15 +5,16 @@ Assertions remain upstream-owned. Native draft cases inspect wire_kind and
 listen_mode so conversion cannot conceal a legacy record from the peer.
 The opening and crypto representations intentionally remain the baseline.
 """
-from pathlib import Path
+
 import re
 import time
+from pathlib import Path
 
 from contrib import syrup
 from netlayers.base import CapTPSocket, ReadSocketIO
 from netlayers.testing_only_tcp import TestingOnlyTCPNetlayer
-from utils.captp import CapTPSession
 from utils import captp_types as types
+from utils.captp import CapTPSession
 from utils.netstrings import Netstring
 
 Symbol = syrup.Symbol
@@ -139,7 +140,10 @@ class NextSocket(CapTPSocket):
             if label in ("op:deliver", "op:deliver-only"):
                 if label == "op:deliver":
                     assert len(raw.args) == 5 and type(raw.args[4]) is int and raw.args[4] in (1, 3)
-                    assert isinstance(raw.args[3], Record) and str(raw.args[3].label) in ("desc:import-object", "desc:import-promise")
+                    assert isinstance(raw.args[3], Record) and str(raw.args[3].label) in (
+                        "desc:import-object",
+                        "desc:import-promise",
+                    )
                     old_args = raw.args[:4]
                 else:
                     assert len(raw.args) == 2
@@ -150,7 +154,11 @@ class NextSocket(CapTPSocket):
                     assert label == "op:deliver-only"
                     source = self.hidden.pop(target.args[0])
                     verb, shortened = raw.args[1]
-                    assert verb == Symbol("fulfill") and isinstance(shortened, Record) and shortened.label == Symbol("desc:import-promise")
+                    assert (
+                        verb == Symbol("fulfill")
+                        and isinstance(shortened, Record)
+                        and shortened.label == Symbol("desc:import-promise")
+                    )
                     if source in self.settling:
                         next_target = Record(Symbol("desc:export"), shortened.args)
                         self.subscribe(next_target, self.settling.pop(source), 2)

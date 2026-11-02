@@ -138,9 +138,9 @@ bash "${dir}/../conformance/bootstrap-submodules.sh"
 bash "${dir}/hooks/verify-ptrace.sh"
 # Lint the devcontainer's own scripts (and the repo-root glowcap shim the
 # image links onto PATH), so a shellcheck finding fails container open and
-# ci/gates.sh, which runs this script on every push. SCRIPTDIR resolves the
-# relative `source=` directives beside each script, whatever the caller's
-# working directory is.
+# the CI infrastructure phase (ci/groups.py), which runs this script on
+# every push. SCRIPTDIR resolves the relative `source=` directives beside
+# each script, whatever the caller's working directory is.
 # The lint covers every shell file this directory owns, wherever it sits:
 # the scripts, the library modules, and the pane runtime's host half. The
 # runtime's container half is zsh, a language this linter does not read, so

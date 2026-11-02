@@ -29,16 +29,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import (  # noqa: E402
-    await_greeter_ready,
-    fail,
-    insert_bindings_path,
-    parse_port,
-)
+from helpers import await_greeter_ready, fail, insert_bindings_path, parse_port
 
 insert_bindings_path()
 
 from glowcap import Ref, Runtime, tcp  # noqa: E402
+
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-gift", 22122, max_port=65534)
 
@@ -57,9 +53,7 @@ async def run() -> None:
     # deadlocks the child once its OS pipe fills, Goblins logs to stderr during
     # operation, so drain stderr in the background and print it only on failure.
     bob = await asyncio.create_subprocess_exec(
-        RACKET, EXPORTER_SCRIPT, HOST, str(PORT),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        RACKET, EXPORTER_SCRIPT, HOST, str(PORT), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     bob_stderr_chunks: list[bytes] = []
 
@@ -97,9 +91,7 @@ async def run() -> None:
         # Fetch a vendor, then lift Bob's greeter from an ordinary call reply.
         # The reply ref's home is this gifter<->Bob connection, so glowcap can
         # re-gift it without an enrollment verb.
-        gifter_runtime = await Runtime.open(
-            provider=tcp.provider(), adopt_host=gifter.host
-        )
+        gifter_runtime = await Runtime.open(provider=tcp.provider(), adopt_host=gifter.host)
         to_bob = await gifter_runtime.connect(tcp.locator(HOST, PORT))
         to_bob.serve()
         vendor = await to_bob.fetch(VENDOR_SWISS)
@@ -119,7 +111,12 @@ async def run() -> None:
         # Spawn Carol (the Goblins recipient): she dials glowcap's introducer,
         # asks for both greeters, redeems both gives, and calls Bob directly.
         carol = await asyncio.create_subprocess_exec(
-            RACKET, RECIPIENT_SCRIPT, tcp.address_designator(HOST, gifter_port), INTRODUCER_SWISS, str(PORT + 1), f"nested={tcp.address_designator(HOST, PORT)}",
+            RACKET,
+            RECIPIENT_SCRIPT,
+            tcp.address_designator(HOST, gifter_port),
+            INTRODUCER_SWISS,
+            str(PORT + 1),
+            f"nested={tcp.address_designator(HOST, PORT)}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -138,7 +135,9 @@ async def run() -> None:
             fail("python-goblins-gift", f"recipient did not confirm the greeter reply with its name: {reply!r}")
 
         ok = True
-        print("python-goblins-gift OK: two nested binding values became distinct gives that live Goblins redeemed and called directly")
+        print(
+            "python-goblins-gift OK: two nested binding values became distinct gives that live Goblins redeemed and called directly"
+        )
 
         await gifter.close()
         await to_bob.close()

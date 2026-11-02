@@ -26,11 +26,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, insert_bindings_path, parse_port, read_swiss  # noqa: E402
+from helpers import fail, insert_bindings_path, parse_port, read_swiss
 
 insert_bindings_path()
 
 from glowcap import Ref, Runtime, tcp  # noqa: E402
+
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-handoff", 22114, max_port=65534)
 RACKET = "racket"
@@ -39,9 +40,7 @@ HOST_SCRIPT = "conformance/goblins-peer/racket/handoff-introducer-host.rkt"
 
 async def converse() -> None:
     proc = await asyncio.create_subprocess_exec(
-        RACKET, HOST_SCRIPT, str(PORT), str(PORT + 1),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        RACKET, HOST_SCRIPT, str(PORT), str(PORT + 1), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     try:
         swiss = await read_swiss(proc, "python-goblins-handoff", miss="never saw the introducer readiness line")

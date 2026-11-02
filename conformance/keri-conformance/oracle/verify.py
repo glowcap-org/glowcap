@@ -40,6 +40,7 @@ not a byte-equivalence claim against keripy the library.
 
 Invoked by stack/substrate/conformance.sh.
 """
+
 import base64
 import json
 import os
@@ -82,9 +83,7 @@ def cesr_decode_64(prim: str) -> bytes:
 
 # Base64url alphabet, used to decode the 1-char index in CESR `A`-prefixed status-allow: purpose clause
 # indexed Ed25519 signatures. CESR primitive codes per WebOfTrust spec.
-_B64URL_ALPHABET = (
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-)
+_B64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
 
 def parse_indexed_sig(cesr_sig: str) -> tuple:
@@ -129,9 +128,7 @@ def parse_threshold(threshold) -> int:
     if isinstance(threshold, str):
         return int(threshold, 16)
     if isinstance(threshold, list):
-        raise ValueError(
-            f"weighted/fractional thresholds (kt/nt={threshold!r}) are out of kernel oracle scope"
-        )
+        raise ValueError(f"weighted/fractional thresholds (kt/nt={threshold!r}) are out of kernel oracle scope")
     raise ValueError(f"unrecognized threshold: {threshold!r}")
 
 
@@ -150,10 +147,12 @@ def blake3_256(data: bytes) -> bytes:
     # Try the `blake3` Python package; fall back to keripy's CESR primitives if absent.
     try:
         import blake3 as _b3
+
         return _b3.blake3(data).digest(length=32)
     except ImportError:
         # keripy bundles blake3 via its `coring` module.
         from keri.kering import Diger  # type: ignore
+
         return Diger(ser=data).raw  # uses Blake3 by default
 
 
@@ -163,6 +162,7 @@ def ed25519_verify(pk_raw: bytes, msg: bytes, sig: bytes) -> bool:
     except ImportError:
         # keripy has its own ed25519 wrappers; use those if pynacl missing.
         from keri.kering import Verfer  # type: ignore
+
         v = Verfer(raw=pk_raw, code="D")
         return v.verify(sig=sig, ser=msg)
     try:
@@ -172,8 +172,7 @@ def ed25519_verify(pk_raw: bytes, msg: bytes, sig: bytes) -> bool:
         return False
 
 
-KERI_EVENT_FIELD_ORDER = ["v", "t", "d", "i", "s", "p", "kt", "k", "nt", "n",
-                          "bt", "b", "br", "ba", "c", "a"]
+KERI_EVENT_FIELD_ORDER = ["v", "t", "d", "i", "s", "p", "kt", "k", "nt", "n", "bt", "b", "br", "ba", "c", "a"]
 
 
 def keri_canonical(event: dict) -> dict:
@@ -245,12 +244,11 @@ def verify_kel(aid: str, kel_records: list) -> bool:
         if not sigs:
             err(f"event {i}: no signatures")
             return False
-        is_icp = (evt["t"] == "icp")
+        is_icp = evt["t"] == "icp"
 
         # SAID check: re-compute and compare.
         recomputed, computed_said = saidify(
-            {k: v for k, v in evt.items() if k != "d" and (not is_icp or k != "i")},
-            is_icp,
+            {k: v for k, v in evt.items() if k != "d" and (not is_icp or k != "i")}, is_icp
         )
         if computed_said != evt["d"]:
             err(f"event {i} ({evt['t']}): SAID mismatch, computed {computed_said}, stored {evt['d']}")
@@ -289,7 +287,9 @@ def verify_kel(aid: str, kel_records: list) -> bool:
                 err(f"event {i}: rotation but no prior event")
                 return False
             if prior_next_digests is None or len(prior_next_digests) < len(keys_cesr):
-                err(f"event {i}: rotation has {len(keys_cesr)} keys but prior committed {len(prior_next_digests or [])} digests")
+                err(
+                    f"event {i}: rotation has {len(keys_cesr)} keys but prior committed {len(prior_next_digests or [])} digests"
+                )
                 return False
             for ki, key_cesr in enumerate(keys_cesr):
                 actual = cesr_encode_32("E", blake3_256(key_cesr.encode("utf-8")))
@@ -339,10 +339,7 @@ def verify_kel(aid: str, kel_records: list) -> bool:
                 return False
             verified_indices.add(index)
         if len(verified_indices) < required:
-            err(
-                f"event {i} ({evt['t']}): only {len(verified_indices)} distinct sig(s), "
-                f"need {required} (kt threshold)"
-            )
+            err(f"event {i} ({evt['t']}): only {len(verified_indices)} distinct sig(s), need {required} (kt threshold)")
             return False
         ok(
             f"event {i} ({evt['t']}): {len(verified_indices)} of {required} required signature(s) verify"
@@ -382,10 +379,7 @@ def verify_episode(idx: int, episode: dict, kel_for_aid: dict) -> bool:
         err(f"Episode {idx}: missing crypto_suite field (substrate commitment #7)")
         return False
     if suite not in SUPPORTED_CRYPTO_SUITES:
-        err(
-            f"Episode {idx}: unknown crypto_suite {suite!r}; oracle supports "
-            f"{sorted(SUPPORTED_CRYPTO_SUITES)!r}"
-        )
+        err(f"Episode {idx}: unknown crypto_suite {suite!r}; oracle supports {sorted(SUPPORTED_CRYPTO_SUITES)!r}")
         return False
     ok(f"Episode {idx}: crypto_suite={suite}")
 
@@ -428,11 +422,7 @@ def verify_episode(idx: int, episode: dict, kel_for_aid: dict) -> bool:
 
     # Check 2: ephemeral pubkey verified the Episode payload (sig fields stripped).
     # crypto_suite stays in the payload, it's part of the signed bytes.
-    payload = {
-        k: v
-        for k, v in episode.items()
-        if k not in ("sig", "ephemeral_pubkey_sig", "kel_anchor")
-    }
+    payload = {k: v for k, v in episode.items() if k not in ("sig", "ephemeral_pubkey_sig", "kel_anchor")}
     payload_bytes = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     try:
         sig_index, sig_raw = parse_indexed_sig(sig_cesr)

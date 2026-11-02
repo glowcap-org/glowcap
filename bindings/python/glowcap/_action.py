@@ -15,12 +15,12 @@ import ctypes
 import secrets
 
 from . import _constants as _abi
-from ._errors import _check_host, _vow_failure, GlowcapError
-from ._ffi_host import _HostPumpArmFn, _HostPumpHooks, _host
+from ._errors import GlowcapError, _check_host, _vow_failure
+from ._ffi_host import _host, _HostPumpArmFn, _HostPumpHooks
 from ._ffi_ocapn import _byte_buf
 from ._host_action_gen import (
-    Close,
     CancelDial,
+    Close,
     Dial,
     Fail,
     Flush,
@@ -39,7 +39,7 @@ def _answer_gift_id(draw, provide, failed) -> None:
     """Complete entropy failure separately from FFI ticket refusal."""
     try:
         gift_id = draw()
-    except Exception:  # noqa: BLE001 - the core owns the failed effect
+    except Exception:
         failed()
         return
     provide(gift_id)
@@ -69,16 +69,10 @@ def _park_actions(host) -> tuple[list[HostAction], bool]:
     hooks = _HostPumpHooks(None, park, park, park, park, park)
     acted = ctypes.c_uint32(0)
     yielded = ctypes.c_uint32(0)
-    rc = _host.glowcap_host_pump_drain(
-        host.raw,
-        ctypes.byref(hooks),
-        ctypes.byref(acted),
-        ctypes.byref(yielded),
-    )
+    rc = _host.glowcap_host_pump_drain(host.raw, ctypes.byref(hooks), ctypes.byref(acted), ctypes.byref(yielded))
     if callback_failure is not None:
         raise GlowcapError(
-            _abi.ERR_INTERNAL,
-            f"glowcap ABI returned an invalid host action: {callback_failure}",
+            _abi.ERR_INTERNAL, f"glowcap ABI returned an invalid host action: {callback_failure}"
         ) from callback_failure
     _check_host(rc)
     return parked, yielded.value != 0
@@ -103,9 +97,7 @@ class _Handlers:
         from ._dial import run_dial_ticket
 
         self._host.start_dial_task(
-            a.ticket,
-            a.route_index,
-            lambda: run_dial_ticket(self._host, a.ticket, a.route_index),
+            a.ticket, a.route_index, lambda: run_dial_ticket(self._host, a.ticket, a.route_index)
         )
 
     async def cancel_dial(self, a: CancelDial) -> None:
@@ -129,21 +121,12 @@ class _Handlers:
     async def need_gift_id(self, a: NeedGiftId) -> None:
         def provide(gift_id: bytes) -> None:
             buf, ptr = _byte_buf(gift_id)
-            _check_host(
-                _host.glowcap_host_provide_gift_id(
-                    self._host.raw,
-                    a.ticket,
-                    ptr,
-                    32,
-                )
-            )
+            _check_host(_host.glowcap_host_provide_gift_id(self._host.raw, a.ticket, ptr, 32))
 
         _answer_gift_id(
             lambda: secrets.token_bytes(32),
             provide,
-            lambda: _check_host(
-                _host.glowcap_host_gift_id_failed(self._host.raw, a.ticket)
-            ),
+            lambda: _check_host(_host.glowcap_host_gift_id_failed(self._host.raw, a.ticket)),
         )
 
     async def settle(self, a: Settle) -> None:
@@ -160,4 +143,3 @@ class _Handlers:
 
 async def _run_action(host, action: HostAction) -> None:
     await dispatch(action, host.action_handlers)
-

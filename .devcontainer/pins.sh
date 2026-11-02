@@ -54,6 +54,10 @@ UV_VERSION="0.13.0"
 PYTHON_VERSION="3.14.7"
 # dep Serena: Symbol-level navigation of the Zig code for coding agents.
 SERENA_AGENT_VERSION="2.0.0"
+# dep ruff: Formats and lints every first-party Python file (`zig build python-check`).
+RUFF_VERSION="0.17.3"
+# dep mypy: Type-checks the Python binding (`zig build bindings-fmt-check`).
+MYPY_VERSION="2.4.1"
 # The four AI harnesses are managed tools, not image content: these versions
 # are the verified cold-install seeds the dispatcher installs on first use
 # (.devcontainer/tools), and update-pins keeps them fresh. An explicit

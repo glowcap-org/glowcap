@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# glowcap: Format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript).
-# Python and Racket have no single-file formatter on PATH; the
-# `bindings-fmt-check` gate holds them.
+# glowcap: Format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript, Python).
+# Racket has no single-file formatter on PATH; the `bindings-fmt-check` gate
+# holds it.
 #
 # Wired from:
 #   .cursor/hooks.json    (afterFileEdit), input is .file_path
@@ -48,5 +48,13 @@ case "$abs_path" in
     # Run from the file's directory so deno discovers the nearest deno.json
     # (the bindings workspace and the root scope carry different fmt blocks).
     (cd "$(dirname "$abs_path")" && deno fmt "$abs_path") >&2 || true
+    ;;
+  *.py)
+    if ! command -v ruff >/dev/null 2>&1; then
+      printf 'glowcap hook: ruff not on PATH; skipping %s\n' "$abs_path" >&2
+      exit 0
+    fi
+    # Run from the file's directory so ruff discovers the root ruff.toml.
+    (cd "$(dirname "$abs_path")" && ruff format "$abs_path") >&2 || true
     ;;
 esac

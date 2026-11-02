@@ -14,18 +14,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "interop" / "_common" / "python"))
-from helpers import insert_bindings_path  # noqa: E402
+from helpers import insert_bindings_path
 
 insert_bindings_path()
 
-from glowcap import (  # noqa: E402
-    GlowcapError,
-    Ref,
-    Runtime,
-    Session,
-    parse_locator,
-    tcp,
-)
+from glowcap import GlowcapError, Ref, Runtime, Session, parse_locator, tcp  # noqa: E402
 
 
 def fail(message: str) -> None:
@@ -60,7 +53,7 @@ def send_handle(session: Session, target, verb: str, args: list, what: str):
     promise-returning verb, which is the trap this family exists to catch."""
     try:
         handle = session.send(target, verb, args)
-    except BaseException as raised:  # noqa: BLE001 - the escape under test
+    except BaseException as raised:
         fail(f"{what}: send raised instead of returning a handle: {raised!r}")
         raise AssertionError  # unreachable
     if not hasattr(handle, "__await__"):
@@ -99,13 +92,19 @@ async def run(peer_uri: str, dead_uri: str) -> None:
         for selector in (None, "", "call"):
             for payload in ([], ["payload"]):
                 label = "direct" if selector is None else "empty" if selector == "" else "call"
-                expect_string("invocation shape", await session.send(spine, selector, payload), f"{label}:{len(payload)}")
+                expect_string(
+                    "invocation shape", await session.send(spine, selector, payload), f"{label}:{len(payload)}"
+                )
+
         def shape_behavior(selector, args):
             label = "direct" if selector is None else "empty" if selector == "" else selector
             return f"{label}:{len(args)}"
+
         shape_target = session.spawn(shape_behavior)
         shape_proxy = session.caretaker(shape_target).proxy
-        expect_string("forwarded callback shapes", await session.send(spine, "shapes", [shape_proxy]), "shapes preserved")
+        expect_string(
+            "forwarded callback shapes", await session.send(spine, "shapes", [shape_proxy]), "shapes preserved"
+        )
         mark("promise-handle")
 
         # ── promise-index / promise-untag / promise-get ──────────────────────
@@ -141,9 +140,7 @@ async def run(peer_uri: str, dead_uri: str) -> None:
             pass  # tolerant: the refusal this scene requires
         if second_release_accepted:
             fail("releasing a spent capability twice was accepted")
-        through_spent = send_handle(
-            session, minted, "ping", [], "send through a released capability"
-        )
+        through_spent = send_handle(session, minted, "ping", [], "send through a released capability")
         if await settles(through_spent):
             fail("a send through a released capability was answered")
         mark("gc-released")

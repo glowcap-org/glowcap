@@ -22,23 +22,14 @@ from __future__ import annotations
 
 import ctypes
 
-from ._ffi_ocapn import (
-    _Argument,
-    _bind,
-    _LastAbort,
-    _LocatorHintView,
-    _LocatorView,
-    _Lib,
-    _ManagedFrame,
-    _Reference,
-)
-from ._pin import pin_struct
+from ._archive_contract import require_archive_fingerprint
 
 # The trace record's digest is a fixed-width array, so its width is the
 # reflected constant rather than a number retyped here.
 from ._constants_gen import HOST_ARCHIVE_FINGERPRINT, TRACE_DIGEST_BYTES
-from ._archive_contract import require_archive_fingerprint
+from ._ffi_ocapn import _Argument, _bind, _LastAbort, _Lib, _LocatorHintView, _LocatorView, _ManagedFrame, _Reference
 from ._lib_resolve import _lib_path
+from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
 # inventory (``zig build gen-binding-python-ffi``); this module hands it the
@@ -172,11 +163,7 @@ _HostBehavior = ctypes.CFUNCTYPE(
 # GlowcapHostPumpArmFn / GlowcapHostPumpHooks: sync arms for
 # glowcap_host_pump_drain; bindings park decoded actions and await after.
 _HostPumpArmFn = ctypes.CFUNCTYPE(
-    ctypes.c_int32,
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.POINTER(_HostAction),
-    ctypes.POINTER(ctypes.c_uint32),
+    ctypes.c_int32, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_HostAction), ctypes.POINTER(ctypes.c_uint32)
 )
 
 
@@ -210,11 +197,7 @@ def _load():
         _SessionLimitOptions,
     )
     lib = ctypes.CDLL(str(_lib_path("glowcap_host")))
-    require_archive_fingerprint(
-        lambda: lib.glowcap_host_archive_fingerprint,
-        "host",
-        HOST_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: lib.glowcap_host_archive_fingerprint, "host", HOST_ARCHIVE_FINGERPRINT)
     facade = _Lib(lib)
     _bind(facade, lib, sigs)
     return facade

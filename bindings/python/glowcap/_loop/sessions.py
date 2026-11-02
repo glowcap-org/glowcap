@@ -4,31 +4,27 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import TYPE_CHECKING, Optional, Union, cast
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .._host import Host
     from . import DriverLoop
 
 from .. import _constants as _c
-from .._errors import GlowcapError
 from .._driver.transport import _LoopTransport
+from .._errors import GlowcapError
 from .._ffi_driver import _driver
 from .._ffi_host import _CloseOptions
 from .._lifecycle import _lifecycle_closed
 from .._locator import Locator
-
 from .errors import _check
 from .state import DriverLoopMixinBase
 
 
 class _SessionsMixin(DriverLoopMixinBase):
-    _wrapper: "Optional[Host]"
+    _wrapper: Host | None
 
-    async def connect_session(
-        self,
-        locator: Union[Locator, str],
-    ):
+    async def connect_session(self, locator: Locator | str):
         """Dial through the loop and wrap the opened session as the public
         :class:`glowcap.Session`, over the adopted wrapper Host: every session
         verb, promise, and trampoline works on it, with the driver loop as
@@ -56,7 +52,7 @@ class _SessionsMixin(DriverLoopMixinBase):
             session.close_transport()
         return session
 
-    def wrapper_host(self) -> "Host":
+    def wrapper_host(self) -> Host:
         """The public :class:`glowcap.Host` wrapper adopted over this loop's
         FFI host (ADR-0024): application verbs, publish trampolines, and
         ``RemotePromise`` settles all work on it, while the loop stays the one
@@ -79,25 +75,15 @@ class _SessionsMixin(DriverLoopMixinBase):
         """Release one loop-owned session: the loop spelling of
         ``glowcap_host_session_release``, which must not be called on
         sessions this loop minted."""
-        _check(
-            _driver.glowcap_driver_session_release(self._h, ctypes.c_void_p(session))
-        )
+        _check(_driver.glowcap_driver_session_release(self._h, ctypes.c_void_p(session)))
 
-    def claim_reference_exporter(self, reference) -> Optional[int]:
+    def claim_reference_exporter(self, reference) -> int | None:
         """Resolve and claim the exporter session named by one Host capability."""
         out = ctypes.c_void_p()
-        _check(
-            _driver.glowcap_driver_claim_reference_exporter(
-                self._h,
-                ctypes.byref(reference),
-                ctypes.byref(out),
-            )
-        )
+        _check(_driver.glowcap_driver_claim_reference_exporter(self._h, ctypes.byref(reference), ctypes.byref(out)))
         return out.value
 
-    async def close_session(
-        self, session: ctypes.c_void_p, options: _CloseOptions
-    ) -> None:
+    async def close_session(self, session: ctypes.c_void_p, options: _CloseOptions) -> None:
         """Close one loop-owned session through the FFI completion barrier."""
         aio = self._started_loop()
         key = session.value
@@ -109,13 +95,7 @@ class _SessionsMixin(DriverLoopMixinBase):
             future = aio.create_future()
             self._session_closes[key] = future
         try:
-            _check(
-                _driver.glowcap_driver_session_close(
-                    self._h,
-                    session,
-                    ctypes.byref(options),
-                )
-            )
+            _check(_driver.glowcap_driver_session_close(self._h, session, ctypes.byref(options)))
         except BaseException:
             if created:
                 self._session_closes.pop(key, None)
@@ -132,9 +112,7 @@ class _SessionsMixin(DriverLoopMixinBase):
             task.add_done_callback(self._session_close_tasks.discard)
         await asyncio.shield(future)
 
-    async def _drive_session_close(
-        self, session: int, future: "asyncio.Future[None]"
-    ) -> None:
+    async def _drive_session_close(self, session: int, future: asyncio.Future[None]) -> None:
         """The deadline-stepper behind one session's FFI close barrier: a
         grace expiry takes effect only inside a step, so this driver steps on
         every loop-activity or deadline wake until the session's lifecycle
@@ -159,11 +137,7 @@ class _SessionsMixin(DriverLoopMixinBase):
         if future is None:
             return
         state = ctypes.c_uint32()
-        rc = _driver.glowcap_driver_session_lifecycle_state(
-            self._h,
-            ctypes.c_void_p(session),
-            ctypes.byref(state),
-        )
+        rc = _driver.glowcap_driver_session_lifecycle_state(self._h, ctypes.c_void_p(session), ctypes.byref(state))
         if rc not in (_c.OK, _c.ERR_TIMEOUT):
             self._session_closes.pop(session, None)
             future.set_exception(GlowcapError(rc, "FFI session close failed"))
@@ -172,8 +146,6 @@ class _SessionsMixin(DriverLoopMixinBase):
             return
         self._session_closes.pop(session, None)
         if rc == _c.ERR_TIMEOUT:
-            future.set_exception(
-                GlowcapError(_c.ERR_TIMEOUT, "finish close exhausted its grace period")
-            )
+            future.set_exception(GlowcapError(_c.ERR_TIMEOUT, "finish close exhausted its grace period"))
         else:
             future.set_result(None)

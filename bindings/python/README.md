@@ -29,9 +29,7 @@ from glowcap import Runtime, tcp, VowBroken
 async def main():
     peer_key = "<64 lowercase hex characters from the server>"
     async with Runtime.open(provider=tcp.provider()) as runtime:
-        async with await runtime.connect(
-            tcp.noise.locator(peer_key, "127.0.0.1", 9099)
-        ) as session:
+        async with await runtime.connect(tcp.noise.locator(peer_key, "127.0.0.1", 9099)) as session:
             greeter = await session.fetch("greeter")
             try:
                 print(await session.send(greeter, "greet", ["world"]))

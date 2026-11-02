@@ -21,21 +21,22 @@ from __future__ import annotations
 
 import ctypes
 
+from ._archive_contract import require_archive_fingerprint
+from ._constants_gen import FRAME_SHAPE_BYTE, OCAPN_ARCHIVE_FINGERPRINT
+
 # Archive path resolution (configure → abi-versioned cache → zig-out → find)
 # lives in ``_lib_resolve`` so every ``_ffi_*`` loader shares one cascade.
 from ._lib_resolve import _lib_path
-from ._archive_contract import require_archive_fingerprint
-
-# The signature table is generated from the archive's annotated symbol
-# inventory (``zig build gen-binding-python-ffi``); this module hands it the
-# ``Structure`` types it declares below.
-from ._sigs_gen import ocapn_sigs
-from ._constants_gen import FRAME_SHAPE_BYTE, OCAPN_ARCHIVE_FINGERPRINT
 
 # The layout gate for the hand-mirrored ctypes.Structure types below, held
 # against sizes and offsets reflected off the real Zig C ABI types
 # (``zig build gen-binding-ffi-layouts``).
 from ._pin import pin_struct
+
+# The signature table is generated from the archive's annotated symbol
+# inventory (``zig build gen-binding-python-ffi``); this module hands it the
+# ``Structure`` types it declares below.
+from ._sigs_gen import ocapn_sigs
 
 # ── Raw ctypes layer (private) ───────────────────────────────────────────────
 
@@ -62,11 +63,7 @@ _Argument._fields_ = [
 
 
 class _Frame(ctypes.Structure):
-    _fields_ = [
-        ("bytes", ctypes.c_void_p),
-        ("len", ctypes.c_size_t),
-        ("shape", ctypes.c_uint32),
-    ]
+    _fields_ = [("bytes", ctypes.c_void_p), ("len", ctypes.c_size_t), ("shape", ctypes.c_uint32)]
 
 
 class _ManagedFrame(ctypes.Structure):
@@ -108,12 +105,8 @@ class _LocatorView(ctypes.Structure):
 # Host allocator callbacks:
 #   void *(*alloc)(void *user_data, size_t size, size_t alignment);
 #   void  (*free )(void *user_data, void *ptr, size_t size, size_t alignment);
-_AllocFn = ctypes.CFUNCTYPE(
-    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t
-)
-_FreeFn = ctypes.CFUNCTYPE(
-    None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t
-)
+_AllocFn = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t)
+_FreeFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t)
 
 
 class _Allocator(ctypes.Structure):
@@ -122,32 +115,52 @@ class _Allocator(ctypes.Structure):
 
 class _FailureReport(ctypes.Structure):
     _fields_ = [
-        ("abi_version", ctypes.c_uint32), ("struct_size", ctypes.c_size_t),
-        ("layer", ctypes.c_uint32), ("scope_kind", ctypes.c_uint32),
-        ("scope_id", ctypes.c_uint64), ("operation_id", ctypes.c_uint64),
-        ("primary_result", ctypes.c_int32), ("secondary_result", ctypes.c_int32),
+        ("abi_version", ctypes.c_uint32),
+        ("struct_size", ctypes.c_size_t),
+        ("layer", ctypes.c_uint32),
+        ("scope_kind", ctypes.c_uint32),
+        ("scope_id", ctypes.c_uint64),
+        ("operation_id", ctypes.c_uint64),
+        ("primary_result", ctypes.c_int32),
+        ("secondary_result", ctypes.c_int32),
         ("secondary_count", ctypes.c_uint32),
-        ("operation", ctypes.c_void_p), ("operation_len", ctypes.c_size_t),
-        ("primary_name", ctypes.c_void_p), ("primary_name_len", ctypes.c_size_t),
-        ("primary_message", ctypes.c_void_p), ("primary_message_len", ctypes.c_size_t),
-        ("secondary_name", ctypes.c_void_p), ("secondary_name_len", ctypes.c_size_t),
-        ("secondary_message", ctypes.c_void_p), ("secondary_message_len", ctypes.c_size_t),
+        ("operation", ctypes.c_void_p),
+        ("operation_len", ctypes.c_size_t),
+        ("primary_name", ctypes.c_void_p),
+        ("primary_name_len", ctypes.c_size_t),
+        ("primary_message", ctypes.c_void_p),
+        ("primary_message_len", ctypes.c_size_t),
+        ("secondary_name", ctypes.c_void_p),
+        ("secondary_name_len", ctypes.c_size_t),
+        ("secondary_message", ctypes.c_void_p),
+        ("secondary_message_len", ctypes.c_size_t),
     ]
 
 
 class _FailureEvent(ctypes.Structure):
     _fields_ = [
-        ("abi_version", ctypes.c_uint32), ("struct_size", ctypes.c_size_t),
-        ("sequence", ctypes.c_uint64), ("dropped_before", ctypes.c_uint64),
-        ("layer", ctypes.c_uint32), ("scope_kind", ctypes.c_uint32),
-        ("scope_id", ctypes.c_uint64), ("operation_id", ctypes.c_uint64),
-        ("primary_result", ctypes.c_int32), ("secondary_result", ctypes.c_int32),
-        ("secondary_count", ctypes.c_uint32), ("flags", ctypes.c_uint32),
-        ("operation", ctypes.c_void_p), ("operation_len", ctypes.c_size_t),
-        ("primary_name", ctypes.c_void_p), ("primary_name_len", ctypes.c_size_t),
-        ("primary_message", ctypes.c_void_p), ("primary_message_len", ctypes.c_size_t),
-        ("secondary_name", ctypes.c_void_p), ("secondary_name_len", ctypes.c_size_t),
-        ("secondary_message", ctypes.c_void_p), ("secondary_message_len", ctypes.c_size_t),
+        ("abi_version", ctypes.c_uint32),
+        ("struct_size", ctypes.c_size_t),
+        ("sequence", ctypes.c_uint64),
+        ("dropped_before", ctypes.c_uint64),
+        ("layer", ctypes.c_uint32),
+        ("scope_kind", ctypes.c_uint32),
+        ("scope_id", ctypes.c_uint64),
+        ("operation_id", ctypes.c_uint64),
+        ("primary_result", ctypes.c_int32),
+        ("secondary_result", ctypes.c_int32),
+        ("secondary_count", ctypes.c_uint32),
+        ("flags", ctypes.c_uint32),
+        ("operation", ctypes.c_void_p),
+        ("operation_len", ctypes.c_size_t),
+        ("primary_name", ctypes.c_void_p),
+        ("primary_name_len", ctypes.c_size_t),
+        ("primary_message", ctypes.c_void_p),
+        ("primary_message_len", ctypes.c_size_t),
+        ("secondary_name", ctypes.c_void_p),
+        ("secondary_name_len", ctypes.c_size_t),
+        ("secondary_message", ctypes.c_void_p),
+        ("secondary_message_len", ctypes.c_size_t),
     ]
 
 
@@ -244,11 +257,7 @@ def _borrowed_byte_frame(data: bytes) -> tuple[_Frame, ctypes.c_char_p]:
 
 def _load():
     ocapn = ctypes.CDLL(str(_lib_path("glowcap_ocapn")))
-    require_archive_fingerprint(
-        lambda: ocapn.glowcap_ocapn_archive_fingerprint,
-        "ocapn",
-        OCAPN_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: ocapn.glowcap_ocapn_archive_fingerprint, "ocapn", OCAPN_ARCHIVE_FINGERPRINT)
     facade = _Lib(ocapn)
     _bind(
         facade,

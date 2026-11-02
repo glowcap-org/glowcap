@@ -70,20 +70,14 @@ def webpDimensions(path: Path) -> tuple[int, int]:
         size = int.from_bytes(data[offset + 4 : offset + 8], "little")
         payload = data[offset + 8 : offset + 8 + size]
         if kind == b"VP8 " and len(payload) >= 10 and payload[3:6] == b"\x9d\x01\x2a":
-            return (
-                int.from_bytes(payload[6:8], "little") & 0x3FFF,
-                int.from_bytes(payload[8:10], "little") & 0x3FFF,
-            )
+            return (int.from_bytes(payload[6:8], "little") & 0x3FFF, int.from_bytes(payload[8:10], "little") & 0x3FFF)
         if kind == b"VP8L" and len(payload) >= 5 and payload[0] == 0x2F:
             return (
                 1 + payload[1] + ((payload[2] & 0x3F) << 8),
                 1 + (payload[2] >> 6) + (payload[3] << 2) + ((payload[4] & 0x0F) << 10),
             )
         if kind == b"VP8X" and len(payload) >= 10:
-            return (
-                1 + int.from_bytes(payload[4:7], "little"),
-                1 + int.from_bytes(payload[7:10], "little"),
-            )
+            return (1 + int.from_bytes(payload[4:7], "little"), 1 + int.from_bytes(payload[7:10], "little"))
         offset += 8 + size + (size & 1)
     raise SystemExit(f"site_normalize: {path}: no supported WebP image chunk")
 
@@ -198,7 +192,7 @@ class WidowBinder(HTMLParser):
             start, end, _ = gaps[-1]
             if tag in WIDOW_HEADINGS:
                 if before["event"] == last["end_event"]:
-                    pair = self.text[before["start"]:last["end"]]
+                    pair = self.text[before["start"] : last["end"]]
                     self.edits.append((before["start"], last["end"], f'<span class="keep">{pair}</span>'))
             elif before["chars"] + 1 + last["chars"] <= WIDOW_PAIR_LIMIT:
                 self.edits.append((start, end, "&nbsp;"))
@@ -230,8 +224,7 @@ class WidowBinder(HTMLParser):
         if words and joined:
             words[-1].update(end=end, end_event=self.events, chars=words[-1]["chars"] + chars)
         else:
-            words.append({"start": start, "end": end, "event": self.events,
-                          "end_event": self.events, "chars": chars})
+            words.append({"start": start, "end": end, "event": self.events, "end_event": self.events, "chars": chars})
 
     def handle_data(self, data: str) -> None:
         self.events += 1
@@ -294,9 +287,7 @@ THEME_IMAGE_PAIR = re.compile(
 )
 PAGE_REF = re.compile(r"\(\$link\.page\('([^']+)'\)(?:\.ref\('([^']+)'\))?\)")
 LOCAL_REF = re.compile(r"\(\$link\.ref\('([^']+)'\)\)")
-SECTION_HEADING = re.compile(
-    r"^(#{1,6}) \[([^\]]+)\]\(\$section\.id\('([^']+)'\)\)$", re.MULTILINE
-)
+SECTION_HEADING = re.compile(r"^(#{1,6}) \[([^\]]+)\]\(\$section\.id\('([^']+)'\)\)$", re.MULTILINE)
 LEFTOVER = re.compile(r"\]\(\$")
 
 
@@ -327,12 +318,11 @@ def toMarkdown(source: Path, base: str) -> tuple[str, str, str]:
         raise SystemExit(f"site_normalize: {source}: no frontmatter")
     title = frontmatterField(header.group(1), "title", source)
     description = frontmatterField(header.group(1), "description", source)
-    body = text[header.end():]
+    body = text[header.end() :]
     dark_captures = len(re.findall(r"\$image\.siteAsset\('rooms-[^']+-dark\.webp'\)", body))
     light_captures = len(re.findall(r"\$image\.siteAsset\('rooms-[^']+-light\.webp'\)", body))
     body, theme_images = THEME_IMAGE_PAIR.subn(
-        lambda m: f"[{m.group('caption')}]($image.siteAsset('{m.group('stem')}-dark.webp'))",
-        body,
+        lambda m: f"[{m.group('caption')}]($image.siteAsset('{m.group('stem')}-dark.webp'))", body
     )
     if dark_captures != light_captures or theme_images != dark_captures:
         raise SystemExit(
@@ -341,13 +331,9 @@ def toMarkdown(source: Path, base: str) -> tuple[str, str, str]:
             "keep each matching pair adjacent with one caption"
         )
     body = IMAGE_REF.sub(lambda m: f"![{m.group(1)}]({base}/{m.group(2)})", body)
-    body = PAGE_REF.sub(
-        lambda m: f"({base}/{m.group(1)}/{'#' + m.group(2) if m.group(2) else ''})", body
-    )
+    body = PAGE_REF.sub(lambda m: f"({base}/{m.group(1)}/{'#' + m.group(2) if m.group(2) else ''})", body)
     body = LOCAL_REF.sub(lambda m: f"(#{m.group(1)})", body)
-    body = SECTION_HEADING.sub(
-        lambda m: f'<a id="{m.group(3)}"></a>\n{m.group(1)} {m.group(2)}', body
-    )
+    body = SECTION_HEADING.sub(lambda m: f'<a id="{m.group(3)}"></a>\n{m.group(1)} {m.group(2)}', body)
     body = HTML_FENCE.sub(lambda m: m.group(1), body)
     body = CODE_TABS.sub("", body)
     body = LINK_GRID.sub(lambda m: re.sub(r"^> ", "", m.group(1), flags=re.MULTILINE), body)
@@ -438,8 +424,7 @@ def main() -> int:
                         '<meta property="og:image:alt" content="The glowcap mark.">'
                     )
                 rewritten = rewritten.replace(
-                    head_close,
-                    f'<link rel="canonical" href="{base}/{loc}">{social}{head_close}',
+                    head_close, f'<link rel="canonical" href="{base}/{loc}">{social}{head_close}'
                 )
             if rewritten != original:
                 page.write_text(rewritten, encoding="utf-8")
@@ -450,8 +435,7 @@ def main() -> int:
             listed.append(rel.removesuffix("index.html"))
     if pages < 20:
         print(
-            f"site_normalize: only {pages} pages under {root}; a real site build "
-            "has more, refusing a vacuous pass",
+            f"site_normalize: only {pages} pages under {root}; a real site build has more, refusing a vacuous pass",
             file=sys.stderr,
         )
         return 1
@@ -462,12 +446,8 @@ def main() -> int:
         return 1
     (root / "404.html").write_text(not_found.read_text(encoding="utf-8"), encoding="utf-8")
 
-    (root / "robots.txt").write_text(
-        f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n", encoding="utf-8"
-    )
-    urls = "\n".join(
-        f"  <url><loc>{base}/{rel}</loc></url>" for rel in listed
-    )
+    (root / "robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n", encoding="utf-8")
+    urls = "\n".join(f"  <url><loc>{base}/{rel}</loc></url>" for rel in listed)
     (root / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

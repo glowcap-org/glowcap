@@ -24,15 +24,9 @@ def _driver_options(
         ("busy_poll_ns", busy_poll_ns, ctypes.c_uint64(-1).value),
     )
     for name, value, maximum in fields:
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, int)
-            or value < 0
-            or value > maximum
-        ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > maximum:
             raise GlowcapError(
-                _c.ERR_INVALID_ARGUMENT,
-                f"{name} must be an unsigned integer representable by the C field",
+                _c.ERR_INVALID_ARGUMENT, f"{name} must be an unsigned integer representable by the C field"
             )
     return _DriverOptions(
         _c.DRIVER_OPTIONS_ABI_VERSION,

@@ -20,17 +20,13 @@ gate.
 from __future__ import annotations
 
 import ctypes
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 from ._layouts_gen import LAYOUTS
 
 
-def pin_struct(
-    cls: type,
-    stem: str,
-    *,
-    aliases: Optional[Mapping[str, str]] = None,
-) -> None:
+def pin_struct(cls: type, stem: str, *, aliases: Mapping[str, str] | None = None) -> None:
     """Pin one mirror against the C ABI struct ``stem`` names.
 
     ``aliases`` maps an ABI field name to the name this mirror declares it by,

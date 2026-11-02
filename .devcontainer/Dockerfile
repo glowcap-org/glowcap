@@ -100,7 +100,7 @@ RUN bash "${GLOWCAP_DEVCONTAINER_DIR}/image/zig.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/rust.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/js-toolchains.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/python.sh" \
- && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/serena.sh" \
+ && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/uv-tools.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/racket-goblins.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/tool-links.sh"
 

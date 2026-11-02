@@ -19,7 +19,7 @@ import ctypes
 
 from ._archive_contract import require_archive_fingerprint
 from ._constants import INPROC_ARCHIVE_FINGERPRINT
-from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
+from ._ffi_ocapn import _bind, _Frame, _Lib, _ManagedFrame
 from ._lib_resolve import _lib_path
 
 # The signature table is generated from the archive's annotated symbol
@@ -29,11 +29,7 @@ from ._sigs_gen import inproc_sigs
 
 def _load():
     inproc = ctypes.CDLL(str(_lib_path("glowcap_net_transport_inproc")))
-    require_archive_fingerprint(
-        lambda: inproc.glowcap_inproc_archive_fingerprint,
-        "inproc",
-        INPROC_ARCHIVE_FINGERPRINT,
-    )
+    require_archive_fingerprint(lambda: inproc.glowcap_inproc_archive_fingerprint, "inproc", INPROC_ARCHIVE_FINGERPRINT)
     facade = _Lib(inproc)
     _bind(facade, inproc, inproc_sigs(_Frame, _ManagedFrame))
     return facade
