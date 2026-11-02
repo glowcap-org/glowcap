@@ -1,14 +1,11 @@
 // Awaited archive replies retain the selected offer and receiving conversation.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { initializeApplication } from "../support/application.ts";
 import type { ArchiveLine } from "../../lib/archive/protocol.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { ReceivedArchive, WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const { managedArchiveReading } = await import("../../web/ui/session/managed/archive_shares.ts");
 const { presentationFiles } = await import("../../web/ui/session/managed/files.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");

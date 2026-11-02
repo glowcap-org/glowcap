@@ -8,7 +8,7 @@ import { DM } from "../../lib/protocol.ts";
 import { dial, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { startServer } from "../support/installed_server.ts";
-import { within } from "../support/wait.ts";
+import { until, within } from "../support/wait.ts";
 import { startIrcServer } from "./server_process.ts";
 import { encodeIrc, type IrcMessage, readIrcLines } from "../../irc/protocol.ts";
 import { assertEquals } from "../assert.ts";
@@ -236,11 +236,11 @@ Deno.test({
 			await nextMatching(lines, (line) => line.command === "318", "end of WHOIS");
 
 			await writeAll(irc, encodeIrc("PRIVMSG", ["bob", "private from IRC"]));
-			const bobDeadline = Date.now() + 10_000;
-			while (!bobInbox.some((message) => message.from === "alice" && message.text === "private from IRC")) {
-				if (Date.now() >= bobDeadline) throw new Error("Bob did not receive the introduced IRC direct message");
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
+			await until(
+				() => bobInbox.some((message) => message.from === "alice" && message.text === "private from IRC"),
+				"Bob to receive the introduced IRC direct message",
+				10_000,
+			);
 
 			let bobToAlice: DirectMessage;
 			try {

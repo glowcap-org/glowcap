@@ -26,6 +26,7 @@ const ROOT = new URL("../../../../", import.meta.url).pathname;
 import { startArchivePeer } from "../support/archive_peer.ts";
 import { fail } from "../support/fail.ts";
 import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
 const ROOM = "archive-room";
 const KEPT = "this line outlives the browser that wrote it";
 const KEPT_DEVICE = "this line was this browser's account of it";
@@ -50,20 +51,6 @@ async function announcedArchive(proc: Deno.ChildProcess): Promise<string> {
 	}
 	if (announced != null) return announced;
 	fail("the archive peer exited without announcing its sturdyref");
-}
-
-async function waitForPage(port: number): Promise<void> {
-	for (let attempt = 0; attempt < 400; attempt += 1) {
-		try {
-			const response = await fetch(`http://127.0.0.1:${port}/locator`);
-			await response.body?.cancel();
-			if (response.ok) return;
-		} catch {
-			// The supervisor has not finished opening its room yet. status-allow: pending state or quoted runtime label
-		}
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	fail("the Rooms page did not become ready");
 }
 
 async function join(browser: Browser, port: number, nick: string): Promise<{ context: BrowserContext; tab: Page }> {
@@ -162,7 +149,7 @@ spawnWeb({
 
 let browser: Browser | null = null;
 try {
-	const [sturdyref] = await Promise.all([announcedArchive(archive), waitForPage(httpPort)]);
+	const [sturdyref] = await Promise.all([announcedArchive(archive), waitForHttp(httpPort)]);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const alice = await join(browser, httpPort, "archive-alice");
 	const bob = await join(browser, httpPort, "archive-bob");

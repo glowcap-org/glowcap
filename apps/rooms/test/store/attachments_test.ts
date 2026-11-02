@@ -7,16 +7,8 @@
 
 /// <reference lib="dom" />
 
+import "../support/match_media.ts";
 import { assert } from "../assert.ts";
-
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({
-		matches: false,
-		addEventListener() {},
-		removeEventListener() {},
-	}),
-});
 
 const store = await import("../../web/ui/store.ts");
 const { authorityToken } = await import("../../web/ui/store/rooms.ts");

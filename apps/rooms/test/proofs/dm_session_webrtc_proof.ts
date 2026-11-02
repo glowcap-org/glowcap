@@ -30,6 +30,7 @@ import { reapOwned } from "../support/children.ts";
 import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
 import { freePort } from "../support/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
+import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, openDmTo } from "../page/harness.ts";
 import { startSessionPeer } from "../support/session_peer.ts";
@@ -88,24 +89,22 @@ async function control(verb: string, named: Record<string, string[]>) {
 
 // The process's pending events, until a direct message carrying `text` is among them.
 async function receivedDirect(text: string): Promise<void> {
-	const until = Date.now() + 20_000;
-	while (Date.now() < until) {
-		const batch = await control("tick", { wait: ["0"] });
-		const pending: Array<{ event: { target: { kind: string }; notice: { text?: string } } }> = batch.pending ?? [];
-		if (pending.some((p) => p.event?.target?.kind === "direct" && p.event?.notice?.text === text)) return;
-		await new Promise((resolve) => setTimeout(resolve, 100));
-	}
-	fail(`the session process never received "${text}"`);
+	await until(
+		async () => {
+			const batch = await control("tick", { wait: ["0"] });
+			const pending: Array<{ event: { target: { kind: string }; notice: { text?: string } } }> = batch.pending ??
+				[];
+			return pending.some((p) => p.event?.target?.kind === "direct" && p.event?.notice?.text === text);
+		},
+		`the session process to receive "${text}"`,
+		20_000,
+	);
 }
 
 // Delivery alone is not transport evidence. The live timeline must observe a
 // webrtc session beyond the `seen` it had observed before.
 async function openedWebrtc(sessions: Set<string>, seen: number, what: string): Promise<void> {
-	const until = Date.now() + 5_000;
-	while (sessions.size <= seen && Date.now() < until) {
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	if (sessions.size <= seen) fail(`${what} arrived but the live timeline observed no new webrtc session`);
+	await until(() => sessions.size > seen, `a new webrtc session on the live timeline after ${what} arrived`, 5_000);
 }
 
 // serve.ts serves the page and runs the room over plain TCP. The DM channel is

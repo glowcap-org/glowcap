@@ -27,6 +27,7 @@ import { dial, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { reapOwned } from "../support/children.ts";
 import { freePort } from "../support/ports.ts";
+import { roomLocator } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { until } from "../support/wait.ts";
 
@@ -34,20 +35,6 @@ const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, from a browser";
 const REPLY_TEXT = `got your DM: ${DM_TEXT}`;
-
-async function locatorFrom(port: number): Promise<string> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			const text = (await res.text()).trim();
-			if (res.status === 200 && text.length > 0) return text;
-		} catch {
-			// not up yet status-allow: pending state or quoted runtime label
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
 
 const deadline = setTimeout(() => fail("web-dm scenario timed out after 120s"), 120_000);
 const httpPort = freePort();
@@ -96,7 +83,7 @@ void bobAccepting.catch(() => {});
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 let bobDirectory: Directory | null = null;
 try {
-	const roomUri = await locatorFrom(httpPort);
+	const roomUri = await roomLocator(httpPort, "serve.ts");
 
 	await until(() => bobEndpoint.directAddresses.length > 0, "Bob's iroh direct addresses");
 	const bobLocator = bobEndpoint.uri;
@@ -156,13 +143,11 @@ try {
 	// Bob replies over the same direct connection to the reply inbox the browser
 	// hosts on it, and the page paints it in the DM thread, the member reached a
 	// browser that never listens, the bidirectional completion of the handoff.
-	const replyDeadline = Date.now() + 20_000;
-	while (!((await tab.textContent("#log").catch(() => "")) ?? "").includes(REPLY_TEXT)) {
-		if (Date.now() > replyDeadline) {
-			fail(`the browser never rendered Bob's reply "${REPLY_TEXT}"`);
-		}
-		await new Promise((r) => setTimeout(r, 100));
-	}
+	await until(
+		async () => ((await tab.textContent("#log").catch(() => "")) ?? "").includes(REPLY_TEXT),
+		`the browser to render Bob's reply "${REPLY_TEXT}"`,
+		20_000,
+	);
 
 	console.log(
 		"PASS: the rooms page sent a direct message from a real browser and rendered the member's " +

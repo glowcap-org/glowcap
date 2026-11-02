@@ -2,6 +2,7 @@
 // handles once, and what a viewer knows about an access survives the control
 // losing sight of it. Rust browser proofs separately exercise actual authority.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { keptPowers, knownLabel, ManagedAccess, NO_MANAGEMENT } from "../../web/ui/session/managed/access.ts";
 import type { HeldControl } from "../../web/ui/session/managed/access.ts";
@@ -17,10 +18,6 @@ import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.t
 import type { RoomsBrowserController } from "../../web/ui/controller/browser.ts";
 import { managedAccessText as text } from "../../lib/text/managed_access.ts";
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const { SessionGrantEditModal } = await import("../../web/ui/settings/SessionGrantEdit.tsx");
 const { ManagedSessionProvider } = await import("../../web/ui/session/managed/context.tsx");
 const { RoomsBrowserProvider } = await import("../../web/ui/controller/browser.ts");

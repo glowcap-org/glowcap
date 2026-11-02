@@ -2,11 +2,7 @@
 
 /// <reference lib="dom" />
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
-
+import "../support/match_media.ts";
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
 const { dirId } = await import("../../web/ui/types.ts");

@@ -4,15 +4,7 @@
 
 /// <reference lib="dom" />
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({
-		matches: false,
-		addEventListener() {},
-		removeEventListener() {},
-	}),
-});
-
+import "../support/match_media.ts";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PageProjection } from "../../web/ui/store/projection.ts";

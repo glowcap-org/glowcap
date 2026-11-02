@@ -1,19 +1,11 @@
 // Conversation traffic updates its own store slice without replacing the application shell projection.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RoomsBrowserController } from "../../web/ui/controller/browser.ts";
 import type { RoomsSessionController } from "../../web/ui/controller/session.ts";
 import { assert } from "../assert.ts";
-
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({
-		matches: false,
-		addEventListener() {},
-		removeEventListener() {},
-	}),
-});
 
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();

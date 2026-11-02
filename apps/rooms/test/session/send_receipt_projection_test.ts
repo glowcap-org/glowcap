@@ -1,12 +1,9 @@
 // A committed room receipt correlates the server's normalized echo with the
 // original gesture in either arrival order, without guessing from its text.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import { assertEquals } from "../assert.ts";
 import type { Attachment } from "../../lib/attachment.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const store = await import("../../web/ui/store.ts");
 const { dirId } = await import("../../web/ui/types.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");

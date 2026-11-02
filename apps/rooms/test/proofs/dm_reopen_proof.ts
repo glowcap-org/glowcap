@@ -49,6 +49,7 @@ import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from
 import { reapOwned } from "../support/children.ts";
 import { freePort } from "../support/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
+import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
 import { confirmTitleLeave, openDmTo } from "../page/harness.ts";
 
@@ -131,12 +132,9 @@ async function settles(
 	want: (live: Set<string>) => boolean,
 	timeoutMs = 30_000,
 ): Promise<void> {
-	const until = Date.now() + timeoutMs;
-	while (Date.now() < until) {
-		if (want(timeline.on(transport))) return;
-		await new Promise((r) => setTimeout(r, 100));
-	}
-	fail(`${what}; the timeline held ${[...timeline.on(transport)].join(", ") || "no session"}`);
+	await until(() => want(timeline.on(transport)), what, timeoutMs).catch(() =>
+		fail(`${what}; the timeline held ${[...timeline.on(transport)].join(", ") || "no session"}`)
+	);
 }
 
 // ── The tabs ─────────────────────────────────────────────────────────────────

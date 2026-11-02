@@ -5,13 +5,10 @@
 
 /// <reference lib="dom" />
 
+import "../support/match_media.ts";
 import { assertEquals } from "../assert.ts";
 import type { ArchiveLine } from "../../lib/archive/protocol.ts";
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 Object.defineProperty(globalThis, "localStorage", {
 	configurable: true,
 	value: { getItem: () => null, setItem() {}, removeItem() {} },

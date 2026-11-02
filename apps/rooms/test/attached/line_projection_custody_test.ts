@@ -1,15 +1,11 @@
 // Line projection releases every rejected or replaced capability occurrence it was handed.
 /// <reference lib="dom" />
 
+import "../support/match_media.ts";
 import type { Attachment } from "../../lib/attachment.ts";
 import type { PresentedLine } from "../../web/ui/session/line_projection.ts";
 type RoomsSessionLineEvent = PresentedLine<Attachment>;
 import type { FileSources } from "../../web/ui/session/attached_files.ts";
-
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 
 const { AttachedSessionFiles, EARLIER_CONNECTION_BYTES_UNAVAILABLE } = await import(
 	"../../web/ui/session/attached_files.ts"

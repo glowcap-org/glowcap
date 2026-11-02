@@ -1,19 +1,11 @@
 // Each page projection owns its drafts, conversations, roster, history, and unread state independently.
+import "./support/match_media.ts";
 import "./support/browser_application.ts";
 import { assert } from "./assert.ts";
 // Two pages in one isolate keep separate presentation. Drafts, conversations,
 // rosters, histories, unreads, and who is composing belong to the page that wrote them.
 
 /// <reference lib="dom" />
-
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({
-		matches: false,
-		addEventListener() {},
-		removeEventListener() {},
-	}),
-});
 
 const store = await import("../web/ui/store.ts");
 const { RoomsPage } = await import("../web/ui/page.ts");

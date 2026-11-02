@@ -1,5 +1,6 @@
 // Refusals preserve intent and isolate room cooldowns. Expiry schedules nothing.
 /// <reference lib="dom" />
+import "./support/match_media.ts";
 import { assert, assertEquals } from "./assert.ts";
 import { RoomsError } from "../lib/error_codes.ts";
 import {
@@ -10,10 +11,6 @@ import {
 	rememberJoinRefusal,
 	rememberRefusal,
 } from "../web/ui/admission_feedback.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const { PageProjection } = await import("../web/ui/store/projection.ts");
 const { membershipStatus } = await import("../web/ui/session/managed/membership_status.ts");
 

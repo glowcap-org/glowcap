@@ -66,7 +66,7 @@ import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
 import { makeRoom, openRailRoom, roomLink } from "../support/private_room_page.ts";
 import { freePort } from "../support/ports.ts";
-import { waitForHttp } from "../support/rooms_server.ts";
+import { roomLocator } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
@@ -98,8 +98,7 @@ const deadline = setTimeout(() => fail("reconnect scenario timed out after 180s"
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
-	await waitForHttp(httpPort);
-	const locatorBefore = (await fetch(`http://127.0.0.1:${httpPort}/locator`).then((res) => res.text())).trim();
+	const locatorBefore = await roomLocator(httpPort);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const tab = await browser.newPage();
 	tab.on("pageerror", (e) => console.error("  [page error]", e.message));

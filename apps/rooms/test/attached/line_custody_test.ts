@@ -1,14 +1,10 @@
 // Attached line storage owns bounded history, attribution boundaries, and release of file capabilities.
 /// <reference lib="dom" />
 
+import "../support/match_media.ts";
 import type { Attachment } from "../../lib/attachment.ts";
 import { MAX_SCROLLBACK } from "../../lib/limits.ts";
 import type { FileSources } from "../../web/ui/session/attached_files.ts";
-
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 
 const { AttachedSessionFiles } = await import("../../web/ui/session/attached_files.ts");
 const store = await import("../../web/ui/store.ts");

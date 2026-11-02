@@ -1,3 +1,4 @@
+import "./match_media.ts";
 import { snapshot } from "../support/managed_viewer.ts";
 import { ManagedOpenings } from "../../web/ui/session/managed/openings.ts";
 import { ManagedNavigation } from "../../web/ui/session/managed/navigation.ts";
@@ -5,10 +6,6 @@ import { initializeApplication } from "../support/application.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { ManagedHistory } from "../../web/ui/session/managed/history.ts";
 import type { RoomInfo } from "../../lib/directory_publications.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { createManagedController } = await import("../../web/ui/session/managed/controller.ts");
 const { presentationFiles } = await import("../../web/ui/session/managed/files.ts");
