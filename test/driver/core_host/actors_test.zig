@@ -120,10 +120,7 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     var original_freed = false;
     var replacement_freed = false;
@@ -235,10 +232,7 @@ test "core host: unpublish removes discovery on every session while issued capab
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     var widget_freed = false;
     var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };
@@ -371,10 +365,7 @@ test "core host: an unnamed local target deposits and withdraws as the exact mut
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     var widget_freed = false;
     var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };
@@ -518,10 +509,7 @@ test "core host: a target reached directly and through handoff lifts to one Host
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     var widget_freed = false;
     var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };

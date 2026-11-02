@@ -348,10 +348,7 @@ test "core host: a failed dial breaks the redeeming vow with the reason" {
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
+    defer harness.deinitParked(allocator, &dials);
 
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7001", &dials);
     _ = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "widget", Widget, .{});

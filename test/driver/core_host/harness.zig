@@ -114,6 +114,13 @@ pub const ParkedDial = struct {
     designator: []u8,
 };
 
+/// Free the designator each parked dial owns, then the list itself. A test
+/// that clears the list by hand frees the designators first.
+pub fn deinitParked(allocator: std.mem.Allocator, dials: *std.ArrayList(ParkedDial)) void {
+    for (dials.items) |parked| allocator.free(parked.designator);
+    dials.deinit(allocator);
+}
+
 /// Drain every host's action queue: gift-id requests are answered inline with
 /// deterministic bytes (entropy is the embedder's job), flush notices are
 /// no-ops here (the shuttle polls every queue anyway), and dial requests park

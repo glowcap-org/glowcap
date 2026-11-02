@@ -20,6 +20,7 @@
 //! the machine, and `bench/README.md` records which machine.
 
 const std = @import("std");
+const nowNs = @import("support/clock.zig").nowNs;
 const glowcap = @import("glowcap");
 
 const affinity = @import("support/affinity.zig");
@@ -34,10 +35,6 @@ const payload_bytes = 64;
 const record_bytes = 1024;
 const ping_bytes = 64;
 const prologue = "noise-tcp\x00designator";
-
-fn nowNs(io: std.Io) i128 {
-    return std.Io.Clock.awake.now(io).nanoseconds;
-}
 
 fn report(name: []const u8, elapsed_ns: i128, iterations: usize) void {
     std.debug.print("floor name={s} iterations={d} ns_per_op={d}\n", .{

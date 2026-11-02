@@ -27,7 +27,6 @@ const deinitAdmissionBackend = admission.deinitAdmissionBackend;
 const frame_cap = admission.frame_cap;
 
 const relay_support = @import("harness.zig");
-const stubNegotiatingPeer = relay_support.stubNegotiatingPeer;
 const startSession = relay_support.startSession;
 const serveRegistered = relay_support.serveRegistered;
 
@@ -65,7 +64,7 @@ const LoopClientCtx = struct {
 
 fn makeLoopClientPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     _ = ctx;
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     try peer.sendBorrowed(startSession("client"));
@@ -240,7 +239,7 @@ test "keyed-relay dial refuses a non-key designator and a listen without registr
     defer _ = resident.deinit();
     const nl = resident.netlayer();
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     var read_buf: [256]u8 = undefined;
     var write_buf: [256]u8 = undefined;

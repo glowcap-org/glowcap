@@ -4,13 +4,9 @@ const h = @import("../access/hosting_fixture.zig");
 const fixture = @import("engine_fixture");
 
 test "loam engine maintenance terminal receipts and publication barriers share the live CapTP path" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try fixture.open(terminated, .create, h.f.store_id);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
+    var db = try fixture.open(tmp.path, .create, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -20,13 +16,9 @@ test "loam engine maintenance terminal receipts and publication barriers share t
 }
 
 test "loam engine maintenance churn reclaims payload while preserving delegation and allocation floors" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try fixture.open(terminated, .create, h.f.store_id);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
+    var db = try fixture.open(tmp.path, .create, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -34,13 +26,9 @@ test "loam engine maintenance churn reclaims payload while preserving delegation
 }
 
 test "loam engine maintenance refuses a retired mutation result without retiring issuer control" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try fixture.open(terminated, .create, h.f.store_id);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
+    var db = try fixture.open(tmp.path, .create, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;

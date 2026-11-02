@@ -60,6 +60,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     test_mod.addImport("c_abi_loam_sqlite", sqlite_abi);
     test_mod.addImport("c_abi_loam_volatile", volatile_abi);
     test_mod.addImport("c_abi_host", host);
+    test_mod.addImport("loam_engine_temp", b.createModule(.{ .root_source_file = b.path("test/loam/engines/temp.zig"), .target = target, .optimize = optimize }));
     test_mod.addImport("c_abi_shared", modules[root.layerIndex("c_abi_shared")]);
     const suite = b.addTest(.{ .root_module = test_mod });
     const run = execution.addZigTest(b, suite, .unit_test);

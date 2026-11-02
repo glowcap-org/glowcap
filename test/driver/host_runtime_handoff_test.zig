@@ -24,7 +24,6 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const support_actors = @import("../support/actors.zig");
 
 const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
@@ -40,7 +39,9 @@ const opts: driver.SessionOptions = .{
     .settle = .{ .ms = 10_000 },
 };
 
-const Treasure = support_actors.StaticReplyValueActor("greet", "hello from the exporter");
+const fixtures = @import("host_runtime_multiplexed/residents.zig");
+const Introducer = fixtures.Introducer;
+const exporterServe = fixtures.exporterServe;
 
 test "HostRuntime refuses zero frame, wire, pending-open, and redeem-dial bounds" {
     const allocator = std.testing.allocator;
@@ -89,48 +90,6 @@ test "HostRuntime refuses zero frame, wire, pending-open, and redeem-dial bounds
             .settle = .{ .ms = 1 },
         }),
     );
-}
-
-/// Replies to `introduce` with the capability it was constructed around. The
-/// reply's home is the gifter's *exporter* session, so the host core claims
-/// it and originates a signed give instead of resolving it as-is.
-const Introducer = struct {
-    treasure: driver.Capability,
-
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
-        defer ht.releaseArguments(args);
-        const verb = selector orelse return error.NoSuchMethod;
-        if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
-        return .{ .capability = self.treasure };
-    }
-};
-
-/// The exporter: publish `treasure` on the first accepted session (the
-/// gifter), then interleave serving with accepting the second session, the
-/// recipient's redeem dial, and keep pumping until the latch drops. One
-/// host under both accepts, so the withdraw on session two finds the gift the
-/// deposit on session one recorded.
-fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    var first = try server.accept();
-    defer first.deinit();
-    _ = try first.publish("treasure", Treasure, .{});
-
-    var second: ?*driver.Session = null;
-    defer if (second) |s| s.deinit();
-
-    while (!done.load(.acquire)) {
-        if (second == null and try server.waitAcceptable(20)) {
-            second = try server.accept();
-            try second.?.attend();
-            // No publication on the withdrawing Port: the gift retained the
-            // exact Host-Vat actor reached through the first Port and projects
-            // that actor here. A swiss-name lookup would fail this proof.
-        }
-        _ = first.stepReadable(20) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => break,
-            else => |e| return e,
-        };
-    }
 }
 
 /// The gifter on its own thread, over a Server the test thread built: its

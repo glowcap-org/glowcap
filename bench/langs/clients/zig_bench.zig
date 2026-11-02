@@ -12,6 +12,7 @@
 //! behavior forced across an in-process loopback pair, host/port unused).
 
 const std = @import("std");
+const clock = @import("clock");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -59,8 +60,9 @@ fn runUnitPipelined(conn: *driver.Session, root: driver.Capability, arena: std.m
     if (!ok) return error.StatusNotDone;
 }
 
-fn nowNs(io: std.Io) u64 {
-    return @intCast(std.Io.Clock.now(.awake, io).nanoseconds);
+/// Nanoseconds elapsed since `start`, a `clock.nowNs` reading.
+fn sinceNs(io: std.Io, start: i128) u64 {
+    return @intCast(clock.nowNs(io) - start);
 }
 
 /// Nearest-rank percentile over latencies already sorted ascending, `p` in
@@ -92,9 +94,9 @@ fn runLatency(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, 
     defer allocator.free(samples);
 
     for (0..n) |i| {
-        const start = nowNs(io);
+        const start = clock.nowNs(io);
         try runUnit(conn, root, arena_state.allocator());
-        samples[i] = nowNs(io) - start;
+        samples[i] = sinceNs(io, start);
         _ = arena_state.reset(.retain_capacity);
     }
     std.sort.pdq(u64, samples, {}, lessThanU64);
@@ -120,12 +122,12 @@ fn runThroughput(io: std.Io, allocator: std.mem.Allocator, designator: []const u
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
 
-    const start = nowNs(io);
+    const start = clock.nowNs(io);
     for (0..n) |_| {
         try runUnitPipelined(conn, root, arena_state.allocator());
         _ = arena_state.reset(.retain_capacity);
     }
-    const total_ms = @as(f64, @floatFromInt(nowNs(io) - start)) / 1_000_000.0;
+    const total_ms = @as(f64, @floatFromInt(sinceNs(io, start))) / 1_000_000.0;
     const rps: f64 = if (total_ms <= 0) 0 else @as(f64, @floatFromInt(n)) / (total_ms / 1000.0);
 
     try printLine(
@@ -150,12 +152,12 @@ fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const 
 
     const handles = try allocator.alloc(*driver.Session, n);
     defer allocator.free(handles);
-    const start = nowNs(io);
+    const start = clock.nowNs(io);
     for (0..n) |i| {
         handles[i] = try connectOne(io, allocator, designator);
         _ = try handles[i].fetch("root");
     }
-    const total_ms = @as(f64, @floatFromInt(nowNs(io) - start)) / 1_000_000.0;
+    const total_ms = @as(f64, @floatFromInt(sinceNs(io, start))) / 1_000_000.0;
     const per_conn = total_ms / @as(f64, @floatFromInt(@max(1, n)));
 
     try printLine(
@@ -214,9 +216,9 @@ fn measureHits(io: std.Io, conn: *driver.Session, target: driver.Capability, n: 
 
     var final: i64 = 0;
     for (0..n) |i| {
-        const start = nowNs(io);
+        const start = clock.nowNs(io);
         const settled = try conn.call(target, "hit", &.{}, arena_state.allocator());
-        samples[i] = nowNs(io) - start;
+        samples[i] = sinceNs(io, start);
         if (settled != .fulfilled or settled.fulfilled != .integer) return error.HitNotAnInteger;
         final = settled.fulfilled.integer;
         _ = arena_state.reset(.retain_capacity);

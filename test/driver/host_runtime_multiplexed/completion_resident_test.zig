@@ -13,8 +13,8 @@ const net = glowcap.net;
 const tcp = net.tcp;
 
 const fixtures = @import("residents.zig");
-const Treasure = fixtures.Treasure;
-const Introducer = fixtures.Introducer;
+const exporterServe = fixtures.exporterServe;
+const gifterServe = fixtures.gifterServe;
 const frame_cap = fixtures.frame_cap;
 const opts = fixtures.opts;
 
@@ -24,51 +24,6 @@ const TcpResident = net.completion_resident.Resident(net.Backend, tcp.Completion
 fn retire(resident: *TcpResident) void {
     resident.closeAndDrain(2_000) catch |err| std.debug.panic("completion resident drain failed: {t}", .{err});
     resident.deinit();
-}
-
-fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    var first = try server.accept();
-    defer first.deinit();
-    _ = try first.publish("treasure", Treasure, .{});
-
-    var second: ?*driver.Session = null;
-    defer if (second) |s| s.deinit();
-
-    while (!done.load(.acquire)) {
-        if (second == null and try server.waitAcceptable(20)) {
-            second = try server.accept();
-            try second.?.attend();
-        }
-        _ = first.stepReadable(20) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => break,
-            else => |e| return e,
-        };
-    }
-}
-
-fn gifterServe(
-    gifter: *driver.Server,
-    exporter_designator: []const u8,
-    done: *std.atomic.Value(bool),
-) anyerror!void {
-    const treasure_session = try gifter.runtime.connectLocator(.{
-        .transport = model.transport.tcp,
-        .designator = exporter_designator,
-        .hints = model.Hints.emptyFalse(),
-    }, .inherit);
-    const treasure_view = try driver.Session.adopt(gifter.runtime, treasure_session);
-    defer treasure_view.deinit();
-    const treasure = try treasure_view.fetch("treasure");
-
-    const view = try gifter.accept();
-    defer view.deinit();
-    _ = try view.publish("introducer", Introducer, .{ .treasure = treasure });
-    while (!done.load(.acquire)) {
-        _ = view.stepReadable(20) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => break,
-            else => |e| return e,
-        };
-    }
 }
 
 test "completion-backed residents accept, dial, call, and redeem a give over TCP (ADR-0018)" {

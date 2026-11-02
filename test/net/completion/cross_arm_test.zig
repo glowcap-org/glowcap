@@ -90,29 +90,7 @@ fn runLoopCapturing(loop: *Loop, until_closed: usize, out_err: *?anyerror) void 
 /// The sender: an ordinary fetch client whose one deliver (the fetch) is the
 /// hook's trigger.
 fn senderOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
-    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
-    const locator: model.PeerLocator = .{
-        .transport = tcp.transport_name,
-        .designator = designator,
-        .hints = model.Hints.emptyMap(),
-    };
-    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf, .{});
-    defer conn.deinit();
-
-    try fetch_pump.handshakeToOpen(&peer, &conn, startSession("sender"));
-    const reference = try fetch_pump.settleFetch(allocator, &peer, &conn, "thermostat");
-    model.freeReference(allocator, reference);
+    return fetch_pump.dialAndFetchOnce(io, port, allocator, frame_cap, startSession("sender"));
 }
 
 test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's wire" {
@@ -142,7 +120,7 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
     // first entry. It registers `beacon` so the cross-armed bootstrap fetch is
     // admissible and auto-answered, and after the handshake it sends nothing:
     // the only way a frame reaches it is the sibling hook's armOutbound.
-    var quiet_peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var quiet_peer = handshake.stubPeer(allocator);
     defer quiet_peer.deinit();
     quiet_peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try quiet_peer.registerBootstrapCap("beacon");
@@ -196,7 +174,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
 
     // The scripted client's two frames: its start-session, then a fetch of the
     // shared bootstrap cap, both admissible against `makeServerPeer`'s session.
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -279,7 +257,7 @@ test "cross-arm: a partial write that drains under the mark clears the deadline"
     // branch resubmits the remainder and returns; if it skips the refresh, a
     // partner that is demonstrably draining our bytes still looks stalled and
     // can be reclaimed.
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
@@ -344,7 +322,7 @@ test "cross-arm: a terminal failure with a write in flight swaps its queued tail
     // bytes queued behind it, and a connection normally has at most two of
     // them, which is why the arm went unexercised. Scripted, the overlap is
     // stated rather than waited for.
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;

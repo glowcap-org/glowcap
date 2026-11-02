@@ -29,6 +29,7 @@
 //! `-Doptimize=ReleaseFast` for absolute figures: `zig build bench-iroh`.
 
 const std = @import("std");
+const nowNs = @import("support/clock.zig").nowNs;
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const iroh = @import("iroh");
@@ -166,11 +167,6 @@ fn serveChurn(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!vo
         }
         _ = try server.runtime.stepAny(10);
     }
-}
-
-/// Monotonic clock read in nanoseconds. `.awake` is `CLOCK_MONOTONIC`.
-fn nowNs(io: std.Io) i128 {
-    return std.Io.Clock.now(.awake, io).nanoseconds;
 }
 
 /// Client half: connect, fetch the greeter once, warm the path, then time

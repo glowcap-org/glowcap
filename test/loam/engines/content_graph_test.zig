@@ -46,13 +46,9 @@ fn expectGraph(store: *h.loam.core.Store, db: *fixture.Engine, root: h.loam.core
 test "loam engine graph replacement recovers applied and absent recipe outcomes" {
     for ([_]enum { absent, unknown_applied, unknown_absent }{ .absent, .unknown_applied, .unknown_absent }) |outcome| {
         const applied = outcome == .unknown_applied;
-        var tmp = std.testing.tmpDir(.{});
-        defer tmp.cleanup();
-        const path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", h.a);
-        defer h.a.free(path);
-        const terminated = try h.a.dupeSentinel(u8, path, 0);
-        defer h.a.free(terminated);
-        var db = try fixture.open(terminated, .create, h.f.store_id);
+        var tmp = try fixture.Temp.init();
+        defer tmp.deinit();
+        var db = try fixture.open(tmp.path, .create, h.f.store_id);
         defer db.close() catch unreachable;
         var store = try h.loam.core.Store.init(h.a, db.metadata, &schemas, h.limits);
         defer store.deinit() catch unreachable;
@@ -130,7 +126,7 @@ test "loam engine graph replacement recovers applied and absent recipe outcomes"
         }
         try store.deinit();
         try db.close();
-        db = try fixture.open(terminated, .open, h.f.store_id);
+        db = try fixture.open(tmp.path, .open, h.f.store_id);
         store = try h.loam.core.Store.init(h.a, db.metadata, &schemas, h.limits);
         try expectGraph(&store, &db, seeded.data.content, 71, seeded.data.control, true);
         var scope = try refs.Scope.init(h.a, 2);

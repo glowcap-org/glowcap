@@ -25,10 +25,6 @@ fn startSession(designator: []const u8) model.Message {
     return handshake.startSession(tcp.transport_name, designator);
 }
 
-fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
-    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-}
-
 fn unusedDialFinish(
     _: *anyopaque,
     _: *anyopaque,
@@ -57,7 +53,7 @@ fn unusedListenCancel(_: *anyopaque, _: *anyopaque) ?net.netlayer.ListenerCloseF
 /// Accept one partner through the contract `Listener`, handshake, and serve the
 /// bootstrap fetch until the client closes.
 fn serveOnce(listener: *net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -84,7 +80,7 @@ fn serveOnce(listener: *net.netlayer.Listener, allocator: std.mem.Allocator) any
 /// Dial through `Netlayer.dial`, handshake to open, fetch `thermostat`, assert it
 /// settles fulfilled.
 fn fetchOnce(nl: net.netlayer.Netlayer, designator: []const u8, allocator: std.mem.Allocator) !void {
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -120,7 +116,7 @@ test "netlayer slice resolves a transport symbol and misses the rest" {
 }
 
 test "consumed operation shells refuse a second finish without trapping" {
-    var peer = stubNegotiatingPeer(std.testing.allocator);
+    var peer = handshake.stubPeer(std.testing.allocator);
     defer peer.deinit();
     const dial_vtable: net.netlayer.DialAttempt.VTable = .{
         .finish = unusedDialFinish,

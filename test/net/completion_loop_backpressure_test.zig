@@ -346,19 +346,7 @@ const OneBadPartnerBackend = struct {
 
     pub fn submitRecv(self: *OneBadPartnerBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
-        if (self.chunk_idx < chunks.len) {
-            if (self.pool_free == 0) {
-                self.push(.{ .user_data = user_data, .result = -1, .recv_no_buffer = true });
-                return;
-            }
-            self.pool_free -= 1;
-            self.handed += 1;
-            const chunk = chunks[self.chunk_idx];
-            self.chunk_idx += 1;
-            self.push(.{ .user_data = user_data, .result = @intCast(chunk.len), .borrowed = .recv(chunk, 0) });
-        } else {
-            self.push(.{ .user_data = user_data, .result = 0 }); // clean EOF
-        }
+        self.push(fixtures.scriptedRecv(self, user_data, chunks));
     }
 
     pub fn verifiedChannelKey(self: *OneBadPartnerBackend, fd: Fd) ?[32]u8 {
@@ -415,7 +403,7 @@ test "completion loop: a per-connection drive failure closes that connection, no
     // Precompute the healthy partner's script: its start-session, then a fetch
     // of the shared bootstrap cap (prepared against the same start-session the
     // loop's server peer sends, so the fetch is admissible).
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -466,7 +454,7 @@ test "completion loop: outbound past the high-water mark parks reads until the p
 
     // Precompute the wire script: the client's start-session, then a fetch of
     // the shared bootstrap cap, whose auto-resolve reply outgrows the mark.
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
 

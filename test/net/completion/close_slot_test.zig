@@ -28,7 +28,7 @@ const drainOutboundStreamBytes = backend_support.drainOutboundStreamBytes;
 test "close-slot: terminal drain ignores a late completion from the already-armed recv" {
     const allocator = std.testing.allocator;
 
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -111,7 +111,7 @@ test "close-slot: the terminal drain is bounded out of the box" {
 test "close-slot: the deadline count tracks only connections actually waiting" {
     const allocator = std.testing.allocator;
 
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
@@ -169,7 +169,7 @@ test "close-slot: the deadline count tracks only connections actually waiting" {
 test "close-slot: a terminal drain the partner never reads is reclaimed, not pinned" {
     const allocator = std.testing.allocator;
 
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
@@ -238,7 +238,7 @@ test "close-slot: a terminal drain the partner never reads is reclaimed, not pin
 test "close-slot: a second close on a draining connection escalates to a hard close" {
     const allocator = std.testing.allocator;
 
-    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var client = handshake.stubPeer(allocator);
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;

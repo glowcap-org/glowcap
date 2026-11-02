@@ -5,13 +5,9 @@ const cases = @import("../access/observation_cases.zig");
 const fixture = @import("engine_fixture");
 
 test "loam engine access observation privacy quota and live CapTP delivery" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try fixture.open(terminated, .create, h.f.store_id);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
+    var db = try fixture.open(tmp.path, .create, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -24,17 +20,13 @@ test "loam engine access observation privacy quota and live CapTP delivery" {
 }
 
 test "loam engine access observation restores a context bound cursor after reopening" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
     var context: h.loam.core.ObjectId = undefined;
     var cursor: h.c.storage.Observation.Cursor = undefined;
     var data: h.Data = undefined;
     {
-        var db = try fixture.open(terminated, .create, h.f.store_id);
+        var db = try fixture.open(tmp.path, .create, h.f.store_id);
         defer db.close() catch unreachable;
         var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         defer store.deinit() catch unreachable;
@@ -48,7 +40,7 @@ test "loam engine access observation restores a context bound cursor after reope
         cursor = (try cases.poll(&caps, &db, context, null)).cursor;
     }
     {
-        var db = try fixture.open(terminated, .open, h.f.store_id);
+        var db = try fixture.open(tmp.path, .open, h.f.store_id);
         defer db.close() catch unreachable;
         var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         defer store.deinit() catch unreachable;
@@ -63,7 +55,7 @@ test "loam engine access observation restores a context bound cursor after reope
         try std.testing.expect(try cases.cancel(&store, &db, context, false));
     }
     {
-        var db = try fixture.open(terminated, .open, h.f.store_id);
+        var db = try fixture.open(tmp.path, .open, h.f.store_id);
         defer db.close() catch unreachable;
         var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         defer store.deinit() catch unreachable;

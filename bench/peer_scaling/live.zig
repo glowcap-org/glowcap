@@ -8,6 +8,7 @@
 //! published capability while all server sessions remain open.
 
 const std = @import("std");
+const nowNs = @import("../support/clock.zig").nowNs;
 const worker = @import("live_worker.zig");
 
 pub const WorkerOptions = struct {
@@ -123,10 +124,6 @@ fn rssKb(io: std.Io, pid: std.process.Child.Id) !u64 {
     const start = i;
     while (i < text.len and std.ascii.isDigit(text[i])) i += 1;
     return std.fmt.parseInt(u64, text[start..i], 10);
-}
-
-fn nowNs(io: std.Io) i128 {
-    return std.Io.Clock.now(.awake, io).nanoseconds;
 }
 
 fn runStep(

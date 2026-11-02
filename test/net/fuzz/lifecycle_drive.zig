@@ -24,7 +24,7 @@ const handshake = @import("../../support/handshake.zig");
 
 fn makeLifecyclePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     _ = ctx;
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var peer = handshake.stubPeer(allocator);
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     // Whether a connection opens with outbound already queued is a schedule

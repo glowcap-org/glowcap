@@ -4,6 +4,7 @@
 //! and the listen out-parameter length query.
 
 const std = @import("std");
+const borrowedHandle = @import("../../support/borrowed_transport.zig").borrowedHandle;
 const glowcap = @import("glowcap");
 
 const c = @import("c_abi");
@@ -65,7 +66,7 @@ fn serveDialedPeer(daemon: *fake.Daemon, allocator: std.mem.Allocator) anyerror!
     var reader = stream.reader(daemon.io, &read_buf);
     var writer = stream.writer(daemon.io, &write_buf);
 
-    var peer = c_abi_loopback.stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -87,22 +88,6 @@ fn serveDialedPeer(daemon: *fake.Daemon, allocator: std.mem.Allocator) anyerror!
         };
         if (progress == .closed) break;
     }
-}
-
-/// A transport handle over a stream the test closes itself.
-fn borrowedHandle(reader: *std.Io.net.Stream.Reader) glowcap.net.Connection.Transport {
-    return .{
-        .ctx = reader,
-        .close_fn = struct {
-            fn noop(_: *anyopaque) void {}
-        }.noop,
-        .socket_handle_fn = struct {
-            fn handle(ctx: *anyopaque) ?std.Io.net.Socket.Handle {
-                const r: *std.Io.net.Stream.Reader = @ptrCast(@alignCast(ctx));
-                return r.stream.socket.handle;
-            }
-        }.handle,
-    };
 }
 
 test "c-abi onion connect: handshake to open + bootstrap fetch round-trip" {
@@ -279,7 +264,7 @@ fn dialForwardTarget(io: std.Io, allocator: std.mem.Allocator, target: []const u
     var reader = stream.reader(io, &read_buf);
     var writer = stream.writer(io, &write_buf);
 
-    var peer = c_abi_loopback.stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 

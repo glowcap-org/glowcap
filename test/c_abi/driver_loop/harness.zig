@@ -5,6 +5,7 @@
 const std = @import("std");
 
 const c = @import("c_abi");
+const c_args = @import("../../support/c_abi_args.zig");
 const cshared = @import("c_abi_shared");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
@@ -89,9 +90,7 @@ pub fn drained(out_count: ?*usize, count: usize) i32 {
     return c.GLOWCAP_OK;
 }
 
-pub fn expectOk(rc: i32) !void {
-    try std.testing.expectEqual(c.GLOWCAP_OK, rc);
-}
+pub const expectOk = c_args.expectOk;
 
 pub fn expectStep(rc: i32) !void {
     try std.testing.expect(rc == c.GLOWCAP_OK or rc == c.GLOWCAP_ERR_WOULD_BLOCK);

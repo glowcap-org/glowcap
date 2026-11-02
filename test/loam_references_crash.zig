@@ -37,12 +37,6 @@ fn manifest(store: *core.Store, db: *fixture.Engine) !Manifest {
     var edges = view.edges();
     return .{ .use = edges.next().?.target, .control = edges.next().?.target };
 }
-fn entropy(context: ?*anyopaque, bytes: *h.driver.Host.DurableSwiss.Entropy) !void {
-    const counter: *u64 = @ptrCast(@alignCast(context.?));
-    counter.* += 1;
-    @memset(bytes, 0);
-    std.mem.writeInt(u64, bytes[0..8], counter.*, .big);
-}
 fn name(role: Role) h.driver.Host.DurableSwiss {
     if (role == .use) {
         var bytes: h.driver.Host.DurableSwiss.Entropy = @splat(0);
@@ -90,7 +84,7 @@ pub fn main(init: std.process.Init) !void {
             defer source.host.releaseCapabilityTerminal(original, null);
             var counter: u64 = 100;
             target.service.decode_derive = sharing.decode;
-            target.service.entropy = .{ .context = &counter, .fill = entropy };
+            target.service.entropy = .{ .context = &counter, .fill = sharing.entropy };
             const derived = try f.send(&source, &source_db, &target, &target_db, pair, original, "derive", &.{ .{ .integer = 1 }, .{ .integer = 0 }, .{ .integer = 0 } });
             defer derived.deinit();
             if (derived.result() != .ready) return error.DerivationFailed;

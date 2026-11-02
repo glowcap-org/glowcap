@@ -26,6 +26,7 @@
 //! `gate_storm_growth_ceiling`, exiting red when either is crossed.
 
 const std = @import("std");
+const nowNs = @import("support/clock.zig").nowNs;
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const profile = @import("support/profile.zig");
@@ -111,10 +112,6 @@ fn benchMessage(answer: u64) model.Message {
         .args = &bench_args,
         .answer = .from(answer),
     } };
-}
-
-fn nowNs(io: std.Io) i128 {
-    return std.Io.Clock.now(.awake, io).nanoseconds;
 }
 
 fn elapsed(start: i128, end: i128) u64 {

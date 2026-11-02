@@ -1,5 +1,6 @@
 //! The product grammar owns Rooms parsing, help, and the application handoff.
 const std = @import("std");
+const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 const types = cli.cmd_types;
 var last: ?[]u8 = null;
@@ -27,11 +28,10 @@ const team_root: types.Command = .{ .name = "team", .short_help = "Team", .child
 
 test "Rooms grammar retains ordered rooms, members, acknowledgements, and positional arguments" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var ctx: cli.ctx.Ctx = .{ .gpa = gpa, .environ = &environ, .io = threaded.io(), .front = .argv };
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var ctx: cli.ctx.Ctx = .{ .gpa = gpa, .environ = &runtime.environ, .io = runtime.io(), .front = .argv };
     defer ctx.deinit();
     const cases = [_]struct { args: []const []const u8, key: []const u8, expected: []const []const u8 }{
         .{ .args = &.{ "start", "--dir", "/tmp/peer", "--room", "garden", "--room=workshop" }, .key = "room", .expected = &.{ "garden", "workshop" } },
@@ -68,11 +68,10 @@ test "Rooms grammar retains ordered rooms, members, acknowledgements, and positi
 
 test "Rooms grammar rejects repeated single values and unknown flags before handoff" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var ctx: cli.ctx.Ctx = .{ .gpa = gpa, .environ = &environ, .io = threaded.io(), .front = .argv };
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var ctx: cli.ctx.Ctx = .{ .gpa = gpa, .environ = &runtime.environ, .io = runtime.io(), .front = .argv };
     defer ctx.deinit();
     for ([_][]const []const u8{
         &.{ "start", "--dir", "/tmp/one", "--dir", "/tmp/two" },

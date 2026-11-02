@@ -1,5 +1,6 @@
 //! LMDB commit outcomes preserve refusal, uncertainty, and safe reopening.
 const std = @import("std");
+const Temp = @import("engine_fixture").Temp;
 const core = @import("loam_core");
 const Lmdb = @import("loam_lmdb").Lmdb;
 const f = @import("loam_test_support");
@@ -11,13 +12,9 @@ extern "c" fn loam_test_commit_failure(code: c_int) void;
 
 test "LMDB uncertain completion fences the adapter and reopen observes the committed data" {
     for ([_]std.posix.E{ .IO, .NOSPC, .FBIG, .NOMEM, .INVAL }) |code| {
-        var dir = std.testing.tmpDir(.{});
-        defer dir.cleanup();
-        const path = try std.Io.Dir.realPathFileAlloc(dir.dir, std.testing.io, ".", std.testing.allocator);
-        defer std.testing.allocator.free(path);
-        const terminated = try std.testing.allocator.dupeSentinel(u8, path, 0);
-        defer std.testing.allocator.free(terminated);
-        var db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.id, .mode = .create } });
+        var dir = try Temp.init();
+        defer dir.deinit();
+        var db = try Lmdb.open(dir.path, .{ .opening = .{ .id = f.id, .mode = .create } });
         var opened = true;
         defer if (opened) db.close() catch unreachable;
         var snapshot = try db.beginRead();
@@ -45,7 +42,7 @@ test "LMDB uncertain completion fences the adapter and reopen observes the commi
         reading = false;
         try db.close();
         opened = false;
-        db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.id, .mode = .open } });
+        db = try Lmdb.open(dir.path, .{ .opening = .{ .id = f.id, .mode = .open } });
         opened = true;
         var read = try db.beginRead();
         defer read.end();
@@ -54,13 +51,9 @@ test "LMDB uncertain completion fences the adapter and reopen observes the commi
 }
 
 test "a commit that runs out of map is refused and the engine accepts a smaller write" {
-    var dir = std.testing.tmpDir(.{});
-    defer dir.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(dir.dir, std.testing.io, ".", std.testing.allocator);
-    defer std.testing.allocator.free(path);
-    const terminated = try std.testing.allocator.dupeSentinel(u8, path, 0);
-    defer std.testing.allocator.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.id, .mode = .create } });
+    var dir = try Temp.init();
+    defer dir.deinit();
+    var db = try Lmdb.open(dir.path, .{ .opening = .{ .id = f.id, .mode = .create } });
     defer db.close() catch unreachable;
 
     // LMDB reuses a page one transaction freed only two transactions later.

@@ -85,6 +85,15 @@ pub fn listenerPosition(answer: model.AnswerPosition) u64 {
     return 0x1000_0000 + answer.int();
 }
 
+/// Step the peer until it stops making progress, failing when 64 steps do not
+/// quiesce it.
+pub fn pump(peer: *engine.Peer) !void {
+    for (0..64) |_| {
+        if (try peer.step() != .progress) return;
+    }
+    return error.PumpDidNotQuiesce;
+}
+
 /// Step until idle (a projected resolve queued during one step encodes on a
 /// later one) and drain every encoded outbound frame into one buffer for byte
 /// assertions.

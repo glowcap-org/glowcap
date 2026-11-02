@@ -1,5 +1,6 @@
 //! Command-tree parse / help / completion goldens (ADR-0032 command tree).
 const std = @import("std");
+const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 
 const Command = cli.cmd_types.Command;
@@ -97,11 +98,10 @@ test "dial help excludes listen" {
 
 test "unknown flag on dial is usage, and diagnostics land in the test capture" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     // Both diagnostic routes, the `log.err` line and the usage block that
@@ -118,11 +118,10 @@ test "unknown flag on dial is usage, and diagnostics land in the test capture" {
 
 test "a missing positional is named, not only refused" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     cli.log.test_capture.reset();
@@ -145,11 +144,10 @@ test "a diagnostic longer than the line buffer truncates visibly, never vanishes
 
 test "-h help is product stdout, not a diagnostic" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     // The Cobra-shaped stream split is a contract: asked-for help goes to
@@ -165,11 +163,10 @@ test "-h help is product stdout, not a diagnostic" {
 
 test "dispatch dial with locator succeeds" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial", "ocapn://tcp.localhost/x" });
@@ -178,11 +175,10 @@ test "dispatch dial with locator succeeds" {
 
 test "surplus dial positional is usage" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial", "ocapn://x", "extra" });
@@ -191,11 +187,10 @@ test "surplus dial positional is usage" {
 
 test "persistent --json is accepted before subcommand" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "--json", "ocapn", "dial", "ocapn://tcp.localhost/x" });
@@ -276,11 +271,10 @@ test "every persistent root flag completes on child nodes in bash zsh fish" {
 
 test "independent scopes retain their own persistent flags in parsing help and completion" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var ctx = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var ctx = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer ctx.deinit();
     for ([_][]const []const u8{
         &.{ "apps", "notes", "--format=text", "start" },
@@ -306,11 +300,10 @@ test "independent scopes retain their own persistent flags in parsing help and c
 
 test "missing dial locator is usage" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial" });
@@ -323,11 +316,10 @@ test "a flag does not swallow the next flag as its value" {
     // `--json.lock` beside it, dropped the flag the user actually typed, and
     // exited zero. Nothing in that sequence told them anything was wrong.
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial", "--identity", "--json" });
@@ -340,11 +332,10 @@ test "the same value flag given twice is usage, not last-wins" {
     // accident, since the same flag is accepted at the root and again at the
     // subcommand.
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{
@@ -356,11 +347,10 @@ test "the same value flag given twice is usage, not last-wins" {
 test "repeating an on/off flag is fine" {
     // It says the same thing twice, so there is nothing to disagree about.
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "--json", "ocapn", "--json", "dial", "ocapn://x" });
@@ -371,11 +361,10 @@ test "the short-flag advice names a form the parser accepts" {
     // A short flag is matched as exactly two characters, so `-i=value` lands on
     // "unknown flag". Advising it sent the user from one error to another.
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var c = testCtx(gpa, &environ, &threaded);
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = testCtx(gpa, &runtime.environ, &runtime.threaded);
     defer c.deinit();
 
     // The form the message recommends has to actually work.

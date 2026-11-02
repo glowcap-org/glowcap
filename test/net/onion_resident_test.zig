@@ -13,22 +13,15 @@
 //! and `zig build goblins-onion` are the opt-in live Tor proofs.
 
 const std = @import("std");
+const borrowedHandle = @import("../support/borrowed_transport.zig").borrowedHandle;
 const glowcap = @import("glowcap");
 const netlayer_test = @import("../support/netlayer.zig");
 
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
 const onion = glowcap.net.onion;
 const socks5 = onion.socks5;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
-
-/// The stub-negotiating peer the other loopback transport proofs use: handshake
-/// signature verification is off, because this test exercises the transport and
-/// its framing rather than keyed identity.
-fn stubPeer(allocator: std.mem.Allocator) engine.Peer {
-    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-}
 
 const ip = std.Io.net;
 const frame_cap = 4096;
@@ -39,23 +32,6 @@ test "onion.locator builds the Goblins-compatible borrowed locator" {
     try std.testing.expectEqualStrings(service_id, locator.designator);
     try std.testing.expectEqual(@as(usize, 0), locator.hints.entries.len);
     try std.testing.expectEqual(model.Hints.WireForm.boolean_false, locator.hints.wire_form);
-}
-
-/// A transport handle over a stream somebody else closes. The fake daemons in
-/// this file own their streams directly, so the connection must not close them.
-fn borrowedHandle(reader: *std.Io.net.Stream.Reader) glowcap.net.Connection.Transport {
-    return .{
-        .ctx = reader,
-        .close_fn = struct {
-            fn noop(_: *anyopaque) void {}
-        }.noop,
-        .socket_handle_fn = struct {
-            fn handle(ctx: *anyopaque) ?std.Io.net.Socket.Handle {
-                const r: *std.Io.net.Stream.Reader = @ptrCast(@alignCast(ctx));
-                return r.stream.socket.handle;
-            }
-        }.handle,
-    };
 }
 
 /// A real, checksum-valid version 3 id, from the pinned Goblins source.
@@ -118,7 +94,7 @@ fn fakeSocksServe(
 
     // From here the stream is the far peer: a full CapTP session over the very
     // reader and writer the handshake used.
-    var peer = stubPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -167,7 +143,7 @@ test "a dial hands the session a stream positioned after the SOCKS reply" {
 }
 
 fn dialAndFetch(io: std.Io, allocator: std.mem.Allocator, socks: []const u8) anyerror!void {
-    var peer = stubPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -196,7 +172,7 @@ test "a dial refuses a designator that is not a version 3 address before connect
     defer threaded.deinit();
     const io = threaded.io();
 
-    var peer = stubPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     var read_buf: [64]u8 = undefined;
     var write_buf: [64]u8 = undefined;

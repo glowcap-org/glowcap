@@ -5,13 +5,9 @@ const cases = @import("../access/history_cases.zig");
 const fixture = @import("engine_fixture");
 
 test "loam engine access history composes bounded batches and collects expired history" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try fixture.open(terminated, .create, h.f.store_id);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
+    var db = try fixture.open(tmp.path, .create, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -23,13 +19,9 @@ test "loam engine access history composes bounded batches and collects expired h
 
 test "loam engine access history accepts depth 64 and refuses depth 65 before staging" {
     const stamps = @import("../access/history_stamp_cases.zig");
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try fixture.open(terminated, .create, h.f.store_id);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
+    var db = try fixture.open(tmp.path, .create, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, stamps.depth_limits);
     defer store.deinit() catch unreachable;

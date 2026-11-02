@@ -25,9 +25,7 @@ pub const Row = struct {
     latency: Distribution,
 };
 
-pub fn now(io: std.Io) i128 {
-    return std.Io.Clock.now(.awake, io).nanoseconds;
-}
+pub const now = @import("../support/clock.zig").nowNs;
 pub fn elapsed(io: std.Io, start: i128) u64 {
     return @intCast(@max(0, now(io) - start));
 }

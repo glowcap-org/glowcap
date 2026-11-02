@@ -38,6 +38,61 @@ pub const Introducer = struct {
     }
 };
 
+/// The exporter: publish `treasure` on the first accepted session (the
+/// gifter), then interleave serving with accepting the second session, the
+/// recipient's redeem dial, and keep pumping until the latch drops. One
+/// host under both accepts, so the withdraw on session two finds the gift the
+/// deposit on session one recorded. No publication on the withdrawing Port:
+/// the gift retained the exact Host-Vat actor reached through the first Port
+/// and projects that actor here, so a swiss-name lookup would fail the proof.
+pub fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+    var first = try server.accept();
+    defer first.deinit();
+    _ = try first.publish("treasure", Treasure, .{});
+
+    var second: ?*driver.Session = null;
+    defer if (second) |s| s.deinit();
+
+    while (!done.load(.acquire)) {
+        if (second == null and try server.waitAcceptable(20)) {
+            second = try server.accept();
+            try second.?.attend();
+        }
+        _ = first.stepReadable(20) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => break,
+            else => |e| return e,
+        };
+    }
+}
+
+/// The gifter over a tcp dial of the exporter: fetch the treasure, accept the
+/// recipient, publish the introducer around the fetched capability, and
+/// serve until the latch drops.
+pub fn gifterServe(
+    gifter: *driver.Server,
+    exporter_designator: []const u8,
+    done: *std.atomic.Value(bool),
+) anyerror!void {
+    const treasure_session = try gifter.runtime.connectLocator(.{
+        .transport = model.transport.tcp,
+        .designator = exporter_designator,
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit);
+    const treasure_view = try driver.Session.adopt(gifter.runtime, treasure_session);
+    defer treasure_view.deinit();
+    const treasure = try treasure_view.fetch("treasure");
+
+    const view = try gifter.accept();
+    defer view.deinit();
+    _ = try view.publish("introducer", Introducer, .{ .treasure = treasure });
+    while (!done.load(.acquire)) {
+        _ = view.stepReadable(20) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => break,
+            else => |e| return e,
+        };
+    }
+}
+
 /// A TCP multiplexed resident: loopback stream sockets behind one epoll
 /// descriptor, speaking the `net.MultiplexedResident` contract exactly. The
 /// `throttle` knob makes every other `try_write` refuse after arming

@@ -8,13 +8,9 @@ test "loam engine managed hosting restores endpoints and resolves lost control a
     for ([_]bool{ false, true }) |committed| {
         var memory = std.heap.ArenaAllocator.init(h.a);
         defer memory.deinit();
-        var tmp = std.testing.tmpDir(.{});
-        defer tmp.cleanup();
-        const path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", h.a);
-        defer h.a.free(path);
-        const terminated = try h.a.dupeSentinel(u8, path, 0);
-        defer h.a.free(terminated);
-        var db = try fixture.open(terminated, .create, h.f.store_id);
+        var tmp = try fixture.Temp.init();
+        defer tmp.deinit();
+        var db = try fixture.open(tmp.path, .create, h.f.store_id);
         defer db.close() catch unreachable;
         var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         defer store.deinit() catch unreachable;
@@ -36,7 +32,7 @@ test "loam engine managed hosting restores endpoints and resolves lost control a
         }
         try store.deinit();
         try db.close();
-        db = try fixture.open(terminated, .open, h.f.store_id);
+        db = try fixture.open(tmp.path, .open, h.f.store_id);
         store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         {
             var host: h.Hosted = undefined;
@@ -74,7 +70,7 @@ test "loam engine managed hosting restores endpoints and resolves lost control a
         }
         try store.deinit();
         try db.close();
-        db = try fixture.open(terminated, .open, h.f.store_id);
+        db = try fixture.open(tmp.path, .open, h.f.store_id);
         store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         var host: h.Hosted = undefined;
         try host.init(&store, &db, data);
@@ -102,13 +98,9 @@ test "loam engine managed hosting restores endpoints and resolves lost control a
 }
 
 test "loam engine managed hosting recovers reference field replacement and removal" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try fixture.open(terminated, .create, h.f.store_id);
+    var tmp = try fixture.Temp.init();
+    defer tmp.deinit();
+    var db = try fixture.open(tmp.path, .create, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -126,7 +118,7 @@ test "loam engine managed hosting recovers reference field replacement and remov
     }
     try store.deinit();
     try db.close();
-    db = try fixture.open(terminated, .open, h.f.store_id);
+    db = try fixture.open(tmp.path, .open, h.f.store_id);
     store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     {
         var host: h.Hosted = undefined;
@@ -163,7 +155,7 @@ test "loam engine managed hosting recovers reference field replacement and remov
     }
     try store.deinit();
     try db.close();
-    db = try fixture.open(terminated, .open, h.f.store_id);
+    db = try fixture.open(tmp.path, .open, h.f.store_id);
     store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     const lease = try h.c.load(&store, &db, data.content);
     defer store.release(lease) catch unreachable;

@@ -49,13 +49,9 @@ fn putEncoded(store: *loam.Store, id: loam.ObjectId, value: anytype, expected: ?
 
 test "loam engine commits access content and change records together through uncertain completion and reopen" {
     for ([_]bool{ false, true }) |commit_write| {
-        var tmp = std.testing.tmpDir(.{});
-        defer tmp.cleanup();
-        const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", a);
-        defer a.free(path);
-        const terminated = try a.dupeSentinel(u8, path, 0);
-        defer a.free(terminated);
-        var db = try fixture.open(terminated, .create, f.id);
+        var tmp = try fixture.Temp.init();
+        defer tmp.deinit();
+        var db = try fixture.open(tmp.path, .create, f.id);
         defer db.close() catch unreachable;
         var store = try loam.Store.init(a, db.metadata, &schemas, limits);
         defer store.deinit() catch unreachable;
@@ -132,7 +128,7 @@ test "loam engine commits access content and change records together through unc
         try std.testing.expectEqual(@as(u64, if (commit_write) 3 else 2), store.metadata.revision);
         try store.deinit();
         try db.close();
-        db = try fixture.open(terminated, .open, f.id);
+        db = try fixture.open(tmp.path, .open, f.id);
         store = try loam.Store.init(a, db.metadata, &schemas, limits);
         try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
         var restored = try loadGrant(&store, &db, grant_object);

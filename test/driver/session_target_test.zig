@@ -17,6 +17,7 @@ const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const driver = glowcap.driver;
+const driver_serve = @import("../support/driver_serve.zig");
 const net = glowcap.net;
 const tcp = net.tcp;
 const ip = std.Io.net;
@@ -72,14 +73,7 @@ const CountLocal = struct {
     }
 };
 
-/// Accept one partner over the bound listener, publish the greeter, and serve
-/// until the client leaves. Mirrors the owning `Server` accept the bindings ride.
-fn hostOnce(server: *driver.Server) anyerror!void {
-    const session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("greeter", Greeter, .{});
-    try session.serve();
-}
+const hostOnce = driver_serve.serveOnceWith(Greeter);
 
 test "session capability targets: promise-kind is refused, an object still calls" {
     const allocator = std.testing.allocator;

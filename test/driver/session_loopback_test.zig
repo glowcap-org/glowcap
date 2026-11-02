@@ -8,6 +8,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
+const driver_serve = @import("../support/driver_serve.zig");
 
 const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
@@ -49,12 +50,7 @@ fn serverAddress(server: *driver.Server) !ip.IpAddress {
 /// Accept one partner, publish the greeter, and serve until the client
 /// leaves, whether it closes cleanly or drops the socket once it has its
 /// reply.
-fn serveOnce(server: *driver.Server) anyerror!void {
-    var session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("greeter", Greeter, .{});
-    try session.serve();
-}
+const serveOnce = driver_serve.serveOnceWith(Greeter);
 
 /// Fetch a name the host never published. The partner's bootstrap answers
 /// with a break ("unknown swissnum"): `fetch` surfaces the distinguished

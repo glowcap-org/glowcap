@@ -5,7 +5,13 @@
 //! all-zeroes value would read as a valid integer argument, because
 //! `GLOWCAP_ARG_INTEGER` is zero.
 
+const std = @import("std");
 const c = @import("c_abi");
+
+/// The call returned `GLOWCAP_OK`.
+pub fn expectOk(rc: i32) !void {
+    try std.testing.expectEqual(c.GLOWCAP_OK, rc);
+}
 
 pub fn zeroRef() c.GlowcapReference {
     return .{ .id = 0 };

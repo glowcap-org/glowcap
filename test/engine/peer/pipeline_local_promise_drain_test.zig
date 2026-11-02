@@ -12,12 +12,7 @@ fn receive(peer: *engine.Peer, message: model.Message) !void {
     try peer.recvBorrowed(frame.view());
 }
 
-fn pump(peer: *engine.Peer) !void {
-    for (0..64) |_| {
-        if (try peer.step() != .progress) return;
-    }
-    return error.PumpDidNotQuiesce;
-}
+const pump = fixture.pump;
 
 fn discardOutbound(peer: *engine.Peer) void {
     while (peer.takeOutbound()) |value| {

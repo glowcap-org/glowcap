@@ -5,6 +5,7 @@
 //! right typed outcome rather than swallowed.
 
 const std = @import("std");
+const handshake = @import("../support/handshake.zig");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -14,14 +15,6 @@ const net = glowcap.net;
 
 const zero_pubkey = @as([32]u8, @splat(0));
 const zero_sig = @as([64]u8, @splat(0));
-
-/// These tests prove byte-stream framing, not handshake authentication, and the
-/// `op:start-session` they feed carries the stub zero signature, so the peers
-/// run with partner-signature verification off (a verifying peer would, rightly,
-/// refuse the unsigned handshake). The keyed path is covered in `pairing_test`.
-fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
-    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-}
 
 /// Encode the stub-key `op:start-session` a negotiating peer admits. The caller
 /// owns the returned frame (it backs the inbound byte stream).
@@ -47,7 +40,7 @@ fn appendStreamFrame(list: *std.ArrayList(u8), allocator: std.mem.Allocator, byt
 test "pumpOver frames one buffered frame, applies it, then reports graceful close" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
 
     var frame = try startSessionFrame(allocator, "remote");
@@ -78,7 +71,7 @@ test "pumpOver frames one buffered frame, applies it, then reports graceful clos
 test "pumpOver frames each frame of a concatenation in order" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
 
     var f1 = try startSessionFrame(allocator, "a");
@@ -118,7 +111,7 @@ test "pumpOver frames each frame of a concatenation in order" {
 test "pumpOver surfaces a mid-frame EOF as TruncatedFrame" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
 
     var frame = try startSessionFrame(allocator, "remote");
@@ -150,7 +143,7 @@ test "pumpOver surfaces a mid-frame EOF as TruncatedFrame" {
 test "pumpOver surfaces structurally invalid bytes as MalformedFrame" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
 
     var reader = std.Io.Reader.fixed("1:x");
@@ -165,7 +158,7 @@ test "pumpOver surfaces structurally invalid bytes as MalformedFrame" {
 test "pumpOver surfaces an over-cap frame as FrameTooLarge" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     // A cap far below the start-session frame: cap-on-parse rejects it.
     peer.session_state.limits.max_frame_bytes = 8;
@@ -188,7 +181,7 @@ test "pumpOver surfaces an over-cap frame as FrameTooLarge" {
 test "pumpOver carries an admissible frame larger than the read buffer through the spill" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
 
     var frame = try startSessionFrame(allocator, "remote");
@@ -232,7 +225,7 @@ test "pumpOver carries an admissible frame larger than the read buffer through t
 test "pumpOver surfaces a mid-frame EOF as TruncatedFrame while the spill is active" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
 
     var frame = try startSessionFrame(allocator, "remote");
@@ -264,7 +257,7 @@ test "pumpOver surfaces a mid-frame EOF as TruncatedFrame while the spill is act
 test "pumpOver surfaces an over-cap frame as FrameTooLarge while spilling" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     // The frame is admissible for the buffer-size question (it outgrows the
     // 16-byte buffer) but crosses the session cap during the scan.
@@ -296,7 +289,7 @@ test "pumpOver surfaces an over-cap frame as FrameTooLarge while spilling" {
 test "pumpOver flushes the peer's queued outbound frames" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
 
     // A negotiating peer may send its own op:start-session.
@@ -336,7 +329,7 @@ test "pumpOver flushes the peer's queued outbound frames" {
 test "encodeAndFlush drains the projected abort to the wire when stepToIdle fails, then surfaces the cause" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
 
     // Queue two start-sessions for dispatch: the first establishes the session,
@@ -367,7 +360,7 @@ test "encodeAndFlush drains the projected abort to the wire when stepToIdle fail
 test "encodeAndFlush reports a refused projected-abort write without losing its protocol cause" {
     const allocator = std.testing.allocator;
 
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     try peer.feedOwned(try startSessionFrame(allocator, "remote"));
     try peer.feedOwned(try startSessionFrame(allocator, "remote"));
@@ -401,7 +394,7 @@ test "a connection-owned transport failure is claimed exactly once" {
     };
 
     var fixture = Fixture{ .failure = .init(error.ReadFailed) };
-    var peer = stubNegotiatingPeer(std.testing.allocator);
+    var peer = handshake.stubPeer(std.testing.allocator);
     defer peer.deinit();
     var reader = std.Io.Reader.fixed("");
     var storage: [1]u8 = undefined;
@@ -430,7 +423,7 @@ test "connection cleanup owns its allocator independently of the retired peer" {
     };
     const allocator = std.testing.allocator;
     var fixture = Fixture{};
-    var peer = stubNegotiatingPeer(allocator);
+    var peer = handshake.stubPeer(allocator);
     var reader = std.Io.Reader.fixed("");
     var storage: [1]u8 = undefined;
     var writer = std.Io.Writer.fixed(&storage);
@@ -479,7 +472,7 @@ test "a connection close barrier retains its exact transport chain" {
     var fixture = Fixture{ .failure = failure };
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
-    var peer = stubNegotiatingPeer(std.testing.allocator);
+    var peer = handshake.stubPeer(std.testing.allocator);
     defer peer.deinit();
     var reader = std.Io.Reader.fixed("");
     var storage: [1]u8 = undefined;

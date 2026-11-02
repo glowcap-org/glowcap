@@ -4,6 +4,7 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 const driver = glowcap.driver;
+const driver_serve = @import("../support/driver_serve.zig");
 const model = glowcap.ocapn.model;
 const net = glowcap.net;
 const support_actors = @import("../support/actors.zig");
@@ -18,12 +19,7 @@ const dial_opts: driver.SessionOptions = .{
 const greeting = "hello from an onion service";
 const Greeter = support_actors.StaticReplyValueActor("greet", greeting);
 
-fn hostOnce(server: *driver.Server) anyerror!void {
-    const session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("greeter", Greeter, .{});
-    try session.serve();
-}
+const hostOnce = driver_serve.serveOnceWith(Greeter);
 
 test "onion at the host tier: publish, dial, fetch, and call with no Tor" {
     const allocator = std.testing.allocator;

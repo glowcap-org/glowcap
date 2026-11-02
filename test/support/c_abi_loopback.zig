@@ -3,6 +3,7 @@
 //! listen/connect setup and instantiate `Harness(Transport)`.
 
 const std = @import("std");
+const handshake = @import("handshake.zig");
 const glowcap = @import("glowcap");
 
 const c = @import("c_abi");
@@ -13,12 +14,6 @@ const fetch_pump = @import("fetch_pump.zig");
 pub const frame_cap = 4096;
 
 pub const Step = enum { received, closed };
-
-/// Unsigned-handshake peer for boundary proofs. Keyed verification lives in
-/// `pairing_test`.
-pub fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
-    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-}
 
 pub fn Harness(comptime Transport: type) type {
     return struct {
@@ -59,7 +54,7 @@ pub fn Harness(comptime Transport: type) type {
         }
 
         pub fn serveOnce(args: *ServerArgs) !void {
-            var peer = stubNegotiatingPeer(args.allocator);
+            var peer = handshake.stubPeer(args.allocator);
             defer peer.deinit();
             peer.session_state.limits.max_frame_bytes = frame_cap;
             _ = try peer.registerBootstrapCap("thermostat");
@@ -79,7 +74,7 @@ pub fn Harness(comptime Transport: type) type {
             allocator: std.mem.Allocator,
             start_session: model.Message,
         ) !void {
-            var peer = stubNegotiatingPeer(allocator);
+            var peer = handshake.stubPeer(allocator);
             defer peer.deinit();
             peer.session_state.limits.max_frame_bytes = frame_cap;
 

@@ -22,6 +22,7 @@ const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const driver = glowcap.driver;
+const driver_serve = @import("../support/driver_serve.zig");
 const net = glowcap.net;
 const inproc = net.inproc;
 
@@ -55,15 +56,7 @@ fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     };
 }
 
-/// Accept one partner on the bound in-process server, publish the greeter,
-/// and serve until the client leaves. The server is bound by the test body
-/// before the client dials, so there is no accept-before-bind race.
-fn hostOnce(server: *driver.Server) anyerror!void {
-    var session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("greeter", Greeter, .{});
-    try session.serve();
-}
+const hostOnce = driver_serve.serveOnceWith(Greeter);
 
 /// Dial the in-process node by designator through `driver.connect`, fetch
 /// the greeter, call it through the callback-and-step pump, and assert the

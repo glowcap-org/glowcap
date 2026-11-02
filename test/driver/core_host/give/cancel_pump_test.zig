@@ -25,10 +25,7 @@ test "core host: releasing a queued promise send survives its promise breaking i
             var observer = support.init(a, @splat(0xb3), options);
             defer observer.deinit();
             var dials: std.ArrayList(h.ParkedDial) = .empty;
-            defer {
-                for (dials.items) |dial| a.free(dial.designator);
-                dials.deinit(a);
-            }
+            defer h.deinitParked(a, &dials);
             const pair = try h.openPair(a, &host, &partner, "127.0.0.1:7971", &dials);
             const watch = try h.openPair(a, &host, &observer, "127.0.0.1:7972", &dials);
             _ = try pair.b.served.publish(&partner.vat, "widget", h.Widget, .{});

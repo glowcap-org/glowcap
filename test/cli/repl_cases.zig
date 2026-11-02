@@ -1,5 +1,6 @@
 //! CapTP lab REPL: completion, copy inventory, optional locator (line path).
 const std = @import("std");
+const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 const glowcap = @import("glowcap");
 
@@ -14,13 +15,12 @@ test "await_queue classifies CapTP session verbs" {
 
 test "every repl meta command has an exec arm" {
     const gpa = std.testing.allocator;
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
 
     for (cli.repl_meta.entries) |entry| {
-        var ctx = cli.ctx.Ctx{ .io = threaded.io(), .gpa = gpa, .environ = &environ, .front = .repl };
+        var ctx = cli.ctx.Ctx{ .io = runtime.io(), .gpa = gpa, .environ = &runtime.environ, .front = .repl };
         defer ctx.deinit();
         var store = cli.repl_blocks.Store.init(gpa);
         defer store.deinit();
@@ -198,14 +198,13 @@ test "log divert captures Ctx.logErr off stderr" {
     log.setDivert(.{ .ptr = @ptrCast(&cap), .writeFn = Capture.write });
     defer log.setDivert(null);
 
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    var environ = std.process.Environ.Map.init(gpa);
-    defer environ.deinit();
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
     var ctx = cli.ctx.Ctx{
-        .io = threaded.io(),
+        .io = runtime.io(),
         .gpa = gpa,
-        .environ = &environ,
+        .environ = &runtime.environ,
     };
     ctx.logErr("dial needs an ocapn:// locator", .{});
     try std.testing.expect(std.mem.indexOf(u8, list.items, "dial needs an ocapn:// locator") != null);

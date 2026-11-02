@@ -218,30 +218,7 @@ test "completion backend: cancel retires an exact recv without closing its fd" {
 }
 
 fn fetchOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
-    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
-    const locator: model.PeerLocator = .{
-        .transport = tcp.transport_name,
-        .designator = designator,
-        .hints = model.Hints.emptyMap(),
-    };
-    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf, .{});
-    defer conn.deinit();
-
-    try fetch_pump.handshakeToOpen(&peer, &conn, startSession("client"));
-
-    const reference = try fetch_pump.settleFetch(allocator, &peer, &conn, "thermostat");
-    model.freeReference(allocator, reference);
+    return fetch_pump.dialAndFetchOnce(io, port, allocator, frame_cap, startSession("client"));
 }
 
 test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
@@ -340,7 +317,7 @@ const LoopVat = struct {
 /// the actor are bound together.
 fn makeVatHostPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     _ = ctx;
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var peer = handshake.stubPeer(allocator);
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     try peer.sendBorrowed(startSession("server"));
@@ -350,7 +327,7 @@ fn makeVatHostPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engi
 /// One client: handshake, fetch the loop-hosted `thermostat`, then *call*
 /// `greet` on it and assert the reply comes back, over the completion loop.
 fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -532,7 +509,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
 /// bugs lived in. Under churn it must drain both ops and reclaim the slot, never
 /// strand or crash.
 fn slamOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    var peer = handshake.stubPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 

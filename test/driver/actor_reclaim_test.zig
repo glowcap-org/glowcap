@@ -10,6 +10,7 @@ const glowcap = @import("glowcap");
 const support_actors = @import("../support/actors.zig");
 
 const driver = glowcap.driver;
+const driver_serve = @import("../support/driver_serve.zig");
 const model = glowcap.ocapn.model;
 const net = glowcap.net;
 const tcp = net.tcp;
@@ -41,12 +42,7 @@ const Probe = struct {
     }
 };
 
-fn hostOnce(server: *driver.Server) anyerror!void {
-    const session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("greeter", Greeter, .{});
-    try session.serve();
-}
+const hostOnce = driver_serve.serveOnceWith(Greeter);
 
 test "releasing the last handle reclaims a spawned actor while its session stays open" {
     const allocator = std.testing.allocator;

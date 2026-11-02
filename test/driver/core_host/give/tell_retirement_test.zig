@@ -27,10 +27,7 @@ test "core host: broken deferred tell retires a finishing source distinct from i
                     var source = support.init(a, @splat(0x93), options);
                     defer source.deinit();
                     var dials: std.ArrayList(h.ParkedDial) = .empty;
-                    defer {
-                        for (dials.items) |dial| a.free(dial.designator);
-                        dials.deinit(a);
-                    }
+                    defer h.deinitParked(a, &dials);
                     const intro_pair = try h.openPair(a, &host, &introducer, "127.0.0.1:7951", &dials);
                     const source_pair = try h.openPair(a, &host, &source, "127.0.0.1:7952", &dials);
                     const bytes = try signedGive(a);
