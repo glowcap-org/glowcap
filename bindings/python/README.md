@@ -1,10 +1,14 @@
-# Python binding
+# glowcap for Python
 
-This package lets Python connect to OCapN peers, call their objects, and host
-objects of its own. It uses `ctypes`, `asyncio`, and the standard library, and
-needs the CPython version `pyproject.toml` declares on an LP64 (64-bit Unix)
-platform. Terms such as locator, vat, and sturdyref are defined in the
-[glossary](../../docs/capabilities.md#glossary).
+The `glowcap` package connects a Python program to [OCapN](https://glowcap.org/protocol/) peers. It
+calls their objects, hosts objects of its own, and passes references between peers, with glowcap's
+C libraries doing the protocol work. It uses `ctypes`, `asyncio`, and the standard library, and
+needs the CPython version `pyproject.toml` declares on an LP64 (64-bit Unix) platform. The
+[Python guide](https://glowcap.org/bindings/python/) walks through the round trip, listening, and
+actors. Terms such as locator, vat, and sturdyref are defined in the
+[glossary](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md#glossary).
+
+## Install
 
 ```sh
 pip install glowcap
@@ -19,6 +23,8 @@ importable instead:
 ```sh
 export PYTHONPATH="$PWD/bindings/python${PYTHONPATH:+:$PYTHONPATH}"
 ```
+
+## A first session
 
 ```python
 import asyncio
@@ -108,6 +114,10 @@ local reference is valid only in the session where it was exported.
 | `glowcap.webrtc` | Optional WebRTC dial and listen. See below. |
 | `glowcap.relay` | `keyed-relay`/`noise-relay` provider composition and managed listeners. |
 
+[Choosing a transport](https://glowcap.org/transports/choosing/) compares them, and the pages for
+[iroh](https://glowcap.org/transports/iroh/), [WebRTC](https://glowcap.org/transports/webrtc/),
+[Tor](https://glowcap.org/transports/onion/), and [relays](https://glowcap.org/relay/) go deeper.
+
 WebRTC needs a `SignalingAuthority` that you write to carry each exchange's
 offer, answer, and candidates. `webrtc.provider(signaling)` installs the dial.
 `await webrtc.listen(signaling)` returns a `Server` you iterate for sessions.
@@ -125,9 +135,7 @@ a relay holds inbound connections for it under its key.
   locator's hint or from the connector's configuration, as in every binding.
   Connections go through the connector only when your code creates one.
 - The connector's client is the one optional dependency: install
-  `glowcap[rendezvous]`. Repository checks install that extra
-  from the committed lock with
-  `uv run --project bindings/python --extra rendezvous --locked`.
+  `glowcap[rendezvous]`.
 
 The lower-level transports are also available directly:
 
@@ -139,16 +147,13 @@ with TcpNetlayer() as netlayer:
     connection = netlayer.connect("127.0.0.1", listener.port())
 ```
 
-## Tests
+## Learn more
 
-```sh
-zig build python-dogfood         # the package against a glowcap peer
-zig build python-goblins-interop # the package against a Spritely Goblins peer
-```
+- [Python guide](https://glowcap.org/bindings/python/): the round trip, listening, async, and actors.
+- [The API every binding shares](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md),
+  and the [repository](https://github.com/glowcap-org/glowcap) for the C libraries and the other
+  bindings.
 
-`zig build bindings` builds the libraries and runs the tests for every
-language binding. [`zig_smoke.py`](zig_smoke.py) is a complete example program.
-
-For the shared API, read the [binding overview](../README.md). Maintainers of
-the private FFI loaders and pump should read
-[Developing a binding](../DEVELOPING.md).
+glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
+what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
+explains.

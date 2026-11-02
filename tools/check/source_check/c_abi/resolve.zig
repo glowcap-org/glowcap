@@ -358,7 +358,7 @@ pub fn checkCAbiResolve(
     };
     defer gpa.free(root_build);
     for ([_][]const u8{
-        "release_install: bool = true",
+        "for (archive_table) |arch| {",
         ".static_archives = release_static_archives.items",
         ".dynamic_archives = release_dynamic_archives.items",
         ".headers = release_headers.items",

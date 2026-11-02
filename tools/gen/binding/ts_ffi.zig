@@ -285,7 +285,7 @@ const host_ffi_preamble =
     \\// from this binding: the JS side owns its behavior entries in the trampoline
     \\// registry, so there is nothing for the library to free.
     \\
-    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { lazySymbols, libPath } from "../../ffi.ts";
     \\import { HOST_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
@@ -313,7 +313,7 @@ const ocapn_ffi_preamble =
     \\// signature sit on one line, so the table reads down like the C header it
     \\// mirrors. Every `internal/ffi` loader opens with the same header.
     \\
-    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { lazySymbols, libPath } from "../../ffi.ts";
     \\import { OCAPN_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\
@@ -338,7 +338,7 @@ const loop_ffi_preamble =
     \\// `glowcap_driver_wake` is the one cross-thread call, and borrowed views
     \\// in a popped event die at the next `glowcap_driver_next_event`.
     \\
-    \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+    \\import { lazySymbols, libPath } from "../../ffi.ts";
     \\import { DRIVER_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
     \\
     \\

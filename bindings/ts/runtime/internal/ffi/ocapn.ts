@@ -19,7 +19,7 @@
 // signature sit on one line, so the table reads down like the C header it
 // mirrors. Every `internal/ffi` loader opens with the same header.
 
-import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+import { lazySymbols, libPath } from "../../ffi.ts";
 import { OCAPN_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 
 const P = "pointer",

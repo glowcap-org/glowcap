@@ -29,7 +29,7 @@ import {
 	relayFailureLogger,
 	Rendezvous,
 	webSocketRelay,
-} from "@glowcap/relay";
+} from "./mod.ts";
 import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@glowcap/abi";
 import { isKeyDesignator } from "@glowcap/runtime/transport";
 

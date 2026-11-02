@@ -218,5 +218,17 @@ zig build bindings-goblins-gift
 zig build bindings-iroh-loop
 ```
 
+Each binding also has its own steps, which the package pages on the registries do not list:
+
+| Binding | Against a glowcap peer | Against a Goblins peer | Also |
+| --- | --- | --- | --- |
+| Rust | `zig build rust-dogfood` | `zig build rust-goblins-interop` | `cargo build --no-default-features`, `--features tcp`, `--features async`, `zig build rust-webrtc-driver-provider`, `zig build loam-rust-test`, `zig build rooms-rust-browser-host-test` |
+| Python | `zig build python-dogfood` | `zig build python-goblins-interop` | `uv run --project bindings/python --extra rendezvous --locked` installs the relay client from the lock |
+| Racket | `zig build racket-dogfood` | `zig build racket-goblins-interop` | `zig build racket-test`, with `zig-smoke-fake-tor.rkt` answering the Tor requests as a child process |
+| TypeScript | `zig build deno-dogfood`, `zig build bun-dogfood` | | `zig build web-peer-test`, `wasm-driver-test`, `deno-relay-test`, `relay-scaling`, `webrtc-browser-to-browser`, `deno-webrtc-driver-provider` |
+
+Each dogfood step runs that binding's `zig_smoke` program, the complete example in the binding's
+directory.
+
 [`examples/c/host_embedder_pump.c`](../examples/c/host_embedder_pump.c) is the
 small compiled reference for feed, drain, refusal, and EOF.

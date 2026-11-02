@@ -14,6 +14,11 @@ const collectBulletSpans = util.collectBulletSpans;
 /// `dogfood/`). A co-located `*_test.ts` next to `mod.ts` makes a broad
 /// `publish.include` of `**/*.ts` ship test code unless someone remembers an
 /// exclude, and remembering is not a gate.
+///
+/// A shipped file reaches its own package by relative path, never by the
+/// package's name: JSR resolves `@glowcap/<pkg>` against the registry while
+/// that package is being published, and the local dry run resolves it on
+/// disk, so only this check sees the failure before a tag does.
 pub fn jsonWithoutComments(gpa: std.mem.Allocator, contents: []const u8) ![]u8 {
     const out = try gpa.dupe(u8, contents);
     var at: usize = 0;
@@ -231,11 +236,39 @@ pub fn checkTsPackagePublishSurface(
         };
         defer pkg_dir.close(io);
 
+        var self_buf: [64]u8 = undefined;
+        const self_specifier = std.fmt.bufPrint(&self_buf, "\"@glowcap/{s}", .{pkg}) catch {
+            try appendViolation(gpa, violations, "package `{s}` overflows the self-import needle buffer; grow it", .{pkg});
+            continue;
+        };
         var walker = try pkg_dir.walk(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind != .file) continue;
             if (std.mem.eql(u8, entry.path, "test") or std.mem.startsWith(u8, entry.path, "test/")) continue;
+            if (std.mem.endsWith(u8, entry.path, ".ts")) {
+                const source = pkg_dir.readFileAlloc(io, entry.path, gpa, .limited(1 << 20)) catch |err| {
+                    try appendViolation(gpa, violations, "{s}/{s}: failed to read for the self-import check with {s}", .{ pkg_path, entry.path, @errorName(err) });
+                    continue;
+                };
+                defer gpa.free(source);
+                var lines = std.mem.splitScalar(u8, source, '\n');
+                var line_no: usize = 0;
+                while (lines.next()) |line| {
+                    line_no += 1;
+                    const trimmed = std.mem.trimStart(u8, line, " \t");
+                    if (std.mem.startsWith(u8, trimmed, "//") or std.mem.startsWith(u8, trimmed, "*")) continue;
+                    const at = std.mem.indexOf(u8, line, self_specifier) orelse continue;
+                    const rest = line[at + self_specifier.len ..];
+                    if (rest.len == 0 or (rest[0] != '"' and rest[0] != '/')) continue;
+                    try appendViolation(
+                        gpa,
+                        violations,
+                        "{s}/{s}:{d}: imports its own package `@glowcap/{s}`; JSR resolves that name against the registry while the package publishes, so import the file by relative path",
+                        .{ pkg_path, entry.path, line_no, pkg },
+                    );
+                }
+            }
             for (banned_suffixes) |suffix| {
                 if (std.mem.endsWith(u8, entry.path, suffix)) {
                     try appendViolation(
@@ -272,6 +305,9 @@ pub fn checkTsPackagePublishSurface(
                 continue;
             },
         };
+        if (!util.jsonStringEquals(package_object.get("name") orelse .null, self_specifier[1..])) {
+            try appendViolation(gpa, violations, "{s}: `name` must be `{s}`, the member directory under the scope", .{ deno_path, self_specifier[1..] });
+        }
         const package_tasks = switch (package_object.get("tasks") orelse .null) {
             .object => |object| object,
             else => {
@@ -352,5 +388,33 @@ pub fn checkTsPackagePublishSurface(
                 .{deno_path},
             );
         }
+        // JSR renders README.md as the package's home page, so every package
+        // ships one and names it in `publish.include`.
+        const includes = switch (publish.get("include") orelse .null) {
+            .array => |array| array,
+            else => {
+                try appendViolation(gpa, violations, "{s}: `publish.include` must be an array", .{deno_path});
+                continue;
+            },
+        };
+        var includes_readme = false;
+        for (includes.items) |value| switch (value) {
+            .string => |string| if (std.mem.eql(u8, string, "README.md")) {
+                includes_readme = true;
+                break;
+            },
+            else => {},
+        };
+        if (!includes_readme) {
+            try appendViolation(gpa, violations, "{s}: `publish.include` must name `README.md`, the package's page on JSR", .{deno_path});
+        }
+        var readme_path_buf: [80]u8 = undefined;
+        const readme_path = std.fmt.bufPrint(&readme_path_buf, "{s}/README.md", .{pkg_path}) catch {
+            try appendViolation(gpa, violations, "{s}: the README path overflows the publish-surface buffer; grow it", .{pkg_path});
+            continue;
+        };
+        root.access(io, readme_path, .{}) catch {
+            try appendViolation(gpa, violations, "{s}: missing; JSR shows it as the package's page", .{readme_path});
+        };
     }
 }

@@ -44,7 +44,7 @@ const addRootedSystemCommand = build_common.addRootedSystemCommand;
 /// `include/glowcap_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
 /// in `build.zig.zon`, the source gate holds the zon triple to this one). Each
 /// archive's dynamic library soname tracks `major`.
-const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 1 };
+const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 2 };
 
 /// The layer DAG, the one authoritative statement of the architecture
 /// (ADR-0011 for the sibling-codec modules below the codec layer).
@@ -121,12 +121,10 @@ const ArchiveSpec = struct {
     /// The public header this archive installs.
     header: ?[]const u8 = null,
     /// False for an archive that links a non-Zig sidecar and so installs only
-    /// behind its own sibling step (iroh), never on the default build.
+    /// behind its own sibling step (iroh, WebRTC), never on the default
+    /// build. The release SDK ships every archive, so its stage waits for
+    /// those sibling steps.
     default_install: bool = true,
-    /// Included in the target-specific release bundle. This is independent of
-    /// default installation: iroh is release-packaged through its sibling
-    /// build, while the experimental WebRTC companion is not published.
-    release_install: bool = true,
 };
 const archive_table = [_]ArchiveSpec{
     .{ .artifact = "glowcap_ocapn", .layer = "c_abi", .header = "glowcap_ocapn.h" },
@@ -141,7 +139,7 @@ const archive_table = [_]ArchiveSpec{
     .{ .artifact = "glowcap_loam_volatile", .layer = "c_abi_loam_volatile", .header = "glowcap_loam_volatile.h" },
     .{ .artifact = "glowcap_driver", .layer = "c_abi_driver", .header = "glowcap_driver.h" },
     .{ .artifact = "glowcap_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "glowcap_net_transport_iroh.h", .default_install = false },
-    .{ .artifact = "glowcap_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "glowcap_net_transport_webrtc.h", .default_install = false, .release_install = false },
+    .{ .artifact = "glowcap_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "glowcap_net_transport_webrtc.h", .default_install = false },
 };
 
 const shared_header_table = [_][]const u8{
@@ -518,7 +516,6 @@ pub fn build(b: *std.Build) void {
     var release_dynamic_archives: std.ArrayList([]const u8) = .empty;
     var release_headers: std.ArrayList([]const u8) = .empty;
     for (archive_table) |arch| {
-        if (!arch.release_install) continue;
         if (arch.default_install) release_static_archives.append(b.allocator, arch.artifact) catch @panic("OOM");
         release_dynamic_archives.append(b.allocator, arch.artifact) catch @panic("OOM");
         if (arch.header) |header| release_headers.append(b.allocator, header) catch @panic("OOM");
@@ -581,7 +578,7 @@ pub fn build(b: *std.Build) void {
     // cold-start capture so local output files never change the build graph.
     site_reg.render.dependOn(rooms.site_captures);
     const rooms_services_install = rooms.services_install;
-    release_build.register(b, target, optimize, abi_version, iroh_abi_step, check_step, .{
+    release_build.register(b, target, optimize, abi_version, &.{ iroh_abi_step, webrtc_reg.abi_step }, check_step, .{
         .static_archives = release_static_archives.items,
         .dynamic_archives = release_dynamic_archives.items,
         .headers = release_headers.items,

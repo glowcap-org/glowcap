@@ -1,11 +1,19 @@
 # @glowcap/relay
 
-Run this relay when a peer that cannot open a socket itself, such as a browser, needs a CapTP
-session with another peer. The relay forwards the raw session bytes without parsing them, so the
-keyed or Noise handshake and the session run end to end and the relay holds no capability. Every
-runtime's relay follows the same contract,
-[ADR-0033](../../../docs/decisions/adr/ADR-0033-byte-transparent-relays.md), and this package is
-the TypeScript implementation.
+`@glowcap/relay` is for a peer that cannot open a socket itself, such as a browser, and needs an
+[OCapN](https://glowcap.org/protocol/) session with another peer. The package has two halves: the
+`keyed-relay` and `noise-relay` transport that a `@glowcap/runtime` Runtime dials and listens
+through, and the relay server itself. The relay forwards the raw session bytes without parsing
+them, so the keyed or Noise handshake and the session run end to end and the relay holds no
+capability. Every runtime's relay follows the same contract
+([ADR-0033](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0033-byte-transparent-relays.md)),
+and the [relay page](https://glowcap.org/relay/) explains the model and how to run one.
+
+## Install
+
+```sh
+deno add jsr:@glowcap/relay jsr:@glowcap/runtime
+```
 
 ## Parts of a relay
 
@@ -76,9 +84,6 @@ the sender.
   relay in another runtime must do the same: Python uses `websockets`' awaited
   `send`, and Rust awaits `SinkExt::send`. ADR-0033 requires it.
 
-`zig build bindings-relay` stalls a reader through each runtime's relay and
-fails if the far sender keeps sending.
-
 The browser-to-relay direction has a different problem. An accepted WebSocket can deliver the first
 handshake bytes before the target connection opens, and browser WebSockets cannot be paused. The
 adapter installs handlers immediately, but accepts inbound messages only while its byte budget has
@@ -93,11 +98,15 @@ WebSocket code 1003, and only binary `ArrayBuffer` messages enter the byte chann
 
 The relay holds no CapTP session state, so each connection costs runtime and socket overhead and no
 glowcap session buffers. Each connection uses two file descriptors, so a large deployment needs
-enough memory and a matching descriptor limit. A relay connection costs more memory than a core
-glowcap session's budget (`test/engine/footprint_budget_test.zig`), and closing that gap would need
-a relay built on a completion loop.
+enough memory and a matching descriptor limit. The repository's relay scaling check opens
+thousands of connections through this relay and holds the resident memory per connection under a
+ceiling.
 
-`zig build relay-scaling` (`test/scaling_bench.ts`) opens thousands of connections through the
-reference relay, divides the resident-memory increase by that count, and prints the cost per
-connection. It fails if the cost passes the ceiling in `test/scaling_bench.ts`, which catches a
-large per-connection buffer.
+## Learn more
+
+- [Relay page](https://glowcap.org/relay/) and the [browser guide](https://glowcap.org/bindings/browser/).
+- The [repository](https://github.com/glowcap-org/glowcap) for the relays in the other runtimes.
+
+glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
+what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
+explains.

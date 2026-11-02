@@ -1,8 +1,13 @@
-# Racket binding
+# glowcap for Racket
 
-This binding lets Racket connect to OCapN peers, call their objects, and host
-objects of its own, using Racket threads and ports. Terms such as locator and
-sturdyref are defined in the [glossary](../../docs/capabilities.md#glossary).
+The `glowcap` package connects a Racket program to [OCapN](https://glowcap.org/protocol/) peers. It
+calls their objects, hosts objects of its own, and passes references between peers, with glowcap's
+C libraries doing the protocol work and Racket threads and ports carrying the program. The
+[Racket guide](https://glowcap.org/bindings/racket/) walks through the round trip, listening, and
+the Goblins-style actor API. Terms such as locator and sturdyref are defined in the
+[glossary](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md#glossary).
+
+## Install
 
 ```sh
 raco pkg install glowcap
@@ -13,6 +18,8 @@ C libraries of its version from the GitHub release and verifies them against
 its checksum file. Set `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/`
 directory to use a local copy. In a checkout of the repository, run `zig build`
 and `require` the modules from `bindings/racket/` by relative path instead.
+
+## A first session
 
 ```racket
 (require glowcap/glowcap
@@ -81,8 +88,7 @@ certificate. They also take `#:options`, with the refusal rule under
 Every `runtime-connect` and `listen` that uses a transport provider runs on
 glowcap's driver loop, one event loop in the C library that owns the sockets
 and moves bytes for every accepted session. The binding parks one green thread
-until the loop has work, then steps it. [Developing a binding](../DEVELOPING.md)
-explains the loop.
+until the loop has work, then steps it.
 
 - A bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial creates
   one loop per connection. `listen` binds the loop's listener, and a dial that
@@ -143,23 +149,16 @@ though the actor API uses the same words (`spawn`, `$`, `<-`).
 - A wildcard bind requires `#:advertised-host`, the name or address partners
   dial.
 
-## Checks
+## Learn more
 
-```sh
-zig build racket-dogfood
-zig build racket-test
-zig build racket-goblins-interop
-```
+- [Racket guide](https://glowcap.org/bindings/racket/): the round trip, listening, actors, and async.
+- [Choosing a transport](https://glowcap.org/transports/choosing/), and the pages for
+  [iroh](https://glowcap.org/transports/iroh/), [WebRTC](https://glowcap.org/transports/webrtc/),
+  [Tor](https://glowcap.org/transports/onion/), and [relays](https://glowcap.org/relay/).
+- [The API every binding shares](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md),
+  and the [repository](https://github.com/glowcap-org/glowcap) for the C libraries and the other
+  bindings.
 
-[`zig-smoke.rkt`](zig-smoke.rkt) runs the test scenarios under
-`test/zig-smoke/`, which the package does not ship. Together they exercise
-handshakes, promise pipelining, result indexing, proxies, Cap'n Proto, garbage
-collection, and the TCP, in-process, and onion transports.
-Racket must be on `PATH`. The devcontainer includes it. The onion section needs
-no Tor: [`zig-smoke-fake-tor.rkt`](zig-smoke-fake-tor.rkt) answers the requests
-the transport sends, and it runs as a child process because a blocking foreign
-call stops every Racket thread in the place until it returns.
-
-For the shared API, read the [binding overview](../README.md). Maintainers of
-the private FFI and pump should read
-[Developing a binding](../DEVELOPING.md).
+glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
+what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
+explains.

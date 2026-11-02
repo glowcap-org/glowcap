@@ -12,7 +12,7 @@ durable application state. It combines [OCapN](https://github.com/ocapn/ocapn)
 and CapTP networking with [Loam](docs/loam.md), its transactional storage and
 durable actor system. Applications control memory, I/O, and scheduling.
 
-**0.1.1 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
+**0.1.2 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
 change before 1.0. glowcap has not received an independent security audit.
 Read [what ships](docs/shipped.md) and the [known limitations](docs/boundaries.md)
 before depending on it.

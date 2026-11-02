@@ -1,89 +1,43 @@
 # @glowcap/runtime
 
-`@glowcap/runtime` is the core JavaScript and TypeScript package for glowcap. It provides values,
-capabilities, actors, locator URIs, and the async `Session` and `Host` API on Deno and in the
-browser through [`@glowcap/web`](../web/README.md). Bun supports the synchronous Host and locator
-API and byte-fed clients, but cannot run the driver loop or blocking transports. The API does not depend on any
-transport, so you also install a transport package.
+`@glowcap/runtime` is the core JavaScript and TypeScript package for glowcap. It connects a program
+to [OCapN](https://glowcap.org/protocol/) peers, calls their objects, hosts objects of its own, and
+passes references between peers, with glowcap's C libraries doing the protocol work. It provides
+values, capabilities, actors, locator URIs, and the async `Session` and `Host` API on Deno, and in
+the browser through [`@glowcap/web`](https://jsr.io/@glowcap/web). Bun supports the synchronous
+Host and locator API and byte-fed clients, but cannot run the driver loop or blocking transports.
+The [TypeScript guide](https://glowcap.org/bindings/ts/) walks through the round trip, listening,
+and actors.
 
-## How it is built
+## Install
 
-- It loads two C libraries. `libglowcap_host` handles byte-fed sessions, where your code supplies
-  the bytes. `libglowcap_driver` runs the event loop (the driver loop) that owns sockets. It starts
-  with no transports and adopts a Host through `glowcap_driver_take_host`. A separate library per
-  transport keeps unused code out of your program (ADR-0024).
-- The TCP library supplies the plain, keyed, and sealed TCP transports. The relay library does the
-  same for the keyed and sealed relay transports.
-- On Deno, a `Runtime.connect` that uses a provider runs on a driver loop that
-  the binding steps. Transport packages build their listeners and return a
-  `Server` on that same loop.
-- The byte-fed pump serves channels the runtime owns, and the low-level
-  blocking transports are available for programs that run their own loop.
+The core depends on no transport, so install it with the transport package you will dial through:
 
-The optional encrypted-QUIC transport ships separately as
-[`@glowcap/iroh`](../iroh/README.md), so an application that never uses iroh
-never installs its Rust library. Pass its `provider(config)` or
-`connector(config)` when opening a Runtime.
+```sh
+deno add jsr:@glowcap/runtime jsr:@glowcap/tcp
+```
 
-The same source runs on Deno, Bun, and the browser. The parts that differ (how to call the C
-library, how to open sockets, and struct layout) live in
-[`internal/ffi/runtime.ts`](internal/ffi/runtime.ts). A browser build injects its own adapter
-first, which is how [`@glowcap/web`](../web/README.md) runs this package over WebAssembly.
-Otherwise the module detects the runtime and imports the matching adapter, so `bun:ffi` never
-loads on the wrong runtime.
+On first use outside a checkout, the package downloads the C libraries of its version from the
+GitHub release and verifies them against its checksum file. Set `GLOWCAP_LIB_DIR` to an extracted
+C SDK's `lib/` directory to use a local copy. Deno needs `--allow-ffi --allow-read` for the
+libraries, plus `--allow-net` for the download and the sockets.
 
-[`../../README.md`](../../README.md) describes the API all bindings share.
+| Package | Adds |
+| --- | --- |
+| [`@glowcap/tcp`](https://jsr.io/@glowcap/tcp) | TCP, in the clear or sealed with Noise, and its listeners. |
+| [`@glowcap/iroh`](https://jsr.io/@glowcap/iroh) | Encrypted QUIC through iroh, with peer discovery. |
+| [`@glowcap/webrtc`](https://jsr.io/@glowcap/webrtc) | Direct peer-to-peer data channels, in Deno and the browser. |
+| [`@glowcap/relay`](https://jsr.io/@glowcap/relay) | Relay routes for peers that cannot open a socket, and the relay itself. |
+| [`@glowcap/onion`](https://jsr.io/@glowcap/onion) | Tor, through a daemon you run. |
+| [`@glowcap/inproc`](https://jsr.io/@glowcap/inproc) | Two peers in one process, for tests. |
+| [`@glowcap/web`](https://jsr.io/@glowcap/web) | The browser adapter that runs this package over WebAssembly. |
+| [`@glowcap/abi`](https://jsr.io/@glowcap/abi) | The generated constants the packages above share. |
 
-## Runtimes
+[Choosing a transport](https://glowcap.org/transports/choosing/) compares them.
 
-| Runtime                  | Tier                 | FFI                    | How it runs                               |
-| ------------------------ | -------------------- | ---------------------- | ----------------------------------------- |
-| [Deno](https://deno.com) | tested (build check) | `Deno.dlopen`          | `deno run --allow-ffi --allow-read`       |
-| [Bun](https://bun.sh)    | tested (build check) | `bun:ffi`              | `bun run`                                 |
-| Browser                  | tested (build check) | WebAssembly (ADR-0034) | [`@glowcap/web`](../web/README.md) `init` |
+## A first session
 
-Deno and Bun each have a `zig build` test (`deno-dogfood`, `bun-dogfood`), and the browser path has
-`web-peer-test`. Deno's test covers the application API over the driver loop. Bun's covers the
-synchronous Host and locator API and checks that driver-loop and blocking transports refuse with an
-error. Any other runtime is refused at load with an error.
-
-## The modules
-
-The public API is one core module plus one module per built-in transport, declared in
-[`deno.json`](deno.json)'s `exports` map (the JSR manifest, which Bun also reads). Each maps
-to an archive and opens only that archive through the runtime shim's `dlopen`, as the C libraries
-do (ADR-0022), so an import loads only what it needs.
-
-| Import                            | File                                         | Archive it opens                                                                                                                                                                 |
-| --------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@glowcap/runtime` | [`mod.ts`](mod.ts) | `libglowcap_host`, `libglowcap_driver`, and the shared OCapN vocabulary |
-| `@glowcap/runtime/transport` | [`transport.ts`](transport.ts) | For authors of a transport package. Applications do not import it. |
-| `@glowcap/tcp` | [`../tcp/mod.ts`](../tcp/mod.ts) | TCP-profile locators, provider construction, and listeners |
-| `@glowcap/tcp/transport` | [`../tcp/transport.ts`](../tcp/transport.ts) | TCP provider package plus blocking frame handles |
-| `@glowcap/inproc` | [`../inproc/mod.ts`](../inproc/mod.ts) | Socket-free in-process frame transport |
-| `@glowcap/onion` | [`../onion/mod.ts`](../onion/mod.ts) | Tor provider, listener, and raw transport handles |
-| `@glowcap/relay` | [`../relay/mod.ts`](../relay/mod.ts) | `keyed-relay` and `noise-relay` provider package |
-| `@glowcap/runtime/ffi` | [`ffi.ts`](ffi.ts) | Foreign-function layer for transport packages, not an application import |
-
-The core imports no concrete transport. The value and Host APIs work on their own, and a Runtime
-that connects needs a provider or connector that you pass.
-
-The transport modules build on the core and not on each other. They share the `Context` pointer
-and the frame and context type layouts, and they export no overlapping symbols. Everything else
-below is internal to the package, so an application does not need it:
-
-- The core is split by responsibility into `promise`, `gc`, `dial`, `session`, `pump`, `action`,
-  `driver_loop`, and `host`, and `mod.ts` re-exports them.
-- The loaders live under [`internal/ffi/`](internal/ffi/), one per C library.
-- `zig build gen-ts-abi` generates the mirror of the C library's constants and struct layouts. The
-  constants go into the `@glowcap/abi` package (`bindings/ts/abi/constants.ts`) and the 64-bit
-  struct layouts into [`internal/abi.ts`](internal/abi.ts).
-- [`internal/layout.ts`](internal/layout.ts) holds the active layout, which is the 64-bit mirror or
-  the Wasm module's own descriptor in the browser. Every struct marshaller reads through it.
-
-## The core
-
-`mod.ts` is the application API for JavaScript and TypeScript. A Runtime owns one Host and the
+A Runtime owns one Host (the object that owns your identity and published objects) and the
 providers or connectors you passed it. An application works with a `Session`:
 
 - `publish` and `fetch` name capabilities.
@@ -97,10 +51,11 @@ Integers are `bigint` and floats are `number`:
 
 ```ts
 import { Runtime } from "@glowcap/runtime";
-import { locator, provider } from "@glowcap/tcp";
+import { noise, provider } from "@glowcap/tcp";
 
-// tcp: the peer is a place, a cleartext host and port.
-const partner = locator("127.0.0.1", 9099);
+// noise-tcp: the peer is a durable key at a host and port, sealed end to end.
+const peerKey = "<64 lowercase hex characters from the server>";
+const partner = noise.locator(peerKey, "127.0.0.1", 9099);
 
 await using runtime = await Runtime.open({ providers: [provider()] });
 await using session = await runtime.connect(partner);
@@ -125,14 +80,64 @@ Listening:
   will not put a wildcard into a Host locator.
 - The driver accepts connections and limits concurrent handshakes.
 
+## How it is built
+
+- It loads two C libraries. `libglowcap_host` handles byte-fed sessions, where your code supplies
+  the bytes. `libglowcap_driver` runs the event loop (the driver loop) that owns sockets. It starts
+  with no transports and adopts a Host through `glowcap_driver_take_host`. A separate library per
+  transport keeps unused code out of your program.
+- On Deno, a `Runtime.connect` that uses a provider runs on a driver loop that
+  the binding steps. Transport packages build their listeners and return a
+  `Server` on that same loop.
+- The byte-fed pump serves channels the runtime owns, and the low-level
+  blocking transports are available for programs that run their own loop.
+- The same source runs on Deno, Bun, and the browser. The parts that differ (how to call the C
+  library, how to open sockets, and struct layout) live in
+  [`internal/ffi/runtime.ts`](internal/ffi/runtime.ts). A browser build injects its own adapter
+  first, which is how `@glowcap/web` runs this package over WebAssembly. Otherwise the module
+  detects the runtime and imports the matching adapter, so `bun:ffi` never loads on the wrong
+  runtime.
+
+| Runtime                  | FFI                    | How it runs                               |
+| ------------------------ | ---------------------- | ----------------------------------------- |
+| [Deno](https://deno.com) | `Deno.dlopen`          | `deno run --allow-ffi --allow-read`       |
+| [Bun](https://bun.sh)    | `bun:ffi`              | `bun run`                                 |
+| Browser                  | WebAssembly            | `@glowcap/web` `init`                     |
+
+Deno runs the application API over the driver loop. Bun runs the synchronous Host and locator
+API, and its driver-loop and blocking transports refuse with an error. Any other runtime is
+refused at load with an error.
+
+## The modules
+
+The public API is declared in [`deno.json`](deno.json)'s `exports` map (the JSR manifest, which
+Bun also reads). Each transport package maps to one C library and opens only that library, so an
+import loads only what it needs.
+
+| Import | File | Purpose |
+| --- | --- | --- |
+| `@glowcap/runtime` | [`mod.ts`](mod.ts) | Sessions, Hosts, values, locators, actors, and the driver loop |
+| `@glowcap/runtime/cleanup` | [`cleanup.ts`](cleanup.ts) | Rollback helpers that import no Host or FFI adapter |
+| `@glowcap/runtime/transport` | [`transport.ts`](transport.ts) | For authors of a transport package. Applications do not import it. |
+| `@glowcap/runtime/ffi` | [`ffi.ts`](ffi.ts) | Foreign-function layer for transport packages, not an application import |
+
+The core imports no concrete transport. The value and Host APIs work on their own, and a Runtime
+that connects needs a provider or connector that you pass. The transport packages build on the
+core and not on each other. They share the `Context` pointer and the frame and context type
+layouts, and they export no overlapping symbols.
+
+`@glowcap/runtime/cleanup` runs rollback steps in order and keeps any failures they raise attached
+to the original error, up to a fixed count. `@glowcap/runtime` exports the same helpers, and both
+paths share one record of attached failures.
+
 ## The transports
 
-Most applications use the transports above. `@glowcap/tcp/transport` and `@glowcap/inproc` expose
-the lower-level frame transport directly, for programs that run their own loop. A `Netlayer` (the
-OCapN term for a transport) binds a `Listener` and dials a `Connection`. Dialing, accepting, reading, and writing are
-all asynchronous, because each call that might block runs off the JavaScript event loop.
-TCP binds a `host:port`. Inproc binds a string designator and moves frames through in-process pipes
-with no kernel transport.
+Most applications use the transport packages above. `@glowcap/tcp/transport` and `@glowcap/inproc`
+expose the lower-level frame transport directly, for programs that run their own loop. A `Netlayer`
+(the OCapN term for a transport) binds a `Listener` and dials a `Connection`. Dialing, accepting,
+reading, and writing are all asynchronous, because each call that might block runs off the
+JavaScript event loop. TCP binds a `host:port`. Inproc binds a string designator and moves frames
+through in-process pipes with no kernel transport.
 
 `writeFrame` copies the frame immediately, so its caller may mutate the
 supplied bytes as soon as the method returns. Concurrent writes are serialized
@@ -171,21 +176,14 @@ construction before allocating a handle, since even an idle release may join
 backend work. Core TCP and inproc sessions work on both runtimes through their
 runtime adapters.
 
-## Tests
+## Learn more
 
-[`../dogfood/zig_smoke.ts`](../dogfood/zig_smoke.ts) is the example program that both
-`zig build deno-dogfood` and `zig build bun-dogfood` run. Deno drives real OCapN conversations
-through the application API (fetch/send, pipelining, result indexing, proxies, GC, both codecs) and
-shuttles a frame through both the TCP and in-process transports. Bun proves the common synchronous
-Host, locator, and sturdyref API and the explicit refusal boundary for operations its FFI
-cannot move off the JavaScript event loop. Deno's FFI needs `--allow-ffi --allow-read`. The build
-step passes them and resolves the shared libraries relative to `zig-out/`.
+- [TypeScript guide](https://glowcap.org/bindings/ts/) and the
+  [browser guide](https://glowcap.org/bindings/browser/).
+- [The API every binding shares](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md),
+  and the [repository](https://github.com/glowcap-org/glowcap) for the C libraries and the other
+  bindings.
 
-```sh
-zig build bindings        # builds the glowcap archives, runs every binding consumer
-```
-
-The `@glowcap/runtime/cleanup` subpath runs rollback steps in order and keeps
-any failures they raise attached to the original error, up to a fixed count.
-It imports no Host or FFI adapter. `@glowcap/runtime` exports the same
-helpers, and both paths share one record of attached failures.
+glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
+what lands, as [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
+explains.

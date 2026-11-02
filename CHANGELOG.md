@@ -9,6 +9,23 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-02
+
+### Fixed
+
+- The C SDK archive ships the WebRTC transport's shared library and header
+  beside the iroh one, so the Rust crate's `webrtc` feature links against the
+  release SDK instead of failing to find `libglowcap_net_transport_webrtc`.
+- Every `@glowcap/*` package publishes to JSR. The runtime's generated FFI
+  loaders and the relay's serve entry reach their own package by relative path,
+  which JSR requires, and the browser import maps carry the file entry that
+  keeps the Wasm adapter in place of the C library loader.
+- The package pages on crates.io, PyPI, JSR, and the Racket catalog read as
+  package home pages: each opens with the package name and install line, leaves
+  the package only through absolute links, and keeps contributor checks in the
+  repository. Every `@glowcap/*` package ships a README, and `source-check`
+  holds both rules.
+
 ## [0.1.1] - 2026-10-31
 
 ### Added
@@ -51,6 +68,7 @@ and storage formats before 1.0.
   Rooms application with its container image. [What ships](docs/shipped.md)
   describes the release in full.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/glowcap-org/glowcap/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/glowcap-org/glowcap/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/glowcap-org/glowcap/releases/tag/v0.1.0

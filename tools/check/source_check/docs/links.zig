@@ -410,3 +410,61 @@ test "danglingReferenceColumn flags rustdoc-style references, never resolvable l
     // An unclosed or backtick-laden candidate is not a reference shape.
     try std.testing.expect(danglingReferenceColumn("an open [`span with no close") == null);
 }
+
+/// The README a registry renders as the package's home page. crates.io
+/// rewrites a relative link against the repository, JSR against the package's
+/// published files, and PyPI not at all, so a link that climbs out of the
+/// package (`../`) breaks on at least one of them. Those links are absolute:
+/// a glowcap.org page, or a `blob/main` path the check above holds to the
+/// tree. Links within the package stay relative, because every registry
+/// resolves those against the files it has.
+pub fn checkRegistryReadmeLinks(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const fixed = [_][]const u8{ "bindings/rust/README.md", "bindings/python/README.md", "bindings/racket/README.md" };
+    for (fixed) |path| try checkRegistryReadmeFile(io, gpa, root, violations, path);
+    var dir = root.openDir(io, "bindings/ts", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "bindings/ts: cannot be opened for the registry README check ({s})", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .directory) continue;
+        const path = try std.fmt.allocPrint(gpa, "bindings/ts/{s}/README.md", .{entry.name});
+        defer gpa.free(path);
+        root.access(io, path, .{}) catch continue; // tolerant: the publish-surface check reports a package without a README
+        try checkRegistryReadmeFile(io, gpa, root, violations, path);
+    }
+}
+
+fn checkRegistryReadmeFile(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+) !void {
+    const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the registry README check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    var line_no: usize = 0;
+    while (lines.next()) |line| {
+        line_no += 1;
+        const climbs = std.mem.indexOf(u8, line, "](../") != null or
+            (std.mem.startsWith(u8, line, "[") and std.mem.indexOf(u8, line, "]: ../") != null);
+        if (!climbs) continue;
+        try appendViolation(
+            gpa,
+            violations,
+            "{s}:{d}: a registry README leaves its package only through an absolute link (a glowcap.org page or a github.com/glowcap-org/glowcap/blob/main path)",
+            .{ path, line_no },
+        );
+    }
+}

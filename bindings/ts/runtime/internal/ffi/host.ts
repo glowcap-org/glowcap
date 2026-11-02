@@ -31,7 +31,7 @@
 // from this binding: the JS side owns its behavior entries in the trampoline
 // registry, so there is nothing for the library to free.
 
-import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+import { lazySymbols, libPath } from "../../ffi.ts";
 import { HOST_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 
 const P = "pointer",
