@@ -1,13 +1,14 @@
 // Binding-level projection of one generic driver listener. Transport
 // modules inherit this lifecycle and add only metadata they alone understand.
 
-import { DriverListener, DriverLoop } from "../driver_loop.ts";
-import { GlowcapError } from "../errors.ts";
+import { DriverListener, DriverLoop, loopTierAvailable } from "../driver_loop.ts";
+import { GlowcapError, retainCleanupFailures } from "../errors.ts";
 import { Host } from "../host.ts";
 import { formatLocatorUri, type Locator } from "../locator.ts";
 import { Session } from "../session.ts";
 import type { Codec } from "../value.ts";
-import { INVALID_ARGUMENT } from "@glowcap/abi";
+import { INVALID_ARGUMENT, IO } from "@glowcap/abi";
+import { ensureRuntimeReady } from "./ffi/runtime.ts";
 
 /** Shared lifecycle for a driver-owned CapTP server. */
 export class DriverServer {
@@ -141,4 +142,50 @@ export function prepareListenerLoop(
 		};
 	}
 	return { loop: DriverLoop.open({ seed, codec }), ownsLoop: true };
+}
+
+/** Open a driver-owned server for one transport. `prepareListenerLoop`
+ * resolves the loop for `host`/`seed`/`codec`, and `open` installs the
+ * transport's provider on it, opens its listener, and returns the server that
+ * wraps it. `open` passes the listener through `adopt` the moment it opens, so
+ * a failure after that point closes the listener as well as the loop this call
+ * minted (`ownedLoop`), each cleanup failure retained beside the primary
+ * (`retainCleanupFailures`). The primary is rethrown as a `GlowcapError`, `IO`
+ * when it was not one. Every provider package's `listen` goes through here, so
+ * none can leak a loop or a listener on its own failure path or disagree about
+ * the loop-tier requirement. */
+export async function openDriverServer<Server>(bound: {
+	host: Host | undefined;
+	seed: Uint8Array | undefined;
+	codec: Codec | undefined;
+	open: (
+		loop: DriverLoop,
+		adopt: (listener: DriverListener) => DriverListener,
+		ownedLoop: DriverLoop | undefined,
+	) => Promise<Server>;
+}): Promise<Server> {
+	await ensureRuntimeReady();
+	if (!loopTierAvailable()) throw listenerLoopUnavailable();
+	const { loop, ownsLoop } = prepareListenerLoop(bound.host, bound.seed, bound.codec);
+	const opened: { listener: DriverListener | null } = { listener: null };
+	try {
+		const server = await bound.open(
+			loop,
+			(listener) => {
+				opened.listener = listener;
+				return listener;
+			},
+			ownsLoop ? loop : undefined,
+		);
+		opened.listener = null;
+		return server;
+	} catch (error) {
+		const primary = error instanceof GlowcapError ? error : new GlowcapError(IO, String(error));
+		const failedListener = opened.listener;
+		const cleanups: Array<() => void | Promise<void>> = [];
+		if (failedListener != null) cleanups.push(() => failedListener.close());
+		if (ownsLoop) cleanups.push(() => loop.close());
+		await retainCleanupFailures(primary, cleanups);
+		throw primary;
+	}
 }
