@@ -28,7 +28,7 @@ export async function runFinishClosePolicy(): Promise<void> {
 				serverDesignator: designator,
 				channel: await listener.accept(),
 				verifiedChannelKey: null,
-			}))();
+			}, HANDSHAKE_TIMEOUT_MS))();
 		const dialing = Session.establishDialedLocator(
 			host,
 			bareLocator("tcp", designator),

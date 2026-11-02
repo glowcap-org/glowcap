@@ -8,7 +8,7 @@
 //   --tcp-only: Listen on TCP instead of WebSocket (for relay tests)
 //   address: TCP bind address (host:port, e.g. 127.0.0.1:0); ignored for WebSocket
 
-import { type Channel, Host, Ref, Session, TRANSPORT_KEYED_TCP } from "@glowcap/runtime";
+import { type Channel, HANDSHAKE_TIMEOUT_MS, Host, Ref, Session, TRANSPORT_KEYED_TCP } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
 import { webSocketChannel } from "@glowcap/runtime";
 import { DESIGNATOR_SCHEME_KEY } from "@glowcap/abi";
@@ -64,6 +64,7 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 							localAddress: tcp.addressDesignator("127.0.0.1", server.addr.port),
 							verifiedChannelKey: null,
 						},
+						HANDSHAKE_TIMEOUT_MS,
 					);
 					// The browser peer fetches this by name, and its `greet`
 					// exercises the reverse direction too: the callback ref the
@@ -123,6 +124,7 @@ async function serveTcpHost(
 							),
 							verifiedChannelKey: null,
 						},
+						HANDSHAKE_TIMEOUT_MS,
 					);
 					session.publish("shape", (selector, args) => {
 						if (selector === "callbacks") {

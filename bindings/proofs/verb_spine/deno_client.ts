@@ -8,7 +8,7 @@
 
 import { parseLocator, type Ref, Runtime, type Session } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
-import { fail } from "../_support/harness.ts";
+import { fail } from "../../ts/test/assert.ts";
 
 function mark(marker: string, detail = ""): void {
 	console.log(`VERB-SPINE ${marker}${detail === "" ? "" : ` ${detail}`}`);

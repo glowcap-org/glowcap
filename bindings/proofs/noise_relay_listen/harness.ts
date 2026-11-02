@@ -10,7 +10,8 @@
 // Run: deno run -A bindings/proofs/noise_relay_listen/harness.ts -- <listener argv...>
 
 import { RELAY_READY_MARKER } from "@glowcap/relay";
-import { awaitMarker, fail, runProofOrFail } from "../_support/harness.ts";
+import { awaitMarker, runProofOrFail } from "../_support/harness.ts";
+import { fail } from "../../ts/test/assert.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../../zig-out/lib/", import.meta.url).pathname;

@@ -185,7 +185,7 @@ export class Session extends SessionApplication {
 	static async establishAccepted(
 		host: Host,
 		accepted: AcceptedTransport,
-		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
+		handshakeTimeoutMs: number | null,
 	): Promise<Session> {
 		const {
 			transport: transportName,

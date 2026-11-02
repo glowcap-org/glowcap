@@ -5,7 +5,7 @@
 //
 // Run: deno run -A interop/goblins_interop/binding_listen_harness.ts -- <listener argv...>
 
-import { fail } from "../../bindings/proofs/_support/harness.ts";
+import { fail } from "../../bindings/ts/test/assert.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../zig-out/lib/", import.meta.url).pathname;

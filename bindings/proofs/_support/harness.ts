@@ -8,6 +8,8 @@
 // diagnostic deadline, and always joins every wrapper before reporting a
 // failure. A timer never calls `Deno.exit` while children are live.
 
+import { fail } from "../../ts/test/assert.ts";
+
 const TIMEOUT_WRAPPER = new URL("../../../tools/run-with-timeout.py", import.meta.url).pathname;
 
 const CHILD_FALLBACK_DEADLINE = "5m";
@@ -41,11 +43,6 @@ export class ProofTimeout extends ProofFailure {
 		super(message);
 		this.name = "ProofTimeout";
 	}
-}
-
-export function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
 }
 
 function failureMessage(raised: unknown): string {

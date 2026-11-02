@@ -8,7 +8,8 @@
 // Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts [--wss] -- <client argv...>
 
 import { RELAY_READY_MARKER } from "@glowcap/relay";
-import { awaitMarker, fail, runProofOrFail } from "../_support/harness.ts";
+import { awaitMarker, runProofOrFail } from "../_support/harness.ts";
+import { fail } from "../../ts/test/assert.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const TLS_CERT = new URL("../../../test/net/fixtures/tls_server.pem", import.meta.url).pathname;

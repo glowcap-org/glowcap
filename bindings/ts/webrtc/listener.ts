@@ -7,6 +7,7 @@
 import {
 	formatLocatorUri,
 	GlowcapError,
+	HANDSHAKE_TIMEOUT_MS,
 	type Host,
 	isKeyDesignator,
 	type Locator,
@@ -146,7 +147,7 @@ export class Listener implements AsyncIterable<Session>, AsyncDisposable {
 						// The signaling authority scoped this exchange to the offerer, and
 						// DTLS binds the channel to the SDP it carried (ADR-0028).
 						verifiedChannelKey: designator,
-					}),
+					}, HANDSHAKE_TIMEOUT_MS),
 			},
 		).then(
 			(session) => this.#deliver(exchange, session),

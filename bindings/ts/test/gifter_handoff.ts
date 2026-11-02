@@ -15,11 +15,7 @@
 import process from "node:process";
 import { Ref, Runtime } from "@glowcap/runtime";
 import { listen, locator, provider } from "@glowcap/tcp";
-
-function fail(message: string): never {
-	console.error(`gifter-handoff: FAIL, ${message}`);
-	process.exit(1);
-}
+import { fail } from "./assert.ts";
 
 async function main(): Promise<void> {
 	// ── Exporter (Bob): publishes a Host-published inbox, listens for dials ───────

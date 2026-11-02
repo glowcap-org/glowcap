@@ -16,7 +16,7 @@
 
 import { type Browser, chromium } from "playwright";
 import { bundleProbe, freePort } from "../../bindings/ts/web/test/support.ts";
-import { fail } from "../../bindings/proofs/_support/harness.ts";
+import { fail } from "../../bindings/ts/test/assert.ts";
 
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const WASM = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);

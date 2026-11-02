@@ -29,6 +29,7 @@
 // directly: `deno run --allow-all transports/webrtc/test/datachannel_roundtrip_test.ts`.
 
 import { chromium } from "playwright";
+import { fail } from "../../../bindings/ts/test/assert.ts";
 
 /** The globals the page probe installs on its own `globalThis`.
  *
@@ -51,11 +52,6 @@ if (PROBE == null) {
 
 const PING = "ping-from-browser";
 const EXPECTED_REPLY = `pong-from-probe:${PING}`;
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
 
 function freePort(): number {
 	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });

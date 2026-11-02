@@ -4,7 +4,7 @@ Each directory runs one end-to-end scenario through every language binding.
 All peers are glowcap and all traffic stays on loopback, so a failure points to
 the binding or C ABI and not to an interoperability disagreement.
 
-These go deeper than the per-binding `test/main` suites, which touch the
+These go deeper than the per-binding test suites, which touch the
 whole API once. Cross-implementation tests belong in
 [`interop/`](../../interop/README.md).
 

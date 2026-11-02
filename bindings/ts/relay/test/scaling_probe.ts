@@ -1,7 +1,7 @@
 // A thin instrument wrapper around the reference relay for the scaling
 // measurement (`scaling_bench.ts`). It starts the real relay unchanged by
 // importing `serve.ts` (which reads its port from argv and prints
-// `DENO-RELAY-READY <port>`), then reports the relay process's own resident
+// `RELAY_READY_MARKER <port>`), then reports the relay process's own resident
 // memory on an interval. The load harness runs in a separate process and reads
 // these lines, so the memory it measures is the relay's alone, with none of the
 // harness's own connection objects mixed in.
@@ -11,7 +11,7 @@
 // `/proc` and never needs `--allow-all`.
 
 // Start the real relay. `serve.ts` calls `Deno.serve` at module load and prints
-// `DENO-RELAY-READY <port>`, so the relay under measurement is byte-for-byte the
+// `RELAY_READY_MARKER <port>`, so the relay under measurement is byte-for-byte the
 // one the demo runs, not a copy.
 import "../serve.ts";
 

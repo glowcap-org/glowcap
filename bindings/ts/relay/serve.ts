@@ -14,7 +14,7 @@
 //                             peer registered under its key designator at
 //                             `/register?id=<id>` (the ADR-0034 cold-dial leg).
 //
-// Run it directly; it prints `DENO-RELAY-READY <port>` on stdout once listening:
+// Run it directly; it prints `RELAY_READY_MARKER <port>` on stdout once listening:
 //     deno run --allow-net --allow-ffi --allow-env --allow-read \
 //         bindings/ts/relay/serve.ts <listen-port>
 //

@@ -209,7 +209,7 @@ export async function run(managed: Runtime): Promise<void> {
 				serverDesignator: designator,
 				channel: await listener.accept(),
 				verifiedChannelKey: null,
-			}))();
+			}, HANDSHAKE_TIMEOUT_MS))();
 		const dialing = Session.establishDialedLocator(
 			host,
 			bareLocator("tcp", designator),
@@ -281,7 +281,7 @@ export async function run(managed: Runtime): Promise<void> {
 				serverDesignator: designator,
 				channel: await listener.accept(),
 				verifiedChannelKey: null,
-			}))();
+			}, HANDSHAKE_TIMEOUT_MS))();
 		const clientChannel = await connectTcp("127.0.0.1", listener.port);
 		const dialing = Session.establishDialedLocator(
 			host,
@@ -346,7 +346,7 @@ export async function run(managed: Runtime): Promise<void> {
 				serverDesignator: designator,
 				channel: await listener.accept(),
 				verifiedChannelKey: null,
-			}))();
+			}, HANDSHAKE_TIMEOUT_MS))();
 		const clientChannel = await connectTcp("127.0.0.1", listener.port);
 		const dialing = Session.establishDialedLocator(
 			host,
@@ -389,7 +389,7 @@ export async function run(managed: Runtime): Promise<void> {
 					serverDesignator: designator,
 					channel: await listener.accept(),
 					verifiedChannelKey: null,
-				}))();
+				}, HANDSHAKE_TIMEOUT_MS))();
 			const dialing = Session.establishDialedLocator(
 				host,
 				bareLocator("tcp", designator),

@@ -82,7 +82,8 @@
 // exits nonzero with a diagnostic on stderr rather than printing a later
 // marker.
 
-import { awaitMarker, fail, ProofProcesses, runProofOrFail } from "../_support/harness.ts";
+import { awaitMarker, ProofProcesses, runProofOrFail } from "../_support/harness.ts";
+import { fail } from "../../ts/test/assert.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../../zig-out/lib/", import.meta.url).pathname;

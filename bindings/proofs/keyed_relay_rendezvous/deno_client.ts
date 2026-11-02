@@ -10,7 +10,7 @@
 
 import { GlowcapError, parseLocator, Runtime } from "@glowcap/runtime";
 import { connector, keyed, provider } from "@glowcap/relay";
-import { fail } from "../_support/harness.ts";
+import { fail } from "../../ts/test/assert.ts";
 
 if (Deno.args.length < 1) fail("usage: deno_client.ts <locator>");
 const partner = parseLocator(Deno.args[Deno.args.length - 1]);
