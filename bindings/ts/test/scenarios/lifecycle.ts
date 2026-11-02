@@ -10,7 +10,7 @@ import * as tcp from "@glowcap/tcp";
 
 import { DESIGNATOR_SCHEME_ADDRESS, INVALID_ARGUMENT, TIMEOUT } from "@glowcap/abi";
 import { connectTcp, listenTcp, type NetConn } from "../../runtime/internal/seam.ts";
-import { bareLocator, GlowcapError, Host, Runtime, Session, Sym } from "../../runtime/mod.ts";
+import { bareLocator, GlowcapError, HANDSHAKE_TIMEOUT_MS, Host, Runtime, Session, Sym } from "../../runtime/mod.ts";
 
 import { _connectIroh, IrohNetlayer, Reachability } from "../../iroh/impl.ts";
 import { NULL } from "../../runtime/internal/ffi/runtime.ts";
@@ -208,11 +208,14 @@ export async function run(managed: Runtime): Promise<void> {
 				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 				serverDesignator: designator,
 				channel: await listener.accept(),
+				verifiedChannelKey: null,
 			}))();
 		const dialing = Session.establishDialedLocator(
 			host,
 			bareLocator("tcp", designator),
 			await connectTcp("127.0.0.1", listener.port),
+			HANDSHAKE_TIMEOUT_MS,
+			null,
 		);
 		const [serverSession, session] = await Promise.all([accepting, dialing]);
 		const failedNotice = session.spawn(() => {
@@ -277,6 +280,7 @@ export async function run(managed: Runtime): Promise<void> {
 				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 				serverDesignator: designator,
 				channel: await listener.accept(),
+				verifiedChannelKey: null,
 			}))();
 		const clientChannel = await connectTcp("127.0.0.1", listener.port);
 		const dialing = Session.establishDialedLocator(
@@ -290,6 +294,8 @@ export async function run(managed: Runtime): Promise<void> {
 					return closeBarrier;
 				},
 			},
+			HANDSHAKE_TIMEOUT_MS,
+			null,
 		);
 		const [serverSession, session] = await Promise.all([accepting, dialing]);
 		serverSession.publish("svc", () => new Sym("alive"));
@@ -339,16 +345,23 @@ export async function run(managed: Runtime): Promise<void> {
 				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 				serverDesignator: designator,
 				channel: await listener.accept(),
+				verifiedChannelKey: null,
 			}))();
 		const clientChannel = await connectTcp("127.0.0.1", listener.port);
-		const dialing = Session.establishDialedLocator(host, bareLocator("tcp", designator), {
-			read: () => clientChannel.read(),
-			write: (data) => clientChannel.write(data),
-			close: () => {
-				clientChannel.close();
-				return Promise.reject(closeFailure);
+		const dialing = Session.establishDialedLocator(
+			host,
+			bareLocator("tcp", designator),
+			{
+				read: () => clientChannel.read(),
+				write: (data) => clientChannel.write(data),
+				close: () => {
+					clientChannel.close();
+					return Promise.reject(closeFailure);
+				},
 			},
-		});
+			HANDSHAKE_TIMEOUT_MS,
+			null,
+		);
 		await Promise.all([accepting, dialing]);
 		const outcome = await host.close().then(
 			() => ({ error: null }),
@@ -375,11 +388,14 @@ export async function run(managed: Runtime): Promise<void> {
 					designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 					serverDesignator: designator,
 					channel: await listener.accept(),
+					verifiedChannelKey: null,
 				}))();
 			const dialing = Session.establishDialedLocator(
 				host,
 				bareLocator("tcp", designator),
 				await connectTcp("127.0.0.1", listener.port),
+				HANDSHAKE_TIMEOUT_MS,
+				null,
 			);
 			return await Promise.all([accepting, dialing]);
 		};

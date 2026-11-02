@@ -1,7 +1,7 @@
 import * as tcp from "@glowcap/tcp";
 import { DESIGNATOR_SCHEME_ADDRESS, TIMEOUT } from "@glowcap/abi";
 import { connectTcp, listenTcp } from "../../runtime/internal/seam.ts";
-import { bareLocator, GlowcapError, Host, Runtime, Session, Sym } from "../../runtime/mod.ts";
+import { bareLocator, GlowcapError, HANDSHAKE_TIMEOUT_MS, Host, Runtime, Session, Sym } from "../../runtime/mod.ts";
 import { assert, ok, within } from "./support.ts";
 
 /** Prove finish-close settlement and finite-grace escalation on both fronts. */
@@ -27,11 +27,14 @@ export async function runFinishClosePolicy(): Promise<void> {
 				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 				serverDesignator: designator,
 				channel: await listener.accept(),
+				verifiedChannelKey: null,
 			}))();
 		const dialing = Session.establishDialedLocator(
 			host,
 			bareLocator("tcp", designator),
 			await connectTcp("127.0.0.1", listener.port),
+			HANDSHAKE_TIMEOUT_MS,
+			null,
 		);
 		const [serverSession, session] = await Promise.all([accepting, dialing]);
 		const servingServer = serverSession.serve().catch(() => {});
@@ -64,6 +67,8 @@ export async function runFinishClosePolicy(): Promise<void> {
 			host,
 			bareLocator("tcp", designator),
 			connection,
+			HANDSHAKE_TIMEOUT_MS,
+			null,
 		).catch(() => null);
 		let timedOut: GlowcapError | null = null;
 		try {

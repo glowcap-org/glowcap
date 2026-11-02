@@ -62,6 +62,7 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 							serverDesignator: hostDesignator,
 							channel: webSocketChannel(socket),
 							localAddress: tcp.addressDesignator("127.0.0.1", server.addr.port),
+							verifiedChannelKey: null,
 						},
 					);
 					// The browser peer fetches this by name, and its `greet`
@@ -120,6 +121,7 @@ async function serveTcpHost(
 								host,
 								(listener.addr as Deno.NetAddr).port,
 							),
+							verifiedChannelKey: null,
 						},
 					);
 					session.publish("shape", (selector, args) => {

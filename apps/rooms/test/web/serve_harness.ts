@@ -1,7 +1,7 @@
 // Starting the installed `rooms-web` front for a test, and reaching the room
 // it supervises the way the page does, through its `/relay`.
 
-import { bareLocator, Session, webSocketChannel } from "@glowcap/runtime";
+import { bareLocator, HANDSHAKE_TIMEOUT_MS, Session, webSocketChannel } from "@glowcap/runtime";
 import { roomsHost } from "../../lib/locator.ts";
 import { DIRECTORY, LIST } from "../../lib/protocol.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
@@ -98,6 +98,8 @@ export async function reachRoomThroughRelay(
 					openedHost,
 					bareLocator("tcp", `127.0.0.1:${roomPort}`),
 					webSocketChannel(ws),
+					HANDSHAKE_TIMEOUT_MS,
+					null,
 				),
 			"relay CapTP handshake",
 			deadline,

@@ -64,7 +64,9 @@ export interface AcceptedTransport {
 	readonly serverDesignator: string;
 	readonly channel: Channel;
 	readonly localAddress?: string;
-	readonly verifiedChannelKey?: string | null;
+	/** The partner key the transport itself authenticated, or `null` when the
+	 * transport carries no channel proof. Stated by every provider. */
+	readonly verifiedChannelKey: string | null;
 }
 
 /** Result of {@link Session.sendRedeeming}: the ordinary send reply plus the
@@ -137,13 +139,18 @@ export class Session extends SessionApplication {
 	 * designator, so no locator policy lives here. The handshake is bounded by
 	 * `handshakeTimeoutMs` (`HANDSHAKE_TIMEOUT_MS` on every dial the binding
 	 * performs; `0` or `null` waits unbounded), and overrunning it rejects
-	 * with `GlowcapError` carrying `TIMEOUT`. Binding-internal. */
+	 * with `GlowcapError` carrying `TIMEOUT`. `verifiedChannelKey` is the
+	 * partner key the transport itself authenticated (a WebRTC designator the
+	 * DTLS handshake bound, an iroh node id), bound before the first partner
+	 * byte, or `null` for a transport with no channel proof. Every caller
+	 * states it, so a transport with a proof cannot drop it in silence.
+	 * Binding-internal. */
 	static async establishDialedLocator(
 		host: Host,
 		locator: Locator,
 		transport: Channel,
-		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
-		verifiedChannelKey: string | null = null,
+		handshakeTimeoutMs: number | null,
+		verifiedChannelKey: string | null,
 	): Promise<Session> {
 		let session: Session | null = null;
 		try {
@@ -186,7 +193,7 @@ export class Session extends SessionApplication {
 			serverDesignator,
 			channel: transport,
 			localAddress: acceptedLocalAddr = "",
-			verifiedChannelKey = null,
+			verifiedChannelKey,
 		} = accepted;
 		let session: Session | null = null;
 		try {

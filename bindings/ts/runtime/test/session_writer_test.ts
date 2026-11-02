@@ -115,8 +115,9 @@ Deno.test("graceful finishing preserves a new sealed-channel failure", async () 
 				designatorScheme: DESIGNATOR_SCHEME_KEY,
 				serverDesignator: designator,
 				channel: acceptSide,
+				verifiedChannelKey: null,
 			}, 5_000),
-			Session.establishDialedLocator(dialer, bareLocator("noise-tcp", designator), dialSide, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("noise-tcp", designator), dialSide, 5_000, null),
 		]);
 		const acceptedServing = accepted.serve().catch(() => {});
 		const hold = await dialed.fetch("hold");
@@ -158,8 +159,9 @@ Deno.test("local cancellation before the reader starts remains a clean close", a
 				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 				serverDesignator: designator,
 				channel: acceptSide,
+				verifiedChannelKey: null,
 			}, 5_000),
-			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000, null),
 		]);
 		const acceptedServing = accepted.serve().catch(() => {});
 		const closing = dialed.close();
@@ -187,8 +189,9 @@ Deno.test("a feed refusal precedes failure to deliver its abort", async () => {
 						designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 						serverDesignator: designator,
 						channel: acceptSide,
+						verifiedChannelKey: null,
 					}, 5_000),
-					Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+					Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000, null),
 				]);
 				const acceptedServing = accepted.serve().catch(() => {});
 				const writeFailure = new Error("abort delivery failed");
@@ -237,8 +240,9 @@ Deno.test("a pipe smaller than a frame carries both directions at once", async (
 				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 				serverDesignator: designator,
 				channel: acceptSide,
+				verifiedChannelKey: null,
 			}, 5_000),
-			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000, null),
 		]);
 		serving.push(accepted.serve().catch(() => {}), dialed.serve().catch(() => {}));
 		const echo = await dialed.fetch("echo");
@@ -277,8 +281,9 @@ Deno.test("a throwing close listener cannot strand a bounded channel or skip ano
 				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 				serverDesignator: designator,
 				channel: acceptSide,
+				verifiedChannelKey: null,
 			}, 5_000),
-			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000, null),
 		]);
 		serving.push(accepted.serve().catch(() => {}), dialed.serve().catch(() => {}));
 		const failure = new Error("close listener sentinel");
@@ -385,8 +390,9 @@ Deno.test("a close listener failure cannot interrupt Host teardown", async () =>
 				designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
 				serverDesignator: designator,
 				channel: acceptSide,
+				verifiedChannelKey: null,
 			}, 5_000),
-			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000),
+			Session.establishDialedLocator(dialer, bareLocator("tcp", designator), dialSide, 5_000, null),
 		]);
 		serving.push(accepted.serve().catch(() => {}), dialed.serve().catch(() => {}));
 		const failure = new Error("Host close listener sentinel");

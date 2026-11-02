@@ -195,6 +195,8 @@ export function serveRendezvous(
 						designatorScheme: DESIGNATOR_SCHEME_KEY,
 						serverDesignator: designator,
 						channel,
+						// A bridged WebSocket proves nothing about the partner's key.
+						verifiedChannelKey: null,
 					},
 					0,
 				);
