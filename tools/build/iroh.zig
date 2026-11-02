@@ -1,14 +1,18 @@
-//! The iroh companion archive's module and installed public C ABI.
+//! The iroh companion archive's module and installed public C ABI, and the
+//! driver module and sidecar link recipe the iroh drivers, bench, and rooms
+//! client share.
 
 const std = @import("std");
-const common = @import("common.zig");
+const archives = @import("archives.zig");
+const cargo = @import("cargo.zig");
+const commands = @import("commands.zig");
+const site_build = @import("site.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 const profile_build = @import("profile.zig");
-const addRootedSystemCommand = common.addRootedSystemCommand;
-const addInstalledSystemRun = common.addInstalledSystemRun;
-const irohDriverModule = common.irohDriverModule;
-const linkIrohSidecar = common.linkIrohSidecar;
-const AbiImport = common.AbiImport;
+const addRootedSystemCommand = commands.addRootedSystemCommand;
+const addInstalledSystemRun = commands.addInstalledSystemRun;
+const AbiImport = modules.AbiImport;
 const root_build = @import("../../build.zig");
 const gen_build = @import("gen.zig");
 const irohAbiModule = gen_build.irohAbiModule;
@@ -23,7 +27,7 @@ pub fn abiModule(
     c_abi_shared_mod: *std.Build.Module,
     resident_mod: *std.Build.Module,
 ) *std.Build.Module {
-    return common.transportAbiModule(b, target, optimize, "src/c_abi/net_transport/iroh/mod.zig", &.{
+    return modules.transportAbiModule(b, target, optimize, "src/c_abi/net_transport/iroh/mod.zig", &.{
         .{ .name = "model", .module = model_mod },
         .{ .name = "net", .module = net_mod },
         .{ .name = "iroh", .module = resident_mod },
@@ -62,21 +66,21 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
         ctx.c_abi_shared_mod,
         ctx.resident_mod,
     );
-    common.linkIrohSidecar(b, link_mod, ctx.target, ctx.sidecar_archive);
+    linkIrohSidecar(b, link_mod, ctx.target, ctx.sidecar_archive);
     const shared = b.addLibrary(.{
         .name = "glowcap_net_transport_iroh",
         .linkage = .dynamic,
         .root_module = link_mod,
         .version = ctx.version,
     });
-    common.configureSharedArchive(shared);
+    archives.configureSharedArchive(shared);
     if (ctx.target.result.ofmt == .elf) {
         shared.version_script = b.path("tools/build/exports/iroh.map");
     }
 
-    const install = common.installIfChanged(b, shared, common.install_lib_dir);
-    common.checkArchiveTls(b, shared, install);
-    common.checkArchiveResident(b, shared, install);
+    const install = archives.installIfChanged(b, shared, archives.install_lib_dir);
+    archives.checkArchiveTls(b, shared, install);
+    archives.checkArchiveResident(b, shared, install);
     const header = b.addInstallHeaderFile(
         b.path("include/glowcap_net_transport_iroh.h"),
         "glowcap_net_transport_iroh.h",
@@ -86,7 +90,7 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
     step.dependOn(&header.step);
 
     if (ctx.target.result.ofmt == .elf) {
-        const export_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/sidecar-exports.sh" });
+        const export_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/sidecar-exports.sh" });
         export_check.addFileArg(shared.getEmittedBin());
         export_check.addArg("glowcap_iroh_");
         export_check.addArg("glowcap_iroh_sidecar_");
@@ -160,7 +164,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const check_step = ctx.check_step;
 
     // ── iroh netlayer (external siblings, plus hermetic Zig checks) ─────────
-    const sidecar = common.rustSidecar(b, "transports/iroh/Cargo.toml", "glowcap_iroh_sidecar");
+    const sidecar = cargo.rustSidecar(b, "transports/iroh/Cargo.toml", "glowcap_iroh_sidecar");
     addModule(b, target, optimize, host_mods, sidecar.archive);
     const iroh_lib = sidecar.build;
     const sidecar_archive = sidecar.archive;
@@ -190,7 +194,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // the resident only supplies the netlayer and the completion `Backend`.
 
     for ([_][]const u8{ "dial", "listen" }) |role| {
-        common.addSiteZigExampleCompile(b, target, optimize, b.fmt("site-{s}-iroh", .{role}), b.fmt("site/examples/{s}/iroh.zig", .{role}), &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "iroh", .module = iroh_resident_mod } }, ctx.site_zig_examples_check);
+        site_build.addSiteZigExampleCompile(b, target, optimize, b.fmt("site-{s}-iroh", .{role}), b.fmt("site/examples/{s}/iroh.zig", .{role}), &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "iroh", .module = iroh_resident_mod } }, ctx.site_zig_examples_check);
     }
 
     // The iroh driver family, table-driven. Each row is both a runnable sibling
@@ -422,7 +426,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     iroh_constructor_diagnostic.step.dependOn(b.getInstallStep());
     iroh_constructor_diagnostic.setEnvironmentVariable(
         "GLOWCAP_LIB_DIR",
-        common.rootPath(b, "zig-out/lib"),
+        commands.rootPath(b, "zig-out/lib"),
     );
 
     const iroh_driver_listener = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
@@ -433,7 +437,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     iroh_driver_listener.step.dependOn(b.getInstallStep());
     iroh_driver_listener.setEnvironmentVariable(
         "GLOWCAP_LIB_DIR",
-        common.rootPath(b, "zig-out/lib"),
+        commands.rootPath(b, "zig-out/lib"),
     );
 
     const iroh_abi_test_step = b.step("iroh-abi-test", "Test the iroh C ABI and generic-driver listener adoption (needs cargo + deno)");
@@ -446,4 +450,42 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .abi_step = iroh_abi_step,
         .abi_test_step = iroh_abi_test_step,
     };
+}
+
+/// The iroh sidecar (ADR-0021): the drivers and bench, the public C ABI
+/// companion, the iroh-enabled rooms client, and the published `glowcap_iroh`
+/// module all link it through the shared `linkRustSidecar` recipe.
+/// `archive` is the staticlib the iroh family's cargo step emits.
+pub fn linkIrohSidecar(
+    b: *std.Build,
+    mod: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    archive: std.Build.LazyPath,
+) void {
+    cargo.linkRustSidecar(b, mod, target, archive);
+}
+
+/// A fresh module over an iroh driver root with the `glowcap` and injected
+/// `iroh` resident imports, the shape the iroh drivers, the iroh bench, and the
+/// iroh-enabled rooms client share. Minted per call so the hermetic
+/// compile-only object and the sidecar-linked executable can each root their
+/// own (no source file lands in two modules of one compilation). The caller
+/// adds `linkIrohSidecar` for a runnable artifact and leaves it off for the
+/// hermetic object, whose externs stay unresolved.
+pub fn irohDriverModule(
+    b: *std.Build,
+    t: std.Build.ResolvedTarget,
+    o: std.builtin.OptimizeMode,
+    lib_mod: *std.Build.Module,
+    resident: *std.Build.Module,
+    root_source: []const u8,
+) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path(root_source),
+        .target = t,
+        .optimize = o,
+    });
+    mod.addImport("glowcap", lib_mod);
+    mod.addImport("iroh", resident);
+    return mod;
 }

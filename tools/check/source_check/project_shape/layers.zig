@@ -3,11 +3,12 @@
 //! placement by authority.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const markdown = @import("../markdown.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
+const appendViolation = violation_log.appendViolation;
+const sectionBody = markdown.sectionBody;
+const collectBulletSpans = markdown.collectBulletSpans;
 
 /// The architecture rule's Layer Ownership list is the map a cold agent uses to
 /// place code, so it is held to `src/` in both directions. Forward: every

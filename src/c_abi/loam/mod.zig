@@ -1,13 +1,18 @@
 //! Optional portable Loam projection. Storage execution belongs to companions.
 pub const std_options = @import("c_abi_shared").library_options;
 const std = @import("std");
-const common = @import("common.zig");
+const foreign_values = @import("foreign_values.zig");
+const owners = @import("owners.zig");
+const access = @import("loam_access");
+const cd = @import("c_abi_host");
+const core = @import("loam_core");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
+const refusal = @import("refusal.zig");
 const attached = @import("attachment.zig");
 const callbacks = @import("callbacks.zig");
 const works = @import("work.zig");
-const shared = common.shared;
-const host = common.host;
-const t = @import("types.zig");
+const t = @import("layouts.zig");
 pub const GlowcapLoamStore = t.GlowcapLoamStore;
 pub const GlowcapLoamAttachment = t.GlowcapLoamAttachment;
 pub const GlowcapLoamCall = t.GlowcapLoamCall;
@@ -46,10 +51,10 @@ pub const GlowcapLoamGraphField = t.GlowcapLoamGraphField;
 pub const GlowcapLoamPageReplacement = t.GlowcapLoamPageReplacement;
 /// Limits the header prose quotes, read from their owners.
 pub const prose_limits = struct {
-    pub const max_graph_verbs = common.access.hosting.graph.Spec.max_requirement_verbs;
-    pub const max_graph_verb_bytes = common.access.hosting.graph.Spec.max_requirement_verb_bytes;
+    pub const max_graph_verbs = access.hosting.graph.Spec.max_requirement_verbs;
+    pub const max_graph_verb_bytes = access.hosting.graph.Spec.max_requirement_verb_bytes;
     pub const max_accounting_path = @import("graph_abi.zig").max_accounting_path;
-    pub const max_refusal_bytes = common.hosting.Call.max_refusal_bytes;
+    pub const max_refusal_bytes = hosting.Call.max_refusal_bytes;
 };
 pub const glowcap_loam_call_replace_graph_copying = @import("graph_abi.zig").glowcap_loam_call_replace_graph_copying;
 pub const glowcap_loam_call_page_reference = @import("graph_abi.zig").glowcap_loam_call_page_reference;
@@ -119,22 +124,22 @@ pub const embedding = struct {
     pub const effect_execution = @import("effect_execution.zig");
     pub const executor = @import("executor.zig");
     pub const graph_projection = @import("graph_callbacks.zig");
-    pub const Store = common.Store;
+    pub const Store = owners.Store;
     pub const Attachment = attached.Attachment;
     pub const Work = works.Work;
     pub const Worker = works.Worker;
-    pub const store = common.store;
+    pub const store = owners.store;
     pub const attachment = attached.attachment;
     pub const work = works.from;
-    pub const object = common.object;
-    pub const objectToC = common.objectToC;
-    pub const policy = common.policy;
-    pub const code = common.code;
-    pub const slice = common.slice;
+    pub const object = foreign_values.object;
+    pub const objectToC = foreign_values.objectToC;
+    pub const policy = foreign_values.policy;
+    pub const code = refusal.code;
+    pub const slice = foreign_values.slice;
 };
 pub fn glowcap_loam_store_new(metadata: ?[*]const u8, metadata_len: usize, schemas: ?[*]const GlowcapLoamSchema, schema_count: usize, limits: ?*const GlowcapLoamLimits, out_store: ?*?*GlowcapLoamStore) callconv(.c) i32 {
     shared.lastErrorClear();
-    return storeNew(common.allocator, metadata, metadata_len, schemas, schema_count, limits, out_store);
+    return storeNew(owners.allocator, metadata, metadata_len, schemas, schema_count, limits, out_store);
 }
 pub fn glowcap_loam_store_new_in(context: ?*shared.GlowcapContext, metadata: ?[*]const u8, metadata_len: usize, schemas: ?[*]const GlowcapLoamSchema, schema_count: usize, limits: ?*const GlowcapLoamLimits, out_store: ?*?*GlowcapLoamStore) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -147,53 +152,53 @@ fn storeNew(gpa: std.mem.Allocator, metadata: ?[*]const u8, metadata_len: usize,
     const slot = out_store orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     slot.* = null;
     const bounds = limits orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    const bytes = shared.sliceFromC(metadata, metadata_len) catch |err| return common.code(err);
-    const declarations = common.slice(GlowcapLoamSchema, schemas, schema_count) catch |err| return common.code(err);
-    const meta = common.core.Metadata.decode(bytes) catch |err| return common.code(err);
-    const store = common.Store.init(gpa, meta, declarations, bounds.*) catch |err| return common.code(err);
+    const bytes = shared.sliceFromC(metadata, metadata_len) catch |err| return refusal.code(err);
+    const declarations = foreign_values.slice(GlowcapLoamSchema, schemas, schema_count) catch |err| return refusal.code(err);
+    const meta = core.Metadata.decode(bytes) catch |err| return refusal.code(err);
+    const store = owners.Store.init(gpa, meta, declarations, bounds.*) catch |err| return refusal.code(err);
     slot.* = @ptrCast(store);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_store_release(raw: ?*GlowcapLoamStore) callconv(.c) i32 {
     shared.lastErrorClear();
     if (raw == null) return shared.GLOWCAP_OK;
-    const owner = common.store(raw) catch |err| return common.code(err);
-    if (owner.backend_owned) return common.code(error.BackendOwned);
-    owner.destroy() catch |err| return common.code(err);
+    const owner = owners.store(raw) catch |err| return refusal.code(err);
+    if (owner.backend_owned) return refusal.code(error.BackendOwned);
+    owner.destroy() catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
-pub fn glowcap_loam_attach(raw: ?*GlowcapLoamStore, host_handle: ?*host.GlowcapHost, contents: ?[*]const GlowcapLoamContent, content_count: usize, entropy: ?GlowcapLoamEntropyFn, ctx: ?*anyopaque, out_attachment: ?*?*GlowcapLoamAttachment) callconv(.c) i32 {
+pub fn glowcap_loam_attach(raw: ?*GlowcapLoamStore, host_handle: ?*cd.GlowcapHost, contents: ?[*]const GlowcapLoamContent, content_count: usize, entropy: ?GlowcapLoamEntropyFn, ctx: ?*anyopaque, out_attachment: ?*?*GlowcapLoamAttachment) callconv(.c) i32 {
     shared.lastErrorClear();
     const slot = out_attachment orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     slot.* = null;
-    const store = common.store(raw) catch |err| return common.code(err);
-    const declarations = common.slice(GlowcapLoamContent, contents, content_count) catch |err| return common.code(err);
+    const store = owners.store(raw) catch |err| return refusal.code(err);
+    const declarations = foreign_values.slice(GlowcapLoamContent, contents, content_count) catch |err| return refusal.code(err);
     const entropy_fn = entropy orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    const owner = attached.Attachment.create(store, host_handle, declarations, entropy_fn, ctx) catch |err| return common.code(err);
+    const owner = attached.Attachment.create(store, host_handle, declarations, entropy_fn, ctx) catch |err| return refusal.code(err);
     slot.* = @ptrCast(owner);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_attachment_release(raw: ?*GlowcapLoamAttachment) callconv(.c) i32 {
     shared.lastErrorClear();
     if (raw == null) return shared.GLOWCAP_OK;
-    const owner = attached.attachment(raw) catch |err| return common.code(err);
-    owner.destroy() catch |err| return common.code(err);
+    const owner = attached.attachment(raw) catch |err| return refusal.code(err);
+    owner.destroy() catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_advance(raw: ?*GlowcapLoamAttachment, out_progress: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
-    const owner = attached.attachment(raw) catch |err| return common.code(err);
+    const owner = attached.attachment(raw) catch |err| return refusal.code(err);
     const target = out_progress orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    target.* = if (owner.value.advanceProgress() catch |err| return common.code(err)) 1 else 0;
+    target.* = if (owner.value.advanceProgress() catch |err| return refusal.code(err)) 1 else 0;
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_next_work(raw: ?*GlowcapLoamAttachment, recovery: u32, out_work: ?*?*GlowcapLoamWork) callconv(.c) i32 {
     shared.lastErrorClear();
     const slot = out_work orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     slot.* = null;
-    if (recovery > 1) return common.code(error.InvalidArgument);
-    const owner = attached.attachment(raw) catch |err| return common.code(err);
-    const next = works.Work.next(owner, if (recovery == 1) .forced else .when_uncertain) catch |err| return common.code(err);
+    if (recovery > 1) return refusal.code(error.InvalidArgument);
+    const owner = attached.attachment(raw) catch |err| return refusal.code(err);
+    const next = works.Work.next(owner, if (recovery == 1) .forced else .when_uncertain) catch |err| return refusal.code(err);
     slot.* = if (next) |value| @ptrCast(value) else null;
     return shared.GLOWCAP_OK;
 }
@@ -201,40 +206,40 @@ pub fn glowcap_loam_work_complete(raw: ?*GlowcapLoamWork, out_completed: ?*u32) 
     shared.lastErrorClear();
     const target = out_completed orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     target.* = 0;
-    const work = works.from(raw) catch |err| return common.code(err);
+    const work = works.from(raw) catch |err| return refusal.code(err);
     defer target.* = @intFromBool(work.slot.completed);
-    work.complete() catch |err| return common.code(err);
+    work.complete() catch |err| return refusal.code(err);
     if (work.owner.store.value.phase == .uncertain) return GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED;
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_work_release(raw: ?*GlowcapLoamWork) callconv(.c) i32 {
     shared.lastErrorClear();
     if (raw == null) return shared.GLOWCAP_OK;
-    const work = works.from(raw) catch |err| return common.code(err);
-    work.destroy() catch |err| return common.code(err);
+    const work = works.from(raw) catch |err| return refusal.code(err);
+    work.destroy() catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_call_reply(call: ?*GlowcapLoamCall, value: ?*const shared.GlowcapArgument) callconv(.c) i32 {
     shared.lastErrorClear();
-    callbacks.reply(call, value) catch |err| return common.code(err);
+    callbacks.reply(call, value) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_call_replace_copying(call: ?*GlowcapLoamCall, bytes: ?[*]const u8, len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    callbacks.replace(call, bytes, len) catch |err| return common.code(err);
+    callbacks.replace(call, bytes, len) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_call_disclose(call: ?*GlowcapLoamCall, index: usize, dependent: u32, out_value: ?*shared.GlowcapArgument) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (dependent > 1) return common.code(error.InvalidArgument);
-    callbacks.disclose(call, index, dependent == 1, out_value) catch |err| return common.code(err);
+    if (dependent > 1) return refusal.code(error.InvalidArgument);
+    callbacks.disclose(call, index, dependent == 1, out_value) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 /// Declare a saved field to restore before invoking this admitted method.
 /// The declaration token borrows only through the references callback.
 pub fn glowcap_loam_references_restore(raw: ?*GlowcapLoamReferences, index: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    @import("reference_callbacks.zig").restore(raw, index) catch |err| return common.code(err);
+    @import("reference_callbacks.zig").restore(raw, index) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 /// Prepare the exact held capability. A foreign target needs its established
@@ -242,7 +247,7 @@ pub fn glowcap_loam_references_restore(raw: ?*GlowcapLoamReferences, index: usiz
 pub fn glowcap_loam_references_save_copying(raw: ?*GlowcapLoamReferences, reference: ?*const shared.GlowcapReference, uri: ?[*]const u8, uri_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const ref = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    @import("reference_callbacks.zig").save(raw, ref.*, uri, uri_len) catch |err| return common.code(err);
+    @import("reference_callbacks.zig").save(raw, ref.*, uri, uri_len) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -251,7 +256,7 @@ pub fn glowcap_loam_references_save_copying(raw: ?*GlowcapLoamReferences, refere
 pub fn glowcap_loam_references_save_live(raw: ?*GlowcapLoamReferences, reference: ?*const shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const ref = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    @import("reference_callbacks.zig").saveLive(raw, ref.*) catch |err| return common.code(err);
+    @import("reference_callbacks.zig").saveLive(raw, ref.*) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 /// Append an exact held reference after the surviving committed fields.
@@ -259,7 +264,7 @@ pub fn glowcap_loam_references_save_live(raw: ?*GlowcapLoamReferences, reference
 pub fn glowcap_loam_call_append_reference(call: ?*GlowcapLoamCall, reference: ?*const shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const ref = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    callbacks.editReference(call, null, ref.*) catch |err| return common.code(err);
+    callbacks.editReference(call, null, ref.*) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 /// Replace a committed strong field in the payload's transaction. The field
@@ -267,13 +272,13 @@ pub fn glowcap_loam_call_append_reference(call: ?*GlowcapLoamCall, reference: ?*
 pub fn glowcap_loam_call_replace_reference(call: ?*GlowcapLoamCall, index: usize, reference: ?*const shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const ref = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    callbacks.editReference(call, index, ref.*) catch |err| return common.code(err);
+    callbacks.editReference(call, index, ref.*) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 /// Release local field custody without revoking its target or publication.
 pub fn glowcap_loam_call_remove_reference(call: ?*GlowcapLoamCall, index: usize) callconv(.c) i32 {
     shared.lastErrorClear();
-    callbacks.editReference(call, index, null) catch |err| return common.code(err);
+    callbacks.editReference(call, index, null) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_last_error(buf: ?[*]u8, len: usize) callconv(.c) usize {
@@ -283,20 +288,20 @@ pub fn glowcap_loam_last_error(buf: ?[*]u8, len: usize) callconv(.c) usize {
 /// until commit. Failures discard its staged graph and expose no capability.
 pub fn glowcap_loam_resource_stage(raw: ?*GlowcapLoamStore, policy: ?*const GlowcapLoamPolicy, owner_id: ?[*]const u8, kind: u64, schema: u64, version: u32, payload: ?[*]const u8, payload_len: usize, delegation_depth: u16, out_resource: ?*GlowcapLoamResource) callconv(.c) i32 {
     shared.lastErrorClear();
-    const owner = common.store(raw) catch |err| return common.code(err);
+    const owner = owners.store(raw) catch |err| return refusal.code(err);
     const declaration = policy orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const identity = owner_id orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const target = out_resource orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    const evaluated_policy = common.policy(declaration.*) catch |err| return common.code(err);
-    const bytes = shared.sliceFromC(payload, payload_len) catch |err| return common.code(err);
-    target.* = @import("creation.zig").stage(owner, evaluated_policy, @fromBackingInt(std.mem.readInt(u128, identity[0..16], .big)), @fromBackingInt(kind), schema, version, bytes, delegation_depth) catch |err| return common.code(err);
+    const evaluated_policy = foreign_values.policy(declaration.*) catch |err| return refusal.code(err);
+    const bytes = shared.sliceFromC(payload, payload_len) catch |err| return refusal.code(err);
+    target.* = @import("creation.zig").stage(owner, evaluated_policy, @fromBackingInt(std.mem.readInt(u128, identity[0..16], .big)), @fromBackingInt(kind), schema, version, bytes, delegation_depth) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_store_abort(raw: ?*GlowcapLoamStore) callconv(.c) i32 {
     shared.lastErrorClear();
-    const owner = common.store(raw) catch |err| return common.code(err);
-    if (owner.attachments != 0) return common.code(error.Busy);
-    owner.value.abort() catch |err| return common.code(err);
+    const owner = owners.store(raw) catch |err| return refusal.code(err);
+    if (owner.attachments != 0) return refusal.code(error.Busy);
+    owner.value.abort() catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -337,10 +342,10 @@ pub fn glowcap_loam_archive_fingerprint() callconv(.c) u64 {
     return GLOWCAP_LOAM_ARCHIVE_FINGERPRINT;
 }
 
-pub const GLOWCAP_LOAM_METADATA_SIZE: usize = common.core.Metadata.encoded_size;
+pub const GLOWCAP_LOAM_METADATA_SIZE: usize = core.Metadata.encoded_size;
 /// The longest key Loam writes.
-pub const GLOWCAP_LOAM_MAX_KEY_BYTES: usize = common.core.max_key_bytes;
-pub const GLOWCAP_LOAM_MAX_URI_BYTES: usize = common.hosting.references.max_uri_bytes;
+pub const GLOWCAP_LOAM_MAX_KEY_BYTES: usize = core.max_key_bytes;
+pub const GLOWCAP_LOAM_MAX_URI_BYTES: usize = hosting.references.max_uri_bytes;
 pub const GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED: i32 = -40;
 pub const GLOWCAP_LOAM_ERR_STALE_COMPLETION: i32 = -41;
 pub const GLOWCAP_LOAM_ERR_DENIED: i32 = -42;
@@ -356,15 +361,15 @@ pub const error_code_names = [_][]const u8{ "GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED"
 /// No other effect can be relabeled as an unknown commit.
 pub fn glowcap_loam_work_report_unknown(raw: ?*GlowcapLoamWork) callconv(.c) i32 {
     shared.lastErrorClear();
-    const work = works.from(raw) catch |err| return common.code(err);
-    if (work.slot.completed or work.slot.request != .write) return common.code(error.StaleCompletion);
+    const work = works.from(raw) catch |err| return refusal.code(err);
+    if (work.slot.completed or work.slot.request != .write) return refusal.code(error.StaleCompletion);
     work.slot.result = .{ .write = .unknown };
     return shared.GLOWCAP_OK;
 }
 
 pub fn glowcap_loam_has_pending_work(raw: ?*GlowcapLoamAttachment, out_pending: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
-    const owner = attached.attachment(raw) catch |err| return common.code(err);
+    const owner = attached.attachment(raw) catch |err| return refusal.code(err);
     const target = out_pending orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     owner.host_borrow.core().assertOwner();
     target.* = if (owner.value.hasPendingWork()) 1 else 0;
@@ -384,13 +389,13 @@ fn policyValue(policy: ?*const GlowcapLoamPolicy, requirement: ?*const GlowcapLo
     const schema = policy orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const input = requirement orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const target = out_value orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (input.permission_count > 64 or input.fact_count > 16) return common.code(error.PolicyLimit);
-    const evaluated_policy = common.policy(schema.*) catch |err| return common.code(err);
-    var keys: [64]common.access.core.Policy.Key = undefined;
-    var bounds: [16]common.access.core.Policy.Bound = undefined;
+    if (input.permission_count > 64 or input.fact_count > 16) return refusal.code(error.PolicyLimit);
+    const evaluated_policy = foreign_values.policy(schema.*) catch |err| return refusal.code(err);
+    var keys: [64]access.core.Policy.Key = undefined;
+    var bounds: [16]access.core.Policy.Bound = undefined;
     for (input.permissions[0..input.permission_count], 0..) |key, i| keys[i] = @fromBackingInt(key);
     for (input.facts[0..input.fact_count], 0..) |bound, i| bounds[i] = .{ .key = @fromBackingInt(bound.key), .value = bound.value };
-    const value = (if (kind) |id| evaluated_policy.valueForKind(@fromBackingInt(id), keys[0..input.permission_count], bounds[0..input.fact_count]) else evaluated_policy.value(keys[0..input.permission_count], bounds[0..input.fact_count])) catch |err| return common.code(err);
+    const value = (if (kind) |id| evaluated_policy.valueForKind(@fromBackingInt(id), keys[0..input.permission_count], bounds[0..input.fact_count]) else evaluated_policy.value(keys[0..input.permission_count], bounds[0..input.fact_count])) catch |err| return refusal.code(err);
     var result: GlowcapLoamPolicyValue = std.mem.zeroes(GlowcapLoamPolicyValue);
     result.identity = schema.identity;
     result.permissions = value.permissions;
@@ -403,8 +408,8 @@ fn policyValue(policy: ?*const GlowcapLoamPolicy, requirement: ?*const GlowcapLo
 /// Only an executor that proved the worker never ran may report this outcome.
 pub fn glowcap_loam_work_report_unstarted(raw: ?*GlowcapLoamWork) callconv(.c) i32 {
     shared.lastErrorClear();
-    const work = works.from(raw) catch |err| return common.code(err);
-    if (work.slot.completed or work.slot.result != null) return common.code(error.StaleCompletion);
+    const work = works.from(raw) catch |err| return refusal.code(err);
+    if (work.slot.completed or work.slot.result != null) return refusal.code(error.StaleCompletion);
     work.slot.result = switch (work.slot.request) {
         .read => .{ .read = .{ .failed = error.StorageFailure } },
         .write => .{ .write = .{ .unchanged = error.WriteNotCommitted } },

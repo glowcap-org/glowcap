@@ -5,7 +5,7 @@ import { createContext, useContext, useSyncExternalStore } from "react";
 import type { RoomsControllerSelection } from "../../../lib/rooms_state.ts";
 import type { RoomPreset } from "../room_policy.ts";
 import type { Reach } from "../intent.ts";
-import type { HelpTab } from "../store/core.ts";
+import type { HelpTab } from "../store/projection.ts";
 import type { AttachmentView, DirId, MemberRef, OpsCap, SettingsTab, ToastKind } from "../types.ts";
 import type { DraftPreview, OpenGraphMetadata, PreviewFailure } from "../link_preview.ts";
 

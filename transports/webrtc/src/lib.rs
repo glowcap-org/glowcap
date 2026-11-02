@@ -50,10 +50,10 @@ use webrtc::peer_connection::{
 	RTCPeerConnectionState, RTCSessionDescription,
 };
 
-use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier};
+use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
-type Readiness = glowcap_sidecar_common::Readiness<GlowcapWebrtcReadyEvent>;
+type Readiness = glowcap_sidecar_runtime::Readiness<GlowcapWebrtcReadyEvent>;
 
 /// The label of the one data channel a glowcap `webrtc` session runs over. Both
 /// peers agree on it out of band. The offerer creates it under this name.

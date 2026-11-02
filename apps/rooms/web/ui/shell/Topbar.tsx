@@ -40,7 +40,7 @@ import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useOpenModal } from "../modal.ts";
 import { useRoomsState } from "../hooks.ts";
-import { NO_MEMBERS, unreadTotal } from "../store/core.ts";
+import { NO_MEMBERS, unreadTotal } from "../store/projection.ts";
 import { directoryName, roomCalled } from "../text.ts";
 import { operationsTitle } from "../../../lib/text/settings.ts";
 

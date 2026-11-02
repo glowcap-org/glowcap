@@ -6,7 +6,9 @@ const driver_core = @import("driver_core");
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const instance = @import("instance.zig");
+const marshal = @import("marshal.zig");
 
 pub fn pendingDial(
     host: ?*c.GlowcapHost,
@@ -17,8 +19,8 @@ pub fn pendingDial(
     out_locator: ?*c.GlowcapLocatorView,
     out_hint_count: ?*usize,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "pending_dial")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "pending_dial")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const locator_slot = out_locator orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const count_slot = out_hint_count orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const view = inst.core.pendingDial(ticket, route_index) orelse {
@@ -45,8 +47,8 @@ pub fn pendingDialIntroducer(
     route_index: usize,
     out_session: ?*?*c.GlowcapHostSession,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "pending_dial_introducer")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "pending_dial_introducer")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_session orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const view = inst.core.pendingDial(ticket, route_index) orelse {
         shared.setLastError("host: pending dial introducer: unknown ticket {d} route {d}", .{ ticket, route_index });
@@ -62,11 +64,11 @@ pub fn referenceExporter(
     reference: ?*const shared.GlowcapReference,
     out_session: ?*?*c.GlowcapHostSession,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const slot = out_session orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const ref_ptr = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const ref = inst.core.capabilityFromRaw(ref_ptr.id);
-    const session = inst.core.capabilitySession(ref) catch |err| return common.errToCode(err);
+    const session = inst.core.capabilitySession(ref) catch |err| return host_error.errToCode(err);
     slot.* = if (session) |live| @ptrCast(live) else null;
     return shared.GLOWCAP_OK;
 }
@@ -103,21 +105,21 @@ pub fn planDial(
         selected_designator,
         direct_addresses,
         posture,
-    ) catch |err| return common.errToCode(err);
+    ) catch |err| return host_error.errToCode(err);
     slot.reach_value = 0;
     switch (plan) {
         .host_port => |host_port| {
             slot.shape = c.GLOWCAP_DIAL_SHAPE_HOST_PORT;
-            common.setView(host_port.host, &slot.host, &slot.host_len);
+            marshal.setView(host_port.host, &slot.host, &slot.host_len);
             slot.port = host_port.port;
-            common.setView(&.{}, &slot.addresses, &slot.addresses_len);
+            marshal.setView(&.{}, &slot.addresses, &slot.addresses_len);
             slot.reach_kind = c.GLOWCAP_DIAL_REACH_DIRECT;
         },
         .peer_id => |peer| {
             slot.shape = c.GLOWCAP_DIAL_SHAPE_PEER_ID;
-            common.setView(&.{}, &slot.host, &slot.host_len);
+            marshal.setView(&.{}, &slot.host, &slot.host_len);
             slot.port = 0;
-            common.setView(peer.addresses, &slot.addresses, &slot.addresses_len);
+            marshal.setView(peer.addresses, &slot.addresses, &slot.addresses_len);
             slot.reach_kind = switch (peer.reach) {
                 .direct => c.GLOWCAP_DIAL_REACH_DIRECT,
                 .configured => c.GLOWCAP_DIAL_REACH_CONFIGURED,
@@ -129,16 +131,16 @@ pub fn planDial(
         },
         .signaling => {
             slot.shape = c.GLOWCAP_DIAL_SHAPE_SIGNALING;
-            common.setView(&.{}, &slot.host, &slot.host_len);
+            marshal.setView(&.{}, &slot.host, &slot.host_len);
             slot.port = 0;
-            common.setView(&.{}, &slot.addresses, &slot.addresses_len);
+            marshal.setView(&.{}, &slot.addresses, &slot.addresses_len);
             slot.reach_kind = c.GLOWCAP_DIAL_REACH_DIRECT;
         },
         .rendezvous => {
             slot.shape = c.GLOWCAP_DIAL_SHAPE_RENDEZVOUS;
-            common.setView(&.{}, &slot.host, &slot.host_len);
+            marshal.setView(&.{}, &slot.host, &slot.host_len);
             slot.port = 0;
-            common.setView(&.{}, &slot.addresses, &slot.addresses_len);
+            marshal.setView(&.{}, &slot.addresses, &slot.addresses_len);
             slot.reach_kind = c.GLOWCAP_DIAL_REACH_DIRECT;
         },
     }

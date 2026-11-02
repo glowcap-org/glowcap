@@ -8,7 +8,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
 	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 });
-const { PageProjection } = await import("../web/ui/store/core.ts");
+const { PageProjection } = await import("../web/ui/store/projection.ts");
 const { openDir, setDirSession } = await import("../web/ui/store/dirs.ts");
 const { bindReloadToBuild, firstReloadFor } = await import("../web/ui/build_link.ts");
 const { dirId } = await import("../web/ui/types.ts");

@@ -51,8 +51,8 @@
 ;; How many direct-message inboxes this vat will hold. Each one is an actor and a
 ;; row that lives as long as the process, and the peer asking is the one who
 ;; chose the name, so the count needs a ceiling that peer cannot argue with.
-;; `MAX_DM_INBOXES` in `apps/rooms/lib/limits.ts` and `max_dm_inboxes` in
-;; `cli/app/rooms_peer/common.zig` are the same bound for the other two peers.
+;; `MAX_DM_INBOXES` in `apps/rooms/lib/limits.ts` is the same bound for the
+;; Rooms server.
 (define max-dm-inboxes 256)
 
 ;; A member's direct-message half, spawned once per connection to a room.

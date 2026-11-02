@@ -11,14 +11,9 @@
 
 import { assertEquals } from "@std/assert";
 import { Engine } from "../../engine/engine.ts";
+import { engineTest } from "../../engine/engine-test/harness.ts";
 import { TimelineDocument } from "../../engine/timeline.ts";
 import { peerInfo, sessionInfo, sessionsTouchingPeer } from "./entity-info.ts";
-
-/** Engine construction runs d3-force, whose timer Deno's sanitizer
- *  flags. Same workaround as the other engine-constructing tests. */
-function engineTest(name: string, fn: () => void): void {
-	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
-}
 
 /** Alice and Bob hold one session from t=100 to t=400. Bob is
  *  renamed at t=200. The session opens negotiating and reaches open

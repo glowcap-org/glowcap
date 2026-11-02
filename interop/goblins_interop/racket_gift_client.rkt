@@ -25,7 +25,7 @@
          "../../bindings/racket/glowcap-tcp.rkt"
          racket/port
          racket/string
-         "../_common/racket/helpers.rkt")
+         "../_common/racket/client_gate.rkt")
 
 (define HOST "127.0.0.1")
 ;; Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on PORT+1.

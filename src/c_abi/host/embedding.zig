@@ -9,10 +9,11 @@ const driver_core = @import("driver_core");
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const instance = @import("instance.zig");
+const marshal = @import("marshal.zig");
 
 pub const DriverClaim = struct {
-    inst: *common.Instance,
+    inst: *instance.Instance,
 
     pub fn allocator(self: DriverClaim) std.mem.Allocator {
         return self.inst.allocator;
@@ -35,7 +36,7 @@ pub const ClaimError = error{HostAlreadyOwned};
 /// Borrow the existing Host for a companion attachment. Terminal release is
 /// refused until the companion returns this borrow. It owns no driving rights.
 pub const AttachmentBorrow = struct {
-    inst: *common.Instance,
+    inst: *instance.Instance,
     pub fn core(self: AttachmentBorrow) *driver_core.Host {
         return &self.inst.core;
     }
@@ -46,7 +47,7 @@ pub const AttachmentBorrow = struct {
 };
 
 pub fn borrowForAttachment(handle: ?*c.GlowcapHost) !AttachmentBorrow {
-    const inst = common.instanceFrom(handle) orelse return error.NullPointer;
+    const inst = instance.instanceFrom(handle) orelse return error.NullPointer;
     if (inst.core.withinCallback()) return error.ReenteredHost;
     if (inst.core.lifecyclePhase() != .active) return error.Closed;
     inst.attachment_borrows = try std.math.add(usize, inst.attachment_borrows, 1);
@@ -54,24 +55,24 @@ pub fn borrowForAttachment(handle: ?*c.GlowcapHost) !AttachmentBorrow {
 }
 
 pub fn checkAttachmentsReleased(handle: ?*c.GlowcapHost) !void {
-    const inst = common.instanceFrom(handle) orelse return error.NullPointer;
+    const inst = instance.instanceFrom(handle) orelse return error.NullPointer;
     if (inst.attachment_borrows != 0) return error.Busy;
 }
 
-pub const valueToC = common.valueToC;
-pub const valueProjectionBound = common.valueProjectionBound;
+pub const valueToC = marshal.valueToC;
+pub const valueProjectionBound = marshal.valueProjectionBound;
 
 /// Claim the C handle's transport/action-drain ownership for a Zig driver
 /// construction. `HostRuntime.initWithCore` validates whether the core itself
 /// can transfer. Rollback restores this token if it cannot.
 pub fn claimForDriver(handle: ?*c.GlowcapHost) ClaimError!?DriverClaim {
-    const inst = common.instanceFrom(handle) orelse return null;
+    const inst = instance.instanceFrom(handle) orelse return null;
     if (inst.drive_owner != .embedder) return error.HostAlreadyOwned;
     inst.drive_owner = .driver;
     return .{ .inst = inst };
 }
 
-pub const releaseFromDriver = common.releaseFromDriver;
+pub const releaseFromDriver = instance.releaseFromDriver;
 
 /// The C handle a core session projects as. The driver archive's events carry
 /// sessions in the same handle vocabulary every `glowcap_host_*` verb takes.
@@ -79,7 +80,7 @@ pub fn sessionHandle(hs: *driver_core.HostSession) *c.GlowcapHostSession {
     return @ptrCast(hs);
 }
 
-pub const sessionFrom = common.sessionFrom;
+pub const sessionFrom = instance.sessionFrom;
 
 /// Project one taken settled/failed completion onto the C action shape, with
 /// the byte-fed queue's exact lifetime sentence: one scratch reset per pop,
@@ -91,7 +92,7 @@ pub fn projectCompletion(
     action: driver_core.HostAction,
     slot: *c.GlowcapHostAction,
 ) i32 {
-    const inst = common.instanceFrom(handle) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    _ = inst.completion_scratch.reset(.{ .retain_with_limit = common.steady_scratch_bytes });
-    return common.projectCompletionInto(inst, action, slot);
+    const inst = instance.instanceFrom(handle) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    _ = inst.completion_scratch.reset(.{ .retain_with_limit = instance.steady_scratch_bytes });
+    return marshal.projectCompletionInto(inst, action, slot);
 }

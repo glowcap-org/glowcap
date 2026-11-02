@@ -1,5 +1,11 @@
+//! The vendored Mbed TLS dependency and the relay transport family built on it:
+//! the TLS engine layers, the installed relay C ABI archive, and the site relay
+//! examples.
+
 const std = @import("std");
-const common = @import("common.zig");
+const archives = @import("archives.zig");
+const site_build = @import("site.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 
 const tls_sources = [_][]const u8{
@@ -276,8 +282,8 @@ pub fn installArchive(
     target: std.Build.ResolvedTarget,
     module: *std.Build.Module,
     version: std.SemanticVersion,
-) common.InstalledArchive {
-    const archive = common.installArchive(b, "glowcap_net_transport_relay", module, version);
+) archives.InstalledArchive {
+    const archive = archives.installArchive(b, "glowcap_net_transport_relay", module, version);
     if (target.result.ofmt == .elf) {
         archive.dynamic.version_script = b.path("tools/build/exports/relay.map");
     }
@@ -328,7 +334,7 @@ fn relayAbiModule(
     c_abi_shared: *std.Build.Module,
     relay_tls: *std.Build.Module,
 ) *std.Build.Module {
-    return common.transportAbiModule(b, target, optimize, "src/c_abi/net_transport/relay/mod.zig", &.{
+    return modules.transportAbiModule(b, target, optimize, "src/c_abi/net_transport/relay/mod.zig", &.{
         .{ .name = "foundation", .module = foundation },
         .{ .name = "model", .module = model },
         .{ .name = "net", .module = net },
@@ -367,11 +373,11 @@ pub fn addFamily(
     foundation: *std.Build.Module,
     net: *std.Build.Module,
 ) Family {
-    const modules = addModule(b, target, optimize, foundation, net);
-    const dependency = modules.dependency;
-    const engine = modules.engine;
-    const tls_mbedtls = modules.tls;
-    const relay_tls = modules.relay;
+    const layers = addModule(b, target, optimize, foundation, net);
+    const dependency = layers.dependency;
+    const engine = layers.engine;
+    const tls_mbedtls = layers.tls;
+    const relay_tls = layers.relay;
     const check_tls = b.createModule(.{
         .root_source_file = b.path("test/support/tls_stub.zig"),
         .target = target,
@@ -458,7 +464,7 @@ pub fn addSiteRelayExamples(
         .{ .name = "site-example-listen-noise-relay", .path = "site/examples/listen/noise-relay.zig" },
     };
     for (examples) |example| {
-        common.addSiteZigExampleCompile(b, target, optimize, example.name, example.path, &.{
+        site_build.addSiteZigExampleCompile(b, target, optimize, example.name, example.path, &.{
             .{ .name = "glowcap", .module = lib_mod },
             .{ .name = "relay_tls", .module = relay_tls },
         }, site_zig_examples_check);

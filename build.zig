@@ -11,7 +11,9 @@ const execution = @import("tools/build/execution.zig");
 const builtin = @import("builtin");
 const arch_check = @import("tools/check/arch_check.zig");
 const source_check = @import("tools/check/source_check.zig");
-const build_common = @import("tools/build/common.zig");
+const archives = @import("tools/build/archives.zig");
+const cargo = @import("tools/build/cargo.zig");
+const modules = @import("tools/build/modules.zig");
 const cli_build = @import("tools/build/cli.zig");
 const iroh_build = @import("tools/build/iroh.zig");
 const mbedtls_build = @import("tools/build/mbedtls.zig");
@@ -159,14 +161,14 @@ pub fn layerIndex(comptime name: []const u8) usize {
 
 pub const graphFromTable = @import("tools/build/module_graph.zig").create;
 
-const installArchive = build_common.installArchive;
-const interopHarnessModule = build_common.interopHarnessModule;
+const installArchive = archives.installArchive;
+const interopHarnessModule = modules.interopHarnessModule;
 
-const AbiImport = build_common.AbiImport;
-const transportAbiModule = build_common.transportAbiModule;
+const AbiImport = modules.AbiImport;
+const transportAbiModule = modules.transportAbiModule;
 
 pub fn build(b: *std.Build) void {
-    const target = build_common.baselineTarget(b);
+    const target = modules.baselineTarget(b);
     const optimize = b.standardOptimizeOption(.{});
 
     // ── Internal layer modules (ADR-0011) ─────────────────────────
@@ -419,9 +421,9 @@ pub fn build(b: *std.Build) void {
         .pin_port = pin_port,
     });
 
-    // The runtime plumbing both Rust sidecars share (transports/sidecar-common)
+    // The runtime plumbing both Rust sidecars share (transports/sidecar-runtime)
     // is tested on its own; each sidecar's cargo build pulls it in by path.
-    build_common.registerSidecarCommon(b);
+    cargo.registerSidecarRuntime(b);
 
     // The iroh netlayer family (sidecar, resident, live drivers, the
     // ADR-0024 seam, the site snippets and locator suite, and the C ABI

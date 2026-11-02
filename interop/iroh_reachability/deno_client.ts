@@ -22,7 +22,7 @@
 
 import { Runtime, type Session } from "@glowcap/runtime";
 import { type IrohServer, listen, locator, provider, Reachability } from "@glowcap/iroh";
-import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
+import { fail, parseOptionalPortArg } from "../_common/deno/client_gate.ts";
 
 const GATE = "deno-iroh-reachability";
 const NAME = "deno-iroh-world";

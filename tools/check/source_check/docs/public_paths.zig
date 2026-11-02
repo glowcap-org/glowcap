@@ -1,7 +1,8 @@
 //! Human pages and site scripts name reproducible paths, never the ignored
 //! `.local/` checkout home.
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 const corpus = @import("corpus.zig");
 
 pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *std.ArrayList([]const u8)) !void {
@@ -12,7 +13,7 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
         if (entry.doc.audience != .human) continue;
         try checkText(gpa, violations, entry.path, entry.text);
     }
-    const scripts = try util.collectSourceFiles(io, arena, root, "site/scripts", isScript) orelse return error.FileNotFound;
+    const scripts = try source_tree.collectSourceFiles(io, arena, root, "site/scripts", isScript) orelse return error.FileNotFound;
     for (scripts) |path| {
         const text = try root.readFileAlloc(io, path, arena, .limited(4 << 20));
         try checkText(gpa, violations, path, text);
@@ -28,7 +29,7 @@ fn checkText(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), pat
     while (lines.next()) |line| {
         number += 1;
         if (localRepoPath(line)) {
-            try util.appendViolation(gpa, violations, "{s}:{d}: names an ignored .local/ path; use a reproducible path (doc-drift)", .{ path, number });
+            try violation_log.appendViolation(gpa, violations, "{s}:{d}: names an ignored .local/ path; use a reproducible path (doc-drift)", .{ path, number });
         }
     }
 }

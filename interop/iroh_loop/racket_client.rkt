@@ -22,7 +22,7 @@
 
 (require "../../bindings/racket/glowcap.rkt"
          "../../bindings/racket/glowcap-iroh.rkt"
-         "../_common/racket/helpers.rkt")
+         "../_common/racket/client_gate.rkt")
 
 ;; Concurrent connections, each served on the one server loop; calls each makes
 ;; before closing, several turns per connection so the proof is sustained

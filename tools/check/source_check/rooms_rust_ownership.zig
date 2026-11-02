@@ -1,9 +1,11 @@
 //! Rust owns the Rooms application, and its crate layers keep one direction.
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const text_match = @import("text_match.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 const retired = [_][]const u8{
     "apps/rooms/server",
@@ -116,7 +118,7 @@ fn rejectDependency(
     path: []const u8,
     dependency: []const u8,
 ) !void {
-    if (try util.fileContains(io, gpa, root, path, dependency)) {
+    if (try text_match.fileContains(io, gpa, root, path, dependency)) {
         try appendViolation(gpa, violations, "{s}: Rooms layer must not depend on {s}", .{ path, dependency });
     }
 }
@@ -143,7 +145,7 @@ pub fn check(
             .{path},
         );
     }
-    const services = (try util.readSourceSubject(io, gpa, root, "apps/rooms/rust/services/src/")) orelse {
+    const services = (try source_tree.readSourceSubject(io, gpa, root, "apps/rooms/rust/services/src/")) orelse {
         try appendViolation(gpa, violations, "apps/rooms/rust/services/src: could not inspect retired Rust identifiers", .{});
         return;
     };
@@ -168,7 +170,7 @@ pub fn check(
         defer gpa.free(path);
         try rejectDependency(io, gpa, root, violations, path, "rooms-product");
     }
-    try util.expectFileContains(
+    try text_match.expectFileContains(
         io,
         gpa,
         root,

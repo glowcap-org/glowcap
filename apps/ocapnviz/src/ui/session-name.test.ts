@@ -8,14 +8,9 @@
 
 import { assertEquals } from "@std/assert";
 import { Engine } from "../engine/engine.ts";
+import { engineTest } from "../engine/engine-test/harness.ts";
 import { TimelineDocument } from "../engine/timeline.ts";
 import { sessionEndName, sessionPairName } from "./session-name.ts";
-
-/** Engine construction runs d3-force, whose timer Deno's sanitizer
- *  flags. Same workaround as the other engine-constructing tests. */
-function engineTest(name: string, fn: () => void): void {
-	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
-}
 
 /** Alice and Bob hold one session from t=100. Bob answers to its
  *  locator until t=200 and to "carol" after. */

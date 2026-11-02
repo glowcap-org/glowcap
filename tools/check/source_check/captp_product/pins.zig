@@ -2,10 +2,12 @@
 //! authority it mirrors.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
 
 /// A dial target and an authenticated far end are separate facts. Only code
 /// that realized the connection may state the latter (ADR-0028).
@@ -203,7 +205,7 @@ pub fn checkDurablePinWriters(
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                try util.enterSourceDirectory(io, gpa, &walker, tree, entry);
+                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
                 continue;
             }
             if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;

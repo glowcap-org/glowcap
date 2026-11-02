@@ -2,7 +2,7 @@
 // acquisition, with the room's echo of it folded into the one bubble.
 
 import type { HistoryCoordinate } from "../types.ts";
-import type { PageProjection } from "./core.ts";
+import type { PageProjection } from "./projection.ts";
 import { foldLine, historyOf, lineByCoordinate, lineByLineId, updateItem } from "./items.ts";
 
 /** The room's names for a committed send. */

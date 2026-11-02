@@ -5,12 +5,13 @@
 const shared = @import("c_abi_shared");
 
 const c = @import("../mod.zig");
-const common = @import("../common.zig");
+const host_error = @import("../error.zig");
+const instance = @import("../instance.zig");
 const driver_core = @import("driver_core");
 
-const sessionFrom = common.sessionFrom;
-const instOf = common.instOf;
-const errToCode = common.errToCode;
+const sessionFrom = instance.sessionFrom;
+const instOf = instance.instOf;
+const errToCode = host_error.errToCode;
 
 const GlowcapHostSession = c.GlowcapHostSession;
 const GlowcapFrame = shared.GlowcapFrame;
@@ -35,7 +36,7 @@ const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 pub fn glowcap_host_session_feed(raw: ?*GlowcapHostSession, frame_in: ?*const GlowcapFrame) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_feed")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(instOf(session.host), "session_feed")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const borrowed = frame_in orelse return GLOWCAP_ERR_NULL_POINTER;
     const bytes_ptr = borrowed.bytes orelse return GLOWCAP_ERR_NULL_POINTER;
     const shape = shared.frameShapeFromC(borrowed.shape) orelse {
@@ -65,7 +66,7 @@ pub fn glowcap_host_session_feed_bytes(
 ) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_feed_bytes")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(instOf(session.host), "session_feed_bytes")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const chunk: []const u8 = if (len == 0) &.{} else blk: {
         const buf = bytes orelse return GLOWCAP_ERR_NULL_POINTER;
         break :blk buf[0..len];
@@ -85,7 +86,7 @@ pub fn glowcap_host_session_feed_packet(
 ) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_feed_packet")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(instOf(session.host), "session_feed_packet")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const packet: []const u8 = if (len == 0) &.{} else blk: {
         const buf = bytes orelse return GLOWCAP_ERR_NULL_POINTER;
         break :blk buf[0..len];
@@ -100,7 +101,7 @@ pub fn glowcap_host_session_feed_packet(
 pub fn glowcap_host_session_resume_feed(raw: ?*GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_resume_feed")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(instOf(session.host), "session_resume_feed")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     session.resumeFeed() catch |err| return errToCode(err);
     return GLOWCAP_OK;
 }
@@ -148,7 +149,7 @@ fn takeOutbound(
 ) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), verb)) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(instOf(session.host), verb)) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_frame orelse return GLOWCAP_ERR_NULL_POINTER;
     const prefix = out_prefix orelse return GLOWCAP_ERR_NULL_POINTER;
     const prefix_len = out_prefix_len orelse return GLOWCAP_ERR_NULL_POINTER;

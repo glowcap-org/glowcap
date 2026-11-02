@@ -4,7 +4,7 @@ import type { ManagedRoomsSession } from "./session/managed/session.ts";
 import { PageBootstrap } from "./page_bootstrap.ts";
 import { PageTyping } from "./typing.ts";
 import { ControllerSelection } from "./controller/selection.ts";
-import { PageProjection } from "./store/core.ts";
+import { PageProjection } from "./store/projection.ts";
 
 export interface RoomsPageContext {
 	readonly bootstrap: PageBootstrap;

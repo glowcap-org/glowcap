@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 typedef struct GlowcapLoamVolatile GlowcapLoamVolatile;
-#define GLOWCAP_LOAM_VOLATILE_ARCHIVE_FINGERPRINT 11294886628012510947
+#define GLOWCAP_LOAM_VOLATILE_ARCHIVE_FINGERPRINT 1266537167549401087
 /* Create a new in-memory store and reserve a fresh incarnation. The open takes no path, and each open makes its own store that lives until release, so two opens with one identity coexist. create=0 returns NOT_FOUND because no store exists before it is created, and create=1 and create=2 both create. capacity_bytes bounds the stored keys and values together, independent of the resident and staged bytes in limits. The storage owner owns the returned borrowed Store; limits and schemas are copied. */
 int32_t glowcap_loam_volatile_open(const uint8_t *store_id, uint32_t create, size_t capacity_bytes, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamVolatile **out_storage, GlowcapLoamStore **out_store);
 /* Release a quiescent storage owner and its Store, then free the store, which ends it. Busy leaves both alive. Attachments and storage workers must finish first. */

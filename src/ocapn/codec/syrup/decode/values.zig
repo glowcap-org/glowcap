@@ -9,12 +9,12 @@ const std = @import("std");
 const model = @import("model");
 const codec_order = @import("codec_order");
 
-const shared = @import("../shared.zig");
+const errors = @import("../errors.zig");
 const syntax = @import("syntax.zig");
 const locators = @import("locator.zig");
 const handoff = @import("values/handoff.zig");
 
-const Error = shared.Error;
+const Error = errors.Error;
 
 /// Borrowed reference descriptor exactly as the wire carries it, before the
 /// projection into the codec-neutral `model.view.Reference`.

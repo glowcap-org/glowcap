@@ -5,10 +5,10 @@
 //! concern.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 const scope = @import("bans/scope.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 pub const Where = scope.Where;
 pub const collectFiles = scope.collectFiles;
 
@@ -229,7 +229,7 @@ const rust_sidecar_ffi_safety = [_]Ban{.{
     .where = .{ .tree = .{
         .dir = "transports",
         .suffixes = &.{".rs"},
-        .skip_dirs = &.{ "/target/", "/sidecar-common/" },
+        .skip_dirs = &.{ "/target/", "/sidecar-runtime/" },
     } },
     .kind = .forbid,
     .needles = &.{"pub extern \"C\" fn"},

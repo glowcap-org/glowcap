@@ -7,7 +7,7 @@
 import { MAX_SCROLLBACK } from "../limits.ts";
 import { CAUGHT_UP, NO_HISTORY, silencedByIgnore } from "../types.ts";
 import type { AttachmentView, ChatItem, HistoryCoordinate, Item, SendState, SysAudience, Unread } from "../types.ts";
-import type { PageProjection, State } from "./core.ts";
+import type { PageProjection, State } from "./projection.ts";
 import { getConv } from "./convs.ts";
 import { lineCarried } from "../commands.ts";
 

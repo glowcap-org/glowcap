@@ -3,10 +3,11 @@
 //! declaration without enrolling each one by hand.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 const packages = @import("packages.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 const expected = "Apache-2.0";
 const roots = [_][]const u8{ "apps", "bench", "bindings", "transports" };
 
@@ -130,7 +131,7 @@ pub fn check(
 ) !void {
     try checkJson(io, gpa, root, violations, "deno.json");
     for (roots) |root_path| {
-        if (try util.collectSourceFiles(io, gpa, root, root_path, packageManifest)) |found| {
+        if (try source_tree.collectSourceFiles(io, gpa, root, root_path, packageManifest)) |found| {
             defer {
                 for (found) |path| gpa.free(path);
                 gpa.free(found);

@@ -9,9 +9,10 @@ const std = @import("std");
 const model = @import("model");
 const decimal = @import("foundation").decimal;
 const limits = @import("codec_limits");
-const shared = @import("../shared.zig");
+const errors = @import("../errors.zig");
+const foundation = @import("foundation");
 
-const Error = shared.Error;
+const Error = errors.Error;
 
 /// Syrup's public name for the shared codec decode recursion bound.
 pub const max_decode_nesting: usize = limits.max_decode_nesting;
@@ -80,7 +81,7 @@ pub fn readLeafScanned(bytes: []const u8, cursor: *usize, run: DigitRun, comptim
     const payload = try readLengthPrefixedScanned(bytes, cursor, run, marker);
     const valid = switch (marker) {
         ':' => true,
-        '"' => shared.textValid(payload),
+        '"' => foundation.utf8.valid(payload),
         '\'' => symbolBytesValid(payload),
         else => @compileError("not a Syrup leaf marker"),
     };
@@ -140,7 +141,7 @@ pub fn readLabel(bytes: []const u8, cursor: *usize) Error![]const u8 {
 
 /// The one check a symbol's bytes pass before they are data.
 pub fn symbolBytesValid(symbol: []const u8) bool {
-    return shared.textValid(symbol);
+    return foundation.utf8.valid(symbol);
 }
 
 /// Read a `[ … ]` list of positive ints, returning the borrowed body slice

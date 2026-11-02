@@ -3,7 +3,7 @@
 //! bounded processes, and attached to `runtime-check`.
 
 const std = @import("std");
-const common = @import("../common.zig");
+const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
 
 pub const Context = struct {
@@ -175,10 +175,10 @@ fn dependOnRuntimeArchives(step: *std.Build.Step, ctx: Context, relay: bool) voi
 
 pub fn register(ctx: Context) *std.Build.Step {
     const b = ctx.b;
-    const lib_dir = common.rootPath(ctx.b, "zig-out/lib");
+    const lib_dir = commands.rootPath(ctx.b, "zig-out/lib");
     // Check the complete inventory here. Timed batches use --no-check so
     // their smaller module graphs never type-check again inside the deadline.
-    const cache = common.addRootedSystemCommand(ctx.b, .build_tool, &.{ "deno", "test", "--no-run" });
+    const cache = commands.addRootedSystemCommand(ctx.b, .build_tool, &.{ "deno", "test", "--no-run" });
     cache.addArgs(command[2..]);
     for (batches) |files| cache.addArgs(files);
     cache.addArgs(archive_files);
@@ -188,17 +188,17 @@ pub fn register(ctx: Context) *std.Build.Step {
     const server_step = b.step("rooms-server-test", "Run the in-tree Rooms server and UI contract tests (needs cargo + deno)");
     // Formatting, lint, and type checks are compile work, so they run as a
     // build tool and only the tests run under the deadline.
-    const web_static = common.addRootedSystemCommand(ctx.b, .build_tool, &.{
+    const web_static = commands.addRootedSystemCommand(ctx.b, .build_tool, &.{
         "deno", "task", "--config", "apps/rooms/web/deno.json", "static",
     });
     web_static.step.dependOn(ctx.wasm_install);
-    const web_tooling = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{
+    const web_tooling = commands.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{
         "deno", "task", "--config", "apps/rooms/web/deno.json", "test",
     });
     web_tooling.step.dependOn(&web_static.step);
     web_tooling.has_side_effects = true;
     server_step.dependOn(&web_tooling.step);
-    const archive = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
+    const archive = commands.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
     archive.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_BIN=", .make_absolute = true });
     archive.addArgs(command);
     archive.addArg("--no-check");
@@ -214,7 +214,7 @@ pub fn register(ctx: Context) *std.Build.Step {
 
     var previous: ?*std.Build.Step = &web_tooling.step;
     for (batches) |files| {
-        const batch = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
+        const batch = commands.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
         batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
         batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
         batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-server" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_SERVER_BIN=", .make_absolute = true });

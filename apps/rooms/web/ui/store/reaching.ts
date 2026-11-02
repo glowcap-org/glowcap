@@ -12,7 +12,7 @@ import { current, type Reach } from "../intent.ts";
 import type { RoomPreset } from "../room_policy.ts";
 import { type DirectoryDestinationContext, type JoinAnswers, joinAnswers } from "../joining.ts";
 import { clearConv, showJoinCard } from "./chrome.ts";
-import type { PageProjection, State } from "./core.ts";
+import type { PageProjection, State } from "./projection.ts";
 
 /** Somebody has arrived at the join card, and this is how.
  *

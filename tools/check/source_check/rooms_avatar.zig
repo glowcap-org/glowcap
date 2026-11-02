@@ -4,10 +4,11 @@
 //! shared stylesheet loader this leans on.
 
 const std = @import("std");
-const util = @import("util.zig");
+const text_match = @import("text_match.zig");
+const violation_log = @import("violation_log.zig");
 const rooms_ui = @import("rooms_ui.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 const loadRoomsCss = rooms_ui.loadRoomsCss;
 const ui_dir = rooms_ui.ui_dir;
 
@@ -37,7 +38,7 @@ pub fn checkAvatarRamp(
         try appendViolation(gpa, violations, "{s}/member_identity.ts: `const AVATAR_SLOTS = ` is gone; hueOf's slot count is the half of the avatar ramp this check reads", .{ui_dir});
         return;
     };
-    const slots = util.firstIntIn(identity_ts[at + slots_decl.len ..]) orelse {
+    const slots = text_match.firstIntIn(identity_ts[at + slots_decl.len ..]) orelse {
         try appendViolation(gpa, violations, "{s}/member_identity.ts: AVATAR_SLOTS is not a literal count", .{ui_dir});
         return;
     };

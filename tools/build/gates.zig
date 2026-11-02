@@ -7,7 +7,9 @@ const std = @import("std");
 const root = @import("../../build.zig");
 const arch_check = @import("../check/arch_check.zig");
 const source_check = @import("../check/source_check.zig");
-const common = @import("common.zig");
+const archives = @import("archives.zig");
+const commands = @import("commands.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 const agent_index_build = @import("agent_index.zig");
 const dependencies_build = @import("dependencies.zig");
@@ -16,7 +18,7 @@ const doc_impact_build = @import("doc_impact.zig");
 const frame_identity = @import("frame_identity.zig");
 const infrastructure_build = @import("infrastructure.zig");
 
-const transportAbiModule = common.transportAbiModule;
+const transportAbiModule = modules.transportAbiModule;
 const layer_table = root.layer_table;
 const layerIndex = root.layerIndex;
 const graphFromTable = root.graphFromTable;
@@ -149,7 +151,7 @@ fn wasmModules(b: *std.Build, o: std.builtin.OptimizeMode) WasmModules {
     }.get;
     // `c_abi_host` and the `c_abi_wasm` root are graph=false; mint them at this
     // use site the way the transport archives are, wiring the wasm modules above.
-    const host_imports = [_]common.AbiImport{
+    const host_imports = [_]modules.AbiImport{
         .{ .name = "foundation", .module = pick(sub, mods, "foundation") },
         .{ .name = "model", .module = pick(sub, mods, "model") },
         .{ .name = "engine", .module = pick(sub, mods, "engine") },
@@ -159,7 +161,7 @@ fn wasmModules(b: *std.Build, o: std.builtin.OptimizeMode) WasmModules {
     };
     const host_mod = transportAbiModule(b, t, o, "src/c_abi/host/mod.zig", &host_imports);
     const host_archive = transportAbiModule(b, t, o, "src/c_abi/host/archive.zig", &host_imports);
-    const loam_imports = [_]common.AbiImport{
+    const loam_imports = [_]modules.AbiImport{
         .{ .name = "loam_core", .module = pick(sub, mods, "loam_core") },
         .{ .name = "loam_access", .module = pick(sub, mods, "loam_access") },
         .{ .name = "loam_hosting", .module = pick(sub, mods, "loam_hosting") },
@@ -484,13 +486,13 @@ pub fn register(ctx: Context) Registered {
     source_check_step.dependOn(&devcontainer_contracts.step);
     // The pinned ruff formats and lints every first-party Python file, from
     // the CI programs to the binding, under the root ruff.toml.
-    const python_format = common.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "format", "--check", "." });
-    const python_lint = common.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "check", "." });
+    const python_format = commands.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "format", "--check", "." });
+    const python_lint = commands.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "check", "." });
     const python_check_step = b.step("python-check", "Check the formatting and lint of every first-party Python file with the pinned ruff");
     python_check_step.dependOn(&python_format.step);
     python_check_step.dependOn(&python_lint.step);
     source_check_step.dependOn(python_check_step);
-    const python_format_write = common.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "format", "." });
+    const python_format_write = commands.addRootedSystemCommand(b, .build_tool, &.{ "ruff", "format", "." });
     python_format_write.has_side_effects = true;
     b.step("python-fmt", "Format every first-party Python file in place with the pinned ruff").dependOn(&python_format_write.step);
     const shard_tests = b.addTest(.{ .name = "shard-tests", .root_module = shard_mod });
@@ -583,7 +585,7 @@ pub fn register(ctx: Context) Registered {
         .{ "glowcap_loam", wasm_static.loam },
     }) |entry| {
         const archive = b.addLibrary(.{ .name = entry[0], .linkage = .static, .root_module = entry[1] });
-        wasm_archives_step.dependOn(common.installIfChanged(b, archive, .{ .relative = .{ .base = .install_prefix, .sub_path = "wasm/lib" } }));
+        wasm_archives_step.dependOn(archives.installIfChanged(b, archive, .{ .relative = .{ .base = .install_prefix, .sub_path = "wasm/lib" } }));
     }
 
     // Behavioral proof that the wasm32 Host runs real CapTP from JavaScript: two

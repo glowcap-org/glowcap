@@ -1,3 +1,6 @@
+//! The endpoint's private Tokio runtime, run from any caller and reaped without
+//! Tokio's in-runtime destructor.
+
 use std::future::Future;
 use std::panic::resume_unwind;
 

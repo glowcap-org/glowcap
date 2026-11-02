@@ -1,11 +1,14 @@
 //! Confirmation transfers one preallocated observer. No foreign callback runs.
 const std = @import("std");
-const common = @import("common.zig");
+const foreign_values = @import("foreign_values.zig");
+const owners = @import("owners.zig");
+const c = @import("layouts.zig");
+const driver = @import("driver_core");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
+const refusal = @import("refusal.zig");
 const attached = @import("attachment.zig");
 const callbacks = @import("callbacks.zig");
-const c = common.c;
-const shared = common.shared;
-const hosting = common.hosting;
 
 /// The caller and kernel confirmation own independent references. Canceled
 /// observers may outlive kernel custody. Their small metadata allocation and
@@ -51,7 +54,7 @@ pub const Control = struct {
 
 pub fn control(raw: anytype) !*Control {
     const self: *Control = @ptrCast(@alignCast(raw orelse return error.NullPointer));
-    try common.EvaluationGuard.check(self.owner.store);
+    try owners.EvaluationGuard.check(self.owner.store);
     return self;
 }
 
@@ -62,16 +65,16 @@ pub fn glowcap_loam_call_reserve_continuation_copying(raw: ?*c.GlowcapLoamCall, 
     const reservation = out_reservation orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const pending = out_pending orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const call: *callbacks.Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
-    if (!call.active) return common.code(error.WrongPhase);
-    reserve(call, targets, target_count, reservation, pending) catch |err| return common.code(err);
+    if (!call.active) return refusal.code(error.WrongPhase);
+    reserve(call, targets, target_count, reservation, pending) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 fn reserve(call: *callbacks.Call, targets: ?[*]const shared.GlowcapReference, count: usize, out_reservation: *?*c.GlowcapLoamContinuationReservation, out_pending: *?*c.GlowcapLoamPendingContinuation) !void {
     const owner = call.attachment;
     if (count > owner.value.options.max_continuation_targets) return error.ContinuationCapacity;
     if (owner.effect_observers == std.math.maxInt(usize)) return error.ContinuationCapacity;
-    const refs = try common.slice(shared.GlowcapReference, targets, count);
-    const values = try call.content_call.allocator().alloc(common.driver.Capability, count);
+    const refs = try foreign_values.slice(shared.GlowcapReference, targets, count);
+    const values = try call.content_call.allocator().alloc(driver.Capability, count);
     for (refs, values) |ref, *value| value.* = call.host.capabilityFromRaw(ref.id);
     const self = try owner.store.allocator.create(Control);
     errdefer owner.store.allocator.destroy(self);
@@ -82,29 +85,29 @@ fn reserve(call: *callbacks.Call, targets: ?[*]const shared.GlowcapReference, co
     out_pending.* = @ptrCast(self);
 }
 
-fn reference(_: void, value: common.driver.Value) !shared.GlowcapReference {
+fn reference(_: void, value: driver.Value) !shared.GlowcapReference {
     return .{ .id = value.capability.raw() };
 }
-fn grant(self: *Control, capability: common.driver.Capability, out: *shared.GlowcapReference) !void {
+fn grant(self: *Control, capability: driver.Capability, out: *shared.GlowcapReference) !void {
     out.* = try self.owner.host_borrow.core().projectOwnedValue(.{ .capability = capability }, {}, reference);
 }
 pub fn glowcap_loam_continuation_reservation_source(raw: ?*c.GlowcapLoamContinuationReservation, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const out = out_reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = .{ .id = 0 };
-    const self = control(raw) catch |err| return common.code(err);
-    if (self.phase != .pending) return common.code(error.WrongPhase);
-    grant(self, self.reservation.source(), out) catch |err| return common.code(err);
+    const self = control(raw) catch |err| return refusal.code(err);
+    if (self.phase != .pending) return refusal.code(error.WrongPhase);
+    grant(self, self.reservation.source(), out) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_continuation_reservation_target(raw: ?*c.GlowcapLoamContinuationReservation, index: usize, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const out = out_reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = .{ .id = 0 };
-    const self = control(raw) catch |err| return common.code(err);
-    if (self.phase != .pending) return common.code(error.WrongPhase);
-    const target = self.reservation.target(index) catch |err| return common.code(err);
-    grant(self, target, out) catch |err| return common.code(err);
+    const self = control(raw) catch |err| return refusal.code(err);
+    if (self.phase != .pending) return refusal.code(error.WrongPhase);
+    const target = self.reservation.target(index) catch |err| return refusal.code(err);
+    grant(self, target, out) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -112,16 +115,16 @@ pub fn glowcap_loam_pending_continuation_take(raw: ?*c.GlowcapLoamPendingContinu
     shared.lastErrorClear();
     const out = out_continuation orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = null;
-    const self = control(raw) catch |err| return common.code(err);
-    self.owner.value.topLevel() catch |err| return common.code(err);
+    const self = control(raw) catch |err| return refusal.code(err);
+    self.owner.value.topLevel() catch |err| return refusal.code(err);
     switch (self.phase) {
-        .pending => return common.code(error.Busy),
-        .canceled => return common.code(error.WriteNotCommitted),
+        .pending => return refusal.code(error.Busy),
+        .canceled => return refusal.code(error.WriteNotCommitted),
         .confirmed => |continuation| {
             self.phase = .{ .active = continuation };
             out.* = @ptrCast(self);
         },
-        .active => return common.code(error.WrongPhase),
+        .active => return refusal.code(error.WrongPhase),
     }
     // Success consumes the Pending handle and transfers the identical observer.
     return shared.GLOWCAP_OK;
@@ -133,27 +136,27 @@ pub fn glowcap_loam_pending_continuation_absent(raw: ?*c.GlowcapLoamPendingConti
     shared.lastErrorClear();
     const out = out_absent orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = 0;
-    const self = control(raw) catch |err| return common.code(err);
+    const self = control(raw) catch |err| return refusal.code(err);
     switch (self.phase) {
         .pending, .confirmed => {},
         .canceled => out.* = 1,
-        .active => return common.code(error.WrongPhase),
+        .active => return refusal.code(error.WrongPhase),
     }
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_pending_continuation_release(raw: ?*c.GlowcapLoamPendingContinuation) callconv(.c) i32 {
     shared.lastErrorClear();
     if (raw == null) return shared.GLOWCAP_OK;
-    const self = control(raw) catch |err| return common.code(err);
-    if (self.phase == .active) return common.code(error.WrongPhase);
+    const self = control(raw) catch |err| return refusal.code(err);
+    if (self.phase == .active) return refusal.code(error.WrongPhase);
     self.release();
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_continuation_release(raw: ?*c.GlowcapLoamContinuation) callconv(.c) i32 {
     shared.lastErrorClear();
     if (raw == null) return shared.GLOWCAP_OK;
-    const self = control(raw) catch |err| return common.code(err);
-    _ = self.active() catch |err| return common.code(err);
+    const self = control(raw) catch |err| return refusal.code(err);
+    _ = self.active() catch |err| return refusal.code(err);
     self.release();
     return shared.GLOWCAP_OK;
 }
@@ -161,10 +164,10 @@ pub fn glowcap_loam_continuation_project(raw: ?*c.GlowcapLoamContinuation, index
     shared.lastErrorClear();
     const out = out_reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = .{ .id = 0 };
-    const self = control(raw) catch |err| return common.code(err);
-    self.owner.value.topLevel() catch |err| return common.code(err);
-    const value = self.active() catch |err| return common.code(err);
-    const capability = value.project(index) catch |err| return common.code(err);
+    const self = control(raw) catch |err| return refusal.code(err);
+    self.owner.value.topLevel() catch |err| return refusal.code(err);
+    const value = self.active() catch |err| return refusal.code(err);
+    const capability = value.project(index) catch |err| return refusal.code(err);
     out.* = .{ .id = capability.raw() };
     return shared.GLOWCAP_OK;
 }

@@ -18,9 +18,10 @@
 //! is invisible in a green run and only shows up as somebody else's flake.
 
 const std = @import("std");
-const util = @import("util.zig");
+const text_match = @import("text_match.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Where the rooms tests live, and the files allowed to own each verb.
 const proof_dir = "apps/rooms/test";
@@ -55,7 +56,7 @@ pub fn checkRoomsProofChildren(
     // deleted `children.ts` reads as a tree that simply stopped spawning, and
     // the check reports success over an unowned harness.
     const owner_path = proof_dir ++ "/" ++ spawn_owner_rel;
-    if (!(util.fileContains(io, gpa, root, owner_path, spawn_needle) catch false)) {
+    if (!(text_match.fileContains(io, gpa, root, owner_path, spawn_needle) catch false)) {
         try appendViolation(
             gpa,
             violations,
@@ -67,7 +68,7 @@ pub fn checkRoomsProofChildren(
     // Deno overlays `env` onto the parent unless `clearEnv` is set, so a copied
     // map with `GLOWCAP_ROOMS_STATE` deleted still hands the pane's live directory
     // to a hermetic child. The owner is the one place that can hide it.
-    if (!(util.fileContains(io, gpa, root, owner_path, "clearEnv: true") catch false)) {
+    if (!(text_match.fileContains(io, gpa, root, owner_path, "clearEnv: true") catch false)) {
         try appendViolation(
             gpa,
             violations,
@@ -78,7 +79,7 @@ pub fn checkRoomsProofChildren(
     for (owned_helpers) |helper| {
         const helper_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ proof_dir, helper.owner_rel });
         defer gpa.free(helper_path);
-        if (!(util.fileContains(io, gpa, root, helper_path, helper.needle) catch false)) {
+        if (!(text_match.fileContains(io, gpa, root, helper_path, helper.needle) catch false)) {
             try appendViolation(gpa, violations, "{s}: the one owner of `{s}` no longer declares it", .{ helper_path, helper.needle });
         }
     }

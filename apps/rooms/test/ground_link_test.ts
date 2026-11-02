@@ -7,7 +7,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
 	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 });
-const { PageProjection } = await import("../web/ui/store/core.ts");
+const { PageProjection } = await import("../web/ui/store/projection.ts");
 const { forgetDir, openDir, setDirSession } = await import("../web/ui/store/dirs.ts");
 const { bindGroundToConnections } = await import("../web/ui/mycelium/link.ts");
 const { dirId } = await import("../web/ui/types.ts");

@@ -1,3 +1,6 @@
+//! The readiness channel behind each sidecar's readiness fd: a self-pipe for
+//! wake hints and the queue of pending records that carries the state.
+
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::marker::PhantomData;

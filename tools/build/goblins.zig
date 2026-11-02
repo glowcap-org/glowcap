@@ -7,10 +7,12 @@
 //! (racket + goblins, tor, or both), so every step here is a sibling of
 //! `check`, never a member. What does ride `check` is each driver's hermetic
 //! compile, so an engine or model API change cannot silently rot a driver
-//! nothing ran.
+//! nothing ran. The step that compiles the Goblins peer's Racket modules once
+//! per graph lives here too, for every harness that spawns a vat.
 
 const std = @import("std");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 
 /// What the family draws from the root build graph. `interop_harness_mod`
@@ -63,7 +65,7 @@ const Driven = struct {
 
 fn liveDriver(ctx: Context, row: LiveDriver) Driven {
     const b = ctx.b;
-    const exe = common.glowcapExecutable(b, ctx.lib_mod, ctx.target, ctx.optimize, row.exe_name, row.source);
+    const exe = modules.glowcapExecutable(b, ctx.lib_mod, ctx.target, ctx.optimize, row.exe_name, row.source);
     exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
     const run = execution.addArtifact(b, row.posture, exe);
     run.setCwd(b.path("."));
@@ -124,11 +126,11 @@ pub fn register(ctx: Context) Registered {
 
     // The exporter is its own process, like every Goblins peer here: one
     // completion loop per process, and the driver's own loop is the gifter's.
-    const glowcap_pair_exporter_exe = common.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-pair-exporter", "interop/goblins_interop/glowcap_pair_exporter.zig");
+    const glowcap_pair_exporter_exe = modules.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-pair-exporter", "interop/goblins_interop/glowcap_pair_exporter.zig");
     glowcap_pair_exporter_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
     b.installArtifact(glowcap_pair_exporter_exe);
     check_step.dependOn(&glowcap_pair_exporter_exe.step);
-    const goblins_glowcap_pair_gift_exe = common.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-goblins-pair-gift", "interop/goblins_interop/glowcap_pair_gift_driver.zig");
+    const goblins_glowcap_pair_gift_exe = modules.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-goblins-pair-gift", "interop/goblins_interop/glowcap_pair_gift_driver.zig");
     goblins_glowcap_pair_gift_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
     check_step.dependOn(&goblins_glowcap_pair_gift_exe.step);
     const run_goblins_glowcap_pair_gift = execution.addArtifact(b, .{ .deterministic = 30 }, goblins_glowcap_pair_gift_exe);
@@ -182,7 +184,7 @@ pub fn register(ctx: Context) Registered {
     // `goblins` collection on PATH. The orchestrator spawns and tears down
     // both servers itself. Forward `-- <args>` (e.g. `--smoke`,
     // `--suite=echo`) to the orchestrator; `-Dport=N` pins the base port.
-    const run_bench_goblins = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "-y", "bench/goblins/bench.rkt" });
+    const run_bench_goblins = commands.addInstalledSystemRun(b, .benchmark, &.{ "racket", "-y", "bench/goblins/bench.rkt" });
     if (ctx.pin_port) |p| run_bench_goblins.addArg(b.fmt("--port={d}", .{p}));
     run_bench_goblins.addPassthruArgs();
     b.step("bench-goblins", "Cross-implementation benchmark: glowcap's Racket binding vs Spritely Goblins (needs racket + goblins)")
@@ -212,9 +214,9 @@ pub fn register(ctx: Context) Registered {
     // would run Debug glowcap under a ReleaseFast main. The orchestrator is
     // glue, its own speed never enters a measured number, so it tracks
     // `-Doptimize`.
-    const langs_host_exe = common.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-host", "bench/langs/host.zig");
-    const langs_zig_client_exe = common.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-client-zig", "bench/langs/clients/zig_bench.zig");
-    const langs_orchestrator = common.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-langs-orchestrator", "bench/langs/orchestrator.zig");
+    const langs_host_exe = modules.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-host", "bench/langs/host.zig");
+    const langs_zig_client_exe = modules.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-client-zig", "bench/langs/clients/zig_bench.zig");
+    const langs_orchestrator = modules.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-langs-orchestrator", "bench/langs/orchestrator.zig");
     // `--pin=A,B` places every client on core A and the host on core B through
     // the helper the two-thread benches pin with.
     langs_orchestrator.root_module.addImport("affinity", b.createModule(.{ .root_source_file = b.path("bench/support/affinity.zig"), .target = ctx.target, .optimize = ctx.optimize }));
@@ -292,7 +294,7 @@ pub fn register(ctx: Context) Registered {
     // markers, the gen-header pattern, applied to docs.
     // Needs `racket` + `goblins`, and bench numbers are a dated snapshot of one
     // machine, not an invariant.
-    const run_site_report = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "-y", "bench/site_report.rkt" });
+    const run_site_report = commands.addInstalledSystemRun(b, .benchmark, &.{ "racket", "-y", "bench/site_report.rkt" });
     b.step("bench-site-report", "Regenerate the performance pages' benchmark reports from live runs (needs racket + goblins)")
         .dependOn(&run_site_report.step);
 
@@ -305,4 +307,42 @@ pub fn register(ctx: Context) Registered {
         .listen_recipient_step = goblins_listen_recipient.step,
         .exporter_step = goblins_exporter.step,
     };
+}
+
+var goblins_peer_modules: ?*std.Build.Step.Run = null;
+
+/// Every module under `conformance/goblins-peer/racket/`, compiled once per
+/// graph. A Goblins harness spawns its vat from that directory with
+/// `racket -y`, which compiles a module a fresh checkout has not compiled,
+/// and its dependencies, inside the harness's own deadline. The run's argv
+/// never names the module, so `addCompilePreps` cannot see it: a run whose
+/// harness spawns a vat depends on this step instead.
+pub fn goblinsPeerModules(b: *std.Build) *std.Build.Step {
+    if (goblins_peer_modules) |run| return &run.step;
+    const dir_path = "conformance/goblins-peer/racket";
+    const run = commands.addRootedSystemCommand(b, .build_tool, &.{ "raco", "make" });
+    run.setName(b.fmt("raco make {s}", .{dir_path}));
+    run.has_side_effects = true;
+    b.dependOnDirectoryContents(b.path(dir_path));
+    const io = b.graph.io;
+    var dir = b.root.root_dir.handle.openDir(io, dir_path, .{ .iterate = true }) catch |err|
+        std.debug.panic("Goblins peer modules: {s}", .{@errorName(err)});
+    defer dir.close(io);
+    var paths: std.ArrayList([]const u8) = .empty;
+    var entries = dir.iterate();
+    while (entries.next(io) catch |err|
+        std.debug.panic("Goblins peer module discovery: {s}", .{@errorName(err)})) |entry|
+    {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".rkt")) continue;
+        paths.append(b.allocator, b.fmt("{s}/{s}", .{ dir_path, entry.name })) catch @panic("OOM");
+    }
+    // Directory order is unspecified, and the step's argv should read the same on every host.
+    std.mem.sort([]const u8, paths.items, {}, struct {
+        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return std.mem.lessThan(u8, lhs, rhs);
+        }
+    }.lessThan);
+    for (paths.items) |path| run.addArg(path);
+    goblins_peer_modules = run;
+    return &run.step;
 }

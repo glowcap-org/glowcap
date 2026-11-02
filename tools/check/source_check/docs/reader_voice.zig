@@ -4,9 +4,9 @@
 //! app's visible strings, so the word list has one owner.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Words glowcap's own development uses that a reader of the product pages
 /// has no way to know. Each one has an everyday name: the sidebar, a Rust

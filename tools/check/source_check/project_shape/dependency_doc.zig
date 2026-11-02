@@ -3,9 +3,9 @@
 //! it is for fails here.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 const doc_path = "docs/dependencies.md";
 const deps_path = ".devcontainer/lib/update-pins-deps.sh";

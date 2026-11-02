@@ -17,22 +17,22 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const arguments = @import("encode_arguments.zig");
-const layout = @import("encode_layout.zig");
+const encode_layout = @import("encode_layout.zig");
 const records = @import("encode_records.zig");
-const shared = @import("shared.zig");
-const wire = shared.wire;
+const layout = @import("layout.zig");
+const wire = layout.wire;
 const view = model.view;
 
-const Error = shared.Error;
-const EncodeError = shared.EncodeError;
-const Kind = shared.Kind;
-const ResolutionKind = shared.ResolutionKind;
-const StructLoc = shared.StructLoc;
-const allocStruct = layout.allocStruct;
-const ptrIndex = layout.ptrIndex;
-const setStructPtr = layout.setStructPtr;
-const setListPtr = layout.setListPtr;
-const setData = layout.setData;
+const Error = layout.Error;
+const EncodeError = layout.EncodeError;
+const Kind = layout.Kind;
+const ResolutionKind = layout.ResolutionKind;
+const StructLoc = layout.StructLoc;
+const allocStruct = encode_layout.allocStruct;
+const ptrIndex = encode_layout.ptrIndex;
+const setStructPtr = encode_layout.setStructPtr;
+const setListPtr = encode_layout.setListPtr;
+const setData = encode_layout.setData;
 const setText = records.setText;
 const encodeReference = records.encodeReference;
 const encodePeerLocator = records.encodePeerLocator;
@@ -174,7 +174,7 @@ fn encodeBodyInto(b: *wire.Builder, allocator: std.mem.Allocator, profile: model
                     const loc = try allocStruct(b, allocator, 3, 2);
                     b.set(loc.data_idx, 0);
                     b.set(loc.data_idx + 1, index.answer.int());
-                    b.set(loc.data_idx + 2, @bitCast(shared.IndexFlags{ .big_integer = true, .negative = big.negative }));
+                    b.set(loc.data_idx + 2, @bitCast(layout.IndexFlags{ .big_integer = true, .negative = big.negative }));
                     setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, index.receiver));
                     try setData(b, allocator, loc, 1, big.digits);
                     break :blk loc;
@@ -212,7 +212,7 @@ fn setPositionList(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLo
 
 fn encodeDeliver(b: *wire.Builder, allocator: std.mem.Allocator, profile: model.CaptpVersion, deliver: *const view.Deliver) EncodeError!StructLoc {
     const loc = try allocStruct(b, allocator, 2, 3);
-    var flags: shared.DeliverFlags = .{};
+    var flags: layout.DeliverFlags = .{};
     if (deliver.answer) |answer| {
         flags.has_answer = true;
         b.set(loc.data_idx + 1, answer.int());

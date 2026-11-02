@@ -12,7 +12,7 @@ import type { RowDescriptor } from "../row-layout.ts";
 import { canvasPxToT, GUTTER_MAX_PX, GUTTER_MIN_PX, pan as panView, plotWidthOf, type TimelineView } from "../state.ts";
 import { applyEventDragMove, updateRowDrag, updateRubberBand } from "../scrubber-drag.ts";
 import { eyeballHoverStatus, scrubberHoverAt, timelineCursor, type TimelineGesture } from "../timeline-cursor.ts";
-import type { ScrubberPointerHost } from "./types.ts";
+import type { ScrubberPointerHost } from "./host.ts";
 import type { EventHitIndex } from "../event-hit-index.ts";
 
 /** What the pointer is over and what it should look like there. The zones

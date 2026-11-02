@@ -11,11 +11,11 @@
 //! and template literals. A `className` full of words stays admissible.
 
 const std = @import("std");
-const util = @import("../util.zig");
-const shared = @import("shared.zig");
+const violation_log = @import("../violation_log.zig");
+const ui_sources = @import("ui_sources.zig");
 
-const appendViolation = util.appendViolation;
-const ui_dir = shared.ui_dir;
+const appendViolation = violation_log.appendViolation;
+const ui_dir = ui_sources.ui_dir;
 
 /// The parts catalog, and nothing else, ever.
 ///

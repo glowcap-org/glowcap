@@ -2,10 +2,11 @@
 //! example session names a positive budget.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
 
 /// Product CLI CapTP waits must be finite (ADR-0030). An `.unbounded` budget
 /// parks forever on a silent peer, the hang that wedged `cli-test` and left

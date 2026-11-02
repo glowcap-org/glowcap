@@ -2,11 +2,12 @@
 //! wire tokens, generated-state ignores, and the one repository URL.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const markdown = @import("../markdown.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
+const appendViolation = violation_log.appendViolation;
+const sectionBody = markdown.sectionBody;
+const collectBulletSpans = markdown.collectBulletSpans;
 
 /// The Syrup byte corpus is the oracle the codec is checked against, and
 /// `test/oracle/protocol_oracle.zig` is its registry. A `.bin` dropped into

@@ -21,7 +21,7 @@
 import * as store from "./store.ts";
 import { stopBootAsides } from "./boot_note.ts";
 import type { MarkLive } from "./mark/live.ts";
-import type { PageProjection } from "./store/core.ts";
+import type { PageProjection } from "./store/projection.ts";
 
 /** The two states this module puts the document in. `running` closes the window
  * in which page.html's watcher may call the page lost; `done` is the last word

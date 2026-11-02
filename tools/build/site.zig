@@ -7,10 +7,11 @@
 //! way the cargo, deno, and racket sibling steps reach for their tool at run
 //! time. The hermetic `check` graph never imports it. What does ride `check`
 //! is the snippet-staleness check, the Zig and TypeScript snippet checks,
-//! and the site output checker's own tests.
+//! and the site output checker's own tests. `addSiteZigExampleCompile` is the
+//! one compile recipe every transport's Zig snippet uses.
 
 const std = @import("std");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
 const execution = @import("execution.zig");
 
 /// What the pipeline draws from the root build graph.
@@ -155,7 +156,7 @@ pub fn register(ctx: Context) Registered {
     for (site_zig_snippets.items) |snippet_path| {
         const name = b.fmt("site-example-{s}", .{snippet_path["site/examples/".len .. snippet_path.len - ".zig".len]});
         std.mem.replaceScalar(u8, name, '/', '-');
-        common.addSiteZigExampleCompile(b, ctx.target, ctx.optimize, name, snippet_path, &.{
+        addSiteZigExampleCompile(b, ctx.target, ctx.optimize, name, snippet_path, &.{
             .{ .name = "glowcap", .module = ctx.lib_mod },
         }, site_zig_examples_check);
     }
@@ -167,15 +168,15 @@ pub fn register(ctx: Context) Registered {
     check_step.dependOn(site_ts_examples_check);
 
     const site_python_examples_check = b.step("site-python-examples-check", "Type-check the authoritative Python transport site examples (needs python3 + uv)");
-    const site_python_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "python" });
+    const site_python_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "python" });
     site_python_examples_check.dependOn(&site_python_check.step);
 
     const site_rust_examples_check = b.step("site-rust-examples-check", "Type-check the authoritative Rust transport site examples (needs python3 + cargo)");
-    const site_rust_check = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "rust" });
+    const site_rust_check = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "rust" });
     site_rust_examples_check.dependOn(&site_rust_check.step);
 
     const site_racket_examples_check = b.step("site-racket-examples-check", "Compile the authoritative Racket transport site examples (needs python3 + racket)");
-    const site_racket_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "racket" });
+    const site_racket_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "racket" });
     site_racket_examples_check.dependOn(&site_racket_check.step);
 
     // ── Documentation site (sibling of `check`) ──────────────────────────────
@@ -194,7 +195,7 @@ pub fn register(ctx: Context) Registered {
     // it into `site/assets` behind the generated-file header, so the tree's
     // checks read it as generated rather than as source. Zine ships the file
     // because the template names it.
-    const brand_mark_bundle = common.addRootedSystemCommand(b, .build_tool, &.{
+    const brand_mark_bundle = commands.addRootedSystemCommand(b, .build_tool, &.{
         "deno", "bundle", "--quiet", "--platform", "browser", "--config", "deno.json", "site/brand_mark.ts", "--output",
     });
     const brand_mark_bundled = brand_mark_bundle.addOutputFileArg("mark.js");
@@ -225,7 +226,7 @@ pub fn register(ctx: Context) Registered {
     render_site.addArg("--cache-dir");
     render_site.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
     render_site.addArgs(&.{
-        "--prefix", common.rootPath(b, "zig-out"),
+        "--prefix", commands.rootPath(b, "zig-out"),
         "site",
     });
     render_site.setCwd(b.path("site"));
@@ -238,8 +239,8 @@ pub fn register(ctx: Context) Registered {
     // Rewrite the rendered pages into the DOM the browser would repair them
     // to (paragraph-wrapped figures, missing figure-image alt, bare table
     // rows), so the served bytes are the document every consumer sees.
-    const site_normalize = common.addRootedSystemCommand(b, .build_tool, &.{
-        "python3", "tools/gen/site_normalize.py", common.rootPath(b, "zig-out/site"),
+    const site_normalize = commands.addRootedSystemCommand(b, .build_tool, &.{
+        "python3", "tools/gen/site_normalize.py", commands.rootPath(b, "zig-out/site"),
     });
     site_normalize.has_side_effects = true;
     site_normalize.step.dependOn(&render_site.step);
@@ -254,8 +255,8 @@ pub fn register(ctx: Context) Registered {
     // The upstream viewer lacks a document language and an accessible name on
     // its logo link; the fix-up owns those two attributes at the install seam
     // and fails loudly if the viewer's shape changes underneath it.
-    const autodoc_access = common.addRootedSystemCommand(b, .build_tool, &.{
-        "python3", "tools/gen/autodoc_access.py", common.rootPath(b, "zig-out/site/reference/api/index.html"),
+    const autodoc_access = commands.addRootedSystemCommand(b, .build_tool, &.{
+        "python3", "tools/gen/autodoc_access.py", commands.rootPath(b, "zig-out/site/reference/api/index.html"),
     });
     autodoc_access.has_side_effects = true;
     autodoc_access.step.dependOn(&site_docs_install.step);
@@ -273,7 +274,7 @@ pub fn register(ctx: Context) Registered {
         .root_module = site_output_check_mod,
     });
     const run_site_output_check = execution.addArtifact(b, .{ .deterministic = 30 }, site_output_check_exe);
-    run_site_output_check.addArg(common.rootPath(b, "zig-out/site"));
+    run_site_output_check.addArg(commands.rootPath(b, "zig-out/site"));
     run_site_output_check.step.dependOn(&autodoc_access.step);
     const site_output_check_tests = b.addTest(.{
         .name = "site-output-check-tests",
@@ -293,7 +294,7 @@ pub fn register(ctx: Context) Registered {
     // a last line stranding one word.
     // On-demand like every browser proof.
     const site_render_check = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
-        "deno", "run", "--allow-all", "tools/check/site_render.ts", common.rootPath(b, "zig-out/site"),
+        "deno", "run", "--allow-all", "tools/check/site_render.ts", commands.rootPath(b, "zig-out/site"),
     });
     site_render_check.setCwd(b.path("."));
     site_render_check.has_side_effects = true;
@@ -308,7 +309,7 @@ pub fn register(ctx: Context) Registered {
     // every browser proof, and a sibling rather than a member of
     // `site-render-check` because its authority is interaction, not layout.
     const site_tabs_check = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
-        "deno", "run", "--allow-all", "tools/check/site_tabs.ts", common.rootPath(b, "zig-out/site"),
+        "deno", "run", "--allow-all", "tools/check/site_tabs.ts", commands.rootPath(b, "zig-out/site"),
     });
     site_tabs_check.setCwd(b.path("."));
     site_tabs_check.has_side_effects = true;
@@ -335,13 +336,13 @@ pub fn register(ctx: Context) Registered {
     // exit. It is the lifecycle detail of this step, not a new user command; the
     // public `zig build site-serve` is unchanged.
     const serve_site = execution.addSystemCommand(b, .service, &.{
-        "bash",          common.rootPath(b, "site/serve.sh"),
+        "bash",          commands.rootPath(b, "site/serve.sh"),
         b.graph.zig_exe, "--cache-dir",
     });
     serve_site.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
     serve_site.addArgs(&.{
         "--prefix",
-        common.rootPath(b, "zig-out"),
+        commands.rootPath(b, "zig-out"),
         "site-serve",
     });
     if (ctx.pin_port) |p| serve_site.addArg(b.fmt("-Dport={d}", .{p}));
@@ -358,4 +359,36 @@ pub fn register(ctx: Context) Registered {
         .racket_examples_check = site_racket_examples_check,
         .render = &render_site.step,
     };
+}
+
+/// Compile one `site/examples/` Zig snippet as a checked claim. The snippet
+/// becomes a module rooted by `tools/check/site_example_root.zig`, whose
+/// header says why compiling the snippet file alone would read nothing.
+/// `imports` are the modules the snippet names, `glowcap` included.
+pub fn addSiteZigExampleCompile(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    name: []const u8,
+    path: []const u8,
+    imports: []const std.Build.Module.Import,
+    check: *std.Build.Step,
+) void {
+    const snippet_mod = b.createModule(.{
+        .root_source_file = b.path(path),
+        .target = target,
+        .optimize = optimize,
+        .imports = imports,
+    });
+    const root_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/site_example_root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "snippet", .module = snippet_mod }},
+    });
+    const object = b.addObject(.{
+        .name = b.fmt("{s}-compile", .{name}),
+        .root_module = root_mod,
+    });
+    check.dependOn(&object.step);
 }

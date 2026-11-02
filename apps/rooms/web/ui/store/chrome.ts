@@ -22,7 +22,7 @@ import { conversationCarries, type IrcGatewayState, type MemberRef } from "../ty
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { kindOf } from "../media.ts";
 import { type DraftPreview, reconcileDraftPreviews } from "../link_preview.ts";
-import { type Draft, type HelpTab, NO_DRAFT, type PageProjection, type State } from "./core.ts";
+import { type Draft, type HelpTab, NO_DRAFT, type PageProjection, type State } from "./projection.ts";
 import { forgetConv, getConv, nextStandingKey } from "./convs.ts";
 import { markRead } from "./items.ts";
 

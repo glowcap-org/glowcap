@@ -286,7 +286,7 @@ records these rules.
 A C reference declaration borrows its token only during the callback, and URI
 bytes are copied into the call's memory before it returns. A declaration can
 name both the fields it restores and the fields it saves: at most twice
-<!-- value ../../src/c_abi/loam/common.zig max_content_fields -->514<!-- /value --> requests for one record, or twice the graph's total edge limit. Each URI
+<!-- value ../../src/c_abi/loam/owners.zig max_content_fields -->514<!-- /value --> requests for one record, or twice the graph's total edge limit. Each URI
 is at most `GLOWCAP_LOAM_MAX_URI_BYTES` bytes, which Rust exposes as
 `ReferenceRequest::MAX_URI_BYTES`. The Host's shared limits bound the work of
 preparing and reviving references.
@@ -484,7 +484,7 @@ records how long these capabilities live and how retries work.
   contexts stay borrowed until a successful detach.
 - A policy allows at most <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions and <!-- value ../../src/loam/access/core/policy.zig max_constraints -->16<!-- /value --> unsigned bounds. A registration has at most <!-- value ../../src/c_abi/loam/callbacks.zig max_methods -->64<!-- /value -->
   methods, with names of 1 to 256 bytes. An attachment takes at most <!-- value ../../src/c_abi/loam/attachment.zig max_contents -->128<!-- /value --> content
-  registrations and <!-- value ../../src/c_abi/loam/common.zig max_schemas -->128<!-- /value --> schemas.
+  registrations and <!-- value ../../src/c_abi/loam/owners.zig max_schemas -->128<!-- /value --> schemas.
 - `Limits` sets the cache, read-ahead, lease, staging, reference, and
   operation limits. `read_ahead` slots come out of `cache_slots`, so size the
   cache for leases plus that depth.

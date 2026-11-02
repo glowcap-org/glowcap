@@ -6,7 +6,7 @@
 //! struct and list layout directly against the wire primitives in `wire.zig`
 //! (ADR-0010), so the codec stands on its own and the layout tracks the model.
 //! Rendering lives in `encode.zig`. The layout and reader vocabulary both
-//! sides share lives in `shared.zig`.
+//! sides share lives in `layout.zig`.
 //!
 //! Decode reads before it copies. `decodeBody` projects the borrowed
 //! codec-neutral view over the frame without copying anything, and
@@ -30,17 +30,17 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
-const shared = @import("shared.zig");
+const layout = @import("layout.zig");
 const values = @import("decode/values.zig");
 
-const wire = shared.wire;
-const Error = shared.Error;
-const Kind = shared.Kind;
+const wire = layout.wire;
+const Error = layout.Error;
+const Kind = layout.Kind;
 
-const StructLoc = shared.StructLoc;
-const enumFromWire = shared.enumFromWire;
+const StructLoc = layout.StructLoc;
+const enumFromWire = layout.enumFromWire;
 
-const Reader = shared.Reader;
+const Reader = layout.Reader;
 
 // ── Views ────────────────────────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ pub const MessageView = struct {
 
 pub fn decodeMessageView(frame: foundation.FrameView) Error!MessageView {
     if (frame.shape != .word) return Error.InvalidFrameShape;
-    const reader = try shared.readerFromFrame(frame.bytes);
+    const reader = try layout.readerFromFrame(frame.bytes);
 
     const root_word = try reader.word(0);
     if (wire.pointerKind(root_word) != .@"struct") return Error.InvalidPointer;
@@ -84,7 +84,7 @@ pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !m
 /// Project the borrowed codec-neutral `model.view.Body` over one frame.
 ///
 /// The frame is exactly the length its own header declares
-/// (`shared.readerFromFrame`). Syrup refuses trailing bytes the same way
+/// (`layout.readerFromFrame`). Syrup refuses trailing bytes the same way
 /// (`expectEnd`): without the rule two byte strings decode to one message,
 /// and anything that treats a frame's bytes as its identity has two names
 /// for one thing.
@@ -141,12 +141,12 @@ fn neutralBody(view: MessageView) Error!model.view.Body {
 // the round-trip tests catch any pointer-index drift.
 
 fn neutralBodyForProfile(view: MessageView, profile: model.CaptpVersion, slab: *model.view.ValueSlab) Error!model.view.Body {
-    var budget: usize = shared.traversalBudget(view.reader.seg_words);
+    var budget: usize = layout.traversalBudget(view.reader.seg_words);
     const metered = view.reader.withBudget(&budget);
     if (view.kind == .listen) return projectListenBodyForProfile(metered, view.body, profile);
     var body = try projectBody(metered, view.kind, view.body, slab);
     if (body == .deliver) {
-        const flags: shared.DeliverFlags = @bitCast(try metered.dataWord(view.body, 0));
+        const flags: layout.DeliverFlags = @bitCast(try metered.dataWord(view.body, 0));
         if (flags.reserved != 0) return Error.MalformedFrame;
         if (profile == .next) {
             if (body.deliver.resolve_me_desc) |resolver| {
@@ -161,7 +161,7 @@ fn neutralBodyForProfile(view: MessageView, profile: model.CaptpVersion, slab: *
 
 /// One body projector per Cap'n Proto `Kind` wire id, the same comptime table
 /// shape Syrup uses with `decoderFor` / `messageOp`. `Kind`'s explicit `enum(u16)`
-/// values in `shared.zig` are the stable wire discriminants. `inline else` plus
+/// values in `layout.zig` are the stable wire discriminants. `inline else` plus
 /// `bodyProjector` make a new arm a compile error in both places at once.
 const BodyProjector = *const fn (reader: Reader, body: StructLoc, slab: *model.view.ValueSlab) Error!model.view.Body;
 
@@ -190,7 +190,7 @@ fn projectBody(reader: Reader, kind: Kind, body: StructLoc, slab: *model.view.Va
 }
 
 fn projectDeliverBody(reader: Reader, body: StructLoc, slab: *model.view.ValueSlab) Error!model.view.Body {
-    const flags: shared.DeliverFlags = @bitCast(try reader.dataWord(body, 0));
+    const flags: layout.DeliverFlags = @bitCast(try reader.dataWord(body, 0));
     var resolve_me: ?model.view.Reference = null;
     if (flags.has_resolve_me) {
         if (try reader.followStruct(body, 2)) |ref_loc| resolve_me = try values.neutralReferenceView(reader, ref_loc, &values.chargeHintList);
@@ -276,7 +276,7 @@ fn projectIndexBody(reader: Reader, body: StructLoc, slab: *model.view.ValueSlab
 }
 
 fn projectIndexValue(reader: Reader, body: StructLoc) Error!model.Integer {
-    const flags: shared.IndexFlags = @bitCast(try reader.dataWord(body, 2));
+    const flags: layout.IndexFlags = @bitCast(try reader.dataWord(body, 2));
     if (flags.reserved != 0) return Error.MalformedFrame;
     if (!flags.big_integer) {
         if (flags.negative) return Error.MalformedFrame;

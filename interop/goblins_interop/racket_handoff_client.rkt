@@ -24,7 +24,7 @@
 
 (require "../../bindings/racket/glowcap.rkt"
          "../../bindings/racket/glowcap-tcp.rkt"
-         "../_common/racket/helpers.rkt")
+         "../_common/racket/client_gate.rkt")
 
 (define HOST "127.0.0.1")
 (define PORT (parse-port "racket-goblins-handoff" 22116 65534))

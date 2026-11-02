@@ -7,7 +7,7 @@
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const instance = @import("instance.zig");
 const embedder_pump = @import("embedder_pump.zig");
 
 const GlowcapHost = c.GlowcapHost;
@@ -35,11 +35,11 @@ pub fn glowcap_host_pump_drain(
     out_yielded: ?*u32,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(host) orelse {
+    const inst = instance.instanceFrom(host) orelse {
         shared.setLastError("null host", .{});
         return GLOWCAP_ERR_NULL_POINTER;
     };
-    if (!common.embedderOwnsDrive(inst, "pump_drain")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(inst, "pump_drain")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const Exec = struct {
         hooks: ?*const GlowcapHostPumpHooks,
         err: i32 = GLOWCAP_OK,

@@ -10,7 +10,7 @@
          (combine-in "../host.rkt" "../host/state.rkt")
          "../pump.rkt"
          (combine-in "../session.rkt" "../session/state.rkt")
-         "core.rkt"
+         "stepper.rkt"
          "dial.rkt")
 
 ;; ── Release (the host.rkt hooks) ─────────────────────────────────────────────

@@ -3,9 +3,10 @@
 //! first-calls staying on `wss://`.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// The README quotes the compiled noise-tcp quick-start verbatim. The front page
 /// abridges the Noise TCP first-call example. Start building's tabs are held by
@@ -412,7 +413,7 @@ pub fn checkExampleFenceIndent(
         defer walker.deinit();
         walk: while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
-                try util.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
+                try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
                 continue;
             }
             if (entry.kind != .file) continue;

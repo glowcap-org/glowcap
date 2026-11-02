@@ -17,7 +17,8 @@
 
 const std = @import("std");
 const decimal = @import("foundation").decimal;
-const WalkError = @import("shared.zig").WalkError;
+const errors = @import("errors.zig");
+const WalkError = errors.WalkError;
 
 const CountSink = struct {
     total: usize = 0,

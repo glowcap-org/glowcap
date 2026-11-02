@@ -2,16 +2,17 @@
 //! export.
 
 const std = @import("std");
-const util = @import("../util.zig");
-const shared = @import("shared.zig");
+const json_files = @import("../json_files.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
-const firstIntIn = util.firstIntIn;
-const parseJsonFile = util.parseJsonFile;
-const getField = util.getField;
-const jsonStringEquals = util.jsonStringEquals;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const fileContains = text_match.fileContains;
+const firstIntIn = text_match.firstIntIn;
+const parseJsonFile = json_files.parseJsonFile;
+const getField = json_files.getField;
+const jsonStringEquals = json_files.jsonStringEquals;
 
 const doc_c_abi_header_paths = [_][]const u8{
     "include/glowcap_ocapn.h",
@@ -98,7 +99,7 @@ fn collectGlowcapSymbols(
         var end = start + "glowcap_".len;
         while (end < contents.len and isGlowcapIdentChar(contents[end])) end += 1;
         search = end;
-        if (start > 0 and shared.isIdentChar(contents[start - 1])) continue;
+        if (start > 0 and text_match.isIdentChar(contents[start - 1])) continue;
         const name = contents[start..end];
         if (!out.contains(name)) try out.put(name, {});
     }

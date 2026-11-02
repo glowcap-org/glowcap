@@ -4,16 +4,18 @@
 
 const std = @import("std");
 const model = @import("model");
-const util = @import("../util.zig");
-const shared = @import("shared.zig");
+const captp_vocabulary = @import("../captp_vocabulary.zig");
+const json_files = @import("../json_files.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
-const firstIntIn = util.firstIntIn;
-const parseJsonFile = util.parseJsonFile;
-const getField = util.getField;
-const jsonStringEquals = util.jsonStringEquals;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const fileContains = text_match.fileContains;
+const firstIntIn = text_match.firstIntIn;
+const parseJsonFile = json_files.parseJsonFile;
+const getField = json_files.getField;
+const jsonStringEquals = json_files.jsonStringEquals;
 
 /// Three body invariants on every C-ABI entry point, all about failure paths
 /// the compiler cannot see.
@@ -68,7 +70,7 @@ pub fn checkAbiReturnShape(
         while (std.mem.indexOfPos(u8, contents, at, opener)) |hit| {
             at = hit + opener.len;
             var name_end = at;
-            while (name_end < contents.len and shared.isIdentChar(contents[name_end])) name_end += 1;
+            while (name_end < contents.len and text_match.isIdentChar(contents[name_end])) name_end += 1;
             const name = contents[at..name_end];
             const body_start = std.mem.indexOfScalarPos(u8, contents, name_end, '{') orelse break;
             const signature = contents[name_end..body_start];
@@ -281,7 +283,7 @@ fn mirrorTokenPresent(
         from = at + 1;
         if (after.len != 0) return true;
         const next = at + needle.len;
-        if (next >= contents.len or !shared.isIdentChar(contents[next])) return true;
+        if (next >= contents.len or !text_match.isIdentChar(contents[next])) return true;
     }
     return false;
 }
@@ -354,7 +356,7 @@ pub fn checkTraceVocabulary(
             if (std.mem.indexOf(u8, contents, quoted) == null) try appendViolation(gpa, violations, "{s}: the trace never says {s}, the word `{s}` gives the built-in codec `.{s}`. A session reports the codec it negotiated, so every trace has a word for every one this model ships.", .{ path, quoted, authority, codec });
         }
 
-        inline for (util.captp_wire_words) |arm| {
+        inline for (captp_vocabulary.captp_wire_words) |arm| {
             const wire_quoted = "\"" ++ arm.wire ++ "\"";
             if (std.mem.indexOf(u8, contents, wire_quoted) == null) {
                 try appendViolation(gpa, violations, "{s}: the trace never says {s}, the word `{s}` puts on the wire for `.{s}`. A trace reports on the wire, so it reports the wire's spelling.", .{ path, wire_quoted, authority, arm.tag });

@@ -1,16 +1,30 @@
-//! Syrup codec barrel. See `shared` for the error sets both halves use. The
-//! implementations live in `decode.zig` and `encode.zig`, the same
-//! decode/encode/shared split the `codec.capnp` barrel uses.
+//! Syrup codec barrel.
+//!
+//! Syrup is the byte-record format, the self-delimiting alternative to Cap'n
+//! Proto. It carries the same `model.Message` tree as length-prefixed records
+//! (`<...>`), lists (`[...]`), symbols, strings, and integers. The encode half
+//! lives in `encode` (`encodeMessage` and the `write*` primitives beneath it)
+//! and the decode half lives in `decode` (`decodeBody` and `decodeOwned`,
+//! which is `decodeBody` followed by `model.view.Body.toOwned`). `errors.zig`
+//! holds the error sets both halves use, `ops.zig` the wire op symbols, and
+//! `codec.capnp` is the word-aligned counterpart.
+//!
+//! As everywhere in the codec layer, this only describes and routes bytes. It
+//! holds no session authority. Every frame the decoder reads is untrusted,
+//! so the length math on each prefix is checked and the recursive readers
+//! stop at a fixed nesting bound, which means a deeply nested frame fails
+//! loudly instead of running off the stack.
 
-pub const shared = @import("shared.zig");
+const errors = @import("errors.zig");
 pub const decode = @import("decode.zig");
 pub const encode = @import("encode.zig");
 pub const canonical = @import("canonical.zig");
 pub const render = @import("render.zig");
 const signing = @import("signing.zig");
 
-pub const Error = shared.Error;
-pub const EncodeError = shared.EncodeError;
+pub const Error = errors.Error;
+pub const WalkError = errors.WalkError;
+pub const EncodeError = errors.EncodeError;
 
 pub const decodeBody = decode.decodeBody;
 pub const decodeBodyForProfile = decode.decodeBodyForProfile;

@@ -2,11 +2,12 @@
 //! words, and no committed doc links a temporary local one.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 const kinds = @import("kinds.zig");
 const corpus = @import("corpus.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Words that date a sentence to the moment it was written.
 const status_words = [_][]const u8{
@@ -39,7 +40,7 @@ pub fn check(
         try @import("paragraphs.zig").checkRepeatedLinks(gpa, violations, entry.path, entry.text);
     }
     // The site renders every example source into a page, comments included.
-    const examples = try util.collectSourceFiles(io, arena, root, "site/examples", &isAny) orelse return;
+    const examples = try source_tree.collectSourceFiles(io, arena, root, "site/examples", &isAny) orelse return;
     for (examples) |path| {
         const text = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot read it to check it against its kind ({s})", .{ path, @errorName(err) });

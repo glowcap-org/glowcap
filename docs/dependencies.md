@@ -168,7 +168,7 @@ From [`transports/iroh/Cargo.toml`](../transports/iroh/Cargo.toml):
 - **iroh**: QUIC connections with relay fallback behind the `iroh` transport.
 - **tokio**: The runtime the iroh endpoint runs on.
 
-From [`transports/sidecar-common/Cargo.toml`](../transports/sidecar-common/Cargo.toml):
+From [`transports/sidecar-runtime/Cargo.toml`](../transports/sidecar-runtime/Cargo.toml):
 
 - **tokio**: The runtime owner both transport libraries share.
 

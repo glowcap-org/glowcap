@@ -1,3 +1,6 @@
+// The process-wide runtime surface every binding test relies on: failure
+// reporting and its drain, the reported ABI version, and the hosted-behavior
+// trampoline lookup staying collectable.
 import * as tcp from "@glowcap/tcp";
 
 import { DEFAULT_FAILURE_CAPACITY, DEFAULT_FAILURE_PAYLOAD_CAP, INTERNAL, INVALID_ARGUMENT, IO } from "@glowcap/abi";

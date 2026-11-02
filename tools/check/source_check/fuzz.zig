@@ -12,9 +12,9 @@
 //! its seeds, and is never once mutated, it looks like coverage and is not.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Every crash input in every target's regressions directory must be replayed.
 ///

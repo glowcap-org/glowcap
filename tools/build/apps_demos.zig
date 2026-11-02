@@ -4,11 +4,12 @@
 //! compile under `check`. The demos are siblings that need deno.
 
 const std = @import("std");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
+const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 
-const glowcapExecutable = common.glowcapExecutable;
-const addInstalledSystemRun = common.addInstalledSystemRun;
+const glowcapExecutable = modules.glowcapExecutable;
+const addInstalledSystemRun = commands.addInstalledSystemRun;
 
 pub fn register(
     b: *std.Build,
@@ -84,7 +85,7 @@ pub fn register(
     // The showcase's thesis, attenuation refuses the unsafe verb, revocation
     // severs the handle, is pure coordinator logic, so it is pinned hermetically
     // here rather than only by the off-gate cross-language demo (needs deno).
-    const tools_app_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const tools_app_test = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "test", "apps/tools/deno/capabilities_test.ts",
     });
     tools_app_test.has_side_effects = true;
@@ -154,7 +155,7 @@ pub fn register(
     // Zig host's digest byte for byte, and the cross-language demo above is not
     // on the gate. Pin the primitive against known vectors here, which is (needs
     // deno).
-    const accountability_blake3_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const accountability_blake3_test = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "test", "apps/accountability-on-glowcap/deno/blake3_test.ts",
     });
     accountability_blake3_test.has_side_effects = true;
@@ -165,7 +166,7 @@ pub fn register(
     // The Python caller hand-rolls the same Blake3, with the same byte-agreement
     // requirement and the same off-gate demo, so its vectors are pinned too. Pure
     // Python, no dependency, so a bare python3 run serves.
-    const accountability_blake3_py = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const accountability_blake3_py = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "python3", "apps/accountability-on-glowcap/python/blake3_test.py",
     });
     accountability_blake3_py.has_side_effects = true;

@@ -15,13 +15,14 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 
-const shared = @import("shared.zig");
+const errors = @import("errors.zig");
+const ops = @import("ops.zig");
 const scalar = @import("scalar.zig");
 const syntax = @import("decode/syntax.zig");
 const locator = @import("decode/locator.zig");
 const values = @import("decode/values.zig");
 
-const Error = shared.Error;
+const Error = errors.Error;
 
 pub const max_decode_nesting = syntax.max_decode_nesting;
 pub const SignatureView = syntax.SignatureView;
@@ -82,7 +83,7 @@ fn decodeBodyAt(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.
     try syntax.readByte(bytes, cursor, '<');
     // Each op has one canonical label, so dispatch is one comparison per
     // kind in `message_op_order`, with no digit scan. Exhaustiveness rides on
-    // `shared.messageOp` and `decoderFor` both switching over
+    // `ops.messageOp` and `decoderFor` both switching over
     // `std.meta.Tag(model.Message)` and on the order naming every kind: a new
     // kind cannot compile without a wire op, a decoder, and a place in line.
     if (syntax.readKnownLabel(bytes, cursor, "op:deliver-only")) {
@@ -94,7 +95,7 @@ fn decodeBodyAt(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.
         return;
     }
     inline for (message_op_order) |kind| {
-        if (syntax.readKnownLabel(bytes, cursor, comptime shared.messageOp(kind))) {
+        if (syntax.readKnownLabel(bytes, cursor, comptime ops.messageOp(kind))) {
             if (!d.profile.carries(kind)) return Error.UnsupportedMessage;
             return decoderFor(kind)(d, bytes, cursor, body);
         }

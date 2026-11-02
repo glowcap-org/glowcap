@@ -1,3 +1,6 @@
+//! The `arch-check` executable: checks the repository root against the layer
+//! table and exits nonzero on a violation.
+
 const std = @import("std");
 const arch_check = @import("arch_check");
 const arch_check_table = @import("arch_check_table");

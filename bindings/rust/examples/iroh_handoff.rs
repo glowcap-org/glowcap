@@ -32,16 +32,16 @@ use std::time::Duration;
 use glowcap::iroh::Reachability;
 use glowcap::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, iroh};
 
-#[path = "../../../interop/_common/rust/helpers.rs"]
-mod helpers;
+#[path = "iroh/gate.rs"]
+mod gate;
 
-type Fail = helpers::Fail;
+type Fail = gate::Fail;
 
 const NAME: &str = "rust-iroh-carol";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
-	helpers::ignore_port_args()?;
+	gate::ignore_port_args()?;
 	// The `Session`/`Server` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await
@@ -53,7 +53,7 @@ async fn run() -> Result<(), Fail> {
 		Rc::new(iroh::listen(iroh::Config::new(Reachability::Direct), iroh::ListenOptions::default()).await?);
 	exporter.host().publish("greeter", || Box::new(greeter()))?;
 	let (exporter_id, exporter_addrs) = dialable(&exporter).await?;
-	helpers::serve_iroh_sessions(Rc::clone(&exporter));
+	gate::serve_iroh_sessions(Rc::clone(&exporter));
 	println!("rust-iroh-handoff: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
@@ -97,7 +97,7 @@ async fn run() -> Result<(), Fail> {
 			}
 		})
 	})?;
-	helpers::serve_iroh_sessions(Rc::clone(&gifter));
+	gate::serve_iroh_sessions(Rc::clone(&gifter));
 	println!("rust-iroh-handoff: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: dials the gifter, redeems the give by dialing the exporter ─────

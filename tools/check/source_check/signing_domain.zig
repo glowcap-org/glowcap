@@ -32,9 +32,9 @@
 //! healthy tree passes.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// One file allowed to call `crypto.sign`, with the exact number of sites and
 /// what each signs. A row is one authority: adding a site edits the count

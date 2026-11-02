@@ -13,9 +13,10 @@
 //! Validated by putting a retired name back (`room_client.ts`): it is caught.
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Where cited basenames may live. Wider than the scanned tree, because apps
 /// prose reaches into the bindings and the core.
@@ -55,12 +56,12 @@ pub fn checkProseFileClaims(
 
     var basenames = std.StringHashMap(void).init(arena);
     for (basename_roots) |tree| {
-        const files = try util.collectSourceFiles(io, arena, root, tree, isCitable) orelse continue;
+        const files = try source_tree.collectSourceFiles(io, arena, root, tree, isCitable) orelse continue;
         for (files) |path| try basenames.put(basenameOf(path), {});
     }
 
     for (scanned_roots) |tree| {
-        const files = try util.collectSourceFiles(io, arena, root, tree, isScanned) orelse continue;
+        const files = try source_tree.collectSourceFiles(io, arena, root, tree, isScanned) orelse continue;
         for (files) |path| {
             // The browser bundle is a build artifact that happens to sit in the tree.
             if (std.mem.endsWith(u8, path, "page.js")) continue;

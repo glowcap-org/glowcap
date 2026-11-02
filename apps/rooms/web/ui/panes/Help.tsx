@@ -19,7 +19,7 @@ import { ModalForm } from "../ModalCard.tsx";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { CopyField } from "../Copy.tsx";
 import { type TabFace, Tabs } from "../Tabs.tsx";
-import type { HelpTab } from "../store/core.ts";
+import type { HelpTab } from "../store/projection.ts";
 import {
 	helpAbout,
 	helpAboutCredit,

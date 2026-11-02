@@ -3,11 +3,13 @@
 //! documentation.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const markdown = @import("../markdown.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
+const appendViolation = violation_log.appendViolation;
+const sectionBody = markdown.sectionBody;
+const collectBulletSpans = markdown.collectBulletSpans;
 
 /// Command-citing surfaces that live outside the walked `docs/**` and
 /// `.agents/**` trees. Everything inside those trees is discovered by walking,
@@ -135,7 +137,7 @@ pub fn checkDocumentedBuildSteps(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const build_zig = util.readBuildStepSources(io, gpa, root) catch |err|
+    const build_zig = source_tree.readBuildStepSources(io, gpa, root) catch |err|
         return appendViolation(gpa, violations, "build.zig + tools/build: failed to read with {s}", .{@errorName(err)});
     defer gpa.free(build_zig);
 

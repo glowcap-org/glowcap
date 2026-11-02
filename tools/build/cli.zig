@@ -1,7 +1,8 @@
 //! Product CLI and hermetic CLI test roots.
 
 const std = @import("std");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
+const iroh_build = @import("iroh.zig");
 const execution = @import("execution.zig");
 
 pub const Inputs = struct {
@@ -31,7 +32,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
     const product = cliModule(b, in, vaxis, options, "cli/main.zig", true, in.relay_tls);
     const exe = b.addExecutable(.{ .name = "glowcap", .root_module = product });
     b.installArtifact(exe);
-    const run = common.addInstalledSystemRun(b, .service, &.{"env"});
+    const run = commands.addInstalledSystemRun(b, .service, &.{"env"});
     run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/glowcap" } });
     run.step.dependOn(&b.top_level_steps.get("glowcap-install").?.step);
     run.addPassthruArgs();
@@ -44,7 +45,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .root_module = product_check,
     }).step);
 
-    const rooms_session = common.addInstalledSystemRun(b, .service, &.{"env"});
+    const rooms_session = commands.addInstalledSystemRun(b, .service, &.{"env"});
     rooms_session.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/glowcap" } });
     rooms_session.addArgs(&.{ "apps", "rooms", "session" });
     rooms_session.addPassthruArgs();
@@ -110,7 +111,7 @@ fn cliModule(
     link_iroh: bool,
     relay_tls: *std.Build.Module,
 ) *std.Build.Module {
-    const module = common.irohDriverModule(
+    const module = iroh_build.irohDriverModule(
         b,
         in.target,
         in.optimize,
@@ -121,7 +122,7 @@ fn cliModule(
     module.addImport("relay_tls", relay_tls);
     module.addImport("vaxis", vaxis);
     module.addOptions("build_options", options);
-    if (link_iroh) common.linkIrohSidecar(b, module, in.target, in.iroh_sidecar_archive);
+    if (link_iroh) iroh_build.linkIrohSidecar(b, module, in.target, in.iroh_sidecar_archive);
     return module;
 }
 

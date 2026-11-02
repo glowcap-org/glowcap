@@ -2,7 +2,7 @@ import * as tcp from "@glowcap/tcp";
 import process from "node:process";
 import { ensureRuntimeReady, Runtime } from "../runtime/mod.ts";
 import { ok, runtime } from "./scenarios/support.ts";
-import * as shared from "./scenarios/shared.ts";
+import * as runtimeSurface from "./scenarios/runtime_surface.ts";
 import * as bunRefusals from "./scenarios/bun_refusals.ts";
 import * as enliven from "./scenarios/enliven.ts";
 import * as roundtrip from "./scenarios/roundtrip.ts";
@@ -14,7 +14,7 @@ import * as driver from "./scenarios/driver.ts";
 // synchronous locator/FFI call. A no-op on Deno (resolved at import).
 await ensureRuntimeReady();
 
-await shared.run();
+await runtimeSurface.run();
 
 // Bun's FFI runs calls on the JavaScript thread. It can use the
 // byte-fed client path, but it cannot host a driver listener or own a

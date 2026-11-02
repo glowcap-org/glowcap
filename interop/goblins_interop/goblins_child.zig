@@ -1,4 +1,4 @@
-//! Shared helpers for the Goblins interop drivers: the spawned Racket child's
+//! The spawned Racket child of a Goblins interop driver: its
 //! NDJSON readiness protocol (the spawn-and-await bracket, field extraction,
 //! the readiness-block wait, the stdout drain, the best-effort stderr dump),
 //! the keyed `op:start-session` bracket, and the bootstrap-fetch pump loop.

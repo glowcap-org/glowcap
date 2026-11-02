@@ -1,7 +1,7 @@
 //! Named section references must navigate to the heading they name.
 const std = @import("std");
 const corpus = @import("corpus.zig");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 
 pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *std.ArrayList([]const u8)) !void {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
@@ -78,7 +78,7 @@ fn checkParagraph(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8)
             const quoted = std.mem.endsWith(u8, prose[0..start], "\"") or std.mem.endsWith(u8, prose[0..start], "“");
             const prefix_ref = referencePrefix(before) and (quoted or !std.mem.endsWith(u8, before, "in"));
             if (!prefix_ref and !std.mem.startsWith(u8, after, "section")) continue;
-            try util.appendViolation(gpa, violations, "{s}:near {d}: link the section heading `{s}`", .{ path, line, title.* });
+            try violation_log.appendViolation(gpa, violations, "{s}:near {d}: link the section heading `{s}`", .{ path, line, title.* });
         }
     }
 }

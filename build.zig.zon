@@ -39,7 +39,7 @@
         // Optional transport modules compile their Rust sidecars by path.
         "transports/iroh",
         "transports/webrtc",
-        "transports/sidecar-common",
+        "transports/sidecar-runtime",
         "transports/Cargo.toml",
         "transports/Cargo.lock",
         "transports/sidecars.rs",

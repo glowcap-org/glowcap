@@ -1,3 +1,6 @@
+//! The teardown barrier: a task that outlives the handle that spawned it still
+//! reports its outcome to endpoint release.
+
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 /// The endpoint-surviving owner for tasks detached from a released handle: a

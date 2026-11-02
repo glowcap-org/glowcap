@@ -14,12 +14,12 @@ const std = @import("std");
 
 const model = @import("model");
 
-const shared = @import("shared.zig");
+const errors = @import("errors.zig");
 const decode = @import("decode.zig");
 const render = @import("render.zig");
 const signing = @import("signing.zig");
 
-const Error = shared.Error;
+const Error = errors.Error;
 
 /// Canonical signed bytes for an `op:start-session` `acceptable-location`: the
 /// Syrup encoding of `<my-location $acceptable-location>` (Goblins `captp.rkt`).

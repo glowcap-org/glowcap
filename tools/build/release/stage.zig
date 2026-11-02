@@ -1,6 +1,6 @@
 //! Explicit release inventories share one transactional staging operation.
 const std = @import("std");
-const common = @import("../common.zig");
+const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
 const transaction = @import("transaction.zig");
 
@@ -56,7 +56,7 @@ pub fn addManifestTests(b: *std.Build) *std.Build.Step.Run {
 /// used for deployment. The source launcher and packaged binary then resolve
 /// assets and skills by the same installation-relative rule.
 pub fn installResources(b: *std.Build, product_directory: []const u8) *std.Build.Step.Run {
-    const run = common.addInstalledSystemRun(b, .build_tool, &.{
+    const run = commands.addInstalledSystemRun(b, .build_tool, &.{
         "sh",                "-ec",
         transaction.wrap(b,
             \\marker=release.json
@@ -79,7 +79,7 @@ pub fn add(b: *std.Build, target: std.Build.ResolvedTarget, version: std.Semanti
         .macos => target.result.os.version_range.semver.min,
         else => std.SemanticVersion{ .major = 0, .minor = 0, .patch = 0 },
     };
-    const run = common.addInstalledSystemRun(b, .build_tool, &.{
+    const run = commands.addInstalledSystemRun(b, .build_tool, &.{
         "sh",            "-ec",
         transaction.wrap(b, b.fmt(
             \\prefix="$2"

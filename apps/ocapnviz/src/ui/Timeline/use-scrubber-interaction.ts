@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { buildEventHitIndex } from "./event-hit-index.ts";
 import { iterateRows } from "./row-layout.ts";
-import type { OrderedEntities } from "./scrubber-pointers/types.ts";
+import type { OrderedEntities } from "./scrubber-pointers/host.ts";
 import type { LaneKind } from "./state.ts";
 
 export function useScrubberInteraction(args: {

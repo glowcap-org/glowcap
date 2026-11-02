@@ -14,12 +14,12 @@ const model = @import("model");
 const canonical_collection = @import("canonical_collection.zig");
 const render = @import("render.zig");
 const scalar = @import("scalar.zig");
-const shared = @import("shared.zig");
+const errors = @import("errors.zig");
 
 const view = model.view;
 
-const Error = shared.Error;
-const WalkError = shared.WalkError;
+const Error = errors.Error;
+const WalkError = errors.WalkError;
 
 const beginRecord = scalar.beginRecord;
 const openRecord = scalar.openRecord;

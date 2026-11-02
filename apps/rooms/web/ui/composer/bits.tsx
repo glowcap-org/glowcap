@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRoomsState } from "../hooks.ts";
-import { NO_TYPERS } from "../store/core.ts";
+import { NO_TYPERS } from "../store/projection.ts";
 import { fileSize } from "../media.ts";
 import { Icon } from "../icons.tsx";
 import { IconButton } from "../IconButton.tsx";

@@ -14,7 +14,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
 	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 });
-const { PageProjection } = await import("../web/ui/store/core.ts");
+const { PageProjection } = await import("../web/ui/store/projection.ts");
 const { membershipStatus } = await import("../web/ui/session/managed/membership_status.ts");
 
 Deno.test("membership snapshots cannot renew expired advice or clear a newer gesture", () => {

@@ -7,7 +7,9 @@ const engine = @import("engine");
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const hosted_behavior = @import("hosted_behavior.zig");
+const instance = @import("instance.zig");
 
 /// Spawn a hosted actor and adopt its first root into an owned Host reference.
 /// No session, alias or wire export is created. Release the returned reference
@@ -22,12 +24,12 @@ pub fn glowcap_host_spawn(
     out_ref: ?*shared.GlowcapReference,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const selected = behavior orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const out = out_ref orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (common.preflightHostedTransfer(inst)) |code| return code;
-    const hosted = common.hostedBridge(inst.allocator, selected, ctx, free) catch |err| return common.errToCode(err);
-    const reference = inst.core.spawnHosted(null, hosted) catch |err| return common.errToCode(err);
+    if (hosted_behavior.preflightHostedTransfer(inst)) |code| return code;
+    const hosted = hosted_behavior.hostedBridge(inst.allocator, selected, ctx, free) catch |err| return host_error.errToCode(err);
+    const reference = inst.core.spawnHosted(null, hosted) catch |err| return host_error.errToCode(err);
     out.* = .{ .id = reference.raw() };
     return shared.GLOWCAP_OK;
 }
@@ -40,15 +42,15 @@ pub fn publish(
     ctx: ?*anyopaque,
     free: ?c.GlowcapHostCtxFree,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const selected_behavior = behavior orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const name_bytes = shared.sliceFromC(name, name_len) catch |err|
         return shared.marshalErrorToCode(err);
-    if (common.preflightHostedTransfer(inst)) |code| return code;
-    const hosted = common.hostedBridge(inst.allocator, selected_behavior, ctx, free) catch |err|
-        return common.errToCode(err);
+    if (hosted_behavior.preflightHostedTransfer(inst)) |code| return code;
+    const hosted = hosted_behavior.hostedBridge(inst.allocator, selected_behavior, ctx, free) catch |err|
+        return host_error.errToCode(err);
     _ = inst.core.publishHosted(name_bytes, hosted) catch |err|
-        return common.errToCode(err);
+        return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -62,7 +64,7 @@ pub fn publishDurable(
     out_swiss: ?[*]u8,
     swiss_cap: usize,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const selected_behavior = behavior orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const out = out_swiss orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const entropy_bytes = shared.sliceFromC(entropy, entropy_len) catch |err|
@@ -75,22 +77,22 @@ pub fn publishDurable(
         shared.setLastError("host: durable swiss buffer needs {d} bytes", .{engine.durable_swiss_len});
         return shared.GLOWCAP_ERR_BUFFER_TOO_SMALL;
     }
-    if (common.preflightHostedTransfer(inst)) |code| return code;
-    const hosted = common.hostedBridge(inst.allocator, selected_behavior, ctx, free) catch |err|
-        return common.errToCode(err);
+    if (hosted_behavior.preflightHostedTransfer(inst)) |code| return code;
+    const hosted = hosted_behavior.hostedBridge(inst.allocator, selected_behavior, ctx, free) catch |err|
+        return host_error.errToCode(err);
     var entropy_fixed: [engine.durable_swiss_entropy_len]u8 = undefined;
     @memcpy(&entropy_fixed, entropy_bytes);
     const minted = inst.core.publishHostedDurable(entropy_fixed, hosted) catch |err|
-        return common.errToCode(err);
+        return host_error.errToCode(err);
     @memcpy(out[0..engine.durable_swiss_len], minted.slice());
     return @intCast(engine.durable_swiss_len);
 }
 
 pub fn removeDurable(host: ?*c.GlowcapHost, swiss: ?[*]const u8, swiss_len: usize) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const swiss_bytes = shared.sliceFromC(swiss, swiss_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.removeDurable(swiss_bytes) catch |err| return common.errToCode(err);
+    inst.core.removeDurable(swiss_bytes) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -102,7 +104,7 @@ pub fn publishReference(
     out_swiss: ?[*]u8,
     swiss_cap: usize,
 ) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const selected = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const out = out_swiss orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const bytes = shared.sliceFromC(entropy, entropy_len) catch |err| return shared.marshalErrorToCode(err);
@@ -111,16 +113,16 @@ pub fn publishReference(
     var fixed: [engine.durable_swiss_entropy_len]u8 = undefined;
     @memcpy(&fixed, bytes);
     const minted = inst.core.publishDurableCapability(fixed, inst.core.capabilityFromRaw(selected.id)) catch |err|
-        return common.errToCode(err);
+        return host_error.errToCode(err);
     @memcpy(out[0..engine.durable_swiss_len], minted.slice());
     return @intCast(engine.durable_swiss_len);
 }
 
 pub fn unpublish(host: ?*c.GlowcapHost, name: ?[*]const u8, name_len: usize) i32 {
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const name_bytes = shared.sliceFromC(name, name_len) catch |err|
         return shared.marshalErrorToCode(err);
-    inst.core.unpublish(name_bytes) catch |err| return common.errToCode(err);
+    inst.core.unpublish(name_bytes) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 

@@ -3,9 +3,11 @@
 //! Put and remove consume their bytes synchronously, and a returned row lasts until the next callback.
 //! Only a terminal database event retires a plan and permits installation.
 const std = @import("std");
-const common = @import("common.zig");
+const foreign_values = @import("foreign_values.zig");
+const owners = @import("owners.zig");
+const core = @import("loam_core");
+const shared = @import("c_abi_shared");
 const work = @import("work.zig");
-const core = common.core;
 pub const GlowcapLoamBytes = extern struct { data: ?[*]const u8 = null, len: usize = 0, present: u32 = 0 };
 pub const GlowcapLoamKvFn = *const fn (?*anyopaque, u32, ?[*]const u8, usize, ?*const GlowcapLoamBytes, ?*GlowcapLoamBytes) callconv(.c) i32;
 pub const Kv = struct {
@@ -15,8 +17,8 @@ pub const Kv = struct {
     key: [core.max_key_bytes]u8 = undefined,
     fn call(self: *Kv, op: u32, key: []const u8, input: ?*const GlowcapLoamBytes, output: ?*GlowcapLoamBytes) !void {
         switch (self.callback(self.context, op, key.ptr, key.len, input, output)) {
-            common.shared.GLOWCAP_OK => {},
-            common.shared.GLOWCAP_ERR_WOULD_BLOCK => return if (op == 0 or op == 3) error.RecordUnloaded else error.WriteWouldBlock,
+            shared.GLOWCAP_OK => {},
+            shared.GLOWCAP_ERR_WOULD_BLOCK => return if (op == 0 or op == 3) error.RecordUnloaded else error.WriteWouldBlock,
             else => return error.StorageFailure,
         }
     }
@@ -25,7 +27,7 @@ pub const Kv = struct {
         try self.call(0, key, null, &out);
         if (out.present > 1) return error.InvalidArgument;
         if (out.present == 0) return null;
-        return try common.slice(u8, out.data, out.len);
+        return try foreign_values.slice(u8, out.data, out.len);
     }
     pub fn put(self: *Kv, key: []const u8, value: []const u8) !void {
         const bytes: GlowcapLoamBytes = .{ .data = value.ptr, .len = value.len, .present = 1 };
@@ -42,7 +44,7 @@ pub const Kv = struct {
         try self.call(3, prefix, &floor, &out);
         if (out.present > 1) return error.InvalidArgument;
         if (out.present == 0) return null;
-        const found = try common.slice(u8, out.data, out.len);
+        const found = try foreign_values.slice(u8, out.data, out.len);
         if (found.len == 0 or found.len > self.key.len or !std.mem.startsWith(u8, found, prefix)) return error.InvalidArgument;
         if (after) |bytes| if (std.mem.order(u8, found, bytes) != .gt) return error.InvalidArgument;
         @memcpy(self.key[0..found.len], found);
@@ -78,7 +80,7 @@ pub fn finish(request: work.Request, planned: ?work.Result, outcome: u32) !work.
         else => error.InvalidArgument,
     };
 }
-pub fn startupPlan(owner: *common.Store, recovery: bool, kv: *Kv) !void {
+pub fn startupPlan(owner: *owners.Store, recovery: bool, kv: *Kv) !void {
     if (owner.attachments != 0) return error.Busy;
     if (owner.store_result != null) return error.Busy;
     if (recovery) {
@@ -97,7 +99,7 @@ pub fn startupPlan(owner: *common.Store, recovery: bool, kv: *Kv) !void {
 /// Evaluate one bounded collection batch of at most `work_limit` steps plus the
 /// steps that finish its open unit. `startupFinish` retires it like a write, and
 /// a suspended startup write refuses it until that write is finished.
-pub fn collectPlan(owner: *common.Store, work_limit: usize, kv: *Kv) !void {
+pub fn collectPlan(owner: *owners.Store, work_limit: usize, kv: *Kv) !void {
     if (owner.attachments != 0) return error.Busy;
     if (owner.store_result != null) return error.Busy;
     if (owner.store_batch) |batch| {
@@ -108,13 +110,13 @@ pub fn collectPlan(owner: *common.Store, work_limit: usize, kv: *Kv) !void {
     }
     try evaluate(owner, kv);
 }
-fn evaluate(owner: *common.Store, kv: *Kv) !void {
+fn evaluate(owner: *owners.Store, kv: *Kv) !void {
     if (owner.store_evaluation == null) owner.store_evaluation = core.Batch.Evaluation.init(&owner.store_batch.?);
     // Advance into a local first, because a suspended step must leave no result.
     const result: core.Resolution = .{ .committed = try owner.store_evaluation.?.advance(kv) };
     owner.store_result = result;
 }
-pub fn startupFinish(owner: *common.Store, recovery: bool, outcome: u32) !void {
+pub fn startupFinish(owner: *owners.Store, recovery: bool, outcome: u32) !void {
     if (owner.attachments != 0) return error.Busy;
     if (outcome > 2 or (recovery and outcome == 2)) return error.InvalidArgument;
     if (recovery) {

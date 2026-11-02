@@ -1,7 +1,7 @@
 //! File-scope resolution for the source-check ban engine.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
 
 /// The files a ban row scans.
 pub const Where = union(enum) {
@@ -28,7 +28,7 @@ pub fn collectRowFiles(
     out: *std.ArrayList([]const u8),
 ) !void {
     if (!tree.recursive) return collectFiles(io, arena, root, .{ .tree = tree }, out);
-    for (try util.cachedSourceTreeFiles(io, arena, root, tree.dir, inventories)) |path| {
+    for (try source_tree.cachedSourceTreeFiles(io, arena, root, tree.dir, inventories)) |path| {
         const sub_path = path[tree.dir.len + 1 ..];
         if (!treeAdmits(tree, sub_path) or treeExcludes(tree, path)) continue;
         try out.append(arena, path);
@@ -55,7 +55,7 @@ pub fn collectFiles(
                 while (try walker.next(io)) |entry| {
                     if (entry.kind == .directory) {
                         const repo_path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ tree.dir, entry.path });
-                        if (util.sourceTreeDirectory(repo_path) and treeAdmitsDirectory(tree, entry.path)) {
+                        if (source_tree.sourceTreeDirectory(repo_path) and treeAdmitsDirectory(tree, entry.path)) {
                             try walker.enter(io, entry);
                         }
                         continue;

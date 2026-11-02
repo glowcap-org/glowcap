@@ -4,9 +4,9 @@
 //! inventory has its own check in `project_shape/examples.zig`.)
 
 const std = @import("std");
-const util = @import("../util.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Source families the modules map leaves out. The oracle is the
 /// test reference corpus, not a module an application imports.

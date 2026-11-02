@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import await_greeter_ready, fail, insert_bindings_path, parse_port
+from client_gate import await_greeter_ready, fail, insert_bindings_path, parse_port
 
 insert_bindings_path()
 

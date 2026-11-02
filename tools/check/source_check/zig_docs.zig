@@ -27,9 +27,9 @@
 //! and bare `ownedFrameFromView` as readily as `Peer.sendBorrowed`.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Type names whose methods are declared outside `src/`, so a doc naming one
 /// proves nothing about this tree. Matched against the text before the dot.

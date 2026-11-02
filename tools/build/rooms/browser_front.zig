@@ -4,7 +4,7 @@
 //! one dependency recipe.
 
 const std = @import("std");
-const common = @import("../common.zig");
+const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
 const web_tests = @import("web.zig");
 
@@ -64,7 +64,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     resources.step.dependOn(&product.step);
     const rooms_build = b.step("glowcap-install", "Install the complete glowcap product and stage its deployment tree: CLI, Rooms runtimes, browser assets and skills (needs cargo + deno + wasm-bindgen)");
     rooms_build.dependOn(&resources.step);
-    const install_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release.py", "--installed" });
+    const install_proof = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release.py", "--installed" });
     install_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix } }, .{ .make_absolute = true });
     install_proof.addFileArg(b.path("glowcap"));
     install_proof.step.dependOn(rooms_build);
@@ -77,7 +77,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     // deployment scenario owns its commands. Suite growth must not consume
     // another's deadline.
     inline for (.{ "--installation", "--deployment", "--deployment-builds", "--deployment-reset" }) |mode| {
-        const host_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
+        const host_proof = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
         host_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
         host_proof.addArg(mode);
         host_proof.step.dependOn(rooms_build);
@@ -87,7 +87,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     // budget, which no runner speed changes. Its one child run carries the
     // script's own 20-second bound, so the step is an orchestrator of a
     // bounded child rather than work a process deadline should scale.
-    const deadline_proof = common.addInstalledSystemRun(b, .child_bounded, &.{ "python3", "tools/check/glowcap_host.py" });
+    const deadline_proof = commands.addInstalledSystemRun(b, .child_bounded, &.{ "python3", "tools/check/glowcap_host.py" });
     deadline_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
     deadline_proof.addArg("--deadline");
     deadline_proof.step.dependOn(rooms_build);
@@ -105,7 +105,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     // Both development fronts share state, grants, transport, and dependencies.
     // Fast Refresh changes who serves the browser, not the Rooms service setup.
     const development: Launch = .{
-        .state_dir = common.rootPath(b, ".local/.state/rooms"),
+        .state_dir = commands.rootPath(b, ".local/.state/rooms"),
         .mint_everything = true,
         .hot_reload = b.option(bool, "hot-reload", "Use Vite Fast Refresh for rooms-dev; false serves compiled generations through the Rooms web server") orelse true,
     };
@@ -118,7 +118,7 @@ pub fn register(ctx: Context) *std.Build.Step {
 
 fn addLaunch(ctx: Context, transport: Transport, launch: Launch) *std.Build.Step.Run {
     const b = ctx.b;
-    const run = common.addInstalledSystemRun(b, postureFor(transport), &.{"env"});
+    const run = commands.addInstalledSystemRun(b, postureFor(transport), &.{"env"});
     addEnvironment(run, b, launch);
     if (launch.hot_reload) run.addArgs(&.{
         "deno", "run", "-A", "--config=apps/rooms/web/deno.json", "apps/rooms/web/dev.ts",
@@ -139,7 +139,7 @@ fn addOptions(run: *std.Build.Step.Run, b: *std.Build, transport: Transport, lau
     run.addArg(b.fmt("--transport={s}", .{@tagName(transport)}));
     if (launch.mint_everything) {
         run.addArgs(&.{ "--admin-listeners", "--diagnostics", "--irc", "--operator", "--peering", "--trace" });
-        run.addArg(b.fmt("--session-state={s}", .{common.rootPath(b, ".local/.state/rooms-session")}));
+        run.addArg(b.fmt("--session-state={s}", .{commands.rootPath(b, ".local/.state/rooms-session")}));
     }
     run.addPassthruArgs();
 }

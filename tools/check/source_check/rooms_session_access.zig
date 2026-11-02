@@ -24,9 +24,9 @@
 //! Validated by putting each banned spelling back: every one is caught.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Where a session access is read to decide something. Tests live outside these,
 /// under `apps/rooms/test`, and are not held to this.

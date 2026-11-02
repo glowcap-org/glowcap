@@ -29,9 +29,10 @@
 //! crates that have something to hold.
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// Where first-party Rust lives. Vendored and generated trees are skipped by
 /// `interesting` below.
@@ -168,11 +169,11 @@ pub fn check(
         sources.deinit(gpa);
     }
     for (roots) |root_path| {
-        if (try util.collectSourceFiles(io, gpa, root, root_path, isManifest)) |found| {
+        if (try source_tree.collectSourceFiles(io, gpa, root, root_path, isManifest)) |found| {
             defer gpa.free(found);
             for (found) |path| try manifests.append(gpa, path);
         }
-        if (try util.collectSourceFiles(io, gpa, root, root_path, isRust)) |found| {
+        if (try source_tree.collectSourceFiles(io, gpa, root, root_path, isRust)) |found| {
             defer gpa.free(found);
             for (found) |path| try sources.append(gpa, path);
         }

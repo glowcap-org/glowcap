@@ -22,10 +22,10 @@
 use glowcap::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, tcp};
 use tokio::process::Command;
 
-#[path = "../_common/rust/helpers.rs"]
-mod helpers;
+#[path = "../_common/rust/client_gate.rs"]
+mod client_gate;
 
-type Fail = helpers::Fail;
+type Fail = client_gate::Fail;
 
 const HOST: &str = "127.0.0.1";
 /// Alice's port, Bob (the exporter) listens on PORT+1. `--port=N` (from
@@ -35,7 +35,7 @@ const RACKET: &str = "racket";
 const HOST_SCRIPT: &str = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
 
 fn parse_port() -> Result<u16, Fail> {
-	helpers::parse_port(DEFAULT_PORT, 65534)
+	client_gate::parse_port(DEFAULT_PORT, 65534)
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -48,12 +48,13 @@ async fn main() -> Result<(), Fail> {
 		.kill_on_drop(true)
 		.spawn()?;
 
-	let swiss = helpers::read_swiss(&mut child).await?;
+	let swiss = client_gate::read_swiss(&mut child).await?;
 	println!("rust-goblins-handoff: alice published introducer swiss={swiss} on {HOST}:{port}");
 
 	// The `Session` is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
-	let result = match tokio::time::timeout(helpers::INTEROP_TIMEOUT, local.run_until(converse(swiss, port))).await {
+	let result = match tokio::time::timeout(client_gate::INTEROP_TIMEOUT, local.run_until(converse(swiss, port))).await
+	{
 		Ok(result) => result,
 		Err(_) => Err("rust-goblins-handoff timed out".into()),
 	};

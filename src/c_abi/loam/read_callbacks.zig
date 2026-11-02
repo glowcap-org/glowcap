@@ -1,17 +1,20 @@
 //! Read interface declarations copy into the shared recursive custody owner.
-const common = @import("common.zig");
+const foreign_values = @import("foreign_values.zig");
+const owners = @import("owners.zig");
+const c = @import("layouts.zig");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
+const refusal = @import("refusal.zig");
 const callbacks = @import("callbacks.zig");
 const std = @import("std");
 const continuations = @import("continuations.zig");
-const c = common.c;
-const shared = common.shared;
-const Scope = common.hosting.ReadScope;
+const Scope = hosting.ReadScope;
 
 pub fn glowcap_loam_call_disclose_reads_copying(raw: ?*c.GlowcapLoamCall, target: ?*const shared.GlowcapReference, interfaces: ?[*]const c.GlowcapLoamReadInterface, interface_count: usize, role: usize, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const out = out_reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = .{ .id = 0 };
-    disclose(raw, target, interfaces, interface_count, role, out) catch |err| return common.code(err);
+    disclose(raw, target, interfaces, interface_count, role, out) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -30,14 +33,14 @@ fn disclose(raw: ?*c.GlowcapLoamCall, target: ?*const shared.GlowcapReference, i
 }
 
 fn project(arena: std.mem.Allocator, interfaces: ?[*]const c.GlowcapLoamReadInterface, count: usize) ![]const Scope.Interface {
-    const declarations = try common.slice(c.GlowcapLoamReadInterface, interfaces, count);
+    const declarations = try foreign_values.slice(c.GlowcapLoamReadInterface, interfaces, count);
     const projected = try arena.alloc(Scope.Interface, count);
     for (projected, declarations) |*out_interface, declaration| {
-        const input = try common.slice(c.GlowcapLoamReadMethod, declaration.methods, declaration.method_count);
+        const input = try foreign_values.slice(c.GlowcapLoamReadMethod, declaration.methods, declaration.method_count);
         const methods = try arena.alloc(Scope.Method, input.len);
         for (methods, input) |*out_method, method| out_method.* = .{
-            .verb = try common.slice(u8, method.verb, method.verb_len),
-            .results = try common.slice(usize, method.results, method.result_count),
+            .verb = try foreign_values.slice(u8, method.verb, method.verb_len),
+            .results = try foreign_values.slice(usize, method.results, method.result_count),
         };
         out_interface.* = .{ .methods = methods };
     }
@@ -48,7 +51,7 @@ pub fn glowcap_loam_continuation_project_reads_copying(raw: ?*c.GlowcapLoamConti
     shared.lastErrorClear();
     const out = out_reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = .{ .id = 0 };
-    projectContinuation(raw, index, interfaces, interface_count, role, out) catch |err| return common.code(err);
+    projectContinuation(raw, index, interfaces, interface_count, role, out) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -58,7 +61,7 @@ fn projectContinuation(raw: ?*c.GlowcapLoamContinuation, index: usize, interface
     const continuation = try observer.active();
     // POD projection has a transient ceiling independent of the retained
     // scope. Payload leaves stay borrowed until the shared declaration copy.
-    var scratch: common.hosting.Call.Memory = undefined;
+    var scratch: hosting.Call.Memory = undefined;
     scratch.init(observer.owner.store.allocator, observer.owner.value.options.continuation_bytes);
     defer scratch.deinit();
     const declarations = try project(scratch.input.allocator(), interfaces, count);
@@ -70,6 +73,6 @@ pub fn glowcap_loam_read_scope_size_bound(arguments: ?*const c.GlowcapLoamValueB
     const out = out_bytes orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = 0;
     const input = arguments orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    out.* = Scope.sizeBound(.{ .values = input.values, .struct_entries = input.struct_entries, .bytes = input.bytes, .capabilities = input.capabilities }, source_verb_bytes, .{ .interfaces = interfaces, .methods = methods, .verb_bytes = verb_bytes, .result_roles = result_roles, .targets = targets }) catch |err| return common.code(err);
+    out.* = Scope.sizeBound(.{ .values = input.values, .struct_entries = input.struct_entries, .bytes = input.bytes, .capabilities = input.capabilities }, source_verb_bytes, .{ .interfaces = interfaces, .methods = methods, .verb_bytes = verb_bytes, .result_roles = result_roles, .targets = targets }) catch |err| return refusal.code(err);
     return shared.GLOWCAP_OK;
 }

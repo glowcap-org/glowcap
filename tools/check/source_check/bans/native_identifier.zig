@@ -10,10 +10,11 @@
 //! owner.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const source_tree = @import("../source_tree.zig");
+const violation_log = @import("../violation_log.zig");
 const reader_voice = @import("../docs/reader_voice.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 const trees = [_][]const u8{ "src", "bindings", "apps" };
 
@@ -221,7 +222,7 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (trees) |tree| {
-        const files = try util.collectSourceFiles(io, gpa, root, tree, isCode) orelse {
+        const files = try source_tree.collectSourceFiles(io, gpa, root, tree, isCode) orelse {
             try appendViolation(gpa, violations, "{s}: failed to open for the native-identifier check", .{tree});
             continue;
         };

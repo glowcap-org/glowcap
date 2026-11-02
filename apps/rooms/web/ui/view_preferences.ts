@@ -1,6 +1,6 @@
 // This browser keeps its own view choices independently of the selected peer.
 import { parseRoomsViewState, type RoomsViewState } from "../../lib/view_state.ts";
-import type { PageProjection } from "./store/core.ts";
+import type { PageProjection } from "./store/projection.ts";
 import { noteTrouble } from "./store.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 import { managedSessionText } from "../../lib/text/managed_session.ts";

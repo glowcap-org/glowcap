@@ -6,7 +6,7 @@
 //! deadlines, so a focused source edit never pays for them.
 
 const std = @import("std");
-const common = @import("common.zig");
+const archives = @import("archives.zig");
 const execution = @import("execution.zig");
 
 pub fn register(b: *std.Build) void {
@@ -70,7 +70,7 @@ pub fn register(b: *std.Build) void {
     const version_lockstep_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/version_lockstep_test.py" });
     version_lockstep_contracts.has_side_effects = true;
     infrastructure_check_step.dependOn(&version_lockstep_contracts.step);
-    const install_if_changed_tests = b.addTest(.{ .name = "install-if-changed", .root_module = common.installIfChangedExe(b).root_module });
+    const install_if_changed_tests = b.addTest(.{ .name = "install-if-changed", .root_module = archives.installIfChangedExe(b).root_module });
     infrastructure_check_step.dependOn(&execution.addZigTest(b, install_if_changed_tests, .unit_test).step);
 
     // The deadline wrapper every CI gate runs under, held by its behaviour

@@ -2,13 +2,15 @@
 //! and the viewer's provenance mirror held to them.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const captp_vocabulary = @import("../captp_vocabulary.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
-const containsAsSymbol = util.containsAsSymbol;
-const extractBraceBlock = util.extractBraceBlock;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const fileContains = text_match.fileContains;
+const containsAsSymbol = text_match.containsAsSymbol;
+const extractBraceBlock = text_match.extractBraceBlock;
 
 /// The far end of the trace vocabulary: the viewer that reads the schema, and
 /// the profile word no Zig declaration owns (ADR-0040).
@@ -49,7 +51,7 @@ pub fn checkTraceViewerVocabulary(
 
     if (root.readFileAlloc(io, viewer, gpa, .limited(4 << 20))) |contents| {
         defer gpa.free(contents);
-        inline for (util.captp_wire_words) |arm| {
+        inline for (captp_vocabulary.captp_wire_words) |arm| {
             const quoted = "\"" ++ arm.wire ++ "\"";
             if (std.mem.indexOf(u8, contents, quoted) == null) {
                 try appendViolation(gpa, violations, "{s}: the viewer has no word for `.{s}`, which every producer sends as {s} (`{s}`). A version the feed can carry and the viewer cannot read draws as nothing.", .{ viewer, arm.tag, quoted, authority });

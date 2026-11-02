@@ -1,4 +1,6 @@
-// Shared helpers for Deno interop client scripts.
+// The gate protocol a Deno interop client speaks: fail a named gate, read a
+// readiness field from the partner's stdout within the deadline, parse the port
+// argument, and serve accepted sessions.
 
 export function fail(gate: string, msg: string): never {
 	throw new Error(`${gate} FAILED: ${msg}`);

@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "interop" / "_common" / "python"))
-from helpers import insert_bindings_path
+from client_gate import insert_bindings_path
 
 insert_bindings_path()
 

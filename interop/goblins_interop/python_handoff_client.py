@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, insert_bindings_path, parse_port, read_swiss
+from client_gate import fail, insert_bindings_path, parse_port, read_swiss
 
 insert_bindings_path()
 

@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { Engine } from "../engine.ts";
+import { engineTest } from "../engine-test/harness.ts";
 import { makeBaseEventConverter } from "./feed.ts";
 import { claimRecording, emptyCaptureError, makeLiveAppender } from "./mode.ts";
 import { findPeer, findSession } from "../world.ts";
@@ -31,20 +32,7 @@ function newLiveDoc(): TimelineDocument {
 	};
 }
 
-// Constructing an `Engine` runs the KeyframeLayoutSystem's d3-force
-// convergence, which schedules a d3-timer Deno's resource sanitizer
-// flags as a leak. Same workaround as engine-test/harness.ts and
-// keyframe-layout-test/harness.ts.
-function liveTest(name: string, fn: () => void): void {
-	Deno.test({
-		name,
-		sanitizeOps: false,
-		sanitizeResources: false,
-		fn,
-	});
-}
-
-liveTest(
+engineTest(
 	"live mode: ocapn.session-opened produces peer + session entities",
 	() => {
 		const doc = newLiveDoc();
@@ -89,7 +77,7 @@ liveTest(
 	},
 );
 
-liveTest(
+engineTest(
 	"live mode: subsequent ocapn.message-decoded produces messageInFlight",
 	() => {
 		const doc = newLiveDoc();
@@ -155,7 +143,7 @@ liveTest(
 	},
 );
 
-liveTest(
+engineTest(
 	"live mode: a session annotation renames the peer already on stage",
 	() => {
 		// A browser tab joins a room: the session opens before the app
@@ -218,7 +206,7 @@ liveTest(
 	},
 );
 
-liveTest("live mode: peer dedup across many session-opened events", () => {
+engineTest("live mode: peer dedup across many session-opened events", () => {
 	const doc = newLiveDoc();
 	const engine = new Engine(doc);
 	engine.enqueue({ kind: "play" });
@@ -264,7 +252,7 @@ liveTest("live mode: peer dedup across many session-opened events", () => {
 	assert(findSession(engine.world, "alice--carol") !== undefined);
 });
 
-liveTest(
+engineTest(
 	"live mode: duration grows lazily; events past initial duration still fold",
 	() => {
 		const doc = newLiveDoc();

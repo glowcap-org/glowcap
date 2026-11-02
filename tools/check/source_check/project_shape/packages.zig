@@ -2,11 +2,13 @@
 //! reads deno configs through.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const json_files = @import("../json_files.zig");
+const markdown = @import("../markdown.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const sectionBody = util.sectionBody;
-const collectBulletSpans = util.collectBulletSpans;
+const appendViolation = violation_log.appendViolation;
+const sectionBody = markdown.sectionBody;
+const collectBulletSpans = markdown.collectBulletSpans;
 
 /// Each `@glowcap/*` workspace member under `bindings/ts/` is a publishable
 /// package. Its directory is the ship surface, tests, harnesses, smokes,
@@ -305,7 +307,7 @@ pub fn checkTsPackagePublishSurface(
                 continue;
             },
         };
-        if (!util.jsonStringEquals(package_object.get("name") orelse .null, self_specifier[1..])) {
+        if (!json_files.jsonStringEquals(package_object.get("name") orelse .null, self_specifier[1..])) {
             try appendViolation(gpa, violations, "{s}: `name` must be `{s}`, the member directory under the scope", .{ deno_path, self_specifier[1..] });
         }
         const package_tasks = switch (package_object.get("tasks") orelse .null) {

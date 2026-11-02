@@ -8,7 +8,7 @@ import type { AttachmentView, Item, ViewerDirection } from "../types.ts";
 
 import { ARCHIVED_BYTES_UNAVAILABLE } from "../archive_attachments.ts";
 import { settleViewCleanup } from "./cleanup.ts";
-import type { PageProjection } from "../store/core.ts";
+import type { PageProjection } from "../store/projection.ts";
 
 import type { ArchiveLine } from "../../../lib/archive/protocol.ts";
 import { refusalText } from "../../../lib/text/failure.ts";

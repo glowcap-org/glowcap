@@ -1,5 +1,7 @@
 #lang racket
-;; Shared helpers for Racket interop client scripts.
+;; The gate protocol a Racket interop client speaks: fail a named gate, read a
+;; readiness field from the partner's stdout, parse or ignore the port argument,
+;; and run the accept loop.
 
 (provide fail read-swiss read-sturdyref-path await-greeter-ready parse-port ignore-port-args start-accept-loop)
 

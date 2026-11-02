@@ -8,7 +8,8 @@ const std = @import("std");
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const instance = @import("instance.zig");
 
 /// Configure independent per-ingress queue bounds before any session or
 /// eventual send. Bytes include spines and queue rows. All limits are positive.
@@ -16,9 +17,9 @@ const common = @import("common.zig");
 /// payload allocation occurs. Later reconfiguration is refused.
 pub fn glowcap_host_set_ingress_limits(host: ?*c.GlowcapHost, max_pending_turns: u32, max_pending_bytes: u32, max_chunk_bytes: u32) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "set_ingress_limits")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
-    inst.core.setIngressLimits(.{ .max_pending_turns = max_pending_turns, .max_pending_bytes = max_pending_bytes, .max_chunk_bytes = max_chunk_bytes }) catch |err| return common.errToCode(err);
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "set_ingress_limits")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    inst.core.setIngressLimits(.{ .max_pending_turns = max_pending_turns, .max_pending_bytes = max_pending_bytes, .max_chunk_bytes = max_chunk_bytes }) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }
 
@@ -30,8 +31,8 @@ pub fn glowcap_host_set_session_limits(
     options: ?*const c.GlowcapSessionLimitOptions,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(inst, "set_session_limits")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
+    const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    if (!instance.embedderOwnsDrive(inst, "set_session_limits")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const opts = options orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (opts.abi_version != c.GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION or
         opts.struct_size < @sizeOf(c.GlowcapSessionLimitOptions))
@@ -52,6 +53,6 @@ pub fn glowcap_host_set_session_limits(
         else
             null,
         if (opts.max_sessions != 0) opts.max_sessions else null,
-    ) catch |err| return common.errToCode(err);
+    ) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }

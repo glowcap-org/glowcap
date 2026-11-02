@@ -1,3 +1,6 @@
+//! The `source-check` executable: runs the source contract checks over the
+//! repository root and exits nonzero on a violation.
+
 const std = @import("std");
 const source_check = @import("source_check.zig");
 

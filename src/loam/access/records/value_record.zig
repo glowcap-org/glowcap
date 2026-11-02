@@ -3,7 +3,7 @@ const std = @import("std");
 const loam = @import("loam_records");
 const syrup = @import("syrup");
 const s = syrup.RecordSyntax;
-const WalkError = syrup.shared.WalkError;
+const WalkError = syrup.WalkError;
 
 pub const ValueRecord = struct {
     pub const max_bytes = 32 * 1024;

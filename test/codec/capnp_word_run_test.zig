@@ -92,7 +92,7 @@ fn isRunPointer(word: u64) bool {
 }
 
 fn isListKindWord(word: u64) bool {
-    return word == @backingInt(capnp.shared.ArgKind.list);
+    return word == @backingInt(capnp.layout.ArgKind.list);
 }
 
 test "a word run's count is held to the segment, and an empty run is refused" {
@@ -126,7 +126,7 @@ test "a word run is a list's form only: under a set it is refused" {
     defer allocator.free(bytes);
     const mutable_view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
     const at = try findWord(bytes, isListKindWord);
-    std.mem.writeInt(u64, bytes[at..][0..wire.word_bytes], @backingInt(capnp.shared.ArgKind.set), .little);
+    std.mem.writeInt(u64, bytes[at..][0..wire.word_bytes], @backingInt(capnp.layout.ArgKind.set), .little);
     try std.testing.expectError(error.InvalidPointer, capnp.decodeBody(mutable_view));
     try std.testing.expectError(error.InvalidPointer, capnp.decodeOwned(allocator, mutable_view));
 }

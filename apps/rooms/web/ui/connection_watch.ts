@@ -1,7 +1,7 @@
 // Which of the page's directory connections it has had, and which it has now.
 // The mycelium dims from this, and the page checks its build from it.
 
-import type { PageProjection } from "./store/core.ts";
+import type { PageProjection } from "./store/projection.ts";
 import type { DirId, DirView } from "./types.ts";
 
 /** The page's connections after one change to its directories. A directory

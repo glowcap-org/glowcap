@@ -39,9 +39,9 @@
 //! recorded boundary, not a pass.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// One bare-keyed table and what makes its key unambiguous.
 const Table = struct {

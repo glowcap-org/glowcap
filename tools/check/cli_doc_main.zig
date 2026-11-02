@@ -2,7 +2,7 @@
 const std = @import("std");
 const cli = @import("cli");
 const corpus = @import("source_check/docs/corpus.zig");
-const util = @import("source_check/util.zig");
+const violation_log = @import("source_check/violation_log.zig");
 const Command = cli.cmd_types.Command;
 const Flag = cli.cmd_types.Flag;
 
@@ -106,7 +106,7 @@ fn checkInvocation(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8
             continue; // the loop advances past the container name
         }
         if (std.mem.eql(u8, std.fs.path.basename(arg), "glowcap")) {
-            if (problem(args[at + 1 ..])) |why| try util.appendViolation(gpa, violations, "{s}:{d}: glowcap example {s}", .{ path, number, why });
+            if (problem(args[at + 1 ..])) |why| try violation_log.appendViolation(gpa, violations, "{s}:{d}: glowcap example {s}", .{ path, number, why });
         }
         break;
     }

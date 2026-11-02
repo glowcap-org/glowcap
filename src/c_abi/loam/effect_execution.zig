@@ -1,12 +1,14 @@
 //! Private receipt observation borrows the original Call and projects once.
 const std = @import("std");
-const common = @import("common.zig");
+const owners = @import("owners.zig");
+const c = @import("layouts.zig");
+const cd = @import("c_abi_host");
+const driver = @import("driver_core");
+const hosting = @import("loam_hosting");
+const shared = @import("c_abi_shared");
+const refusal = @import("refusal.zig");
 const continuations = @import("continuations.zig");
 const attached = @import("attachment.zig");
-const c = common.c;
-const shared = common.shared;
-const driver = common.driver;
-const hosting = common.hosting;
 
 /// C child spines have an independently bounded representation. Byte leaves
 /// borrow the core result. Successful projections grant independent occurrence
@@ -23,7 +25,7 @@ pub const Observer = struct {
         const values = try std.math.add(usize, reply_bytes / @sizeOf(driver.Value), 1);
         const Entry = std.meta.Elem(@FieldType(driver.Value, "struct"));
         const entries = reply_bytes / @sizeOf(Entry);
-        const bound = try common.host.embedding.valueProjectionBound(hosting.references.AllocationBound, values, entries);
+        const bound = try cd.embedding.valueProjectionBound(hosting.references.AllocationBound, values, entries);
         return bound.physicalBytes();
     }
     pub fn callerBytes(reply_bytes: usize) !usize {
@@ -41,7 +43,7 @@ pub const Observer = struct {
 };
 fn observer(raw: ?*c.GlowcapLoamEffectExecution) !*Observer {
     const self: *Observer = @ptrCast(@alignCast(raw orelse return error.NullPointer));
-    try common.EvaluationGuard.check(self.owner.store);
+    try owners.EvaluationGuard.check(self.owner.store);
     return self;
 }
 fn capability(host: *driver.Host, reference: shared.GlowcapReference) !driver.Capability {
@@ -73,9 +75,9 @@ pub fn glowcap_loam_continuation_execute_copying(raw: ?*c.GlowcapLoamContinuatio
     shared.lastErrorClear();
     const out = out_execution orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = null;
-    const control = continuations.control(raw) catch |err| return common.code(err);
-    const name = shared.sliceFromC(verb, verb_len) catch |err| return common.code(err);
-    const value = execute(control, index, name, args, args_len, reply_bytes) catch |err| return common.code(err);
+    const control = continuations.control(raw) catch |err| return refusal.code(err);
+    const name = shared.sliceFromC(verb, verb_len) catch |err| return refusal.code(err);
+    const value = execute(control, index, name, args, args_len, reply_bytes) catch |err| return refusal.code(err);
     out.* = @ptrCast(value);
     return shared.GLOWCAP_OK;
 }
@@ -83,16 +85,16 @@ pub fn glowcap_loam_effect_execution_result(raw: ?*c.GlowcapLoamEffectExecution,
     shared.lastErrorClear();
     const out = out_result orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = std.mem.zeroes(c.GlowcapLoamEffectResult);
-    const self = observer(raw) catch |err| return common.code(err);
-    self.owner.value.topLevel() catch |err| return common.code(err);
+    const self = observer(raw) catch |err| return refusal.code(err);
+    self.owner.value.topLevel() catch |err| return refusal.code(err);
     self.projection.resetWorking();
     const result = self.value.result();
     switch (result) {
         .pending => {},
         .ready => |value| {
-            const projected = self.owner.host_borrow.core().projectOwnedValue(value, self.projection.working.allocator(), common.host.embedding.valueToC) catch |err| {
+            const projected = self.owner.host_borrow.core().projectOwnedValue(value, self.projection.working.allocator(), cd.embedding.valueToC) catch |err| {
                 self.projection.resetWorking();
-                return common.code(err);
+                return refusal.code(err);
             };
             out.state = 1;
             out.value = projected;
@@ -112,9 +114,9 @@ pub fn glowcap_loam_effect_execution_result(raw: ?*c.GlowcapLoamEffectExecution,
 pub fn glowcap_loam_effect_execution_release(raw: ?*c.GlowcapLoamEffectExecution) callconv(.c) i32 {
     shared.lastErrorClear();
     if (raw == null) return shared.GLOWCAP_OK;
-    const self = observer(raw) catch |err| return common.code(err);
-    if (self.owner.host_borrow.core().withinCallback()) return common.code(error.Busy);
-    self.owner.value.topLevel() catch |err| return common.code(err);
+    const self = observer(raw) catch |err| return refusal.code(err);
+    if (self.owner.host_borrow.core().withinCallback()) return refusal.code(error.Busy);
+    self.owner.value.topLevel() catch |err| return refusal.code(err);
     self.release();
     return shared.GLOWCAP_OK;
 }

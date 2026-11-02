@@ -6,7 +6,7 @@
 //! walk. One walk serves every source a view can borrow: an owned tree, a
 //! decoded frame, or a caller's values behind a sequence table. Signing records
 //! and locator records live in `signing.zig`, canonical set/struct ordering in
-//! `canonical_collection.zig`, and the shared errors in `shared`. The encoder
+//! `canonical_collection.zig`, and the shared errors in `errors.zig`. The encoder
 //! builds bytes and holds no session authority.
 //!
 //! Every entry point renders measure-then-fill: one non-allocating length pass
@@ -23,7 +23,8 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 
-const shared = @import("shared.zig");
+const errors = @import("errors.zig");
+const ops = @import("ops.zig");
 const canonical_collection = @import("canonical_collection.zig");
 const render = @import("render.zig");
 const scalar = @import("scalar.zig");
@@ -31,9 +32,9 @@ const signing = @import("signing.zig");
 
 const view = model.view;
 
-const Error = shared.Error;
-const WalkError = shared.WalkError;
-const EncodeError = shared.EncodeError;
+const Error = errors.Error;
+const WalkError = errors.WalkError;
+const EncodeError = errors.EncodeError;
 
 const beginRecord = scalar.beginRecord;
 const openRecord = scalar.openRecord;
@@ -109,14 +110,14 @@ fn writeMessage(
     if (!profile.carries(body.*)) return Error.UnsupportedMessage;
     switch (body.*) {
         .abort => |*abort| {
-            try openRecord(sink, shared.messageOp(.abort));
+            try openRecord(sink, ops.messageOp(.abort));
             try writeAbortWireString(sink, .{ .kind = abort.kind, .message = abort.message });
             try endRecord(sink);
         },
         .deliver => |*deliver| {
             const next = profile == .next;
             const only = next and deliver.answer == null and deliver.resolve_me_desc == null;
-            if (only) try openRecord(sink, "op:deliver-only") else try openRecord(sink, shared.messageOp(.deliver));
+            if (only) try openRecord(sink, "op:deliver-only") else try openRecord(sink, ops.messageOp(.deliver));
             try writeTargetReference(allocator, sink, &deliver.target);
             try writeDeliverArguments(allocator, sink, deliver.args);
             if (only) {
@@ -144,7 +145,7 @@ fn writeMessage(
         },
         .resolve => |*resolve| {
             if (profile == .next) return Error.UnsupportedMessage;
-            try openRecord(sink, shared.messageOp(.resolve));
+            try openRecord(sink, ops.messageOp(.resolve));
             try writePositiveInt(sink, resolve.answer.int());
             switch (resolve.resolution) {
                 .fulfill => |*arg| {
@@ -161,18 +162,18 @@ fn writeMessage(
             try endRecord(sink);
         },
         .gc_export => |*gc_export| {
-            try openRecord(sink, shared.messageOp(.gc_export));
+            try openRecord(sink, ops.messageOp(.gc_export));
             try writePositionList(sink, gc_export.positions);
             try writePositionList(sink, gc_export.deltas);
             try endRecord(sink);
         },
         .gc_answer => |*gc_answer| {
-            try openRecord(sink, shared.messageOp(.gc_answer));
+            try openRecord(sink, ops.messageOp(.gc_answer));
             try writePositionList(sink, gc_answer.positions);
             try endRecord(sink);
         },
         .get => |*get| {
-            try openRecord(sink, shared.messageOp(.get));
+            try openRecord(sink, ops.messageOp(.get));
             try writeTargetReference(allocator, sink, &get.receiver);
             // The field name is a String on the wire (CapTP § op:get; Goblins
             // guards `string?` on receipt), not a Symbol.
@@ -181,14 +182,14 @@ fn writeMessage(
             try endRecord(sink);
         },
         .index => |*index| {
-            try openRecord(sink, shared.messageOp(.index));
+            try openRecord(sink, ops.messageOp(.index));
             try writeTargetReference(allocator, sink, &index.receiver);
             try writeIntegerValue(sink, index.index);
             try writePositiveInt(sink, index.answer.int());
             try endRecord(sink);
         },
         .untag => |*untag| {
-            try openRecord(sink, shared.messageOp(.untag));
+            try openRecord(sink, ops.messageOp(.untag));
             try writeTargetReference(allocator, sink, &untag.receiver);
             // The expected tag is a String on the wire (CapTP § op:untag),
             // matching op:get's field-name choice.
@@ -197,7 +198,7 @@ fn writeMessage(
             try endRecord(sink);
         },
         .listen => |*listen| {
-            try openRecord(sink, shared.messageOp(.listen));
+            try openRecord(sink, ops.messageOp(.listen));
             try writePayloadReference(allocator, sink, &listen.target);
             try writePayloadReference(allocator, sink, &listen.listener);
             switch (profile) {
@@ -207,7 +208,7 @@ fn writeMessage(
             try endRecord(sink);
         },
         .start_session => |*start_session| {
-            try openRecord(sink, shared.messageOp(.start_session));
+            try openRecord(sink, ops.messageOp(.start_session));
             // As in the capnp encoder: outbound the version is ours, so a
             // null is a message this codebase never builds. Refuse it.
             const version = start_session.captp_version orelse return Error.MalformedFrame;

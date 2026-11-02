@@ -1,14 +1,16 @@
 //! Every port of the C-ABI resolve cascade (ADR-0023), held to one rule set.
 
 const std = @import("std");
-const util = @import("../util.zig");
-const shared = @import("shared.zig");
+const json_files = @import("../json_files.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
+const resolve_contract = @import("resolve_contract.zig");
 
-const appendViolation = util.appendViolation;
-const parseJsonFile = util.parseJsonFile;
-const getField = util.getField;
-const jsonStringEquals = util.jsonStringEquals;
-const containsIgnoringWhitespace = util.containsIgnoringWhitespace;
+const appendViolation = violation_log.appendViolation;
+const parseJsonFile = json_files.parseJsonFile;
+const getField = json_files.getField;
+const jsonStringEquals = json_files.jsonStringEquals;
+const containsIgnoringWhitespace = text_match.containsIgnoringWhitespace;
 
 /// Every port of the resolve cascade, the four binding loaders, the racket
 /// per-archive loaders, and the operator script, held to the same download,
@@ -21,8 +23,8 @@ pub fn checkCAbiResolvePorts(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const expected_operator_script = shared.operator_script;
-    const binding_loaders = shared.c_abi_binding_loaders;
+    const expected_operator_script = resolve_contract.operator_script;
+    const binding_loaders = resolve_contract.c_abi_binding_loaders;
 
     // Shadow literals that must live only in the contract JSON (not loaders/script).
     const forbidden_shadows = [_][]const u8{
@@ -380,7 +382,7 @@ pub fn checkCAbiResolvePorts(
     const host_aliases_fixture = "tools/c-abi/c-abi-host-aliases.json";
     var aliases_parsed = try parseJsonFile(io, gpa, root, violations, host_aliases_fixture) orelse return;
     defer aliases_parsed.deinit();
-    const alias_ports = shared.c_abi_binding_loaders[1..] ++ [_][]const u8{expected_operator_script};
+    const alias_ports = resolve_contract.c_abi_binding_loaders[1..] ++ [_][]const u8{expected_operator_script};
     if (getField(aliases_parsed.value, "host_aliases")) |aliases_val| {
         switch (aliases_val) {
             .object => |obj| {

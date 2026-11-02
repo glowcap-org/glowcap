@@ -10,15 +10,18 @@ const model = @import("model");
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
-const common = @import("common.zig");
+const host_error = @import("error.zig");
+const hosted_behavior = @import("hosted_behavior.zig");
+const instance = @import("instance.zig");
+const marshal = @import("marshal.zig");
 
-const instanceFrom = common.instanceFrom;
-const sessionFrom = common.sessionFrom;
-const instOf = common.instOf;
-const errToCode = common.errToCode;
-const setView = common.setView;
-const preflightHostedTransfer = common.preflightHostedTransfer;
-const valueMessageFromC = common.valueMessageFromC;
+const instanceFrom = instance.instanceFrom;
+const sessionFrom = instance.sessionFrom;
+const instOf = instance.instOf;
+const errToCode = host_error.errToCode;
+const setView = marshal.setView;
+const preflightHostedTransfer = hosted_behavior.preflightHostedTransfer;
+const valueMessageFromC = marshal.valueMessageFromC;
 
 const GlowcapHost = c.GlowcapHost;
 const GlowcapHostSession = c.GlowcapHostSession;
@@ -54,7 +57,7 @@ pub fn glowcap_host_session_publish(
     const name_bytes = shared.sliceFromC(name, name_len) catch |err| return shared.marshalErrorToCode(err);
     const inst = instOf(session.host);
     if (preflightHostedTransfer(inst)) |code| return code;
-    const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
+    const hosted = hosted_behavior.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
     const reference = inst.core.sessionPublishHosted(session, name_bytes, hosted) catch |err| return errToCode(err);
     slot.* = .{ .id = reference.raw() };
     return GLOWCAP_OK;
@@ -77,7 +80,7 @@ pub fn glowcap_host_session_spawn(
     const slot = out_ref orelse return GLOWCAP_ERR_NULL_POINTER;
     const inst = instOf(session.host);
     if (preflightHostedTransfer(inst)) |code| return code;
-    const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
+    const hosted = hosted_behavior.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
     const reference = inst.core.spawnHosted(session, hosted) catch |err| return errToCode(err);
     slot.* = .{ .id = reference.raw() };
     return GLOWCAP_OK;
@@ -235,10 +238,10 @@ pub fn glowcap_host_session_tell(
 /// behind the handle, its instance, the target capability, and the decoded
 /// message. A null handle or target is `NullPointer`.
 const SessionCall = struct {
-    session: *common.HostSession,
-    inst: *common.Instance,
+    session: *driver_core.HostSession,
+    inst: *instance.Instance,
     target: driver_core.Capability,
-    msg: common.ValueMessage,
+    msg: marshal.ValueMessage,
 };
 
 fn sessionCall(
@@ -393,7 +396,7 @@ pub fn glowcap_host_session_published_ref(
 pub fn glowcap_host_session_break_far_vows(raw: ?*GlowcapHostSession, message: ?[*]const u8, message_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_break_far_vows"))
+    if (!instance.embedderOwnsDrive(instOf(session.host), "session_break_far_vows"))
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     const msg = shared.sliceFromC(message, message_len) catch |err| return shared.marshalErrorToCode(err);
     session.host.breakFarVows(session, msg) catch |err| return errToCode(err);
@@ -403,7 +406,7 @@ pub fn glowcap_host_session_break_far_vows(raw: ?*GlowcapHostSession, message: ?
 pub fn glowcap_host_session_transport_closed(raw: ?*GlowcapHostSession, message: ?[*]const u8, message_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_transport_closed"))
+    if (!instance.embedderOwnsDrive(instOf(session.host), "session_transport_closed"))
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     const msg = shared.sliceFromC(message, message_len) catch |err| return shared.marshalErrorToCode(err);
     session.host.transportClosed(session, msg) catch |err| return errToCode(err);
@@ -474,7 +477,7 @@ pub fn glowcap_host_session_partner_identity(
         .designator_len = 0,
         .locator_record = null,
         .locator_record_len = 0,
-        .provenance = common.provenanceToC(identity.provenance),
+        .provenance = marshal.provenanceToC(identity.provenance),
     };
     setView(identity.designator, &slot.designator, &slot.designator_len);
     setView(identity.locator_record, &slot.locator_record, &slot.locator_record_len);
@@ -504,7 +507,7 @@ pub fn glowcap_host_session_bind_verified_channel_key(
 ) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_bind_verified_channel_key")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!instance.embedderOwnsDrive(instOf(session.host), "session_bind_verified_channel_key")) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const designator_bytes = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
     session.host.bindVerifiedChannelKey(session, designator_bytes) catch |err| return errToCode(err);
     return GLOWCAP_OK;

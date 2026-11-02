@@ -1,40 +1,18 @@
-//! Shared helpers for Rust interop example scripts.
+//! The gate protocol a Rust Goblins interop client speaks: the port argument,
+//! the readiness fields in the partner's stdout, and the deadline the whole
+//! exchange runs under. Each client compiles its own copy through `#[path]`
+//! and reads the readiness field its proof needs, so the unused rest is
+//! expected.
 #![allow(dead_code)]
 
 use std::time::Duration;
-
-#[cfg(feature = "iroh")]
-use std::rc::Rc;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStdout};
 
 pub type Fail = Box<dyn std::error::Error>;
 pub const INTEROP_TIMEOUT: Duration = Duration::from_secs(90);
-
-pub fn ignore_port_args() -> Result<(), Fail> {
-	for arg in std::env::args().skip(1) {
-		if !arg.starts_with("--port=") {
-			return Err(format!("unknown argument '{arg}'").into());
-		}
-	}
-	Ok(())
-}
-
-/// Serve every iroh session a proof server accepts for the life of its local
-/// task set. The owning session handle stays in the serve task, retaining an
-/// accepted handle without serving it leaves published objects reachable in
-/// name but unable to answer.
-#[cfg(feature = "iroh")]
-pub fn serve_iroh_sessions(server: Rc<glowcap::iroh::Server>) {
-	tokio::task::spawn_local(async move {
-		while let Ok(session) = server.accept().await {
-			tokio::task::spawn_local(async move {
-				let _ = session.serve().await;
-			});
-		}
-	});
-}
+const READINESS_DEADLINE: Duration = Duration::from_secs(30);
 
 pub fn parse_port(default: u16, max_port: u16) -> Result<u16, Fail> {
 	let mut port = default;
@@ -50,28 +28,32 @@ pub fn parse_port(default: u16, max_port: u16) -> Result<u16, Fail> {
 	Ok(port)
 }
 
+/// The partner's swiss number, from the readiness line it prints on stdout.
 pub async fn read_swiss(child: &mut Child) -> Result<String, Fail> {
+	read_readiness_field(child, "swiss", "never saw the readiness line").await
+}
+
+/// The path of the sturdyref file the partner wrote, from its readiness line.
+pub async fn read_sturdyref_path(child: &mut Child) -> Result<String, Fail> {
+	read_readiness_field(child, "sturdyref-path", "never saw the sturdyref path readiness field").await
+}
+
+/// Take the child's stdout and read lines until one carries `field`, or the
+/// readiness deadline passes. `miss` is the failure when stdout ends first.
+async fn read_readiness_field(child: &mut Child, field: &str, miss: &'static str) -> Result<String, Fail> {
 	let stdout = child.stdout.take().ok_or("no child stdout")?;
 	let mut lines = BufReader::new(stdout).lines();
-	let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+	let deadline = tokio::time::Instant::now() + READINESS_DEADLINE;
 	loop {
 		match tokio::time::timeout_at(deadline, lines.next_line()).await?? {
 			Some(line) => {
-				if let Some(swiss) = extract_swiss(&line) {
-					return Ok(swiss);
+				if let Some(value) = extract_readiness_field(&line, field) {
+					return Ok(value);
 				}
 			}
-			None => return Err("never saw the readiness line".into()),
+			None => return Err(miss.into()),
 		}
 	}
-}
-
-pub fn extract_swiss(line: &str) -> Option<String> {
-	extract_readiness_field(line, "swiss")
-}
-
-pub fn extract_sturdyref_path(line: &str) -> Option<String> {
-	extract_readiness_field(line, "sturdyref-path")
 }
 
 fn extract_readiness_field(line: &str, field: &str) -> Option<String> {
@@ -82,29 +64,13 @@ fn extract_readiness_field(line: &str, field: &str) -> Option<String> {
 	Some(rest[..end].to_string())
 }
 
-pub async fn read_sturdyref_path(child: &mut Child) -> Result<String, Fail> {
-	let stdout = child.stdout.take().ok_or("no child stdout")?;
-	let mut lines = BufReader::new(stdout).lines();
-	let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-	loop {
-		match tokio::time::timeout_at(deadline, lines.next_line()).await?? {
-			Some(line) => {
-				if let Some(path) = extract_sturdyref_path(&line) {
-					return Ok(path);
-				}
-			}
-			None => return Err("never saw the sturdyref path readiness field".into()),
-		}
-	}
-}
-
 /// Read an exporter's NDJSON readiness lines until the greeter's appears, or
 /// time out. Keeps the reader (rather than the whole `Child`) so a caller that
 /// must keep draining the exporter's stdout afterward, to avoid deadlocking it
 /// on a full OS pipe, can hand the same reader to a background drain task.
 pub async fn await_greeter_ready(reader: &mut BufReader<ChildStdout>) -> Result<(), Fail> {
 	let mut line = String::new();
-	let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+	let deadline = tokio::time::Instant::now() + READINESS_DEADLINE;
 	loop {
 		line.clear();
 		let read = tokio::time::timeout_at(deadline, reader.read_line(&mut line)).await??;

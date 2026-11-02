@@ -16,10 +16,3 @@ pub const c_abi_binding_loaders = [_][]const u8{
     "bindings/ts/runtime/internal/ffi/load.ts",
     "bindings/racket/private/lib-resolve.rkt",
 };
-
-/// Whether `byte` continues a C identifier, shared by every check that scans
-/// header text for symbol boundaries.
-pub fn isIdentChar(byte: u8) bool {
-    return (byte >= 'a' and byte <= 'z') or (byte >= 'A' and byte <= 'Z') or
-        (byte >= '0' and byte <= '9') or byte == '_';
-}

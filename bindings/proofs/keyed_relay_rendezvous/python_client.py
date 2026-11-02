@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "interop" / "_common" / "python"))
-from helpers import fail, insert_bindings_path
+from client_gate import fail, insert_bindings_path
 
 insert_bindings_path()
 

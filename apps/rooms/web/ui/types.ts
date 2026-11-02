@@ -114,5 +114,5 @@ export interface TroubleRow {
 	readonly count: number;
 }
 
-export * from "./ops/types.ts";
+export * from "./ops/capabilities.ts";
 export type { RoomsSettingsTab as SettingsTab } from "../../lib/view_state.ts";

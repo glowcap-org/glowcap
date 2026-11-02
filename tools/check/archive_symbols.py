@@ -1,6 +1,6 @@
 """Check an ELF C archive's glowcap exports against its generated header.
 
-Build-owned caller: common.installArchive, before static/shared installation.
+Build-owned caller: archives.installArchive, before static/shared installation.
 Non-ABI implementation symbols are outside this manifest. nm must be available;
 its subprocess has a finite deadline and output is replayed only on refusal.
 """

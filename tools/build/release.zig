@@ -1,7 +1,7 @@
 //! Host product and C SDK release profiles share staging, target guards, and
 //! checksummed archives. Product proofs run only extracted public commands.
 const std = @import("std");
-const common = @import("common.zig");
+const commands = @import("commands.zig");
 const execution = @import("execution.zig");
 const staging = @import("release/stage.zig");
 const transaction = @import("release/transaction.zig");
@@ -15,14 +15,14 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     check_step.dependOn(&manifest_tests.step);
     b.step("product-manifest-test", "Generate and parse a sealed staged product without a release package build")
         .dependOn(&manifest_tests.step);
-    const tests = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release_test.py" });
+    const tests = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release_test.py" });
     tests.addArg(archive_script);
     // The version a release states lives in build.zig and is mirrored into the
     // C ABI, the manifests, the resolution contract, and the pages; one step
     // moves them all, and source-check holds them in lockstep.
     const set_version = b.step("set-version", "Move every stated version to -Dversion=X.Y.Z: build.zig, the C ABI constants and header, build.zig.zon, the archive-resolution contract and its copies, every tracked package manifest and lock file, the pages that state the release version, and the generated header and binding constants, and dates the Unreleased changelog entries as the version's section");
     if (b.option([]const u8, "version", "The version set-version writes everywhere, such as 0.1.2")) |requested| {
-        const bump = common.addRootedSystemCommand(b, .build_tool, &.{ "python3", "tools/gen/set_version.py", requested });
+        const bump = commands.addRootedSystemCommand(b, .build_tool, &.{ "python3", "tools/gen/set_version.py", requested });
         bump.has_side_effects = true;
         // The generated header and binding constants embed the version, so the
         // bump regenerates them in the same command, from the same cache.
@@ -46,7 +46,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     for (companion_steps) |companion| sdk.step.dependOn(companion);
     const sdk_archive = archive(b, target, version, "glowcap-c", "sdk", "release");
     sdk_archive.run.step.dependOn(&sdk.step);
-    const sdk_proof = common.addRootedSystemCommand(b, .build_tool, &.{ "bash", "tools/check/c-sdk-pack-smoke.sh" });
+    const sdk_proof = commands.addRootedSystemCommand(b, .build_tool, &.{ "bash", "tools/check/c-sdk-pack-smoke.sh" });
     sdk_proof.addFileArg(sdk_archive.path);
     sdk_proof.addArgs(&.{ staging.join(b, manifest.static_archives), staging.join(b, manifest.dynamic_archives), staging.join(b, manifest.headers) });
     sdk_proof.step.dependOn(&sdk_archive.run.step);
@@ -56,7 +56,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     product_archive.run.step.dependOn(&b.top_level_steps.get("glowcap-install").?.step);
     // A finite sequence of release operations; every child command and
     // readiness wait owns its deadline rather than sharing one 30s timer.
-    const proof = common.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/glowcap_release.py" });
+    const proof = commands.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/glowcap_release.py" });
     proof.addFileArg(product_archive.path);
     proof.step.dependOn(&product_archive.run.step);
     proof.step.dependOn(test_step);
@@ -122,7 +122,7 @@ const archive_script = transaction.begin ++
 
 fn archive(b: *std.Build, target: std.Build.ResolvedTarget, version: std.SemanticVersion, name: []const u8, source: []const u8, output: []const u8) struct { run: *std.Build.Step.Run, path: std.Build.LazyPath } {
     const filename = b.fmt("{s}-v{d}.{d}.{d}-{s}-{s}.tar.gz", .{ name, version.major, version.minor, version.patch, @tagName(target.result.cpu.arch), @tagName(target.result.os.tag) });
-    const run = common.addInstalledSystemRun(b, .build_tool, &.{ "sh", "-ec", archive_script, "glowcap-archive" });
+    const run = commands.addInstalledSystemRun(b, .build_tool, &.{ "sh", "-ec", archive_script, "glowcap-archive" });
     run.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = output } }, .{ .make_absolute = true });
     run.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = source } }, .{ .make_absolute = true });
     run.addArg(filename);

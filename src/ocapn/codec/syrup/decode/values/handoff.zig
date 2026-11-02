@@ -4,11 +4,11 @@ const std = @import("std");
 
 const model = @import("model");
 
-const shared = @import("../../shared.zig");
+const errors = @import("../../errors.zig");
 const syntax = @import("../syntax.zig");
 const locators = @import("../locator.zig");
 
-const Error = shared.Error;
+const Error = errors.Error;
 
 fn readBorrowedSignedHandoff(bytes: []const u8, cursor: *usize) Error!model.view.Handoff {
     const envelope_start = cursor.*;
@@ -120,7 +120,7 @@ pub fn signedGivePayload(raw_signed: []const u8) Error![]const u8 {
 /// Decode a standalone signed handoff-give into an owned codec-neutral value.
 /// `raw_signed` and typed fields are both populated, so either session codec can
 /// render the result. Free it with `model.freeHandoffGive`.
-pub fn decodeSignedHandoffGiveOwned(allocator: std.mem.Allocator, bytes: []const u8) shared.WalkError!model.HandoffGive {
+pub fn decodeSignedHandoffGiveOwned(allocator: std.mem.Allocator, bytes: []const u8) errors.WalkError!model.HandoffGive {
     var cursor: usize = 0;
     const handoff = try readBorrowedSignedHandoff(bytes, &cursor);
     const give = switch (handoff) {

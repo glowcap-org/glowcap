@@ -18,7 +18,8 @@ const encode = @import("encode.zig");
 const render = @import("render.zig");
 const scalar = @import("scalar.zig");
 
-const WalkError = @import("shared.zig").WalkError;
+const errors = @import("errors.zig");
+const WalkError = errors.WalkError;
 
 /// The bytes a value encodes to outside its children, its struct keys, and
 /// the reference or handoff it may be. `argument` is an owned

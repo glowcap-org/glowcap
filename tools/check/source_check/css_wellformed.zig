@@ -2,10 +2,10 @@
 //! comment hiding a declaration, and the faults reported at their line.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 const ui = @import("ui.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// CSS has no `deno check`. An unclosed `/*` or `{` does not fail a build. The
 /// browser drops every declaration after it, which looks like a theme bug

@@ -2,13 +2,14 @@
 //! generated FFI facts it wraps.
 
 const std = @import("std");
-const util = @import("../util.zig");
+const text_match = @import("../text_match.zig");
+const violation_log = @import("../violation_log.zig");
 
-const appendViolation = util.appendViolation;
-const expectFileContains = util.expectFileContains;
-const fileContains = util.fileContains;
-const containsAsSymbol = util.containsAsSymbol;
-const extractBraceBlock = util.extractBraceBlock;
+const appendViolation = violation_log.appendViolation;
+const expectFileContains = text_match.expectFileContains;
+const fileContains = text_match.fileContains;
+const containsAsSymbol = text_match.containsAsSymbol;
+const extractBraceBlock = text_match.extractBraceBlock;
 
 /// The generated Python signature tables are factories the hand-written FFI
 /// loaders call, passing the ctypes mirrors positionally: one archive per

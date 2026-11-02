@@ -4,10 +4,11 @@
 const std = @import("std");
 
 const model = @import("model");
-const shared = @import("shared.zig");
+const errors = @import("errors.zig");
+const foundation = @import("foundation");
 
-const Error = shared.Error;
-const WalkError = shared.WalkError;
+const Error = errors.Error;
+const WalkError = errors.WalkError;
 
 pub inline fn beginRecord(sink: anytype) !void {
     try sink.append('<');
@@ -27,7 +28,7 @@ pub inline fn endList(sink: anytype) !void {
 
 /// Write a symbol the caller received as data, checking it as UTF-8 first.
 pub inline fn writeSymbol(sink: anytype, symbol: []const u8) !void {
-    if (!shared.textValid(symbol)) return Error.UnsupportedArgument;
+    if (!foundation.utf8.valid(symbol)) return Error.UnsupportedArgument;
     try writeText(sink, symbol, '\'');
 }
 
@@ -60,7 +61,7 @@ fn spelledLabel(comptime label: []const u8) []const u8 {
 }
 
 pub inline fn writeString(sink: anytype, string: []const u8) !void {
-    if (!shared.textValid(string)) return Error.UnsupportedArgument;
+    if (!foundation.utf8.valid(string)) return Error.UnsupportedArgument;
     try writeText(sink, string, '"');
 }
 
@@ -71,7 +72,7 @@ const abort_separator = ": ";
 
 pub fn writeAbortWireString(sink: anytype, abort: model.AbortReason) !void {
     if (abort.kind == .other) return writeString(sink, abort.message);
-    if (!shared.textValid(abort.message)) return Error.UnsupportedArgument;
+    if (!foundation.utf8.valid(abort.message)) return Error.UnsupportedArgument;
     const label = abort.kind.wireName();
     try sink.appendTerminatedDecimal(label.len + abort_separator.len + abort.message.len, '"');
     try sink.appendSlice(label);

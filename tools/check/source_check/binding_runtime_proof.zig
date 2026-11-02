@@ -20,11 +20,13 @@
 //! Wired by the source-check driver (`tools/check/source_check.zig`).
 
 const std = @import("std");
-const util = @import("util.zig");
+const source_tree = @import("source_tree.zig");
+const text_match = @import("text_match.zig");
+const violation_log = @import("violation_log.zig");
 const lex = @import("runtime_proof_lex.zig");
 
-const appendViolation = util.appendViolation;
-const containsAsSymbol = util.containsAsSymbol;
+const appendViolation = violation_log.appendViolation;
+const containsAsSymbol = text_match.containsAsSymbol;
 
 const Binding = struct {
     lang: lex.Lang,
@@ -281,7 +283,7 @@ const Graph = struct {
         while (try walker.next(io)) |entry| {
             if (entry.kind == .directory) {
                 if (!std.mem.eql(u8, entry.basename, "dist")) {
-                    try util.enterSourceDirectory(io, self.arena, &walker, path, entry);
+                    try source_tree.enterSourceDirectory(io, self.arena, &walker, path, entry);
                 }
                 continue;
             }

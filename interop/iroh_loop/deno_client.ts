@@ -21,7 +21,7 @@
 
 import { formatPeerUri, Runtime, type Session, TRANSPORT_IROH } from "@glowcap/runtime";
 import { dialLocatorForRelay, listen, locator, provider, Reachability } from "@glowcap/iroh";
-import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
+import { fail, parseOptionalPortArg } from "../_common/deno/client_gate.ts";
 
 const GATE = "deno-iroh-loop";
 

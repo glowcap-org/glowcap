@@ -3,10 +3,10 @@
 //! plain light-arm declaration outside it.
 
 const std = @import("std");
-const util = @import("util.zig");
+const violation_log = @import("violation_log.zig");
 const ui = @import("ui.zig");
 
-const appendViolation = util.appendViolation;
+const appendViolation = violation_log.appendViolation;
 
 /// `light-dark()` is unsupported on Safari through 17.4, Firefox through 119,
 /// and every iOS 16 browser. A custom property accepts any value at parse

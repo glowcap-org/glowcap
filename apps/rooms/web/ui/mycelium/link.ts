@@ -2,7 +2,7 @@
 // ground.js holds the mycelium here and page.js binds it to the connections,
 // so the mycelium's code stays out of page.js.
 
-import type { PageProjection } from "../store/core.ts";
+import type { PageProjection } from "../store/projection.ts";
 import { watchConnections } from "../connection_watch.ts";
 
 /** What the page needs of `Mycelium` (live.ts). Both calls are idempotent:

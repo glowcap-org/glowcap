@@ -5,7 +5,7 @@
 // them all and when one comes back, and on a beat while it has none, which
 // includes the wait for a first connection. Checks may overlap.
 
-import type { PageProjection } from "./store/core.ts";
+import type { PageProjection } from "./store/projection.ts";
 import { watchConnections } from "./connection_watch.ts";
 
 const RECHECK_MS = 5_000;
