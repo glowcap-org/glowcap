@@ -10,7 +10,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // local array we can assert on. serve.ts runs the room + relay over iroh
 // (`--transport=iroh`), so the relay can dial Bob's iroh node.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives and
+// Needs deno, the wasm module (`zig build wasm-host`), the installed archives and
 // the iroh sidecar (`cargo`), and a Playwright Chromium. Run:
 //   deno run --allow-all apps/rooms/test/web/dm_test.ts
 

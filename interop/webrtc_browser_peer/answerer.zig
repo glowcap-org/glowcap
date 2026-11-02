@@ -21,7 +21,7 @@
 //! Zig peers. Here the far peer is a browser. The answerer signs a fixed key so
 //! the harness hands the browser its designator to pin.
 //!
-//! Links the Rust sidecar (`zig build webrtc-lib`, needs cargo), so it is built
+//! Links the Rust sidecar (`zig build webrtc-sidecar-build`, needs cargo), so it is built
 //! and run only by the `webrtc-browser-peer` harness, never a hermetic gate.
 
 const std = @import("std");

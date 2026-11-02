@@ -65,7 +65,7 @@ travels beside the font as `DepartureMono-OFL.txt`.
 
 ## Optional Mbed TLS relay build
 
-`zig build relay-tls-build` downloads the official Mbed TLS 4.2.0 release
+`zig build mbedtls-build` downloads the official Mbed TLS 4.2.0 release
 archive from the Mbed TLS project, verifies the SHA-256 digest recorded in
 `tools/deps/fetch-mbedtls.sh`, and compiles only the private TLS/X.509/crypto
 source subset. The downloaded source is not committed to this repository or

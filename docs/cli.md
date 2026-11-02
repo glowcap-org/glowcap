@@ -47,18 +47,18 @@ In the devcontainer, `glowcap` on PATH links to the checkout's `./glowcap`
 launcher, which runs the complete product in `zig-out/product`.
 
 - If the product is missing or incomplete, the launcher builds it with
-  `rooms-release` (ReleaseSafe, baseline CPU instructions). Linux can build
+  `glowcap-release` (ReleaseSafe, baseline CPU instructions). Linux can build
   through this checkout's devcontainer, and macOS uses its local toolchain.
 - Once the product is built, ordinary commands need neither the compiler nor
   the devcontainer.
-- After editing source, run `zig build rooms-release` to update the product.
+- After editing source, run `zig build glowcap-release` to update the product.
   `./glowcap install` installs it.
 
 To iterate without installing, `zig build glowcap -- <command> …` runs the same
 binary through the build graph. The [deployment
 guide](../apps/rooms/web/deploy/README.md) covers `./glowcap apps rooms
 deployment`, and [build steps](build-steps.md#everyday-steps-and-checks) lists
-the Rooms build steps. Run `rooms-release` on its own, not alongside steps that
+the Rooms build steps. Run `glowcap-release` on its own, not alongside steps that
 stage a product with other settings.
 
 ## Join a room over iroh

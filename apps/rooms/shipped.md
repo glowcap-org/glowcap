@@ -77,5 +77,5 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   checks the package and image inventories and the archive publication fixtures, including checksum failures, rename
   failures, and termination signals. These checks do not claim that any archive or release has been published.
 - *Running from a checkout.* The checkout launcher builds the product if it is missing, then runs the complete staged
-  installation without build tools. After editing source, run `rooms-build` explicitly. The runtime proof exercises
+  installation without build tools. After editing source, run `glowcap-install` explicitly. The runtime proof exercises
   this path without a binary override.

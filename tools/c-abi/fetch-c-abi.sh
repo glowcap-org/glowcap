@@ -91,7 +91,7 @@ abi_version_from_header() {
 }
 
 host_target() {
-	# Host aliases → zig build release-pack triples
+	# Host aliases → zig build c-sdk-pack triples
 	# (tools/c-abi/c-abi-host-aliases.json). All aliases: x86_64 amd64 x64
 	# aarch64 arm64 macos darwin macosx Darwin linux Linux windows win32.
 	arch=$(uname -m 2>/dev/null || echo unknown)
@@ -288,7 +288,7 @@ if ! download "$URL" "$TARBALL_PATH" "$MAX_BYTES"; then
 	soft_fail "download failed: $URL"
 fi
 
-# Checksum is required before extract (release-pack publishes SHA256SUMS).
+# Checksum is required before extract (c-sdk-pack publishes SHA256SUMS).
 SUMS_URL="${BASE_URL}/${TAG}/SHA256SUMS"
 if ! download "$SUMS_URL" "$SUMS_PATH" "$MAX_SUMS"; then
 	rm -f "$TARBALL_PATH" "$SUMS_PATH"

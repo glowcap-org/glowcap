@@ -23,7 +23,7 @@
 // launched with mDNS host-candidate obfuscation disabled so its host candidates
 // are raw IPs the probe peer can reach.
 //
-// Needs deno, the probe binary (`zig build webrtc-lib`, or `cargo build
+// Needs deno, the probe binary (`zig build webrtc-sidecar-build`, or `cargo build
 // --release` in transports/webrtc), and a Playwright Chromium
 // (the devcontainer image ships one). Run
 // directly: `deno run --allow-all transports/webrtc/test/datachannel_roundtrip_test.ts`.

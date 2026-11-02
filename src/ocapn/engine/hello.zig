@@ -220,7 +220,7 @@ pub const HelloHints = struct {
         // is reachable from outside the engine, through the driver's
         // handshake, so an
         // assertion would hold only in a safe build: `perf-check` and
-        // `release-pack` compile it out. The overflow and allocation paths
+        // `c-sdk-pack` compile it out. The overflow and allocation paths
         // are reported, as is a second profile claim in one hello.
         if (model.firstDuplicateHintName(carried) != null) return error.DuplicateHintName;
         for (carried) |entry| {

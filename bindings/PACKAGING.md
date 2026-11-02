@@ -112,7 +112,7 @@ The cache root comes from `GLOWCAP_CACHE_DIR`, then `XDG_CACHE_HOME`, then
 the platform's user cache directory. The ABI version and normalized target
 select the directory underneath it.
 
-Target names match `zig build release-pack`, such as `x86_64-linux` and
+Target names match `zig build c-sdk-pack`, such as `x86_64-linux` and
 `aarch64-macos`. The normalization rules live in
 [`../tools/c-abi/c-abi-host-aliases.json`](../tools/c-abi/c-abi-host-aliases.json).
 Rust begins with `CARGO_CFG_TARGET_ARCH` and `CARGO_CFG_TARGET_OS`. The other
@@ -121,7 +121,7 @@ bindings normalize common aliases such as `amd64`, `arm64`, and `darwin`.
 ## Building release archives
 
 ```sh
-zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline
+zig build -Doptimize=ReleaseSafe c-sdk-pack -Dcpu=baseline
 ```
 
 This writes checksummed archives for the current target under
@@ -135,7 +135,7 @@ handled.
 
 **Build requirements.**
 
-- `release-pack` refuses Debug mode, so a bare invocation cannot publish
+- `c-sdk-pack` refuses Debug mode, so a bare invocation cannot publish
   development binaries. Other Release modes are available for an embedding
   that documents a size or speed choice.
 - It requires baseline CPU instructions and a build that matches the running

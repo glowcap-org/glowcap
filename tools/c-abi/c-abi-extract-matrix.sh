@@ -145,7 +145,7 @@ if archive_hygiene_check_compressed "$FIX/good.tar.bz2" "$PREFIX" j; then
 else
 	bad "shell bzip2 good"
 fi
-# release-pack extracts every member rather than one binding prefix. The empty
+# c-sdk-pack extracts every member rather than one binding prefix. The empty
 # prefix is the shared validator's explicit whole-archive mode: a clean archive
 # passes, while the same top-level tree containing a symlink must be refused.
 if archive_hygiene_check "$FIX/good.tar.gz" ""; then

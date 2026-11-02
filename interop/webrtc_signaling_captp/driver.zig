@@ -31,7 +31,7 @@
 //! pass. Every signaling message here still crosses a real keyed session.
 //!
 //! Not part of the hermetic `zig build check`: it links the Rust sidecar
-//! staticlib (`zig build webrtc-lib`, needs cargo), so it runs as the sibling
+//! staticlib (`zig build webrtc-sidecar-build`, needs cargo), so it runs as the sibling
 //! step `zig build webrtc-signaling-captp`.
 
 const std = @import("std");

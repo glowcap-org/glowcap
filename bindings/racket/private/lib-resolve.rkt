@@ -116,7 +116,7 @@
     "windows" "win32"))
 
 (define (host-target-triple)
-  ;; Normalize host aliases to zig build release-pack triples
+  ;; Normalize host aliases to zig build c-sdk-pack triples
   ;; (`tools/c-abi/c-abi-host-aliases.json`). Rust uses CARGO_CFG_* which
   ;; already emit those names. Corpus kept in host-alias-corpus.
   (define arch

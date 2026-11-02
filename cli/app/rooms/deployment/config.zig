@@ -86,7 +86,7 @@ pub fn productRelease(io: Io, gpa: std.mem.Allocator, product: []const u8) !Rele
     const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(64 * 1024));
     const metadata = try std.json.parseFromSlice(std.json.Value, gpa, bytes, .{ .allocate = .alloc_always });
     const fields = if (metadata.value == .object) metadata.value.object else {
-        log.err(io, "Docker needs a Linux product. Run `zig build rooms-release` in the Linux devcontainer and pass its product directory with --build", .{});
+        log.err(io, "Docker needs a Linux product. Run `zig build glowcap-release` in the Linux devcontainer and pass its product directory with --build", .{});
         return error.InvalidProductTarget;
     };
     const platform: []const u8 = platform: {
@@ -94,7 +94,7 @@ pub fn productRelease(io: Io, gpa: std.mem.Allocator, product: []const u8) !Rele
             if (std.mem.eql(u8, target.string, "aarch64-linux")) break :platform "linux/arm64";
             if (std.mem.eql(u8, target.string, "x86_64-linux")) break :platform "linux/amd64";
         };
-        log.err(io, "Docker needs a Linux product. Run `zig build rooms-release` in the Linux devcontainer and pass its product directory with --build", .{});
+        log.err(io, "Docker needs a Linux product. Run `zig build glowcap-release` in the Linux devcontainer and pass its product directory with --build", .{});
         return error.InvalidProductTarget;
     };
     const commit = if (fields.get("revision")) |value| if (value == .string and value.string.len != 0) value.string else null else null;

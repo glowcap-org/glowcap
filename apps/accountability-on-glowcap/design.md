@@ -79,7 +79,7 @@ The host serves one connection and exits, so this demo has no attach mode.
 
 ## Three-party scenario
 
-`zig build accountability-three-party` runs three owning Hosts over loopback
+`zig build accountability-three-party-test` runs three owning Hosts over loopback
 TCP. A fetches C's Affordance, returns that foreign-homed capability to B, and
 B's Host redeems the handoff by dialing C through the ordinary `Session.call`
 path. B rotates before invoking the introduced capability, and C's Outcome Episode

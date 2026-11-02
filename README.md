@@ -157,7 +157,7 @@ Rooms is a chat application built on glowcap, and
 `glowcap apps rooms session join` joins a room over encrypted iroh.
 
 To install from a checkout, run `./glowcap install`. It builds the product,
-checks its file list, and installs it outside the checkout. `zig build rooms-build` stages the same files under `zig-out/product`
+checks its file list, and installs it outside the checkout. `zig build glowcap-install` stages the same files under `zig-out/product`
 without installing them.
 
 ### Examples and other languages
@@ -204,7 +204,7 @@ then [make a change](CONTRIBUTING.md#make-a-change) and open a pull request.
 ## Documentation
 
 The [website](https://glowcap.org/) is the primary guide. For
-a live preview of the hand-written pages, run `zig build docs-serve` and open
+a live preview of the hand-written pages, run `zig build site-serve` and open
 the address it prints. `zig build site` builds the whole site under
 `zig-out/site/`, including the API reference.
 

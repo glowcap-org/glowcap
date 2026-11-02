@@ -36,7 +36,7 @@
 //! `unauthenticated`, because a socket address proves nothing.
 //!
 //! Not part of the hermetic `zig build check`: it links the Rust iroh sidecar
-//! (`zig build iroh-lib`, needs cargo) and needs `racket` plus the `goblins`
+//! (`zig build iroh-sidecar-build`, needs cargo) and needs `racket` plus the `goblins`
 //! collection on PATH, so it runs as the sibling step `zig build goblins-iroh`.
 
 const std = @import("std");

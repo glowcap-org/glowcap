@@ -384,7 +384,7 @@ is a security-sensitive dependency change:
    directory allowlist, the compiled source inventory in
    `tools/build/mbedtls.zig`, and both minimal configuration headers under
    `src/net/tls/` for newly required or newly reachable code.
-3. Run `zig build relay-tls-build` and `zig build check`, then run the static
+3. Run `zig build mbedtls-build` and `zig build check`, then run the static
    and shared packaging checks on every supported platform. The
    TLS check must retain exact success, hostname, CA, expiry, alert, malformed
    record, truncation, close-notify, and symbol-isolation evidence.

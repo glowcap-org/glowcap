@@ -20,7 +20,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // it. Each conversation must open a webrtc session the live trace had not
 // seen, and no keyed-relay session may stand in for either.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the installed Rooms
+// Needs deno, the wasm module (`zig build wasm-host`), the installed Rooms
 // executables, and a Playwright Chromium (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/proofs/dm_session_webrtc_proof.ts`.
 

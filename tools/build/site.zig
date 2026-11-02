@@ -317,39 +317,39 @@ pub fn register(ctx: Context) Registered {
     const site_tabs_check_step = b.step("site-tabs-check", "Press the code-tabs on every built site page in the pinned Chromium and prove each tab opens its own panel (needs deno + the image-baked browser)");
     site_tabs_check_step.dependOn(&site_tabs_check.step);
 
-    // `docs-serve` is the normal local preview: Zine's development server
+    // `site-serve` is the normal local preview: Zine's development server
     // rebuilds and reloads as the content and templates change. It serves the
     // Zine pages only, the generated autodoc reference is a release-time
     // install, so preview the API reference with `zig build site`.
     //
     // Transport example tabs are assembled from `site/examples/` into the
     // pages; regenerate them before the server starts so a fresh preview is
-    // never one gen step behind. `site/docs-serve.sh` then watches the
+    // never one gen step behind. `site/serve.sh` then watches the
     // snippets and re-runs the gen while the server is up.
     //
-    // The inner `zig build … docs-serve` launches Zine's dev server as a
+    // The inner `zig build … site-serve` launches Zine's dev server as a
     // grandchild, and `zig build` does not reap that subtree when an ancestor is
     // stopped, so the server can be left orphaned and bound to its port.
-    // `site/docs-serve.sh` is a minimal launcher that runs the inner build in
+    // `site/serve.sh` is a minimal launcher that runs the inner build in
     // its own process group and tears the whole group down on any stop signal or
     // exit. It is the lifecycle detail of this step, not a new user command; the
-    // public `zig build docs-serve` is unchanged.
+    // public `zig build site-serve` is unchanged.
     const serve_site = execution.addSystemCommand(b, .service, &.{
-        "bash",          common.rootPath(b, "site/docs-serve.sh"),
+        "bash",          common.rootPath(b, "site/serve.sh"),
         b.graph.zig_exe, "--cache-dir",
     });
     serve_site.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
     serve_site.addArgs(&.{
         "--prefix",
         common.rootPath(b, "zig-out"),
-        "docs-serve",
+        "site-serve",
     });
     if (ctx.pin_port) |p| serve_site.addArg(b.fmt("-Dport={d}", .{p}));
     serve_site.has_side_effects = true;
     serve_site.step.dependOn(site_examples_write_step);
     serve_site.step.dependOn(&brand_mark_write.step);
-    const docs_serve_step = b.step("docs-serve", "Serve the documentation site with Zine's development server and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; captures the Rooms pictures first only when site/assets has none, so run site-captures to refresh them)");
-    docs_serve_step.dependOn(&serve_site.step);
+    const site_serve_step = b.step("site-serve", "Serve the documentation site with Zine's development server and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; captures the Rooms pictures first only when site/assets has none, so run site-captures to refresh them)");
+    site_serve_step.dependOn(&serve_site.step);
 
     return .{
         .zig_examples_check = site_zig_examples_check,

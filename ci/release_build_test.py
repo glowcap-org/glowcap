@@ -340,7 +340,7 @@ class ReleaseBuild(unittest.TestCase):
                     expected = [
                         "build",
                         "-Doptimize=ReleaseSafe",
-                        "release-pack",
+                        "c-sdk-pack",
                         "glowcap-pack",
                         "-Dcpu=baseline",
                         "-Dtarget=" + target,

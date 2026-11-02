@@ -41,7 +41,7 @@ pub fn checkCAbiResolve(
 
     if (getField(parsed.value, "tarball_template")) |v| {
         if (!jsonStringEquals(v, expected_tarball)) {
-            try appendViolation(gpa, violations, "{s}: `tarball_template` must be `{s}` (matches zig build release-pack)", .{ contract_path, expected_tarball });
+            try appendViolation(gpa, violations, "{s}: `tarball_template` must be `{s}` (matches zig build c-sdk-pack)", .{ contract_path, expected_tarball });
         }
     } else {
         try appendViolation(gpa, violations, "{s}: missing `tarball_template`", .{contract_path});

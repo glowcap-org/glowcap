@@ -2,7 +2,7 @@
 # the two-platform Rooms image, one GitHub release, and the registry packages.
 #
 # The tag names a main commit that passed full validation (contract). Each host
-# builds its archives with `zig build release-pack glowcap-pack` and attests
+# builds its archives with `zig build c-sdk-pack glowcap-pack` and attests
 # their build provenance (archives). Each Linux host builds and exercises the
 # Rooms image from its exact product archive (images). One job then assembles
 # the assets, publishes the image by digest, attests the image and its SBOM,
@@ -101,7 +101,7 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: "15.0"
       RELEASE_TARGET: ${{ matrix.target }}
     steps:
-      # release-pack needs no conformance submodule, so no
+      # c-sdk-pack needs no conformance submodule, so no
       # `submodules: recursive` here. Nothing is restored from a cache: a
       # release builds from the pinned downloads alone.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -150,7 +150,7 @@ jobs:
             SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
             export SDKROOT
           fi
-          zig build -Doptimize=ReleaseSafe release-pack glowcap-pack -Dcpu=baseline "-Dtarget=$RELEASE_TARGET"
+          zig build -Doptimize=ReleaseSafe c-sdk-pack glowcap-pack -Dcpu=baseline "-Dtarget=$RELEASE_TARGET"
 
       - name: Verify the Zig source package
         run: zig build consumer-check --summary all

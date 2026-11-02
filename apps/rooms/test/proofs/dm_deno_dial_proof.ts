@@ -24,7 +24,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // dials the room's TCP locator directly, and the cold-dial bridges through
 // `/relay?rendezvous=…`.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the built archives
+// Needs deno, the wasm module (`zig build wasm-host`), the built archives
 // (serve.ts's room server and the Deno peer dlopen them), and a Playwright
 // Chromium (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web/dm_deno_dial_proof.ts`.

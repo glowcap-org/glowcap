@@ -51,7 +51,7 @@ again.
 ## Before the first tool call
 
 1. **Prepare:** `./glowcap version` bootstraps a missing product. After source
-   edits, run `zig build rooms-build` through the work skill's build front.
+   edits, run `zig build glowcap-install` through the work skill's build front.
 2. **Reload MCP** in the host if configs or the binary just changed.
 3. **Discover tools** with `tools/list` and never invent verb names. The
    catalog is `--tools default|full|readonly`, and project configs use

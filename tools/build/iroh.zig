@@ -164,12 +164,12 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     addModule(b, target, optimize, host_mods, sidecar.archive);
     const iroh_lib = sidecar.build;
     const sidecar_archive = sidecar.archive;
-    const iroh_lib_step = b.step("iroh-lib", "Build the iroh netlayer sidecar staticlib (needs cargo)");
+    const iroh_lib_step = b.step("iroh-sidecar-build", "Build the iroh netlayer sidecar staticlib (needs cargo)");
     iroh_lib_step.dependOn(&iroh_lib.step);
 
     // The sidecar's own Rust unit tests, chief among them the positive-fire proof
     // that a caller-set connect timeout trips fast against a bound-but-silent UDP
-    // black hole. Needs cargo, so it is a sibling step like `iroh-lib`.
+    // black hole. Needs cargo, so it is a sibling step like `iroh-sidecar-build`.
     const iroh_sidecar_test = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "cargo", "test", "--locked", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
     });

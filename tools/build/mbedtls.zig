@@ -430,7 +430,7 @@ pub fn addFamily(
     const live = execution.addSystemCommand(b, .real_internet, &.{"bash"});
     live.addFileArg(b.path("tools/check/relay-tls-live.sh"));
     live.addArtifactArg(live_client);
-    const secure_check = b.step("relay-tls-build", "Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)");
+    const secure_check = b.step("mbedtls-build", "Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)");
     secure_check.dependOn(&execution.addZigTest(b, tests, .unit_test).step);
     secure_check.dependOn(&live.step);
     return .{

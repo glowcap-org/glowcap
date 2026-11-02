@@ -473,7 +473,7 @@ pub const Peer = struct {
 /// holds (ADR-0070): every outbound release asks whether an entry is held
 /// before encoding, and the count answers for the whole frame without a
 /// lookup per entry while nothing is held, the ordinary case.
-/// Every footprint budget is stated under the safe modes, because every gate runs there and `release-pack` names ReleaseSafe as
+/// Every footprint budget is stated under the safe modes, because every gate runs there and `c-sdk-pack` names ReleaseSafe as
 /// the mode to ship.
 ///
 /// It is a ceiling and not an equality, unlike the `Conn` slot overhead in

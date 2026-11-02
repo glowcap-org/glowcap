@@ -92,7 +92,7 @@ GROUPS = (
     ),
     # The optional Mbed TLS relay is absent from the base library graph, so
     # `check` cannot prove it. Its own group reports without waiting for Rooms.
-    Group("tls", shards=1, phases={"tls": [gate("zig build relay-tls-build")]}),
+    Group("tls", shards=1, phases={"tls": [gate("zig build mbedtls-build")]}),
     Group(
         "shipped",
         shards=2,
@@ -107,7 +107,7 @@ GROUPS = (
             ],
             # Representative browser and outside-authority proofs on every change.
             "smoke": [
-                gate("zig build wasm-driver-test"),
+                gate("zig build wasm-host-test"),
                 gate("zig build wasm-abi-layout-check"),
                 gate("zig build wasm-import-check"),
                 gate("zig build web-peer-test"),
@@ -222,7 +222,7 @@ GROUPS = (
         shards=1,
         phases={
             "transports": [
-                build("zig build build iroh-lib iroh-abi"),
+                build("zig build build iroh-sidecar-build iroh-abi"),
                 gate("zig build iroh-interop"),
                 gate("zig build iroh-driver-provider"),
                 gate("zig build python-iroh-driver-provider"),

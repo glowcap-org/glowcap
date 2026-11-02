@@ -181,7 +181,7 @@ LD_LIBRARY_PATH=../../../zig-out/lib cargo test -p rooms-services --features pro
 ```
 
 Process tests live in `rooms-product`. `zig build rooms-peers-test rooms-web-test`
-supplies their installed runtimes and prepared assets. `zig build rooms-build`
+supplies their installed runtimes and prepared assets. `zig build glowcap-install`
 stages the complete installation, including private runtimes under `libexec`
 and prepared browser assets.
 

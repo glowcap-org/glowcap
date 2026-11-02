@@ -56,6 +56,6 @@ introduction part of the network model, so the application can concentrate on
 identity and the audit record.
 
 Run `zig build accountability` for the Zig signed-call path and
-`zig build accountability-three-party` for attribution after a live three-Host
+`zig build accountability-three-party-test` for attribution after a live three-Host
 TCP handoff. The [application guide](README.md) describes the limits: no witness
 receipts and no cross-session duplicity detection.
