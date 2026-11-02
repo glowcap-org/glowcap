@@ -15,15 +15,15 @@ import {
 	BODIES_TOUCH,
 	dist,
 	docOf,
+	engineTest,
 	joined,
-	layoutTest,
 	NEAR_PEER,
 	onSegment,
 	opened,
 	placed,
 } from "./harness.ts";
 
-layoutTest("a claim sits at CLAIM_LEAN along its session's edge", () => {
+engineTest("a claim sits at CLAIM_LEAN along its session's edge", () => {
 	// The whole design in one assertion. The session was solved as if its far
 	// end were already Alice, so the edge points at Alice; the claim rides that
 	// edge and stops a third short of her.
@@ -54,7 +54,7 @@ layoutTest("a claim sits at CLAIM_LEAN along its session's edge", () => {
 	);
 });
 
-layoutTest("a peer is matched on the name it answers to, not its id", () => {
+engineTest("a peer is matched on the name it answers to, not its id", () => {
 	// The claim is a wire name and the peer id is the viewer's handle, so a
 	// claim spelling the id is a claim about a name nobody on the wire uses.
 	const at = placed(docOf([
@@ -71,7 +71,7 @@ layoutTest("a peer is matched on the name it answers to, not its id", () => {
 	);
 });
 
-layoutTest("a claim naming nobody the stage draws stands on its own", () => {
+engineTest("a claim naming nobody the stage draws stands on its own", () => {
 	// No destination, so the end is an ordinary
 	// body in the solve and takes the solver's own separation, which is a
 	// node's width and then some rather than a claim's third of an edge.
@@ -92,7 +92,7 @@ layoutTest("a claim naming nobody the stage draws stands on its own", () => {
 	);
 });
 
-layoutTest("an end with no claim at all stands on its own", () => {
+engineTest("an end with no claim at all stands on its own", () => {
 	const at = placed(docOf([
 		joined("carol"),
 		joined("alice", ALICE_DESIGNATOR),
@@ -108,7 +108,7 @@ layoutTest("an end with no claim at all stands on its own", () => {
 	);
 });
 
-layoutTest("a claim two peers answer to is placed on neither", () => {
+engineTest("a claim two peers answer to is placed on neither", () => {
 	// A designator two peers hold names neither of them in particular, and
 	// putting the claim on whichever was indexed first would assert a
 	// relationship the document does not support.
@@ -130,7 +130,7 @@ layoutTest("a claim two peers answer to is placed on neither", () => {
 	);
 });
 
-layoutTest("an author's placement of a loose end wins", () => {
+engineTest("an author's placement of a loose end wins", () => {
 	const doc = docOf([
 		joined("carol"),
 		joined("alice", ALICE_DESIGNATOR),
@@ -147,7 +147,7 @@ layoutTest("an author's placement of a loose end wins", () => {
 	assertEquals({ x: loose.x, y: loose.y }, { x: 1234, y: -900 });
 });
 
-layoutTest("attribution moves the end and nothing else", () => {
+engineTest("attribution moves the end and nothing else", () => {
 	// Why the placement is worth having, and the strongest claim this file
 	// makes. The session was solved to Alice while the end was still only
 	// claiming to be her, so backing the claim changes no force in the graph:
@@ -186,7 +186,7 @@ layoutTest("attribution moves the end and nothing else", () => {
 	}
 });
 
-layoutTest("a claim at each end takes its own third of the wire", () => {
+engineTest("a claim at each end takes its own third of the wire", () => {
 	// Neither end has a solved position of its own, so each contributes the
 	// peer IT names and the segment is the one between those two peers. The
 	// lookup is one step deep by construction, a claim never reads another
@@ -223,7 +223,7 @@ layoutTest("a claim at each end takes its own third of the wire", () => {
 	);
 });
 
-layoutTest(
+engineTest(
 	"a session claiming the peer at its own far end leans nowhere",
 	() => {
 		// The degenerate segment: the end claims to be Alice and Alice is already
@@ -246,7 +246,7 @@ layoutTest(
 	},
 );
 
-layoutTest("claims on one peer arrive from their own directions", () => {
+engineTest("claims on one peer arrive from their own directions", () => {
 	// What answers the crowd. Two claims about Alice, one on Bob's wire and one
 	// on Carol's, ride two different edges and so land in two different places
 	// without anything arranging them.
@@ -268,7 +268,7 @@ layoutTest("claims on one peer arrive from their own directions", () => {
 	);
 });
 
-layoutTest("two claims on one pair each ride their own lane", () => {
+engineTest("two claims on one pair each ride their own lane", () => {
 	// Two sessions between one pair describe one segment, so two claims leaning
 	// along it on a single lane would sit on one point and a reader would see
 	// A bundle offset moves a session's control point and never its endpoints,
@@ -293,7 +293,7 @@ layoutTest("two claims on one pair each ride their own lane", () => {
 	);
 });
 
-layoutTest("authored mode places a claim on its edge too", () => {
+engineTest("authored mode places a claim on its edge too", () => {
 	// Authored mode honors the author for every node it can, and a loose end is
 	// not a node the author named. The session states a claim, and the claim
 	// states where the end belongs. One rule, both modes.

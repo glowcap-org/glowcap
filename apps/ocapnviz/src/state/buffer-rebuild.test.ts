@@ -15,11 +15,8 @@
 import { assert, assertEquals } from "@std/assert";
 import { TimelineDocument } from "../engine/timeline.ts";
 import { Engine } from "../engine/engine.ts";
+import { engineTest } from "../engine/engine-test/harness.ts";
 import { bufferSourceTracker } from "./hooks.ts";
-
-function docTest(name: string, fn: () => void): void {
-	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
-}
 
 function parse(id: string): TimelineDocument {
 	return TimelineDocument.parse({
@@ -37,11 +34,11 @@ function parse(id: string): TimelineDocument {
 	});
 }
 
-docTest("no buffer yet means build one", () => {
+engineTest("no buffer yet means build one", () => {
 	assert(bufferSourceTracker().needsRebuild(null, parse("fixture")));
 });
 
-docTest("the same source twice keeps the buffer", () => {
+engineTest("the same source twice keeps the buffer", () => {
 	const sources = bufferSourceTracker();
 	const source = parse("fixture");
 	assert(sources.needsRebuild(null, source));
@@ -49,7 +46,7 @@ docTest("the same source twice keeps the buffer", () => {
 	assertEquals(sources.needsRebuild(buffer, source), false);
 });
 
-docTest("the buffer's own document is not a new source", () => {
+engineTest("the buffer's own document is not a new source", () => {
 	const sources = bufferSourceTracker();
 	const source = parse("fixture");
 	assert(sources.needsRebuild(null, source));
@@ -58,7 +55,7 @@ docTest("the buffer's own document is not a new source", () => {
 	assertEquals(sources.needsRebuild(buffer, buffer.doc), false);
 });
 
-docTest("a different document rebuilds", () => {
+engineTest("a different document rebuilds", () => {
 	const sources = bufferSourceTracker();
 	const source = parse("fixture");
 	assert(sources.needsRebuild(null, source));
@@ -66,7 +63,7 @@ docTest("a different document rebuilds", () => {
 	assert(sources.needsRebuild(buffer, parse("opened-file")));
 });
 
-docTest("undo survives a Play / Build round trip", () => {
+engineTest("undo survives a Play / Build round trip", () => {
 	// The sequence the hook sees: build a buffer, edit it, leave Build
 	// (the working doc becomes the source), come back.
 	const sources = bufferSourceTracker();
@@ -91,7 +88,7 @@ docTest("undo survives a Play / Build round trip", () => {
 	assert(buffer.canUndo, "a round trip through Play kept the undo step");
 });
 
-docTest("picking the fixture back after leaving Build rebuilds", () => {
+engineTest("picking the fixture back after leaving Build rebuilds", () => {
 	// The source the buffer was made from is not the source it is
 	// playing once Build has handed its working document back, so
 	// choosing that first source again in the picker is a real switch.

@@ -14,6 +14,17 @@
  */
 
 import {
+	TRANSPORT_INPROC,
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
+	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
+} from "@glowcap/abi";
+import {
 	type CaptpVersionReferenceOption,
 	type CodecReferenceOption,
 	type ProfileOption,
@@ -86,7 +97,7 @@ export type TransportRow = ReferenceEntry & {
  * would be a second copy of an assessment that already has a home.
  */
 export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
-	iroh: {
+	[TRANSPORT_IROH]: {
 		standing: "production",
 		authenticatesPeer: true,
 		says: "The node id is a key, so dialing the name proves who answered. " +
@@ -95,14 +106,14 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 		aside: "Goblins ships no iroh netlayer; live Goblins-over-iroh uses an " +
 			"adapter this repository wrote.",
 	},
-	webrtc: {
+	[TRANSPORT_WEBRTC]: {
 		standing: "production",
 		authenticatesPeer: true,
 		says: "The DataChannel is encrypted, so nobody on the path can read the " +
 			"frames. Who the peer is comes from the signaling authority that " +
 			"introduced it, so it is only as good as that authority.",
 	},
-	"noise-tcp": {
+	[TRANSPORT_NOISE_TCP]: {
 		standing: "production",
 		authenticatesPeer: true,
 		says: "The name is a key, and the Noise handshake proves the far end " +
@@ -110,14 +121,14 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 			"can read the frames.",
 		aside: "Same sockets as keyed-tcp, sealed. Glowcap to glowcap only.",
 	},
-	"noise-relay": {
+	[TRANSPORT_NOISE_RELAY]: {
 		standing: "production",
 		authenticatesPeer: true,
 		says: "The CapTP peers run the same Noise handshake with each other; " +
 			"the relay only forwards ciphertext. Completing it proves the dialed " +
 			"key.",
 	},
-	onion: {
+	[TRANSPORT_ONION]: {
 		standing: "production",
 		authenticatesPeer: false,
 		says: "The name is a Tor service id. Tor proves the dialed service holds " +
@@ -126,7 +137,7 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 			"treat the circuit as a channel-authenticated peer proof.",
 		aside: "It is the netlayer the OCapN draft standardizes and Goblins ships.",
 	},
-	"keyed-tcp": {
+	[TRANSPORT_KEYED_TCP]: {
 		standing: "trusted-network",
 		authenticatesPeer: false,
 		says: "The name is a key, and dialing it demands the peer claim that " +
@@ -134,14 +145,14 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 			"claim, though, and the frames are cleartext, so somebody on the path " +
 			"can answer in its place.",
 	},
-	"keyed-relay": {
+	[TRANSPORT_KEYED_RELAY]: {
 		standing: "trusted-network",
 		authenticatesPeer: false,
 		says: "The same demand on the dialed key, refused the same way when it " +
 			"does not match. The relay carrying the frames reads every one of them " +
 			"in the clear, and nothing proves who is on the far side of it.",
 	},
-	tcp: {
+	[TRANSPORT_TCP]: {
 		standing: "testing",
 		authenticatesPeer: false,
 		says: "The name is a socket address rather than a key, so nothing about " +
@@ -149,7 +160,7 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 		aside: "Goblins testing uses an adapter this repository wrote; Goblins " +
 			"ships onion, not TCP.",
 	},
-	inproc: {
+	[TRANSPORT_INPROC]: {
 		standing: "testing",
 		authenticatesPeer: false,
 		says: "Both ends are in one process, so there is no network between " +

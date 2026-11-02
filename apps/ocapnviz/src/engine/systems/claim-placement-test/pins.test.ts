@@ -18,9 +18,9 @@ import {
 	curveBetween,
 	drawnSessionCurve,
 } from "../../session-geometry.ts";
-import { ALICE_DESIGNATOR, docOf, joined, layoutTest, opened, placed } from "./harness.ts";
+import { ALICE_DESIGNATOR, docOf, engineTest, joined, opened, placed } from "./harness.ts";
 
-layoutTest("pinning a claim moves the claim and nothing else", () => {
+engineTest("pinning a claim moves the claim and nothing else", () => {
 	// The pin says where the dot goes. It does not say what the session is
 	// solved against, and letting it say both would mean a nudge of a claim
 	// pulled the whole picture: the session's link would come off Alice and
@@ -50,7 +50,7 @@ layoutTest("pinning a claim moves the claim and nothing else", () => {
 	}
 });
 
-layoutTest("the claim sits on the arc its own edge is drawn along", () => {
+engineTest("the claim sits on the arc its own edge is drawn along", () => {
 	// The regression pair put the claim on a visibly separate arc: the claim
 	// bulged because the edge was built between the far end and the CLAIM's
 	// position, which is a different chord and so a different arc. Both are
@@ -112,7 +112,7 @@ layoutTest("the claim sits on the arc its own edge is drawn along", () => {
 	}
 });
 
-layoutTest(
+engineTest(
 	"a closed session keeps its lane, so the claim beside it keeps its arc",
 	() => {
 		// One fact, two authorities, and they disagreed the moment a session
@@ -188,7 +188,7 @@ layoutTest(
 	},
 );
 
-layoutTest("a pinned claim keeps its edge, and the lane lets go", () => {
+engineTest("a pinned claim keeps its edge, and the lane lets go", () => {
 	// Dragging a claim pins it, and the layout hands a pinned claim its pin
 	// rather than the lean. So the lane it was riding no longer passes status-allow: lifecycle transition
 	// through it. The edge stops being that lane's prefix and becomes an

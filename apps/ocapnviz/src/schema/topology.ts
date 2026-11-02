@@ -1,3 +1,14 @@
+import {
+	TRANSPORT_INPROC,
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
+	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
+} from "@glowcap/abi";
 import { z } from "zod";
 
 /**
@@ -98,17 +109,18 @@ export type Transport = z.infer<typeof Transport>;
  *  netlayer that is not on this list keeps showing it, because
  *  `EnumSelect` adds whatever it was handed to whatever it was offered.
  *  Every surface that offers a transport reads this list, so there is
- *  one place a seventh netlayer is named. */
+ *  one place a seventh netlayer is offered. Each name is the generated ABI
+ *  constant, so the spelling has one owner, `model.transport`. */
 const KNOWN_TRANSPORTS = [
-	"tcp",
-	"keyed-tcp",
-	"noise-tcp",
-	"keyed-relay",
-	"noise-relay",
-	"iroh",
-	"webrtc",
-	"onion",
-	"inproc",
+	TRANSPORT_TCP,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_IROH,
+	TRANSPORT_WEBRTC,
+	TRANSPORT_ONION,
+	TRANSPORT_INPROC,
 ] as const;
 
 export const TRANSPORT_OPTIONS: readonly Transport[] = KNOWN_TRANSPORTS;

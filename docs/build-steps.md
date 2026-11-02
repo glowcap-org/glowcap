@@ -447,7 +447,7 @@ zig build demo-rooms-onion          # Run the Rooms application over real Tor wi
 ## The browser peer and the relays
 
 ```sh
-zig build wasm-host             # Build the browser binding's freestanding wasm32 Host module (ADR-0034) into zig-out/wasm/; part of build, gen-rust-wasm-layouts, gen-rust-wasm-layouts-check, install, loam-browser-build, ocapnviz-check, ocapnviz-dev, ocapnviz-live-browser, ocapnviz-test, wasm-abi-layout-check, wasm-host-test, wasm-import-check, webrtc-browser-peer, webrtc-browser-to-browser
+zig build wasm-host             # Build the browser binding's freestanding wasm32 Host module (ADR-0034) into zig-out/wasm/; part of build, gen-rust-wasm-layouts, gen-rust-wasm-layouts-check, install, loam-browser-build, ocapnviz-dev, ocapnviz-live-browser, wasm-abi-layout-check, wasm-host-test, wasm-import-check, webrtc-browser-peer, webrtc-browser-to-browser
 zig build wasm-archives         # Build freestanding Host, OCapN, and Loam static archives for Wasm application linking; part of loam-browser-build, rooms-browser-build, rooms-managed-rooms-browser-test, rooms-managed-sharing-browser-test, rooms-rust-contract-browser-test, rooms-rust-lint, rooms-session-executor-browser-test, rooms-session-foreign-browser-reload-test, rooms-session-foreign-browser-test, rooms-session-graph-browser-test
 zig build wasm-host-test        # Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno, ADR-0034 and ADR-0007)
 zig build wasm-abi-layout-check # Prove the wasm32 Host's layout descriptor (glowcap_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno, ADR-0034)

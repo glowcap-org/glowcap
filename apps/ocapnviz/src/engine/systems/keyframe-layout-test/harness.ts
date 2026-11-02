@@ -1,22 +1,10 @@
-// Shared Deno.test wrapper and world setup for keyframe layout cases.
-//
-// d3-force schedules a d3-timer via setTimeout under Deno (no rAF
-// in the test env). `simulation.stop()` cancels the timer logically
-// but the platform handle lingers past the synchronous test, which
-// Deno's resource sanitizer flags as a leak. Harmless in the
-// browser; same workaround as engine-test/harness.ts.
+// World setup for keyframe layout cases, and the engine test wrapper they
+// run under (d3-force's lingering timer, see engine-test/harness.ts).
 
 import { World } from "miniplex";
 import type { Components, GameWorld, Vec2 } from "../../world.ts";
 
-export function layoutTest(name: string, fn: () => void): void {
-	Deno.test({
-		name,
-		sanitizeOps: false,
-		sanitizeResources: false,
-		fn,
-	});
-}
+export { engineTest } from "../../engine-test/harness.ts";
 
 export function freshWorld(peerIds: string[]): GameWorld {
 	const w = new World<Components>();

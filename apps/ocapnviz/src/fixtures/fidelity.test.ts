@@ -9,8 +9,20 @@
  * so a new chapter cannot ship without them.
  */
 
+import {
+	TRANSPORT_INPROC,
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_ONION,
+	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
+} from "@glowcap/abi";
 import { assert, assertEquals } from "@std/assert";
 import { scenarios } from "./index.ts";
+import type { TransportOption } from "../schema/topology.ts";
 import {
 	EndpointAttribution,
 	endpointNodeId,
@@ -33,25 +45,28 @@ const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
  *  Which netlayers exist, and which of them name a peer by key, are Zig's:
  *  `driver_core.vocab.designatorSchemeForTransport` and each resident's own
  *  `designator_scheme` declaration, which `zig build source-check` already holds
- *  against each other. Nothing holds this copy against either, so a netlayer
- *  added there is added here by hand. */
-const DESIGNATOR_SHAPE: Record<string, RegExp> = {
+ *  against each other. This copy is keyed by the picker's offer, so a netlayer
+ *  offered without a shape here fails to compile. */
+const DESIGNATOR_SHAPE: Record<TransportOption, RegExp> = {
 	// Address netlayers: the designator says where to dial.
-	tcp: /^[0-9.]+:\d+$/,
+	[TRANSPORT_TCP]: /^[0-9.]+:\d+$/,
 	// Tor version 3 service id, without the `.onion` suffix.
-	onion: /^[a-z2-7]{56}$/,
+	[TRANSPORT_ONION]: /^[a-z2-7]{56}$/,
 	// `inproc` dials a switchboard entry rather than a socket, so its
 	// designator is the name a listener registered under.
-	inproc: /^.+$/,
+	[TRANSPORT_INPROC]: /^.+$/,
 	// Key netlayers: the designator IS the peer's public key, and the keyed
 	// handshake pins the session to it.
-	"keyed-tcp": KEY_DESIGNATOR,
-	"noise-tcp": KEY_DESIGNATOR,
-	iroh: KEY_DESIGNATOR,
-	webrtc: KEY_DESIGNATOR,
-	"keyed-relay": KEY_DESIGNATOR,
-	"noise-relay": KEY_DESIGNATOR,
+	[TRANSPORT_KEYED_TCP]: KEY_DESIGNATOR,
+	[TRANSPORT_NOISE_TCP]: KEY_DESIGNATOR,
+	[TRANSPORT_IROH]: KEY_DESIGNATOR,
+	[TRANSPORT_WEBRTC]: KEY_DESIGNATOR,
+	[TRANSPORT_KEYED_RELAY]: KEY_DESIGNATOR,
+	[TRANSPORT_NOISE_RELAY]: KEY_DESIGNATOR,
 };
+
+/** The same table keyed by the recording's string, for lookups. */
+const designatorShapes: ReadonlyMap<string, RegExp> = new Map(Object.entries(DESIGNATOR_SHAPE));
 
 function opensOf(doc: (typeof scenarios)[number]) {
 	const out: Extract<TimelineEvent, { kind: "session-opened" }>[] = [];
@@ -79,7 +94,8 @@ Deno.test("every shipped recording names the netlayer each session runs over", (
 Deno.test("every session end says what it claims and what backed the claim", () => {
 	for (const doc of scenarios) {
 		for (const ev of opensOf(doc)) {
-			const shape = DESIGNATOR_SHAPE[ev.transport!]!;
+			const shape = designatorShapes.get(ev.transport!);
+			assert(shape !== undefined, `${doc.id}: session opened over an unoffered netlayer ${ev.transport}`);
 			for (const side of SESSION_SIDES) {
 				const end = ev[side];
 				// An end always has a claim: the reporting host either dialed

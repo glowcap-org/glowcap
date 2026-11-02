@@ -1,6 +1,6 @@
 /**
  * Fixtures for session-authoring tests: a two-peer session, a session
- * with one loose end, and the Deno sanitizer wrapper d3-force needs.
+ * with one loose end, and the engine test wrapper.
  */
 
 import { assert } from "@std/assert";
@@ -9,14 +9,7 @@ import { Engine } from "../../engine.ts";
 import type { TimelineEvent } from "../../timeline.ts";
 import { observationsOf } from "../../temporal/recording-access.ts";
 
-export function engineTest(name: string, fn: () => void | Promise<void>): void {
-	Deno.test({
-		name,
-		sanitizeOps: false,
-		sanitizeResources: false,
-		fn,
-	});
-}
+export { engineTest } from "../../engine-test/harness.ts";
 
 export function buildDoc(): TimelineDocument {
 	return TimelineDocument.parse({

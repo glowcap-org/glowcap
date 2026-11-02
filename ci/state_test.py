@@ -138,7 +138,7 @@ class StateTest(unittest.TestCase):
 
                 stores = state.STORES
                 self.assertTrue(all(str(store).startswith(str(home) + "/") for store in stores))
-                outputs = [stores[1] / "o/object", root / "zig-out/lib/libglowcap.a"]
+                outputs = [stores[1] / "o/object", root / "zig-out/lib/libglowcap_ocapn.a"]
                 for index, output in enumerate(outputs):
                     output.parent.mkdir(parents=True)
                     output.write_text(f"output {index}\n")

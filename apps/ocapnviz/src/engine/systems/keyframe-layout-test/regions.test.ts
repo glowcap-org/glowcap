@@ -20,7 +20,7 @@ import { assert } from "@std/assert";
 import { DEFAULT_LAYOUT_CONFIG, KeyframeLayoutSystem } from "../keyframe-layout-system.ts";
 import { TimelineDocument } from "../../timeline.ts";
 import { attachedEndpoint } from "../../../schema/session-end.ts";
-import { dist, freshWorld, layoutTest } from "./harness.ts";
+import { dist, engineTest, freshWorld } from "./harness.ts";
 import type { Vec2 } from "../../world.ts";
 
 function makeRegionDoc(): TimelineDocument {
@@ -81,7 +81,7 @@ function makeRegionDoc(): TimelineDocument {
 	};
 }
 
-layoutTest("region-prefixed peers land near their continental centroid", () => {
+engineTest("region-prefixed peers land near their continental centroid", () => {
 	const doc = makeRegionDoc();
 	const layout = new KeyframeLayoutSystem(doc, DEFAULT_LAYOUT_CONFIG);
 	const world = freshWorld(["us-alice", "eu-bob", "ap-carol"]);
@@ -128,7 +128,7 @@ layoutTest("region-prefixed peers land near their continental centroid", () => {
 	);
 });
 
-layoutTest(
+engineTest(
 	"unprefixed peers ignore the region force and stay near (0, 0)",
 	() => {
 		const doc: TimelineDocument = {
@@ -176,7 +176,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"multiple peers in the same region spread out from the centroid",
 	() => {
 		const doc: TimelineDocument = {
@@ -233,7 +233,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"two-segment cloud-region tags (us-east, us-west) place peers at distinct sub-region centroids",
 	() => {
 		const doc: TimelineDocument = {
@@ -314,7 +314,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"single-segment 'us-alice' falls back to continental rollup",
 	() => {
 		// Multiple peers across continents, d3-force's `forceCenter`
