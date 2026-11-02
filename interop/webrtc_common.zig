@@ -344,6 +344,90 @@ pub fn sendAndExpectString(
     if (!std.mem.eql(u8, try captured.require(), expected)) return error.WrongReply;
 }
 
+/// The actor the serving half publishes: `greet` answers with the greeting
+/// the driver names and raises `done`, so the half knows it was reached.
+pub const Greeter = struct {
+    done: *std.atomic.Value(bool),
+    greeting: []const u8,
+
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
+        _ = turn;
+        if (!msg.is("greet")) return error.NoSuchMethod;
+        self.done.store(true, .release);
+        return .{ .string = self.greeting };
+    }
+};
+
+/// The serving half over an open channel: hold the keyed OCapN session as the
+/// accepting side, publish a `Greeter` before the handshake settles (the
+/// dialer's fetch can arrive in the same pump round that opens the session),
+/// and pump until it was greeted.
+pub fn serveGreeter(
+    resident: *webrtc.Resident,
+    peer: *webrtc.Peer,
+    allocator: std.mem.Allocator,
+    seed: [crypto.seed_bytes]u8,
+    frame_cap: usize,
+    greeting: []const u8,
+) anyerror!void {
+    var host = try hostFromSeed(allocator, seed, frame_cap);
+    defer host.deinit();
+
+    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    try host.setAdvertisedLocator(locator(designator[0..]));
+    const session = try host.openAcceptedAdvertised(webrtc.transport_name);
+    try bindAuthorizedChannel(&host, session, peer);
+
+    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
+    defer allocator.free(read_buf);
+    var pump = PacketPump{ .read_buf = read_buf };
+    defer pump.deinit();
+
+    var served = std.atomic.Value(bool).init(false);
+    _ = try host.publish("greeter", Greeter, .{ .done = &served, .greeting = greeting });
+    try waitFor(resident, peer, &pump, &host, session, session, sessionOpenDone, 10_000);
+    try serveUntil(resident, peer, &pump, &host, session, &served, atomicFlagDone, 10_000);
+}
+
+/// The dialing half over an open channel: run the keyed handshake as the
+/// initiator with `expect_designator` pinned so a wrong partner refuses, check
+/// the partner's signed designator, fetch the Greeter, and expect `greeting`
+/// back.
+pub fn dialAndGreet(
+    resident: *webrtc.Resident,
+    peer: *webrtc.Peer,
+    allocator: std.mem.Allocator,
+    seed: [crypto.seed_bytes]u8,
+    expect_designator: []const u8,
+    frame_cap: usize,
+    greeting: []const u8,
+) anyerror!void {
+    var host = try hostFromSeed(allocator, seed, frame_cap);
+    defer host.deinit();
+
+    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    try host.setAdvertisedLocator(locator(designator[0..]));
+    const session = try host.openDialedLocator(locator(expect_designator));
+    try bindAuthorizedChannel(&host, session, peer);
+
+    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
+    defer allocator.free(read_buf);
+    var pump = PacketPump{ .read_buf = read_buf };
+    defer pump.deinit();
+
+    try waitFor(resident, peer, &pump, &host, session, session, sessionOpenDone, 10_000);
+    const partner = try host.partnerIdentity(session);
+    if (!std.mem.eql(u8, partner.designator, expect_designator)) return error.PartnerMismatch;
+
+    const greeter = try fetchRef(resident, peer, &pump, &host, session, "greeter", 10_000);
+    try sendAndExpectString(resident, peer, &pump, &host, session, greeter, .{
+        .verb = "greet",
+        .args = &.{.{ .string = "glowcap" }},
+    }, greeting, 10_000);
+    _ = try pump.drive(&host, session, peer);
+    peer.close();
+}
+
 pub fn atomicFlagDone(ctx: *anyopaque) bool {
     const done: *std.atomic.Value(bool) = @ptrCast(@alignCast(ctx));
     return done.load(.acquire);

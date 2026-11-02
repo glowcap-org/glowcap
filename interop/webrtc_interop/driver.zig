@@ -30,23 +30,9 @@ const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
 const crypto = glowcap.foundation.crypto;
-const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc";
-
-/// The published actor: answers `greet` with a static greeting.
-const Greeter = struct {
-    done: *std.atomic.Value(bool),
-
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        _ = turn;
-        if (!msg.is("greet")) return error.NoSuchMethod;
-        self.done.store(true, .release);
-        return .{ .string = greeting };
-    }
-};
 
 /// Bring the DataChannel up by ferrying signaling between the two peers in this
 /// process: exchange the offer and answer, then trickle ICE candidates both ways
@@ -171,72 +157,6 @@ fn proveReadinessBytes(
     try tryReceive(offerer_resident, offerer, to_offerer);
 }
 
-/// The answerer half: run the responder keyed handshake over the open channel
-/// signing with `secret`, publish the Greeter, and serve until the offerer
-/// leaves.
-fn answererHalf(
-    resident: *webrtc.Resident,
-    peer: *webrtc.Peer,
-    allocator: std.mem.Allocator,
-    seed: [crypto.seed_bytes]u8,
-) anyerror!void {
-    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
-    defer host.deinit();
-
-    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
-    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
-    const session = try host.openAcceptedAdvertised(webrtc.transport_name);
-    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
-
-    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
-    defer allocator.free(read_buf);
-    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
-    defer pump.deinit();
-
-    // Publish before the handshake settles: the dialer's fetch can arrive in
-    // the same pump round that opens the session.
-    var served = std.atomic.Value(bool).init(false);
-    _ = try host.publish("greeter", Greeter, .{ .done = &served });
-    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
-    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 10_000);
-}
-
-/// The offerer half: run the initiator keyed handshake signing with `secret`,
-/// pinning the answerer's key so a wrong partner refuses, then assert the
-/// partner's signed designator, fetch the Greeter, and call it.
-fn offererHalf(
-    resident: *webrtc.Resident,
-    peer: *webrtc.Peer,
-    allocator: std.mem.Allocator,
-    seed: [crypto.seed_bytes]u8,
-    expect_designator: []const u8,
-) anyerror!void {
-    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
-    defer host.deinit();
-
-    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
-    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
-    const session = try host.openDialedLocator(webrtc_common.locator(expect_designator));
-    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
-
-    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
-    defer allocator.free(read_buf);
-    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
-    defer pump.deinit();
-
-    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
-    const partner = try host.partnerIdentity(session);
-    if (!std.mem.eql(u8, partner.designator, expect_designator)) return error.PartnerMismatch;
-
-    const greeter = try webrtc_common.fetchRef(resident, peer, &pump, &host, session, "greeter", 10_000);
-    try webrtc_common.sendAndExpectString(resident, peer, &pump, &host, session, greeter, .{
-        .verb = "greet",
-        .args = &.{.{ .string = "glowcap" }},
-    }, greeting, 10_000);
-    _ = try pump.drive(&host, session, peer);
-    peer.close();
-}
-
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
 
@@ -272,8 +192,8 @@ pub fn main(init: std.process.Init) !void {
 
     // The answerer serves on its own thread; the offerer drives the conversation
     // on this one. Each peer handle is used by exactly one thread past bring-up.
-    var answerer_future = try io.concurrent(answererHalf, .{ &answerer_resident, &answerer, allocator, answerer_seed });
-    const offerer_result = offererHalf(&offerer_resident, &offerer, allocator, offerer_seed, answerer_designator[0..]);
+    var answerer_future = try io.concurrent(webrtc_common.serveGreeter, .{ &answerer_resident, &answerer, allocator, answerer_seed, frame_cap, greeting });
+    const offerer_result = webrtc_common.dialAndGreet(&offerer_resident, &offerer, allocator, offerer_seed, answerer_designator[0..], frame_cap, greeting);
     const answerer_result = answerer_future.await(io);
     try offerer_result;
     try answerer_result;

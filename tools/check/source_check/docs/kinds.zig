@@ -106,6 +106,28 @@ pub fn isDoc(path: []const u8) bool {
     return std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".smd");
 }
 
+/// Every doc under `tree`, appended to `out`. Vendored dependency and build
+/// output directories hold no docs of ours.
+pub fn collectDocs(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, tree: []const u8, out: *std.ArrayList([]const u8)) !void {
+    var dir = cwd.openDir(io, tree, .{ .iterate = true }) catch |err| switch (err) {
+        // tolerant: a doc tree this checkout does not carry holds no docs.
+        error.FileNotFound => return,
+        else => return err,
+    };
+    defer dir.close(io);
+    var walker = try dir.walkSelectively(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind == .directory) {
+            if (!std.mem.eql(u8, entry.basename, "node_modules") and !std.mem.eql(u8, entry.basename, "target")) try walker.enter(io, entry);
+            continue;
+        }
+        if (entry.kind != .file) continue;
+        const path = try std.fs.path.join(gpa, &.{ tree, entry.path });
+        if (isDoc(path)) try out.append(gpa, path);
+    }
+}
+
 /// The ignored directory that holds temporary local docs.
 pub const local_home = ".local/";
 

@@ -47,7 +47,6 @@ const signaling_budget_ms = 15_000;
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
 const driver = glowcap.driver;
 const tcp = glowcap.net.tcp;
 const ip = std.Io.net;
@@ -69,18 +68,6 @@ const signaling_opts: driver.SessionOptions = .{
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc signaling captp";
-
-/// The published actor: answers `greet` with a static greeting.
-const Greeter = struct {
-    done: *std.atomic.Value(bool),
-
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        _ = turn;
-        if (!msg.is("greet")) return error.NoSuchMethod;
-        self.done.store(true, .release);
-        return .{ .string = greeting };
-    }
-};
 
 /// The exporter half: host the signaling inbox over a keyed CapTP session until
 /// the recipient's channel is up (it closes the signaling session), then serve a
@@ -105,25 +92,7 @@ fn exporterHalf(
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
     try waitOpen(resident, peer, 2000);
 
-    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
-    defer host.deinit();
-
-    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
-    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
-    const session = try host.openAcceptedAdvertised(webrtc.transport_name);
-    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
-
-    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
-    defer allocator.free(read_buf);
-    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
-    defer pump.deinit();
-
-    // Publish before the handshake settles: the dialer's fetch can arrive in
-    // the same pump round that opens the session.
-    var served = std.atomic.Value(bool).init(false);
-    _ = try host.publish("greeter", Greeter, .{ .done = &served });
-    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
-    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 10_000);
+    try webrtc_common.serveGreeter(resident, peer, allocator, seed, frame_cap, greeting);
 }
 
 /// The recipient half: bring the channel up over the signaling session, then
@@ -150,30 +119,7 @@ fn recipientHalf(
     }
 
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
-    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
-    defer host.deinit();
-
-    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
-    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
-    const session = try host.openDialedLocator(webrtc_common.locator(expect_designator));
-    try webrtc_common.bindAuthorizedChannel(&host, session, offerer);
-
-    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
-    defer allocator.free(read_buf);
-    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
-    defer pump.deinit();
-
-    try webrtc_common.waitFor(resident, offerer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
-    const partner = try host.partnerIdentity(session);
-    if (!std.mem.eql(u8, partner.designator, expect_designator)) return error.PartnerMismatch;
-
-    const greeter = try webrtc_common.fetchRef(resident, offerer, &pump, &host, session, "greeter", 10_000);
-    try webrtc_common.sendAndExpectString(resident, offerer, &pump, &host, session, greeter, .{
-        .verb = "greet",
-        .args = &.{.{ .string = "glowcap" }},
-    }, greeting, 10_000);
-    _ = try pump.drive(&host, session, offerer);
-    offerer.close();
+    try webrtc_common.dialAndGreet(resident, offerer, allocator, seed, expect_designator, frame_cap, greeting);
 }
 
 pub fn main(init: std.process.Init) !void {
