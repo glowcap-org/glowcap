@@ -27,6 +27,7 @@
          goblins/ocapn/structs-urls
          (submod goblins/ocapn/structs-urls marshall)
          "iroh-netlayer.rkt"
+         (only-in "host-support.rkt" report-session)
          (only-in "../../../bindings/racket/glowcap-iroh.rkt" IROH-REACH-DIRECT)
          racket/async-channel)
 
@@ -41,14 +42,6 @@
 ;; The wire constructor rather than the contracted one: an `iroh` locator's hints
 ;; are the draft's mapping shape, which the contracted `ocapn-node` refuses.
 (define make-wire-ocapn-node (cdr unmarshall::ocapn-node))
-
-(define (report-session event _handle info)
-  (when (eq? event 'open)
-    (printf "SESSION transport=~a provenance=~a partner=~a session-id=~a~n"
-            (hash-ref info 'transport)
-            (hash-ref info 'durable-provenance)
-            (hash-ref info 'partner-designator)
-            (hash-ref info 'session-id))))
 
 ;; Settled outside the vat so the outer thread can `sync/timeout` on it without
 ;; blocking the vat that has to deliver the resolution.

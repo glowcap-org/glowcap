@@ -39,24 +39,14 @@
          goblins/ocapn/structs-urls
          goblins/utils/url-base64
          "tcp-netlayer.rkt"
-         "gc-probe.rkt")
+         "gc-probe.rkt"
+         (only-in "host-support.rkt" emit-ndjson ECHO-SWISS-NUM ^echo))
 
 ;; Line-buffer stdout so the bridge plugin sees the readiness lines
 ;; immediately, not block-buffered until exit. Same reason
 ;; seven-caps-peer.rkt does this.
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
-
-;; OCapN conformance-suite canonical echo swiss-num (same as
-;; seven-caps-peer.rkt and glowcap-conformance-peer's SWISS_ECHO_GC).
-(define ECHO-SWISS-NUM
-  (string->bytes/latin-1 "IO58l1laTyhcrgDKbEzFOO32MDd6zE5w"))
-
-;; Echo behavior, `(lambda args args)` returns its arguments
-;; unchanged. Mirrors seven-caps-peer.rkt's `^echo`.
-(define (^echo _bcom)
-  (lambda args
-    args))
 
 ;; Swiss-num for the record cap the interop driver's `op:get` leg
 ;; fetches. The driver hardcodes the same constant (the way the
@@ -144,20 +134,6 @@
   (if (< i (length NAMED-VATS))
       (list-ref NAMED-VATS i)
       (format "goblins-vat-~a" i)))
-
-;; ─── NDJSON readiness emission ───────────────────────────────────
-
-(define (emit-ndjson event-fields)
-  ;; Emit one JSON object per line. event-fields is an assoc list of
-  ;; (key . string-value). Hand-roll the JSON to avoid pulling in
-  ;; another package just for this, keys are static, values are
-  ;; controlled, so escaping concerns are minimal.
-  (define (escape s)
-    (regexp-replace* #px"[\\\\\"]" s "\\\\\\0"))
-  (define pairs
-    (for/list ([f event-fields])
-      (format "\"~a\":\"~a\"" (car f) (escape (cdr f)))))
-  (printf "{\"v\":1,~a}~n" (string-join pairs ",")))
 
 ;; ─── Boot one vat ────────────────────────────────────────────────
 

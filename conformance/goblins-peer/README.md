@@ -17,6 +17,7 @@ directory holds glowcap's wrappers and small Racket programs around its API.
 | `racket/session-trace.rkt` | The CapTP session facts a netlayer sees at the wire, reported to a trace sink. Shared by both netlayers. |
 | `racket/captp-message-procs.rkt` | CapTP message framing over Racket ports, so a transport close reads as end of stream and not as a Syrup decode error. |
 | `racket/ocapn-names.rkt`  | The Public Identifier and Session ID both ends of a session derive alike. |
+| `racket/host-support.rkt` | What the host scripts print and publish alike: the NDJSON readiness line, the canonical echo cap and its swiss-num, and the iroh `SESSION` line. |
 | `racket/trace-publish.rkt` | Publishes a vat's own sessions to a live timeline endpoint.        |
 | `racket/smoke.sh`         | Boots `seven-caps-peer.rkt`, checks its printed URL and TCP port, and stops it. |
 | `run.sh`                  | Launcher using the devcontainer's `racket`. |

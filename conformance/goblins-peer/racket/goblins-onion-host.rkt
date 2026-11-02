@@ -35,7 +35,7 @@
          goblins/vat
          goblins/ocapn/captp
          goblins/ocapn/netlayer/onion
-         racket/string)
+         (only-in "host-support.rkt" emit-ndjson ECHO-SWISS-NUM ^echo))
 
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
@@ -50,23 +50,6 @@
 ;; The driver names one inside the temporary tree it deletes, so this check
 ;; leaves nothing behind.
 (define ocapn-socks-dir (string->path (vector-ref args 2)))
-
-;; The OCapN conformance suite's canonical echo swiss-num, the same one
-;; `goblins-host.rkt` publishes over TCP.
-(define ECHO-SWISS-NUM
-  (string->bytes/latin-1 "IO58l1laTyhcrgDKbEzFOO32MDd6zE5w"))
-
-;; Echo behavior: `(lambda args args)` answers with its arguments unchanged.
-(define (^echo _bcom)
-  (lambda args
-    args))
-
-(define (emit-ndjson event-fields)
-  (define (escape s) (regexp-replace* #px"[\\\\\"]" s "\\\\\\0"))
-  (define pairs
-    (for/list ([f event-fields])
-      (format "\"~a\":\"~a\"" (car f) (escape (cdr f)))))
-  (printf "{\"v\":1,~a}~n" (string-join pairs ",")))
 
 (define a-vat (make-vat))
 

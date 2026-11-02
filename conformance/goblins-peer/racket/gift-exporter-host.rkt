@@ -25,7 +25,8 @@
          goblins/vat
          goblins/ocapn/captp
          goblins/ocapn/structs-urls
-         "tcp-netlayer.rkt")
+         "tcp-netlayer.rkt"
+         (only-in "host-support.rkt" emit-ndjson))
 
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
@@ -69,13 +70,6 @@
 (define location-hints
   (and (>= (vector-length argv) 4)
        (hash (vector-ref argv 2) (hex->bytes (vector-ref argv 3)))))
-
-(define (emit-ndjson event-fields)
-  (define (escape s) (regexp-replace* #px"[\\\\\"]" s "\\\\\\0"))
-  (define pairs
-    (for/list ([f event-fields])
-      (format "\"~a\":\"~a\"" (car f) (escape (cdr f)))))
-  (printf "{\"v\":1,~a}~n" (string-join pairs ",")))
 
 (define a-vat (make-vat))
 

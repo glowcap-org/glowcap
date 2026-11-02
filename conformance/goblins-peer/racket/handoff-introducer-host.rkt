@@ -29,7 +29,8 @@
          goblins/ocapn/captp
          goblins/ocapn/structs-urls
          racket/runtime-path
-         "tcp-netlayer.rkt")
+         "tcp-netlayer.rkt"
+         (only-in "host-support.rkt" emit-ndjson))
 
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
@@ -67,12 +68,6 @@
       (spawn ^tcp-netlayer "127.0.0.1" port)))
 (define alice-port (if (>= (vector-length argv) 1) (string->number (vector-ref argv 0)) 9011))
 (define bob-port   (if (>= (vector-length argv) 2) (string->number (vector-ref argv 1)) 9012))
-
-(define (emit-ndjson event-fields)
-  (define (escape s) (regexp-replace* #px"[\\\\\"]" s "\\\\\\0"))
-  (define pairs
-    (for/list ([f event-fields]) (format "\"~a\":\"~a\"" (car f) (escape (cdr f)))))
-  (printf "{\"v\":1,~a}~n" (string-join pairs ",")))
 
 ;; ── Bob: host the greeter, register a sturdyref Alice will enliven ───────────
 (define bob-vat (make-vat))
