@@ -1,9 +1,10 @@
-//! Physical storage and deadlines for the same receipt scenario on both hosts.
+//! Physical storage, deadlines, and the control powers a scenario derives, for
+//! the same receipt scenario on both hosts.
 #[cfg(not(target_arch = "wasm32"))]
 use glowcap::loam::OpenMode;
 use glowcap::{
 	Ref,
-	loam::{Attachment, Limits, Policy, Resource, Schema, Store},
+	loam::{Attachment, ControlPowers, Limits, Policy, PolicyValue, Resource, Schema, Store},
 };
 use rooms_glowcap::client::Deadline;
 use std::{
@@ -11,6 +12,16 @@ use std::{
 	rc::Rc,
 };
 
+/// Every control power, with the policy ceiling pinned to `terms`.
+pub(super) fn full_control(terms: PolicyValue) -> ControlPowers {
+	ControlPowers {
+		policy_ceiling: Some(terms),
+		pause: true,
+		resume: true,
+		revoke: true,
+		..Default::default()
+	}
+}
 #[derive(Clone, Default)]
 pub(super) struct Platform {
 	/// While set, every bounded wait also expires after this many

@@ -1,9 +1,9 @@
 //! Membership bridge calls use shared form admission and keep each room's
 //! declaration separate, including while an earlier observation is cancelled. status-allow: event or source ordering
-use super::HostPlatform;
-use glowcap::{Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Runtime, RuntimeConfig, tcp};
+use crate::loopback::{Loopback, keyed_loopback};
+use glowcap::{Argument, PendingWork};
 use rooms_application::bridge::{self, Answers};
-use rooms_glowcap::client::{Client, Error, room::Room};
+use rooms_glowcap::client::{Error, room::Room};
 use serde_json::{Value, json};
 use std::{
 	cell::{Cell, RefCell},
@@ -24,26 +24,15 @@ async fn bridge_forms_follow_membership_authority_and_cancelled_submissions_are_
 async fn scenario() {
 	let fixture: Value = serde_json::from_str(include_str!("../../../proofs/fixtures/bridge-client.json")).unwrap();
 	let form = fixture["forms"][0]["raw"].as_str().unwrap().to_owned();
-	let host = Host::from_seed([86; 32]).unwrap();
-	let server = tcp::listen(
-		"127.0.0.1",
-		0,
-		tcp::ListenOptions {
-			identity: ListenerIdentity::Host(host.clone()),
-			..Default::default()
-		},
-	)
-	.await
-	.unwrap();
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
-	let locator = server.locator().unwrap();
-	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let accepted = Rc::new(accepted.unwrap());
-	let service = accepted.clone();
-	let serving = tokio::task::spawn_local(async move { service.serve().await });
-	let client = Client::new(connected.unwrap(), HostPlatform);
+	let Loopback {
+		host,
+		server,
+		runtime,
+		accepted,
+		client,
+		serving,
+		..
+	} = keyed_loopback([86; 32]).await.unwrap();
 	let reply = Rc::new(RefCell::new(Ok(Argument::String(form.clone()))));
 	let calls = Rc::new(RefCell::new(Vec::<Value>::new()));
 	let delayed = Rc::new(Cell::new(false));

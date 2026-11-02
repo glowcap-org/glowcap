@@ -220,13 +220,7 @@ async fn run_case(malformed: bool) {
 						&[],
 					)
 					.unwrap();
-				let powers = ControlPowers {
-					policy_ceiling: Some(terms),
-					pause: true,
-					resume: true,
-					revoke: true,
-					..Default::default()
-				};
+				let powers = full_control(terms);
 				let (source, control) = owner.derive(terms, 1, powers).await.unwrap();
 				let (other, _) = owner.derive(terms, 1, ControlPowers::default()).await.unwrap();
 				let (args, canonical) = claim(&host, &source, "accepted").await;

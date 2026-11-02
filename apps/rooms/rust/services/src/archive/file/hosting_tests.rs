@@ -1,14 +1,11 @@
 use super::tests::{Temp, record};
 use super::*;
 use crate::archive::Archive;
-use glowcap::{Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Runtime, RuntimeConfig, tcp};
+use glowcap::{Argument, PendingWork};
 use rooms_application::archive::{Access, Facet};
-use rooms_glowcap::{
-	archive as wire,
-	client::{Client, archive::Archive as ClientArchive},
-};
-use rooms_platform::HostPlatform;
-use std::{rc::Rc, time::Duration};
+use rooms_glowcap::{archive as wire, client::archive::Archive as ClientArchive};
+use rooms_platform::loopback::{Loopback, keyed_loopback};
+use std::time::Duration;
 #[tokio::test]
 async fn hosted_journal_acknowledges_disk_and_keeps_the_executor_available() {
 	tokio::task::LocalSet::new()
@@ -34,26 +31,15 @@ async fn scenario() {
 	ready.recv().unwrap();
 	let (owner, worker) = Archive::new(rooms_platform::HostPlatform, backend);
 	let worker = tokio::task::spawn_local(worker.run());
-	let host = Host::from_seed([199; 32]).unwrap();
-	let server = tcp::listen(
-		"127.0.0.1",
-		0,
-		tcp::ListenOptions {
-			identity: ListenerIdentity::Host(host.clone()),
-			..Default::default()
-		},
-	)
-	.await
-	.unwrap();
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
-	let locator = server.locator().unwrap();
-	let (connected, accepted) =
-		tokio::try_join!(runtime.connect(&locator, ConnectOptions::default()), server.accept()).unwrap();
-	let accepted = Rc::new(accepted);
-	let service = accepted.clone();
-	let serving = tokio::task::spawn_local(async move { service.serve().await });
+	let Loopback {
+		host,
+		server,
+		runtime,
+		accepted,
+		client,
+		serving,
+		..
+	} = keyed_loopback([199; 32]).await.unwrap();
 	let root = owner
 		.receiver()
 		.spawn(&accepted, Facet::new(Filter::default(), Access::ReadWrite).unwrap())
@@ -63,7 +49,6 @@ async fn scenario() {
 		.publish("archive", move |_, _| Ok(target.clone().into()))
 		.unwrap();
 	let ping = accepted.publish("ping", |_, _| Ok("pong".into())).unwrap();
-	let client = Client::new(connected, HostPlatform);
 	let reference = client
 		.session()
 		.send(&client.session().fetch("archive").await.unwrap(), "root", &[])

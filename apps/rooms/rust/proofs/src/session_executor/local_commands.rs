@@ -174,13 +174,7 @@ pub(super) async fn run() {
 						&[],
 					)
 					.unwrap();
-				let powers = ControlPowers {
-					policy_ceiling: Some(terms),
-					pause: true,
-					resume: true,
-					revoke: true,
-					..Default::default()
-				};
+				let powers = full_control(terms);
 				let sequence = host
 					.send(&root, "derivation-sequence", &[])
 					.await

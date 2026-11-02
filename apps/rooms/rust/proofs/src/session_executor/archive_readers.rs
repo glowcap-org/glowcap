@@ -113,7 +113,7 @@ pub(super) async fn run() {
 			}).unwrap();
 			owner.import(seat, history_target.clone(), None).await.unwrap();
 			let terms = policy.value_for_kind(session::KIND, &[Permission::History.key(), Permission::ReadArchive.key(), Permission::ReadFile.key()], &[]).unwrap();
-			let powers = ControlPowers {policy_ceiling: Some(terms), pause: true, resume: true, revoke: true, ..Default::default() };
+			let powers = full_control(terms);
 			let (source, control) = owner.derive(terms, 1, powers).await.unwrap();
 			assert!(host.send(&source, "workspace-history-reader", &["selected".into(), false.into()]).await.is_err(), "an unconfigured device archive cannot substitute for saved authority");
 			let mut selected = Intent::empty();
@@ -170,7 +170,7 @@ pub(super) async fn run() {
 			assert!(history_workspace.selected_archive(false).await.is_err(), "History cannot read the selected peer");
 			assert!(archive_workspace.history_reader(seat).await.is_err(), "archive reading grants no seat history");
 			let observe = policy.value_for_kind(session::KIND, &[Permission::ObserveWorkspace.key()], &[]).unwrap();
-			let (observer, observer_control) = owner.derive(observe, 1, ControlPowers { policy_ceiling: Some(observe), pause: true, resume: true, revoke: true, ..Default::default() }).await.unwrap();
+			let (observer, observer_control) = owner.derive(observe, 1, full_control(observe)).await.unwrap();
 			let workspace = rooms_glowcap::client::workspace::Workspace::local(host.clone(), Platform::default(), observer.clone());
 			let form = workspace.bridge_form(seat).await.unwrap().unwrap();
 			assert_eq!(form.scope.text().as_str(), Some("network"));

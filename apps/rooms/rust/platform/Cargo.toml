@@ -11,6 +11,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# feature test-support: Exposes the keyed TCP loopback that service tests open.
+test-support = []
+
 [dependencies]
 rooms-application = { path = "../application" }
 rooms-glowcap = { path = "../glowcap" }

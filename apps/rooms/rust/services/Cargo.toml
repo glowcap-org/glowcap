@@ -42,5 +42,6 @@ encoding_rs = { version = "=0.8.42", optional = true }
 
 
 [dev-dependencies]
+rooms-platform = { path = "../platform", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
 glowcap = { workspace = true, features = ["tcp"] }

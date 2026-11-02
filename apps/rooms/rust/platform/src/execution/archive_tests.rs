@@ -1,16 +1,14 @@
 //! Real CapTP exercises the host client and shared wire adapter. The fixture
 //! owns an in-memory index. This is not the production archive storage service.
-use super::HostPlatform;
-use glowcap::{
-	Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp,
-};
+use crate::loopback::{Loopback, keyed_loopback};
+use glowcap::{Argument, PendingWork, Ref, Session};
 use rooms_application::{
 	archive::{Access, Body, ConversationKind, Coordinates, Facet, Filter, LineState, Record, index::Index, protocol},
 	room::ArgumentView,
 };
 use rooms_glowcap::{
 	Value, archive as wire,
-	client::{Client, Error, archive::Archive},
+	client::{Error, archive::Archive},
 };
 use std::{
 	cell::{Cell, RefCell},
@@ -99,26 +97,15 @@ async fn archive_clients_keep_scopes_and_validate_replies_over_tcp() {
 		.await;
 }
 async fn scenario() {
-	let host = Host::from_seed([197; 32]).unwrap();
-	let server = tcp::listen(
-		"127.0.0.1",
-		0,
-		tcp::ListenOptions {
-			identity: ListenerIdentity::Host(host.clone()),
-			..Default::default()
-		},
-	)
-	.await
-	.unwrap();
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
-	let locator = server.locator().unwrap();
-	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let accepted = Rc::new(accepted.unwrap());
-	let service = accepted.clone();
-	let serving = tokio::task::spawn_local(async move { service.serve().await });
-	let client = Client::new(connected.unwrap(), HostPlatform);
+	let Loopback {
+		host,
+		server,
+		runtime,
+		accepted,
+		client,
+		serving,
+		..
+	} = keyed_loopback([197; 32]).await.unwrap();
 	let root = facet(
 		&accepted,
 		Rc::new(RefCell::new(Index::new(5000).unwrap())),

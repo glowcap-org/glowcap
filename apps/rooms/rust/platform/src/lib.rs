@@ -5,6 +5,8 @@
 //! signaling carried through a Rooms directory. It contains no Rooms product
 //! or service policy.
 pub mod execution;
+#[cfg(any(test, feature = "test-support"))]
+pub mod loopback;
 pub use entropy::OsEntropy;
 pub mod entropy;
 pub mod serving;

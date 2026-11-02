@@ -236,18 +236,7 @@ async fn run_case(external: bool) {
 					.send(
 						&line_root,
 						"derive-managed",
-						&upstream_terms.managed_derive_arguments(
-							1,
-							Scope::Object,
-							1,
-							ControlPowers {
-								policy_ceiling: Some(upstream_terms),
-								pause: true,
-								resume: true,
-								revoke: true,
-								..Default::default()
-							},
-						),
+						&upstream_terms.managed_derive_arguments(1, Scope::Object, 1, full_control(upstream_terms)),
 					)
 					.await
 					.unwrap();
@@ -313,20 +302,7 @@ async fn run_case(external: bool) {
 						&[],
 					)
 					.unwrap();
-				let (source, control) = owner
-					.derive(
-						terms,
-						1,
-						ControlPowers {
-							policy_ceiling: Some(terms),
-							pause: true,
-							resume: true,
-							revoke: true,
-							..Default::default()
-						},
-					)
-					.await
-					.unwrap();
+				let (source, control) = owner.derive(terms, 1, full_control(terms)).await.unwrap();
 				let (args, canonical) = command(&host, &source, "posted").await;
 				assert_eq!(
 					mutate(&host, &source, "command", &args).await.unwrap().as_str(),

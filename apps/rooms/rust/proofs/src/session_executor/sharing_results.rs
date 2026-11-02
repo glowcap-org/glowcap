@@ -128,20 +128,7 @@ pub(super) async fn run() {
 						&[],
 					)
 					.unwrap();
-				let (source, control) = owner
-					.derive(
-						terms,
-						1,
-						ControlPowers {
-							policy_ceiling: Some(terms),
-							pause: true,
-							resume: true,
-							revoke: true,
-							..Default::default()
-						},
-					)
-					.await
-					.unwrap();
+				let (source, control) = owner.derive(terms, 1, full_control(terms)).await.unwrap();
 				let base = host.send(&source, "snapshot", &[]).await.unwrap().as_list().unwrap()[0]
 					.as_i64()
 					.unwrap();
