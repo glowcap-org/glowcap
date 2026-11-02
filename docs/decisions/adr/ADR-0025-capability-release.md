@@ -18,7 +18,7 @@ A capability handle retains remote authority. Rust destruction and garbage-colle
 
 ## Decision
 
-Automatic release accounts for the particular handle's retain rather than requiring a shared position-to-proxy registry.
+Automatic release accounts for the released handle's own retain rather than requiring a shared position-to-proxy registry.
 
 Rust releases the Host retain when the last Ref clone drops by default. The setting belongs to the Host. Languages whose cleanup depends on a garbage-collector finalizer retain an explicit opt-in posture. Finalizers complement deterministic release rather than defining when an application must release authority.
 

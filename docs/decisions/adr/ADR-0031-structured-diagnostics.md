@@ -18,7 +18,7 @@ Some asynchronous failures have no live return recipient. Trace events and overw
 
 ## Decision
 
-A failure without one enters a typed bounded diagnostic journal owned by an explicit surviving object. The schema crosses the core, C ABI and bindings without each runtime inventing its own fields.
+A failure with no live caller enters a typed bounded diagnostic journal owned by an explicit surviving object. The schema crosses the core, C ABI and bindings without each runtime inventing its own fields.
 
 Records retain the owning lifecycle and exact cause. Capacity and lost-record counts are observable. Rendering, logging and escalation belong to the embedding. Per-call error text remains per-call state rather than becoming a journal.
 
