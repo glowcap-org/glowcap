@@ -221,9 +221,7 @@ pub fn AdapterNamespace(comptime Platform: type) type {
             return struct {
                 pub const ConnId = u32;
 
-                pub fn fdFromId(row: ConnId) error{AdapterHandleExhausted}!i32 {
-                    return Namespace.fdFromId(row);
-                }
+                pub const fdFromId = Namespace.fdFromId;
 
                 pub fn idFromFd(fd: i32) ?ConnId {
                     if (!Namespace.ownsFd(fd)) return null;
@@ -234,9 +232,7 @@ pub fn AdapterNamespace(comptime Platform: type) type {
                     return Namespace.userData((@as(u64, row) << 3) | @backingInt(operation));
                 }
 
-                pub fn owns(user_data: u64) bool {
-                    return Namespace.ownsUserData(user_data);
-                }
+                pub const owns = Namespace.ownsUserData;
 
                 pub fn id(user_data: u64) ConnId {
                     return @intCast(Namespace.userDataPayload(user_data) >> 3);

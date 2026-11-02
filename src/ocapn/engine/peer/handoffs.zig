@@ -97,29 +97,14 @@ pub fn noteHandoffChange(self: *Peer, dependency: node_services.HandoffDependenc
     self.pending_handoff_change = dependency;
 }
 
-/// Queue the recipient half of a three-party handoff.
-pub fn sendWithdrawGift(
-    self: *Peer,
-    secret: foundation.crypto.SecretKey,
-    give_bytes: []const u8,
-    answer: model.AnswerPosition,
-) !void {
-    return handoff_recipient.sendWithdrawGift(self, secret, give_bytes, answer);
-}
+pub const sendWithdrawGift = handoff_recipient.sendWithdrawGift;
 
 /// Queue `deposit-gift` to this exporter session's bootstrap object.
 pub fn sendDepositGift(self: *Peer, gift_id: []const u8, gifted: model.Reference) !void {
     return handoff_gifter.sendDepositGift(self, gift_id, gifted);
 }
 
-/// Resolve `answer` with a signed `desc:handoff-give`.
-pub fn sendResolveHandoffGive(
-    self: *Peer,
-    answer: session.AnswerTarget,
-    give_bytes: []const u8,
-) !void {
-    return handoff_gifter.sendResolveHandoffGive(self, answer, give_bytes);
-}
+pub const sendResolveHandoffGive = handoff_gifter.sendResolveHandoffGive;
 
 /// Retry the exact parked group whose gift changed. A standalone Peer with a
 /// custom resolver has no Node scheduler, so it retains the explicit-drive

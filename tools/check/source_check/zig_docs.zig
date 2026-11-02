@@ -57,7 +57,9 @@ fn isForeign(type_name: []const u8) bool {
     return false;
 }
 
-/// Collect every `fn <name>(` declaration under `src/` into `out`.
+/// Collect every function declared under `src/` into `out`: each `fn <name>(`,
+/// and each alias `const <name> = <path>;` whose path ends in a collected
+/// function, so a doc comment may name the alias a type exposes.
 fn collectDeclaredFns(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -70,6 +72,18 @@ fn collectDeclaredFns(
         return;
     };
     defer dir.close(io);
+
+    // An alias resolves after the walk, because its target may be declared in
+    // a file later in the walk.
+    const Alias = struct { name: []const u8, target: []const u8 };
+    var aliases: std.ArrayList(Alias) = .empty;
+    defer {
+        for (aliases.items) |alias| {
+            gpa.free(alias.name);
+            gpa.free(alias.target);
+        }
+        aliases.deinit(gpa);
+    }
 
     var walker = try dir.walk(gpa);
     defer walker.deinit();
@@ -96,7 +110,51 @@ fn collectDeclaredFns(
             }
             rest = rest[at + 3 ..];
         }
+
+        rest = contents;
+        while (std.mem.indexOf(u8, rest, "const ")) |at| {
+            const before_ok = at == 0 or !isIdentChar(rest[at - 1]);
+            var i = at + 6;
+            const start = i;
+            while (i < rest.len and isIdentChar(rest[i])) i += 1;
+            const name = rest[start..i];
+            rest = rest[at + 6 ..];
+            if (!before_ok or name.len == 0) continue;
+            if (aliasTarget(rest[i - start ..])) |target| {
+                try aliases.append(gpa, .{ .name = try gpa.dupe(u8, name), .target = try gpa.dupe(u8, target) });
+            }
+        }
     }
+
+    // An alias of an alias resolves once its target has, so pass until no
+    // alias is new.
+    var added = true;
+    while (added) {
+        added = false;
+        for (aliases.items) |alias| {
+            if (out.contains(alias.name) or !out.contains(alias.target)) continue;
+            try out.put(try gpa.dupe(u8, alias.name), {});
+            added = true;
+        }
+    }
+}
+
+/// The last segment of `const <name> = a.b.c;` when `after_name` starts right
+/// after the name and the value is one dotted path, else null.
+fn aliasTarget(after_name: []const u8) ?[]const u8 {
+    var i: usize = 0;
+    while (i < after_name.len and after_name[i] == ' ') i += 1;
+    if (i >= after_name.len or after_name[i] != '=') return null;
+    i += 1;
+    while (i < after_name.len and after_name[i] == ' ') i += 1;
+    const start = i;
+    var last_dot: ?usize = null;
+    while (i < after_name.len and (isIdentChar(after_name[i]) or after_name[i] == '.')) : (i += 1) {
+        if (after_name[i] == '.') last_dot = i;
+    }
+    if (i == start or i >= after_name.len or after_name[i] != ';') return null;
+    const target = if (last_dot) |dot| after_name[dot + 1 .. i] else after_name[start..i];
+    return if (target.len == 0) null else target;
 }
 
 /// Every backticked `Type.method` in a `src/` doc comment names a function this

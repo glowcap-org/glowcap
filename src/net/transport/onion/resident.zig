@@ -502,13 +502,9 @@ const ListenerShell = netlayer.ListenerShell(struct {
     pub const State = Listener;
     pub const metadata = known_transport.metadata();
 
-    pub fn accept(self: *Listener, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
-        return self.accept(peer, bufs);
-    }
+    pub const accept = Listener.accept;
 
-    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) netlayer.AcceptError!bool {
-        return self.waitAcceptable(timeout_ms);
-    }
+    pub const waitAcceptable = Listener.waitAcceptable;
 
     pub fn readinessFd(self: *Listener) i32 {
         return @intCast(self.readinessFd());
@@ -539,7 +535,5 @@ const ListenerShell = netlayer.ListenerShell(struct {
         return netlayer.writeListenerRestorationState(out, self.serviceKey());
     }
 
-    pub fn close(self: *Listener) ?netlayer.ListenerCloseFailure {
-        return self.deinit();
-    }
+    pub const close = Listener.deinit;
 });

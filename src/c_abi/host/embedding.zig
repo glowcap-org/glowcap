@@ -71,9 +71,7 @@ pub fn claimForDriver(handle: ?*c.GlowcapHost) ClaimError!?DriverClaim {
     return .{ .inst = inst };
 }
 
-pub fn releaseFromDriver(handle: *c.GlowcapHost) ?anyerror {
-    return common.releaseFromDriver(handle);
-}
+pub const releaseFromDriver = common.releaseFromDriver;
 
 /// The C handle a core session projects as. The driver archive's events carry
 /// sessions in the same handle vocabulary every `glowcap_host_*` verb takes.
@@ -81,9 +79,7 @@ pub fn sessionHandle(hs: *driver_core.HostSession) *c.GlowcapHostSession {
     return @ptrCast(hs);
 }
 
-pub fn sessionFrom(raw: ?*c.GlowcapHostSession) ?*driver_core.HostSession {
-    return common.sessionFrom(raw);
-}
+pub const sessionFrom = common.sessionFrom;
 
 /// Project one taken settled/failed completion onto the C action shape, with
 /// the byte-fed queue's exact lifetime sentence: one scratch reset per pop,

@@ -430,7 +430,7 @@ pub fn argumentToCWith(
     arena: std.mem.Allocator,
     arg: model.Argument,
 ) (MarshalError || RefError)!GlowcapArgument {
-    return valueToCImpl(model.Argument, RefError, ref_ctx, ref_to_c, arena, arg);
+    return valueToCWith(model.Argument, RefError, ref_ctx, ref_to_c, arena, arg);
 }
 
 pub fn argsToCWith(
@@ -440,42 +440,20 @@ pub fn argsToCWith(
     arena: std.mem.Allocator,
     args: []const model.Argument,
 ) (MarshalError || RefError)![]GlowcapArgument {
-    return valuesToCImpl(model.Argument, RefError, ref_ctx, ref_to_c, arena, args);
+    return valuesToCWith(model.Argument, RefError, ref_ctx, ref_to_c, arena, args);
 }
 
 /// Encode the Host's opaque-capability value, the mirror of `valuesFromCWith`.
 /// `Value` carries the data arms above, a `capability` arm the callback
 /// projects, and an `integers` run that leaves as one `_INTEGERS` value with
 /// its words lent where they lie (ADR-0064).
-pub fn valueToCWith(
-    comptime Value: type,
-    comptime RefError: type,
-    ref_ctx: anytype,
-    comptime ref_to_c: anytype,
-    arena: std.mem.Allocator,
-    value: Value,
-) (MarshalError || RefError)!GlowcapArgument {
-    return valueToCImpl(Value, RefError, ref_ctx, ref_to_c, arena, value);
-}
-
-pub fn valuesToCWith(
-    comptime Value: type,
-    comptime RefError: type,
-    ref_ctx: anytype,
-    comptime ref_to_c: anytype,
-    arena: std.mem.Allocator,
-    values: []const Value,
-) (MarshalError || RefError)![]GlowcapArgument {
-    return valuesToCImpl(Value, RefError, ref_ctx, ref_to_c, arena, values);
-}
-
 /// The one encoding recursion behind both application value forms. The data
 /// arms are spelled once; the arms whose C form depends on `Input` are
 /// resolved at compile time below them, and an arm neither names stops the
 /// build at this boundary, which must decide how (or whether) the typed
 /// surface carries it, instead of degrading silently to the opaque-frame
 /// fallback.
-fn valueToCImpl(
+pub fn valueToCWith(
     comptime Input: type,
     comptime RefError: type,
     ref_ctx: anytype,
@@ -505,15 +483,15 @@ fn valueToCImpl(
         .void => c_arg.kind = GLOWCAP_ARG_VOID,
         .list => |items| {
             c_arg.kind = GLOWCAP_ARG_LIST;
-            setItems(&c_arg, try valuesToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, items));
+            setItems(&c_arg, try valuesToCWith(Input, RefError, ref_ctx, ref_to_c, arena, items));
         },
         .set => |items| {
             c_arg.kind = GLOWCAP_ARG_SET;
-            setItems(&c_arg, try valuesToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, items));
+            setItems(&c_arg, try valuesToCWith(Input, RefError, ref_ctx, ref_to_c, arena, items));
         },
         .tagged => |tagged| {
             c_arg = leafToC(GLOWCAP_ARG_TAGGED, tagged.tag);
-            setItems(&c_arg, try valuesToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, tagged.value));
+            setItems(&c_arg, try valuesToCWith(Input, RefError, ref_ctx, ref_to_c, arena, tagged.value));
         },
         .big_integer => |big| {
             c_arg = leafToC(GLOWCAP_ARG_BIG_INTEGER, big.digits);
@@ -524,7 +502,7 @@ fn valueToCImpl(
             const arr = try arena.alloc(GlowcapArgument, entries.len * 2);
             for (entries, 0..) |entry, i| {
                 arr[i * 2] = leafToC(GLOWCAP_ARG_STRING, entry.key);
-                arr[i * 2 + 1] = try valueToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, entry.value);
+                arr[i * 2 + 1] = try valueToCWith(Input, RefError, ref_ctx, ref_to_c, arena, entry.value);
             }
             setItems(&c_arg, arr);
         },
@@ -545,7 +523,7 @@ fn valueToCImpl(
     return c_arg;
 }
 
-fn valuesToCImpl(
+pub fn valuesToCWith(
     comptime Input: type,
     comptime RefError: type,
     ref_ctx: anytype,
@@ -554,7 +532,7 @@ fn valuesToCImpl(
     values: []const Input,
 ) (MarshalError || RefError)![]GlowcapArgument {
     const out = try arena.alloc(GlowcapArgument, values.len);
-    for (values, out) |value, *slot| slot.* = try valueToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, value);
+    for (values, out) |value, *slot| slot.* = try valueToCWith(Input, RefError, ref_ctx, ref_to_c, arena, value);
     return out;
 }
 

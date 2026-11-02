@@ -465,14 +465,14 @@ fn writeInto(
 ) Error!void {
     model.validatePeerLocator(locator) catch return error.InvalidLocator;
     try sink.appendSlice("ocapn://");
-    try appendPercentEncoded(sink, locator.designator, safeNetloc);
+    try appendPercentEncoded(sink, locator.designator, isUnreservedOrSubDelim);
     try sink.append('.');
-    try appendPercentEncoded(sink, locator.transport, safeNetloc);
+    try appendPercentEncoded(sink, locator.transport, isUnreservedOrSubDelim);
     if (swissnum) |swiss| {
         try sink.appendSlice(sturdyref_path_prefix);
         switch (profile) {
             .v1_0 => try sink.appendBase64UrlNoPad(swiss),
-            .next => try appendPercentEncoded(sink, swiss, safePath),
+            .next => try appendPercentEncoded(sink, swiss, isUnreservedOrSubDelim),
         }
     }
     if (locator.hints.entries.len > 0) {
@@ -506,15 +506,11 @@ fn isUnreserved(c: u8) bool {
     };
 }
 
-fn safeNetloc(c: u8) bool {
+fn isUnreservedOrSubDelim(c: u8) bool {
     return isUnreserved(c) or switch (c) {
         '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => true,
         else => false,
     };
-}
-
-fn safePath(c: u8) bool {
-    return safeNetloc(c);
 }
 
 fn safeQuery(c: u8) bool {

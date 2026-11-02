@@ -76,7 +76,7 @@ const neutral_args_vtable = model.view.Args.VTable{
     .len = neutralArgsLen,
     .at = neutralArgsAt,
     .next = neutralArgsNext,
-    .tail = neutralArgsTail,
+    .tail = compositeTail,
 };
 /// Pack a bounds-validated composite (struct) list into a backing `Ctx`: the
 /// tag word supplies the per-element section sizes and element count.
@@ -141,10 +141,6 @@ fn compositeTail(ctx: model.view.Args.Ctx, skip: usize) model.view.ProjectError!
     const ptr_words: u16 = @truncate(ctx.w1);
     const stride = @as(u64, data_words) + ptr_words;
     return .{ .bytes = ctx.bytes, .w0 = ctx.w0 + skip * stride, .w1 = ctx.w1, .w2 = ctx.w2 - skip };
-}
-
-fn neutralArgsTail(ctx: model.view.Args.Ctx, skip: usize) model.view.ProjectError!model.view.Args.Ctx {
-    return compositeTail(ctx, skip);
 }
 
 /// The argument list in pointer `i` of `loc`, entered at nesting `depth`.
@@ -502,7 +498,7 @@ const neutral_struct_vtable = model.view.StructEntries.VTable{
     .len = neutralStructLen,
     .at = neutralStructAt,
     .next = neutralStructNext,
-    .tail = neutralStructTail,
+    .tail = compositeTail,
 };
 
 fn neutralStructLen(ctx: model.view.StructEntries.Ctx) model.view.ProjectError!usize {
@@ -513,10 +509,6 @@ fn neutralStructAt(ctx: model.view.StructEntries.Ctx, index: usize) model.view.P
     if (index >= ctx.w2) return error.MalformedView;
     const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
     return neutralStructEntry(reader, compositeElem(ctx, index)) catch return error.MalformedView;
-}
-
-fn neutralStructTail(ctx: model.view.StructEntries.Ctx, skip: usize) model.view.ProjectError!model.view.StructEntries.Ctx {
-    return compositeTail(ctx, skip);
 }
 
 fn neutralStructNext(ctx: model.view.StructEntries.Ctx, cursor: *u64, out: *model.view.StructEntry) model.view.ProjectError!bool {

@@ -538,13 +538,9 @@ fn classifyListenerCancel(result: i32) ListenerCancelDisposition {
 pub const white_box = if (builtin.is_test) struct {
     pub const TestBackend = Backend;
 
-    pub fn initFailureFor(err: anyerror) anyerror {
-        return classifyInitFailure(err);
-    }
+    pub const initFailureFor = classifyInitFailure;
 
-    pub fn bufferRingFailureFor(err: anyerror) anyerror {
-        return classifyBufferRingFailure(err);
-    }
+    pub const bufferRingFailureFor = classifyBufferRingFailure;
 
     pub fn cancelResolved(result: i32) bool {
         return classifyListenerCancel(result) == .resolved;

@@ -47,9 +47,7 @@ pub const testing = if (builtin.is_test) struct {
         host_pump.finishCommittedWork(core_host, session);
     }
 
-    pub fn retainFailureMessage(allocator: @import("std").mem.Allocator, message: []const u8) host_action.RetainedFailureMessage {
-        return host_action.retainFailureMessage(allocator, message);
-    }
+    pub const retainFailureMessage = host_action.retainFailureMessage;
 } else struct {};
 pub const drainActions = action_drain.drainActions;
 pub const DrainResult = action_drain.DrainResult;
