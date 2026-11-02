@@ -472,43 +472,6 @@
                  #"durable:0123456789abcdef")
         "sturdyref formatting round-trips opaque authority")
 
-(for ([invalid-seed (list (make-bytes 31) (make-bytes 33))])
-  (define refused
-    (with-handlers ([exn:fail:glowcap? values])
-      (make-host invalid-seed)
-      #f))
-  (expect (and (exn:fail:glowcap? refused)
-               (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code refused)))
-          "Host must reject a seed that is not 32 bytes"))
-
-(define caller-seed (make-bytes 32 7))
-(define owned-seed-host (make-host caller-seed))
-(bytes-set! caller-seed 0 8)
-(expect (immutable? (host-seed owned-seed-host))
-        "Host must expose an immutable seed")
-(expect (= 7 (bytes-ref (host-seed owned-seed-host) 0))
-        "Host must retain an owned seed copy")
-(host-close! owned-seed-host)
-
-(define locator-host (make-fresh-host))
-(host-set-advertised-locator!
- locator-host
- (locator "tcp" "127.0.0.1:7441" (hash) 'map))
-(host-remove-advertised-locator! locator-host "tcp")
-(host-close! locator-host)
-
-(define profile-host (make-fresh-host))
-(define profile-conflict
-  (with-handlers ([exn:fail:glowcap? values])
-    (open-test-session (tcp-locator "127.0.0.1" 1)
-             #:adopt-host profile-host
-             #:captp-version 'next)
-    #f))
-(expect (and (exn:fail:glowcap? profile-conflict)
-             (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code profile-conflict)))
-        "connect: shared Host refuses a conflicting CapTP profile")
-(host-close! profile-host)
-
 ;; A listener close races with a parked accept in real servers during
 ;; custodian shutdown. The close must wake the green thread and wait for its
 ;; accept gate before freeing FFI authority.

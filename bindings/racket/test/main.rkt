@@ -5,6 +5,7 @@
 
 (require "scenarios/support.rkt"
          "scenarios/diagnostics.rkt"
+         "scenarios/host-options.rkt"
          "scenarios/actors-and-sessions.rkt"
          "scenarios/framing-and-gc.rkt"
          "scenarios/promises.rkt"

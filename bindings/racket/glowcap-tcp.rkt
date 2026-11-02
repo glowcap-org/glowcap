@@ -5,9 +5,8 @@
 ;; netlayer/listener/connection handles for cleartext, loopback-grade TCP. Its
 ;; private loader (`private/ffi-tcp.rkt`) opens ONLY that archive. It builds
 ;; on the core value and error machinery in `glowcap.rkt` through the shared
-;; transport seam
-;; (`private/seam.rkt`). They share the frame layout but no symbol, so a TCP
-;; consumer composes the two:
+;; transport seam (`private/seam.rkt`). The two archives share the frame
+;; layout but no symbol, so a TCP consumer composes the two modules:
 ;;
 ;;   (require "glowcap.rkt")
 ;;   (require "glowcap-tcp.rkt")
