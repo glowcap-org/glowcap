@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 typedef struct GlowcapLoamLmdb GlowcapLoamLmdb;
-#define GLOWCAP_LOAM_LMDB_ARCHIVE_FINGERPRINT 1519001698066897158
+#define GLOWCAP_LOAM_LMDB_ARCHIVE_FINGERPRINT 10303180545176073048
 /* Open exclusive LMDB custody in an existing directory and reserve a fresh incarnation. create=0 requires an existing Store, create=1 requires absence, and create=2 atomically initializes absence or opens the exact persisted identity. Corrupt or mismatched metadata always refuses. The storage owner owns the returned borrowed Store; limits and schemas are copied. */
 int32_t glowcap_loam_lmdb_open(const uint8_t *path, size_t path_len, const uint8_t *store_id, uint32_t create, size_t map_bytes, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamLmdb **out_storage, GlowcapLoamStore **out_store);
 /* Release a quiescent storage owner and its Store, then close LMDB. Busy leaves both alive. Attachments and storage workers must finish first. */

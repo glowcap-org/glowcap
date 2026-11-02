@@ -287,7 +287,7 @@ typedef int32_t (*GlowcapLoamKvFn)(void *, uint32_t, const uint8_t *, size_t, co
 #define GLOWCAP_LOAM_METADATA_SIZE 142
 #define GLOWCAP_LOAM_MAX_KEY_BYTES 35
 #define GLOWCAP_LOAM_MAX_URI_BYTES 4096
-#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 11317325949924311519
+#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 5652585465919130533
 /* Construct a portable Store from exclusively claimed encoded metadata. Schema descriptors are copied. Inputs borrow for this call; out_store owns one release. No backend is opened. */
 int32_t glowcap_loam_store_new(const uint8_t *metadata, size_t metadata_len, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamStore **out_store);
 /* Construct a portable Store using the Context allocator for every Store and attachment allocation. The Context and its allocator callbacks outlive the Store and all its borrows. Metadata and schema rules match store_new. */

@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 typedef struct GlowcapLoamSqlite GlowcapLoamSqlite;
-#define GLOWCAP_LOAM_SQLITE_ARCHIVE_FINGERPRINT 6798462885039577946
+#define GLOWCAP_LOAM_SQLITE_ARCHIVE_FINGERPRINT 11185459521727719184
 /* Open exclusive SQLite custody of a store directory and reserve a fresh incarnation. create=0 requires an existing Store and refuses a missing one as NOT_FOUND, create=1 requires absence, and create=2 atomically initializes absence or opens the exact persisted identity. capacity_bytes is the most the database file may grow to, at least 1 MiB. A file that is not a Loam store, a mismatched identity, and corrupt metadata always refuse, and an open whose durable outcome is unknown returns IO. The storage owner owns the returned borrowed Store; limits and schemas are copied. */
 int32_t glowcap_loam_sqlite_open(const uint8_t *path, size_t path_len, const uint8_t *store_id, uint32_t create, size_t capacity_bytes, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamSqlite **out_storage, GlowcapLoamStore **out_store);
 /* Release a quiescent storage owner and its Store, then close the database. Busy leaves both alive. Attachments and storage workers must finish first. */
