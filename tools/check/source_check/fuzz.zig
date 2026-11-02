@@ -1,6 +1,5 @@
-//! Checks on the fuzzing setup.
-//!
-//! Two things need holding.
+//! The fuzzing setup's two invariants: every crash input replays, and every
+//! target is where the fuzzer looks.
 //!
 //! Every crash input sitting in the regressions directory has to be wired into
 //! the replay, because a regression test nobody runs is worse than no test at

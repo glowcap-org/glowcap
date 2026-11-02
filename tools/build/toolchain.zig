@@ -9,7 +9,8 @@
 //!
 //! The analysis sits in `tools/check/toolchain_check.zig` (declaration, read
 //! from the graph) and `tools/check/toolchain_present.zig` (presence, read from
-//! the machine). The toolchain gate itself is the wiring and the tables.
+//! the machine). This file holds the two inventories and registers the gate
+//! steps that run those checks against them.
 
 const std = @import("std");
 const toolchain_check = @import("../check/toolchain_check.zig");

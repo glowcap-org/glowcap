@@ -37,9 +37,6 @@
 //! consumer reaches them through sharper roots. `c_abi` is the C interface. It
 //! is compiled into archive families, and a C consumer reaches it through the
 //! generated headers. `diagnostics` is an opt-in module root.
-//! `oracle` runs fixed scenarios and hands back their wire bytes. It is the test
-//! suite's reference of truth, not part of the runtime path, and tests import it
-//! directly.
 //!
 //! The protocol layers, foundation through engine, are deterministic,
 //! synchronous, and free of I/O. So are `actors`, Loam, and `driver.core`:

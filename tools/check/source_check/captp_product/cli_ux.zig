@@ -48,14 +48,6 @@ test "captpVerbTableIsPartial catches incomplete inventory tables" {
     try std.testing.expect(!skills.captpVerbTableIsPartial("defer to `glowcap help`", &names));
 }
 
-/// Hold the CLI to one JSON string escaper.
-///
-/// There were two, written a minute apart by two changes that each thought they
-/// were the only one. When the first was taught to handle bytes that are not
-/// text, the second kept writing unparseable JSON, and the second was the one
-/// recording what room members send, which is the least trusted input the CLI
-/// has. A duplicate escaper does not announce itself: both compile, both look
-/// right, and they disagree only on input nobody tests by hand.
 /// A `pub const X` in the driver root must not name something other than
 /// `driver_core.X` when the core also declares `X`.
 ///
@@ -113,6 +105,14 @@ pub fn checkDriverRootShadow(
     }
 }
 
+/// Hold the CLI to one JSON string escaper.
+///
+/// There were two, written a minute apart by two changes that each thought they
+/// were the only one. When the first was taught to handle bytes that are not
+/// text, the second kept writing unparseable JSON, and the second was the one
+/// recording what room members send, which is the least trusted input the CLI
+/// has. A duplicate escaper does not announce itself: both compile, both look
+/// right, and they disagree only on input nobody tests by hand.
 pub fn checkSingleJsonEscaper(
     io: std.Io,
     gpa: std.mem.Allocator,

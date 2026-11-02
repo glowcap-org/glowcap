@@ -1,5 +1,4 @@
-//! The Syrup encoder: a borrowed `model.view.Body` to wire bytes. It is the
-//! encode half of the Syrup codec, and the decode half is `decode`.
+//! The Syrup encoder: a borrowed `model.view.Body` to wire bytes.
 //!
 //! The encoder owns `encodeBody` and `encodeBodyForProfile`, which walk a
 //! borrowed body, and `encodeMessage` and `encodeMessageForProfile`, which

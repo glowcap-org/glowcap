@@ -1,7 +1,6 @@
-//! Cap'n Proto encode path.
-//!
-//! It renders a borrowed `model.view.Body` into glowcap's self-consistent Cap'n
-//! Proto dialect. `encodeBody` and `encodeBodyForProfile` walk a borrowed body,
+//! The Cap'n Proto encoder: a borrowed `model.view.Body` to glowcap's
+//! self-consistent Cap'n Proto dialect.
+//! `encodeBody` and `encodeBodyForProfile` walk a borrowed body,
 //! and `encodeMessage` and `encodeMessageForProfile` project an owned
 //! `model.Message` through `view.Body.fromOwned` onto the same walk, so one
 //! walk serves an owned tree, a decoded frame, and a caller's values behind a

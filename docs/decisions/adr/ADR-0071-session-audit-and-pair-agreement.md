@@ -47,9 +47,9 @@ The ordinary check compiles the standalone fuzz root too. Corpus replay in
 the main suite cannot prove that a separate test root has the module imports
 it needs. Mutation search remains a separately budgeted operation.
 
-`oracle.agreement.check` audits both sessions of a pair, then checks both
+`scenarios.agreement.check` audits both sessions of a pair, then checks both
 directions of the cross-session relations for a pair at rest
-(`oracle.agreement.atRest`): wire holds, questions and answers, settled
+(`scenarios.agreement.atRest`): wire holds, questions and answers, settled
 answers that keep no work, and no settlement owed. A closed pair or one with
 traffic in flight is refused by the check. Pair pumps explicitly exempt
 closed sessions, whose teardown owns their cleanup. The engine fuzz targets

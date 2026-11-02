@@ -1,6 +1,6 @@
 //! The rooms browser interface's structural contract.
 //!
-//! Two rules hold that interface together, and neither is something a compiler
+//! A few rules hold that interface together, and none is something a compiler
 //! notices. The page draws from one store, so nothing may keep a second copy of
 //! the truth in the DOM, and the data layer owns a CapTP session that outlives
 //! every render, so it must not reach into the tree. Shared controls keep one

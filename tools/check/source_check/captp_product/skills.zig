@@ -1,5 +1,5 @@
-//! The agent skill over the product CLI teaches only the verbs the CLI
-//! registry declares.
+//! The glowcap-cli skill points at `glowcap help` and carries no partial verb
+//! inventory of its own.
 
 const std = @import("std");
 const util = @import("../util.zig");

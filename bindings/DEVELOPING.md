@@ -227,8 +227,8 @@ Each binding also has its own steps, which the package pages on the registries d
 | Racket | `zig build racket-test` | `zig build racket-goblins-interop` | `test/fake-tor.rkt` answers the suite's Tor requests as a child process |
 | TypeScript | `zig build deno-test`, `zig build bun-test` | | `zig build web-peer-test`, `wasm-driver-test`, `deno-relay-test`, `relay-scaling`, `webrtc-browser-to-browser`, `deno-webrtc-driver-provider` |
 
-Each suite step runs the binding's `test/main` program against the installed archives, with the
-binding's unit tests under the same `test/` directory.
+Each suite step runs the binding's test program (`test/main` for Deno, Python, and Racket,
+`cargo test` for Rust) against the installed archives.
 
 [`examples/c/host_embedder_pump.c`](../examples/c/host_embedder_pump.c) is the
 small compiled reference for feed, drain, refusal, and EOF.

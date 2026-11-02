@@ -1,7 +1,7 @@
-//! The Syrup decoder's message-dispatch index.
+//! The Syrup decoder: wire bytes to a borrowed codec-neutral `model.view.Body`
+//! (`decodeBody`) or an owned `model.Message` (`decodeOwned`).
 //!
-//! It is the decode half of the Syrup codec and owns the borrowed codec-neutral
-//! projection (`decodeBody`) and the owned materializer (`decodeOwned`, which
+//! It owns the borrowed projection (`decodeBody`) and the owned materializer (`decodeOwned`, which
 //! is `decodeBody` followed by `model.view.Body.toOwned`, one decode
 //! vocabulary, full fidelity). Borrowed Passable projection lives in `values`,
 //! locator/hint projection in `locator`, and untrusted-byte leaves in `syntax`.

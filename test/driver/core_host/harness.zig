@@ -176,7 +176,7 @@ pub fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *
 }
 
 /// Pump shuttles and action drains until the whole network is quiescent,
-/// then hold every live pair to `oracle.agreement`
+/// then hold every live pair to `scenarios.agreement`
 /// (`host_pair.expectAgreement`).
 pub fn pumpToQuiescence(
     allocator: std.mem.Allocator,

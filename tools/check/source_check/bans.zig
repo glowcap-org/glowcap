@@ -260,7 +260,9 @@ pub const all: []const Ban =
     surfaces.rooms_env_namespace ++
     authority.callback_latch_owner ++
     authority.id_issuer_owner ++
-    authority.vow_row_retirement;
+    authority.vow_row_retirement ++
+    authority.c_abi_policy_projection ++
+    authority.locator_sturdyref_split;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 

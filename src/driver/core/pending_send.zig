@@ -1,8 +1,8 @@
 //! A cooperative fetch-then-deliver send parked on a promise's resolution.
 //!
 //! The caller owns the in-flight state machine between its own turns. `Served`
-//! orchestrates the begins and the vow listeners complete it. The parked state
-//! and its staging invariants belong to the type.
+//! orchestrates the begins and the vow listeners complete it. This module owns
+//! the parked state and its staging invariants.
 
 const std = @import("std");
 

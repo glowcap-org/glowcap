@@ -58,7 +58,7 @@ pub fn shuttleAll(pairs: []const Pair) !bool {
 
 /// Pump shuttles until the whole network is quiescent, bounded so a
 /// ping-pong bug fails loud instead of spinning forever. At rest every pair
-/// whose wire is live both ways is held to `oracle.agreement`: each import a
+/// whose wire is live both ways is held to `scenarios.agreement`: each import a
 /// mention its partner made, each question an answer its partner owes, and
 /// each settled answer drained.
 pub fn pumpToQuiescence(pairs: []const Pair) !void {
@@ -76,7 +76,7 @@ pub fn pumpToQuiescence(pairs: []const Pair) !void {
     return error.PumpDidNotQuiesce;
 }
 
-/// Require a live pair at rest and hold it to `oracle.agreement`. A send
+/// Require a live pair at rest and hold it to `scenarios.agreement`. A send
 /// waiting on a Host action drain fails as `PairNotAtRest`; callers must
 /// drain that action before claiming the pair reached quiescence.
 pub fn expectAgreement(pair: Pair) !void {

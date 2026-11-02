@@ -23,7 +23,7 @@ produces for a given `Message`, then serializes that record through the
 - [`scenarios/`](scenarios/): the drivers that run a `Peer` through one fixed
   protocol scenario each and return its wire bytes, which
   [`scenario_trace_test.zig`](scenario_trace_test.zig) and the fuzz and
-  memcheck suites compare. The suites import them as the `oracle` module.
+  memcheck suites compare. The suites import them as the `scenarios` module.
 - [`stage0_abort.trace`](stage0_abort.trace): the canonical observable trace
   that [`scenario_trace_test.zig`](scenario_trace_test.zig) asserts a driven
   Stage-0 abort produces.

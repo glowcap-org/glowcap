@@ -2,9 +2,9 @@
 //!
 //! Noise authenticates X25519 static keys. Glowcap names peers with Ed25519, so
 //! the handshake payload proves the exact Ed25519 encoding, role, initial
-//! transcript, and authenticated X25519 static together. A transport/designator
-//! prologue frames that statement. `sealed.zig` owns stream progression and
-//! record storage.
+//! transcript, and authenticated X25519 static together. This module owns that
+//! statement and the transport/designator prologue that frames it (`buildPrologue`).
+//! `sealed.zig` owns stream progression and record storage.
 
 const std = @import("std");
 
