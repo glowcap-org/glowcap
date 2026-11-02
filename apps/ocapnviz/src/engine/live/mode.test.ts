@@ -6,7 +6,6 @@ import { claimRecording, emptyCaptureError, makeLiveAppender } from "./mode.ts";
 import { findPeer, findSession } from "../world.ts";
 import type { TimelineDocument } from "../timeline.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
-import { engineTest } from "../engine-test/harness.ts";
 
 /**
  * The integration test for live mode: prove that the
