@@ -15,7 +15,7 @@ pub(super) use std::sync::atomic::{AtomicUsize, Ordering};
 pub(super) use tokio::sync::oneshot;
 pub(super) use tokio::task::LocalSet;
 
-pub(super) async fn connect(locator: &crate::Locator, options: ConnectOptions<'_>) -> crate::Result<crate::Session> {
+pub(crate) async fn connect(locator: &crate::Locator, options: ConnectOptions<'_>) -> crate::Result<crate::Session> {
 	let runtime = crate::Runtime::open(RuntimeConfig::providers([crate::tcp::provider(Default::default())])).await?;
 	runtime.connect(locator, options).await
 }

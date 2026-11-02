@@ -1,7 +1,7 @@
 //! Private aggregate for the Rust Session scenario families.
 
 #[path = "session_tests/support.rs"]
-mod support;
+pub(crate) mod support;
 
 #[path = "session_tests/capabilities.rs"]
 mod capabilities;

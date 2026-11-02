@@ -40,7 +40,7 @@ pub fn checkBindingTestAggregate(
     var scenario_count: usize = 0;
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".rkt")) continue;
-        if (std.mem.eql(u8, entry.path, "support.rkt")) continue;
+        if (isSharedModule(entry.path)) continue;
         scenario_count += 1;
         const required = try std.fmt.allocPrint(gpa, "scenarios/{s}", .{entry.path});
         defer gpa.free(required);
@@ -56,10 +56,20 @@ pub fn checkBindingTestAggregate(
     }
     const aggregate_count = stringLiteralCount(require_form, "scenarios/", .prefix);
     if (aggregate_count != scenario_count + 1) {
-        try appendViolation(gpa, violations, "{s}: aggregate names {d} scenario paths but the directory owns {d} scenarios plus support; remove stale or duplicate entries", .{ aggregate_path, aggregate_count, scenario_count });
+        try appendViolation(gpa, violations, "{s}: aggregate names {d} scenario paths but the directory owns {d} scenarios plus its shared modules; remove stale or duplicate entries", .{ aggregate_path, aggregate_count, scenario_count });
     }
     try expectFileContains(io, gpa, root, violations, "bindings/racket/info.rkt", &.{"(define compile-omit-paths '(\"test\"))"});
     try expectFileContains(io, gpa, root, violations, "bindings/racket/info.rkt", &.{"(define source-omit-files '(\"test\"))"});
+}
+
+/// Modules under `scenarios/` that are not scenarios: the shared support and
+/// the require prelude the scenario families open with. Neither is a row in
+/// the aggregate, and support appears there exactly once.
+const shared_modules = [_][]const u8{ "support.rkt", "prelude.rkt" };
+
+fn isSharedModule(path: []const u8) bool {
+    for (shared_modules) |name| if (std.mem.eql(u8, path, name)) return true;
+    return false;
 }
 
 fn findRequireForm(contents: []const u8) ?[]const u8 {

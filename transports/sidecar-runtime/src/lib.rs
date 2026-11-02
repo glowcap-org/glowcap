@@ -22,3 +22,27 @@ mod runtime;
 pub use barrier::{TaskBarrier, TaskFailure, TaskPermit};
 pub use readiness::Readiness;
 pub use runtime::RuntimeOwner;
+
+/// Run a sidecar's teardown and answer the C caller's status: `0` when it
+/// finished, `-1` when it failed or panicked. A panic may never cross the C
+/// frame, so this is the one place a release path catches it.
+pub fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
+	match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+		Ok(Ok(())) => 0,
+		Ok(Err(_)) | Err(_) => -1,
+	}
+}
+
+#[cfg(test)]
+mod teardown_tests {
+	use super::teardown_status;
+
+	#[test]
+	fn teardown_panics_become_failures() {
+		assert_eq!(teardown_status(|| Ok::<(), ()>(())), 0);
+		assert_eq!(
+			teardown_status(|| -> Result<(), ()> { panic!("forced teardown panic") }),
+			-1
+		);
+	}
+}

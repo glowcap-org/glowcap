@@ -45,7 +45,7 @@ import {
 	helpTabWriting,
 	helpTitle,
 	type LinkedText,
-} from "../../../lib/text/mod.ts";
+} from "../../../lib/text/help.ts";
 import {
 	writingExamples,
 	writingLead,

@@ -44,14 +44,13 @@ from __future__ import annotations
 
 import ctypes
 import threading
-import weakref
 from dataclasses import dataclass
 
 from . import _constants as _c
 from ._abi_value import _DEFAULT_CODEC, _codec_id
 from ._constants import OK as _OK
 from ._errors import GlowcapError
-from ._ffi import FfiHandle, _FfiHandleOwner
+from ._ffi import FfiHandle, _ChildRetiringNetlayer, _FfiHandleOwner
 from ._ffi_ocapn import _borrowed_byte_frame, _copy_managed_frame, _ManagedFrame, _read_last_error
 from ._ffi_onion import _onion_lib, _OnionConfig
 from ._host import Host
@@ -270,7 +269,7 @@ class OnionListener(_FfiHandleOwner):
             return OnionConnection(out, self._netlayer)
 
 
-class OnionNetlayer(_FfiHandleOwner):
+class OnionNetlayer(_ChildRetiringNetlayer[OnionConnection | OnionListener]):
     """Owns where Tor listens and the one I/O backend its streams block on. Outlives
     the connections and listeners made from it. Released on :meth:`release` / context
     exit.
@@ -322,39 +321,7 @@ class OnionNetlayer(_FfiHandleOwner):
         )
         # Children retain this owner; weak membership avoids an ownership cycle
         # while still letting explicit release retire them before std.Io.
-        self._children: weakref.WeakSet[OnionConnection | OnionListener] = weakref.WeakSet()
-        self._children_lock = threading.Lock()
-        self._release_lock = threading.Lock()
-        self._release_requested = False
-
-    def __enter__(self) -> OnionNetlayer:
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.release()
-
-    def release(self) -> None:
-        with self._release_lock:
-            with self._children_lock:
-                if self._release_requested:
-                    children = []
-                else:
-                    self._release_requested = True
-                    children = list(self._children)
-            for child in children:
-                child.close()
-            self._ffi.close()
-
-    def _adopt(self, child: OnionConnection | OnionListener) -> bool:
-        with self._children_lock:
-            if self._release_requested:
-                return False
-            self._children.add(child)
-            return True
-
-    def _forget(self, child: OnionConnection | OnionListener) -> None:
-        with self._children_lock:
-            self._children.discard(child)
+        self._init_children()
 
     def _transport_provider(self):
         from ._ffi_driver import _TransportProvider
@@ -363,15 +330,6 @@ class OnionNetlayer(_FfiHandleOwner):
         with self._ffi.lease() as raw:
             _check_onion(_onion_lib.glowcap_onion_transport_provider(raw, ctypes.byref(package)))
         return package
-
-    def _relinquish_provider_reference(self) -> None:
-        """Transfer runtime lifetime to an already-retained provider lease."""
-        with self._release_lock:
-            with self._children_lock:
-                if self._release_requested or self._children:
-                    raise RuntimeError("onion netlayer is not transferable")
-                self._release_requested = True
-            self._ffi.drop_reference()
 
     def listen(self) -> OnionListener:
         """Ask Tor for an onion service and bind its local end.

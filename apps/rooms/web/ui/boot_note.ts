@@ -18,7 +18,7 @@
 // A joke beside a fault report is the wrong register, and the fault is the
 // thing to read.
 
-import { bootAsides, bootNote, type BootPhase, bootStillOpening } from "../../lib/text/mod.ts";
+import { bootAsides, bootNote, type BootPhase, bootStillOpening } from "../../lib/text/boot.ts";
 
 export type { BootPhase };
 

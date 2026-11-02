@@ -40,8 +40,8 @@ import {
 	sessionSignInHint,
 	sessionSignInState,
 	sessionSignInTitle,
-	sturdyrefPlaceholder,
-} from "../../../lib/text/mod.ts";
+} from "../../../lib/text/session.ts";
+import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 import { useRoomsState } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
