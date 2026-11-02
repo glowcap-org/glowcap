@@ -1,6 +1,6 @@
 //! Write the index tables in `.agents/README.md` from the files they list.
 //!
-//! Each rule, skill and persona says what it is for in its own frontmatter
+//! Each rule and skill says what it is for in its own frontmatter
 //! `description`, the field its harness routes on and the OKF index field. A
 //! hook says it in its first comment line. The index shows the first sentence
 //! of each, so a file's purpose has one home and the index cannot drift from
@@ -39,7 +39,6 @@ pub fn main(init: std.process.Init) !void {
     const sections = [_]struct { title: []const u8, column: []const u8, dir: []const u8, kind: Kind }{
         .{ .title = "Rules", .column = "Rule", .dir = ".agents/rules", .kind = .rule },
         .{ .title = "Skills", .column = "Skill", .dir = ".agents/skills", .kind = .skill },
-        .{ .title = "Personas", .column = "Persona", .dir = ".agents/personas", .kind = .persona },
         .{ .title = "Hooks", .column = "Hook", .dir = ".agents/hooks", .kind = .hook },
     };
     for (sections, 0..) |section, i| {
@@ -81,9 +80,9 @@ fn missingMarkers() void {
     std.process.exit(1);
 }
 
-const Kind = enum { rule, skill, persona, hook };
+const Kind = enum { rule, skill, hook };
 
-/// One row per rule file, skill directory, persona file or hook script.
+/// One row per rule file, skill directory or hook script.
 fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8, kind: Kind, failed: *bool) ![]Row {
     var dir = try cwd.openDir(io, path, .{ .iterate = true });
     defer dir.close(io);
@@ -94,11 +93,14 @@ fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, path: []const u8
         if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
         const name, const file = switch (kind) {
             .skill => if (entry.kind == .directory) .{ entry.path, try std.fmt.allocPrint(gpa, "{s}/SKILL.md", .{entry.path}) } else continue,
-            .rule, .persona => if (entry.kind == .file and std.mem.endsWith(u8, entry.path, ".md") and !std.mem.eql(u8, entry.path, "README.md"))
+            .rule => if (entry.kind == .file and std.mem.endsWith(u8, entry.path, ".md") and !std.mem.eql(u8, entry.path, "README.md"))
                 .{ entry.path[0 .. entry.path.len - ".md".len], entry.path }
             else
                 continue,
-            .hook => if (entry.kind == .file and std.mem.endsWith(u8, entry.path, ".sh")) .{ entry.path[0 .. entry.path.len - ".sh".len], entry.path } else continue,
+            .hook => if (entry.kind == .file and !std.mem.endsWith(u8, entry.path, ".md"))
+                .{ if (std.mem.endsWith(u8, entry.path, ".sh")) entry.path[0 .. entry.path.len - ".sh".len] else entry.path, entry.path }
+            else
+                continue,
         };
         const full = try std.fs.path.join(gpa, &.{ path, file });
         const text = try cwd.readFileAlloc(io, full, gpa, .limited(1 << 20));

@@ -13,6 +13,7 @@
 
 (require ffi/unsafe
          racket/lazy-require
+         (only-in racket/string string-join)
          "constants.rkt"
          "ffi-host.rkt"
          "ffi-shared.rkt"
@@ -23,9 +24,7 @@
          "host.rkt"
          "host/state.rkt"
          "transport.rkt"
-         (only-in "abi-value.rkt"
-                  DEFAULT-FEATURES-SYMBOL
-                  host-profile-values)
+         (only-in "abi-value.rkt" DEFAULT-FEATURES-SYMBOL)
          "action.rkt"
          "session/state.rkt"
          ;; The handshake bound lives with the deadline machinery it feeds, so
@@ -72,33 +71,40 @@
                    transport))
   ((byte-connector-realize connector) m loc handshake-timeout-ms))
 
-(define (check-runtime-host-options adopted-host seed profile codec captp-version features)
-  (when (and adopted-host seed)
+;; An adopted Host already has its identity and profile, so every option that
+;; would configure a Host this Runtime mints is refused beside it, matching or
+;; not.
+(define (check-runtime-host-options adopted-host
+                                    seed profile codec captp-version features
+                                    local-turn-budget)
+  (define given
+    (for/list ([name (in-list '("#:seed" "#:profile" "#:codec" "#:captp-version"
+                                "#:features" "#:local-turn-budget"))]
+               [value (in-list (list seed profile codec captp-version features
+                                     local-turn-budget))]
+               #:when value)
+      name))
+  (when (and adopted-host (pair? given))
     (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
-                   "#:adopt-host and #:seed are mutually exclusive"))
-  (define-values (selected-codec selected-captp-version)
-    (host-profile-values 'open-runtime profile codec captp-version))
-  (when (and adopted-host profile
-             (or (not (eq? selected-codec (host-codec adopted-host)))
-                 (not (eq? selected-captp-version (host-captp-version adopted-host)))))
-    (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
-                   "#:profile ~a conflicts with the adopted Host" profile))
-  (check-host-profile-conflicts 'open-runtime adopted-host
-                                codec captp-version features))
+                   "#:adopt-host cannot be combined with Host options (~a)"
+                   (string-join given ", "))))
 
-(define (runtime-host-for adopted-host seed profile codec captp-version features)
+(define (runtime-host-for adopted-host seed profile codec captp-version features
+                          local-turn-budget)
   (or adopted-host
       (if seed
           (make-host seed
                      #:profile profile
                      #:codec codec
                      #:captp-version captp-version
-                     #:features (or features DEFAULT-FEATURES-SYMBOL))
+                     #:features (or features DEFAULT-FEATURES-SYMBOL)
+                     #:local-turn-budget (or local-turn-budget 0))
           (make-fresh-host
            #:profile profile
            #:codec codec
            #:captp-version captp-version
-           #:features (or features DEFAULT-FEATURES-SYMBOL)))))
+           #:features (or features DEFAULT-FEATURES-SYMBOL)
+           #:local-turn-budget (or local-turn-budget 0)))))
 
 (define (check-composition who values predicate transports-of label)
   (unless (and (list? values) (pair? values) (andmap predicate values))
@@ -124,13 +130,16 @@
                       #:codec [codec #f]
                       #:captp-version [captp-version #f]
                       #:features [features #f]
+                      #:local-turn-budget [local-turn-budget #f]
                       #:handshake-timeout-ms
                       [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (when (eq? (and providers #t) (and connectors #t))
     (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
                    "supply exactly one of #:providers or #:connectors"))
-  (check-runtime-host-options adopted-host seed profile codec captp-version features)
-  (define m (runtime-host-for adopted-host seed profile codec captp-version features))
+  (check-runtime-host-options adopted-host seed profile codec captp-version features
+                              local-turn-budget)
+  (define m (runtime-host-for adopted-host seed profile codec captp-version features
+                              local-turn-budget))
   (cond
     [providers
      (unless (and (list? providers) (pair? providers)

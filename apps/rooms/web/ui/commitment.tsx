@@ -25,6 +25,7 @@ import { ModalHead } from "./ModalHead.tsx";
 import { useHeldModal, useModalDialog } from "./modal.ts";
 import { Said } from "./Said.tsx";
 import { coveringReload } from "./boot.ts";
+import { ModalCard } from "./ModalCard.tsx";
 
 interface ChangeGroup {
 	dirty(): boolean;
@@ -269,7 +270,7 @@ export function CommitmentPrompt() {
 	if (!held) return null;
 	return (
 		<dialog ref={dialog} className="modal" aria-labelledby="settingsUnsavedTitle">
-			<div className="modal-card card-plane">
+			<ModalCard>
 				<div className="modal-body">
 					<ModalHead
 						title={discardChangesTitle}
@@ -300,7 +301,7 @@ export function CommitmentPrompt() {
 						</Button>
 					</div>
 				</div>
-			</div>
+			</ModalCard>
 		</dialog>
 	);
 }

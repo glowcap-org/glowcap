@@ -15,7 +15,8 @@
 // `deno run --allow-all interop/webrtc_browser_to_browser/browser_to_browser_test.ts`.
 
 import { type Browser, chromium } from "playwright";
-import { bundleProbe, fail, freePort } from "../../bindings/ts/web/test/support.ts";
+import { bundleProbe, freePort } from "../../bindings/ts/web/test/support.ts";
+import { fail } from "../../bindings/ts/test/assert.ts";
 
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const WASM = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);

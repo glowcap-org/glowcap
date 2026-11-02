@@ -9,9 +9,10 @@
 // label, so the control needs no aria of its own.
 
 import type { ComponentPropsWithRef } from "react";
+import { classNames } from "./classes.ts";
 
 export type CheckboxProps = Omit<ComponentPropsWithRef<"input">, "type" | "children">;
 
 export function Checkbox({ className, ...input }: CheckboxProps) {
-	return <input {...input} type="checkbox" className={["checkbox", className].filter(Boolean).join(" ")} />;
+	return <input {...input} type="checkbox" className={classNames("checkbox", className)} />;
 }

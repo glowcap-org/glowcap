@@ -9,7 +9,7 @@
 
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 /** What a reloaded page shows when it did not come back, read where it stalled. */
 async function stalledState(page: Page): Promise<string> {

@@ -15,19 +15,10 @@
 // settle). A transport
 // that links its own glowcap archive lives in its own module beside this one:
 // `@glowcap/tcp`, `@glowcap/inproc`, `@glowcap/onion`, and the optional
-// `@glowcap/iroh` package, as a C consumer links archives à la carte.
+// `@glowcap/iroh` package. Importing one loads its archive and no other.
 //
-// The implementation is split by responsibility into sibling modules; this
-// file is the barrel that re-exports the public surface, so `@glowcap/runtime`'s
-// import path is one place. The layers: `errors` (the `GlowcapError` family),
-// `value` (the value vocabulary plus the `Ref`/`Argument` application layer),
-// `codec`/`context` (marshalling and allocation scopes), `trampoline` (the one
-// FFI behavior callback), `host` (the `Host`), `action` (host-action
-// decode+execute), `promise` (the `RemotePromise` send returns), `gc`
-// (ADR-0025), `runtime` (Host + transport composition), `dial` (the internal
-// connector executor), `session` (the `Session` verbs and mint/handshake),
-// `pump` (the packet-fed embedder serve/feed/flush
-// choreography), and `locator` (OCapN URIs).
+// This module re-exports the public surface of its sibling modules, so the
+// `@glowcap/runtime` import path is one place.
 //
 //   await using runtime = await Runtime.open({ providers: [tcp.provider()] });
 //   await using session = await runtime.connect(tcp.locator("127.0.0.1", 9099));

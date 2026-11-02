@@ -10,7 +10,8 @@
 // the control that opened them.
 
 import type { Page } from "playwright";
-import { fail, openDirectoryCard } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { openDirectoryCard } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { reachPublicRoom } from "../../lib/text/conversation.ts";
 import { roomManagerDiscardSay } from "../../lib/text/room_authority.ts";

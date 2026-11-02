@@ -1,6 +1,6 @@
 //! Peer-local outbound queue admission, accounting, and ownership transfer.
 //!
-//! Semantic recording and encoding stay in `engine/outbound.zig`. This module
+//! Semantic recording and encoding stay in `engine/outbound.zig`. The queue
 //! owns the transaction that retains those carriers on one Peer. Every payload
 //! is measured once, carries its charge through staging, and transfers between
 //! Node staging, pending storage, Session answer storage, and encoded frames

@@ -1,8 +1,8 @@
 //! Settling subscriptions for imported promises.
 //!
 //! A promise incarnation may have one next-profile wire listener that fans out
-//! to local application answers and an optional Node consumer. This module owns
-//! claim, unlink, shortening moves, and rollback for that subscription.
+//! to local application answers and an optional Node consumer. The subscription
+//! owns claim, unlink, shortening moves, and rollback.
 
 const std = @import("std");
 const model = @import("model");

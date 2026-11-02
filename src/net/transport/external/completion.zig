@@ -45,7 +45,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
         const Self = @This();
         const Namespace = completion.AdapterNamespace(Platform);
         pub const Fd = Platform.Fd;
-        pub const PlatformBackend = Platform;
         pub const adapter_depth = Namespace.depth;
         const State = state.Types(Platform, Namespace);
         pub const ListenerAddress = State.ListenerAddress;

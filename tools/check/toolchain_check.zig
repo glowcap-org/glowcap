@@ -1,6 +1,6 @@
 //! Declared runtime checker for the in-tree build gates.
 //!
-//! `tools/build/toolchain.zig` owns the runtime inventory. This module walks a
+//! `tools/build/toolchain.zig` owns the runtime inventory. The checker walks a
 //! completed gate graph and rejects programs outside that inventory. An
 //! interpreter may run only the scripts or modules its row names.
 //!

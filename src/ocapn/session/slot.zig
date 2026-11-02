@@ -1,15 +1,15 @@
 //! CapTP unified reference slot (ADR-0006).
 //!
-//! Name plate: this file is the CapTP `Slot` **sum type** (mint × binding). It is
-//! not `export_table.zig` or `import_table.zig` (rows with wire-delta counts). CapTP
-//! keeps export, import, and answer as separate position namespaces. The sum is
+//! The CapTP `Slot` **sum type** (mint × binding), distinct from the rows with
+//! wire-delta counts in `export_table.zig` and `import_table.zig`. CapTP keeps
+//! export, import, and answer as separate position namespaces. The sum is
 //! shared, the tables are not one map.
 //!
 //! A slot's identity is not a stored wire kind but a legal `(mint, binding)`
 //! variant. Impossible cells cannot be constructed. This is a sum, not a
 //! validated product. The four CapTP `desc:*` tags are a **projection** of the
 //! variant onto `model.Reference` (and from there the real syrup codec emits
-//! bytes). This module does not reimplement Syrup encoding.
+//! bytes). It does not reimplement Syrup encoding.
 //!
 //! Encode perspective matches the syrup codec (`writePayloadReference`):
 //! a local export renders as `desc:import-*` and a remote import as

@@ -5,7 +5,15 @@ const builtin = @import("builtin");
 const common = @import("../common.zig");
 const execution = @import("../execution.zig");
 
-pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execution.RuntimeGate, wasm_archives: *std.Build.Step, wasm_driver: *std.Build.Step, peers: *std.Build.Step, zig_archives: []const *std.Build.Step) *std.Build.Step {
+pub const Registered = struct {
+    /// The generated browser module and its type declarations.
+    browser_application: *std.Build.Step,
+    /// The host-target clippy pass over the Rooms workspace, which `rust-lint`
+    /// also requires.
+    lint: *std.Build.Step,
+};
+
+pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execution.RuntimeGate, wasm_archives: *std.Build.Step, wasm_driver: *std.Build.Step, peers: *std.Build.Step, zig_archives: []const *std.Build.Step) Registered {
     const layouts = execution.addSystemCommand(b, .build_tool, &.{
         "deno", "run", "--allow-read", "--allow-write", "tools/wasm/rust_layouts.ts",
     });
@@ -74,7 +82,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     executor_tests.setCwd(b.path("."));
     executor_tests.step.dependOn(&workspace_tests.step);
     // Where the test executables find glowcap's installed shared libraries at
-    // load time, the way `rust-dogfood` already binds its own.
+    // load time, the way `rust-test` already binds its own.
     //
     // Both proof runs select this workspace, so Cargo unifies features across
     // its members and the crates that link a transport hand that link to every
@@ -103,9 +111,8 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     //
     // The clippy half of that floor is declared in `[workspace.lints]` rather
     // than here, so rust-analyzer and a hand-run `cargo clippy` reach the same
-    // verdict this does; before that it lived on this command line alone and a
-    // contributor found out at push time. `-D warnings` stays for the rustc
-    // lints the table does not name, and for the `--all-targets` compile.
+    // verdict this does. `-D warnings` stays for the rustc lints the table does
+    // not name, and for the `--all-targets` compile.
     const lint = execution.addSystemCommand(b, .build_tool, &.{
         "cargo",       "clippy",        "--quiet",    "--locked",                 "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "--workspace", "--all-targets", "--features", "rooms-services/processes", "--",              "-D",
@@ -248,7 +255,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     host_step.dependOn(&host_browser.step);
     browser_step.dependOn(host_step);
     browser_step.dependOn(foreign_reload_step);
-    return application.production;
+    return .{ .browser_application = application.production, .lint = &lint.step };
 }
 
 fn setLibraryEnvironment(run: *std.Build.Step.Run, b: *std.Build) void {

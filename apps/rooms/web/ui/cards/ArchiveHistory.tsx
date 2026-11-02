@@ -53,6 +53,7 @@ import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { actionRefusal } from "../error_text.ts";
+import { Input } from "../Input.tsx";
 
 /** The way in to handing an archive account over. The form behind it is a
  * name, two questions and an act, which is a card's worth of work rather than
@@ -354,9 +355,8 @@ export function RoomArchiveHistory({ conv, you }: { conv: RoomConv; you: string 
 					hint={members.length === 0 ? archivePeerHintNobody : archivePeerHint}
 				>
 					{(wiring) => (
-						<input
+						<Input
 							id={wiring.id}
-							className="field"
 							{...identifierField}
 							list="convcardArchivePeerList"
 							placeholder={members[0] ?? "alice"}

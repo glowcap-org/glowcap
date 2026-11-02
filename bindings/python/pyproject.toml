@@ -23,10 +23,10 @@ rendezvous = ["websockets"]
 
 [tool.setuptools.packages.find]
 # The binding is the `glowcap` package: the core plus one submodule per transport
-# (`tcp`, `inproc`, `iroh`), mirroring the à-la-carte C ABI archives. Its internal
+# (`tcp`, `inproc`, `iroh`), one per C ABI archive. Its internal
 # per-archive FFI loaders (`_ffi_ocapn`, `_ffi_tcp`, `_ffi_inproc`, `_ffi_iroh`) and
-# the ABI constants (`_constants`) ship inside it. `zig_smoke.py` is the dogfood
-# runner, executed directly rather than installed. Discovery is one recursive
+# the ABI constants (`_constants`) ship inside it. The `test/` tree runs from the
+# checkout and is never installed. Discovery is one recursive
 # authority for private ownership packages such as `_host`, `_driver`, `_loop`,
 # and `_session`; an explicit top-level-only list silently omitted them from wheels.
 include = ["glowcap*"]

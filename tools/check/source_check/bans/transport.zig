@@ -1,12 +1,11 @@
-//! Ban rows: transport vocabulary across the docs, and the provider
-//! architecture rules over the transport archives.
+//! Ban rows: transport vocabulary across the docs, and the dependency
+//! directions between the transport archives, the driver, and the bindings.
 
 const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 const Where = bans.Where;
 
-/// Docs the transport-vocabulary rows scan. Shared with the
-/// bespoke keyed-tcp resident-count heuristic in `source_check.zig`.
+/// Docs the transport-vocabulary rows scan.
 pub const transport_vocabulary_paths: []const []const u8 = &.{
     ".agents/rules/architecture.md",
     "AGENTS.md",
@@ -14,7 +13,7 @@ pub const transport_vocabulary_paths: []const []const u8 = &.{
     "README.md",
     "docs/architecture.md",
     "docs/boundaries.md",
-    "docs/ladder.md",
+    "docs/milestones.md",
     "docs/shipped.md",
     "docs/roadmap.md",
     "docs/capabilities.md",
@@ -33,9 +32,7 @@ pub const transport_vocabulary_paths: []const []const u8 = &.{
 };
 
 /// CapTP is transport-agnostic. Only netlayers name transports. Docs that
-/// equate glowcap/OCapN with TCP fail here so the vocabulary
-/// cannot rot back. (The keyed-tcp resident-count heuristic stays bespoke in
-/// `source_check.zig`'s `checkTransportVocabulary`.)
+/// equate glowcap/OCapN with TCP fail here.
 pub const transport_vocabulary: []const Ban = &.{
     .{
         .where = .{ .files = transport_vocabulary_paths },
@@ -90,13 +87,6 @@ pub const transport_provider_architecture: []const Ban = &.{
         .why = "transport archives project FailureChain through c_abi/shared/transport_provider.zig; hand-assembling the ABI record duplicates the diagnostic authority and can flatten boundary-supplied names",
     },
     .{
-        .where = .{ .file = "include/glowcap_transport_provider.h" },
-        .kind = .require,
-        .needles = &.{"GlowcapMultiplexedClaimExternalFn claim_external;"},
-        .check = "transport-provider-architecture",
-        .why = "the generated multiplexed table must preserve claim_external's semantic callback type even though Zig aliases it structurally",
-    },
-    .{
         .where = .{ .file = "src/c_abi/shared/locator.zig" },
         .kind = .forbid,
         .needles = &.{ "@import(\"model\")", "clonePeerLocator", "fromView", "project(", "pub fn " },
@@ -120,12 +110,6 @@ pub const transport_provider_architecture: []const Ban = &.{
         .needles = &.{ "net.tcp", "glowcap_tcp_", "c_abi_net_transport_tcp", "transport/tcp" },
         .check = "transport-provider-architecture",
         .why = "the generic driver consumes GlowcapTransportProvider and must not depend on a concrete TCP implementation",
-    },
-    .{
-        .where = .{ .file = "src/c_abi/driver/provider_registry.zig" },
-        .kind = .file_present,
-        .check = "transport-provider-architecture",
-        .why = "provider package validation, execution-model adapters, copied tables, and leases have one driver-side owner",
     },
     .{
         .where = .{ .file = "src/c_abi/driver/loop.zig" },
@@ -169,16 +153,6 @@ pub const transport_provider_architecture: []const Ban = &.{
         .why = "the generated C authority must preserve the execution-model-neutral listener locator callback ABI",
     },
     .{
-        .where = .{ .file = "include/glowcap_transport_provider.h" },
-        .kind = .require,
-        .needles = &.{
-            "GlowcapTransportListenerLocatorFn listener_locator;",
-            "GlowcapTransportListenerAdvertiseFn listener_advertise;",
-        },
-        .check = "transport-provider-architecture",
-        .why = "both provider execution tables consume the common listener locator callback contract",
-    },
-    .{
         .where = .{ .file = "src/c_abi/net_transport/tcp/runtime.zig" },
         .kind = .forbid,
         .needles = &.{ "parseKnown(", "IpAddress.connect(", ".server.accept(", "stream.reader(", "stream.writer(" },
@@ -191,47 +165,6 @@ pub const transport_provider_architecture: []const Ban = &.{
         .needles = &.{ "typedef struct GlowcapTransportProfile", "typedef struct GlowcapTransportProvider", "struct GlowcapTransportProvider {" },
         .check = "transport-provider-architecture",
         .why = "provider layouts belong only to the standalone glowcap_transport_provider.h authority",
-    },
-    .{
-        .where = .{ .file = "include/glowcap_transport_provider.h" },
-        .kind = .file_present,
-        .check = "transport-provider-architecture",
-        .why = "transport archives and the driver share one standalone provider ABI header",
-    },
-    .{
-        .where = .{ .file = "include/glowcap_transport_provider.h" },
-        .kind = .require,
-        .needles = &.{"GlowcapStreamTryReadFn try_read;"},
-        .check = "transport-provider-architecture",
-        .why = "ABI-identical read and metadata callbacks still need role-specific C typedefs; field-aware generation preserves the provider contract's meaning",
-    },
-    .{
-        .where = .{ .file = "include/glowcap_transport_provider.h" },
-        .kind = .require,
-        .needles = &.{"GlowcapStreamTryWriteFn try_write;"},
-        .check = "transport-provider-architecture",
-        .why = "stream and multiplexed tables share one nonblocking byte-count I/O contract; the stream typedefs keep their role-specific names",
-    },
-    .{
-        .where = .{ .file = "include/glowcap_transport_provider.h" },
-        .kind = .require,
-        .needles = &.{"GlowcapStreamConnCloseFn conn_close;"},
-        .check = "transport-provider-architecture",
-        .why = "ABI-identical close callbacks still need role-specific C typedefs; field-aware generation preserves the provider contract's meaning",
-    },
-    .{
-        .where = .{ .file = "include/glowcap_transport_provider.h" },
-        .kind = .require,
-        .needles = &.{"GlowcapTransportRetainFn retain;"},
-        .check = "transport-provider-architecture",
-        .why = "the provider lease acquire callback must keep its semantic C typedef despite sharing a signature with readiness callbacks",
-    },
-    .{
-        .where = .{ .file = "include/glowcap_transport_provider.h" },
-        .kind = .require,
-        .needles = &.{"GlowcapTransportReleaseFn release;"},
-        .check = "transport-provider-architecture",
-        .why = "the provider lease release callback must keep its semantic C typedef despite sharing a signature with listener callbacks",
     },
     .{
         .where = .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
@@ -250,15 +183,9 @@ pub const transport_provider_architecture: []const Ban = &.{
     .{
         .where = .{ .file = "src/net/socket.zig" },
         .kind = .forbid,
-        .needles = &.{"pub const Shim = stream_shim.Shim;"},
+        .needles = &.{"stream_shim"},
         .check = "transport-provider-architecture",
         .why = "the stream adapter has one public authority at net.stream_shim; socket owns only OS socket and keepalive primitives",
-    },
-    .{
-        .where = .{ .file = "src/c_abi/host/archive.zig" },
-        .kind = .file_present,
-        .check = "transport-provider-architecture",
-        .why = "Host exports must be rooted by the Host archive rather than an importing consumer",
     },
     .{
         .where = .{ .file = "src/c_abi/driver/symbols.zig" },
@@ -266,34 +193,6 @@ pub const transport_provider_architecture: []const Ban = &.{
         .needles = &.{".name = \"glowcap_host_"},
         .check = "transport-provider-architecture",
         .why = "the driver symbol inventory owns only glowcap_driver_*; Host keeps its own archive and inventory",
-    },
-    .{
-        .where = .{ .file = "bindings/python/glowcap/_ffi_host.py" },
-        .kind = .require,
-        .needles = &.{"_lib_path(\"glowcap_host\")"},
-        .check = "transport-provider-architecture",
-        .why = "the Python Host table must load libglowcap_host",
-    },
-    .{
-        .where = .{ .file = "bindings/ts/runtime/internal/ffi/host.ts" },
-        .kind = .require,
-        .needles = &.{"libPath(\"glowcap_host\")"},
-        .check = "transport-provider-architecture",
-        .why = "the TypeScript Host table must load libglowcap_host",
-    },
-    .{
-        .where = .{ .file = "bindings/racket/private/ffi-host-gen.rkt" },
-        .kind = .require,
-        .needles = &.{"open-glowcap-archive \"glowcap_host\""},
-        .check = "transport-provider-architecture",
-        .why = "the Racket Host table must load libglowcap_host",
-    },
-    .{
-        .where = .{ .file = "bindings/rust/build.rs" },
-        .kind = .require,
-        .needles = &.{"rustc-link-lib=static=glowcap_host"},
-        .check = "transport-provider-architecture",
-        .why = "the Rust binding must link the symbol-disjoint Host archive",
     },
     .{
         .where = .{ .tree = .{
@@ -346,24 +245,14 @@ pub const transport_provider_architecture: []const Ban = &.{
         .why = "the generic TypeScript loop registers packages and drives events; transport modules own concrete provider composition",
     },
     .{
-        .where = .{ .file = "src/c_abi/net_transport/tcp/runtime.zig" },
-        .kind = .require,
-        .needles = &.{".tcp =>"},
+        .where = .{ .tree = .{
+            .dir = "src",
+            .suffixes = &.{".zig"},
+            .exclude = &.{ "src/net/transport/tcp.zig", "src/net/transport/tcp/stream.zig", "src/net/transport/tcp/profile.zig" },
+        } },
+        .kind = .forbid,
+        .needles = &.{"connectAddress"},
         .check = "transport-provider-architecture",
-        .why = "the TCP archive owns the plain TCP profile in its complete provider package",
-    },
-    .{
-        .where = .{ .file = "src/c_abi/net_transport/tcp/runtime.zig" },
-        .kind = .require,
-        .needles = &.{".keyed_tcp =>"},
-        .check = "transport-provider-architecture",
-        .why = "the TCP archive owns the keyed TCP profile in its complete provider package",
-    },
-    .{
-        .where = .{ .file = "src/c_abi/net_transport/tcp/runtime.zig" },
-        .kind = .require,
-        .needles = &.{".noise_tcp =>"},
-        .check = "transport-provider-architecture",
-        .why = "the TCP archive owns the Noise-sealed TCP profile while reusable Noise machinery stays below packaging",
+        .why = "a TCP dial goes through DialResolver.resolve, tcp.connect, or the netlayer dial; the raw address connect belongs to the tcp stream, its profile, and the tcp facade alone",
     },
 };

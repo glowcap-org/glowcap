@@ -1,9 +1,8 @@
 //! Generic multiplexed-provider projection of the owned iroh endpoint.
 //!
-//! This leaf adapts the sidecar's one readiness loop to the driver's provider
-//! table. Shared Zig state owns connection identity and listener operations.
-//! Endpoint and teardown authority
-//! remain in `ownership.zig`.
+//! It adapts the sidecar's one readiness loop to the driver's provider table.
+//! Shared Zig state owns connection identity and listener operations, and
+//! `ownership.zig` owns endpoint and teardown authority.
 
 const std = @import("std");
 

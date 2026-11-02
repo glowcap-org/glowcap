@@ -4,7 +4,7 @@
 // without changing the profile used by the rest of the whole-page scenario.
 
 import type { Browser } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { proveReturnToSetupDoesNotFlashACrash } from "./shared_session_moves.ts";

@@ -38,7 +38,7 @@
 //!
 //! This is not part of the hermetic `zig build check`: it needs `racket` + the
 //! `goblins` collection on PATH, so it runs as the sibling step
-//! `zig build goblins-interop`, the way the binding dogfoods need their runtimes.
+//! `zig build goblins-interop`, the way the binding suites need their runtimes.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

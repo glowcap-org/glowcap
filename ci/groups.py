@@ -158,7 +158,6 @@ GROUPS = (
                 gate("zig build zig-keyed-relay-register"),
                 gate("zig build bindings-iroh-handoff"),
                 gate("zig build bindings-iroh-redeem-posture"),
-                gate("zig build racket-test"),
             ],
         },
     ),

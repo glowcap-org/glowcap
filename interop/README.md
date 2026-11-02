@@ -9,7 +9,7 @@ cannot reach each other, not that a single layer's invariant broke.
 Protocol fixtures under [`../conformance/`](../conformance/README.md) remain the
 reference for wire correctness. The C ABI boundary between Zig and its
 language bindings is a different seam, covered by `test/c_abi/`, the
-binding checks that use the C ABI as a real consumer (`*-dogfood`), and the
+binding test suites that use the C ABI as a real consumer (`*-test`), and the
 per-binding proof families in
 [`../bindings/proofs/`](../bindings/proofs/README.md). None of those is called
 interop.

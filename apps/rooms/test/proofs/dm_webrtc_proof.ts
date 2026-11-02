@@ -26,8 +26,10 @@ import { type Browser, type BrowserContext, chromium, type Page } from "playwrig
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
 import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
-import { freePort, waitForHttp } from "../support/rooms_server.ts";
-import { awaitBubble, fail, openDmTo } from "../page/harness.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
+import { fail } from "../support/fail.ts";
+import { awaitBubble, openDmTo } from "../page/harness.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";

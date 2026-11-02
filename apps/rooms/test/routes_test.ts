@@ -10,10 +10,7 @@ import {
 } from "@glowcap/runtime";
 import { roomsIdentityRoute } from "../lib/routes.ts";
 import { formatRoomsSturdyref, parseRoomsSturdyref } from "../lib/locator.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+import { assert } from "./assert.ts";
 
 Deno.test("an identity route separates proving routes from baseline fallbacks", () => {
 	const route = roomsIdentityRoute("node", [

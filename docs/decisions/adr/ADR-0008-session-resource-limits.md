@@ -18,7 +18,7 @@ A peer can send valid messages that retain too much state. Transient outbound pr
 
 ## Decision
 
-Session limits bound partner-driven tables and retained bytes at their owning insertion points. Exceeding a limit refuses with a typed resource failure before mutation. Deposited gifts charge their complete retained rows, and replacement admission uses the net change.
+Exceeding a limit refuses with a typed resource failure before mutation. Deposited gifts charge their complete retained rows, and replacement admission uses the net change.
 
 Sent inbound-answer resolutions move from transient flow accounting into a separate cumulative answer-store budget. The durable owner releases that charge on replacement, retirement, answer GC or close. It never evicts answer authority to meet its cap.
 

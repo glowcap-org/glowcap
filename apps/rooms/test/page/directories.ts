@@ -7,7 +7,8 @@
 
 import type { Page } from "playwright";
 import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
-import { fail, openDirectoryCardFromCaption, openDirectoryCardFromSettings } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { openDirectoryCardFromCaption, openDirectoryCardFromSettings } from "./harness.ts";
 import { proveDirectoryCommands } from "./directory_commands.ts";
 import { run as dirColorsRun } from "./dir_colors.ts";
 import { run as filteringRun } from "./filtering.ts";

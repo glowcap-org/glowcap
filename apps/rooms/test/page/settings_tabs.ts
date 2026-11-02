@@ -2,7 +2,7 @@
 
 import type { Page } from "playwright";
 import { waitForFiniteAnimations } from "../support/animations.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { inkContrast } from "../ink_contrast.ts";
 
 export async function provePhoneSettingsTabs(page: Page): Promise<void> {

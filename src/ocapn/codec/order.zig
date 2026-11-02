@@ -1,9 +1,9 @@
 //! Codec-neutral canonical ordering (ADR-0001).
 //!
-//! Syrup and Cap'n Proto both emit sets and structs in a single byte-key
-//! order and refuse adjacent duplicates after that sort. The emit path that
-//! produces each key stays codec-local. This module owns only the sort and the
-//! symmetric duplicate refusal so the two codecs cannot drift.
+//! Syrup and Cap'n Proto both emit sets and structs in a single byte-key order
+//! and refuse adjacent duplicates after that sort. The emit path that produces
+//! each key stays codec-local. Only the sort and the symmetric duplicate
+//! refusal are shared, so the two codecs cannot drift.
 
 const std = @import("std");
 

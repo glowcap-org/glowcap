@@ -4,12 +4,9 @@
 // runtime's non-browser FFI adapters (node:net, bun:ffi) so the single-file
 // bundle resolves without a runtime the browser lacks.
 
-export const BROWSER_BUNDLE_CONFIG = new URL("../browser-bundle.json", import.meta.url).pathname;
+import { fail } from "../../test/assert.ts";
 
-export function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
+export const BROWSER_BUNDLE_CONFIG = new URL("../browser-bundle.json", import.meta.url).pathname;
 
 export function freePort(): number {
 	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });

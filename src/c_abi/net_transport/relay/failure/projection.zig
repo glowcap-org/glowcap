@@ -1,7 +1,7 @@
 //! Stable C result projection for relay-owned failures. Dial, listen, and
-//! accept codes come from the shared netlayer table (`c.netlayerFailureCode`);
-//! this file adds the relay's carrier detail to a dial report and names the
-//! codes of a release.
+//! accept codes come from the shared netlayer table (`c.netlayerFailureCode`).
+//! The relay adds its carrier detail to a dial report and names the codes of a
+//! release.
 
 const c = @import("c_abi_shared");
 const net = @import("net");

@@ -18,7 +18,7 @@ Reserving an export position is a local naming act. A partner must not gain auth
 
 ## Decision
 
-Export rows distinguish their local baseline from wire-held authority. A partner may address an export only after a wire reference or explicit grant establishes its held share. Reservation alone grants nothing.
+A partner may address an export only after a wire reference or explicit grant establishes its held share. Reservation alone grants nothing.
 
 Import rows record the retains owned by session machinery, including listeners, resolver callbacks and shortening links. An application's release is validated against the remaining share. GC validates all deltas before applying them and refuses underflow.
 

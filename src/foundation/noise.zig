@@ -2,12 +2,12 @@
 //! channel speaks: handshake, transport ciphers, and the sealed-record
 //! framing, over caller buffers.
 //!
-//! This is the one Noise pattern the design needs, written out directly
-//! rather than behind a generic pattern table. `XK` fits because a key
-//! designator hands the dialer the responder's static key before the first
-//! byte, and because the initiator's identity travels in the third message
-//! under ephemeral-derived keys, so a recorded transcript plus a later key
-//! compromise reveals nothing about who dialed.
+//! It is the one Noise pattern the design needs, written out directly rather
+//! than behind a generic pattern table. `XK` fits because a key designator
+//! hands the dialer the responder's static key before the first byte, and
+//! because the initiator's identity travels in the third message under
+//! ephemeral-derived keys, so a recorded transcript plus a later key compromise
+//! reveals nothing about who dialed.
 //!
 //! Like the rest of `foundation`, it is pure math: no allocation, no I/O, no
 //! entropy. An ephemeral key is built from a 32-byte seed the caller supplies,

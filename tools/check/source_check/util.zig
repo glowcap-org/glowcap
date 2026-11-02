@@ -419,6 +419,29 @@ pub fn collectBulletSpans(gpa: std.mem.Allocator, section: []const u8, out: *std
     }
 }
 
+test "sectionBody and collectBulletSpans read one registry section" {
+    const gpa = std.testing.allocator;
+    const doc =
+        "# Title\n\n## Layer Ownership\n\n" ++
+        "- `foundation`: bytes.\n" ++
+        "- `ocapn/`: the protocol:\n" ++
+        "  - `ocapn/model`: types.\n" ++
+        "  prose continuation with `inline` span.\n\n" ++
+        "## Next Section\n\n- `not-here`\n";
+    const section = sectionBody(doc, "## Layer Ownership").?;
+
+    var spans: std.ArrayList([]const u8) = .empty;
+    defer spans.deinit(gpa);
+    try collectBulletSpans(gpa, section, &spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.items.len);
+    try std.testing.expectEqualStrings("foundation", spans.items[0]);
+    try std.testing.expectEqualStrings("ocapn/", spans.items[1]);
+    try std.testing.expectEqualStrings("ocapn/model", spans.items[2]);
+
+    try std.testing.expect(sectionBody(doc, "## Absent") == null);
+}
+
 /// The sources that register build steps: the root `build.zig` plus every
 /// composed step-registration module beneath `tools/build/`, concatenated into
 /// one owned buffer so a textual step scan sees the whole graph the root

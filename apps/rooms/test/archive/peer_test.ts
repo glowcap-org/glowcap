@@ -15,7 +15,9 @@ import { issueArchiveShare, listArchiveShares, revokeArchiveShare } from "../sup
 import { fetchBlob } from "../../lib/attachment.ts";
 import { roomsAddress, roomsHost } from "../../lib/locator.ts";
 import { stopOwned } from "../support/children.ts";
-import { assert, dial, freePort, roomsTest } from "../support/rooms_server.ts";
+import { assert } from "../assert.ts";
+import { freePort } from "../support/ports.ts";
+import { dial, roomsTest } from "../support/rooms_server.ts";
 import { announcedSturdyref } from "../support/standalone_peer.ts";
 
 import { startArchivePeer } from "../support/archive_peer.ts";

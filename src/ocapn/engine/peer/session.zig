@@ -1,6 +1,6 @@
 //! Peer-facing Session lifecycle, profile, and partner-session projection.
 //!
-//! Session remains authoritative. This module owns the engine boundary that
+//! Session remains authoritative. The projection owns the engine boundary that
 //! closes it, selects the pre-open versus settled inbound profile, and exposes
 //! borrowed facts learned from the partner handshake.
 

@@ -1,8 +1,8 @@
 //! The Tor control protocol conversation that creates an onion service.
 //!
-//! Like its SOCKS sibling this module is bytes only: it formats requests into
-//! caller buffers and classifies reply lines out of caller buffers, and it opens
-//! no socket. The driver above moves them.
+//! Like its SOCKS sibling it is bytes only: it formats requests into caller
+//! buffers and classifies reply lines out of caller buffers, and it opens no
+//! socket. The driver above moves them.
 //!
 //! The protocol is line-oriented text. A request is one line ending `\r\n`. A
 //! reply is one or more lines, each beginning with a three-digit status code

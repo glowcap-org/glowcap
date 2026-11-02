@@ -18,7 +18,7 @@ A browser can open a channel but cannot expose an ordinary listening socket. Tha
 
 ## Decision
 
-The browser runs the same byte-fed Host compiled to WebAssembly. It can host objects, answer calls, pass capabilities and take part in handoff over its established sessions.
+The browser Host can host objects, answer calls, pass capabilities and take part in handoff over its established sessions.
 
 Replies travel on the caller's session through an explicitly held reply capability. They do not assume that the caller can be dialed back. A browser that must be cold-dialed uses an identity-bound relay rendezvous or another supported channel establishment mechanism.
 

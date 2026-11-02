@@ -82,7 +82,7 @@ service id to reach.
 > partner = onion.locator("<56-character onion service id>")
 >
 > async with Runtime.open(
->     provider=onion.provider(onion.OnionConfig(socks="/run/tor/socks"))
+>     providers=[onion.provider(onion.OnionConfig(socks="/run/tor/socks"))]
 > ) as runtime:
 > ```
 > **Rust**
@@ -240,5 +240,4 @@ records the locator rule and how a dialer picks glowcap's own profile only
 when it knows the other side is glowcap.
 
 [Choosing a transport]($link.page('transports/choosing')) puts onion beside the
-others. [What you can depend on]($link.page('stability')) lists the live Tor
-checks and known gaps.
+others.

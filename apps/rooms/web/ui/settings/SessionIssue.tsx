@@ -15,6 +15,7 @@ import { PermissionFields, permissionRefusal } from "./PermissionFields.tsx";
 import { type CeilingAnswer, ceilingOf, CeilingQuestion, NO_CEILING } from "./CeilingQuestion.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
+import { Input } from "../Input.tsx";
 
 /** You keep the control issuance returns, so by default it can change the new
  * access as far as yours could, and issue nothing beneath it. */
@@ -144,9 +145,8 @@ export function SessionIssueModal(
 								<li className="entry">
 									<Field id="sessionAccessLabel" label={text.label}>
 										{(wiring) => (
-											<input
+											<Input
 												id={wiring.id}
-												className="field"
 												value={label}
 												disabled={locked}
 												placeholder={text.labelPlaceholder}
@@ -197,9 +197,9 @@ export function SessionIssueModal(
 											<label className="entry-name" htmlFor="sessionDelegationDepth">
 												{text.depth}
 											</label>
-											<input
+											<Input
 												id="sessionDelegationDepth"
-												className="field option-number"
+												className="option-number"
 												type="number"
 												inputMode="numeric"
 												min={0}

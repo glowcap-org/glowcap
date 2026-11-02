@@ -5,10 +5,9 @@ engine are checked against. The Syrup byte corpus and its generators live here
 alongside the loaders and the scenario-trace tests that consume them.
 
 The corpus is **glowcap-authored** Syrup byte vectors, not Goblins captures.
-Each generator hand-builds the record structure that glowcap's own codec
+The generator hand-builds the record structure that glowcap's own codec
 produces for a given `Message`, then serializes that record through the
-**upstream Syrup encoder** (`ocapn/syrup`). Neither generator imports or runs
-Spritely Goblins.
+**upstream Syrup encoder** (`ocapn/syrup`). It imports no Spritely Goblins.
 
 - [`corpus/`](corpus/): the canonical Syrup byte corpus. `@embedFile`d by
   [`protocol_oracle.zig`](protocol_oracle.zig) and asserted against the Zig
@@ -21,19 +20,17 @@ Spritely Goblins.
   devcontainer's Racket. `zig build fixture-gen-check` reruns it and
   byte-compares the output against the committed corpus, so generator/corpus
   drift fails loud.
-- [`generate.py`](generate.py): the same glowcap record shapes serialized via
-  the **upstream Python Syrup encoder** (`syrup.py`), a by-hand cross-check (the
-  devcontainer does not install `syrup.py`). Its record builders live beside it
-  in [`records.py`](records.py).
+- [`scenarios/`](scenarios/): the drivers that run a `Peer` through one fixed
+  protocol scenario each and return its wire bytes, which
+  [`scenario_trace_test.zig`](scenario_trace_test.zig) and the fuzz and
+  memcheck suites compare. The suites import them as the `scenarios` module.
 - [`stage0_abort.trace`](stage0_abort.trace): the canonical observable trace
   that [`scenario_trace_test.zig`](scenario_trace_test.zig) asserts a driven
   Stage-0 abort produces.
 
-The two generators agreeing byte-for-byte proves only that the two upstream
-Syrup _serializers_ agree on glowcap's records. It does **not** establish that
-Goblins independently emits these messages. That stronger, external authority
-comes from a Goblins peer exercised live over a socket (see
-[`../../conformance/goblins-peer/`](../../conformance/goblins-peer/)) and the
-upstream OCapN conformance suite, not from this corpus.
-
-The corpus lives here once rather than in a separate directory per encoder.
+The generator matching the committed bytes proves that glowcap's records
+serialize the way the upstream Syrup encoder serializes them. It does **not**
+establish that Goblins independently emits these messages. That external
+authority comes from a Goblins peer exercised live over a socket
+([`../../conformance/goblins-peer/`](../../conformance/goblins-peer/)) and the
+upstream OCapN conformance suite.

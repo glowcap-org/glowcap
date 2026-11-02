@@ -43,7 +43,7 @@
 //!
 //! The second target runs the same legitimate operations alone, between two
 //! peers that both keep the protocol, and after the wire settles holds the two
-//! sessions to each other (`oracle.agreement`): every import
+//! sessions to each other (`scenarios.agreement`): every import
 //! is a mention the partner made that many times, and every open question is an
 //! answer the partner still owes. That is the class the bounds check is blind
 //! to. A row one side keeps and the other has dropped never crashes and never
@@ -90,7 +90,7 @@ const drainApplication = program.drainApplication;
 const stepBounded = program.stepBounded;
 const heldImport = program.heldImport;
 /// The cross-peer relation the agreement target holds.
-const agreement = @import("oracle").agreement;
+const agreement = @import("scenarios").agreement;
 const audit = glowcap.ocapn.session.audit;
 
 const held_resolution = @import("fuzz/held_resolution.zig");

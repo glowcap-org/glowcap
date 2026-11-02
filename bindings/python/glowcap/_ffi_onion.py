@@ -1,14 +1,12 @@
 """Internal: the raw ``ctypes`` loader for ``libglowcap_net_transport_onion``.
 
-The onion transport ships as its own à-la-carte archive (ADR-0022),
-symbol-disjoint from the core ``libglowcap_ocapn``: it carries the
-``glowcap_onion_*`` family plus its own thread-local last-error
-(``glowcap_onion_last_error`` / ``_clear``). It reaches a Tor daemon the
-deployment already runs, over that daemon's SOCKS endpoint to dial and its
-control endpoint to host. glowcap starts none. This module loads only that
-archive, reusing the shared ``Structure`` types from :mod:`glowcap._ffi_ocapn` by
-layout. Nothing here is public. :mod:`glowcap.onion` is the ergonomic surface
-over it.
+This module loads only that archive. It carries the ``glowcap_onion_*``
+family plus its own thread-local last-error
+(``glowcap_onion_last_error`` / ``_clear``). The transport reaches a Tor daemon
+the deployment already runs, over that daemon's SOCKS endpoint to dial and its
+control endpoint to host. glowcap starts none. It reuses the shared
+``Structure`` types from :mod:`glowcap._ffi_ocapn` by layout. Nothing here is
+public. :mod:`glowcap.onion` is the ergonomic surface over it.
 """
 
 from __future__ import annotations

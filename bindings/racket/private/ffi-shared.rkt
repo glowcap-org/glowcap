@@ -200,7 +200,7 @@
 ;; reflects off the real Zig C ABI types, so what a cstruct is compared with is
 ;; the ABI itself. `ctype->layout` reads the struct as declared, so a reordered
 ;; or retyped field fails here even when the total size happens to survive; the
-;; dogfoods defend the behavior on top of that.
+;; the test suites defend the behavior on top of that.
 ;;
 ;; `fpointer` slots normalize to `pointer` on both sides: whether a mirror
 ;; declares a callback slot `_pointer` or `_fpointer` is a convenience at the

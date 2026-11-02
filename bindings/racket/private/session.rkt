@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the CapTP `session` surface over the byte-fed host
-;; (libglowcap_host, ADR-0022 / ADR-0011). It owns the application verbs and
+;; (libglowcap_host, ADR-0011). It owns the application verbs and
 ;; serve path, construction/abandon, and the core-selected terminal effect.
 ;; `session/state.rkt`, `session/identity.rkt`,
 ;; `session/establish.rkt`, and `session/close.rkt` own their named siblings.
@@ -48,7 +48,7 @@
 
 (provide (all-defined-out)
          (all-from-out "pending-writes.rkt")
-         ;; Feed-refusal `last_abort` lives in pump; re-export for dogfood that
+         ;; Feed-refusal `last_abort` lives in pump; re-export for tests that
          ;; requires this module for CapTP verbs. The handshake bound lives
          ;; there too, beside the deadline machinery dial and accept share;
          ;; re-export it for the public barrel.

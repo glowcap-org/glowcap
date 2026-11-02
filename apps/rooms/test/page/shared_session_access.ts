@@ -4,7 +4,8 @@ import type { Browser, Page } from "playwright";
 import { Buffer } from "node:buffer";
 import { managedAccessText as text, statusTag } from "../../lib/text/managed_access.ts";
 import { managedSessionText } from "../../lib/text/managed_session.ts";
-import { fail, say, waitForPostedLine } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { say, waitForPostedLine } from "./harness.ts";
 import { png } from "./png.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 

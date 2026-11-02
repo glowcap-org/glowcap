@@ -1,56 +1,58 @@
-//! The iroh transport's public C ABI, a host-driven netlayer boundary for C,
-//! the encrypted-QUIC sibling of the blocking TCP endpoints.
+//! The iroh transport's public C ABI (`libglowcap_net_transport_iroh`), a
+//! host-driven netlayer boundary for C, the encrypted-QUIC sibling of the
+//! blocking TCP endpoints.
 //!
-//! This is a *separate artifact* from `libglowcap_ocapn` (ADR-0021): it links the
+//! The archive is separate from `libglowcap_ocapn` (ADR-0021): it links the
 //! Rust iroh sidecar, so folding it into the pure-Zig core would drag cargo
-//! into every consumer of the protocol library. The artifact
-//! (`libglowcap_net_transport_iroh`) is a *companion*, not a superset: it imports only the
-//! shared vocabulary leaf (`@import("c_abi_shared")`, frame/context types,
-//! codes, allocation, the last-error slot), so it exports just the `glowcap_iroh_*`
-//! family and shares no core symbol with `libglowcap_ocapn`. A consumer links both
-//! libraries (core for the peer surface, this for the transport) and reuses the
-//! shared types by layout, exactly as a C program including both headers does.
-//! The core archives never import this file and stay cargo-free.
+//! into every consumer of the protocol library. It is a companion, not a
+//! superset. It imports only the shared vocabulary (`@import("c_abi_shared")`,
+//! frame/context types, codes, allocation, the last-error slot), so it exports
+//! only the `glowcap_iroh_*` family and shares no core symbol with
+//! `libglowcap_ocapn`. A consumer links both libraries (core for the peer
+//! surface, this for the transport) and reuses the shared types by layout, as a
+//! C program including both headers does. The core archives never import it and
+//! stay cargo-free.
 //!
 //! There is one I/O model (ADR-0019): an event-driven readiness loop, armed at
-//! construction, that serves many connections from one host thread. The netlayer
-//! hands back a single OS readiness fd (`glowcap_iroh_netlayer_readiness_fd`) the
-//! host parks on with its own poller. When it signals,
-//! `glowcap_iroh_netlayer_drain_ready` drains the pending readiness records,
-//! `_try_accept` claims accepts, and `glowcap_iroh_conn_try_read` /
-//! `glowcap_iroh_conn_try_write` move
-//! raw bytes without ever parking on a connection. Because no call parks on a
-//! specific connection, releasing one cannot race a parked read. The host frames
-//! the raw bytes itself (the peer's stream-input path), the same shape the TCP
-//! endpoints' consumer uses. The one departure from TCP is addressing: there is
-//! no `host:port`. A peer is dialed by its endpoint id (the canonical
-//! lowercase-hex designator `glowcap_iroh_netlayer_node_id` prints). Whether a
-//! dial also needs a comma-separated direct-address hint
+//! construction, that serves many connections from one host thread. The
+//! netlayer hands back a single OS readiness fd
+//! (`glowcap_iroh_netlayer_readiness_fd`) the host parks on with its own
+//! poller. When it signals, `glowcap_iroh_netlayer_drain_ready` drains the
+//! pending readiness records, `_try_accept` claims accepts, and
+//! `glowcap_iroh_conn_try_read` / `glowcap_iroh_conn_try_write` move raw bytes
+//! without ever parking on a connection. Because no call parks on a specific
+//! connection, releasing one cannot race a parked read.
+//!
+//! The host frames the raw bytes itself (the peer's stream-input path), the
+//! same shape the TCP endpoints' consumer uses. The one departure from TCP is
+//! addressing: there is no `host:port`. A peer is dialed by its endpoint id
+//! (the canonical lowercase-hex designator `glowcap_iroh_netlayer_node_id`
+//! prints). Whether a dial also needs a comma-separated direct-address hint
 //! (`glowcap_iroh_netlayer_direct_addrs`) depends on the netlayer's chosen
-//! reachability: a `direct` endpoint dials by id plus hints, a discovery
+//! reachability. A `direct` endpoint dials by id plus hints, and a discovery
 //! endpoint resolves the partner by id alone.
 //!
 //! Those same calls are the raw byte channel a byte-transparent relay needs for
 //! an iroh leg (ADR-0033). One leg composes `glowcap_iroh_netlayer_new`, its
-//! `readiness_fd` and `drain_ready`, the `_start_connect` /
-//! `_finish_connect` lifecycle, `glowcap_iroh_conn_try_read` /
-//! `glowcap_iroh_conn_try_write`, then `glowcap_iroh_conn_release` and
-//! `glowcap_iroh_netlayer_release`.
-//! There is no channel object over them, because the wait a channel needs is
-//! your own reactor's, and only the caller can hold it.
+//! `readiness_fd` and `drain_ready`, and the `_start_connect` /
+//! `_finish_connect` lifecycle. It moves bytes with
+//! `glowcap_iroh_conn_try_read` / `glowcap_iroh_conn_try_write`, then ends with
+//! `glowcap_iroh_conn_release` and `glowcap_iroh_netlayer_release`. There is no
+//! channel object over them, because the wait a channel needs is your own
+//! reactor's, and only the caller can hold it.
 //!
-//! Symbol names avoid the sidecar's own `glowcap_iroh_sidecar_*`
-//! exports (`glowcap_iroh_sidecar_connect_blocking`, `glowcap_iroh_sidecar_conn_close`,
-//! …): this public surface is `glowcap_iroh_netlayer_*` and
+//! Symbol names avoid the sidecar's own `glowcap_iroh_sidecar_*` exports
+//! (`glowcap_iroh_sidecar_connect_blocking`, `glowcap_iroh_sidecar_conn_close`,
+//! …). The public surface is `glowcap_iroh_netlayer_*` and
 //! `glowcap_iroh_conn_{try_read,try_write}` / `_release`, so the private
-//! byte-level seam and the public loop-level ABI share no prefix and the two
-//! C ABIs link into one library without colliding.
+//! byte-level seam and the public loop-level ABI share no prefix and the two C
+//! ABIs link into one library without colliding.
 //!
 //! Threading: a `GlowcapIrohConn` is single-owner like a peer: serialize every
 //! call on one onto one thread. Distinct connections are independent. Run the
 //! netlayer's readiness wait (the host's poll on `readiness_fd`) and its
-//! `drain_ready` on one thread per netlayer, serialized against `_release` of the
-//! netlayer.
+//! `drain_ready` on one thread per netlayer, serialized against `_release` of
+//! the netlayer.
 
 pub const std_options = @import("c_abi_shared").library_options;
 

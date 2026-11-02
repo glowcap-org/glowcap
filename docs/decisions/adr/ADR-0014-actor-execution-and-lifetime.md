@@ -18,7 +18,7 @@ Applications need local actors and eventual sends without putting a scheduler in
 
 ## Decision
 
-The Vat is a synchronous no-I/O actor layer above the engine. Typed actors support near calls, eventual sends, vows and deferred behavior replacement. A Host composes the Vat with session-specific ports rather than making either layer own the other.
+Typed actors support near calls, eventual sends, vows and deferred behavior replacement. A Host composes the Vat with session-specific ports rather than making either layer own the other.
 
 The Vat owns bounded, reclaimable batches attributed to an ingress. Admission checks both turn count and retained bytes atomically. Generic drives rotate fairly, and Host batch drives respect each Port's budget.
 

@@ -11,7 +11,7 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
-const agreement = @import("oracle").agreement;
+const agreement = @import("scenarios").agreement;
 const program = @import("../../support/fuzz_program.zig");
 
 fn settle(pair: *engine.pairing.Pair) !void {

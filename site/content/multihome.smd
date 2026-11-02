@@ -124,5 +124,4 @@ that does not depend on any transport. Everything described here is built and
 checked
 ([ADR-0036](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0036-identity-and-multihome-routing.md)).
 The wire format is a `glowcap-next` extension, so peers that do not negotiate
-it never see these route hints. [What you can depend on]($link.page('stability'))
-lists the checks.
+it never see these route hints.

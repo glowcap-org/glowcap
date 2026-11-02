@@ -1,15 +1,14 @@
 #lang racket/base
 ;; glowcap/inproc: the socket-free in-process transport for the Racket binding.
 ;;
-;; Mirrors the à-la-carte archive split (ADR-0022): this module is
-;; libglowcap_net_transport_inproc's binding, the in-process sibling of the TCP
-;; connections (`glowcap-tcp.rkt`). Two sessions in one process are wired by
-;; pipes, with no kernel transport. The listener exposes a wake descriptor for
-;; scheduler integration; no application bytes flow through it. Its private loader
-;; (`private/ffi-inproc.rkt`) opens ONLY that archive, so requiring this module
-;; links neither the TCP nor the iroh transport. It builds on the core value
-;; and error machinery in `glowcap.rkt` through the shared transport seam
-;; (`private/seam.rkt`) with the same frame layout and no shared symbol:
+;; This module is libglowcap_net_transport_inproc's binding, the in-process
+;; sibling of the TCP connections (`glowcap-tcp.rkt`). Two sessions in one
+;; process are wired by pipes, with no kernel transport. The listener exposes a
+;; wake descriptor for scheduler integration; no application bytes flow through
+;; it. Its private loader (`private/ffi-inproc.rkt`) opens ONLY that archive.
+;; It builds on the core value and error machinery in `glowcap.rkt` through the
+;; shared transport seam (`private/seam.rkt`) with the same frame layout and no
+;; shared symbol:
 ;;
 ;;   (require "glowcap.rkt")
 ;;   (require "glowcap-inproc.rkt")
@@ -90,6 +89,7 @@
           close!))
        (establish-dialed-locator-session
         m loc transport
+        #:verified-channel-key #f
         #:handshake-timeout-ms handshake-timeout-ms)))))
 
 (define (inproc-netlayer-release! nl)

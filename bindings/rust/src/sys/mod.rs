@@ -1,10 +1,8 @@
-//! The raw FFI mirror of the C ABI, grouped per archive (ADR-0022).
+//! The raw FFI mirror of the C ABI, grouped per archive.
 //!
-//! glowcap's C ABI ships as a set of symbol-disjoint archives, and this module
-//! mirrors that shape: [`ocapn`] is the always-linked core (`libglowcap_ocapn`),
-//! [`host`] is the byte-fed host archive (`libglowcap_host`, ADR-0022), and
-//! each transport's externs live in their own submodule behind the matching
-//! Cargo feature, so a build declares the FFI for exactly the archives it links.
+//! [`ocapn`] is the always-linked core (`libglowcap_ocapn`), [`host`] is the
+//! byte-fed host archive (`libglowcap_host`), and each transport's externs live
+//! in their own submodule behind the matching Cargo feature.
 //! Nothing in here escapes the crate. The safe wrappers above wrap it.
 //!
 //! The core and transport mirrors are wider than what the

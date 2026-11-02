@@ -18,7 +18,7 @@ Different runtimes for blocking calls, stepped embeddings and scale measurements
 
 ## Decision
 
-HostRuntime owns I/O for Zig Session and Server, the C driver and the bindings that use it. The byte-fed Host remains the no-I/O embedding for callers that own their transport loop.
+The byte-fed Host remains the no-I/O embedding for callers that own their transport loop.
 
 Stream transport completion backends join HostRuntime through the multiplexed resident contract. The resident owns its connection lifecycle, lends receive bytes from its pool and shares spare send storage. Idle stream wires hold no read or write buffer. Other multiplexed providers use the same runtime ownership boundary.
 

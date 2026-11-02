@@ -205,7 +205,7 @@ async fn a_loop_hosted_worker_defers_its_answer_onto_a_resolver_vow() {
 }
 
 /// Test-side base64 decode (RFC 4648, padded): the veneer encodes, this
-/// proves the round trip without pulling a crate into the dogfood.
+/// proves the round trip without pulling a crate into the tests.
 fn b64_decode(s: &str) -> Vec<u8> {
 	const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	let value = |ch: u8| ALPHABET.iter().position(|a| *a == ch).unwrap() as u32;

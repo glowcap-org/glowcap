@@ -1,62 +1,64 @@
 //! The byte-fed host tier's public C ABI, `libglowcap_host` (ADR-0022).
 //!
 //! One `GlowcapHost` is the multi-session CapTP **host** for an embedder that
-//! owns its own loop, sockets, and entropy: it wraps `driver_core.Host`, so
-//! everything the node decides (where a token routes, which exporter a give
-//! withdraws from, when a served reply becomes a signed give) runs inside the
-//! library, and the embedder's job is moving bytes and answering the
-//! action queue. Inbound transport packets enter through
-//! `glowcap_host_session_feed_packet` (or the narrower frame/byte-stream
-//! verbs), outbound packets leave through `glowcap_host_session_take_packet`,
-//! and the host's own effects (dial an exporter, draw gift-id entropy, flush a
-//! session) surface as `GlowcapHostAction`s the embedder drains with
-//! `glowcap_host_next_action` and answers with `glowcap_host_dialed` /
-//! `glowcap_host_dial_failed` / `glowcap_host_provide_gift_id` /
-//! `glowcap_host_gift_id_failed`. Settlements ride the same queue: a vow's
-//! outcome pops as a `SETTLE` or `FAIL` action
-//! whose `ticket` is the vow id, so one drain routes every outcome and there
-//! is no listener to register before the bytes that settle it.
+//! owns its own loop, sockets, and entropy. It wraps `driver_core.Host`, so
+//! everything the node decides runs inside the library (where a token routes,
+//! which exporter a give withdraws from, when a served reply becomes a signed
+//! give). The embedder's job is moving bytes and answering the action queue.
+//!
+//! Inbound transport packets enter through `glowcap_host_session_feed_packet`
+//! (or the narrower frame/byte-stream verbs), and outbound packets leave
+//! through `glowcap_host_session_take_packet`. The host's own effects (dial an
+//! exporter, draw gift-id entropy, flush a session) surface as
+//! `GlowcapHostAction`s the embedder drains with `glowcap_host_next_action`. It
+//! answers them with `glowcap_host_dialed`, `glowcap_host_dial_failed`,
+//! `glowcap_host_provide_gift_id`, and `glowcap_host_gift_id_failed`.
+//! Settlements ride the same queue: a vow's outcome pops as a `SETTLE` or
+//! `FAIL` action whose `ticket` is the vow id, so one drain routes every
+//! outcome and there is no listener to register before the bytes that settle
+//! it.
 //!
 //! One thread (or one green-thread scheduler) drives one host. Nothing here
-//! locks. The one callback, a behavior answering a deliver, fires on the
-//! thread executing the enclosing `glowcap_host_*` call. Inside it the
-//! enqueueing verbs are legal (send/tell, vow verbs, turn verbs, gc release,
-//! exporter location) and are encoded and pumped when the enclosing call
-//! unwinds. The host-driving verbs (feed, feed_bytes, feed_packet,
-//! resume_feed, take_packet, take_outbound, next_action,
-//! the dial/gift completions, open, publish/spawn,
-//! fetch/enliven, break_far_vows, transport_closed, release) are refused with
-//! `GLOWCAP_ERR_INVALID_ARGUMENT`.
+//! locks. The one callback, a behavior answering a deliver, fires on the thread
+//! executing the enclosing `glowcap_host_*` call. Inside it the enqueueing
+//! verbs are legal (send/tell, vow verbs, turn verbs, gc release, exporter
+//! location) and are encoded and pumped when the enclosing call unwinds. The
+//! host-driving verbs are refused with `GLOWCAP_ERR_INVALID_ARGUMENT`. They are
+//! feed, feed_bytes, feed_packet, resume_feed, take_packet, take_outbound,
+//! next_action, the dial/gift completions, open, publish/spawn, fetch/enliven,
+//! break_far_vows, transport_closed, and release.
 //!
-//! This is a *separate archive* from `libglowcap_ocapn` (ADR-0022): it imports
-//! the shared vocabulary leaf (`c_abi_shared`: frame/argument types, codes,
-//! allocation, the per-thread last-error slot) plus the `driver_core` and
+//! The archive is separate from `libglowcap_ocapn` (ADR-0022) and imports the
+//! shared vocabulary (`c_abi_shared`: frame/argument types, codes, allocation,
+//! the per-thread last-error slot). It also imports the `driver_core` and
 //! `actors` layers it bridges, so it exports only the `glowcap_host_*` family
 //! and shares no core symbol with the ocapn archive. The family reads for its
 //! entry type `Host` while the archive is named for its Zig module, the same
 //! divergence `libglowcap_net_transport_tcp` carries toward `glowcap_tcp_*`. A
-//! consumer links this alongside `libglowcap_ocapn` and reuses the shared
-//! value types by layout. The archive carries its own last-error slot, read
-//! through `glowcap_host_last_error`.
+//! consumer links it alongside `libglowcap_ocapn` and reuses the shared value
+//! types by layout. The archive carries its own last-error slot, read through
+//! `glowcap_host_last_error`.
 //!
-//! This file is the archive root, the way `src/c_abi/ocapn/mod.zig` is: it owns
+//! The module root is the archive root, like `src/c_abi/ocapn/mod.zig`. It owns
 //! the public C vocabulary (the opaque handles, the action and dial-plan
-//! structs, the callback typedefs, and the discriminant constants) from
-//! focused POD vocabulary leaves and
-//! re-exports the `glowcap_host_*` exports that live in the handle-family
-//! leaves, so the header generator and the binding mirrors see the whole ABI
-//! from one place. The exports themselves are split by responsibility:
-//! `host.zig` owns host lifecycle, the pure dial/accept planners, the action
-//! queue, GC, and the last-error slot. `publications.zig` owns the host-wide
-//! publish verbs. `locators.zig` owns
-//! the identity-designator helper and advertised-locator admission. And
-//! `embedding.zig` owns the Zig-only driver transfer bridge.
-//! `session/lifecycle.zig` owns open/close/release. `session/pump.zig` owns the
-//! session byte and packet pump. `session.zig` owns publish/spawn, fetch/enliven,
-//! send/tell/vows, and abort diagnostics. `turn.zig` owns the turn-time verbs.
-//! `pump.zig` owns the optional `glowcap_host_pump_drain` convenience.
-//! And `common.zig` holds the internal glue those leaves share (the `Instance`
-//! state, the behavior bridge, marshalling, and the error projection).
+//! structs, the callback typedefs, and the discriminant constants) from focused
+//! POD vocabulary files. It re-exports the `glowcap_host_*` exports of the
+//! handle-family files, so the header generator and the binding mirrors see the
+//! whole ABI from one place.
+//!
+//! The exports split by responsibility. `host.zig` owns host lifecycle, the
+//! pure dial/accept planners, the action queue, GC, and the last-error slot.
+//! `publications.zig` owns the host-wide publish verbs. `locators.zig` owns the
+//! identity-designator helper and advertised-locator admission. `embedding.zig`
+//! owns the Zig-only driver transfer bridge. `session/lifecycle.zig` owns
+//! open/close/release, `session/pump.zig` owns the session byte and packet
+//! pump, and `session.zig` owns publish/spawn, fetch/enliven, send/tell/vows,
+//! and abort diagnostics.
+//!
+//! `turn.zig` owns the turn-time verbs. `pump.zig` owns the optional
+//! `glowcap_host_pump_drain` convenience. `common.zig` holds the internal glue
+//! those files share (the `Instance` state, the behavior bridge, marshalling,
+//! and the error projection).
 
 pub const std_options = @import("c_abi_shared").library_options;
 

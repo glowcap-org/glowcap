@@ -1,10 +1,9 @@
-//! The drive of the retained-call lifecycle: advancing, invoking, and
-//! settling the operations `calls.zig` admits.
+//! The drive of the retained-call lifecycle: advancing, invoking, and settling
+//! the operations `calls.zig` admits.
 //!
-//! Admission (`calls.admit`) enqueues. This module owns every later phase:
-//! preparation, invocation, result custody, settlement, and reset. One
-//! direction: the drive reads the custody types and rows from `calls.zig`,
-//! which never reaches back in.
+//! Admission (`calls.admit`) enqueues. The drive owns every later phase:
+//! preparation, invocation, result custody, settlement, and reset. It reads the
+//! custody types and rows from `calls.zig`, which never reaches back in.
 
 const std = @import("std");
 

@@ -185,7 +185,7 @@ take precedence over Compose `.env` files, so startup refuses an inherited
 | --- | --- |
 | Before creation | `hooks/initialize.sh` creates the shared host agent-state paths and any missing primary-checkout configuration, validates Git identity and ports, and prepares the managed Docker networks |
 | Image build | `Dockerfile`, `image/` installers, then `image/verify-toolchains.sh` |
-| First open | `hooks/post-create.sh` verifies host binds are writable, proves the Zig cache filesystem, checks pins and toolchains, holds the container to the environment Compose declares, and fills the conformance submodules |
+| First open | `hooks/post-create.sh` verifies host binds are writable, sets `core.hooksPath` to `.agents/hooks` when the checkout has no value, proves the Zig cache filesystem, checks pins and toolchains, holds the container to the environment Compose declares, and fills the conformance submodules |
 | Development | You run `zig build check` and focused build steps |
 
 ## Toolchains

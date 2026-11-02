@@ -2,10 +2,11 @@
 // Rooms client as a compatibility consumer and a local IRC server as the peer.
 import { Directory, Room } from "../../lib/room/client.ts";
 import { type IrcMessage, readIrcLines } from "../../irc/protocol.ts";
-import { assert, dial, roomsTest, ROOT, within } from "../support/rooms_server.ts";
+import { assert, assertEquals } from "../assert.ts";
+import { IRC_BRIDGE as BRIDGE, ROOT } from "../support/paths.ts";
+import { within } from "../support/wait.ts";
+import { dial, roomsTest } from "../support/rooms_server.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { IRC_BRIDGE as BRIDGE } from "../support/paths.ts";
-import { assertEquals } from "../assert.ts";
 import { registerSaslFeed, say, writeAll } from "./bridge_fixture.ts";
 
 async function scene(

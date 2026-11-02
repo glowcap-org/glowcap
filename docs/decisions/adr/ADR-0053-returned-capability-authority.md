@@ -18,7 +18,7 @@ A method returning a capability can disclose more authority than its data reply 
 
 ## Decision
 
-A managed method declares how it can disclose returned authority. A stored reference field preserves the exact held grant. A dependent result mediates each operation through both the original source intent and the exact upstream target.
+A stored reference field preserves the exact held grant. A dependent result mediates each operation through both the original source intent and the exact upstream target.
 
 Returned recursive read capabilities keep that source admission. Resource identifiers describe data and never replace a held dependency. Content and reference-field edits commit in the same owner transaction.
 

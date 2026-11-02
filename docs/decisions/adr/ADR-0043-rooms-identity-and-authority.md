@@ -18,7 +18,7 @@ A nickname, public room registration and reconnect order are not durable authori
 
 ## Decision
 
-A room has stable identity independent of registration. Reusable or one-shot entrances mint live memberships. The directory publishes only the entrance selected by the room manager.
+Reusable or one-shot entrances mint live memberships. The directory publishes only the entrance selected by the room manager.
 
 A durable steward is explicitly granted and taken after validation against a non-authority room identity. A separately minted operator capability can inventory, give and revoke server-owned stewardship. Revocation rotates the durable generation and live behavior checks it on every call.
 

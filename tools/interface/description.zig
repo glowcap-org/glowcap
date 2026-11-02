@@ -1,5 +1,5 @@
-//! Bounded build-input reader. Syrup owns leaf syntax, this module owns the
-//! description tree and canonical dictionaries. No CapTP state is interpreted.
+//! Bounded build-input reader for the description tree and canonical
+//! dictionaries. Syrup owns leaf syntax. No CapTP state is interpreted.
 const std = @import("std");
 const syrup = @import("syrup");
 const syntax = syrup.RecordSyntax;

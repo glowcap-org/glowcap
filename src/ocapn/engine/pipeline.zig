@@ -8,8 +8,8 @@
 //! the engine they are sync and no-I/O.
 //!
 //! The pure half, what falls out of a settled answer, with no `Peer` in sight,
-//! lives in `pipeline_resolution.zig`. This file re-exports its surface so
-//! `engine.pipeline.<name>` still names the whole resolve seam.
+//! lives in `pipeline_resolution.zig`. The module re-exports its surface so
+//! `engine.pipeline.<name>` names the whole resolve seam.
 //!
 //! On ownership: anything that produces an owned message takes ownership of what
 //! you pass in (the queued call) and moves its heap into the result. It moves,

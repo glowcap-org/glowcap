@@ -25,6 +25,7 @@ import type { RoomConv } from "../types.ts";
 import { useChangeGroup, useCommitSettling } from "../commitment.tsx";
 import { Said } from "../Said.tsx";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
+import { Input } from "../Input.tsx";
 
 export function RoomRecovery({ conv, blocked }: { conv: RoomConv; blocked: boolean }) {
 	const session = useRoomsSession();
@@ -69,9 +70,8 @@ export function RoomRecovery({ conv, blocked }: { conv: RoomConv; blocked: boole
 				{conv.held && (
 					<Field id="convcardRecoveryLink" label={recoveryLinkLabel} said={said}>
 						{(wiring) => (
-							<input
+							<Input
 								id={wiring.id}
-								className="field"
 								value={link}
 								onChange={(event) => {
 									setLink(event.currentTarget.value);

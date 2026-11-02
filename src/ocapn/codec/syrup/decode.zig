@@ -1,14 +1,14 @@
-//! The Syrup decoder's message-dispatch index.
+//! The Syrup decoder: wire bytes to a borrowed codec-neutral `model.view.Body`
+//! (`decodeBody`) or an owned `model.Message` (`decodeOwned`).
 //!
-//! This is the decode half of the Syrup codec. It owns the borrowed
-//! codec-neutral projection (`decodeBody`) and the owned materializer
-//! (`decodeOwned`, which is `decodeBody` followed by `model.view.Body.toOwned`,
-//! one decode vocabulary, full fidelity). Borrowed Passable projection lives in
-//! `values`, locator/hint projection in `locator`, and untrusted-byte leaves in
-//! `syntax`. A frame reaches this module whole: the byte-stream envelope
-//! (ADR-0012) or the transport's own message boundary delimits it before it
-//! is decoded, so this module owns profile and message dispatch and never a
-//! stream boundary. It reads bytes and holds no session authority.
+//! It owns the borrowed projection (`decodeBody`) and the owned materializer (`decodeOwned`, which
+//! is `decodeBody` followed by `model.view.Body.toOwned`, one decode
+//! vocabulary, full fidelity). Borrowed Passable projection lives in `values`,
+//! locator/hint projection in `locator`, and untrusted-byte leaves in `syntax`.
+//! A frame reaches the decoder whole: the byte-stream envelope (ADR-0012) or
+//! the transport's own message boundary delimits it before it is decoded, so
+//! the decoder owns profile and message dispatch and never a stream boundary.
+//! It reads bytes and holds no session authority.
 
 const std = @import("std");
 

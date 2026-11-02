@@ -14,7 +14,7 @@
 //                             peer registered under its key designator at
 //                             `/register?id=<id>` (the ADR-0034 cold-dial leg).
 //
-// Run it directly; it prints `DENO-RELAY-READY <port>` on stdout once listening:
+// Run it directly; it prints `RELAY_READY_MARKER <port>` on stdout once listening:
 //     deno run --allow-net --allow-ffi --allow-env --allow-read \
 //         bindings/ts/relay/serve.ts <listen-port>
 //
@@ -25,6 +25,7 @@
 import {
 	denoIrohChannel,
 	denoTcpChannel,
+	RELAY_READY_MARKER,
 	type RelayConfig,
 	relayFailureLogger,
 	Rendezvous,
@@ -192,7 +193,7 @@ const serveOptions: Deno.ServeTcpOptions = {
 	hostname: "127.0.0.1",
 	port: listenPort,
 	signal: shutdown.signal,
-	onListen: ({ port }) => console.log(`DENO-RELAY-READY ${port}`),
+	onListen: ({ port }) => console.log(`${RELAY_READY_MARKER} ${port}`),
 };
 const handler = (req: Request): Response => {
 	const url = new URL(req.url);

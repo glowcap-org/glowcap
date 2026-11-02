@@ -1,9 +1,9 @@
 //! Archive-local immediate error detail for direct C calls.
 //!
-//! Every archive that imports this leaf compiles its own thread-local slot.
-//! Structured failure reports remain authoritative for retained failures. This
-//! slot explains the current synchronous call and is copied before an
-//! off-thread FFI call returns.
+//! Each importing archive compiles its own thread-local slot. Structured
+//! failure reports remain authoritative for retained failures. This slot
+//! explains the current synchronous call and is copied before an off-thread FFI
+//! call returns.
 
 const std = @import("std");
 const foundation = @import("foundation");

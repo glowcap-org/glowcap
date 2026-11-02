@@ -5,7 +5,7 @@
 // same conversation.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { railQuestions } from "./filter_form.ts";
 
 export async function run(tab: Page): Promise<void> {

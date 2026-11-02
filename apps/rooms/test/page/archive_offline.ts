@@ -11,7 +11,7 @@
 // passes through before its first connection lands.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { namedDirectRow } from "../support/conversation_row.ts";
 
 const ARCHIVED_FILE = "workspace-archive.txt";

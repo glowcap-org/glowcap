@@ -16,10 +16,11 @@
 // Run by `zig build check`, and alone as `zig build rooms-dm-reredeem`.
 //   deno run --allow-run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/test/dm_reredeem_test.ts
 
-import process from "node:process";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@glowcap/runtime";
 import { recordingReplyDm } from "../../lib/dm_reply.ts";
 import { inboxPublisher } from "../../lib/dm_inbox.ts";
+import { reapOwned } from "../support/children.ts";
+import { fail } from "../support/fail.ts";
 import { startServer } from "../support/installed_server.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
@@ -29,11 +30,6 @@ import { DM } from "../../lib/protocol.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 
 const ROOM = "lobby";
-
-function fail(message: string): never {
-	console.error(`rooms-dm-reredeem test FAILED: ${message}`);
-	process.exit(1);
-}
 
 async function main(): Promise<void> {
 	// Bob's Host publication echoes each DM into an inbox and answers the sender over the
@@ -146,7 +142,11 @@ async function main(): Promise<void> {
 	await carolRuntime.close();
 	await bobRuntime.close();
 	await room.close();
-	process.exit(0);
 }
 
-main().catch((err) => fail(err instanceof Error ? (err.stack ?? err.message) : String(err)));
+try {
+	await main();
+} finally {
+	await reapOwned();
+}
+Deno.exit(0);

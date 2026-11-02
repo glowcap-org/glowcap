@@ -363,7 +363,7 @@ fn reportFinding(target: Target, input: []const u8) void {
         \\
         \\  1. Copy it, naming it for what broke:
         \\
-        \\       cp {s} {s}/fuzz_regressions/<name>.bin
+        \\       mkdir -p {s}/fuzz_regressions && cp {s} $_/<name>.bin
         \\
         \\  2. Add one line to the regression seed list in that target's file.
         \\
@@ -374,5 +374,5 @@ fn reportFinding(target: Target, input: []const u8) void {
         \\Fuzzing is not repeatable; the saved input is. That replay is what
         \\proves the fix, and what stops the bug coming back.
         \\
-    , .{ target.name, target.file, input, input, dir });
+    , .{ target.name, target.file, input, dir, input });
 }

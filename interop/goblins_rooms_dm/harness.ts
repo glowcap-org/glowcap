@@ -58,7 +58,7 @@ import {
 	scrapeTraceSturdyref,
 	tracePublishUrlOf,
 } from "../../apps/rooms/test/trace/viewer.ts";
-import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
+import { freePort } from "../../apps/rooms/test/support/ports.ts";
 import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
 import { until as untilWithin } from "../../apps/rooms/test/support/wait.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
@@ -67,6 +67,7 @@ const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-dm-iroh" : "goblins-rooms-dm";
 const ROOT = new URL("../../", import.meta.url).pathname;
 import { WEB } from "../../apps/rooms/test/support/paths.ts";
+import { fail } from "../../apps/rooms/test/support/fail.ts";
 const VAT = new URL("../../conformance/goblins-peer/racket/rooms-dm-member.rkt", import.meta.url)
 	.pathname;
 const RACKET_DIR = new URL("../../conformance/goblins-peer/racket/", import.meta.url).pathname;
@@ -96,10 +97,6 @@ const until = (ready: () => boolean, what: string, ms = WAIT_MS) => untilWithin(
 /** How long an iroh endpoint may take to learn a direct address of its own.
  * Shorter than `WAIT_MS`, because nothing here is starting up cold. */
 const IROH_DIRECT_ADDRESSES_MS = 20_000;
-
-function fail(message: string): never {
-	throw new Error(message);
-}
 
 async function waitForLocator(port: number): Promise<string> {
 	const deadline = Date.now() + WAIT_MS;

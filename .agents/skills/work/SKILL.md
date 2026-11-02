@@ -45,7 +45,7 @@ the design is sound.
 | Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
 | Dependency or toolchain updates                       | [`docs/dependencies.md`](../../../docs/dependencies.md) + [cli](../../rules/cli.md#devcontainer) + [prerelease](../../rules/prerelease.md) |
 | Live CapTP from the shell (argv, REPL, listen, `--json`) | [glowcap-cli skill](../glowcap-cli/SKILL.md)                                                               |
-| Live CapTP via Cursor/Claude MCP tools                | [glowcap-mcp skill](../glowcap-mcp/SKILL.md) (dogfood CapTP while editing glowcap)                         |
+| Live CapTP via Cursor/Claude MCP tools                | [glowcap-mcp skill](../glowcap-mcp/SKILL.md) (live CapTP while editing glowcap)                         |
 | Room presence wake loop                               | [rooms-peer skill](../rooms-peer/SKILL.md)                                                                   |
 | A settled boundary or vocabulary choice               | matching ADR under `docs/decisions/adr/`                                                                   |
 | OCapN current direction (settled or pending)          | updated `conformance/ocapn-spec/upstream/`: draft, recent minutes, and the owning live proposal            |
@@ -94,8 +94,9 @@ earlier in this session, as if someone else wrote it. Answer: <!-- status-allow:
   (`zig_duplicate_bodies`), and a pair below its bar is yours to judge. Which
   `pub` function lost its last caller? Zig compiles an unused function
   without complaint. `source-check` holds a private function to a caller in
-  its file (`checkZigDeadPrivateFns`), so count callers across `src`,
-  `test`, `tools`, and `bench` for the `pub` ones in a touched file.
+  its file (`checkZigDeadPrivateFns`), so count callers for the `pub` ones
+  with a tree-wide `git grep -w`, because `cli/`, `bench/`, `examples/`,
+  `apps/`, and the bindings compile against the same exports as `test/`.
 - **Optimum:** How far is the result from the obvious design the
   [release bar](../../rules/project-values.md#release-bar) describes?
 
@@ -125,13 +126,13 @@ Commit or integrate only when the user has authorized it. The
 [Git posture](../../rules/cli.md#git-posture) owns the worktree procedure and
 `glowcap-integrate`. A direction to continue work authorizes neither.
 
-## 4. Ratchet and hand off
+## 4. Hand off
 
 Update `docs/shipped.md` and `docs/boundaries.md` when product behavior or
 boundaries change. Fix drift on touched surfaces. An unresolved limitation
 needs a living owner, not an unowned deferral marker.
 
-Run the [ratchet review](../ratchet/SKILL.md): encode reusable lessons at their
-strongest owner and prune instructions they replace. Existing guidance that
-covers the lesson needs no new rule. Report the outcome, relevant verification
-and its limits, and what the ratchet changed or why nothing qualified.
+Land what the session learned at its strongest owner
+([agent-scaffolding](../../rules/agent-scaffolding.md#landing-a-lesson)).
+Report the outcome, relevant verification and its limits, and what the lesson
+changed or why nothing qualified.

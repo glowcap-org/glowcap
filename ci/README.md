@@ -28,6 +28,53 @@ beside it and the YAML reads as a list.
   ruleset requires. A pull request into `dev` runs the groups its changed
   paths reach and reports `dev-gates`.
 
+## How a run is built
+
+For a pull request into `dev`, [`plan.py`](plan.py) adds the groups its
+changed paths reach:
+
+| Changed files | Additional Linux groups |
+| --- | --- |
+| Documentation | None |
+| Loam | Browser |
+| Python or Racket bindings | Bindings and interoperability |
+| Conformance fixtures | Interoperability |
+| Shared protocol, runtime, C ABI, Rust, TypeScript, or applications | All |
+| Build, CI, fuzz tests, or unclassified files | All, with full validation |
+
+Missing comparison history selects full validation, and a rename counts both
+its paths. Pushes to `dev`, pull requests into `main`, nightly runs, and manual
+`suite=check` runs always run full validation, which includes bounded mutation
+fuzzing. The main ruleset reads `gates` from the run the push to `dev`
+started, and that run's success moves `main` to the commit
+([Maintaining glowcap](../docs/maintaining.md#promoting-to-main)).
+
+A group's build jobs each compile one shard of what its phases run and hand
+the compiled state to one test job per phase, which run side by side. Source
+and infrastructure checks compile only their checkers, so they report within
+minutes. A failed job does not cancel its siblings, a failed build still hands
+its tests what it compiled, and a failed test does not stop its phase, so one
+run reports every failing test. A build that runs out of time ends its phase,
+because every later gate needs it. The aggregate check requires every selected
+group and macOS to pass, and its summary links each failing job.
+
+A deadline holds on the slowest machine that runs it: a hosted runner compiles
+cold, an order of magnitude slower than a warm workstation. Tests that use
+more than half their deadline warn, locally too.
+
+Every Linux job runs in the same immutable toolchain image, which the
+[image workflow](../.github/workflows/devcontainer-image.yml) resolves or
+builds once per run. Only trusted `dev` and `main` runs publish an image, and a
+pull request with new image inputs hands its build to its jobs as a run-scoped
+artifact. Dependency downloads are cached between runs. A pull request restores
+Zig and Cargo compile state saved by the last run of its review. Pushes,
+nightly runs, and manual checks build cold and save state for later reviews,
+so the push that validates `main` reuses nothing compiled. State past a size
+limit is dropped, and a job frees the hosted runner's unused SDKs only when it
+has less free disk than it needs. Coding-agent installation has a
+[separate workflow](../.github/workflows/agent-tools.yml) for devcontainer
+changes, so product checks never wait for agent downloads.
+
 ## Files
 
 | File | Owns | Runs |

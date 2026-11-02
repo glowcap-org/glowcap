@@ -18,7 +18,7 @@ A library cannot assume its user controls kernel version, io_uring policy or the
 
 ## Decision
 
-Linux prefers io_uring and falls back to epoll when the required facilities are unavailable. Both implement the same completion and shared-buffer ownership contract. The selected backend and fallback reason are typed runtime status.
+io_uring and epoll implement the same completion and shared-buffer ownership contract. The selected backend and fallback reason are typed runtime status.
 
 The embedding decides whether and how to report that status. Initialization emits no library warning on its behalf.
 

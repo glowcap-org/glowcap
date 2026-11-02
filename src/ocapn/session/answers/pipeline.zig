@@ -232,28 +232,8 @@ pub fn prepareListenerBatchTarget(
     return .{ .payload = payload };
 }
 
-pub fn installProjection(
-    self: *Session,
-    answer_position: model.AnswerPosition,
-    projection: Projection,
-) !void {
-    return installProjectionNamed(self, .fromWire(answer_position), projection);
-}
-
 /// Retain one owned projection on a pending answer. Every refusal consumes its
 /// owned field/tag bytes, and the bound is checked before lazy allocation.
-pub fn installProjectionNamed(
-    self: *Session,
-    answer_position: model.AnswerName,
-    projection: Projection,
-) !void {
-    const target = self.answerTargetNamed(answer_position) orelse {
-        store.deinitProjection(self.allocator, projection);
-        return error.InvalidReference;
-    };
-    return installProjectionTarget(self, target, projection);
-}
-
 pub fn installProjectionTarget(
     self: *Session,
     target: session.AnswerTarget,

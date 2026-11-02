@@ -1,101 +1,9 @@
-//! Ban rows: sturdyref and host-action authority vocabulary.
+//! Ban rows: the one writer of the Host's callback latch, id counter, and
+//! vow rows, and the policy the C ABI projects without re-deciding.
 
 const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 const Where = bans.Where;
-
-pub const sturdyref_authority: []const Ban = blk: {
-    const dirs = [_][]const u8{ "src", "include", "bindings", "test", "tools", "interop", "examples", "apps", "cli" };
-    var rows: [dirs.len]Ban = undefined;
-    for (rows[0..], dirs) |*row, dir| {
-        row.* = .{
-            .where = .{ .tree = .{
-                .dir = dir,
-                .suffixes = &.{ ".zig", ".h", ".rs", ".py", ".rkt", ".ts" },
-                .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".zig-cache/", "zig-out/" },
-                .exclude = &.{"tools/check/source_check/bans/authority.zig"},
-            } },
-            .kind = .forbid,
-            .needles = &.{ "glowcap_locator_swissnum", "is_sturdyref" },
-            .check = "sturdyref-authority",
-            .why = "peer locators and authority-bearing sturdyrefs are distinct values and handles; do not restore a discriminator-shaped union",
-        };
-    }
-    const frozen = rows;
-    break :blk &frozen;
-};
-
-/// Host actions carry CapTP sessions, not transport connections. Keep the
-/// generated mirrors and their hand-written consumers on that one contract
-/// without banning legitimate connection vocabulary in transport adapters.
-pub const host_action_session_vocabulary: []const Ban = &.{
-    .{
-        .where = .{ .files = &.{
-            "bindings/python/glowcap/_action.py",
-            "bindings/python/glowcap/_ffi_host.py",
-            "bindings/racket/private/host-action-gen.rkt",
-            "bindings/racket/private/loop/core.rkt",
-            "bindings/rust/src/session.rs",
-            "bindings/rust/src/session_shared.rs",
-            "tools/gen/binding/host_action.zig",
-        } },
-        .kind = .forbid,
-        .needles = &.{
-            "a.conn_ptr",
-            "aliases={\"session\": \"conn\"}",
-            "GlowcapHostAction-conn",
-            "session-vow-conn",
-            "fn raw_conn(&self) -> *mut ffi::GlowcapHostSession",
-            "self.shared.raw_conn()",
-        },
-        .check = "host-action-session-vocabulary",
-        .why = "Host actions and GlowcapHostSession mirrors use session vocabulary directly; prerelease keeps no connection-named aliases",
-    },
-};
-
-/// Sturdyref swissnum path spelling is a CapTP profile fact. A generic C or
-/// binding helper must receive that profile explicitly instead of falling back
-/// to the model's 1.0 convenience verbs.
-pub const sturdyref_profile_authority: []const Ban = &.{
-    .{
-        .where = .{ .file = "src/c_abi/ocapn/uri.zig" },
-        .kind = .forbid,
-        .needles = &.{
-            "model.uri.parseSturdyref(allocator",
-            "model.uri.writeSturdyref(alloc",
-        },
-        .check = "sturdyref-profile-authority",
-        .why = "the C URI surface must select swissnum spelling through the caller's CapTP profile",
-    },
-    .{
-        .where = .{ .file = "bindings/ts/runtime/locator.ts" },
-        .kind = .require,
-        .needles = &.{"parseSturdyRef(uri: string, captpVersion: CaptpVersion)"},
-        .check = "sturdyref-profile-authority",
-        .why = "TypeScript sturdyref parsing requires the profile that owns its swissnum spelling",
-    },
-    .{
-        .where = .{ .file = "bindings/rust/src/uri.rs" },
-        .kind = .require,
-        .needles = &.{"pub fn parse_sturdyref(uri: &str, captp_version: CaptpVersion)"},
-        .check = "sturdyref-profile-authority",
-        .why = "Rust sturdyref parsing requires the profile that owns its swissnum spelling",
-    },
-    .{
-        .where = .{ .file = "bindings/python/glowcap/_locator.py" },
-        .kind = .require,
-        .needles = &.{"def parse_sturdyref(uri: str, captp_version: str)"},
-        .check = "sturdyref-profile-authority",
-        .why = "Python sturdyref parsing requires the profile that owns its swissnum spelling",
-    },
-    .{
-        .where = .{ .file = "bindings/racket/private/locator.rkt" },
-        .kind = .require,
-        .needles = &.{"(define (parse-sturdyref uri #:captp-version captp-version)"},
-        .check = "sturdyref-profile-authority",
-        .why = "Racket sturdyref parsing requires the profile that owns its swissnum spelling",
-    },
-};
 
 /// `CallbackLatch` is the one writer of the Host's reentrancy latch. A site
 /// that sets or clears the flag by hand can unlatch an outer holder.
@@ -137,5 +45,92 @@ pub const vow_row_retirement: []const Ban = &.{
         .needles = &.{ ".vows.remove(", ".vows.fetchRemove(" },
         .check = "vow-row-retirement",
         .why = "retire a Host vow row through settlement.retireRow so only a settled row leaves the table",
+    },
+};
+
+/// The C ABI projects what `driver_core` decides and re-decides none of it.
+/// `arch-check` sees only imports, so a C surface reaching into the runtime's
+/// sessions, options, latch, or admission verbs looks like an ordinary call to
+/// the compiler. These names are the policy the C layer must stay out of.
+pub const c_abi_policy_projection: []const Ban = &.{
+    .{
+        .where = .{ .tree = .{ .dir = "src/c_abi/driver/loop", .suffixes = &.{".zig"} } },
+        .kind = .forbid,
+        .needles = &driver_loop_policy,
+        .check = "c-abi-policy-projection",
+        .why = "the C driver loop invokes HostRuntime and projects its result instead of re-deciding admission, failure, or ownership",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/driver/loop.zig" },
+        .kind = .forbid,
+        .needles = &driver_loop_policy,
+        .check = "c-abi-policy-projection",
+        .why = "the C driver loop invokes HostRuntime and projects its result instead of re-deciding admission, failure, or ownership",
+    },
+    .{
+        .where = .{ .files = &.{
+            "src/c_abi/host/common.zig",
+            "src/c_abi/host/host.zig",
+            "src/c_abi/host/session.zig",
+            "src/c_abi/host/turn.zig",
+        } },
+        .kind = .forbid,
+        .needles = &.{
+            "registerBootstrapCap(",
+            "exportNextObject(",
+            "restoreBootstrapMapping(",
+            "releaseUnsharedExport(",
+            ".vat.spawnHosted(",
+            ".served.bindExport(",
+            "liftLocalActor(",
+            ".core.sessions",
+            ".session_state.",
+            ".core.callback_latch",
+            ".core.opts",
+            "refuseLatched",
+            ".liftCapabilityTracked(",
+            ".rollbackCapabilityLift(",
+            ".discardCapabilityObservation(",
+            "fn issueCapabilityId(",
+            "capability_key_state",
+            "permuteCapabilityId(",
+        },
+        .check = "c-abi-policy-projection",
+        .why = "bootstrap, export, Vat insertion, and capability adoption stay behind one driver_core operation that the C Host surface calls",
+    },
+};
+
+const driver_loop_policy = [_][]const u8{
+    "admitRuntimeOperation",
+    "mutationCode(",
+    "if (terminalCode(inst))",
+    "err == error.MissingAdvertisedLocator",
+    "runtime.wires",
+    "inst.runtime.core",
+    "runtime.core.releaseDriverOwnership",
+    ".core.callback_latch",
+    ".core.opts",
+    "runtime.terminalFailure()",
+    "runtime.terminalCleanupPending()",
+};
+
+/// A peer locator and an authority-bearing sturdyref are distinct values at
+/// the C boundary. The shared locator view carries no swissnum, and the C URI
+/// surface spells a sturdyref through the caller's CapTP profile rather than
+/// the model's 1.0 convenience verbs.
+pub const locator_sturdyref_split: []const Ban = &.{
+    .{
+        .where = .{ .file = "src/c_abi/shared/locator.zig" },
+        .kind = .forbid,
+        .needles = &.{ "swiss", "Swiss" },
+        .check = "locator-sturdyref-split",
+        .why = "GlowcapLocatorView names a peer and never carries sturdyref authority",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/ocapn/uri.zig" },
+        .kind = .forbid,
+        .needles = &.{ "parseSturdyref(allocator", "writeSturdyref(alloc" },
+        .check = "locator-sturdyref-split",
+        .why = "the C URI surface selects swissnum form through the caller's CapTP profile",
     },
 };

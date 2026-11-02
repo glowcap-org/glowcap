@@ -34,7 +34,7 @@ from glowcap import Runtime, tcp, VowBroken
 
 async def main():
     peer_key = "<64 lowercase hex characters from the server>"
-    async with Runtime.open(provider=tcp.provider()) as runtime:
+    async with Runtime.open(providers=[tcp.provider()]) as runtime:
         async with await runtime.connect(tcp.noise.locator(peer_key, "127.0.0.1", 9099)) as session:
             greeter = await session.fetch("greeter")
             try:
@@ -78,8 +78,16 @@ package to choose a transport. The driver starts with no transports and
 installs the one you pass. A routed `keyed-relay` or `noise-relay` locator
 likewise loads the relay library and installs its provider.
 
+`Runtime.open(providers=[...])` or `Runtime.open(connectors=[...])` names the
+transports. Host options such as `seed`, `profile`, `codec`, `captp_version`,
+`features`, `context`, `frame_cap`, and `local_turn_budget` configure the Host it mints.
 `Runtime.open(adopt_host=host, ...)` transfers an existing Host into the
-Runtime. `await runtime.close()` then shuts that Host down for good.
+Runtime and takes no Host options. `await runtime.close()` then shuts that Host
+down for good.
+
+`close(*, pending=PendingWork.CANCEL, grace_ms=...)` has the same shape on
+`Session`, `Runtime`, and `Host`. `PendingWork.FINISH` requires `grace_ms`, an
+integer number of milliseconds, or `None` to wait without a bound.
 
 `tcp.listen`, `tcp.keyed.listen`, and `tcp.noise.listen` return the same
 `tcp.Server`. Its `locator` and `uri` are ready to hand to `Runtime.connect`.

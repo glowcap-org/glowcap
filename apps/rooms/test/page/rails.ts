@@ -6,7 +6,7 @@
 
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { proveRoomDepartures } from "./departure.ts";
 
 export async function run(tab: Page, browser: Browser, httpPort: number): Promise<Page> {

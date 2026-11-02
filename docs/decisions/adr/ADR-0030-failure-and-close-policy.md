@@ -18,7 +18,7 @@ A failed operation needs a caller that can act on it. Connection loss cannot be 
 
 ## Decision
 
-Adapters classify failures into actionable typed causes and bound waits on untrusted peers. The runtime owns retry policy over complete new dial attempts. Success creates a new session, not a continuation of old wire state.
+The runtime owns retry policy over complete new dial attempts. Success creates a new session, not a continuation of old wire state.
 
 An owning Host, Runtime or Session closes under an explicit pending-work policy. Cancel stops admitted work. Finish seals admission, drives existing work within a grace budget and escalates to cancel on expiry. Implicit cleanup cancels. Transport close remains interruption and release, not another protocol-finishing policy.
 

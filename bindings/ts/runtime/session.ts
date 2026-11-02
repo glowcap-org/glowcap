@@ -1,15 +1,8 @@
-// The application surface over the byte-fed host (libglowcap_host,
-// ADR-0022): `Session` and its verbs (`fetch`/`send`/`tell`/`spawn`/
-// `publish`/`enliven`/`serve`/`close`), plus mint/handshake
-// (`establishDialedLocator` / `establishAccepted`). The dial executor and
-// `connect` live in `dial.ts`; Server/`listen` live in `listen.ts`. The
-// `RemotePromise` handle, fetch/enliven mint→await, far-send `sendFar` /
-// `promiseFor`, live in `promise.ts`. Spawn/publish hosting, ADR-0016
-// proxies, and Host-reference send·tell dispatch live in `trampoline.ts`. The
-// byte-fed embedder pump (handshake,
-// read transport packets, feed, drain, flush) lives in `pump.ts`. The host owns
-// everything else: routing, redemption, gift origination, far vows. `mod.ts`
-// re-exports the public members.
+// The application surface over the byte-fed host (libglowcap_host):
+// `Session` and its methods (`fetch`, `send`, `tell`, `spawn`,
+// `publish`, `enliven`, `serve`, `close`), plus the mint and handshake
+// entry points (`establishDialedLocator`, `establishAccepted`). The host owns
+// routing, redemption, gift origination, and far vows.
 
 import { DESIGNATOR_SCHEME_ADDRESS, DESIGNATOR_SCHEME_KEY, HANDSHAKE_TIMEOUT_MS } from "@glowcap/abi";
 import { checkHost, GlowcapError } from "./errors.ts";
@@ -71,7 +64,9 @@ export interface AcceptedTransport {
 	readonly serverDesignator: string;
 	readonly channel: Channel;
 	readonly localAddress?: string;
-	readonly verifiedChannelKey?: string | null;
+	/** The partner key the transport itself authenticated, or `null` when the
+	 * transport carries no channel proof. Stated by every provider. */
+	readonly verifiedChannelKey: string | null;
 }
 
 /** Result of {@link Session.sendRedeeming}: the ordinary send reply plus the
@@ -144,13 +139,18 @@ export class Session extends SessionApplication {
 	 * designator, so no locator policy lives here. The handshake is bounded by
 	 * `handshakeTimeoutMs` (`HANDSHAKE_TIMEOUT_MS` on every dial the binding
 	 * performs; `0` or `null` waits unbounded), and overrunning it rejects
-	 * with `GlowcapError` carrying `TIMEOUT`. Binding-internal. */
+	 * with `GlowcapError` carrying `TIMEOUT`. `verifiedChannelKey` is the
+	 * partner key the transport itself authenticated (a WebRTC designator the
+	 * DTLS handshake bound, an iroh node id), bound before the first partner
+	 * byte, or `null` for a transport with no channel proof. Every caller
+	 * states it, so a transport with a proof cannot drop it in silence.
+	 * Binding-internal. */
 	static async establishDialedLocator(
 		host: Host,
 		locator: Locator,
 		transport: Channel,
-		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
-		verifiedChannelKey: string | null = null,
+		handshakeTimeoutMs: number | null,
+		verifiedChannelKey: string | null,
 	): Promise<Session> {
 		let session: Session | null = null;
 		try {
@@ -185,7 +185,7 @@ export class Session extends SessionApplication {
 	static async establishAccepted(
 		host: Host,
 		accepted: AcceptedTransport,
-		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
+		handshakeTimeoutMs: number | null,
 	): Promise<Session> {
 		const {
 			transport: transportName,
@@ -193,7 +193,7 @@ export class Session extends SessionApplication {
 			serverDesignator,
 			channel: transport,
 			localAddress: acceptedLocalAddr = "",
-			verifiedChannelKey = null,
+			verifiedChannelKey,
 		} = accepted;
 		let session: Session | null = null;
 		try {

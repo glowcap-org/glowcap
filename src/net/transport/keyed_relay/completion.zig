@@ -1,8 +1,8 @@
 //! Completion-backed keyed-relay dials.
 //!
-//! This adapter owns synthetic handles, wrapped platform operations, bounded
+//! The adapter owns synthetic handles, wrapped platform operations, bounded
 //! parser spill, and WebSocket send storage. Blocking std.Io ownership lives in
-//! resident.zig. This file never constructs a reader or blocks a thread.
+//! resident.zig. The adapter never constructs a reader or blocks a thread.
 
 const std = @import("std");
 

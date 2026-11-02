@@ -1,6 +1,6 @@
 import { acceptRemoteCandidate } from "../../webrtc/exchange.ts";
 import { SignalingSendOwner } from "../signaling.ts";
-import { assert, assertEquals } from "../../dogfood/assert.ts";
+import { assert, assertEquals } from "../../test/assert.ts";
 
 Deno.test("candidate ownership converts synchronous send throws into dial failure", async () => {
 	const failure = new Error("candidate send failed");

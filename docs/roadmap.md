@@ -7,10 +7,7 @@ sources: []
 # Remaining work
 
 Unfinished work, each item linked to its plan, or to the
-[plan to plan](planning/plan-to-plan.md) until it has one. [What ships](shipped.md) covers the
-present, [known limitations](boundaries.md) covers their consequences, and
-[the ladder](ladder.md) tracks progress toward 1.0. [Upstream
-watch](upstream-watch.md) tracks open OCapN and Goblins questions.
+[plan to plan](planning/plan-to-plan.md) until it has one.
 
 Work that can start sits first, in the order it starts. Work that waits on
 something outside the code follows, grouped by what it waits on. An item moves
@@ -39,7 +36,7 @@ verified. Plans own implementation steps and acceptance.
 
 ## What starts next
 
-The order follows [the ladder](ladder.md): protocol behavior, then
+The order follows the [milestones](milestones.md): protocol behavior, then
 performance, then hosted applications, then the C surface and its bindings.
 Items run side by side when their plans' lanes allow, so a later item waits
 for an earlier one to start, not to finish. A plan marked as waiting for

@@ -4,6 +4,7 @@
 import {
 	type Channel,
 	designatorHostPort,
+	HANDSHAKE_TIMEOUT_MS,
 	Host,
 	openWebSocketChannel,
 	parseSturdyRef,
@@ -104,6 +105,9 @@ export async function connectTraceViewer(
 				host,
 				locator,
 				channel,
+				HANDSHAKE_TIMEOUT_MS,
+				// A WebSocket proves nothing about the viewer's partner key.
+				null,
 			),
 			"the live trace handshake",
 			SUBSCRIBE_MS,

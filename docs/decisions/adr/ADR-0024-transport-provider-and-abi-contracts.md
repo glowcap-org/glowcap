@@ -18,7 +18,7 @@ Separately loaded archives can outlive an application handle, retain callbacks o
 
 ## Decision
 
-The generic C driver begins with no transports and accepts explicitly registered provider packages. Provider leases own callback context lifetime until all admitted work has physically retired. Locators contain no provider retain.
+Provider leases own callback context lifetime until all admitted work has physically retired. Locators contain no provider retain.
 
 Each archive exposes a fingerprint derived from reflected function types, public constants and canonical public-struct manifests. Binding layout expectations are generated from those same manifests. Loaders compare family identity before ordinary calls.
 

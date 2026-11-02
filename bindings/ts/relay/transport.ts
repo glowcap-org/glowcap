@@ -175,6 +175,8 @@ export function connector(): Connector {
 					locator,
 					channel,
 					request.handshakeTimeoutMs,
+					// A relayed WebSocket proves nothing about the partner's key.
+					null,
 				),
 				request.signal,
 				(error) => host.recordCallerlessBindingFailure("relay.session.cancel.cleanup", error),

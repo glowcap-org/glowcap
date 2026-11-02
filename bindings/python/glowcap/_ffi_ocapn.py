@@ -7,14 +7,13 @@ defines. A consumer never imports this module. Keeping the ctypes layer in one
 internal module per archive is what lets the public package read as just the
 connection/value API it offers.
 
-This module loads one archive, ``libglowcap_ocapn`` (ADR-0022): the
-shared ``glowcap_*`` vocabulary: context, the locator grammar, the ABI
-version, ``glowcap_last_error``, and the managed-frame release. The driver and
-transport archives are symbol-disjoint companions, each loaded by its own
-internal module (:mod:`glowcap._ffi_host`, :mod:`glowcap._ffi_tcp`,
-:mod:`glowcap._ffi_inproc`, :mod:`glowcap._ffi_iroh`). They reuse the
-``Structure`` types defined here by *layout*, the same way the C headers
-share ``glowcap_ocapn.h``, so importing one transport never loads another.
+This module loads one archive, ``libglowcap_ocapn``: the shared
+``glowcap_*`` vocabulary: context, the locator grammar, the ABI version,
+``glowcap_last_error``, and the managed-frame release. The host, driver, and
+transport archives are loaded by their own internal modules
+(:mod:`glowcap._ffi_host`, :mod:`glowcap._ffi_tcp`, :mod:`glowcap._ffi_inproc`,
+:mod:`glowcap._ffi_iroh`). They reuse the ``Structure`` types defined here by
+*layout*, the same way the C headers share ``glowcap_ocapn.h``.
 """
 
 from __future__ import annotations

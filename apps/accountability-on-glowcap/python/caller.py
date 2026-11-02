@@ -37,7 +37,7 @@ async def run(port: int) -> None:
     print(f"  connecting to 127.0.0.1:{port}…")
 
     # `connect` completes the keyed op:start-session handshake before returning.
-    runtime = await Runtime.open(provider=tcp.provider())
+    runtime = await Runtime.open(providers=[tcp.provider()])
     session = await runtime.connect(tcp.locator("127.0.0.1", port))
     # `fetch`/`send` drive the inbound loop themselves, no separate serve() call.
     affordance = await session.fetch("affordance")

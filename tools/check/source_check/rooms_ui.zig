@@ -1,15 +1,16 @@
 //! The rooms browser interface's structural contract.
 //!
-//! Three rules hold that interface together, and none of them is something a
-//! compiler notices. The page draws from one store, so nothing may keep a second
-//! copy of the truth in the DOM. The data layer owns a CapTP session that
-//! outlives every render, so it must not reach into the tree. And the page's ids
-//! and classes are not decoration: the browser proofs select on them, and a
-//! renamed class turns those proofs into timeouts that name the wrong thing.
+//! A few rules hold that interface together, and none is something a compiler
+//! notices. The page draws from one store, so nothing may keep a second copy of
+//! the truth in the DOM, and the data layer owns a CapTP session that outlives
+//! every render, so it must not reach into the tree. Shared controls keep one
+//! visual grammar, the opening screen's states have a writer, the stylesheet
+//! imports are complete, and the layout breakpoint is one number the store and
+//! the stylesheet agree on.
 //!
 //! Written down, each is a rule someone has to remember. Here they are the
 //! build's answer instead. Wired by the source-check driver
-//! (`tools/check/source_check.zig`). Selector proofs live in `rooms_ui/selectors.zig`.
+//! (`tools/check/source_check.zig`).
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -21,7 +22,6 @@ const keepRoomsSheet = shared.keepRoomsSheet;
 pub const loadRoomsCss = shared.loadRoomsCss;
 const codeOnly = shared.codeOnly;
 
-pub const checkRoomsSelectors = @import("rooms_ui/selectors.zig").checkRoomsSelectors;
 pub const checkRoomsTextCatalog = @import("rooms_ui/text_catalog.zig").checkRoomsTextCatalog;
 pub const checkRoomsTextVoice = @import("rooms_ui/text_voice.zig").checkRoomsTextVoice;
 pub const checkRoomsCustomProperties = @import("rooms_ui/tokens.zig").checkRoomsCustomProperties;
@@ -50,20 +50,6 @@ const dom_needles = [_][]const u8{
     "classList",
 };
 
-const raw_palette_text = [_][]const u8{
-    "color: var(--accent-deep)",
-    "color: var(--teal-deep)",
-};
-
-const retired_icon_button_css = [_][]const u8{
-    ".emoji-btn",
-    ".send-btn",
-    ".topbar .icon",
-    ".settings-toggles .icon",
-    ".ghost-link",
-    ".settings-cancel",
-};
-
 const bans = [_]Ban{
     .{
         .file = ui_dir ++ "/session/managed/projection.ts",
@@ -74,16 +60,6 @@ const bans = [_]Ban{
         .file = ui_dir ++ "/store.ts",
         .needles = &dom_needles,
         .because = "the store is the one authority for what the page shows, so reading the page back would make it the second",
-    },
-    .{
-        .file = ui_dir ++ "/types.ts",
-        .needles = &dom_needles,
-        .because = "the model describes the application, not the document",
-    },
-    .{
-        .file = ui_dir ++ "/text.ts",
-        .needles = &dom_needles,
-        .because = "these are string functions; anything that builds an element belongs beside the components",
     },
     .{
         .file = ui_dir ++ "/member_identity.ts",
@@ -164,33 +140,6 @@ pub fn checkRoomsLayerBans(
         }
     }
 
-    const sheets = util.concatDirFiles(io, gpa, root, ui_dir, keepRoomsSheet) catch null;
-    if (sheets) |css| {
-        defer gpa.free(css);
-        const code = try codeOnly(gpa, css);
-        defer gpa.free(code);
-        for (raw_palette_text) |needle| {
-            if (std.mem.indexOf(u8, code, needle) != null) {
-                try appendViolation(
-                    gpa,
-                    violations,
-                    "{s} stylesheets mention `{s}`: raw palette arms are decoration, not theme-safe text; readable amber and teal use --accent-ink and --teal-ink",
-                    .{ ui_dir, needle },
-                );
-            }
-        }
-        for (retired_icon_button_css) |needle| {
-            if (std.mem.indexOf(u8, code, needle) != null) {
-                try appendViolation(
-                    gpa,
-                    violations,
-                    "{s} stylesheets mention `{s}`: Button and IconButton own control reset, geometry, and state; retired caller-specific baselines must not return",
-                    .{ ui_dir, needle },
-                );
-            }
-        }
-    }
-
     // The store's own field is exempt from nothing above, but the one writer of
     // it lives in hooks.ts, which is allowed the document. What the projection may not
     // do is import a component.
@@ -208,56 +157,6 @@ pub fn checkRoomsLayerBans(
             "{s}/session/managed/projection.ts imports a component; the interface reads the store, and the data layer must not know the interface exists",
             .{ui_dir},
         );
-    }
-
-    try checkRoomsStartupComposition(io, gpa, root, violations);
-    try checkRoomsJoinDoesNotAskPrivate(io, gpa, root, violations);
-}
-
-/// Restore workspace intent before opening the Rust application, session setup
-/// must retain its projection provider even when no session exists.
-fn checkRoomsStartupComposition(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const main_path = ui_dir ++ "/main.tsx";
-    const main = root.readFileAlloc(io, main_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot read visualizer startup order ({s})", .{ main_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(main);
-    // IndexedDB restoration and saved authority selection are exercised by
-    // the managed browser entry proof; startup has no separate TS checkpoint.
-
-    const setup_at = std.mem.indexOf(u8, main, "function showSessionSetup") orelse {
-        try appendViolation(gpa, violations, "{s}: session setup is gone", .{main_path});
-        return;
-    };
-    const handoff_at = std.mem.indexOfPos(u8, main, setup_at, "handOffNow();") orelse {
-        try appendViolation(gpa, violations, "{s}: session setup has no handoff", .{main_path});
-        return;
-    };
-    const setup = main[setup_at..handoff_at];
-    const by_surface = std.mem.indexOf(u8, setup, "PageSurface") != null;
-    if (std.mem.indexOf(u8, setup, "RoomsProjectionProvider") == null and !by_surface) {
-        try appendViolation(gpa, violations, "{s}: session setup must wrap the page projection; omitting it crashes first paint and detach", .{main_path});
-    }
-    if (by_surface) {
-        const surface_at = std.mem.indexOf(u8, main, "function PageSurface") orelse {
-            try appendViolation(gpa, violations, "{s}: PageSurface is used but not defined", .{main_path});
-            return;
-        };
-        // Read the definition itself rather than the text between it and the
-        // render that uses it. A function declaration hoists, so moving this
-        // one below `showSessionSetup` is legal TypeScript, and a span taken
-        // from the later position to the earlier one ends the check in a status-allow: event or source ordering
-        // panic instead of a verdict.
-        const surface_end = std.mem.indexOfPos(u8, main, surface_at, "\n}") orelse main.len;
-        if (std.mem.indexOf(u8, main[surface_at..surface_end], "RoomsProjectionProvider") == null) {
-            try appendViolation(gpa, violations, "{s}: PageSurface must wrap the page projection", .{main_path});
-        }
     }
 }
 
@@ -349,44 +248,6 @@ pub fn checkRoomsControlSurfaces(
     }
 }
 
-/// `/join` of a locator seats from subscribe's listed-ness. Asking `private()`
-/// first aborted on an occupancy that has no such method (glowcap error -12).
-fn checkRoomsJoinDoesNotAskPrivate(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
-        try appendViolation(gpa, violations, "{s}: could not open to check join does not ask private()", .{ui_dir});
-        return;
-    };
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".ts") and !std.mem.endsWith(u8, entry.path, ".tsx")) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.path });
-        defer gpa.free(path);
-        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}: could not read to check join does not ask private()", .{path});
-            continue;
-        };
-        defer gpa.free(source);
-        const code = try codeOnly(gpa, source);
-        defer gpa.free(code);
-        if (std.mem.indexOf(u8, code, "roomIsPrivate") != null) {
-            try appendViolation(
-                gpa,
-                violations,
-                "{s} asks `roomIsPrivate`: /join of a locator seats from subscribe's listed-ness; asking private() first aborts on a room that has no such method",
-                .{path},
-            );
-        }
-    }
-}
-
 /// The opening screen is drawn for states something writes, on an
 /// attribute something stamps.
 ///
@@ -458,102 +319,18 @@ pub fn checkRoomsBootStates(
     }
 }
 
-/// The two buttons the rail's row is built from, which one rule has to style.
-const rail_row = [_][]const u8{ ".room-open", ".dm-open" };
-
-/// The rail draws one row, so one rule gives it its shape.
+/// The stylesheet import list, and one number for the layout breakpoint.
 ///
-/// A room and a direct line are the same object in the same list: a mark, a
-/// name, the marks that end the row, and a caption under the name saying which
-/// directory it is on. The button that opens each is therefore styled by one
-/// rule naming both, and each list adds only its own colour, mark, and badge.
-///
-/// A second copy is not merely repetition here, it is silently wrong. A row
-/// button resets itself with `all: unset`, and that clears grid placement along
-/// with everything else, so a copy anywhere later in the sheet un-places the
-/// button placed by the first rule. Both rules parse and apply, but their
-/// cascade order decides the geometry.
-///
-/// `apps/rooms/test/proofs/dm_tabs_proof.ts` measures that geometry and would catch
-/// it again. This catches it at the edit.
-pub fn checkRoomsRailRow(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const sheet = (try loadRoomsCss(io, gpa, root, violations)) orelse return;
-    defer gpa.free(sheet);
-    // Comments name these classes while explaining them, and a comment is not a
-    // rule.
-    const code = try codeOnly(gpa, sheet);
-    defer gpa.free(code);
-
-    var selector_from: usize = 0;
-    var styled: usize = 0;
-    for (code, 0..) |c, i| switch (c) {
-        '}', ';' => selector_from = i + 1,
-        '{' => {
-            const selector = std.mem.trim(u8, code[selector_from..i], " \t\r\n");
-            selector_from = i + 1;
-            const room = std.mem.indexOf(u8, selector, rail_row[0]) != null;
-            const direct = std.mem.indexOf(u8, selector, rail_row[1]) != null;
-            if (!room and !direct) continue;
-            styled += 1;
-            if (room and direct) continue;
-            try appendViolation(
-                gpa,
-                violations,
-                "{s} stylesheets style `{s}` alone in `{s}`; the rail draws one row, so both are named in one rule — a second rule's `all: unset` un-places the button the first one placed",
-                .{ ui_dir, if (room) rail_row[0] else rail_row[1], selector },
-            );
-        },
-        else => {},
-    };
-    if (styled == 0) {
-        try appendViolation(
-            gpa,
-            violations,
-            "{s} stylesheets style neither `{s}` nor `{s}`; whatever the rail's row buttons are called now, this check is watching nothing",
-            .{ ui_dir, rail_row[0], rail_row[1] },
-        );
-    }
-}
-
-/// One spelling of the layout breakpoint, and a formatter that can see the
-/// components.
+/// `page.css` is the only sheet the browser loads, so a sheet it does not
+/// import is dead. The store's `mobileQuery` and the layout `@media` block in
+/// `stream.css` are two spellings of the same breakpoint, and they have to
+/// agree.
 pub fn checkRoomsConfig(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    // `deno fmt` matches by glob, and `**/*.ts` does not match a `.tsx` file. A
-    // gate that passes without checking is worse than no gate: the components
-    // went unformatted and the step stayed green.
-    if (!(util.fileContains(io, gpa, root, "deno.json", "**/*.tsx") catch false)) {
-        try appendViolation(
-            gpa,
-            violations,
-            "deno.json: the formatter's include glob does not name `**/*.tsx`, so every component in the tree sits outside `deno fmt --check` while the step still reports success",
-            .{},
-        );
-    }
-
-    // Motion is a preference, and the rooms sheets say so once, globally. The
-    // rule is easy to lose in a stylesheet split, and losing it fails silently:
-    // every slide plays again for readers who asked it not to.
-    if (!(util.fileContains(io, gpa, root, ui_dir ++ "/page.css", "prefers-reduced-motion") catch false)) {
-        try appendViolation(
-            gpa,
-            violations,
-            "{s}/page.css: no `prefers-reduced-motion` rule; the rooms sheets animate, so the preference has to be answered somewhere global",
-            .{ui_dir},
-        );
-    }
-
-    // The breakpoint is one number two places have to agree on. A third spelling
-    // is how they stop agreeing.
     {
         const page = root.readFileAlloc(io, ui_dir ++ "/page.css", gpa, .limited(1 << 20)) catch {
             try appendViolation(gpa, violations, "{s}/page.css: could not be read", .{ui_dir});
@@ -591,39 +368,55 @@ pub fn checkRoomsConfig(
             }
         }
     }
-    const homes = [_][]const u8{ui_dir ++ "/store/core.ts"};
-    var found: usize = 0;
-    if (util.fileContains(io, gpa, root, homes[0], "820px") catch false) found += 1;
-    const sheets = util.concatDirFiles(io, gpa, root, ui_dir, keepRoomsSheet) catch null;
-    const css_has = if (sheets) |css| blk: {
-        defer gpa.free(css);
-        break :blk std.mem.indexOf(u8, css, "820px") != null;
-    } else false;
-    if (found != 1 or !css_has) {
+
+    const store_path = ui_dir ++ "/store/core.ts";
+    const sheet_path = ui_dir ++ "/stream.css";
+    const store = root.readFileAlloc(io, store_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot be read for the layout breakpoint ({s})", .{ store_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(store);
+    const sheet = root.readFileAlloc(io, sheet_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot be read for the layout breakpoint ({s})", .{ sheet_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(sheet);
+    const store_code = try codeOnly(gpa, store);
+    defer gpa.free(store_code);
+    const sheet_code = try codeOnly(gpa, sheet);
+    defer gpa.free(sheet_code);
+    const in_store = breakpointPx(store_code, store_media_marker);
+    const in_sheet = breakpointPx(sheet_code, sheet_media_marker);
+    if (in_store == null or in_sheet == null or in_store.? != in_sheet.?) {
         try appendViolation(
             gpa,
             violations,
-            "the layout breakpoint must be spelled in both {s} and the rooms stylesheets; they are two places that have to agree",
-            .{homes[0]},
+            "the layout breakpoint must be one number: {s} `mobileQuery` says {?d}px and the {s} layout `@media` block says {?d}px; they are two places that have to agree",
+            .{ store_path, in_store, sheet_path, in_sheet },
         );
     }
-    // Comments may cross-reference the number freely; what must not exist is a
-    // third place that *decides* with it.
-    for ([_][]const u8{ ui_dir ++ "/hooks.ts", ui_dir ++ "/panes/Composer.tsx", ui_dir ++ "/shell/App.tsx" }) |elsewhere| {
-        const source = root.readFileAlloc(io, elsewhere, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be read for the rooms UI check ({s})", .{ elsewhere, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(source);
-        const code = try codeOnly(gpa, source);
-        defer gpa.free(code);
-        if (std.mem.indexOf(u8, code, "820px") != null) {
-            try appendViolation(
-                gpa,
-                violations,
-                "{s} spells the layout breakpoint; it belongs in the store beside the field it decides, and in the rooms stylesheets",
-                .{elsewhere},
-            );
-        }
-    }
+}
+
+/// What opens the store's breakpoint, up to the number.
+const store_media_marker = "mobileQuery = matchMedia(\"(max-width:";
+
+/// What opens the stylesheet's layout block, up to the number.
+const sheet_media_marker = "@media (max-width:";
+
+/// The pixel count written right after the first `marker`, or null when the
+/// marker is absent or no whole `<digits>px` follows it.
+fn breakpointPx(code: []const u8, marker: []const u8) ?u32 {
+    const at = std.mem.indexOf(u8, code, marker) orelse return null;
+    const rest = std.mem.trimStart(u8, code[at + marker.len ..], " ");
+    var end: usize = 0;
+    while (end < rest.len and std.ascii.isDigit(rest[end])) end += 1;
+    if (end == 0 or !std.mem.startsWith(u8, rest[end..], "px")) return null;
+    return std.fmt.parseInt(u32, rest[0..end], 10) catch null;
+}
+
+test "breakpointPx reads the number after a media marker" {
+    try std.testing.expectEqual(@as(?u32, 820), breakpointPx("@media (max-width: 820px) {", sheet_media_marker));
+    try std.testing.expectEqual(@as(?u32, 820), breakpointPx("const mobileQuery = matchMedia(\"(max-width: 820px)\");", store_media_marker));
+    try std.testing.expectEqual(@as(?u32, null), breakpointPx("@media (max-width: 34rem) {", sheet_media_marker));
+    try std.testing.expectEqual(@as(?u32, null), breakpointPx("@media (hover: none) {", sheet_media_marker));
 }

@@ -7,8 +7,7 @@ sources: []
 # Known limitations
 
 Pin a commit. APIs, ABIs, and prerelease store formats have no compatibility
-guarantee. [What ships](shipped.md) lists features, [stability](stability.md)
-records test coverage, and the [roadmap](roadmap.md) owns work to close gaps.
+guarantee.
 A limitation here describes current behavior, not acceptance of it as the goal.
 
 ## Protocol draft coverage

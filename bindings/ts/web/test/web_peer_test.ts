@@ -17,11 +17,7 @@
 import * as tcp from "@glowcap/tcp";
 import { init } from "@glowcap/web";
 import { proveChromiumNoiseRelay } from "./browser_noise_relay_proof.ts";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
+import { fail } from "../../test/assert.ts";
 
 // A hang is a bug, never a slow test (the cli rule's posture): bound the whole
 // scenario.

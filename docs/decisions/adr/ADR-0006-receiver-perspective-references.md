@@ -18,7 +18,7 @@ A wire descriptor describes the sender's relationship to an object. The receiver
 
 ## Decision
 
-Decoding relabels reference descriptors into receiver perspective using only the wire tag. The session then validates the result against its own tables. Encoding performs the inverse projection.
+The session validates the relabeled result against its own tables. Encoding performs the inverse projection.
 
 A slot describes its minting side and binding state. The wire descriptor is derived from those facts rather than stored as a second identity. A routed Host identity remains distinct from a session's wire position.
 

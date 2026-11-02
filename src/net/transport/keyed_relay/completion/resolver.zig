@@ -3,7 +3,7 @@
 //! DNS lookup is the one blocking part of opening a hostname route. One
 //! environment-owned `std.Io` task resolves the whole name, while the reactor
 //! remains parked on `wakeFd`. Address connection attempts stay in the
-//! completion backend and race there. This module never opens a socket.
+//! completion backend and race there. Resolution never opens a socket.
 
 const std = @import("std");
 

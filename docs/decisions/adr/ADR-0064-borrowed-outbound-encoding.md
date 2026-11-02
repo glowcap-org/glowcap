@@ -18,7 +18,7 @@ Repeated tree walks for validation, lowering, accounting and encoding dominate s
 
 ## Decision
 
-The session admits an outbound tree through one owning validation path and inventories reference-bearing slots once. Lowering stages the exact leases it claims in that walk. Admission charges, encodes and queues the deliver as its owned frame.
+Lowering stages the exact leases it claims in the validation walk. Admission charges, encodes and queues the deliver as its owned frame.
 
 The queue retains the frame and protocol resources needed for later emission or rollback. The caller regains its borrowed tree when send returns. The drain does not encode or traverse the tree again.
 

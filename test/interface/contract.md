@@ -11,8 +11,6 @@ sources:
 
 The authored [Syrup description](contracts.syrup) defines the Tasks and callback
 corpus. This reference specifies its encoding, mappings, and acceptance cases.
-The [roadmap](../../docs/roadmap.md) item on interface definitions owns
-progress and the order in which those cases are qualified.
 
 ## Description version 1
 

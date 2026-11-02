@@ -1,5 +1,5 @@
 import { answerGiftId } from "../action.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 Deno.test("gift-id completion reports only entropy failure", () => {
 	const entropyFailure = new Error("entropy unavailable");

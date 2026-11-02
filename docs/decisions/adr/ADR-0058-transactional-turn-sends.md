@@ -18,7 +18,7 @@ A turn can fail after preparing sends or capability handoffs. Publishing those e
 
 ## Decision
 
-An outermost Vat turn commits its eventual sends only on success. Admission occurs during the turn. The Vat tells each enrolled participant to commit or abort once.
+A participant's admission occurs during the turn. The Vat tells each enrolled participant to commit or abort once.
 
 On failure the Peer retracts the provisional sends, the Host rolls back their capability lowering and the Node withdraws staged output and deposits. A send awaiting gift ids reserves its recipient queue position immediately. Later work cannot overtake that hole, and abort removes it.
 

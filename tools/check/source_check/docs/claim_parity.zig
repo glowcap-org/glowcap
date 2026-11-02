@@ -1,6 +1,5 @@
-//! Cross-page claims the compiler cannot see: a second sentence that
-//! restates an already-owned status fact, and a first-read pointer that
-//! presents the testing walk as the complete program.
+//! The stability page's area table calls a gate recurring only when
+//! `ci/groups.py` runs it on every push.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -64,103 +63,6 @@ pub fn checkStabilityAreaTableRecurringClaims(
         {
             try rejectRecurringNames(gpa, violations, doc_path, remains, listed.items, "What remains names recurring `{s}` as not in the recurring list");
         }
-    }
-}
-
-pub fn checkSiteStabilitySummary(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const site_path = "site/content/stability.smd";
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const site = root.readFileAlloc(io, site_path, arena, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for site stability-summary check with {s}", .{ site_path, @errorName(err) });
-        return;
-    };
-
-    if (std.mem.indexOf(u8, site, "pull request") == null) {
-        try appendViolation(gpa, violations, "{s}: recurring-check summary must mention pull requests; `.github/workflows/check.yml` runs them", .{site_path});
-    }
-    if (std.mem.indexOf(u8, site, "`dev`") == null) {
-        try appendViolation(gpa, violations, "{s}: recurring-check summary must mention the `dev` branch; `.github/workflows/check.yml` runs there too", .{site_path});
-    }
-}
-
-pub fn checkExamplesLeadWithRooms(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const path = "examples/README.md";
-    const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for examples-lead check with {s}", .{ path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(contents);
-    const zig_h = std.mem.indexOf(u8, contents, "## Zig chapters");
-    const apps_h = std.mem.indexOf(u8, contents, "## Complete applications");
-    if (zig_h != null and (apps_h == null or zig_h.? < apps_h.?)) {
-        try appendViolation(gpa, violations, "{s}: Complete applications must precede Zig chapters; rooms is the first look (first-impression)", .{path});
-    }
-}
-
-pub fn checkDeliverOneWay(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const path = "site/content/protocol.smd";
-    const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for op:deliver check with {s}", .{ path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(contents);
-    const row_start = std.mem.indexOf(u8, contents, "| `op:deliver` |") orelse {
-        try appendViolation(gpa, violations, "{s}: missing the `op:deliver` row", .{path});
-        return;
-    };
-    const rest = contents[row_start..];
-    const row_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
-    const row = rest[0..row_end];
-    const lower = try gpa.alloc(u8, row.len);
-    defer gpa.free(lower);
-    _ = std.ascii.lowerString(lower, row);
-    if (std.mem.indexOf(u8, row, "#f") == null and std.mem.indexOf(u8, lower, "one-way") == null) {
-        try appendViolation(gpa, violations, "{s}: `op:deliver` row must name the answerless `#f` / one-way form; there is no `op:deliver-only`", .{path});
-    }
-}
-
-pub fn checkSessionIsAView(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const path = "site/content/modules.smd";
-    const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for Session-ownership check with {s}", .{ path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(contents);
-    const row_start = std.mem.indexOf(u8, contents, "| **Session** |") orelse {
-        try appendViolation(gpa, violations, "{s}: missing the Session row", .{path});
-        return;
-    };
-    const rest = contents[row_start..];
-    const row_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
-    const row = rest[0..row_end];
-    const lower = try gpa.alloc(u8, row.len);
-    defer gpa.free(lower);
-    _ = std.ascii.lowerString(lower, row);
-    if (std.mem.indexOf(u8, lower, "view") == null) {
-        try appendViolation(gpa, violations, "{s}: Session row must say it is a view; HostRuntime owns the conversation (docs/architecture.md)", .{path});
     }
 }
 

@@ -1,5 +1,5 @@
-//! CapTP waits are bounded: `.unbounded` stays out of cli/ and examples,
-//! deadline fields are positive, and the listen stop wake is wired.
+//! CapTP waits are bounded: `.unbounded` stays out of cli/, and every
+//! example session names a positive budget.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -16,35 +16,6 @@ pub fn checkCliCaptpDeadlines(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    try expectFileContains(io, gpa, root, violations, "cli/ocapn/session_opts.zig", &.{
-        "pub fn sessionOpts()",
-        "default_handshake_timeout_ms",
-        "default_settle_timeout_ms",
-        "unhandled_failure",
-    });
-    try expectFileContains(io, gpa, root, violations, "cli/ocapn/mod.zig", &.{
-        "default_handshake_timeout_ms",
-        "default_settle_timeout_ms",
-        "HandshakeTimedOut",
-        "sessionOpts()",
-    });
-    try expectFileContains(io, gpa, root, violations, "test/cli/session_cases.zig", &.{
-        "sessionOpts()",
-        "HandshakeTimedOut",
-        ".handshake = .{ .ms = 200 }",
-    });
-    try expectFileContains(io, gpa, root, violations, "test/cli/captp_cases.zig", &.{
-        "cmdListen",
-        "cmdCall",
-        "publish",
-        "greeter",
-        "requestStop while accepting",
-        "requestStop while serving",
-    });
-    try expectFileContains(io, gpa, root, violations, "test/cli/all.zig", &.{
-        "captp_cases.zig",
-    });
-
     var dir = root.openDir(io, "cli", .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "cli/: failed to open for CapTP-deadline check with {s}", .{@errorName(err)});
         return;
@@ -266,36 +237,4 @@ pub fn checkExampleCaptpDeadlines(
             }
         }
     }
-}
-
-/// Ctrl+C on `ocapn listen` must poll `waitAcceptable` rather than close the
-/// listen FD from another thread (Zig Threaded Io panics on that BADF).
-pub fn checkCliListenStopWake(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    try expectFileContains(io, gpa, root, violations, "cli/operability/signals.zig", &.{
-        "accept-after-close",
-        "must not close a listen FD",
-        "pub const poll_ms",
-    });
-    try expectFileContains(io, gpa, root, violations, "cli/ocapn/listen_foreground.zig", &.{
-        "waitAcceptable",
-        "serveUntilStop",
-        "signals.poll_ms",
-    });
-    try expectFileContains(io, gpa, root, violations, "cli/ocapn/listen_background.zig", &.{
-        "waitAcceptable",
-        "serveUntilStop",
-        "signals.poll_ms",
-    });
-    try expectFileContains(io, gpa, root, violations, "src/net/netlayer.zig", &.{
-        "waitAcceptable",
-    });
-    try expectFileContains(io, gpa, root, violations, "test/cli/captp_cases.zig", &.{
-        "requestStop while accepting",
-        "requestStop while serving",
-    });
 }

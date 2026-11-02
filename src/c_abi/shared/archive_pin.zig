@@ -1,15 +1,15 @@
 //! Keep a shared archive mapped for the rest of its process.
 //!
-//! `std.Io.Threaded` detaches its worker threads, and its `deinit` returns
-//! when their wait group finishes: a worker's final wake runs after that, in
-//! the archive's code. An embedder that unloads the archive once its last
-//! handle is released (Deno closes every FFI library at teardown) unmaps the
-//! code a worker is still leaving, and the worker faults. So the archive
-//! declares itself resident the way the loader states it, `RTLD_NODELETE`
-//! promoted onto the already-loaded object with `RTLD_NOLOAD`, from an entry
-//! the loader runs when it maps the archive.
-//! `tools/check/archive_resident.py` holds every installed libc-linked ELF
-//! archive to this, and macOS runs the same entry without an install check.
+//! `std.Io.Threaded` detaches its worker threads, and its `deinit` returns when
+//! their wait group finishes: a worker's final wake runs after that, in the
+//! archive's code. An embedder that unloads the archive when its last handle is
+//! released (Deno closes every FFI library at teardown) unmaps the code a
+//! worker is still leaving, and the worker faults. So the archive declares
+//! itself resident the way the loader states it, `RTLD_NODELETE` promoted onto
+//! the already-loaded object with `RTLD_NOLOAD`, from an entry the loader runs
+//! when it maps the archive. `tools/check/archive_resident.py` holds every
+//! installed libc-linked ELF archive to this, and macOS runs the same entry
+//! without an install check.
 //!
 //! Only a dynamic library that links libc emits the entry: libc is where the
 //! loader's verbs live, and every thread-owning archive links it (`build.zig`

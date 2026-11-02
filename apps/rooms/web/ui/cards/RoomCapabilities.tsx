@@ -10,6 +10,7 @@
 import { Link } from "react-router";
 import { useRoomBearer } from "../hooks.ts";
 import { opsAddress, paneForCap } from "../ops/panes.ts";
+import { Input } from "../Input.tsx";
 import {
 	bridgeHasNoManagerAfter,
 	bridgeHasNoManagerLead,
@@ -191,9 +192,8 @@ export function RoomCapabilities(
 									said={managerSaid}
 								>
 									{(wiring) => (
-										<input
+										<Input
 											id={wiring.id}
-											className="field"
 											value={managerPasted}
 											onChange={(event) => {
 												setManagerPasted(event.currentTarget.value);
@@ -464,9 +464,8 @@ export function RoomCapabilities(
 							said={takeSaid}
 						>
 							{(wiring) => (
-								<input
+								<Input
 									id={wiring.id}
-									className="field"
 									name="steward"
 									type="text"
 									enterKeyHint="go"

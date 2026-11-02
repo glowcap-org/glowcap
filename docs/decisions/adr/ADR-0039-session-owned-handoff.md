@@ -18,7 +18,7 @@ Three-party handoff spans several connections, but deposits, signatures and repl
 
 ## Decision
 
-Each Peer owns its session's deposited gifts, replay state and profile-defined emitted counter. Withdrawal resolves the live gifter/exporter session named by the signed give, verifies with that session's key and consumes its exact gift. Receive-side replay validation belongs to the receiver/exporter session.
+Withdrawal resolves the live gifter/exporter session named by the signed give, verifies with that session's key and consumes its exact gift. Receive-side replay validation belongs to the receiver/exporter session.
 
 The Node coordinates routes without replacing those authorities. Its automatic baseline redeem path keeps a separate Host-lifetime emitted cursor for Goblins reconnect interoperability. That affects issuance, not receive-side replay checks. Fresh session signing keys separate reconnect incarnations.
 

@@ -18,7 +18,7 @@ Filtering raw owner events is insufficient when a cursor or revision reveals hid
 
 ## Decision
 
-One owner transaction appends one bounded change batch. Grant, resource, content and control changes share that writer. Abort and unchanged mutations append nothing. Storage completion and recovery govern visibility.
+Grant, resource, content and control changes share the owner transaction as their one writer. Abort and unchanged mutations append nothing. Storage completion and recovery govern visibility.
 
 An observation context binds an exact held descriptor and target where required. Its persisted unpredictable key seals opaque cursor state and authorized dependencies. A cursor is neither transferable authority nor a raw owner revision.
 

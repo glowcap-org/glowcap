@@ -88,10 +88,6 @@ pub const Proxy = struct {
 pub const Proxies = foundation.identity_hash.MapOf(.wire, HomeKey, Proxy);
 pub const ByListener = foundation.identity_hash.MapOf(.wire, ListenerKey, HomeKey);
 pub const BySource = foundation.identity_hash.MapOf(.wire, HomeKey, HomeKey);
-/// Admission's per-home grouping of the promises one prepare lowers.
-pub fn Groups(comptime Group: type) type {
-    return foundation.identity_hash.MapOf(.wire, HomeKey, Group);
-}
 
 pub fn prepareShortening(self: *Node, home: PeerHandle, source: u64, target: u64) !void {
     const source_root = self.proxy_by_source.get(.{ .home = home, .wire_pos = source }) orelse

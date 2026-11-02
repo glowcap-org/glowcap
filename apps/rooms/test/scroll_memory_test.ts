@@ -1,10 +1,7 @@
 // Scroll memory remains bounded to the most recently visited workspace positions.
 import { MAX_WORKSPACE_CONVERSATIONS } from "../lib/rooms_state.ts";
 import { ScrollMemory } from "../web/ui/scroll_memory.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+import { assert } from "./assert.ts";
 
 Deno.test("scroll memory keeps only the most recently visited workspace", () => {
 	const memory = new ScrollMemory();

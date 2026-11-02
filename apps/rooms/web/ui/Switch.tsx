@@ -1,3 +1,4 @@
+import { classNames } from "./classes.ts";
 import { ControlProgress, useProgress } from "./presentation.ts";
 // A labeled on/off control for a settings row.
 //
@@ -26,7 +27,7 @@ export function Switch({ checked, label, busy = false, disabled, className, type
 				{...button}
 				type={type}
 				role="switch"
-				className={["switch", className].filter(Boolean).join(" ")}
+				className={classNames("switch", className)}
 				aria-checked={checked}
 				aria-label={label}
 				aria-busy={busy || undefined}

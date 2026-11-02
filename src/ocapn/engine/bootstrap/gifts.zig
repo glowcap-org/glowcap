@@ -2,7 +2,7 @@
 //!
 //! The registry owns every retained gift row, its exact cumulative requested
 //! bytes, and the replay counters that make withdrawal single-use. Bootstrap
-//! orchestration verifies certificates and builds settlements. This module
+//! orchestration verifies certificates and builds settlements. The registry
 //! alone admits, replaces, validates, consumes, and releases gift authority.
 
 const std = @import("std");

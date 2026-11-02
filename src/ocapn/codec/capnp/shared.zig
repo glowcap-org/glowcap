@@ -1,8 +1,6 @@
-//! Shared Cap'n Proto layout vocabulary for the hand-rolled codec.
-//!
-//! This module owns only wire-layout discriminants and bounds-checked borrowed
-//! reader helpers. Decode, owned materialization, and encode import it rather
-//! than depending on each other.
+//! Shared Cap'n Proto layout vocabulary for the hand-rolled codec: wire-layout
+//! discriminants and bounds-checked borrowed reader helpers only. Decode, owned
+//! materialization, and encode import it rather than depending on each other.
 
 const std = @import("std");
 

@@ -1,20 +1,19 @@
-//! Scenario traces compared against the oracle.
-//!
-//! Each test drives a whole CapTP conversation through the `oracle` layer and
-//! asserts the observable trace it produces. The authority here is the oracle's
-//! canonical trace, so a failure points at a behavior change in the session or
-//! engine, not at a codec or a transport. The cross-codec and cross-entry-point
-//! cases assert that the same conversation produces the same trace regardless of
-//! which codec carried it or which inbound entry point dispatched it.
+//! Scenario traces: each test drives a whole CapTP conversation through the
+//! scenario drivers and asserts the trace it produces. The authority is the
+//! driver's canonical trace, so a failure points at a behavior change in the
+//! session or engine, not at a codec or a transport. The cross-codec and
+//! cross-entry-point cases assert that the same conversation produces the same
+//! trace regardless of which codec carried it or which inbound entry point
+//! dispatched it.
 
 const std = @import("std");
-const oracle = @import("oracle");
+const scenarios = @import("scenarios");
 
 test "stage0 abort scenario matches oracle trace" {
     const allocator = std.testing.allocator;
     const expected = @embedFile("stage0_abort.trace");
 
-    const actual = try oracle.runStage0Abort(allocator);
+    const actual = try scenarios.runStage0Abort(allocator);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(expected, actual);
@@ -23,7 +22,7 @@ test "stage0 abort scenario matches oracle trace" {
 test "driven runner transfers outbound frame between peers" {
     const allocator = std.testing.allocator;
 
-    const actual = try oracle.runDrivenAbort(allocator);
+    const actual = try scenarios.runDrivenAbort(allocator);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -35,7 +34,7 @@ test "driven runner transfers outbound frame between peers" {
 test "driven deliver/resolve round-trips a question across paired peers" {
     const allocator = std.testing.allocator;
 
-    const actual = try oracle.runDrivenDeliverResolve(allocator, .syrup);
+    const actual = try scenarios.runDrivenDeliverResolve(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -51,7 +50,7 @@ test "driven deliver/resolve round-trips a question across paired peers" {
 test "handshake then bootstrap-fetch auto-serves the registered cap" {
     const allocator = std.testing.allocator;
 
-    const actual = try oracle.runHandshakeThenBootstrapFetch(allocator, .syrup);
+    const actual = try scenarios.runHandshakeThenBootstrapFetch(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -72,7 +71,7 @@ test "handshake then bootstrap-fetch auto-serves the registered cap" {
 test "driven listen/resolve fires the registered listener across paired peers" {
     const allocator = std.testing.allocator;
 
-    const actual = try oracle.runDrivenListenResolve(allocator, .syrup);
+    const actual = try scenarios.runDrivenListenResolve(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -93,7 +92,7 @@ test "driven listen/resolve fires the registered listener across paired peers" {
 test "driven projections resolve the projected answers when each source settles" {
     const allocator = std.testing.allocator;
 
-    const actual = try oracle.runDrivenProjections(allocator, .syrup);
+    const actual = try scenarios.runDrivenProjections(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -135,7 +134,7 @@ test "driven projections resolve the projected answers when each source settles"
 test "driven gc releases the export and the answer across paired peers" {
     const allocator = std.testing.allocator;
 
-    const actual = try oracle.runDrivenGcPair(allocator, .syrup);
+    const actual = try scenarios.runDrivenGcPair(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -158,7 +157,7 @@ test "driven gc releases the export and the answer across paired peers" {
 test "driven handoff parks the early withdraw, settles it on deposit, and the redeemed cap answers directly" {
     const allocator = std.testing.allocator;
 
-    const actual = try oracle.handoff.run(allocator, .syrup);
+    const actual = try scenarios.handoff.run(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -197,9 +196,9 @@ test "driven handoff parks the early withdraw, settles it on deposit, and the re
 test "deliver/resolve trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try oracle.runDrivenDeliverResolve(allocator, .syrup);
+    const syrup = try scenarios.runDrivenDeliverResolve(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try oracle.runDrivenDeliverResolve(allocator, .capnp);
+    const capnp = try scenarios.runDrivenDeliverResolve(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);
@@ -208,9 +207,9 @@ test "deliver/resolve trace is identical on Syrup and Cap'n Proto" {
 test "listen/resolve trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try oracle.runDrivenListenResolve(allocator, .syrup);
+    const syrup = try scenarios.runDrivenListenResolve(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try oracle.runDrivenListenResolve(allocator, .capnp);
+    const capnp = try scenarios.runDrivenListenResolve(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);
@@ -219,9 +218,9 @@ test "listen/resolve trace is identical on Syrup and Cap'n Proto" {
 test "bootstrap-fetch trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try oracle.runHandshakeThenBootstrapFetch(allocator, .syrup);
+    const syrup = try scenarios.runHandshakeThenBootstrapFetch(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try oracle.runHandshakeThenBootstrapFetch(allocator, .capnp);
+    const capnp = try scenarios.runHandshakeThenBootstrapFetch(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);
@@ -230,9 +229,9 @@ test "bootstrap-fetch trace is identical on Syrup and Cap'n Proto" {
 test "projections trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try oracle.runDrivenProjections(allocator, .syrup);
+    const syrup = try scenarios.runDrivenProjections(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try oracle.runDrivenProjections(allocator, .capnp);
+    const capnp = try scenarios.runDrivenProjections(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);
@@ -241,9 +240,9 @@ test "projections trace is identical on Syrup and Cap'n Proto" {
 test "handoff trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try oracle.handoff.run(allocator, .syrup);
+    const syrup = try scenarios.handoff.run(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try oracle.handoff.run(allocator, .capnp);
+    const capnp = try scenarios.handoff.run(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);
@@ -252,9 +251,9 @@ test "handoff trace is identical on Syrup and Cap'n Proto" {
 test "gc trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try oracle.runDrivenGcPair(allocator, .syrup);
+    const syrup = try scenarios.runDrivenGcPair(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try oracle.runDrivenGcPair(allocator, .capnp);
+    const capnp = try scenarios.runDrivenGcPair(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);
@@ -266,9 +265,9 @@ test "inbound dispatch is identical across the borrowed and owned entry points" 
     // Both inbound entries converge on one dispatcher, so the same frame must
     // produce byte-identical observable output (events, outbound, session
     // state) regardless of which entry carried it.
-    const borrowed = try oracle.runInboundMode(allocator, .borrowed);
+    const borrowed = try scenarios.runInboundMode(allocator, .borrowed);
     defer allocator.free(borrowed);
-    const owned = try oracle.runInboundMode(allocator, .owned);
+    const owned = try scenarios.runInboundMode(allocator, .owned);
     defer allocator.free(owned);
 
     try std.testing.expectEqualStrings(borrowed, owned);

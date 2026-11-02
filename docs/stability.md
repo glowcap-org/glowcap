@@ -10,9 +10,6 @@ glowcap has no stable release yet. Some checks run on every main or dev push.
 Others need external runtimes or network access and run on demand. None is a
 compatibility or security promise.
 
-For feature coverage, read [what ships](shipped.md). For consequences that may
-change a deployment, read [known limitations](boundaries.md).
-
 ## Checks by area
 
 | Area | Evidence | What remains |
@@ -31,7 +28,7 @@ change a deployment, read [known limitations](boundaries.md).
 | C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. `release-pack` also safely extracts its tarball off-tree, then compiles and runs an independent C consumer for each self-contained static archive and one across the packaged shared libraries. These test programs are maintained in this repository. | These consumers check packaging, linkage, version, and archive identity. Behavioral interoperability still runs through the bindings rather than an external C implementation. The macOS library-pinning hook is unverified. |
 | Rooms host package | `glowcap-pack` checks the extracted runtime and skill links, then drives HTTP bootstrap, encrypted iroh, multiple rooms and DMs, observer failure and unread restart without checkout tooling. Damaged-package fixtures run in `check`. | Linux and macOS release runners exercise their own artifacts. This does not prove a particular public deployment's reachability, macOS download approval, or a model harness's continuing wake behavior. |
 | Rust, Deno, Python, and Racket bindings | Each binding holds live Goblins sessions in both directions and takes both handoff roles, as community review details. | Bun cannot host the driver loop. |
-| TypeScript on Bun | The `bun-dogfood` consumer check covers Host identity and lifetime, locator and sturdyref ABI calls, and that Bun refuses driver listeners before allocating a loop. | Bun's synchronous FFI cannot host the C driver or blocking transport lifecycles. No Goblins check runs on Bun. |
+| TypeScript on Bun | `bun-test` covers Host identity and lifetime, locator and sturdyref ABI calls, and that Bun refuses driver listeners before allocating a loop. | Bun's synchronous FFI cannot host the C driver or blocking transport lifecycles. No Goblins check runs on Bun. |
 | Zig package | `consumer-check` builds core-only and all six public modules from a Zig-fetched source archive on Linux. The core build blocks Cargo, Bash, and curl. | Zig still resolves LMDB and SQLite sources for core-only use. Optional-module cross-compilation is unchecked. |
 | Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are glowcap's own APIs with no outside implementation to compare. |
 | Loam storage | Shared storage scenarios run on SQLite and LMDB. Crash and I/O-fault probes check recovery, and C, Rust, and browser tests exercise the foreign interfaces. [Storage failure coverage](#storage-failure-coverage) details their scope. | Power loss and arbitrary corruption are untested. Some managed-access failure cases lack evidence, as detailed below. |

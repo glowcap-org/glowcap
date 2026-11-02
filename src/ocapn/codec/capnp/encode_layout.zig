@@ -1,7 +1,6 @@
-//! Cap'n Proto builder layout writes for the encoder.
-//!
-//! This leaf owns word allocation, pointer offsets, and list bounds. It does
-//! not know CapTP message semantics or canonical ordering.
+//! Cap'n Proto builder layout writes for the encoder: word allocation, pointer
+//! offsets, and list bounds. It does not know CapTP message semantics or
+//! canonical ordering.
 
 const std = @import("std");
 

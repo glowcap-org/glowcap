@@ -1,14 +1,16 @@
 //! The storage-engine contract and the backend derived from it. An engine is
 //! transactions: `beginRead` yields a read transaction (`get`, `next`, `end`)
 //! and `beginWrite` a write transaction (`get`, `next`, `put`, `remove`, then
-//! `commit` or `abort`). `readerCapacity` reports how many read
-//! transactions can be open at once, so a worker never runs more reads than
-//! the engine admits. A backend is what the worker drives: `read`,
-//! `commit`, `lookup`, and `recover`. This module derives all four from any
-//! engine once, so an engine implements no record logic of its own. Opening
-//! an engine takes arguments the engine owns and is outside the contract.
-//! Returned rows borrow the transaction until its next operation or end. The
-//! next operation may consume those slices as inputs before retiring them.
+//! `commit` or `abort`). `readerCapacity` reports how many read transactions
+//! can be open at once, so a worker never runs more reads than the engine
+//! admits.
+//!
+//! A backend is what the worker drives: `read`, `commit`, `lookup`, and
+//! `recover`. All four derive from any engine once, so an engine implements no
+//! record logic of its own. Opening an engine takes arguments the engine owns
+//! and is outside the contract. Returned rows borrow the transaction until its
+//! next operation or end. The next operation may consume those slices as inputs
+//! before retiring them.
 const transaction = @import("transaction.zig");
 const residency = @import("residency.zig");
 const names = @import("names.zig");

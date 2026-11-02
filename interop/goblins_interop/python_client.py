@@ -42,7 +42,7 @@ async def converse() -> None:
         print(f"python-goblins-interop: goblins published its echo sturdyref path on {HOST}:{PORT}")
 
         locator = tcp.locator(HOST, PORT)
-        async with Runtime.open(provider=tcp.provider()) as runtime:
+        async with Runtime.open(providers=[tcp.provider()]) as runtime:
             session = await runtime.connect(locator)
             print("python-goblins-interop: session open, keyed start-session accepted by goblins")
             session.serve()

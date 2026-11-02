@@ -1,9 +1,10 @@
 //! The two live conversations with a Tor daemon: the SOCKS dial and the control
 //! session that hosts a service.
 //!
-//! `socks5.zig` and `control.zig` own the bytes. This module owns the streams
-//! that carry them. Nothing here decides protocol shape, so a change to what Tor
-//! is told belongs next door and a change to how it is reached belongs here.
+//! `socks5.zig` and `control.zig` own the bytes. The session code owns the
+//! streams that carry them and decides no protocol shape, so a change to what
+//! Tor is told belongs in those files and a change to how it is reached belongs
+//! in the session.
 
 const std = @import("std");
 

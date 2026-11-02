@@ -23,7 +23,9 @@
 
 import type { Locator, Page } from "playwright";
 import { waitForFiniteAnimations } from "../support/animations.ts";
-import { fail, openDirectoryCardFromCaption, ROOT, SERVER, waitForPostedLine } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { ROOT, SERVER } from "../support/paths.ts";
+import { openDirectoryCardFromCaption, waitForPostedLine } from "./harness.ts";
 import { proveRecoveryDialogLayout } from "./recovery_layout.ts";
 import { inkContrast } from "../ink_contrast.ts";
 import { spawnOwned } from "../support/children.ts";

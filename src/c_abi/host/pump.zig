@@ -1,9 +1,9 @@
 //! The opt-in convenience drain for `libglowcap_host` (ADR-0022 fifth
 //! amendment): `glowcap_host_pump_drain` runs the one-loop drain over
 //! `glowcap_host_next_action` for the embedder, dispatching each action to a
-//! `GlowcapHostPumpHooks` arm. The pull-queue stays normative. This wraps it and
-//! does not replace it. The Zig-facing loop helpers live in
-//! `embedder_pump.zig`. This leaf only binds the C hook surface onto them.
+//! `GlowcapHostPumpHooks` arm. The pull queue stays normative, and the drain
+//! wraps it without replacing it. The Zig-facing loop helpers live in
+//! `embedder_pump.zig`, and the C hook surface binds onto them.
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");

@@ -11,7 +11,8 @@
 // and leaving the two halves filled in for the join it makes.
 
 import type { Page } from "playwright";
-import { fail, fillSettled } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { fillSettled } from "./harness.ts";
 
 export async function run(tab: Page): Promise<void> {
 	// Typed text shows in both halves, the two locks are one lock, and Enter in

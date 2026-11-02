@@ -18,7 +18,7 @@ LMDB compaction produces another database file. Replacing a live store without c
 
 ## Decision
 
-Offline compaction holds lifetime writer custody, verifies every key and value against the source, and installs one data file by same-directory rename followed by directory sync. Cancellation and each failure phase retain an explicit outcome.
+Cancellation and each failure phase retain an explicit outcome.
 
 The lock file remains stable across replacement. The embedding keeps the source closed for the operation, and available space must hold both the original and complete candidate. Map size remains an independent capacity limit.
 

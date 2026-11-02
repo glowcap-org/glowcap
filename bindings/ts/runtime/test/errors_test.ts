@@ -6,7 +6,7 @@ import {
 	secondaryFailures,
 	vowFailure,
 } from "../errors.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 Deno.test("secondary failures retain the exact primary, including when frozen", () => {
 	const primary = Object.freeze(new Error("primary"));

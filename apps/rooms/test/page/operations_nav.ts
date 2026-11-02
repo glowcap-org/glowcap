@@ -5,7 +5,7 @@
 
 import type { Page } from "playwright";
 import { saveCapabilitySet, savedCapabilityNames } from "./capability_set.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export interface OperationSecrets {
 	listeners: string;

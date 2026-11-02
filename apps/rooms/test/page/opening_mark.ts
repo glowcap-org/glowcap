@@ -2,7 +2,7 @@
 // shader mark is optional decoration. Its absence must not hold startup or
 // erase the product name. This checks composition before session handoff.
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export async function withoutOpeningGpu(tab: Page): Promise<void> {
 	await tab.addInitScript(() => {

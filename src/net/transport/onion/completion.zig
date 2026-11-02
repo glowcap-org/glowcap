@@ -46,7 +46,7 @@ const setup_turn_ms: i32 = 100;
 
 /// A completion backend that adds Tor SOCKS and onion-service publication to an
 /// existing platform backend.
-pub fn InnerBackend(comptime Inner: type) type {
+pub fn CompletionBackend(comptime Inner: type) type {
     return struct {
         const Self = @This();
         const Namespace = completion.AdapterNamespace(Inner);
@@ -635,8 +635,6 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
     };
 }
-
-pub const CompletionBackend = InnerBackend;
 
 /// The resident policy that adds `onion` to an inner one.
 pub const ResidentPolicy = @import("completion/resident_policy.zig").ResidentPolicy;

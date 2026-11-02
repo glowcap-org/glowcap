@@ -2,13 +2,12 @@
 //! state plus a surfaced event, and how a failure fails loud.
 //!
 //! These are the heavy internals of `Peer`'s receive boundary, factored out of
-//! `mod.zig` so the peer object holds construction, the send path, and the queue
-//! surface while this file owns the parse-validate-apply spine. They are free
-//! functions over `*Peer` (the same shape `v1_0` and `pipeline` use), not
-//! methods, because the cluster is one cohesive responsibility, the inbound
-//! seam, and reads better named than scattered through the struct body. The
-//! public entry methods (`recvBorrowed`, `step`) stay on `Peer` and call in
-//! here.
+//! `mod.zig` so the peer object holds construction, the send path, and the
+//! queue surface. They hold the parse-validate-apply spine as free functions
+//! over `*Peer` (the same shape `v1_0` and `pipeline` use), not methods,
+//! because the cluster is one cohesive responsibility, the inbound seam, and
+//! reads better named than scattered through the struct body. The public entry
+//! methods (`recvBorrowed`, `step`) stay on `Peer` and call in.
 
 const std = @import("std");
 

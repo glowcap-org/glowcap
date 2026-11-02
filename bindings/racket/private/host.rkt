@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the CapTP `host`, the binding wrapper for `GlowcapHost` /
-;; `driver_core.Host` (ADR-0022 / ADR-0011). The host owns an `engine.Node`
+;; `driver_core.Host` (ADR-0011). The host owns an `engine.Node`
 ;; (the sans-io handoff router). Goblins `mycapn` is two roles, not one type:
 ;; the product maps to this Host; the router tables map to `engine.Node`. What lives
 ;; here is only what the embedder contract leaves to the binding: FFI Host

@@ -127,8 +127,7 @@ export async function checkChannels(
 		});
 		for (const name of ["managed_direct", "managed_retention", "managed_room_posts"]) {
 			const body = await Deno.readTextFile(new URL(`./${name}.mjs`, import.meta.url));
-			await page.route(`${base}/${name}.mjs`, (route) =>
-				route.fulfill({ contentType: "text/javascript", body }));
+			await page.route(`${base}/${name}.mjs`, (route) => route.fulfill({ contentType: "text/javascript", body }));
 		}
 		await page.goto(`${base}/locator`);
 		if (managed === "entry") {

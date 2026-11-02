@@ -48,7 +48,6 @@ pub const loop_ev_connect = resident.loop_ev_connect;
 pub const ConnectTarget = locators.ConnectTarget;
 pub const resolveConnectTarget = locators.resolveConnectTarget;
 pub const DialResolver = resolver.DialResolver;
-pub const CompositeDialResolver = resolver.CompositeDialResolver;
 pub const validateListenerLocator = locators.validateListenerLocator;
 pub const CompletionBackend = backend.CompletionBackend;
 pub const Backend = CompletionBackend(net.Backend);

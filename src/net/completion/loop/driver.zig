@@ -3,7 +3,8 @@
 //! One poll turn settles adapter work and owed retirement before sizing the
 //! wait, consumes every earned completion exactly once, repairs buffer/deadline
 //! ordering, then surfaces the first loop-global failure. Public driver methods
-//! are direct aliases on Loop. This module owns no runtime object.
+//! are direct aliases on Loop, and the driver holds no runtime object of its
+//! own.
 
 const std = @import("std");
 const clock = @import("../../clock.zig");

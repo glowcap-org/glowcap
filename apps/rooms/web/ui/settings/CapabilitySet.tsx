@@ -16,6 +16,7 @@ import { OPS_CATALOG } from "../ops/catalog.ts";
 import { formatOpsBundle, OPS_BUNDLE_CAPABILITIES, opsBundleReady, parseOpsBundleDraft } from "../ops/bundle.ts";
 import { Switch } from "../Switch.tsx";
 import { Said } from "../Said.tsx";
+import { Textarea } from "../Textarea.tsx";
 import { CapabilityValueEditor, useCapabilitySetModel } from "./CapabilitySetModel.tsx";
 
 export function CapabilitySetForm() {
@@ -78,9 +79,9 @@ export function CapabilitySetForm() {
 				</div>
 				{mode === "text"
 					? (
-						<textarea
+						<Textarea
 							id="opsCapabilitySet"
-							className="field capability-set-text"
+							className="capability-set-text"
 							rows={6}
 							value={text}
 							disabled={model.busy || !model.loaded}

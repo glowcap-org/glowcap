@@ -13,10 +13,7 @@ import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { assert } from "../assert.ts";
 import { spawnOwned, stopOwned } from "./children.ts";
 import { ROOT, SERVER } from "./paths.ts";
-import { freePort } from "./ports.ts";
-import { delay, until, within } from "./wait.ts";
-
-export { assert, delay, freePort, ROOT, SERVER, until, within };
+import { delay, within } from "./wait.ts";
 
 export class TestRuntimeScope {
 	readonly #byHost = new Map<Host, Promise<Runtime>>();
@@ -250,27 +247,3 @@ export async function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): 
 	}
 	throw new Error("rooms server never announced its locator");
 }
-
-export {
-	assertRoster,
-	enterOrOpen,
-	nextMessage,
-	recordDirectoryEvent,
-	refusalCode,
-	registerAndWatch,
-	resubscribeAndHold,
-	roomLines,
-	subscribeMembership,
-	subscribeOnce,
-	subscribeOnceConn,
-	subscribeOnceIroh,
-	subscribeTwiceAndClose,
-	trySubscribe,
-	waitForLine,
-	waitForMatch,
-	waitForRoster,
-	watchDirectory,
-	watchRoom,
-	watchRoomConn,
-	watchRoomIroh,
-} from "./subscribe.ts";

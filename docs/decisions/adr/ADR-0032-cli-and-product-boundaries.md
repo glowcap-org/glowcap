@@ -18,7 +18,7 @@ Product commands, contributor checks and deployment operations run in different 
 
 ## Decision
 
-The installable glowcap binary owns product argv, help and completion through one command registry. CapTP verbs, REPL and curated MCP project that registry. Rooms participation uses the shared Rust application through its private command front rather than a second participant implementation.
+CapTP verbs, the REPL, and the curated MCP tools project the command registry. Rooms participation uses the shared Rust application through its private command front rather than a second participant implementation.
 
 Contributor checks are Zig build steps. Generators and check tools live under tools, while product binaries and applications live with their products. Deployment uses the product's operations surface and an immutable verified product snapshot. A running deployment does not mount mutable checkout output as its program.
 

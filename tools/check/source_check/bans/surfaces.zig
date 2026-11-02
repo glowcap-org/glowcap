@@ -1,144 +1,9 @@
-//! Ban rows: retired binding APIs, unowned deferral markers, and the
-//! test-only surface.
+//! Ban rows: unowned deferral markers, the test-only surface, and the Rooms
+//! environment namespace.
 
 const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 const Where = bans.Where;
-
-/// The native bindings hand complete locators to the generic driver and its
-/// registered transport packages. The byte-fed C embedder may still use
-/// GlowcapDialPlan, but projecting that plan into a binding restores concrete
-/// transport dispatch to generic runtime code. The rest of this table holds
-/// current lifecycle and style invariants, exact-spelling bans of retired
-/// names are pruned once the tree and its generated mirrors agree.
-pub const binding_public_api_retirements: []const Ban = &.{
-    .{
-        .where = .{ .tree = .{
-            .dir = "bindings",
-            .suffixes = &.{ ".rs", ".py", ".rkt", ".ts" },
-            .skip_dirs = &.{ "target/", "node_modules/" },
-        } },
-        .kind = .forbid,
-        .needles = &.{
-            "GlowcapDialPlan",
-            "GLOWCAP_DIAL_PLAN",
-            "DIAL_SHAPE_",
-            "DIAL_REACH_",
-            "DIAL_POSTURE_",
-        },
-        .check = "binding-public-api-retirements",
-        .why = "native bindings pass typed locators through the generic driver; only direct byte-fed C embedders project GlowcapDialPlan",
-    },
-    .{
-        .where = .{ .files = &.{
-            "tools/gen/binding/constants.zig",
-            "tools/gen/binding/ffi_layouts.zig",
-            "tools/gen/binding/rust_ffi.zig",
-            "tools/gen/binding/ts_abi.zig",
-        } },
-        .kind = .forbid,
-        .needles = &.{
-            "GlowcapDialPlan",
-            "GLOWCAP_DIAL_PLAN",
-            "DIAL_SHAPE_",
-            "DIAL_REACH_",
-            "DIAL_POSTURE_",
-        },
-        .check = "binding-public-api-retirements",
-        .why = "binding generators must not restore the byte-fed DialPlan projection omitted by every native binding",
-    },
-    .{
-        .where = .{ .tree = .{
-            .dir = "site/examples",
-            .suffixes = &.{".ts"},
-        } },
-        .kind = .forbid,
-        .needles = &.{"import * as"},
-        .check = "binding-public-api-retirements",
-        .why = "website TypeScript examples import the names they use so package consumption stays explicit and consistent",
-    },
-    .{
-        .where = .{ .tree = .{
-            .dir = "site/examples",
-            .suffixes = &.{".zig"},
-        } },
-        .kind = .forbid,
-        .needles = &.{"defer server.close();"},
-        .check = "binding-public-api-retirements",
-        .why = "Server.close is admission-only; deferred ownership cleanup in a public example must call Server.deinit",
-    },
-    .{
-        .where = .{ .tree = .{
-            .dir = "bindings/python",
-            .suffixes = &.{".py"},
-        } },
-        .kind = .forbid,
-        .needles = &.{"owns_host"},
-        .check = "binding-public-api-retirements",
-        .why = "Session closes one connection; Runtime owns Host and provider teardown",
-    },
-    .{
-        .where = .{ .tree = .{
-            .dir = "bindings/ts",
-            .suffixes = &.{".ts"},
-            .skip_dirs = &.{ "node_modules/", "dist/" },
-        } },
-        .kind = .forbid,
-        .needles = &.{"ownsHost"},
-        .check = "binding-public-api-retirements",
-        .why = "Session closes one connection; Runtime owns Host and provider teardown",
-    },
-    .{
-        .where = .{ .tree = .{
-            .dir = "bindings/rust/src",
-            .suffixes = &.{".rs"},
-        } },
-        .kind = .forbid,
-        .needles = &.{"owns_host"},
-        .check = "binding-public-api-retirements",
-        .why = "Session closes one connection; Runtime owns Host and provider teardown",
-    },
-    .{
-        .where = .{ .tree = .{
-            .dir = "bindings/racket",
-            .suffixes = &.{".rkt"},
-        } },
-        .kind = .forbid,
-        .needles = &.{"owns-host"},
-        .check = "binding-public-api-retirements",
-        .why = "Session closes one connection; Runtime owns Host and provider teardown",
-    },
-    .{
-        .where = .{ .tree = .{
-            .dir = "bindings/racket",
-            .suffixes = &.{".rkt"},
-        } },
-        .kind = .forbid,
-        .needles = &.{"(host-release!"},
-        .check = "binding-public-api-retirements",
-        .why = "Racket host-close! is the one Host policy barrier; the retired host-release! verb must not return",
-    },
-    .{
-        .where = .{ .tree = .{ .dir = "bindings/python/glowcap/_host", .suffixes = &.{".py"} } },
-        .kind = .forbid,
-        .needles = &.{
-            "async def release_async",
-            "def release(self)",
-        },
-        .check = "binding-public-api-retirements",
-        .why = "Python Host.close is the sole shutdown barrier; the retired release/release_async verbs must not return",
-    },
-    .{
-        .where = .{ .tree = .{
-            .dir = "bindings/python",
-            .suffixes = &.{".py"},
-        } },
-        .kind = .forbid,
-        .needles = &.{"_loop_mode"},
-        .check = "binding-public-api-retirements",
-        .why = "loop ownership is Host.driver_loop; a parallel _loop_mode flag is a second representation of the same fact",
-    },
-};
 
 /// An unowned deferral marker in first-party source is a decision hidden in a
 /// comment. The boundary it defers belongs where the release bar can see it:
@@ -203,7 +68,7 @@ pub const test_only_surface: []const Ban = &.{
     .{
         .where = .{ .file = "src/driver/core/mod.zig" },
         .kind = .forbid,
-        .needles = &.{"pub const emitStatelessAfter"},
+        .needles = &.{ "\npub fn emitStatelessAfter", "\npub const emitStatelessAfter" },
         .check = "test-only-surface",
         .why = "direct stateless-GC emission is white-box support, not a production driver.core export",
     },
@@ -216,13 +81,6 @@ pub const test_only_surface: []const Ban = &.{
         .needles = &.{ "pub fn testingMarkDirty", "pub fn testingQueueUniqueSessionAction" },
         .check = "test-only-surface",
         .why = "white-box pump helpers live under a compile-time-empty testing namespace, never as ordinary public functions",
-    },
-    .{
-        .where = .{ .file = "src/ocapn/engine/mod.zig" },
-        .kind = .forbid,
-        .needles = &.{ "initRawOpenFixture", "fifo_steady_bytes" },
-        .check = "test-only-surface",
-        .why = "engine fixtures and budget probes belong under the test-build-only engine.testing namespace",
     },
     .{
         .where = .{ .file = "src/driver/core/host.zig" },

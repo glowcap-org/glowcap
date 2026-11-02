@@ -251,10 +251,6 @@ pub fn WireMap(comptime K: type, comptime V: type) type {
             return self.inner.getPtrContext(key, self.ctx());
         }
 
-        pub fn getEntry(self: *const Self, key: K) ?Entry {
-            return self.inner.getEntryContext(key, self.ctx());
-        }
-
         pub fn contains(self: *const Self, key: K) bool {
             return self.inner.containsContext(key, self.ctx());
         }
@@ -341,12 +337,6 @@ const identity_hash = @This();
 /// An unmanaged hash map keyed by an identity.
 pub fn Map(comptime K: type, comptime V: type) type {
     return std.HashMapUnmanaged(K, V, Context(K), std.hash_map.default_max_load_percentage);
-}
-
-/// The managed form of `Map`, for a backend that keeps its allocator in the
-/// table.
-pub fn Managed(comptime K: type, comptime V: type) type {
-    return std.HashMap(K, V, Context(K), std.hash_map.default_max_load_percentage);
 }
 
 /// Who chooses a table's keys.

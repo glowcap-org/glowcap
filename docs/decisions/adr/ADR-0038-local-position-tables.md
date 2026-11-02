@@ -18,7 +18,7 @@ Locally issued handles can support direct lookup, while stale references and par
 
 ## Decision
 
-Wire positions and locally synthesized identities use explicit representation arms. A peer can choose any representable protocol position. Local mechanisms do not confiscate high bits or sentinel bands from that namespace.
+A peer can choose any representable protocol position. Local mechanisms do not confiscate high bits or sentinel bands from that namespace.
 
 A locally issued handle names a row and its generation. Each layer owns its own row lifetime. Own-side session positions use dense reusable rows, and an observer that can outlive an answer incarnation also retains its stamp.
 

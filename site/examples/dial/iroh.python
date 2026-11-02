@@ -6,7 +6,7 @@ node_id = "<64 lowercase hex characters from the server>"
 partner = locator(node_id)
 
 async with Runtime.open(
-    provider=provider(IrohConfig(Reachability.DISCOVERY))
+    providers=[provider(IrohConfig(Reachability.DISCOVERY))]
 ) as runtime:
     # From here, the CapTP workflow is transport-independent.
     async with await runtime.connect(partner) as session:

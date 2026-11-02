@@ -22,7 +22,8 @@ import {
 } from "../../lib/archive/protocol.ts";
 import { fetchBlob } from "../../lib/attachment.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
-import { assert, dial, roomsTest } from "../support/rooms_server.ts";
+import { assert } from "../assert.ts";
+import { dial, roomsTest } from "../support/rooms_server.ts";
 
 roomsTest("the archive contract crosses the Goblins-compatible v1/Syrup floor", async () => {
 	const server = await roomsListen("127.0.0.1", 0, roomsHost());

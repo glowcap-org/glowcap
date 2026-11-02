@@ -4,7 +4,7 @@ import type { DriverListener } from "../driver_loop.ts";
 import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { DriverServer } from "../internal/server.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert } from "../../test/assert.ts";
 
 Deno.test("a server retiring a failed loop latches the refusal it does not wait for", async () => {
 	// A server requests its owned loop's retirement without waiting for it, so

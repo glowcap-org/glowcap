@@ -443,12 +443,12 @@ pub fn drainActions(hosts: []const ?*cd.GlowcapHost, dials: *Dials, watches: *Wa
             return true;
         }
     };
-    return (try cd.embedder_pump.drainHosts(
-        cd,
-        c,
-        hosts,
-        Exec{ .dials = dials, .watches = watches },
-    )).acted;
+    const exec = Exec{ .dials = dials, .watches = watches };
+    var acted = false;
+    for (hosts) |host| {
+        if ((try cd.embedder_pump.drainHost(cd, c, host, exec)).acted) acted = true;
+    }
+    return acted;
 }
 
 /// Pump shuttles and action drains until the whole network is quiescent.

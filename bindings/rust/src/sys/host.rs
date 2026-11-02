@@ -1,4 +1,4 @@
-//! Raw FFI for the byte-fed host archive (`libglowcap_host`, ADR-0022).
+//! Raw FFI for the byte-fed host archive (`libglowcap_host`).
 //!
 //! The archive is a companion of `libglowcap_ocapn`: it exports only the
 //! `glowcap_host_*` family and shares the frame, argument, reference, and
@@ -24,7 +24,7 @@ use crate::abi_constants::TRACE_DIGEST_BYTES;
 use crate::sys::{GlowcapArgument, GlowcapReference};
 
 /// A byte-fed multi-session CapTP host: one identity, one routing and
-/// redeem authority, many sessions (`glowcap_host.h`, ADR-0022).
+/// redeem authority, many sessions (`glowcap_host.h`).
 #[repr(C)]
 pub struct GlowcapHost {
 	_private: [u8; 0],

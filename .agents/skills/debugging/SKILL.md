@@ -72,4 +72,4 @@ nothing," make the same harness show a positive case working.
   ([resilience](../../rules/resilience.md)). Green comes from the fix, never
   from a retreat ([prerelease](../../rules/prerelease.md)).
 - Ask where else this shape lives, and which check should have caught it. Land
-  that check with the [ratchet skill](../ratchet/SKILL.md).
+  that check ([agent-scaffolding](../../rules/agent-scaffolding.md#landing-a-lesson)).

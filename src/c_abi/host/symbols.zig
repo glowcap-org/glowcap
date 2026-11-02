@@ -1,17 +1,19 @@
-//! The annotated symbol inventory of `libglowcap_host`, the crossing
+//! The annotated symbol inventory of `libglowcap_host`, with the crossing
 //! semantics a language FFI table cannot reflect from the C signature alone.
 //!
-//! Every `glowcap_host_*` export has one row here, in the header's canonical
-//! order. The binding generators under `tools/gen/binding/` reflect each
-//! symbol's real parameter and return types from this module's re-exports and
-//! merge the two facts only a human can supply: which buffer parameters the
-//! callee *writes* (`out_params`: the wasm boundary copies back only true
-//! outputs), and the rare parameter that crosses as an opaque pointer even
-//! though its type reflects as a writable slot (`pointer_params`). A binding
-//! that reaches a verb through a different spelling opts its table out per
-//! row with the reason recorded (`ts_omit` / `rust_omit` / `python_omit`), so
-//! an omission is a decision, not a gap. The generators hold this table and
-//! the export set to each other in both directions at compile time.
+//! Every `glowcap_host_*` export has one row, in the header's canonical order.
+//! The binding generators under `tools/gen/binding/` reflect each symbol's real
+//! parameter and return types from its re-exports. They merge two facts only a
+//! human can supply. One is which buffer parameters the callee *writes*
+//! (`out_params`: the wasm boundary copies back only true outputs). The other
+//! is the rare parameter that crosses as an opaque pointer even though its type
+//! reflects as a writable slot (`pointer_params`).
+//!
+//! A binding that reaches a verb through a different spelling opts its table
+//! out per row with the reason recorded (`ts_omit` / `rust_omit` /
+//! `python_omit`), so an omission is a decision, not a gap. The generators hold
+//! this table and the export set to each other in both directions at compile
+//! time.
 
 const shared = @import("c_abi_shared");
 

@@ -1,8 +1,7 @@
-//! Retained byte storage for one completion-backed relay connection.
-//!
-//! Whole platform payloads remain borrowed. This module owns only split frame
-//! tails, upgrade bytes, and bounded masked-send staging, including returning
-//! burst capacity to the allocator once the live prefix becomes small again.
+//! Retained byte storage for one completion-backed relay connection: split
+//! frame tails, upgrade bytes, and bounded masked-send staging, including
+//! returning burst capacity to the allocator when the live prefix becomes small
+//! again. Whole platform payloads remain borrowed.
 
 const std = @import("std");
 

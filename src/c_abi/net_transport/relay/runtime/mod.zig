@@ -1,9 +1,8 @@
-//! The relay archive's multiplexed runtime adapter.
-//!
-//! This module owns readiness, cancellation, and teardown while adapting the
-//! blocking Mbed TLS relay carrier to the generic C multiplexed-provider table.
-//! It moves opaque WebSocket bytes only. The archive facade owns exported C
-//! handles. CapTP framing and Noise_XK remain Host policy.
+//! The relay archive's multiplexed runtime adapter. It adapts the blocking Mbed
+//! TLS relay carrier to the generic C multiplexed-provider table and owns
+//! readiness, cancellation, and teardown. It moves opaque WebSocket bytes only.
+//! The archive facade owns exported C handles. CapTP framing and Noise_XK
+//! remain Host policy.
 
 const std = @import("std");
 

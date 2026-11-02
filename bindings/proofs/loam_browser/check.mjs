@@ -61,15 +61,22 @@ try {
 						const rows = transaction.objectStore("rows");
 						const originalGet = IDBObjectStore.prototype.get;
 						let queued;
-						const restoreQueued = new Promise((resolve) => { queued = resolve; });
+						const restoreQueued = new Promise((resolve) => {
+							queued = resolve;
+						});
 						globalThis.waitLoamRestoreQueued = () => restoreQueued;
 						let retired;
-						const restoreRetired = new Promise((resolve) => { retired = resolve; });
+						const restoreRetired = new Promise((resolve) => {
+							retired = resolve;
+						});
 						globalThis.waitLoamRestoreRetired = () => restoreRetired;
 						const restores = new Set();
 						const observedGet = function (...args) {
 							const result = originalGet.apply(this, args);
-							if (this.transaction.db.name === "glowcap-loam-browser-proof" && this.transaction.mode === "readonly") {
+							if (
+								this.transaction.db.name === "glowcap-loam-browser-proof" &&
+								this.transaction.mode === "readonly"
+							) {
 								if (!restores.has(this.transaction)) {
 									restores.add(this.transaction);
 									if (restores.size === 1) queued();
@@ -103,7 +110,9 @@ try {
 							};
 						};
 						transaction.oncomplete = transaction.onabort = (event) => {
-							if (event.type === "abort" && IDBObjectStore.prototype.get === observedGet) IDBObjectStore.prototype.get = originalGet;
+							if (event.type === "abort" && IDBObjectStore.prototype.get === observedGet) {
+								IDBObjectStore.prototype.get = originalGet;
+							}
 							clearTimeout(timer);
 							database.close();
 						};
@@ -163,7 +172,9 @@ try {
 	// Warm reads and receipt replays answer from resident state and retained
 	// receipts, so no part of the adapter runs.
 	for (const resident of [byName["warm read"], byName["receipt replay"]]) {
-		for (const field of ["transactions", "js_calls", "callbacks", "database_rows", "emitted_writes", "copied_bytes"]) {
+		for (
+			const field of ["transactions", "js_calls", "callbacks", "database_rows", "emitted_writes", "copied_bytes"]
+		) {
 			assert.equal(resident[field], 0, `${resident.operation} leaves ${field} at zero`);
 		}
 	}

@@ -1,6 +1,7 @@
 // Leaving through each product control must permit a fresh join in the same tab.
 import type { Page } from "playwright";
-import { confirmTitleLeave, fail, fillSettled, say, waitForPostedLine } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { confirmTitleLeave, fillSettled, say, waitForPostedLine } from "./harness.ts";
 
 export async function proveRoomDepartures(tab: Page, room: string): Promise<void> {
 	const row = () => tab.locator("#roomList li").filter({ has: tab.locator(".rname", { hasText: room }) });

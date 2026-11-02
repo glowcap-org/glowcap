@@ -1,15 +1,16 @@
 //! The external toolchain the in-tree gates stand on, and the sub-gates that
 //! hold each build graph to it.
 //!
-//! Two inventories live here because they answer the same question from
-//! opposite sides. `in_tree_runtimes` is what an in-tree gate may invoke, which the
-//! build graph can be read against. `in_tree_capabilities` is what those programs
-//! must already be able to do, which the graph cannot see at all. Both raise
-//! the floor for every contributor, so both are reviewed edits.
+//! Two inventories answer the same question from opposite sides.
+//! `in_tree_runtimes` is what an in-tree gate may invoke, which the build graph
+//! can be read against. `in_tree_capabilities` is what those programs must
+//! already be able to do, which the graph cannot see at all. Both raise the
+//! floor for every contributor, so both are reviewed edits.
 //!
-//! The analysis is in `tools/check/toolchain_check.zig` (declaration, read from
-//! the graph) and `tools/check/toolchain_present.zig` (presence, read from the
-//! machine). This module is the wiring and the tables.
+//! The analysis sits in `tools/check/toolchain_check.zig` (declaration, read
+//! from the graph) and `tools/check/toolchain_present.zig` (presence, read from
+//! the machine). This file holds the two inventories and registers the gate
+//! steps that run those checks against them.
 
 const std = @import("std");
 const toolchain_check = @import("../check/toolchain_check.zig");

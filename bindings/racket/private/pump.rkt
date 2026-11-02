@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the byte-fed embedder pump choreography over the host
-;; (libglowcap_host, ADR-0022 / ADR-0011).
+;; (libglowcap_host, ADR-0011).
 ;;
 ;; Owns the connection byte path the embedder contract leaves to the binding:
 ;; the keyed handshake, read raw bytes off the transport, hand them to the
@@ -13,7 +13,7 @@
 ;; The CapTP surface stays in the `private/session` module family; the host
 ;; action switch (`drain-host-actions!`) lives in `private/action.rkt`. This
 ;; module is required by that family; the public barrel reaches pump only
-;; through session verbs / dogfood plumbing.
+;; through session verbs / test plumbing.
 
 (require ffi/unsafe
          racket/lazy-require
@@ -258,7 +258,7 @@
 ;; The typed cause of this CapTP session's most recent local dispatch failure, or
 ;; #f. It is the host counterpart of the Zig `Peer.lastAbort`, read through the
 ;; shared `GlowcapLastAbort` layout. Feed-refusal owns the reader; Session
-;; re-exports the name for dogfood/plumbing.
+;; re-exports the name for tests and plumbing.
 (define (session-last-abort c)
   (call-with-host
    (session-host c)

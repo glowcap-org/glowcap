@@ -18,7 +18,7 @@ A signed hello on cleartext TCP does not prevent replay or an intermediary from 
 
 ## Decision
 
-The sealed transport symbols use Noise_XK_25519_ChaChaPoly_BLAKE2s over a byte pipe. The pure state machine and record framing remain below CapTP. The Host owns the sealed channel and supplies its actual authenticated-channel proof.
+The pure state machine and record framing remain below CapTP. The Host owns the sealed channel and supplies its actual authenticated-channel proof.
 
 The durable Ed25519 identity maps to an X25519 static key. That map loses an Edwards sign bit, so handshake payloads additionally carry the exact Ed25519 key and its signature over the domain-separated identity, role, static key and initial transcript context. The dialer checks the exact expected responder identity.
 

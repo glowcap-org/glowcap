@@ -18,7 +18,7 @@ A DataChannel needs offers, answers and ICE candidates. Peer identity alone cann
 
 ## Decision
 
-The host owning a WebRTC peer drives its dial and accept exchanges. The C provider owns its Rust peer, the Zig backend owns its signaling exchange, and the browser owns its RTCPeerConnection. The application supplies the signaling carrier.
+The C provider owns its Rust peer, the Zig backend owns its signaling exchange, and the browser owns its RTCPeerConnection. The application supplies the signaling carrier.
 
 Every exchange has an independent identifier. Candidate routing names that exchange rather than only a peer. Managed acceptance is the dial's mirror: authorize the offered remote designator, create the channel, send the answer and yield an accepted session.
 

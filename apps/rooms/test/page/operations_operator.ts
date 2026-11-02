@@ -2,7 +2,8 @@
 
 import type { Page } from "playwright";
 import { removeCapability, takeCapability } from "./capability_set.ts";
-import { fail, fillSettled } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { fillSettled } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
 export async function runOperatorScene(tab: Page, operatorSwiss: string): Promise<void> {

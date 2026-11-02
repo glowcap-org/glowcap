@@ -1,15 +1,13 @@
 //! Import/export namespace and capability-identity operations for one Session.
 //!
-//! `Session` retains the authoritative tables. This module owns every
+//! `Session` retains the authoritative tables. The namespace owns every
 //! operation that admits, allocates, inspects, or unwinds a position in those
-//! tables, plus the Node and Host identities attached to an import
-//! incarnation. Keeping those doors together prevents the marshal,
-//! engine, and Host paths from acquiring different ideas of which capability
-//! names the session holds.
+//! tables, plus the Node and Host identities attached to an import incarnation.
+//! Keeping those doors together prevents the marshal, engine, and Host paths
+//! from acquiring different ideas of which capability names the session holds.
 //!
-//! These operations mutate the existing Session in place. The extraction adds
-//! no allocation, copy, lookup, or traversal beyond the table operation each
-//! method already performed.
+//! These operations mutate the existing Session in place and add no allocation,
+//! copy, lookup, or traversal beyond the table operation each method performs.
 
 const std = @import("std");
 const model = @import("model");

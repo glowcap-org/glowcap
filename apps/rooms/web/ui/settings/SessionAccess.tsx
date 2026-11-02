@@ -25,6 +25,7 @@ import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { useOpenModal } from "../modal.ts";
 import { useAsyncAction } from "../async_action.ts";
+import { Input } from "../Input.tsx";
 
 /** The row's one-line account of what its access allows, when this viewer knows. */
 const rowSaid = (control: HeldControl): string | null =>
@@ -211,9 +212,8 @@ function HoldControlModal({ open, onClose }: { open: boolean; onClose(): void })
 			>
 				<Field id="sessionControlUri" label={text.controlLink} hint={text.controlLinkHint} said={why}>
 					{(wiring) => (
-						<input
+						<Input
 							id={wiring.id}
-							className="field"
 							type="text"
 							{...identifierField}
 							value={uri}

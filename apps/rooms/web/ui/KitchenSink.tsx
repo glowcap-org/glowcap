@@ -23,6 +23,8 @@ import { KitchenAnswers } from "./KitchenAnswers.tsx";
 import { Row, Sample } from "./KitchenSample.tsx";
 import { Checkbox } from "./Checkbox.tsx";
 import { Segmented } from "./Segmented.tsx";
+import { Input } from "./Input.tsx";
+import { Select } from "./Select.tsx";
 
 const swatches = [
 	["ink", "--ink"],
@@ -165,9 +167,8 @@ export function KitchenSink() {
 				<div className="kitchen-stack">
 					<Field id="kitchenFieldPlain" label="Display name" hint="Shown beside what you say.">
 						{(wiring) => (
-							<input
+							<Input
 								id={wiring.id}
-								className="field"
 								readOnly
 								value="alice"
 								aria-describedby={wiring.describedBy}
@@ -181,9 +182,8 @@ export function KitchenSink() {
 							said="Paste the session's ocapn:// capability link."
 						>
 							{(wiring) => (
-								<input
+								<Input
 									id={wiring.id}
-									className="field"
 									readOnly
 									value="not a link"
 									aria-describedby={wiring.describedBy}
@@ -196,18 +196,17 @@ export function KitchenSink() {
 					<Field id="kitchenFieldSelect" label="Access">
 						{(wiring) => (
 							<span className="select-wrap">
-								<select id={wiring.id} className="field" defaultValue="interact">
+								<Select id={wiring.id} defaultValue="interact">
 									<option value="observe">Read only</option>
 									<option value="interact">Can interact</option>
-								</select>
+								</Select>
 							</span>
 						)}
 					</Field>
 					<Field id="kitchenFieldInline" label="port" layout="inline">
 						{(wiring) => (
-							<input
+							<Input
 								id={wiring.id}
-								className="field"
 								readOnly
 								placeholder="an ephemeral port"
 							/>

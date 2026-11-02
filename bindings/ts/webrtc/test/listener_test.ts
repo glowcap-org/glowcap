@@ -16,7 +16,7 @@ import {
 import { GlowcapError, type Host, type Locator } from "@glowcap/runtime";
 import { bringUp, mintExchange, type SignalingAuthority, type SignalingTarget } from "../exchange.ts";
 import { listener } from "../listener.ts";
-import { assertDeepEquals, assertEquals } from "../../dogfood/assert.ts";
+import { assertDeepEquals, assertEquals } from "../../test/assert.ts";
 import { installFakePeerConnection } from "./fake_peer_connection.ts";
 
 const SELF = "a".repeat(64);

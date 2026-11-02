@@ -18,7 +18,7 @@ A measured footprint can regress silently when a field or allocation is added. P
 
 ## Decision
 
-Types own compile-time size ceilings, and allocation tests hold the warmed retained state that a struct size cannot describe. Transport and application costs remain separately attributed.
+Transport and application costs remain separately attributed.
 
 ReleaseFast timing checks are broad tripwires for structural regressions. They use fresh-run absolute ceilings where practical and a same-code growth ratio for GC scaling. Detailed reports remain reproducible measurements with a named environment.
 

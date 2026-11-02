@@ -3,7 +3,7 @@ from glowcap import Runtime, tcp
 # Plain TCP uses a cleartext host and port.
 partner = tcp.locator("127.0.0.1", 9099)
 
-async with Runtime.open(provider=tcp.provider()) as runtime:
+async with Runtime.open(providers=[tcp.provider()]) as runtime:
     # From here, the CapTP workflow is transport-independent.
     async with await runtime.connect(partner) as session:
         greeter = await session.fetch("greeter")  # a capability this peer published

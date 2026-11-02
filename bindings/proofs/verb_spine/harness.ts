@@ -5,9 +5,8 @@
 // scene, in order.
 //
 // The family exists because the four bindings' promise, dial, listen, and GC
-// modules were held together by quoted grep markers in
-// `tools/check/source_check/binding_spine/verb_spines.zig`. A textual presence
-// check cannot see whether a verb behaves, and one already escaped it: the
+// modules share a contract no text check can see: whether a verb behaves. The
+// case that showed it: the
 // `failed` arm of a send that could never be issued existed in Rust alone, so
 // two bindings shipped a promise-returning `send` that raised synchronously and
 // no caller's failure handler could see it. `promise-failed` below is that
@@ -70,6 +69,11 @@
 //                   port 0, dialed its advertised locator from this same
 //                   process, called a published object over the accepted
 //                   session, and closed the listener.
+//   listen-routed   Opened two more listeners on one Host (a Host holds one
+//                   listener per profile, so plain and keyed TCP), dialed
+//                   each, and read back which listener's accept loop served
+//                   the session. An accept handed to the other listener fails
+//                   the scene.
 //   dial-refused    Dialed <deadUri> and got the binding's typed refusal. A
 //                   hang, a panic, or a successful connect all fail the scene.
 //   ok              Every scene above passed and the client is exiting.
@@ -78,7 +82,8 @@
 // exits nonzero with a diagnostic on stderr rather than printing a later
 // marker.
 
-import { awaitMarker, fail, ProofProcesses, runProofOrFail } from "../_support/harness.ts";
+import { awaitMarker, ProofProcesses, runProofOrFail } from "../_support/harness.ts";
+import { fail } from "../../ts/test/assert.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const LIB_DIR = new URL("../../../zig-out/lib/", import.meta.url).pathname;
@@ -97,6 +102,7 @@ const EXPECTED = [
 	"gc-released",
 	"promise-failed",
 	"listen-served",
+	"listen-routed",
 	"dial-refused",
 	"ok",
 ] as const;

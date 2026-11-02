@@ -8,7 +8,7 @@ import {
 import { Rendezvous } from "../rendezvous.ts";
 import { relayBytes } from "../relay.ts";
 import { isKeyDesignator, secondaryFailures } from "@glowcap/runtime";
-import { assertEquals } from "../../dogfood/assert.ts";
+import { assertEquals } from "../../test/assert.ts";
 
 function assertIncludes(actual: string, expected: string): void {
 	if (!actual.includes(expected)) {

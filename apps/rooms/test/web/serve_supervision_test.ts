@@ -3,12 +3,11 @@
 // asset tests so each deterministic process stays inside its 30-second bound.
 
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { freePort } from "../support/rooms_server.ts";
-import { delay, reachRoomThroughRelay, ROOT, spawnWeb, waitForIndex, WEB } from "./serve_harness.ts";
-
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+import { freePort } from "../support/ports.ts";
+import { ROOT, WEB } from "../support/paths.ts";
+import { delay } from "../support/wait.ts";
+import { reachRoomThroughRelay, spawnWeb, waitForIndex } from "./serve_harness.ts";
+import { assert } from "../assert.ts";
 
 Deno.test("the web front reports a room server that cannot start, and stops", async () => {
 	// Startup must preserve the host storage refusal through child retirement.

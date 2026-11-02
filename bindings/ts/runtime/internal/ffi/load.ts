@@ -1,8 +1,7 @@
 // Internal: how every archive loader finds its shared library.
 //
-// glowcap ships its C ABI as à-la-carte archives (ADR-0022), one per concern,
-// and each loader under this folder opens exactly one of them through the
-// runtime FFI seam. This module holds the one piece they all share: resolving a
+// Each loader under this folder opens exactly one archive through the runtime
+// FFI seam. This module holds the one piece they all share: resolving a
 // built archive's path. Nothing here is public.
 //
 // Publishable cascade (ADR-0023; see `c-abi-resolve.json` and

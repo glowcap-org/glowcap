@@ -55,4 +55,5 @@
      (establish-dialed-locator-session
       m loc
       (open-tcp-byte-transport host port)
+      #:verified-channel-key #f
       #:handshake-timeout-ms handshake-timeout-ms))))

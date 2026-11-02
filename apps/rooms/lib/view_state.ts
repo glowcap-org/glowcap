@@ -1,6 +1,6 @@
 // Browser preferences carry presentation choices and no session authority.
 import * as z from "zod/mini";
-import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "./boot_caps.ts";
+import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "./application_data.ts";
 
 export const RoomsViewStateSchema = z.strictObject({
 	theme: z.enum(["light", "dark"]),

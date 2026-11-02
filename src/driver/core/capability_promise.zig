@@ -1,11 +1,12 @@
-//! Host-owned capability promises: a signed handoff give that appears inline
-//! in a Passable value, a partner's pending answer passed as an argument, or
-//! a public Host vow passed as one (ADR-0068). The Node owns cross-session
-//! redemption, the answer's own session owns its settlement, and the vow row
-//! owns its fire. This module owns the application identity that exists
-//! while any is pending and the eventual settlement: a Host capability,
-//! data, or a break. The row contract shared with Host storage lives in
-//! `capability_promise/row.zig`, the answer subscription in
+//! Host-owned capability promises: a signed handoff give that appears inline in
+//! a Passable value, a partner's pending answer passed as an argument, or a
+//! public Host vow passed as one (ADR-0068).
+//!
+//! The Node owns cross-session redemption, the answer's own session owns its
+//! settlement, and the vow row owns its fire. A promise carries the application
+//! identity that exists while any is pending and the eventual settlement: a
+//! Host capability, data, or a break. The row contract shared with Host storage
+//! lives in `capability_promise/row.zig`, the answer subscription in
 //! `capability_promise/answer.zig`, the vow watcher in
 //! `capability_promise/vow.zig`, and the queued operations in
 //! `capability_promise/operations.zig`.

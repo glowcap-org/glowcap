@@ -159,7 +159,7 @@ async def dial_proof() -> None:
         signaling = AnswererSignaling(proc)
         pump_task = asyncio.create_task(pump(proc, signaling.feed))
 
-        async with Runtime.open(provider=webrtc.provider(signaling)) as runtime:
+        async with Runtime.open(providers=[webrtc.provider(signaling)]) as runtime:
             session = await unless_pump_stops(runtime.connect(webrtc.locator(designator)), pump_task)
             async with session:
                 greeter = await asyncio.wait_for(session.fetch("greeter"), timeout=DEADLINE_S)

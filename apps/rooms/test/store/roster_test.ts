@@ -1,6 +1,7 @@
 // Roster projection updates membership and bridge attribution without replacing its conversation object.
 /// <reference lib="dom" />
 import "../support/browser_application.ts";
+import { assert } from "../assert.ts";
 
 // Type-only, so it is erased rather than evaluated: every value import here is
 // dynamic and below, because the store reads `matchMedia` as it loads.
@@ -19,10 +20,6 @@ const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
 const { dirId } = await import("../../web/ui/types.ts");
 const { assertEquals } = await import("../assert.ts");
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 function memberView(away: string): import("../../web/ui/store.ts").RoomViewUpdate {
 	return {

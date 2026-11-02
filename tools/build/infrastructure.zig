@@ -30,6 +30,9 @@ pub fn register(b: *std.Build) void {
     const agent_hooks_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/agent_hooks_test.py" });
     agent_hooks_test.has_side_effects = true;
     infrastructure_check_step.dependOn(&agent_hooks_test.step);
+    const git_hooks_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/git_hooks_test.py" });
+    git_hooks_test.has_side_effects = true;
+    infrastructure_check_step.dependOn(&git_hooks_test.step);
     // Each subject owns its deadline: one process per test file, so unrelated
     // tests never compete for the same 30 seconds on a slow host. A test sits
     // beside its subject, so these directories are the inventory. tools/check

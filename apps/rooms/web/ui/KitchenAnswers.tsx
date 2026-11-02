@@ -24,6 +24,7 @@ import { ToastCard } from "./Toast.tsx";
 import type { SessionPhase } from "./types.ts";
 import { Row, Sample } from "./KitchenSample.tsx";
 import { useState } from "react";
+import { Input } from "./Input.tsx";
 
 const phases: readonly SessionPhase[] = [
 	"connected",
@@ -76,9 +77,8 @@ export function KitchenAnswers() {
 						said="That name is too long for this room (32 characters)."
 					>
 						{({ id, describedBy, invalid }) => (
-							<input
+							<Input
 								id={id}
-								className="field"
 								readOnly
 								value="a name that will not fit"
 								aria-invalid={invalid}
@@ -96,9 +96,8 @@ export function KitchenAnswers() {
 							"unreachableswissnum: the peer closed the session before the handshake finished."}
 					>
 						{({ id, describedBy, invalid }) => (
-							<input
+							<Input
 								id={id}
-								className="field"
 								readOnly
 								value="ocapn://…"
 								aria-invalid={invalid}

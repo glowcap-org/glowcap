@@ -1,14 +1,15 @@
 //! `libglowcap_driver` (ADR-0024): the driver archive. It exports only the
-//! `glowcap_driver_*` loop family that owns the transport-to-host
-//! choreography every binding would otherwise re-implement: park on one readiness
+//! `glowcap_driver_*` loop family that owns the transport-to-host choreography
+//! every binding would otherwise re-implement: park on one readiness
 //! descriptor, step, drain one event queue.
 //!
-//! A consumer of the C driver loop composes `libglowcap_host`, `libglowcap_driver`, and
-//! the transport archives it selects. Symbol families stay disjoint.
+//! A consumer of the C driver loop composes `libglowcap_host`,
+//! `libglowcap_driver`, and the transport archives it selects. Symbol families
+//! stay disjoint.
 //!
 //! The private `loop.zig` state aggregate and `loop/` transition owners compose
-//! here. This root owns the public C types and exact symbol index the header
-//! generator and bindings reflect.
+//! under this root, which owns the public C types and the exact symbol index
+//! the header generator and bindings reflect.
 
 const std = @import("std");
 

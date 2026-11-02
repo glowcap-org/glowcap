@@ -18,7 +18,7 @@ Every embedding needs the same authenticated session transition and bootstrap lo
 
 ## Decision
 
-The core owns the no-I/O handshake and bootstrap state machines. A negotiating session accepts the hello and abort, validates the exchange, then opens with its bootstrap export installed. An adapter supplies entropy, transports the frames and drives completion.
+A negotiating session accepts the hello and abort, validates the exchange, then opens with its bootstrap export installed. An adapter supplies entropy, transports the frames and drives completion.
 
 Bootstrap fetch construction and outcome matching belong to the engine. The session owns its publication registry and validates state. The engine synthesizes replies, while the application supplies the published targets. Parsing a message never invokes application code or invents transport authority.
 

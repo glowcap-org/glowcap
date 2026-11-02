@@ -2,7 +2,7 @@
 // independently from live session possession.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export async function provePrivateRoomHolding(page: Page, name: string): Promise<void> {
 	await page.waitForSelector("#liveHoldingsLegend");

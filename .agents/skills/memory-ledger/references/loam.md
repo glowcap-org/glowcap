@@ -1,7 +1,7 @@
 # Loam memory costs
 
-The [memory ledger](../SKILL.md) owns the naming procedure. Derivations live
-at each declaration, and this inventory names storage and consumer costs.
+Derivations live at each declaration, and this inventory names storage and
+consumer costs.
 
 ## The ledger
 

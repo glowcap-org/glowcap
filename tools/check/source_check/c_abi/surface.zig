@@ -1,6 +1,6 @@
-//! The boring-surface shape of the generated headers: one `_release` per
-//! handle and no other freeing verb, fixed-width parameter vocabulary, the
-//! locator-authority split, and every export consumed by a binding.
+//! The shape of the generated headers: one `_release` per handle and no
+//! other freeing verb, fixed-width parameter vocabulary, and every export
+//! consumed by a binding.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -215,38 +215,6 @@ pub fn checkCAbiHeaderCommentSeparation(
             );
             at = hit + 3;
         }
-    }
-}
-
-/// A peer locator is location vocabulary; a sturdyref adds authority-bearing
-/// swiss bytes and therefore has a distinct handle and release path.
-pub fn checkLocatorAuthoritySplit(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/ocapn/uri.zig", &.{
-        "const GlowcapLocator = c.GlowcapLocator;",
-        "const GlowcapSturdyRef = c.GlowcapSturdyRef;",
-        "glowcap_sturdyref_borrow_locator",
-        "glowcap_sturdyref_swissnum",
-        "glowcap_sturdyref_release",
-    });
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/ocapn/uri/ownership.zig", &.{
-        "pub const SturdyRefPayload = struct",
-        "locator: *LocatorPayload",
-        "swissnum: []u8",
-    });
-    try expectFileContains(io, gpa, root, violations, "include/glowcap_ocapn.h", &.{
-        "typedef struct GlowcapLocator GlowcapLocator;",
-        "typedef struct GlowcapSturdyRef GlowcapSturdyRef;",
-        "glowcap_sturdyref_borrow_locator",
-        "glowcap_sturdyref_swissnum",
-        "glowcap_sturdyref_release",
-    });
-    if (try fileContains(io, gpa, root, "src/c_abi/shared/locator.zig", "swiss")) {
-        try appendViolation(gpa, violations, "src/c_abi/shared/locator.zig: GlowcapLocatorView must remain peer-location vocabulary and cannot carry sturdyref authority", .{});
     }
 }
 

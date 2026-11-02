@@ -1,9 +1,9 @@
 //! Owned state and queue vocabulary for one completion-backed relay leg.
 //!
-//! The backend drives transitions. This module owns the data whose lifetimes
-//! those transitions coordinate. Keeping the state together makes connection
-//! footprint, retry links, buffer ownership, and teardown progress one subject
-//! instead of declarations scattered through the reactor adapter.
+//! The backend drives transitions. The data whose lifetimes those transitions
+//! coordinate (connection footprint, retry links, buffer ownership, and
+//! teardown progress) forms one subject instead of declarations scattered
+//! through the reactor adapter.
 
 const std = @import("std");
 

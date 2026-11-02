@@ -97,3 +97,29 @@ pub mod noise {
 		crate::tcp_listen::listen(bind_host, port, crate::TRANSPORT_NOISE_TCP, options).await
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::{address_designator, keyed, locator, noise};
+
+	#[test]
+	fn ipv6_hosts_keep_their_brackets_in_every_locator() {
+		assert_eq!(address_designator("::1", 4242), "[::1]:4242");
+		assert_eq!(address_designator("[::1]", 4242), "[::1]:4242");
+		assert_eq!(address_designator("127.0.0.1", 4242), "127.0.0.1:4242");
+		assert_eq!(locator("::1", 4242).designator, "[::1]:4242");
+		assert_eq!(locator("127.0.0.1", 4242).designator, "127.0.0.1:4242");
+		for build in [keyed::locator, noise::locator] {
+			let v6 = build("peer", "::1", 4242);
+			assert_eq!(
+				v6.string_hint(crate::HINT_DIRECT_ADDRESSES).expect("string hint"),
+				Some("[::1]:4242")
+			);
+			let v4 = build("peer", "127.0.0.1", 4242);
+			assert_eq!(
+				v4.string_hint(crate::HINT_DIRECT_ADDRESSES).expect("string hint"),
+				Some("127.0.0.1:4242")
+			);
+		}
+	}
+}

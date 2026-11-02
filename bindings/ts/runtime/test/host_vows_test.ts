@@ -4,17 +4,12 @@ import { Host } from "../host.ts";
 import { type PromiseFactoryHandle, promiseFor } from "../promise.ts";
 import { SessionApplication } from "../session/application.ts";
 import { refFromId } from "../value.ts";
-import { assert } from "../../dogfood/assert.ts";
+import { assert, assertRejects } from "../../test/assert.ts";
 
 async function assertRejectsCode(promise: Promise<unknown>, code: number): Promise<void> {
-	try {
-		await promise;
-	} catch (error) {
-		assert(error instanceof GlowcapError, "rejection was not a GlowcapError");
-		assert(error.code === code, `expected ${code}, got ${error.code}`);
-		return;
-	}
-	throw new Error("promise resolved");
+	const error = await assertRejects(() => promise);
+	assert(error instanceof GlowcapError, "rejection was not a GlowcapError");
+	assert(error.code === code, `expected ${code}, got ${error.code}`);
 }
 
 Deno.test("Host vow table evicts unobserved outcomes without shifting the FIFO", async () => {

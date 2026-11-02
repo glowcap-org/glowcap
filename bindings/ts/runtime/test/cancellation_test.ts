@@ -1,7 +1,7 @@
 import { INTERNAL } from "@glowcap/abi";
 import { takeRuntimeFailures } from "../context.ts";
 import { abortable } from "../internal/cancellation.ts";
-import { assertEquals } from "../../dogfood/assert.ts";
+import { assertEquals } from "../../test/assert.ts";
 
 Deno.test("abortable reports an asynchronous late-owner refusal exactly once", async () => {
 	const controller = new AbortController();

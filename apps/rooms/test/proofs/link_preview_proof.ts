@@ -6,9 +6,10 @@ import { spawnWeb } from "../support/web_front.ts";
 
 import { chromium } from "playwright";
 import { run } from "../page/link_previews.ts";
-import { fail } from "../page/harness.ts";
+import { fail } from "../support/fail.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort, waitForHttp } from "../support/rooms_server.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const httpPort = freePort();

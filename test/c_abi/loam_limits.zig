@@ -34,7 +34,7 @@ pub fn check(owner: *c.embedding.Attachment, reference: shared.GlowcapReference,
     const targets: [4]@import("driver_core").Capability = @splat(capability);
     // Target refusal occurs while count and byte capacity are available.
     try std.testing.expectError(error.ContinuationCapacity, hosting.Continuation.reserveCopying(&calls[0], .{ .verb = "get", .args = &.{} }, &targets, activation));
-    // This fits the former 64 KiB default but exceeds the configured 4 KiB.
+    // This exceeds the configured 4 KiB.
     try std.testing.expectError(error.OutOfMemory, hosting.Continuation.reserveCopying(&calls[0], .{ .verb = &@as([8192]u8, @splat('v')), .args = &.{} }, &.{}, activation));
     try std.testing.expectEqual(baseline, host.capabilities.retainCount(capability).?);
     try std.testing.expectEqual(@as(usize, 0), owner.value.continuations);

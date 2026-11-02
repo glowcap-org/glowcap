@@ -1,8 +1,7 @@
 //! Row representation and target vocabulary for the foreign stream adapter.
-//!
-//! `completion.zig` owns every transition. This leaf holds only the shapes it
-//! moves between: a connection row with its armed polls, the provider
-//! listener row, and the dial, listen, and address unions.
+//! `completion.zig` owns every transition. The shapes it moves between are a
+//! connection row with its armed polls, the provider listener row, and the
+//! dial, listen, and address unions.
 
 const model = @import("model");
 const completion = @import("../../completion/loop.zig");

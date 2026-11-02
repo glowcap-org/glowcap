@@ -18,7 +18,7 @@ Durable graph state is useful beyond one access model. Putting persistence in th
 
 ## Decision
 
-Loam is an optional persistence foundation below managed access. It stores bounded records and transactions, with explicit leases, residency and opening incarnations. Immutable collections remain a dependency-free leaf.
+Loam stores bounded records and transactions, with explicit leases, residency and opening incarnations. Immutable collections remain a dependency-free leaf.
 
 The shared Zig core evaluates transaction batches. Evaluation is resumable across a missing read and retains no backend row across that suspension. Once writes begin, they are emitted synchronously into the same atomic storage transaction. Engine adapters and browser execution supply effects rather than a second transaction interpreter.
 

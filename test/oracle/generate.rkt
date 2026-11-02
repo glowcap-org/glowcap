@@ -13,9 +13,6 @@
 ;; Usage (inside the devcontainer):
 ;;
 ;;   racket generate.rkt <out-dir>
-;;
-;; The Python sibling (`generate.py`) encodes the same records through the
-;; upstream Python Syrup encoder as a by-hand cross-check.
 
 (require racket/cmdline
          racket/file
@@ -481,8 +478,7 @@
 ;;
 ;; Primitive-level coverage so the byte-shape verification doesn't
 ;; stop at the OCapN record layer. Each builder returns a Racket
-;; value the upstream `syrup-encode` accepts directly. Mirrors the
-;; sibling Python generator at `../generate.py`.
+;; value the upstream `syrup-encode` accepts directly.
 
 (define (prim-string-hello) "hello")
 (define (prim-integer-pos-42) 42)

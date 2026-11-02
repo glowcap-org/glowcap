@@ -2,7 +2,7 @@
 // A reset retires the earlier publication. The existing tab must be able to status-allow: event or source ordering
 // choose another workspace through local custody without deleting its Store.
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export async function proveSessionReplacement(page: Page, replacement: string): Promise<void> {
 	await page.reload();

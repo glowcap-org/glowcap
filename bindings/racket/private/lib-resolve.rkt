@@ -33,7 +33,7 @@
 
 ;; Package-local contract (ADR-0023). Ships with the binding; not the monorepo.
 (define-runtime-path resolve-contract "c-abi-resolve.json")
-;; Dev-only: walk to a glowcap checkout when present (dogfoods / in-tree).
+;; Dev-only: walk to a glowcap checkout when present (tests / in-tree).
 (define-runtime-path package-private-dir ".")
 
 (define (env-truthy? name)
@@ -434,7 +434,7 @@
           [else (sleep 0.1) (lock-loop (add1 n))])))))
 
 (define (zig-out-lib)
-  ;; In-tree dogfood rung: discoverable glowcap checkout → zig-out/lib.
+  ;; In-tree checkout: discoverable glowcap checkout → zig-out/lib.
   (define root (find-dev-root))
   (and root (build-path root "zig-out" "lib")))
 

@@ -1,21 +1,13 @@
-// What every phase of a page proof needs: how to fail with a sentence, where
-// the executables are, a free port, waiting for the server, and the verbs for
-// driving the page itself: saying a line, opening a direct message, waiting for
-// a bubble, leaving, pressing through the join card, and reading the contrast
-// of ink actually drawn on a bubble.
+// What every phase of a page proof needs to drive the page itself: saying a
+// line, opening a direct message, waiting for a bubble, leaving, pressing
+// through the join card, and reading the contrast of ink actually drawn on a
+// bubble. Failing, ports, paths, and waiting come from the files that own them.
 //
 // A proof is one conversation driven in order, so these are the only things
 // shared across its phases. Everything else a phase needs, it is handed.
 import type { Locator, Page } from "playwright";
 import { inkContrast } from "../ink_contrast.ts";
-
 import { fail } from "../support/fail.ts";
-
-export { fail };
-export { ROOT, SERVER, WEB } from "../support/paths.ts";
-export { freePort } from "../support/ports.ts";
-export { until } from "../support/wait.ts";
-export { waitForHttp } from "../support/rooms_server.ts";
 
 /** Measure hovered ink against every painted ancestor, including opaque file
  * chips inside a gradient bubble. The shared contrast owner handles browser

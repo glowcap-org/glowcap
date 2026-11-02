@@ -13,7 +13,7 @@
 
 import type { Page } from "playwright";
 import { waitForFiniteAnimations } from "../support/animations.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { inkContrast } from "../ink_contrast.ts";
 
 /** The questions the rail's filter puts to its rows, in the order the panel

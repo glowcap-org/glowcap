@@ -1,7 +1,7 @@
 //! The blocking Tor onion transport (the `onion` feature).
 //!
 //! This module wraps `libglowcap_net_transport_onion`: the `glowcap_onion_*`
-//! archive that the `onion` Cargo feature links (ADR-0022). `onion` is the one
+//! archive that the `onion` Cargo feature links. `onion` is the one
 //! netlayer the OCapN draft standardizes, and the one upstream Spritely Goblins
 //! ships, so it is where a glowcap peer and a Goblins vat meet on ground neither
 //! invented.

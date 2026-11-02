@@ -2,9 +2,9 @@
 //! against the scriptable platform in `test/support/keyed_relay_admission.zig`:
 //! the measured per-connection footprint, construction refusals, recv-buffer
 //! recycling and starvation accounting, upgrade byte bounds, and release
-//! idempotence. Dials live beside this file in
-//! `keyed_relay_completion_dial_test.zig`, and the close and control-frame
-//! choreography in `keyed_relay_completion_wire_test.zig`.
+//! idempotence. Dials are proven in `keyed_relay_completion_dial_test.zig`, and
+//! the close and control-frame choreography in
+//! `keyed_relay_completion_wire_test.zig`.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

@@ -4,7 +4,9 @@
 // object hosted in the page. Rooms is absent from this proof.
 
 import { chromium } from "playwright";
-import { bundleProbe, fail, freePort } from "./support.ts";
+import { RELAY_READY_MARKER } from "../../relay/mod.ts";
+import { fail } from "../../test/assert.ts";
+import { bundleProbe, freePort } from "./support.ts";
 
 declare global {
 	var glowcapNoiseReady: {
@@ -33,7 +35,7 @@ async function awaitRelay(child: Deno.ChildProcess): Promise<RelayOutput> {
 		const { value, done } = await reader.read();
 		if (done) fail("relay exited before becoming ready");
 		buffered += value;
-		const match = /DENO-RELAY-READY (\d+)\n/.exec(buffered);
+		const match = new RegExp(`${RELAY_READY_MARKER} (\\d+)\n`).exec(buffered);
 		if (match == null) continue;
 		return { port: Number(match[1]), reader, buffered };
 	}

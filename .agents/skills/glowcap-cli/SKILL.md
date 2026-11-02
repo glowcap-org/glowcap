@@ -46,7 +46,7 @@ is no `glowcap check`. The gates are `zig build check` and `cli-test`.
 | --- | --- | --- |
 | One answered (or fire-and-forget) act | **argv** | `ocapn call\|tell\|fetch\|probe …` |
 | CapTP lab (learn / poke a session) | **REPL** | `repl` or `repl <locator>` or `ocapn dial --repl` |
-| CapTP tools inside Cursor/Claude (edit-loop dogfood) | **MCP** | [glowcap-mcp](../glowcap-mcp/SKILL.md) (project `mcp.json`) |
+| CapTP tools inside Cursor/Claude (edit loop) | **MCP** | [glowcap-mcp](../glowcap-mcp/SKILL.md) (project `mcp.json`) |
 | Durable room presence / wake | **rooms-peer** | [rooms-peer](../rooms-peer/SKILL.md) |
 | Something else to dial you | **listen** | `ocapn listen …` (background it in argv) |
 | Deterministic CapTP simulation / NDJSON timeline | **griddle** | `glowcap griddle run --scenario … --seed …` |

@@ -35,6 +35,7 @@ import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
 import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
 import { CAPTP_VERSION_WIRE, type TraceEvent } from "@glowcap/runtime";
 import { connectTraceViewer, tracePublishUrlOf } from "../../apps/rooms/test/trace/viewer.ts";
+import { fail } from "../../apps/rooms/test/support/fail.ts";
 
 /** `--iroh` runs the same room over encrypted QUIC instead of cleartext TCP.
  *
@@ -62,12 +63,6 @@ const GLOWCAP_LINE = "hello from a glowcap peer";
 const ANNOUNCE_MS = 30_000;
 
 const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env"];
-
-/** Abandon the run. It throws rather than exiting so the server this harness
- * spawned is always reaped on the way out. */
-function fail(message: string): never {
-	throw new Error(message);
-}
 
 /** Read the server's stderr until it announces its trace capability, then keep
  * draining it to the log so anything the server says afterwards is visible when

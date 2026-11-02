@@ -2,10 +2,8 @@
 ;; Internal: the raw `ffi/unsafe` loader for libglowcap_net_transport_onion.
 ;;
 ;; Nothing here is public; `../glowcap-onion.rkt` is the ergonomic surface over
-;; it. This loader opens ONLY the onion transport archive (ADR-0022): it carries
-;; the `glowcap_onion_*` family plus its own thread-local last-error,
-;; symbol-disjoint from libglowcap_ocapn and from the other transports.
-;; Requiring it loads no other archive.
+;; it. This loader opens ONLY the onion transport archive, which carries the
+;; `glowcap_onion_*` family plus its own thread-local last-error.
 ;;
 ;; The onion netlayer reaches a Tor daemon the deployment already runs, so its
 ;; dial and accept park the calling thread for as long as a circuit takes, which

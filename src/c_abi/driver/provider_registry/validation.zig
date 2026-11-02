@@ -1,8 +1,6 @@
-//! Fixed provider-table and profile admission.
-//!
-//! This leaf validates borrowed C shapes without owning a package, adapter, or
-//! runtime fact. Successful values remain borrowed until the registry copies
-//! the policy it installs.
+//! Fixed provider-table and profile admission. It validates borrowed C shapes
+//! without owning a package, adapter, or runtime fact. Successful values remain
+//! borrowed until the registry copies the policy it installs.
 
 const std = @import("std");
 

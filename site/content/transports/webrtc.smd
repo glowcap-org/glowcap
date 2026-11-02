@@ -92,7 +92,7 @@ capability they can already reach. That exchange is called signaling.
 > signaling: SignalingAuthority
 > partner = locator("<64 lowercase hex characters from the peer>")
 >
-> async with Runtime.open(provider=provider(signaling)) as runtime:
+> async with Runtime.open(providers=[provider(signaling)]) as runtime:
 > ```
 > **Rust**
 > ```rust
@@ -174,8 +174,6 @@ The base archives stay pure Zig, and building this one needs `cargo`.
 A non-browser endpoint serves many DataChannels from one thread by watching a
 single file descriptor that signals readiness, the same way
 [iroh]($link.page('transports/iroh')) does.
-[What you can depend on]($link.page('stability')) says which WebRTC checks run
-in CI and which are manual.
 
 # In the browser
 
@@ -211,7 +209,6 @@ It can observe timing and volume.
 A [handoff]($link.page('concepts')) over WebRTC works as on any session: the
 introducer names the object's host, and the recipient dials that peer on a
 fresh session to collect it. The redeeming host needs signaling configured.
-[What you can depend on]($link.page('stability')) lists what the tests cover.
 
 For peers outside the browser that need discovery or NAT traversal, prefer
 [iroh]($link.page('transports/iroh')). The rest of the lineup is on

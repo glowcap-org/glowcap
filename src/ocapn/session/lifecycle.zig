@@ -1,6 +1,6 @@
 //! Construction, configuration, and teardown for one Session aggregate.
 //!
-//! Session remains the authoritative state container. This module owns the
+//! Session remains the authoritative state container. The lifecycle owns the
 //! only full initializer and the matching whole-aggregate retirement walk, so
 //! adding a retained table cannot acquire a second construction or teardown
 //! policy elsewhere.

@@ -92,7 +92,7 @@ def check_racket() -> None:
     binding = ROOT / "bindings" / "racket"
     with tempfile.TemporaryDirectory(prefix="glowcap-site-racket-") as directory:
         work = Path(directory)
-        # A copy without bytecode: racket-dogfood runs `racket -y` over the
+        # A copy without bytecode: racket-test runs `racket -y` over the
         # same binding tree and writes its `compiled/` while this check runs,
         # and a stale `.zo` could hide a broken source. The copy expands every
         # binding module from source, while Racket's own libraries keep their

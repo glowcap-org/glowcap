@@ -3,7 +3,8 @@
 import { Buffer } from "node:buffer";
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { awaitBubble, fail, openDmTo } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { awaitBubble, openDmTo } from "./harness.ts";
 import { namedDirectRow } from "../support/conversation_row.ts";
 
 export async function proveSharedMixedDirect(

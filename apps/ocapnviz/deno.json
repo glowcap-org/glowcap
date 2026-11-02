@@ -92,7 +92,15 @@
     "lineWidth": 120,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["src/", "browser/", "scripts/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts"],
+    "include": [
+      "src/",
+      "browser/",
+      "scripts/",
+      "public/sw.js",
+      "vite.config.ts",
+      "vite-dev-listen.ts",
+      "vite-dev-listen.test.ts"
+    ],
     "exclude": ["dist/", "node_modules/"]
   },
   "lint": {

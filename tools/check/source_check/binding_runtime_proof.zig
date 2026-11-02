@@ -57,7 +57,7 @@ const bindings = [_]Binding{
         .ext = ".py",
         .lib = &.{"bindings/python/glowcap"},
         .ffi_tier = &.{"_sigs_gen.py"},
-        .proof = &.{ "bindings/python/zig_smoke.py", "bindings/python/smoke", "bindings/python/relay.py" },
+        .proof = &.{ "bindings/python/test", "bindings/python/relay.py" },
     },
     .{
         .lang = .racket,
@@ -71,7 +71,7 @@ const bindings = [_]Binding{
             "bindings/racket/glowcap-inproc.rkt",
         },
         .ffi_tier = &.{ "ffi-host-gen.rkt", "ffi-shared.rkt" },
-        .proof = &.{ "bindings/racket/zig-smoke.rkt", "bindings/racket/test/zig-smoke", "bindings/racket/relay.rkt" },
+        .proof = &.{ "bindings/racket/test", "bindings/racket/relay.rkt" },
     },
 };
 

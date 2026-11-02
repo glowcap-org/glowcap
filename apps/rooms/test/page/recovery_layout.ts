@@ -6,7 +6,7 @@
 // the first and last of these and not the fold's place.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export async function proveRecoveryDialogLayout(tab: Page): Promise<void> {
 	await tab.waitForSelector('dialog[open] #sessionRecoveryList[aria-busy="false"]', { state: "attached" });

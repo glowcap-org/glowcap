@@ -1,7 +1,7 @@
 //! Raw TCP socket realization shared by every TCP profile and projection.
 //!
-//! This module owns the one transition from `std.Io` to TCP sockets: dialing,
-//! binding, accepting, stream tuning, readiness, byte I/O, and close. OCapN
+//! It is the one transition from `std.Io` to TCP sockets: dialing, binding,
+//! accepting, stream tuning, readiness, byte I/O, and close. OCapN
 //! locator/profile semantics stay in the sibling adapters. Engine connections
 //! and C callbacks both project this same runtime instead of reimplementing it.
 

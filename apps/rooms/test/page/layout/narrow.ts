@@ -1,6 +1,6 @@
 // Narrow screens keep navigation, hit targets and conversation text reachable.
 import type { Page } from "playwright";
-import { fail } from "../harness.ts";
+import { fail } from "../../support/fail.ts";
 
 export async function run(tab: Page, descendersIntact: (where: string) => Promise<void>): Promise<void> {
 	// ── The narrow layout ────────────────────────────────────────────────

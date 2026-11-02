@@ -49,6 +49,7 @@ import { Submodal } from "../Submodal.tsx";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
+import { Input } from "../Input.tsx";
 
 /** Where history is written now, said once under the switch. */
 function historySaid(
@@ -254,9 +255,8 @@ function ArchivePeerModal(
 					said={why}
 				>
 					{(wiring) => (
-						<input
+						<Input
 							id={wiring.id}
-							className="field"
 							type="password"
 							{...identifierField}
 							aria-describedby={wiring.describedBy}

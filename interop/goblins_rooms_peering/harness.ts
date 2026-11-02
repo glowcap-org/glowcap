@@ -8,7 +8,8 @@
 import { runChild } from "../../apps/_demo/orchestrator.ts";
 import { loopbackTcpDesignator, roomsHost } from "../../apps/rooms/lib/locator.ts";
 import { Directory, DirectoryPeering, Room } from "../../apps/rooms/lib/room/client.ts";
-import { assert, TestRuntimeScope, withPeeringServer, withServer } from "../../apps/rooms/test/support/rooms_server.ts";
+import { assert } from "../../apps/rooms/test/assert.ts";
+import { TestRuntimeScope, withPeeringServer, withServer } from "../../apps/rooms/test/support/rooms_server.ts";
 import { nextMessage } from "../../apps/rooms/test/support/subscribe.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;

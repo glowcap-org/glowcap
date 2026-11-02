@@ -1,10 +1,10 @@
 //! Passable argument and reference validation.
 //!
-//! This module owns the one recursive walk shared by owned `model.*` values
-//! and borrowed `model.view.*` projections. It validates reference roles,
-//! nesting, handoff arguments, and set/struct uniqueness while recording every
-//! introduced import for apply. It reads session authority but never mutates
-//! it. Only the caller-owned `IntroducedImports` turn record changes.
+//! It is the one recursive walk shared by owned `model.*` values and borrowed
+//! `model.view.*` projections. It validates reference roles, nesting, handoff
+//! arguments, and set/struct uniqueness while recording every introduced import
+//! for apply. It reads session authority but never mutates it. Only the
+//! caller-owned `IntroducedImports` turn record changes.
 
 const std = @import("std");
 const foundation = @import("foundation");

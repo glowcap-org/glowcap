@@ -20,7 +20,7 @@ fix the test.
 - **unit:** a module-internal invariant. A failure points at that layer.
 - **scenario:** a whole-conversation trace through the engine compared against
   the oracle. A failure points at session or engine behavior.
-- **oracle:** `src/oracle/` traces plus the `test/oracle/` corpus and arm
+- **oracle:** `test/oracle/` scenario traces, corpus, and arm
   registry. The corpus is glowcap-authored, so the live steps
   (`goblins-interop`, `ocapn-conformance`) are the stronger authority.
 - **conformance:** external authority (OCapN spec, live Goblins, upstream
@@ -55,7 +55,7 @@ implementation as the authority in prose.
   values from a loader that is proven to have the data, and fail on an empty
   expectation instead of comparing with it.
 - Tests that dial name a finite budget ([captp-waits](captp-waits.md)).
-- A pair harness holds every pair at rest to `oracle.agreement` (ADR-0071).
+- A pair harness holds every pair at rest to `scenarios.agreement` (ADR-0071).
   A fixture that installs a row by hand installs its partner's counterpart.
 - Before deleting a test file with its subject, read every scenario in it and
   move each one that exercises a surviving surface: a file's name does not list
@@ -82,7 +82,7 @@ implementation as the authority in prose.
 - `test/support`: shared helpers, including copy utilities.
 - `test/interface`: compiler descriptions and independent application message fixtures.
 - `test/api_surface_test.zig`: references every exported declaration.
-- `bindings/rust`: Rust consumer smoke tests via `zig build rust-dogfood`.
+- `bindings/rust`: the Rust binding's tests, `zig build rust-test`.
 - `bindings/proofs`: per-binding proof families, every peer glowcap.
 
 External arbiters live in [`conformance/`](../../conformance/README.md) and

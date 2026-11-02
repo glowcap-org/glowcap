@@ -1,9 +1,9 @@
 //! Host policy between decoded CapTP events and the application Vat.
 //!
-//! This internal owner handles the complete interception transaction: session
-//! handshake policy, signed-give redemption, withdraw resolution claims, and
-//! proxy-listener projection. The supported hooks remain direct aliases on
-//! `Host`. This module is not a consumer namespace.
+//! One interception transaction covers session handshake policy, signed-give
+//! redemption, withdraw resolution claims, and proxy-listener projection. The
+//! supported hooks remain direct aliases on `Host`. The module is an internal
+//! owner, not a consumer namespace.
 
 const std = @import("std");
 

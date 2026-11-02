@@ -1,8 +1,8 @@
 //! Host identity designator and advertised-locator projection for the C ABI.
 //!
-//! The core Host owns its acceptable locations. This leaf admits borrowed C
-//! locator views, transfers their owned form into that Host, and exposes the
-//! pure durable-seed helper used to construct keyed locator designators. status-allow: purpose clause
+//! The core Host owns its acceptable locations. Borrowed C locator views are
+//! admitted and their owned form transferred into that Host, and the pure
+//! durable-seed helper constructs keyed locator designators.
 
 const foundation = @import("foundation");
 const model = @import("model");

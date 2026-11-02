@@ -23,9 +23,11 @@ import { spawnWeb } from "../support/web_front.ts";
 // (the devcontainer image ships one).
 // Run: `zig build rooms-web-page`.
 
-import { SERVER } from "../support/paths.ts";
 import { chromium } from "playwright";
-import { fail, freePort, ROOT, waitForHttp } from "../page/harness.ts";
+import { fail } from "../support/fail.ts";
+import { ROOT, SERVER } from "../support/paths.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
 import * as opening from "../page/opening.ts";
 import { proveFocusKeepsMobileViewport } from "../page/mobile_controls.ts";
 import * as firstRail from "../page/first_rail.ts";

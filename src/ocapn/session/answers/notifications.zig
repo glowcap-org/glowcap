@@ -1,6 +1,7 @@
 //! Stable answer-notification ownership across `op:gc-answers` and position
-//! reuse. The answer table owns pipelining. This module owns the independently
-//! accepted resolver/listener obligation and its one stored resolution.
+//! reuse. The answer table owns pipelining. The notifications own the
+//! independently accepted resolver/listener obligation and its one stored
+//! resolution.
 
 const std = @import("std");
 const foundation = @import("foundation");

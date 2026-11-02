@@ -35,7 +35,7 @@ never needs `serve`.
 > partner = locator(node_id)
 >
 > async with Runtime.open(
->     provider=provider(IrohConfig(Reachability.DISCOVERY))
+>     providers=[provider(IrohConfig(Reachability.DISCOVERY))]
 > ) as runtime:
 > ```
 > **webrtc**
@@ -49,7 +49,7 @@ never needs `serve`.
 > signaling: SignalingAuthority
 > partner = locator("<64 lowercase hex characters from the peer>")
 >
-> async with Runtime.open(provider=provider(signaling)) as runtime:
+> async with Runtime.open(providers=[provider(signaling)]) as runtime:
 > ```
 > **noise-tcp**
 > ```python
@@ -59,7 +59,7 @@ never needs `serve`.
 > peer_key = "<64 lowercase hex characters from the server>"
 > partner = tcp.noise.locator(peer_key, "127.0.0.1", 9099)
 >
-> async with Runtime.open(provider=tcp.provider()) as runtime:
+> async with Runtime.open(providers=[tcp.provider()]) as runtime:
 > ```
 > **noise-relay**
 > ```python
@@ -70,7 +70,7 @@ never needs `serve`.
 > relay_url = "wss://relay.example/relay"
 > partner = relay.noise.locator(peer_key, relay_url)
 >
-> async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
+> async with Runtime.open(providers=[relay.provider(relay_url)]) as runtime:
 > ```
 > **onion**
 > ```python
@@ -80,7 +80,7 @@ never needs `serve`.
 > partner = onion.locator("<56-character onion service id>")
 >
 > async with Runtime.open(
->     provider=onion.provider(onion.OnionConfig(socks="/run/tor/socks"))
+>     providers=[onion.provider(onion.OnionConfig(socks="/run/tor/socks"))]
 > ) as runtime:
 > ```
 > **keyed-tcp**
@@ -91,7 +91,7 @@ never needs `serve`.
 > peer_key = "<64 lowercase hex characters from the server>"
 > partner = tcp.keyed.locator(peer_key, "127.0.0.1", 9099)
 >
-> async with Runtime.open(provider=tcp.provider()) as runtime:
+> async with Runtime.open(providers=[tcp.provider()]) as runtime:
 > ```
 > **keyed-relay**
 > ```python
@@ -102,7 +102,7 @@ never needs `serve`.
 > relay_url = "wss://relay.example/relay"
 > partner = relay.keyed.locator(peer_key, relay_url)
 >
-> async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
+> async with Runtime.open(providers=[relay.provider(relay_url)]) as runtime:
 > ```
 > **tcp**
 > ```python
@@ -111,7 +111,7 @@ never needs `serve`.
 > # Plain TCP uses a cleartext host and port.
 > partner = tcp.locator("127.0.0.1", 9099)
 >
-> async with Runtime.open(provider=tcp.provider()) as runtime:
+> async with Runtime.open(providers=[tcp.provider()]) as runtime:
 > ```
 
 From here, the CapTP workflow is the same for every transport:

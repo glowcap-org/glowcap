@@ -11,7 +11,7 @@ import {
 	FEATURE_UNTAG,
 } from "@glowcap/abi";
 import { type CaptpVersion, captpVersionId, type Codec, codecId, featureMask, refFromId } from "../value.ts";
-import { assertEquals } from "../../dogfood/assert.ts";
+import { assertEquals } from "../../test/assert.ts";
 
 function assertThrows(fn: () => unknown, message: string): void {
 	try {

@@ -18,7 +18,7 @@ Use, management, issuance and mutation recovery need to survive storage suspensi
 
 ## Decision
 
-An owner stores its header and sparse resource, grant and child indexes in Loam records. Use and control descriptors are distinct held capabilities. Management powers and ceilings are immutable and independently checked through their control dependencies.
+Use and control descriptors are distinct held capabilities. Management powers and ceilings are immutable and independently checked through their control dependencies.
 
 A control can inspect or issue within its ceiling without requiring current use to be active or able to delegate. Revoking a control retires its management descendants without silently revoking the separately held use grant. Current grant ancestry still controls use.
 

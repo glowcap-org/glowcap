@@ -77,7 +77,7 @@ stream sealed, and iroh when they also need discovery or NAT traversal.
 > peer_key = "<64 lowercase hex characters from the server>"
 > partner = tcp.noise.locator(peer_key, "127.0.0.1", 9099)
 >
-> async with Runtime.open(provider=tcp.provider()) as runtime:
+> async with Runtime.open(providers=[tcp.provider()]) as runtime:
 > ```
 > **Rust**
 > ```rust
@@ -176,7 +176,7 @@ stream sealed, and iroh when they also need discovery or NAT traversal.
 > relay_url = "wss://relay.example/relay"
 > partner = relay.noise.locator(peer_key, relay_url)
 >
-> async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
+> async with Runtime.open(providers=[relay.provider(relay_url)]) as runtime:
 > ```
 > **Rust**
 > ```rust
@@ -425,4 +425,3 @@ The Rust, Python, TypeScript, and Racket bindings dial and register through the
 relay provider package. A browser peer speaks the same `noise-relay` through
 its WebSocket connector. Rooms can carry direct messages over it through the room's own
 relay instead of the default WebRTC channel.
-[What you can depend on]($link.page('stability')) lists the checks.

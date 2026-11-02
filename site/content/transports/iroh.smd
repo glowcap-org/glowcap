@@ -89,7 +89,7 @@ dial passes only the locator and any per-connect options.
 > partner = locator(node_id)
 >
 > async with Runtime.open(
->     provider=provider(IrohConfig(Reachability.DISCOVERY))
+>     providers=[provider(IrohConfig(Reachability.DISCOVERY))]
 > ) as runtime:
 > ```
 > **Rust**
@@ -284,5 +284,4 @@ introducer names the object's host by node id, and the recipient dials that id
 on a fresh encrypted session to collect it.
 
 For a full application, run the [Rooms]($link.page('rooms')) chat with
-`zig build demo-rooms-iroh`. [What you can depend on]($link.page('stability'))
-separates deterministic checks from public discovery tests.
+`zig build demo-rooms-iroh`.

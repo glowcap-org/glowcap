@@ -1,5 +1,5 @@
 """Internal: the raw ``ctypes`` mirror of the ``glowcap_host_*`` byte-fed
-host family (ADR-0022), loaded from ``libglowcap_host``.
+host family, loaded from ``libglowcap_host``.
 
 Nothing here is public. The driver is a separate archive and exports only
 ``glowcap_driver_*``. It adopts a Host created through this family. The Host

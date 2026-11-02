@@ -5,13 +5,10 @@
 ;; provider, and server surface. This module owns the readiness loop and raw
 ;; byte-channel endpoint; it contains no application-facing selection policy.
 ;;
-;; Mirrors the à-la-carte archive split (ADR-0022): `glowcap.rkt` is the core
-;; (libglowcap_ocapn). Each transport is a composable module:
-;; `glowcap-tcp.rkt`, `glowcap-inproc.rkt`, and this one. This module is
-;; libglowcap_net_transport_iroh's binding, the optional encrypted-QUIC netlayer.
-;; Its private loader (`private/ffi-iroh.rkt`) opens ONLY the iroh companion
-;; (`zig build iroh-abi`, needs cargo). That archive exports only `glowcap_iroh_*`
-;; and builds an `async-transport` over it through the transport seam
+;; This module is libglowcap_net_transport_iroh's binding, the optional
+;; encrypted-QUIC netlayer. Its private loader (`private/ffi-iroh.rkt`) opens
+;; ONLY the iroh companion (`zig build iroh-abi`, needs cargo). That archive
+;; exports only `glowcap_iroh_*` and builds an `async-transport` over it through the transport seam
 ;; (`private/seam.rkt`); the core calls come from there. Everything above the
 ;; pump (vat, session-* verbs, events) is the core's; only the transport differs.
 ;;
@@ -519,7 +516,7 @@
      (run-ffi-finalizer! "iroh-endpoint.finalize" (lambda () (iroh-endpoint-close! q)) #:layer 'transport)))
   e)
 
-;; Internal fault projection used by the resident loop and binding dogfood.
+;; Internal fault projection used by the resident loop and the binding's tests.
 (define (iroh-endpoint-record-failure! e error)
   (record-iroh-loop-failure! (iroh-endpoint-loop e) error))
 

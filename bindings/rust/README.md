@@ -217,7 +217,7 @@ configure one, so `Config` names where an existing daemon listens. With
 the generic driver and yield ordinary Sessions. `onion::Netlayer` remains the
 raw frame handle. The [onion page](https://glowcap.org/transports/onion/) explains what Tor proves.
 
-The crate's own check, `zig build rust-dogfood`, uses a fake daemon and does not test live Tor.
+The crate's own check, `zig build rust-test`, uses a fake daemon and does not test live Tor.
 Repository-level on-demand checks cross Tor with two glowcap peers, Goblins in both directions, the
 upstream conformance suite, service restoration, and Rooms, and the
 [stability page](https://glowcap.org/stability/) records that evidence.

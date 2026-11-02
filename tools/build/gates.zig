@@ -47,7 +47,7 @@ pub const Registered = struct {
     wasm_archives: *std.Build.Step,
     /// The scenario and agreement layer, for a test root outside the main
     /// suite whose pair harness holds pairs to the agreement.
-    oracle: *std.Build.Module,
+    scenarios: *std.Build.Module,
 };
 
 /// The full `src/root.zig` module graph for an arbitrary target, used by the
@@ -69,13 +69,27 @@ fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Op
     return mods[layerIndex("actors")];
 }
 
+/// The CapTP scenario drivers under `test/oracle/scenarios/`: test code that
+/// drives a `Peer` through fixed protocol scenarios and returns the wire bytes
+/// the oracle, fuzz, and memcheck suites compare. Built once per module graph
+/// because each graph has its own target and mode.
+fn scenariosModule(b: *std.Build, mods: []*std.Build.Module, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path("test/oracle/scenarios/mod.zig"),
+        .target = t,
+        .optimize = o,
+    });
+    inline for (.{ "foundation", "model", "session", "engine" }) |layer| mod.addImport(layer, mods[layerIndex(layer)]);
+    return mod;
+}
+
 /// The browser binding's freestanding `wasm32` artifact (ADR-0034): the byte-fed
 /// CapTP Host (`libglowcap_host`) and the shared `libglowcap_ocapn` vocabulary
 /// compiled to one loadable wasm module. It roots on `src/c_abi/wasm/mod.zig`,
 /// which forces both export families in and adds the JS<->wasm linear-memory
 /// primitives. The module graph is the sans-io core (the `core = true` prefix)
-/// plus the two ocapn C ABI vocabulary rows. The I/O layers (`net`, `driver`,
-/// `oracle`) wasm lacks are excluded. ReleaseSmall keeps the download small and
+/// plus the two ocapn C ABI vocabulary rows. The I/O layers (`net`, `driver`)
+/// wasm lacks are excluded. ReleaseSmall keeps the download small and
 /// drops the runtime-safety-only `std.Thread.getCurrentId` owner assert.
 /// The `layer_table` rows the wasm driver's base module graph transitively
 /// needs, as a keep-mask over `layer_table`.
@@ -196,8 +210,8 @@ pub fn register(ctx: Context) Registered {
     // The core correctness gate is hermetic from outside authority: arch gate,
     // source gate, tests, oracle checks, the header staleness check, the Zig + C
     // examples, the cross-compile gate, and the benchmark checks (peer-scaling
-    // in its in-process smoke mode). The cross-language C ABI dogfood
-    // (`zig build rust-dogfood`, and the wider `zig build bindings`) needs
+    // in its in-process smoke mode). The binding test suites
+    // (`zig build rust-test`, and the wider `zig build bindings`) need
     // cargo/deno/python/racket on PATH, so it is a sibling step run alongside
     // `check`, not a dependency of it. `check` itself requires the small host
     // tool set `in_tree_runtimes` declares in toolchain.zig. The container has it.
@@ -224,9 +238,9 @@ pub fn register(ctx: Context) Registered {
     // Completion deadline arithmetic is implementation authority, not a
     // supported `net` namespace. Focused tests import that leaf directly so
     // evidence never forces a consumer-root re-export.
-    // The C ABI layers and `oracle` are not on the public `glowcap` namespace
-    // (a Zig consumer has no use for them), so their test suites import the
-    // layer modules directly.
+    // The C ABI layers are not on the public `glowcap` namespace (a Zig
+    // consumer has no use for them), so their test suites import the layer
+    // modules directly.
     // Renderer invariant tests use the Syrup implementation barrel directly;
     // importing a child file as a second module violates Zig's file-identity rule.
     tests_mod.addImport("syrup", host_mods[layerIndex("syrup")]);
@@ -240,7 +254,8 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("c_abi_net_transport_onion", onion_abi_mod);
     tests_mod.addImport("c_abi_host", host_abi_mod);
     tests_mod.addImport("c_abi_driver", driver_abi_mod);
-    tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
+    const scenarios_mod = scenariosModule(b, host_mods, target, optimize);
+    tests_mod.addImport("scenarios", scenarios_mod);
     // Collection tests import the dependency-free Loam leaf directly, matching
     // the snapshot benchmark without involving storage or LMDB backends.
     tests_mod.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
@@ -320,7 +335,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = .Debug,
     });
     memcheck_mod.addImport("glowcap", memcheck_mods[layerIndex("glowcap")]);
-    memcheck_mod.addImport("oracle", memcheck_mods[layerIndex("oracle")]);
+    memcheck_mod.addImport("scenarios", scenariosModule(b, memcheck_mods, memcheck_target, .Debug));
     frame_identity.addFixtures(b, memcheck_mod, memcheck_target, .Debug);
     memcheck_mod.addImport("syrup", memcheck_mods[layerIndex("syrup")]);
     const memcheck_layers = b.addOptions();
@@ -349,7 +364,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     fuzz_mod.addImport("glowcap", lib_mod);
-    fuzz_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
+    fuzz_mod.addImport("scenarios", scenarios_mod);
     // The immutable collections use the same direct leaf import as the suite;
     // their fuzz target needs neither graph storage nor an LMDB backend, and
     // its fuzz target drives it against a plain map to see where they disagree.
@@ -428,9 +443,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     oracle_tests_mod.addImport("glowcap", lib_mod);
-    // The scenario traces drive the `oracle` layer directly (it is not on the
-    // public `glowcap` namespace), so the focused gate imports it too.
-    oracle_tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
+    oracle_tests_mod.addImport("scenarios", scenarios_mod);
     const oracle_tests = b.addTest(.{
         .root_module = oracle_tests_mod,
     });
@@ -577,7 +590,7 @@ pub fn register(ctx: Context) Registered {
     // Hosts with distinct identities complete a keyed handshake over an in-memory
     // byte pipe, then the dialer refuses a wrong-peer sturdyref before output.
     // A sibling step (needs deno on PATH), not folded into the Zig-hermetic `check`.
-    const wasm_driver_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "bindings/ts/web/test/wasm_handshake_smoke.ts" });
+    const wasm_driver_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "bindings/ts/web/test/wasm_handshake.ts" });
     wasm_driver_test.setCwd(b.path("."));
     wasm_driver_test.has_side_effects = true;
     wasm_driver_test.step.dependOn(&wasm_driver_install.step);
@@ -630,6 +643,6 @@ pub fn register(ctx: Context) Registered {
         .test_filter = test_filter,
         .wasm_install = &wasm_driver_install.step,
         .wasm_archives = wasm_archives_step,
-        .oracle = host_mods[layerIndex("oracle")],
+        .scenarios = scenarios_mod,
     };
 }

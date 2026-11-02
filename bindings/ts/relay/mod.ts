@@ -30,6 +30,10 @@ export { connector, installProvider, provider, type RelayOptions, type TlsTrust 
 export { dialUrl, routeFromLocator } from "./route.ts";
 export { listenKeyed, listenNoise, type RelayListenOptions } from "./listen.ts";
 
+/** The word `serve.ts` prints before its port once it is listening: the line a
+ * harness waits for (`${RELAY_READY_MARKER} <port>`). */
+export const RELAY_READY_MARKER = "DENO-RELAY-READY";
+
 import { keyed as keyedRoute, noise as noiseRoute } from "./route.ts";
 import { listenKeyed as listenKeyedProfile, listenNoise as listenNoiseProfile } from "./listen.ts";
 

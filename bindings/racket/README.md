@@ -98,8 +98,11 @@ until the loop has work, then steps it.
 - A byte-fed dial needs a connector registered on the Host. That connector is
   also the only byte-fed path a later handoff redeem can use.
 
-`open-runtime` accepts `#:adopt-host` to transfer an existing Host into the
-Runtime. `runtime-close!` is then that Host's terminal shutdown barrier.
+`open-runtime` takes `#:seed`, `#:profile`, `#:codec`, `#:captp-version`,
+`#:features`, and `#:local-turn-budget` to configure the Host it mints.
+`#:adopt-host` transfers an existing Host into the Runtime instead and refuses
+every one of those options, matching or not. `runtime-close!` is then that
+Host's terminal shutdown barrier.
 
 `listen`, `listen-keyed-tcp`, and `listen-noise-tcp` return the same kind of
 server. `server-locator` is its canonical locator, `server-uri` renders that

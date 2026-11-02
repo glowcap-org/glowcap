@@ -34,6 +34,18 @@ for trusted in "${repo}" "$(glowcap_devcontainer_env_value "${dir}" GLOWCAP_GIT_
     fi
 done
 
+# The pre-commit hook under .agents/hooks formats staged files. Git reads it
+# only through core.hooksPath, and a relative value resolves against each
+# worktree's own top, so one entry in the shared config serves the primary
+# checkout and every linked worktree. A checkout that chose another value keeps
+# it and is told what that costs.
+hooks_path="$(git -C "${repo}" config --get core.hooksPath || true)"
+if [[ -z "${hooks_path}" ]]; then
+    git -C "${repo}" config core.hooksPath .agents/hooks
+elif [[ "${hooks_path}" != ".agents/hooks" ]]; then
+    echo "hooks/post-create: core.hooksPath is ${hooks_path}, not .agents/hooks, so commits skip the pre-commit formatter" >&2
+fi
+
 mkdir -p \
     "${BUN_CACHE_DIR}" \
     "${BUN_INSTALL_CACHE_DIR}" \

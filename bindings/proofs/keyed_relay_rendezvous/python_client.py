@@ -26,7 +26,7 @@ from glowcap.relay import RelayConfig, connector, keyed, provider  # noqa: E402
 
 
 async def expect_wss_refusal(partner, route: str, trust_pem: bytes | None, cause: str) -> None:
-    async with Runtime.open(provider=provider(RelayConfig(route, trust_pem=trust_pem))) as runtime:
+    async with Runtime.open(providers=[provider(RelayConfig(route, trust_pem=trust_pem))]) as runtime:
         refused: GlowcapError | None = None
         session = None
         try:
@@ -55,7 +55,7 @@ async def main() -> None:
 
     host = Host()
     if wss_relay_url is None:
-        transport = {"connector": connector("ws://127.0.0.1:1/relay")}
+        transport = {"connectors": [connector("ws://127.0.0.1:1/relay")]}
     else:
         if wss_ca_file is None:
             fail("keyed-relay-rendezvous", "WSS proof needs GLOWCAP_PROOF_WSS_RELAY_CA_FILE")
@@ -63,7 +63,7 @@ async def main() -> None:
         wrong_host = wss_relay_url.replace("//localhost:", "//127.0.0.1:", 1)
         await expect_wss_refusal(partner, wrong_host, pem, "CertificateNameMismatch")
         await expect_wss_refusal(partner, wss_relay_url, None, "CertificateUntrusted")
-        transport = {"provider": provider(RelayConfig(wss_relay_url, trust_pem=pem))}
+        transport = {"providers": [provider(RelayConfig(wss_relay_url, trust_pem=pem))]}
     async with Runtime.open(**transport, adopt_host=host) as runtime:
         session = await runtime.connect(partner)
         try:

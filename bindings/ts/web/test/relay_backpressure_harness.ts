@@ -15,7 +15,8 @@
 // after a few buffers' worth. If the relay drained the sender into an unbounded
 // queue instead, the sender would run to its cap.
 
-import { fail, kill, parseHarnessArgs, readToken, spawnRelay } from "./relay_harness_common.ts";
+import { fail } from "../../test/assert.ts";
+import { kill, parseHarnessArgs, readToken, spawnRelay } from "./relay_harness_common.ts";
 
 const BULK_CHUNK = 64 * 1024;
 const HARD_CAP = 256 * 1024 * 1024; // sender's own safety stop

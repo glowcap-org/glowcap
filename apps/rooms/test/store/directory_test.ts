@@ -1,5 +1,6 @@
 // Directory presentation treats home identity, locator spelling, naming, and color as one coherent destination.
 import "../support/browser_application.ts";
+import { assert } from "../assert.ts";
 // How this page names and colors directories, and how a locator field treats
 // this directory as the empty destination rather than a second address.
 
@@ -7,10 +8,6 @@ const types = await import("../../web/ui/types.ts");
 const text = await import("../../web/ui/text.ts");
 const joining = await import("../../web/ui/joining.ts");
 const { dirId } = types;
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 Deno.test("empty and this directory's locator are one destination", () => {
 	const home = dirId("ocapn://abc.iroh");

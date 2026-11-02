@@ -1,20 +1,20 @@
 //! The OCapN V1.0 resolver-callback translation (ADR-0006), end to end.
 //!
 //! OCapN V1.0 has no wire `op:resolve`. A promise settles through a *resolver
-//! capability* instead. On the way out, admission mints the resolver export
-//! an answered `op:deliver` advertises as `resolve_me_desc` and commits the
-//! answer-to-export link in the session (`outbound/encoded.zig`, the same
-//! mint next advertises inline). This file holds the rest of the
-//! round trip. A projection's listener is prepared here at emission. On the way back,
+//! capability* instead. On the way out, admission mints the resolver export an
+//! answered `op:deliver` advertises as `resolve_me_desc` and commits the
+//! answer-to-export link in the session (`outbound/encoded.zig`, the same mint
+//! next advertises inline). The module holds the rest of the round trip, where
+//! a projection's listener is prepared at emission. On the way back,
 //! `session.deliver_resolver` prepares the partner's advertised resolver as our
-//! import, so our eventual resolution has somewhere to go. Recognizing a
-//! deliver *to* one of our resolver exports is version-neutral and belongs to
-//! the inbound classifier (ADR-0003). Our side of that settlement is
-//! `encodeResolutionAsCallback`, which
-//! renders a semantic resolution as the `['fulfill|'break, payload]` deliver the
-//! partner's resolver import expects. The functions take a `*Peer` and mutate
-//! session authority through it, as the names say, like the engine's
-//! `pipeline` half.
+//! import, so our eventual resolution has somewhere to go.
+//!
+//! Recognizing a deliver *to* one of our resolver exports is version-neutral
+//! and belongs to the inbound classifier (ADR-0003). Our side of that
+//! settlement is `encodeResolutionAsCallback`, which renders a semantic
+//! resolution as the `['fulfill|'break, payload]` deliver the partner's
+//! resolver import expects. The functions take a `*Peer` and mutate session
+//! authority through it, as the names say, like the engine's `pipeline` half.
 
 const model = @import("model");
 

@@ -2,7 +2,7 @@
 // core `../mod.ts` and the transport modules (`@glowcap/tcp/transport`,
 // `../transport/inproc.ts`, and the `@glowcap/iroh` package) share, so every
 // module marshals frames through the same helpers. Nothing here rides the
-// public `.` entry: an in-package sibling (and the dogfood) imports this file
+// public `.` entry: an in-package sibling (and the test suite) imports this file
 // directly, and a companion package reaches the pointer and error-slot
 // helpers through `@glowcap/runtime/ffi`. An application uses the core's
 // `connect` / `listen` and never these.
@@ -75,7 +75,7 @@ export function releaseManagedFrame(mf: Uint8Array): void {
 	s.glowcap_managed_frame_release(ab(mf));
 }
 
-// The runtime socket seam for transports and dogfood tests that drive a raw
+// The runtime socket seam for transports and tests that drive a raw
 // connection (the keyed handshake, an unframed shuttle).
 export type { NetConn, NetListener };
 

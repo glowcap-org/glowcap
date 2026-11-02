@@ -4,7 +4,7 @@
 ;; The raw `ffi/unsafe` layer lives in the internal `private/` loaders; this
 ;; module is just the public surface over it, and that surface is one tier:
 ;; the `session` (one CapTP partner over the byte-fed host archive
-;; (libglowcap_host, ADR-0022 / ADR-0011) that bundles an adapter-local Racket
+;; (libglowcap_host, ADR-0011) that bundles an adapter-local Racket
 ;; vat, a pump, and the shared Host's routing/redeem authority, constructed by
 ;; `connect`/`listen`/`accept`.
 ;; The host owns an `engine.Node` (sans-io router); Goblins `mycapn` is two
@@ -13,6 +13,13 @@
 ;; routing) happens inside the library; the binding moves bytes and answers
 ;; the host's action queue. `GlowcapHost` is the sole C CapTP application
 ;; surface; the Zig engine peer is not mirrored into the ABI.
+;;
+;; The C ABI ships as symbol-disjoint archives (ADR-0022), and the binding
+;; mirrors that split. This module loads `libglowcap_ocapn` and
+;; `libglowcap_host`. Each transport is a companion module
+;; (`glowcap-tcp.rkt`, `glowcap-inproc.rkt`, `glowcap-iroh.rkt`, and the
+;; others beside them) that loads its own archive, so requiring one links no
+;; other.
 (require "private/ffi-ocapn.rkt"
          "private/errors.rkt"
          "private/value.rkt"
@@ -111,9 +118,8 @@
          FEATURE-MULTI-LOCATION FEATURE-FULL)
 
 ;; ── Transport seam ───────────────────────────────────────────────────────────
-;; The binding-internal surface every transport companion builds on, mirroring
-;; the à-la-carte archive split (ADR-0022). It lives in a `seam` submodule that
-;; only `private/seam.rkt` re-provides, so `check`, the raw cstructs, and the
+;; The binding-internal surface every transport companion builds on. It lives
+;; in a `seam` submodule that only `private/seam.rkt` re-provides, so `check`, the raw cstructs, and the
 ;; managed-frame release never ride this module's public provide: an application
 ;; reaches a transport through its companion module's own surface, and the raw
 ;; FFI stays private to the binding. The companion that drives a live session

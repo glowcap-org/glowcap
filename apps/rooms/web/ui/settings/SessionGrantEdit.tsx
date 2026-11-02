@@ -25,6 +25,7 @@ import { ShareControl } from "./ShareControl.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
 import { useAsyncAction } from "../async_action.ts";
+import { Input } from "../Input.tsx";
 
 // Which press is running, so only that control turns busy while the rest of
 // the card waits on the one retained edit a control can hold.
@@ -242,9 +243,8 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 								>
 									<Field id="sessionGrantLabel" label={text.label}>
 										{(wiring) => (
-											<input
+											<Input
 												id={wiring.id}
-												className="field"
 												value={label}
 												maxLength={120}
 												placeholder={own ? text.ownControl : text.labelPlaceholder}

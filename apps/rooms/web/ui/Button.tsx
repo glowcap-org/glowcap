@@ -1,3 +1,4 @@
+import { classNames } from "./classes.ts";
 import { ControlProgress, useProgress } from "./presentation.ts";
 // The rooms control whose meaning is carried by words, and the other half of
 // the pair `IconButton` opens: that component says text-bearing buttons are a
@@ -83,7 +84,7 @@ export function Button({
 			<button
 				{...button}
 				type={type}
-				className={["button", className].filter(Boolean).join(" ")}
+				className={classNames("button", className)}
 				data-variant={variant}
 				data-size={size}
 				data-block={block || undefined}

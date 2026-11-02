@@ -35,7 +35,9 @@ def connector(config: IrohConfig) -> Connector:
         try:
             from ._session import Session
 
-            return await Session.establish_dialed_locator(host, locator, channel, handshake_timeout_ms, proof)
+            return await Session.establish_dialed_locator(
+                host, locator, channel, handshake_timeout_ms, verified_channel_key=proof
+            )
         except BaseException as primary:
             await _rollback_failed_transport(primary, channel)
             raise

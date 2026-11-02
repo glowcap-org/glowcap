@@ -2,7 +2,7 @@
 // their results stay in this view, and ordinary chat has nowhere to go.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export async function proveDirectoryCommands(tab: Page): Promise<void> {
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 })

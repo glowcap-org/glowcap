@@ -67,18 +67,18 @@ def echo_behavior(verb: str, args: list):
     return args[0] if args and isinstance(args[0], str) else "?"
 
 
-async def serve_once(server, served: list) -> None:
-    """Publish ``echo`` on the first session this listener accepts, serve it,
-    and hand the session back so the caller can retire it."""
+async def serve_once(server, served: list, name: str, behavior) -> None:
+    """Publish ``name`` with ``behavior`` on the first session this listener
+    accepts, serve it, and hand the session back so the caller can retire it."""
     async for accepted in server:
-        accepted.publish("echo", echo_behavior)
+        accepted.publish(name, behavior)
         accepted.serve()
         served.append(accepted)
         return
 
 
 async def run(peer_uri: str, dead_uri: str) -> None:
-    runtime = await Runtime.open(provider=tcp.provider())
+    runtime = await Runtime.open(providers=[tcp.provider()])
     try:
         # ── dial-ok ──────────────────────────────────────────────────────────
         session = await runtime.connect(parse_locator(peer_uri))
@@ -160,7 +160,7 @@ async def run(peer_uri: str, dead_uri: str) -> None:
         # it lives.
         own_uri = server.uri
         served: list = []
-        serving = asyncio.create_task(serve_once(server, served))
+        serving = asyncio.create_task(serve_once(server, served, "echo", echo_behavior))
         own = await runtime.connect(server.locator)
         echo = await own.fetch("echo")
         expect_string("own listener echo", await own.send(echo, "echo", ["heard"]), "heard")
@@ -170,6 +170,33 @@ async def run(peer_uri: str, dead_uri: str) -> None:
             await accepted.close()
         await server.close()
         mark("listen-served", own_uri)
+
+        # ── listen-routed ──────────────────────────────────────
+        # Two listeners on one Host share one driver loop, and each ACCEPTED
+        # event names its listener. A loop that flattened accepts into one
+        # queue would hand one listener's connection to the other's accept
+        # loop, and the served answer would name the wrong side. A Host holds
+        # one listener per profile, so the second listener is the keyed-tcp
+        # profile of the same package. The listeners share the first one's
+        # Host, and the runtime's own Host stays the dialer.
+        a = await tcp.listen("127.0.0.1", 0)
+        b = await tcp.keyed.listen("127.0.0.1", 0, host=a.host)
+        routed: list = []
+        serving_a = asyncio.create_task(serve_once(a, routed, "side", lambda verb, args: "a"))
+        serving_b = asyncio.create_task(serve_once(b, routed, "side", lambda verb, args: "b"))
+        for server, side in ((b, "b"), (a, "a")):
+            dialed = await runtime.connect(server.locator)
+            which = await dialed.fetch("side")
+            expect_string(f"listener {side} routed", await dialed.send(which, "which", []), side)
+            await dialed.close()
+        await serving_a
+        await serving_b
+        for accepted in routed:
+            await accepted.close()
+        # Listener a minted the loop both share, so it closes last.
+        await b.close()
+        await a.close()
+        mark("listen-routed")
 
         # ── dial-refused ─────────────────────────────────────────────────────
         stray = None

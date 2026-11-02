@@ -13,11 +13,10 @@
 //! owned-fallback path they point into an owned `model.Message` instead.) The
 //! open-ended `Args`, `StructEntries`, and `PositionList` sequences need a
 //! little more machinery, and all three get it from one `LazySequence` generic
-//! (`view_sequence.zig`).
-//! Each carries a small piece of borrowed state plus a
+//! (`view_sequence.zig`). Each carries a small piece of borrowed state plus a
 //! tiny table of `len` and `at` functions the codec hands it. That's what lets
 //! the view walk a list lazily without allocating a box per list, and it's also
-//! why this file never imports `codec`: the codec owns the parsing, the view just
+//! why the view never imports `codec`: the codec owns the parsing and the view
 //! dispatches into it. On the owned-fallback path the backing is a slice. A
 //! list of integers or positions that lies on the wire as a run of
 //! little-endian words is read in place (`fromRun`), one word per element.

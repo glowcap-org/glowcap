@@ -88,7 +88,7 @@ async def run() -> None:
     gifter = await listen(IrohConfig(Reachability.DIRECT))
     gifter_id, gifter_addrs = await dialable(gifter)
     exporter_uri = format_peer_uri(TRANSPORT_IROH, exporter_id, {HINT_DIRECT_ADDRESSES: exporter_addrs})
-    gifter_runtime = await Runtime.open(provider=provider(IrohConfig(Reachability.DIRECT)), adopt_host=gifter.host)
+    gifter_runtime = await Runtime.open(providers=[provider(IrohConfig(Reachability.DIRECT))], adopt_host=gifter.host)
     to_exporter = await gifter_runtime.connect(exporter_uri)
     greeter_ref = await to_exporter.fetch("greeter")
     # The exporter's own signed session record names it by node id alone, not
@@ -108,7 +108,7 @@ async def run() -> None:
 
     # ── Recipient: dials the gifter, redeems the give by dialing the exporter ─────
     gifter_uri = format_peer_uri(TRANSPORT_IROH, gifter_id, {HINT_DIRECT_ADDRESSES: gifter_addrs})
-    recipient_runtime = await Runtime.open(provider=provider(IrohConfig(Reachability.DIRECT)))
+    recipient_runtime = await Runtime.open(providers=[provider(IrohConfig(Reachability.DIRECT))])
     recipient = await recipient_runtime.connect(gifter_uri)
     introducer_ref = await recipient.fetch("introducer")
     granted = await recipient.send(introducer_ref, "get-greeter", [])

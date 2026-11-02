@@ -1,33 +1,32 @@
 //! The Darwin kqueue completion backend for `completion.Loop`.
 //!
-//! This file implements the completion-backend interface documented in
-//! `completion.Loop` (`loop.zig`). The portable connection orchestration lives
-//! there. This file provides only the platform completion primitive and Zig
-//! TCP socket primitives. Linux selects between the io_uring and
-//! epoll siblings through `linux.zig`. The server logic does not change between
-//! them.
+//! It implements the completion-backend interface documented in
+//! `completion.Loop` (`loop.zig`), which owns the portable connection
+//! orchestration. The backend supplies only the platform completion primitive
+//! and Zig TCP socket primitives. Linux selects between the io_uring and epoll
+//! siblings through `linux.zig`. The server logic does not change between them.
 //!
-//! kqueue is a *readiness* interface, not a completion one: `kevent` reports that
-//! an fd is ready to read or write, not that a transfer finished. This backend
-//! adapts readiness to the completion-shaped interface. `submit*` registers a
-//! one-shot interest and records the pending operation. `poll` performs the
-//! actual `accept`, `recv`, `send`, or connect completion check once the fd is
-//! ready, then returns a
-//! synthesized completion with the syscall's result. `close` needs no readiness,
-//! so it runs immediately and its completion is queued for the next `poll`.
+//! kqueue is a *readiness* interface, not a completion one: `kevent` reports
+//! that an fd is ready to read or write, not that a transfer finished. This
+//! backend adapts readiness to the completion-shaped interface. `submit*`
+//! registers a one-shot interest and records the pending operation. `poll`
+//! performs the actual `accept`, `recv`, `send`, or connect completion check
+//! once the fd is ready, then returns a synthesized completion with the
+//! syscall's result. `close` needs no readiness, so it runs immediately and its
+//! completion is queued for the next `poll`.
 //!
 //! The shared read-buffer pool (ADR-0019) is a `BufferPool` owned here: a
 //! readiness backend reads at poll time, so `poll` acquires a scratch buffer,
 //! performs the `recv` into it and lends it to the loop on the completion.
-//! `recycleBorrowed` reclaims it. Buffers are allocated lazily up to the pool size,
-//! and a read-ready fd that finds the pool empty completes with
+//! `recycleBorrowed` reclaims it. Buffers are allocated lazily up to the pool
+//! size, and a read-ready fd that finds the pool empty completes with
 //! `Completion.recv_no_buffer`: pool contention, never a connection error.
 //!
 //! `zig build check` runs `cross-check`, which compiles the whole library for
-//! `aarch64-macos`. This catches type errors from a Linux host, but it cannot run
-//! the backend. Runtime proof requires a macOS machine or CI runner. Review this
-//! backend against the same completion contract as both Linux backends, then run
-//! it on macOS before trusting a behavior change in production.
+//! `aarch64-macos`. This catches type errors from a Linux host, but it cannot
+//! run the backend. Runtime proof requires a macOS machine or CI runner. Review
+//! this backend against the same completion contract as both Linux backends,
+//! then run it on macOS before trusting a behavior change in production.
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -6,16 +6,11 @@ import { spawnWeb } from "../support/web_front.ts";
 import { reapOwned } from "../support/children.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { waitForFiniteAnimations } from "../support/animations.ts";
-import {
-	awaitBubble,
-	confirmTitleLeave,
-	fail,
-	freePort,
-	reachDirectoryOnCard,
-	ROOT,
-	say,
-	waitForHttp,
-} from "../page/harness.ts";
+import { fail } from "../support/fail.ts";
+import { ROOT } from "../support/paths.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
+import { awaitBubble, confirmTitleLeave, reachDirectoryOnCard, say } from "../page/harness.ts";
 
 const port = freePort();
 spawnWeb({

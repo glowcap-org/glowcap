@@ -7,7 +7,7 @@
 
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { runChange } from "./files_change.ts";
 import { bigPng, png } from "./png.ts";
 export async function run(

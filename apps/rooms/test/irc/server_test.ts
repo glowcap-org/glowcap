@@ -8,7 +8,7 @@ import { DM } from "../../lib/protocol.ts";
 import { dial, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { startServer } from "../support/installed_server.ts";
-import { within } from "../support/rooms_server.ts";
+import { within } from "../support/wait.ts";
 import { startIrcServer } from "./server_process.ts";
 import { encodeIrc, type IrcMessage, readIrcLines } from "../../irc/protocol.ts";
 import { assertEquals } from "../assert.ts";

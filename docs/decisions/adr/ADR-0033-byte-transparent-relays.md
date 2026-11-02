@@ -18,7 +18,7 @@ Browsers and unreachable peers need a way to carry bytes without granting an int
 
 ## Decision
 
-The relay forwards bytes between explicitly admitted legs. It does not parse, validate or re-encode CapTP. End-to-end session identity and sealed-channel authentication stay with the peers.
+The relay does not parse, validate or re-encode CapTP. End-to-end session identity and sealed-channel authentication stay with the peers.
 
 Each runtime supplies its own byte-duplex carrier over the shared relay contract. Zig composes TCP, an injectable TLS stream engine and WebSocket framing. Managed runtimes own their WebSocket connector rather than receiving networking callbacks from the Zig driver.
 

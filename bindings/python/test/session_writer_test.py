@@ -91,7 +91,7 @@ class SessionWriterTest(unittest.TestCase):
             )
             await host.kick_actions()
             await session.written(session.request_flush())
-            closing = asyncio.create_task(session.close(pending=PendingWork.FINISH, grace=None))
+            closing = asyncio.create_task(session.close(pending=PendingWork.FINISH, grace_ms=None))
             try:
                 await asyncio.sleep(0)
                 self.assertTrue(session.is_closing)

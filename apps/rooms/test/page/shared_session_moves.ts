@@ -4,7 +4,7 @@
 // does, and every act keeps the column's right edge.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 interface Row {
 	readonly acts: number;

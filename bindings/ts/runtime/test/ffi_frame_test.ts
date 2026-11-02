@@ -9,19 +9,7 @@ import {
 	checkedMaxFrameBytes,
 	FrameDescriptorScratch,
 } from "../transport/ffi_frame.ts";
-import { deferred } from "../../dogfood/assert.ts";
-
-async function assertRejectsWith(promise: Promise<unknown>, text: string): Promise<void> {
-	try {
-		await promise;
-	} catch (error) {
-		if (String(error).includes(text)) return;
-		throw new Error(
-			`expected rejection containing ${JSON.stringify(text)}, got ${String(error)}`,
-		);
-	}
-	throw new Error(`expected rejection containing ${JSON.stringify(text)}`);
-}
+import { assertRejects, deferred } from "../../test/assert.ts";
 
 Deno.test("AsyncFfiFrame snapshots caller bytes before a queued FFI write", () => {
 	const caller = new Uint8Array([1, 2, 3, 4]);
@@ -60,8 +48,8 @@ Deno.test("AsyncFfiWriteQueue bounds retained payload bytes", async () => {
 	const held = deferred();
 	const queue = new AsyncFfiWriteQueue("test", 4);
 	const first = queue.run(new Uint8Array(3), async () => await held.promise);
-	await assertRejectsWith(
-		queue.run(new Uint8Array(2), () => Promise.resolve()),
+	await assertRejects(
+		() => queue.run(new Uint8Array(2), () => Promise.resolve()),
 		"glowcap test outbound queue exceeded",
 	);
 	const filling = queue.run(new Uint8Array(1), () => Promise.resolve());
@@ -72,8 +60,8 @@ Deno.test("AsyncFfiWriteQueue bounds retained payload bytes", async () => {
 
 Deno.test("AsyncFfiWriteQueue refuses one frame larger than its byte budget", async () => {
 	const queue = new AsyncFfiWriteQueue("test", 4);
-	await assertRejectsWith(
-		queue.run(new Uint8Array(5), () => Promise.resolve()),
+	await assertRejects(
+		() => queue.run(new Uint8Array(5), () => Promise.resolve()),
 		"glowcap test outbound queue exceeded",
 	);
 });
@@ -85,8 +73,8 @@ Deno.test("AsyncFfiWriteQueue bounds zero-length write closures", async () => {
 		{ length: 16 },
 		() => queue.run(new Uint8Array(0), async () => await held.promise),
 	);
-	await assertRejectsWith(
-		queue.run(new Uint8Array(0), () => Promise.resolve()),
+	await assertRejects(
+		() => queue.run(new Uint8Array(0), () => Promise.resolve()),
 		"glowcap test outbound queue exceeded",
 	);
 	held.resolve();
@@ -236,5 +224,5 @@ Deno.test("Host surfaces one exact detached runtime failure at the next verb hea
 Deno.test("Host enliven refuses after FFI handle retirement", async () => {
 	const host = new Host();
 	await host.close();
-	await assertRejectsWith(host.enliven("ocapn://example.invalid.tcp/s"), "host released");
+	await assertRejects(() => host.enliven("ocapn://example.invalid.tcp/s"), "host released");
 });

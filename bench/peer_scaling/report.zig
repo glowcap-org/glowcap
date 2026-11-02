@@ -1,7 +1,6 @@
-//! Report rendering for the peer-scaling bench: the markdown table, the
-//! RAM-fit chart, and the artifact writes under `zig-out/bench-reports/`.
-//! Measurement stays in `peer_scaling_bench.zig`. This file only renders the
-//! results it produced.
+//! Report rendering for the peer-scaling bench: the markdown table, the RAM-fit
+//! chart, and the artifact writes under `zig-out/bench-reports/`. Measurement
+//! stays in `peer_scaling_bench.zig`, which produces the results rendered here.
 
 const std = @import("std");
 

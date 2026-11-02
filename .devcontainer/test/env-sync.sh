@@ -230,6 +230,7 @@ require_literal "${compose_file}" "source: \${GLOWCAP_GIT_COMMON_DIR:?" "docker-
 require_literal "${compose_file}" "target: \${GLOWCAP_GIT_COMMON_DIR:?" "docker-compose.yml Git common-dir target"
 require_literal "${env_example}" "GLOWCAP_GIT_COMMON_DIR=" ".env.example Git common directory"
 require_literal "${dir}/hooks/initialize.sh" "bash \"\${dir}/bin/configure.sh\"" "hooks/initialize.sh bootstraps the checkout environment"
+require_literal "${dir}/hooks/post-create.sh" "config core.hooksPath .agents/hooks" "hooks/post-create.sh installs the pre-commit hook path"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_WEB_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:8080" "docker-compose.yml web host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_CAPTP_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9099" "docker-compose.yml CapTP host port"
 require_literal "${compose_file}" "127.0.0.1:\${GLOWCAP_ROOMS_RELAY_HOST_PORT:?Run bash .devcontainer/bin/configure.sh}:9200" "docker-compose.yml relay host port"

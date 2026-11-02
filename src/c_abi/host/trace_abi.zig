@@ -1,7 +1,6 @@
-//! Public C layout for the byte-fed Host's live trace seam.
-//!
-//! This leaf owns only POD vocabulary. Trace storage, delivery, and policy stay
-//! with the Host implementation and its process-owner adapter.
+//! Public C layout for the byte-fed Host's live trace seam, as POD vocabulary
+//! only. Trace storage, delivery, and policy stay with the Host implementation
+//! and its process-owner adapter.
 
 /// One reported trace fact (`glowcap_host_set_trace`). The kind selects the
 /// live fields. String views are borrowed for the callback only.

@@ -21,15 +21,12 @@ import { spawnWeb } from "../support/web_front.ts";
 import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort, waitForHttp } from "../support/rooms_server.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
 import { directOpened } from "../page/harness.ts";
+import { fail } from "../support/fail.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	throw new Error(message);
-}
 
 const httpPort = freePort();
 const roomPort = freePort();

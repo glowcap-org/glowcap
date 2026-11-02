@@ -18,7 +18,7 @@ A hello proves possession of a session signing key. A locator is a claim by that
 
 ## Decision
 
-Every CapTP session uses a fresh signing key. A connection can separately supply authenticated-channel provenance for the durable identity it actually proved. A dial target is a requirement, not evidence.
+A connection can separately supply authenticated-channel provenance for the durable identity it actually proved. A dial target is a requirement, not evidence.
 
 A peer owns its complete advertised locator snapshots. Every hello signs the selected snapshot, and handoff uses the exporter's signed claim. Hints contain routing and profile advice rather than a second session credential.
 

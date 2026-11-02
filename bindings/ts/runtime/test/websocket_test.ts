@@ -1,7 +1,7 @@
 import { takeRuntimeFailures } from "../context.ts";
 import { secondaryFailures } from "../errors.ts";
 import { openWebSocketChannel, webSocketChannel } from "../websocket.ts";
-import { assertEquals } from "../../dogfood/assert.ts";
+import { assertEquals } from "../../test/assert.ts";
 
 function assertIncludes(actual: string, expected: string): void {
 	if (!actual.includes(expected)) {

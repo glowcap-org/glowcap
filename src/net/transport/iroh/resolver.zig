@@ -19,20 +19,3 @@ pub const DialResolver = struct {
         return .{ .iroh = try locators.resolveConnectTarget(candidate) };
     }
 };
-
-/// Dial resolver for an iroh completion adapter whose wrapped backend also
-/// owns dialable transports. Iroh locators stay at this layer. Every other
-/// symbol delegates without translating its target or importing that
-/// transport's policy here.
-pub fn CompositeDialResolver(comptime Platform: type, comptime Delegate: type) type {
-    return struct {
-        pub fn resolve(
-            candidate: model.PeerLocator,
-        ) !backend.CompletionBackend(Platform).ConnectTarget {
-            if (std.mem.eql(u8, candidate.transport, model.transport.iroh)) {
-                return .{ .iroh = try locators.resolveConnectTarget(candidate) };
-            }
-            return .{ .platform = try Delegate.resolve(candidate) };
-        }
-    };
-}

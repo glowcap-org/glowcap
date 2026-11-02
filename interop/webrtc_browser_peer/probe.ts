@@ -98,6 +98,10 @@ async function main(): Promise<void> {
 		new stack.Host(),
 		stack.bareLocator("webrtc", designator),
 		channel,
+		stack.HANDSHAKE_TIMEOUT_MS,
+		// Directory signaling was scoped to this designator, and DTLS binds the
+		// channel to the SDP that exchange ferried (ADR-0028).
+		designator,
 	);
 	// tolerant: serve rejects when the partner hangs up, which ends the probe's session normally, and the probe's own calls report real failures.
 	session.serve().catch(() => {});

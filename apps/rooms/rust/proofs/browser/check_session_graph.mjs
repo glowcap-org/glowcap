@@ -22,10 +22,14 @@ export async function checkSessionGraph(page) {
 		globalThis.armRoomsGraphOutcome = (applied) => {
 			let recovering;
 			let release;
-			const ready = new Promise((resolve) => { recovering = resolve; });
+			const ready = new Promise((resolve) => {
+				recovering = resolve;
+			});
 			globalThis.roomsGraphOutcome = {
 				phase: "armed",
-				release: new Promise((resolve) => { release = resolve; }),
+				release: new Promise((resolve) => {
+					release = resolve;
+				}),
 				retired(terminal) {
 					if (terminal.outcome !== (applied ? 0 : 1)) throw new Error("unexpected physical graph outcome");
 					masked++;

@@ -6,7 +6,7 @@
 
 import type { Page } from "playwright";
 import { Directory, Room } from "../../lib/room/client.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
 const ROOM = "mirror-linked";

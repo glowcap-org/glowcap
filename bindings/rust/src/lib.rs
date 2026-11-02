@@ -22,17 +22,16 @@
 //! roles: the product maps to the Host and the router tables map to
 //! `engine.Node` (ADR-0011). This crate moves bytes and honors the host's
 //! action queue on the byte-fed path. It is also the consumer that
-//! `zig build rust-dogfood` runs to cover the ergonomic surface.
+//! `zig build rust-test` runs to cover the ergonomic surface.
 //!
-//! # Composable modules, à la carte
+//! # Composable modules
 //!
-//! glowcap's C ABI ships as a set of symbol-disjoint archives (ADR-0022), and
-//! this crate mirrors that shape: the core value/locator vocabulary and the
-//! Host ABI is always available at the crate root, and each optional transport
-//! is a module behind a Cargo feature that links exactly its archive: you pay
-//! (in linked archive and symbols) only for the transports you enable. The
-//! core stands alone. The transport modules build on it but never on each
-//! other.
+//! glowcap's C ABI ships as symbol-disjoint archives (ADR-0022), and this
+//! crate mirrors that split. The core value/locator vocabulary and the Host
+//! ABI are always available at the crate root. Each optional transport is a
+//! module behind a Cargo feature, and enabling the feature links that
+//! transport's archive and no other. Transport modules build on the core and
+//! never on each other.
 //!
 //! | Feature | Module | Archive linked | Default |
 //! | --- | --- | --- | --- |
@@ -150,15 +149,12 @@ pub use dial::ConnectOptions;
 #[cfg(feature = "async")]
 pub use runtime::{Runtime, RuntimeConfig};
 
-// Every glowcap archive keeps its own thread-local last-error slot (ADR-0022);
-// this macro mints each family's checker/reader pair over its archive's extern
-// reader: the ocapn core here at the root, the host in `host`, and each
-// transport in its module. Unconditional: the core pair below is its first user.
+// This macro mints each archive's checker/reader pair over its extern
+// last-error reader: the ocapn core here at the root, the host in `host`, and
+// each transport in its module. Unconditional: the core pair below is its first user.
 mod error_slot;
 
-// The blocking transports, each its own à-la-carte archive, linked only when
-// its feature is on (ADR-0022). They share the core value layout but never
-// each other; the core stands alone without any of them.
+// The blocking transports, each linked only when its feature is on.
 #[cfg(feature = "inproc")]
 pub mod inproc;
 #[cfg(feature = "onion")]

@@ -107,9 +107,14 @@ class Session(_LifecycleMixin, _VerbsMixin):
         locator: Locator,
         transport,
         handshake_timeout_ms: int | None = _HANDSHAKE_TIMEOUT_MS,
-        verified_channel_key: str | None = None,
+        *,
+        verified_channel_key: str | None,
     ) -> Session:
-        """Mint and establish the dialing half over an owned byte channel."""
+        """Mint and establish the dialing half over an owned byte channel.
+
+        ``verified_channel_key`` is the partner key the transport itself
+        authenticated, or ``None`` for a transport with no channel proof. Every
+        caller states it, so a transport with a proof cannot drop it in silence."""
         session = cls._open_dialed_locator(host, locator, transport)
         return await session._bind_channel_proof_and_establish(verified_channel_key, handshake_timeout_ms)
 
@@ -122,9 +127,13 @@ class Session(_LifecycleMixin, _VerbsMixin):
         transport,
         accepted_local_addr: str = "",
         handshake_timeout_ms: int | None = _HANDSHAKE_TIMEOUT_MS,
-        verified_channel_key: str | None = None,
+        *,
+        verified_channel_key: str | None,
     ) -> Session:
-        """Mint and establish an accepted byte channel from a listener."""
+        """Mint and establish an accepted byte channel from a listener.
+
+        ``verified_channel_key`` is stated by every caller, as for
+        :meth:`establish_dialed_locator`."""
         transport_raw = transport_name.encode()
         server_raw = server_designator.encode()
         local_raw = accepted_local_addr.encode()

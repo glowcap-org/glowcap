@@ -18,7 +18,7 @@ Application content can exceed one bounded record. Pinning all pages would make 
 
 ## Decision
 
-A resource's content graph uses ordered bounded pages. Shared preparation reads through a bounded window and retains the payload and links required by the operation. Replacement commits with the existing managed transaction.
+Shared preparation reads through a bounded window and retains the payload and links required by the operation. Replacement commits with the existing managed transaction.
 
 Page links are distinct from capability reference fields. A callback receives its canonical bound-resource context. Receipt replay restores the retained result rather than recomputing content against a changed graph.
 

@@ -35,16 +35,22 @@ fail() {
 	exit 1
 }
 
+# The ready word is the TypeScript relay's own constant, read from its owner so
+# this script never spells it.
+marker=$(deno eval 'import { RELAY_READY_MARKER } from "./bindings/ts/relay/mod.ts"; console.log(RELAY_READY_MARKER);') ||
+	fail "could not read the relay ready marker"
+[ -n "$marker" ] || fail "the relay ready marker is empty"
+
 # The reference relay, on an ephemeral port it reports.
 deno run --allow-net --allow-ffi --allow-env --allow-read \
 	bindings/ts/relay/serve.ts 0 >"$relay_log" 2>&1 &
 relay_pid=$!
 for _ in $(seq 1 60); do
-	grep -q "DENO-RELAY-READY" "$relay_log" && break
+	grep -Fq "$marker" "$relay_log" && break
 	sleep 0.2
 done
-grep -q "DENO-RELAY-READY" "$relay_log" || fail "relay never reported ready"
-port=$(grep "DENO-RELAY-READY" "$relay_log" | awk '{print $2}')
+grep -Fq "$marker" "$relay_log" || fail "relay never reported ready"
+port=$(grep -F "$marker" "$relay_log" | awk '{print $2}')
 
 # The registrant: no bind, a relay registration instead. `--publish` answers
 # one partner and exits, which is the whole conversation this row needs.

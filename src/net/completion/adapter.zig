@@ -1,11 +1,10 @@
 //! Vocabulary shared by completion adapters that wrap another backend.
 //!
-//! A wrapped adapter keeps a table of legs, one per synthetic handle, and
-//! runs each leg over one inner connection. Two facts about a leg are the
-//! same whatever the transport: which inner operations it has
-//! submitted, and where its inner descriptor stands in its own close. This
-//! leaf owns those two facts. The relay and onion adapters compose
-//! it. None restates it.
+//! A wrapped adapter keeps a table of legs, one per synthetic handle, and runs
+//! each leg over one inner connection. Two facts about a leg are the same
+//! whatever the transport: which inner operations it has submitted, and where
+//! its inner descriptor stands in its own close. The relay and onion adapters
+//! compose these two facts and restate neither.
 
 const std = @import("std");
 

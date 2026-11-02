@@ -45,6 +45,7 @@ import {
 	factCopyLocatorFor,
 } from "../../../lib/text/conversation.ts";
 import { memberYouAre } from "../../../lib/text/conversation.ts";
+import { ModalCard } from "../ModalCard.tsx";
 
 /** Stays mounted through the close transition so the card can leave the way
  * it arrived. The open/closed decision still belongs out here: the dialog
@@ -193,7 +194,7 @@ function DirectoryDialog(
 				    marking at all, so the card never asserts a distinction nothing
 				    else on screen is drawing. */
 			}
-			<div className="modal-card card-plane dircard" data-dir={mark}>
+			<ModalCard className="dircard" data-dir={mark}>
 				<div className="modal-body">
 					<ModalHead
 						titleId="dircardTitle"
@@ -300,7 +301,7 @@ function DirectoryDialog(
 						))}
 					{retryWhy !== "" && <Said kind="failure">{retryWhy}</Said>}
 				</div>
-			</div>
+			</ModalCard>
 		</dialog>
 	);
 }

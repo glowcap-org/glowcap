@@ -3,8 +3,11 @@ import { spawnWeb } from "../support/web_front.ts";
 // Two production pages consume one managed process workspace. Setup selects a
 // strong use field; reload and process restart must recover that exact owner.
 import { chromium, type Page } from "playwright";
-import { fail, freePort, ROOT, say, waitForHttp } from "../page/harness.ts";
-import { SESSION } from "../support/paths.ts";
+import { fail } from "../support/fail.ts";
+import { ROOT, SESSION } from "../support/paths.ts";
+import { freePort } from "../support/ports.ts";
+import { waitForHttp } from "../support/rooms_server.ts";
+import { say } from "../page/harness.ts";
 import { reapOwned, stopOwned } from "../support/children.ts";
 import { startSessionPeer } from "../support/session_peer.ts";
 import { announcedSturdyref } from "../support/standalone_peer.ts";

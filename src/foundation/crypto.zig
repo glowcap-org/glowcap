@@ -1,23 +1,19 @@
-//! The Ed25519, SHA-256, and X25519 work that OCapN's signatures and the
-//! sealed channel need, and nothing more.
+//! The Ed25519, SHA-256, and X25519 work that OCapN's signatures and the sealed
+//! channel need, and nothing more.
 //!
-//! Four jobs live here: sign the `acceptable-location-sig` that rides on
+//! Four jobs: sign the `acceptable-location-sig` that rides on
 //! `op:start-session`, sign and check the `desc:sig-envelope` certificates a
 //! handoff carries, derive a peer's and a session's identity using the
-//! double-SHA256 the CapTP spec calls for (`PeerId` and `SessionId`), and
-//! carry a durable Ed25519 key across to X25519 for the Noise handshake in
-//! `noise.zig`. The conversions live here, beside the key types, so `noise`
-//! speaks raw 32-byte X25519 material and never sees an Ed25519 key.
+//! double-SHA256 the CapTP spec calls for (`PeerId` and `SessionId`), and carry
+//! a durable Ed25519 key across to X25519 for the Noise handshake in
+//! `noise.zig`. The conversions sit beside the key types, so `noise` speaks raw
+//! 32-byte X25519 material and never sees an Ed25519 key.
 //!
-//! It's all pure math. Nothing here allocates, does I/O, or keeps global state,
-//! and it builds for `wasm32` as-is. There's one thing you won't find: making
-//! fresh randomness. Generating a key pair or a gift id needs entropy, and
-//! entropy is I/O, so that stays out at the adapter boundary. Down here we take a
-//! 32-byte seed you hand us (`SecretKey.fromSeed`) and a gift id you hand us. You
-//! decide where those bytes come from.
-//!
-//! Turning these keys and signatures into Syrup is the codec's job. This module
-//! only does the byte math.
+//! All of it is pure math: no allocation, no I/O, no global state, and it
+//! builds for `wasm32` as-is. Fresh randomness is absent, because entropy is
+//! I/O and stays at the adapter boundary. Callers supply a 32-byte seed
+//! (`SecretKey.fromSeed`) and a gift id. Turning these keys and signatures into
+//! Syrup is the codec's job.
 
 const std = @import("std");
 

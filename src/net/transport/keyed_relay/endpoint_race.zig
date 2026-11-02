@@ -2,11 +2,11 @@
 //!
 //! `std.Io.net.HostName.connect` owns a useful address race, but its threaded
 //! cancellation closes losing sockets underneath `connect(2)`. Some kernels
-//! report that wakeup as `EINVAL`. Zig classifies it through
-//! `unexpectedErrno`, which prints a process stack in Debug before a library
-//! can retain the failure. This module owns the narrower relay race directly:
-//! nonblocking sockets enter `poll(2)`, every result is read through
-//! `SO_ERROR`, and losing descriptors are closed only after a winner exists.
+//! report that wakeup as `EINVAL`. Zig classifies it through `unexpectedErrno`,
+//! which prints a process stack in Debug before a library can retain the
+//! failure. The relay's own race is narrower and direct: nonblocking sockets
+//! enter `poll(2)`, every result is read through `SO_ERROR`, and losing
+//! descriptors are closed only after a winner exists.
 
 const std = @import("std");
 const foundation = @import("foundation");

@@ -39,7 +39,7 @@ async def main() -> None:
         except VowBroken:
             return True
 
-    async with Runtime.open(provider=tcp.provider()) as runtime:
+    async with Runtime.open(providers=[tcp.provider()]) as runtime:
         session = await runtime.connect(tcp.locator(host, port))
         session.serve()
         tools = await session.fetch(TOOLS)

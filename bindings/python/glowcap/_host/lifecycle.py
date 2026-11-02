@@ -327,10 +327,10 @@ class _LifecycleMixin(HostMixinBase):
         await self._join_behavior_tasks()
         self._raise_terminal_failure()
 
-    async def close(self, pending: PendingWork = PendingWork.CANCEL, *, grace: object = _UNSET) -> None:
+    async def close(self, *, pending: PendingWork = PendingWork.CANCEL, grace_ms: object = _UNSET) -> None:
         """Close through the core-owned pending-work policy and completion barrier."""
         self._assert_owner()
-        options = _close_options(pending, grace)
+        options = _close_options(pending, grace_ms)
         driver_loop = self._driver_loop
         if driver_loop is not None:
             self._request_driver_release(driver_loop, options)

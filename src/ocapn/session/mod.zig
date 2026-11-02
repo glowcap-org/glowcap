@@ -292,6 +292,8 @@ pub const Session = struct {
     /// big-set scratch tests pin this bound.
     pub const steady_recv_scratch_bytes: usize = 384;
 
+    // `Session` is the public method index. Each alias below names the sibling
+    // file that owns its body, and the fields those bodies operate on stay here.
     pub const Options = lifecycle.Options;
     pub const setExportBase = lifecycle.setExportBase;
     pub const init = lifecycle.init;
@@ -301,14 +303,10 @@ pub const Session = struct {
     pub const keyWireTables = lifecycle.keyWireTables;
     pub const deinit = lifecycle.deinit;
 
-    /// The version-neutral resolver-export link lives in `resolver_export.zig`.
-    /// These aliases keep the call sites reading as ordinary `Session` methods
-    /// while the bodies sit beside the link they operate on. The field itself
-    /// stays on `Session`.
+    /// The version-neutral resolver-export link (`resolver_export.zig`).
     pub const nominateResolverExport = resolver_export.nominateResolverExport;
     pub const mintMentionedResolverExport = resolver_export.mintMentionedResolverExport;
     pub const abandonMentionedResolverExport = resolver_export.abandonMentionedResolverExport;
-    pub const abandonResolverExport = resolver_export.abandonResolverExport;
     pub const abandonResolverNomination = resolver_export.abandonResolverNomination;
     pub const bindFreshResolverExport = resolver_export.bindFreshResolverExport;
     pub const installOutboundResolver = resolver_export.installOutboundResolver;
@@ -339,10 +337,7 @@ pub const Session = struct {
     pub const rewriteShortenedResolution = shortening.rewriteResolution;
     pub const certifyFreight = @import("validate/freight.zig").certifyFreight;
 
-    /// V1.0 resolver-callback translation lives in `v1_0.zig`. These aliases keep
-    /// the call sites reading as ordinary `Session` methods while the bodies sit
-    /// beside the rest of the V1.0 bridge. The resolver-link fields they operate
-    /// on stay on `Session`.
+    /// V1.0 resolver-callback translation (`v1_0.zig`).
     pub const needsV1_0Translation = v1_0.needsV1_0Translation;
     pub const requireNegotiatedLocator = validate.requireNegotiatedLocator;
     pub const parseNegotiatedIdLocator = validate.parseNegotiatedIdLocator;
@@ -372,8 +367,6 @@ pub const Session = struct {
     pub const takeAnswerPayloadListeners = answer_notifications.takeListeners;
     pub const restoreAnswerPayloadListeners = answer_notifications.restoreListeners;
     pub const clearAnswerPayloadResolver = answer_notifications.clearResolver;
-    pub const retireDetachedAnswer = answer_notifications.retireDetached;
-    pub const retireVirtualAnswer = answer_notifications.retireVirtual;
     pub const releaseAnswerCarrier = answer_notifications.releaseCarrier;
 
     /// Whether a stored-result import release is waiting to leave.
@@ -386,9 +379,7 @@ pub const Session = struct {
 
     pub const recordSentResolutionTarget = protocol.recordSentResolutionTarget;
 
-    /// The `op:start-session` handshake state lives in `handshake.zig`. These
-    /// aliases keep the call sites reading as ordinary `Session` methods. The
-    /// handshake fields they operate on stay on `Session`.
+    /// The `op:start-session` handshake state (`handshake.zig`).
     pub const handshakeComplete = handshake.handshakeComplete;
     pub const awaitsPartnerHello = handshake.awaitsPartnerHello;
     pub const transitionToOpen = handshake.transitionToOpen;
@@ -401,8 +392,7 @@ pub const Session = struct {
 
     pub const close = protocol.close;
 
-    /// Import/export namespace operations live together in `positions.zig`.
-    /// These aliases preserve Session as the deliberate public method index.
+    /// Import/export namespace operations (`positions.zig`).
     pub const validateExportPositionForMarshal = positions.validateExportPositionForMarshal;
     pub const registerExport = positions.registerExport;
     pub const reserveExport = positions.reserveExport;
@@ -555,7 +545,6 @@ pub const Session = struct {
     pub const installListenerNamed = pipeline.installListenerNamed;
     pub const PreparedListenerBatch = pipeline.PreparedListenerBatch;
     pub const prepareListenerBatchTarget = pipeline.prepareListenerBatchTarget;
-    pub const installProjection = pipeline.installProjection;
     pub const installProjectionTarget = pipeline.installProjectionTarget;
     pub const takeAnswerPayloadProjections = pipeline.takePayloadProjections;
 
@@ -596,8 +585,7 @@ pub const Session = struct {
     }
 
     // Sturdyref-enliven dedup (ADR-0007): the resolved-enlivenment cache and the
-    // in-flight enliven set. Bodies live in `sturdyref_cache.zig`; aliased here
-    // so `sess.cacheSturdyrefEnlivenment(...)` still resolves.
+    // in-flight enliven set (`sturdyref_cache.zig`).
     pub const sturdyrefCacheLookup = sturdyref_cache.sturdyrefCacheLookup;
     pub const cacheSturdyrefEnlivenment = sturdyref_cache.cacheSturdyrefEnlivenment;
     pub const pendingEnlivenAnswer = sturdyref_cache.pendingEnlivenAnswer;
@@ -609,9 +597,8 @@ pub const Session = struct {
 };
 
 // Wire-delta GC accounting and structural well-formedness checks (ADR-0004):
-// stateless free functions over the tables/messages they validate. Bodies live
-// in `gc.zig`; re-exported here so `session.checkGcExportDecrement` still
-// resolves from the validate/apply spine.
+// stateless free functions over the tables and messages they validate
+// (`gc.zig`).
 pub const checkGcExportDecrement = gc.checkGcExportDecrement;
 pub const applyGcExportDecrement = gc.applyGcExportDecrement;
 pub const checkGcAnswerDecrement = gc.checkGcAnswerDecrement;

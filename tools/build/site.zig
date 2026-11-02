@@ -30,7 +30,7 @@ pub const Context = struct {
 };
 
 /// The step handles the root's `bindings` aggregate wires: the site example
-/// checks whose language runtime the binding dogfoods already require.
+/// checks whose language runtime the binding suites already require.
 pub const Registered = struct {
     /// The Zig snippet check, returned because the root's iroh and WebRTC
     /// sections attach their resident-backed snippet compiles to it (the

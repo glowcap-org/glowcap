@@ -1,15 +1,13 @@
 //! The `glowcap_driver_*` loop family (ADR-0024): a stepping projection of
-//! `driver.HostRuntime` over the byte-fed Host implementation. The embedder's
+//! `driver.HostRuntime` over the byte-fed Host implementation. An embedder's
 //! whole transport role is: create the loop, register provider packages, dial
-//! and listen, park on one readiness
-//! descriptor, step, and drain one event queue. Every application verb stays
-//! `glowcap_host_*` on the Host handle moved into `glowcap_driver_take_host`. Those
-//! symbols belong to `libglowcap_host`. This archive emits only
-//! `glowcap_driver_*`.
+//! and listen, park on one readiness descriptor, step, and drain one event
+//! queue. Every application verb stays `glowcap_host_*` on the Host handle
+//! moved into `glowcap_driver_take_host`, and those symbols belong to
+//! `libglowcap_host`. The archive emits only `glowcap_driver_*`.
 //!
-//! Threading: one thread drives one loop, and every verb here except
-//! `glowcap_driver_wake` must run on it. Callbacks fire on the stepping
-//! thread.
+//! Threading: one thread drives one loop, and every verb except
+//! `glowcap_driver_wake` must run on it. Callbacks fire on the stepping thread.
 //!
 //! Dial starts are nonblocking by provider contract and run in the dial call.
 //! Transport completion and every CapTP handshake advance across later steps

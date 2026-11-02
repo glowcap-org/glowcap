@@ -14,7 +14,6 @@ export class DriverServer {
 	readonly #listener: DriverListener;
 	readonly #ownedLoop: DriverLoop | null;
 	#closePromise: Promise<void> | null = null;
-	#admissionClosed = false;
 
 	constructor(bound: { listener: DriverListener; ownedLoop?: DriverLoop }) {
 		this.#listener = bound.listener;
@@ -62,18 +61,12 @@ export class DriverServer {
 				yield session;
 			}
 		} finally {
-			await this.stopAdmission();
+			await this.#listener.close();
 			// Yielded sessions may still be live after iterator close. Request
 			// retirement now; the last session completes it without making iterator
 			// completion wait on its own consumer.
 			this.#retireOwnedLoop();
 		}
-	}
-
-	stopAdmission(): Promise<void> {
-		if (this.#admissionClosed) return this.#listener.close();
-		this.#admissionClosed = true;
-		return this.#listener.close();
 	}
 
 	/** Stop admission. A server that minted its own loop requests that loop's
@@ -82,7 +75,7 @@ export class DriverServer {
 	close(): Promise<void> {
 		if (this.#closePromise != null) return this.#closePromise;
 		this.#closePromise = (async () => {
-			await this.stopAdmission();
+			await this.#listener.close();
 			this.#retireOwnedLoop();
 		})();
 		return this.#closePromise;

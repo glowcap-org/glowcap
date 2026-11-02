@@ -1,7 +1,6 @@
 //! Composition root for the completion relay's mutually cooperating machines.
-//!
-//! The machines remain separate subjects. This module owns only their typed
-//! access seams. Keeping that wiring here leaves `completion.zig` responsible
+//! The machines remain separate subjects, and the root owns only their typed
+//! access seams. Keeping that wiring apart leaves `completion.zig` responsible
 //! for backend ownership and the public completion contract.
 
 const completion = @import("../../../completion/loop.zig");

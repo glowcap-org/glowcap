@@ -17,7 +17,9 @@ import * as tcp from "@glowcap/tcp";
 // fixed port defaults to 22160; `--port=N` (from -Dport=N) moves it.
 
 import { init } from "@glowcap/web";
-import { fail, kill, readToken, ROOT, WASM } from "./relay_harness_common.ts";
+import { RELAY_READY_MARKER } from "../../relay/mod.ts";
+import { fail } from "../../test/assert.ts";
+import { kill, readToken, ROOT, WASM } from "./relay_harness_common.ts";
 
 let goblinsPort = 22160;
 for (const a of Deno.args) {
@@ -67,7 +69,7 @@ try {
 		stdout: "piped",
 		stderr: "inherit",
 	}).spawn();
-	const relayPort = await readToken(relayProcess, /DENO-RELAY-READY (\d+)/);
+	const relayPort = await readToken(relayProcess, new RegExp(`${RELAY_READY_MARKER} (\\d+)`));
 
 	// 3. Load the wasm browser peer; every dial's WebSocket routes through the
 	// relay, which is told the target via `?to=host:port`.

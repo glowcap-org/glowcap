@@ -109,6 +109,8 @@ pub const Registered = struct {
     /// The generated browser module and its type declarations, which the
     /// repository's TypeScript check imports.
     browser_application: *std.Build.Step,
+    /// The host-target clippy pass over the Rooms Rust workspace.
+    rust_lint: *std.Build.Step,
 };
 
 pub fn register(ctx: Context) Registered {
@@ -120,7 +122,8 @@ pub fn register(ctx: Context) Registered {
     const runtime_gate = ctx.runtime_gate;
     const peers = rooms_peers.register(b, runtime_gate, ctx.iroh_abi_step, ctx.zig_archives);
     const archive_install = peers.installed;
-    const browser_application = rooms_rust.register(b, check_step, runtime_gate, ctx.wasm_archives, ctx.wasm_driver_install, peers.browser_installed, ctx.zig_archives);
+    const rust = rooms_rust.register(b, check_step, runtime_gate, ctx.wasm_archives, ctx.wasm_driver_install, peers.browser_installed, ctx.zig_archives);
+    const browser_application = rust.browser_application;
     peers.web_build.dependOn(browser_application);
 
     const browser_assets = rooms_browser_front.register(.{
@@ -549,6 +552,7 @@ pub fn register(ctx: Context) Registered {
         .web_proofs = web_proofs_step,
         .site_captures = site_captures_step,
         .browser_application = browser_application,
+        .rust_lint = rust.lint,
     };
 }
 

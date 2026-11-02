@@ -7,6 +7,8 @@
 
 /// <reference lib="dom" />
 
+import { assert } from "../assert.ts";
+
 Object.defineProperty(globalThis, "matchMedia", {
 	configurable: true,
 	value: () => ({
@@ -24,10 +26,6 @@ const { canRetry, dirId, isUnsent, sendControlsFor } = types;
 const { MAX_SCROLLBACK } = await import("../../lib/limits.ts");
 const { registrationId } = await import("../support/registration.ts");
 const { roomAuthorityToken } = await import("../../lib/room/authority.ts");
-
-function assert(ok: boolean, what: string): asserts ok {
-	if (!ok) throw new Error(what);
-}
 
 Deno.test("parallel attachment progress is one immutable store update", () => {
 	const room = store.ensureRoom(projection, dirId("test-dir"), "batch-progress");

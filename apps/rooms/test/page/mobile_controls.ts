@@ -3,7 +3,7 @@
 // the rails and composer stranded outside the scaled viewport.
 
 import type { Browser } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 
 export async function proveFocusKeepsMobileViewport(browser: Browser, httpPort: number): Promise<void> {
 	const context = await browser.newContext({

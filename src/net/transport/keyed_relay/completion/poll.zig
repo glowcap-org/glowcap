@@ -1,10 +1,9 @@
 //! One completion turn for the keyed-relay adapter.
 //!
-//! The backend owns state and public verbs. This module owns the turn-level
-//! order: drain resolver completions, retry owed internal submissions, service
-//! the registration, poll the wrapped platform, dispatch each returned
-//! completion, service the registration again, then drain ready external
-//! completions.
+//! The backend owns state and public verbs. The turn owns the order: drain
+//! resolver completions, retry owed internal submissions, service the
+//! registration, poll the wrapped platform, dispatch each returned completion,
+//! service the registration again, then drain ready external completions.
 
 const completion = @import("../../../completion/loop.zig");
 

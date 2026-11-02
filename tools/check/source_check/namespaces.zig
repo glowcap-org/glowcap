@@ -420,7 +420,6 @@ const map_forms = [_]struct { needle: []const u8, key_arg: usize }{
     .{ .needle = "AutoHashMapUnmanaged(", .key_arg = 0 },
     .{ .needle = "AutoHashMap(", .key_arg = 0 },
     .{ .needle = "identity_hash.Map(", .key_arg = 0 },
-    .{ .needle = "identity_hash.Managed(", .key_arg = 0 },
     .{ .needle = "identity_hash.ArrayMap(", .key_arg = 0 },
     .{ .needle = "identity_hash.MapOf(", .key_arg = 1 },
     .{ .needle = "identity_hash.WireMap(", .key_arg = 0 },

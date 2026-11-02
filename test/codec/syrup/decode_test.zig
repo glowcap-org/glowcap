@@ -80,7 +80,7 @@ test "text validity holds at every length and every position of a non-ASCII byte
 
 test "Syrup decodes an unrecognised captp-version rather than calling the frame malformed" {
     // `fromWireString` matches only `wireString` spellings (`1.0`,
-    // `glowcap-next`), so the former lenient `ocapn-1.0` alias is not one.
+    // `glowcap-next`), so `ocapn-1.0` is not one.
     //
     // But an unrecognised token is a well-formed frame naming a version this
     // build does not speak, and saying "malformed frame" about it both misleads

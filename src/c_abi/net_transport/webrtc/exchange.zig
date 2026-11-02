@@ -2,11 +2,10 @@
 //!
 //! A dial's exchange is the driver's request id, and `dial.zig` runs it. An
 //! accept's exchange is an id this netlayer mints, and `accept.zig` runs it.
-//! Both are rows in `NetlayerPayload.exchanges`, and this file owns what they
-//! share: the application's signaling callbacks, how a readiness record for an
-//! exchanging peer becomes the driver's record, and the three calls the
-//! application makes under an exchange id, `provide_answer`,
-//! `provide_candidate`, and `fail_exchange`.
+//! Both are rows in `NetlayerPayload.exchanges`. They share the application's
+//! signaling callbacks, the conversion of a readiness record for an exchanging
+//! peer into the driver's record, and the calls made under an exchange id:
+//! `provide_answer`, `provide_candidate`, and `fail_exchange`.
 //!
 //! Every callback runs on the thread that steps the driver, inside
 //! `glowcap_driver_dial`, `glowcap_driver_step`, or

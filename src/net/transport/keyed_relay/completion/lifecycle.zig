@@ -1,11 +1,11 @@
 //! Terminal ownership for completion-backed relay connections.
 //!
 //! The shared leg lifecycle in `completion/inner_leg.zig` owns seat refusal,
-//! inner close progression, and the single final removal. This module
-//! composes it for the relay carrier and keeps what the WebSocket adds: a
-//! platform shutdown deferred until the close frame drains, the graceful
-//! close handshake, the carrier failure a refused seat can borrow, and the
-//! bounded retry of platform closes the wrapped backend refused.
+//! inner close progression, and the single final removal. The relay carrier
+//! composes it and keeps what the WebSocket adds: a platform shutdown deferred
+//! until the close frame drains, the graceful close handshake, the carrier
+//! failure a refused seat can borrow, and the bounded retry of platform closes
+//! the wrapped backend refused.
 
 const std = @import("std");
 const carrier_failure = @import("../../../carrier_failure.zig");

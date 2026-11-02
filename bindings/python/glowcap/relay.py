@@ -290,7 +290,9 @@ def connector(config: RelayConfig | str) -> Connector:
 
         channel = await connect_websocket(_dial_url(route, locator.designator))
         try:
-            return await Session.establish_dialed_locator(host, locator, channel, handshake_timeout_ms)
+            return await Session.establish_dialed_locator(
+                host, locator, channel, handshake_timeout_ms, verified_channel_key=None
+            )
         except BaseException as primary:
             await _rollback_failed_transport(primary, channel)
             raise

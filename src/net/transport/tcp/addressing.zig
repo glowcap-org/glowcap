@@ -1,9 +1,8 @@
 //! Locator admission shared by every profile backed by TCP.
 //!
-//! This module owns the only conversion from OCapN transport/designator/hint
-//! vocabulary to a socket address. Socket creation stays in `runtime.zig` and
-//! `stream.zig`. Callers cannot reach it through a locator without passing
-//! this admission.
+//! It is the only conversion from OCapN transport/designator/hint vocabulary to
+//! a socket address, so a locator reaches a socket only through this admission.
+//! Socket creation stays in `runtime.zig` and `stream.zig`.
 
 const std = @import("std");
 

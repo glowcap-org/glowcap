@@ -1,11 +1,10 @@
-//! Two kinds of identity, each a fixed 32 bytes. A `PeerId` names a peer. It's
-//! the double-SHA256 hash that OCapN calls the public identifier. A `SessionId` names
-//! one direct session.
+//! Two kinds of identity, each a fixed 32 bytes. A `PeerId` names a peer: the
+//! double-SHA256 hash that OCapN calls the public identifier. A `SessionId`
+//! names one direct session.
 //!
-//! They're the same size, but they are not interchangeable, and the compiler
-//! holds you to that: each is its own struct, so you can't slip a `PeerId` in
-//! where a `SessionId` belongs. This file only carries the bytes. The `crypto`
-//! module is what derives them.
+//! They share a size but not a type. Each is its own struct, so the compiler
+//! refuses a `PeerId` where a `SessionId` belongs. The `crypto` module derives
+//! them.
 
 const std = @import("std");
 

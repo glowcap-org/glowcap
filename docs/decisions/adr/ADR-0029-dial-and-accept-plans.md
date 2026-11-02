@@ -18,7 +18,7 @@ The same locator can be consumed by the Zig driver or an embedding that owns its
 
 ## Decision
 
-A byte-fed embedding can request a dial plan and interpret its host/port, peer identity, signaling or rendezvous result. The embedding opens the channel. Bindings using the generic driver instead pass a typed locator to a registered transport package, which owns concrete I/O.
+The embedding opens the channel. Bindings using the generic driver instead pass a typed locator to a registered transport package, which owns concrete I/O.
 
 Accept admission receives the provider's declared designator scheme and listener facts. The Host derives, retains and signs its locator, preserving an explicitly published peer snapshot. Zig provider dispatch also resolves through the shared admission path.
 

@@ -1,7 +1,6 @@
-//! Inbound `op:deliver` routing.
-//!
-//! This module owns the special-case probe order for a decoded deliver. It
-//! validates ordinary deliver authority before any route mutates session state.
+//! Inbound `op:deliver` routing: the special-case probe order for a decoded
+//! deliver. It validates ordinary deliver authority before any route mutates
+//! session state.
 
 const model = @import("model");
 const session = @import("session");

@@ -2,7 +2,7 @@
 //! their hint entries, handoff certificates, break reasons, signatures, and
 //! validated text. Every writer takes the borrowed record (`model.view`), or
 //! either source where an argument tree reaches it, so an owned record and a
-//! decoded one share one layout. This leaf knows no message or argument
+//! decoded one share one layout. The writers know no message or argument
 //! structure.
 
 const std = @import("std");

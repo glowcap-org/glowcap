@@ -7,7 +7,8 @@
 
 import type { Page } from "playwright";
 import { removeCapability, savedCapabilityNames, takeCapability } from "./capability_set.ts";
-import { fail, reachDirectoryOnCard } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { reachDirectoryOnCard } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
 async function joinForeignRoom(tab: Page, foreignLocator: string): Promise<void> {

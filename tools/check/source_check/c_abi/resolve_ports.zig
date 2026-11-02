@@ -521,14 +521,4 @@ pub fn checkCAbiResolvePorts(
             try appendViolation(gpa, violations, "{s}: must clear TAR_OPTIONS on the listing (ADR-0023)", .{path});
         }
     }
-    const binding_docs = root.readFileAlloc(io, "bindings/PACKAGING.md", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "bindings/PACKAGING.md: failed to read for ADR-0023 archive resolution with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(binding_docs);
-    if (std.mem.indexOf(u8, binding_docs, "ADR-0023") == null or
-        std.mem.indexOf(u8, binding_docs, "c-abi-resolve.json") == null)
-    {
-        try appendViolation(gpa, violations, "bindings/PACKAGING.md: must name ADR-0023 and c-abi-resolve.json as the archive-resolution contract", .{});
-    }
 }

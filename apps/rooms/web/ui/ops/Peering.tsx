@@ -38,6 +38,8 @@ import {
 	peeringPublishing,
 	peeringPublishingAction,
 } from "../../../lib/text/ops.ts";
+import { Input } from "../Input.tsx";
+import { Select } from "../Select.tsx";
 
 export function PeeringPane(
 	{ state, sources }: {
@@ -121,10 +123,9 @@ export function PeeringPane(
 							<Field id="peeringSource" label={opsPeeringRoomLabel}>
 								{(wiring) => (
 									<span className="select-wrap">
-										<select
+										<Select
 											id={wiring.id}
 											name="source"
-											className="field"
 											value={source?.key ?? ""}
 											disabled={publishing}
 											onChange={(event) => {
@@ -137,7 +138,7 @@ export function PeeringPane(
 													{row.room} · on {row.directory}
 												</option>
 											))}
-										</select>
+										</Select>
 									</span>
 								)}
 							</Field>
@@ -148,10 +149,9 @@ export function PeeringPane(
 								said={refused ?? ""}
 							>
 								{(wiring) => (
-									<input
+									<Input
 										id={wiring.id}
 										name="name"
-										className="field"
 										type="text"
 										enterKeyHint="go"
 										value={name}

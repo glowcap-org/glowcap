@@ -258,12 +258,9 @@ pub fn check(
         // `codec.signed`, which states that reason once. Naming a codec
         // anywhere else above the codec layer is either a dispatch bypass or a
         // signature path that lost its precondition; both compile, and neither
-        // fails a single-codec test. `codec/` owns the codecs and `oracle/`
-        // generates per-codec traces, so they are exempt. Comment lines are
-        // skipped so prose may name a codec.
-        if (!std.mem.startsWith(u8, file_path, "src/ocapn/codec/") and
-            !std.mem.startsWith(u8, file_path, "src/oracle/"))
-        {
+        // fails a single-codec test. `codec/` owns the codecs, so it is exempt.
+        // Comment lines are skipped so prose may name a codec.
+        if (!std.mem.startsWith(u8, file_path, "src/ocapn/codec/")) {
             var line_no: usize = 1;
             var lines = std.mem.splitScalar(u8, contents, '\n');
             while (lines.next()) |line| : (line_no += 1) {

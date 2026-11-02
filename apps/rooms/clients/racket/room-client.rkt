@@ -409,7 +409,7 @@
 ;; room's limit) raises here with the wire reason, as `dir-open` does. The serve
 ;; thread keeps the reads meanwhile: this thread parks on the host's progress
 ;; event until the answer lands, the pump's reader-gate contract, proved by the
-;; concurrent-pump case in the binding's `test/zig-smoke/actors-and-sessions.rkt`.
+;; concurrent-pump case in the binding's `test/scenarios/actors-and-sessions.rkt`.
 ;; The answer is the line's own reference, which this client never edits or
 ;; withdraws. `MEMBERSHIP-VERBS` is where the grammar says `post` answers at all,
 ;; so that is what picks `session-send` over `session-tell` here.

@@ -37,27 +37,6 @@ pub const attached_session_authority = [_]Ban{
         .check = "attached Rooms authority",
         .why = "an attached session may call its explicit browser dependencies, never absorb browser or local-session authority",
     },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/session/managed/controller.ts" },
-        .kind = .require,
-        .needles = &.{"browser: Pick<RoomsBrowserController"},
-        .check = "attached Rooms authority",
-        .why = "the attached session adapter must name the exact browser actions its command surface needs",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/controller/browser.ts" },
-        .kind = .require,
-        .needles = &.{"RoomsBrowserContext = createContext<RoomsBrowserController | null>"},
-        .check = "attached Rooms authority",
-        .why = "browser presentation and establishment authority must have its own stable React context",
-    },
-    .{
-        .where = .{ .file = "apps/rooms/web/ui/controller/session.ts" },
-        .kind = .require,
-        .needles = &.{"RoomsSessionContext = createContext<RoomsSessionController | null>"},
-        .check = "attached Rooms authority",
-        .why = "Rooms commands must be unavailable until an established session context exists",
-    },
 };
 
 const service_reporting = [_]Ban{.{
@@ -107,8 +86,50 @@ pub const browser_trouble_reporting = [_]Ban{.{
     .why = "WebRTC listener failures enter the page trouble journal through the application-owned reporter",
 }};
 
+/// Every Rooms peer is minted through `lib/locator.ts`. A `new Host()` or a
+/// bare `listen()` anywhere else speaks the v1.0 Syrup floor, and the session
+/// it opens refuses every frame as malformed instead of naming the profile
+/// disagreement. The profile literals have one owner in `lib/profile.ts`.
+const rooms_peer_minting = [_]Ban{
+    .{
+        .where = .{ .tree = .{
+            .dir = "apps/rooms",
+            .suffixes = &.{ ".ts", ".tsx" },
+            .exclude = &.{"apps/rooms/lib/locator.ts"},
+        } },
+        .kind = .forbid,
+        .needles = &.{"new Host("},
+        .unless_contains = "rooms-profile-exempt:",
+        .check = "Rooms peer minting",
+        .why = "a Rooms peer comes from roomsHost in lib/locator.ts so it wears the fleet profile; a file that must hold a v1.0 peer says so with a rooms-profile-exempt: comment",
+    },
+    .{
+        .where = .{ .tree = .{
+            .dir = "apps/rooms",
+            .suffixes = &.{ ".ts", ".tsx" },
+            .exclude = &.{"apps/rooms/lib/locator.ts"},
+        } },
+        .kind = .forbid,
+        .needles = &.{ " listen(", "(listen(" },
+        .check = "Rooms peer minting",
+        .why = "a Rooms listener is opened by roomsListen in lib/locator.ts, the accepting half of roomsHost",
+    },
+    .{
+        .where = .{ .tree = .{
+            .dir = "apps/rooms",
+            .suffixes = &.{ ".ts", ".tsx" },
+            .exclude = &.{ "apps/rooms/lib/locator.ts", "apps/rooms/lib/profile.ts" },
+        } },
+        .kind = .forbid,
+        .needles = &.{ "codec: \"capnp\"", "captpVersion: \"next\"", "codec: CODEC", "captpVersion: CAPTP_VERSION" },
+        .check = "Rooms peer minting",
+        .why = "the Rooms wire profile is stated once in lib/profile.ts and reached through roomsHostOptions",
+    },
+};
+
 pub const rows =
     nullish_absence ++
+    rooms_peer_minting ++
     neutral_alerts ++
     readable_loops ++
     attached_session_authority ++

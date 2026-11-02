@@ -4,14 +4,12 @@
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
 // Internal: the FFI mirror of `libglowcap_net_transport_tcp` — the blocking-TCP
-// transport archive (ADR-0022).
+// transport archive.
 //
 // Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
-// loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in
-// the inproc or iroh archives. The TCP archive is symbol-disjoint from the core
-// (it shares the frame/context types by layout, not by symbol), so it loads
-// alongside `libglowcap_ocapn` rather than instead of it, and carries its own
-// thread-local last-error read through `glowcap_tcp_last_error`.
+// loader opens *only* the TCP archive, which shares the frame/context types
+// with the core by layout and carries its own thread-local last-error read
+// through `glowcap_tcp_last_error`.
 
 import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
 import { TCP_ARCHIVE_FINGERPRINT } from "@glowcap/abi";

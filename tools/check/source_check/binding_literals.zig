@@ -1,8 +1,6 @@
 //! Binding transport and hint literal hygiene: those strings live only in
 //! the generated projections of `model.transport`, and every production
-//! module imports the generated names. Split from `captp_io_spine.zig`,
-//! whose subject is the completion-loop dial spine; the two run together in
-//! the source-check driver.
+//! module imports the generated names.
 
 const std = @import("std");
 const util = @import("util.zig");

@@ -1,8 +1,8 @@
 //! Read-only session table walks for inspect / status surfaces.
 //!
-//! `Session` remains the authority boundary. This module owns only the
-//! borrowed view shapes and the non-mutating walkers over export, import,
-//! and answer tables.
+//! `Session` remains the authority boundary. The walks hold only the borrowed
+//! view shapes and the non-mutating walkers over export, import, and answer
+//! tables.
 
 const model = @import("model");
 const session_mod = @import("mod.zig");

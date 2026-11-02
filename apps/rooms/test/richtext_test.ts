@@ -20,10 +20,7 @@ import { assertEquals } from "./assert.ts";
 import { hasIrcFormatting } from "../web/ui/text.ts";
 import { messageMentions } from "../web/ui/markdown.ts";
 import "./support/browser_application.ts";
-
-function fail(message: string): never {
-	throw new Error(message);
-}
+import { fail } from "./support/fail.ts";
 
 function drawn(text: string, nick = "zoe"): string {
 	return renderToStaticMarkup(createElement(RichText, { text, nick }));

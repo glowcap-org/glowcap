@@ -1,7 +1,7 @@
 // Multiple rooms retain independent delivery, history, drafts and membership.
 import type { Page } from "playwright";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { run as narrow } from "./layout/narrow.ts";
 
 export async function run(

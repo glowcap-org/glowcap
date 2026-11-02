@@ -113,6 +113,16 @@ pub const inbound_vocabulary: []const Ban = inbound_rows: {
 /// `desc:answer`: the spec's to-desc grammar. The import-side descriptors
 /// introduce references. They are never a delivery target. The wrong spelling
 /// reads plausibly and survived review once, so the gate holds it.
+/// Each landing discloses how glowcap is built and who answers for it by
+/// linking `PROVENANCE.md`.
+pub const landing_provenance: []const Ban = &.{.{
+    .where = .{ .files = &.{ "README.md", "site/content/index.smd" } },
+    .kind = .require,
+    .needles = &.{"PROVENANCE.md"},
+    .check = "landing provenance",
+    .why = "a landing links PROVENANCE.md so a first reader learns how glowcap is built and who answers for it",
+}};
+
 pub const diagram_wire_vocabulary: []const Ban = &.{
     .{
         .where = .{ .tree = .{ .dir = "docs/protocol-diagrams", .suffixes = &.{".md"} } },

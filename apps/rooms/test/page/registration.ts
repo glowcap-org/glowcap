@@ -1,7 +1,7 @@
 // A managed public name is a capability registration, not an immortal room.
 
 import type { Page } from "playwright";
-import { fail } from "./harness.ts";
+import { fail } from "../support/fail.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { roomNameReleaseSay } from "../../lib/text/room_authority.ts";
 

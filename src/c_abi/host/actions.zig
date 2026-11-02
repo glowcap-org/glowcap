@@ -1,12 +1,12 @@
 //! Host action projection and completion acknowledgements for the C ABI.
 //!
-//! The Host owns the queue and all transaction semantics. This leaf turns one
-//! borrowed action into its C carrier and sends embedder acknowledgements back
-//! to that same owner. It introduces no scheduling or policy.
-//! A pop is consume-on-success: allocator refusal leaves the action and the
-//! preceding borrowed projection intact. Embedders drain through WOULD_BLOCK.
-//! Ignoring a returned action leaves its dial, flush, handoff,
-//! or settlement consequence unsettled.
+//! The Host owns the queue and all transaction semantics. The projection turns
+//! one borrowed action into its C carrier and sends embedder acknowledgements
+//! back to that same owner, with no scheduling or policy of its own. A pop is
+//! consume-on-success: allocator refusal leaves the action and the preceding
+//! borrowed projection intact. Embedders drain through WOULD_BLOCK. Ignoring a
+//! returned action leaves its dial, flush, handoff, or settlement consequence
+//! unsettled.
 
 const shared = @import("c_abi_shared");
 const driver_core = @import("driver_core");

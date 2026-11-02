@@ -1,8 +1,7 @@
-//! Completion-loop operation identity and inline connection state.
-//!
-//! The root Loop embeds this state directly. This module adds no owner object.
-//! It names the exact slot representation and the compact completion ticket
-//! shared by the loop's internal transaction owners.
+//! Completion-loop operation identity and inline connection state: the exact
+//! slot representation and the compact completion ticket shared by the loop's
+//! internal transaction owners. The root Loop embeds this state directly, so it
+//! adds no owner object.
 
 const std = @import("std");
 const engine = @import("engine");
@@ -44,7 +43,7 @@ pub const close_retry_ms: i32 = 50;
 /// Outbound queue capacity a drained `front` retains (ADR-0017). The iroh
 /// sidecar keeps the same bound for its own per-connection buffer, in Rust
 /// (`NB_STEADY_BYTES`), so the per-connection footprint cannot split between
-/// them. `source-check` holds the two numbers together.
+/// them. `gen-iroh-sidecar-constants` writes the Rust number from this one.
 pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 
 /// Per-connection slot bookkeeping ceiling (ADR-0009): the most a `Conn` may

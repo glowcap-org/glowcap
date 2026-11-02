@@ -258,7 +258,7 @@ const host_ffi_preamble =
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
     \\// Internal: the FFI mirror of the `glowcap_host_*` family — the byte-fed
-    \\// host tier (ADR-0022), the sibling of the Racket binding's `ffi-host.rkt`.
+    \\// host tier, the sibling of the Racket binding's `ffi-host.rkt`.
     \\//
     \\// Nothing here is public. This table loads `libglowcap_host`, the archive
     \\// that owns every `glowcap_host_*` symbol. The driver archive is a separate
@@ -297,7 +297,7 @@ const ocapn_ffi_preamble =
     \\// — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libglowcap_ocapn` — the core archive (ADR-0022).
+    \\// Internal: the FFI mirror of `libglowcap_ocapn` — the core archive.
     \\//
     \\// Nothing here is part of the public API. The ergonomic surface reaches these
     \\// symbols through `ocapnS`; a consumer never imports this file. This loader
@@ -305,7 +305,7 @@ const ocapn_ffi_preamble =
     \\// binding still speaks directly: the ABI version, the core last-error slot, the
     \\// allocation context, managed-frame release, the exporter-locator encoder, and
     \\// the OCapN URI grammar. The peer itself is driven through the byte-fed host
-    \\// archive (`host.ts`, `libglowcap_host`, ADR-0022), never through raw
+    \\// archive (`host.ts`, `libglowcap_host`), never through raw
     \\// raw per-session engine calls. Each transport archive has its own sibling loader
     \\// here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
     \\//
@@ -359,14 +359,12 @@ const tcp_ffi_preamble =
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
     \\// Internal: the FFI mirror of `libglowcap_net_transport_tcp` — the blocking-TCP
-    \\// transport archive (ADR-0022).
+    \\// transport archive.
     \\//
     \\// Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
-    \\// loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in
-    \\// the inproc or iroh archives. The TCP archive is symbol-disjoint from the core
-    \\// (it shares the frame/context types by layout, not by symbol), so it loads
-    \\// alongside `libglowcap_ocapn` rather than instead of it, and carries its own
-    \\// thread-local last-error read through `glowcap_tcp_last_error`.
+    \\// loader opens *only* the TCP archive, which shares the frame/context types
+    \\// with the core by layout and carries its own thread-local last-error read
+    \\// through `glowcap_tcp_last_error`.
     \\
     \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
     \\import { TCP_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
@@ -385,13 +383,12 @@ const inproc_ffi_preamble =
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
     \\// Internal: the FFI mirror of `libglowcap_net_transport_inproc` — the
-    \\// in-process transport archive (ADR-0022).
+    \\// in-process transport archive.
     \\//
     \\// Nothing here is public; `inproc.ts` is the ergonomic surface over it. This
-    \\// loader opens *only* the inproc archive, so importing `inproc.ts` never pulls
-    \\// in the TCP or iroh archives. The inproc family is symbol-disjoint from the
-    \\// core and shares the frame/context types by layout; it carries its own
-    \\// thread-local last-error read through `glowcap_inproc_last_error`.
+    \\// loader opens *only* the inproc archive, which shares the frame/context types
+    \\// with the core by layout and carries its own thread-local last-error read
+    \\// through `glowcap_inproc_last_error`.
     \\
     \\import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
     \\import { INPROC_ARCHIVE_FINGERPRINT } from "@glowcap/abi";

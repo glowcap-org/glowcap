@@ -1,14 +1,14 @@
 //! The `op:start-session` handshake state, the session-owned half.
 //!
 //! Both peers exchange one `op:start-session` half (ADR-0002). The session
-//! records whether each half has been seen and what the partner's half
-//! carried, its session public key, its location designator, and the verbatim
+//! records whether each half has been seen and what the partner's half carried,
+//! its session public key, its location designator, and the verbatim
 //! `<ocapn-peer ...>` location bytes a gifter later embeds in a
-//! `desc:handoff-give` (ADR-0039). Those are authoritative session state, so the
-//! fields live on `Session`. This file owns the operations over them and
-//! `Session` aliases each function as a method. Flipping `negotiating` to `open`
-//! also installs the fixed bootstrap export, the one fallible step, so a failed
-//! registration leaves the session untouched.
+//! `desc:handoff-give` (ADR-0039). Those are authoritative session state, so
+//! the fields live on `Session`, which aliases each operation over them as a
+//! method. Flipping `negotiating` to `open` also installs the fixed bootstrap
+//! export, the one fallible step, so a failed registration leaves the session
+//! untouched.
 
 const std = @import("std");
 

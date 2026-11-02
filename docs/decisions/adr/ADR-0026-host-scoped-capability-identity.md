@@ -18,7 +18,7 @@ A session wire position cannot identify an object across sessions. Optional enro
 
 ## Decision
 
-The standard multi-session product composes one Host with one Vat through session-specific ports. The Host owns canonical opaque application capability identities. A session owns its wire projections, and the Node owns authority-neutral routing and scheduling.
+The Host owns canonical opaque application capability identities. A session owns its wire projections, and the Node owns authority-neutral routing and scheduling.
 
 Every application-held capability has a Host owner, regardless of how it was obtained. Identity is lifted automatically and lowered through the selected session. Equal positions on different sessions never alias, and stale routed handles cannot acquire a new meaning.
 

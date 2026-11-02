@@ -18,7 +18,7 @@ Folder names and review conventions cannot prevent a protocol layer from importi
 
 ## Decision
 
-Each source layer is an internal Zig build module with explicit one-way imports. Model, codec, session and engine live under the OCapN namespace. Each codec is a sibling module over shared contracts, and their registry is the owner that imports both.
+Model, codec, session and engine live under the OCapN namespace. Each codec is a sibling module over shared contracts, and their registry is the owner that imports both.
 
 The public root curates the application namespace. Actors add local execution, the Host owns multi-session capability identity, and HostRuntime owns I/O. A connection names a framed byte channel, while a session names a CapTP relationship. Runtime residents own transport execution state.
 

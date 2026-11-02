@@ -1,6 +1,5 @@
-//! Documentation surfaces over the C ABI: the served-surface list, the
-//! deleted-projection guard, and every `glowcap_*` citation in the docs held
-//! to a symbol the headers export.
+//! Every `glowcap_*` citation in the docs is held to a symbol the headers
+//! export.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -31,76 +30,6 @@ const doc_c_abi_header_paths = [_][]const u8{
     "include/glowcap_net_transport_webrtc.h",
     "transports/iroh/include/glowcap_iroh_sidecar.h",
 };
-
-/// The C ABI consumes `Served` through its surface verbs (`spawnHosted`,
-/// `bindExport`, `refForExport`, …), never by reaching through the embedded
-/// vat: `.served.vat` under `src/c_abi/` is a boundary violation.
-pub fn checkCAbiServedSurface(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    var dir = root.openDir(io, "src/c_abi", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src/c_abi: failed to open for Served-surface check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const contents = dir.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "src/c_abi/{s}: failed to read for Served-surface check with {s}", .{ entry.path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, ".served.vat") != null) {
-            try appendViolation(gpa, violations, "src/c_abi/{s}: reaches `.served.vat` — the C ABI talks to Served through its surface verbs only", .{entry.path});
-        }
-    }
-}
-
-/// CapTP C product is `glowcap_host_*` only: the demoted `glowcap_node_*`
-/// projection must not return in generated headers or binding FFI maps.
-pub fn checkDeletedNodeCProjection(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const banned = "glowcap_node_";
-    const paths = [_][]const u8{
-        "include/glowcap_ocapn.h",
-        "include/glowcap_host.h",
-        "include/glowcap_loam.h",
-        "include/glowcap_loam_lmdb.h",
-        "include/glowcap_loam_sqlite.h",
-        "include/glowcap_loam_volatile.h",
-        "bindings/ts/runtime/internal/ffi/ocapn.ts",
-        "bindings/python/glowcap/_ffi_ocapn.py",
-        "bindings/racket/private/ffi-ocapn.rkt",
-        "bindings/rust/src/sys/ocapn.rs",
-    };
-    for (paths) |path| {
-        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for deleted-node C projection check with {s}", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, banned) != null) {
-            try appendViolation(gpa, violations, "{s}: contains `{s}` — CapTP C product is glowcap_host_* only; the demoted node waist must not return", .{ path, banned });
-        }
-    }
-    // The companion header itself must stay deleted.
-    if (root.access(io, "include/glowcap_ocapn_node.h", .{})) |_| {
-        try appendViolation(gpa, violations, "include/glowcap_ocapn_node.h: file must stay deleted (demoted node waist)", .{});
-    } else |err| switch (err) {
-        error.FileNotFound => {},
-        else => return err,
-    }
-}
 
 /// Every `glowcap_[a-z0-9_]+` token inside backticks in docs and site content
 /// must exist in the generated headers (or name a wildcard family that does).

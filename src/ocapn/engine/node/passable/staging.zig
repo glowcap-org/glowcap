@@ -1,7 +1,7 @@
 //! Staging one inline-Passable transaction: admit the tree, count and collect
 //! its projections, and open the batch that waits for their gift ids.
 //!
-//! `batches.zig` owns the open batches and their completion. This file is the
+//! `batches.zig` owns the open batches and their completion. Staging is the
 //! entry that creates one.
 
 const std = @import("std");

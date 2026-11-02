@@ -2,7 +2,8 @@
 // a final screenshot cannot see. Called by rooms-web-responsiveness. No product hooks.
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
-import { awaitBubble, fail, openDmTo, say } from "./harness.ts";
+import { fail } from "../support/fail.ts";
+import { awaitBubble, openDmTo, say } from "./harness.ts";
 
 async function watch(page: Page, who: string): Promise<void> {
 	await page.evaluate((who) => {

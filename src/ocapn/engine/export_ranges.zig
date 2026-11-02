@@ -1,9 +1,8 @@
-//! Disjoint per-session export numbering for one `Node` (the "Names carry
-//! three things" defence): the node-slot arithmetic, the per-session range
-//! allocator, and the recycle queue a released session's range returns
-//! through. `Node` aliases each function as its own. The fields live on
-//! `Node` because they are node state, and this file owns the operations
-//! over them.
+//! Disjoint per-session export numbering for one `Node` (the "Names carry three
+//! things" defence): the node-slot arithmetic, the per-session range allocator,
+//! and the recycle queue a released session's range returns through. `Node`
+//! aliases each function as its own and keeps the fields, because they are node
+//! state.
 
 const std = @import("std");
 

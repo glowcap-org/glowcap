@@ -11,7 +11,7 @@ const collectBulletSpans = util.collectBulletSpans;
 /// Each `@glowcap/*` workspace member under `bindings/ts/` is a publishable
 /// package. Its directory is the ship surface, tests, harnesses, smokes,
 /// benches, and probes live under that package's `test/` (or the workspace
-/// `dogfood/`). A co-located `*_test.ts` next to `mod.ts` makes a broad
+/// `test/`). A co-located `*_test.ts` next to `mod.ts` makes a broad
 /// `publish.include` of `**/*.ts` ship test code unless someone remembers an
 /// exclude, and remembering is not a gate.
 ///

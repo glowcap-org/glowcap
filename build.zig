@@ -36,10 +36,6 @@ const relay_matrix_build = @import("tools/build/relay_matrix.zig");
 const browser_preflight_build = @import("tools/build/browser_preflight.zig");
 const build_steps_doc = @import("tools/build/build_steps_doc.zig");
 
-const glowcapExecutable = build_common.glowcapExecutable;
-const addGlowcapRun = build_common.addGlowcapRun;
-const addRootedSystemCommand = build_common.addRootedSystemCommand;
-
 /// C ABI version (keep in lockstep with `GLOWCAP_VERSION_*` in
 /// `include/glowcap_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
 /// in `build.zig.zon`, the source gate holds the zon triple to this one). Each
@@ -76,7 +72,6 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "loam_access_records", .prefix = "loam/access/records/", .imports = &.{ "loam_access_core", "loam_records", "syrup" }, .core = true },
     .{ .name = "loam_access_storage", .prefix = "loam/access/storage/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_core" }, .core = true },
     .{ .name = "net", .prefix = "net/", .imports = &.{ "foundation", "model", "codec", "engine" }, .core = false },
-    .{ .name = "oracle", .prefix = "oracle/", .imports = &.{ "foundation", "model", "session", "engine" }, .core = false },
     .{ .name = "driver_core", .prefix = "driver/core/", .imports = &.{ "foundation", "model", "engine", "actors" }, .core = true },
     .{ .name = "loam_hosting", .prefix = "loam/hosting/", .imports = &.{ "foundation", "loam_core", "actors", "driver_core", "model" }, .core = true },
     .{ .name = "loam_access_hosting", .prefix = "loam/access/hosting/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_access_storage", "loam_core", "loam_hosting", "driver_core" }, .core = true },
@@ -164,16 +159,11 @@ pub fn layerIndex(comptime name: []const u8) usize {
 
 pub const graphFromTable = @import("tools/build/module_graph.zig").create;
 
-const addInstalledSystemRun = build_common.addInstalledSystemRun;
 const installArchive = build_common.installArchive;
 const interopHarnessModule = build_common.interopHarnessModule;
 
 const AbiImport = build_common.AbiImport;
 const transportAbiModule = build_common.transportAbiModule;
-
-const linkIrohSidecar = build_common.linkIrohSidecar;
-
-const irohDriverModule = build_common.irohDriverModule;
 
 pub fn build(b: *std.Build) void {
     const target = build_common.baselineTarget(b);
@@ -213,9 +203,8 @@ pub fn build(b: *std.Build) void {
     const relay_tls = mbedtls_build.addFamily(b, target, optimize, host_mods[layerIndex("foundation")], host_mods[layerIndex("net")]);
 
     // ── Composable C ABI archives (ADR-0022) ─────────────────────────────────
-    // The single umbrella artifact is dropped: each family
-    // ships as its own archive linked à la carte, exporting only its
-    // `glowcap_<family>_*` symbols and sharing core types by header layout.
+    // Each family ships as its own archive linked à la carte, exporting only
+    // its `glowcap_<family>_*` symbols and sharing core types by header layout.
     // `libglowcap_ocapn` is the shared vocabulary; each transport is a
     // self-contained companion that embeds its private lower layers as local
     // symbols.
@@ -363,17 +352,16 @@ pub fn build(b: *std.Build) void {
     };
     gen_build.register(gen_ctx);
 
-    // The documentation site pipeline (autodoc, the transport example
-    // snippets and their per-language checks, the Zine render, and the local
-    // preview) registers as one subject from tools/build/site.zig; the
-    // language-check handles come back for the `bindings` aggregate.
-
     // Every step that drives a real headless Chromium depends on this one
     // preparation (tools/build/browser_preflight.zig).
     const browser_preflight = browser_preflight_build.register(b);
 
     mark_build.register(b, browser_preflight);
 
+    // The documentation site pipeline (autodoc, the transport example
+    // snippets and their per-language checks, the Zine render, and the local
+    // preview) registers as one subject from tools/build/site.zig; the
+    // language-check handles come back for the `bindings` aggregate.
     const site_reg = site_build.register(.{
         .b = b,
         .target = target,
@@ -405,12 +393,12 @@ pub fn build(b: *std.Build) void {
     bench_build.register(b, target, optimize, lib_mod, fast_lib_mod, host_mods, check_step, runtime_gate, profiles);
     gen_build.registerCapnpFixtures(b, target, optimize, lib_mod, check_step);
 
-    // The per-language dogfoods and their aggregates register from
+    // The per-language test suites and their aggregates register from
     // tools/build/bindings_steps.zig; the iroh-dependent wiring joins below,
     // where the iroh ABI steps exist.
     const bindings_reg = bindings_steps_build.register(b, site_reg);
     const bindings_step = bindings_reg.bindings_step;
-    const dogfood_runs = bindings_reg.dogfood_runs;
+    const suite_runs = bindings_reg.suite_runs;
 
     // Shared Zig interop-driver harness, one instance for every interop
     // executable (the goblins family's drivers and the iroh drivers below).
@@ -455,8 +443,8 @@ pub fn build(b: *std.Build) void {
     const iroh_resident_mod = iroh_reg.resident_mod;
     const iroh_sidecar_archive = iroh_reg.sidecar_archive;
     const iroh_abi_step = iroh_reg.abi_step;
-    for (bindings_steps_build.dogfoods, dogfood_runs) |dogfood, run| {
-        if (dogfood.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
+    for (bindings_steps_build.suites, suite_runs) |suite, run| {
+        if (suite.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
     }
     bindings_step.dependOn(iroh_reg.abi_test_step);
 
@@ -496,8 +484,6 @@ pub fn build(b: *std.Build) void {
         .root_module = iroh_abi_check_mod,
     });
     check_step.dependOn(&iroh_abi_check.step);
-
-    // `include/glowcap_net_transport_iroh.h` and the binding FFI layout facts
 
     gen_build.registerMirrors(gen_ctx, iroh_resident_mod, webrtc_resident_mod);
 
@@ -610,8 +596,8 @@ pub fn build(b: *std.Build) void {
     apps_demos_build.register(b, target, optimize, lib_mod, loam_engines.sqlite, check_step, runtime_gate, pin_port, attach, demo_usage_mod, demo_tools_check_mod);
 
     // The formatting, per-scope, and detached-package checks register from
-    // tools/build/bindings_steps.zig, over the archives and dogfood runs.
-    bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, &.{ iroh_abi_step, webrtc_reg.abi_step }, rooms.browser_application, bindings_reg);
+    // tools/build/bindings_steps.zig, over the archives and suite runs.
+    bindings_steps_build.registerChecks(b, check_step, onion_archive.dynamic_install, &.{ iroh_abi_step, webrtc_reg.abi_step }, rooms.rust_lint, rooms.browser_application, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
     ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, browser_preflight, rooms_services_install);

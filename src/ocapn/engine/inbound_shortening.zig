@@ -1,7 +1,8 @@
 //! Prepare/commit transactions for promise shortening consequences.
 //!
-//! Inbound validation decides semantics. This leaf owns the fallible authority
-//! and queue reservations that must all exist before a received frame commits.
+//! Inbound validation decides semantics. The transactions own the fallible
+//! authority and queue reservations that must all exist before a received frame
+//! commits.
 
 const std = @import("std");
 

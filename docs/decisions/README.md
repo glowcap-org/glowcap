@@ -125,3 +125,4 @@ record's id, filename and status.
 ### Proposed
 
 - [ADR-0066 Proposed TypeScript runtime](adr/ADR-0066-proposed-typescript-runtime.md)
+- [ADR-0069 Proposed interface language and model](adr/ADR-0069-proposed-interface-language.md)

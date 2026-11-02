@@ -18,7 +18,7 @@ A foreign caller needs control over allocation and lifetime without constructing
 
 ## Decision
 
-A caller-owned context supplies allocation and free callbacks for a handle family. Size and alignment are explicit. The context outlives the handles and frames that use it, and each allocation is released through its owning family.
+Size and alignment are explicit. The context outlives the handles and frames that use it, and each allocation is released through its owning family.
 
 Managed frame descriptors keep an owned frame in fixed opaque caller-owned words. Transferring a frame into that descriptor adds neither a descriptor allocation nor a byte copy. Releasing it destroys the inline owner and clears the descriptor.
 
