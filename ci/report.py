@@ -1,9 +1,11 @@
 """Finish check.yml with one qualification result and linked job diagnostics.
 
-Actions' needs results decide success. Job details only enrich the summary:
-an unavailable read API cannot hide a failed dependency or invalidate a pass.
-The workflow supplies VALIDATION_NEEDS, the Actions run identity and its
-read-only token. No repository or registry state is changed.
+Actions' needs results decide success: every job the aggregate needs must
+have succeeded, and check.yml's `needs` list is the one place that names
+those jobs. Job details only enrich the summary: an unavailable read API
+cannot hide a failed dependency or invalidate a pass. The workflow supplies
+VALIDATION_NEEDS, the Actions run identity and its read-only token. No
+repository or registry state is changed.
 """
 
 import json
@@ -13,11 +15,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-REQUIRED = ("plan", "image", "linux", "macos-runtime", "workflows")
-
 
 def qualification(needs):
-    return all(needs.get(name, {}).get("result") == "success" for name in REQUIRED)
+    return bool(needs) and all(need.get("result") == "success" for need in needs.values())
 
 
 def cell(value):
@@ -28,8 +28,8 @@ def render(needs, jobs, warning=None):
     passed = qualification(needs)
     scope = "Full validation" if needs.get("plan", {}).get("outputs", {}).get("full") == "true" else "Selected checks"
     lines = [f"## {scope} {'passed' if passed else 'failed'}", "", "| Dependency | Result |", "| --- | --- |"]
-    for name in REQUIRED:
-        lines.append(f"| {name} | {cell(needs.get(name, {}).get('result', 'missing'))} |")
+    for name, need in needs.items():
+        lines.append(f"| {name} | {cell(need.get('result', 'missing'))} |")
     failed = [job for job in jobs if job.get("conclusion") in ("failure", "cancelled", "timed_out")]
     if failed:
         lines.extend(["", "### Jobs requiring attention", ""])
@@ -80,10 +80,9 @@ def main():
         output.write(summary)
     print(summary)
     if not qualification(needs):
-        for name in REQUIRED:
-            result = needs.get(name, {}).get("result", "missing")
-            if result != "success":
-                print(f"::error::Validation dependency {name} ended as {result}", file=sys.stderr)
+        for name, need in needs.items():
+            if need.get("result") != "success":
+                print(f"::error::Validation dependency {name} ended as {need.get('result', 'missing')}", file=sys.stderr)
         return 1
     return 0
 

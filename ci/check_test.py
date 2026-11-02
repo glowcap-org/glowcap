@@ -74,10 +74,12 @@ class EventsTest(unittest.TestCase):
             with self.subTest(workflow=path):
                 self.assertEqual(workflow(path)["on"]["push"]["branches"], ["dev"])
 
-    def test_the_aggregate_requires_every_job(self):
+    def test_the_aggregate_requires_every_job_a_dev_push_runs(self):
         found = jobs(CHECK)
         aggregate = found["gates"]
-        self.assertEqual(aggregate["needs"], ["plan", "image", "linux", "macos-runtime", "workflows"])
+        push = {"event_name": "push", "ref": "refs/heads/dev"}
+        running = [name for name, job in found.items() if name != "gates" and selected(job.get("if"), push)]
+        self.assertCountEqual(aggregate["needs"], running, "ci/report.py requires every need, so needs is the list")
         self.assertIn("always()", aggregate["if"])
         verdict = step(aggregate, "Summarize and require validation")
         self.assertEqual(verdict["env"]["VALIDATION_NEEDS"], "${{ toJSON(needs) }}")

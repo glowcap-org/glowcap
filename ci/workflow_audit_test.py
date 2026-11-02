@@ -9,7 +9,6 @@ logic is Python called by short steps, and the post-release validation keeps
 its cost split between Linux and macOS.
 """
 
-import importlib.util
 import re
 import unittest
 
@@ -53,10 +52,6 @@ class WorkflowAudit(unittest.TestCase):
         self.assertRegex(audit[0]["uses"], r"^zizmorcore/zizmor-action@[0-9a-f]{40}$")
         self.assertEqual(audit[0]["with"]["persona"], "regular")
         self.assertIn("workflows", found["gates"]["needs"])
-        spec = importlib.util.spec_from_file_location("report", ROOT / "ci/report.py")
-        report = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(report)
-        self.assertIn("workflows", report.REQUIRED)
 
     def test_workflows_repeat_no_mapping_key(self):
         self.assertEqual(
