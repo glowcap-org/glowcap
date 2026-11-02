@@ -15,7 +15,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     tests.addImport("loam_core", core);
     tests.addImport("glowcap", b.modules.get("glowcap").?);
     tests.addImport("loam_lmdb", tested);
-    tests.addImport("oracle", gates.oracle);
+    tests.addImport("scenarios", gates.scenarios);
     tests.addImport("engine_fixture", fixture(b, target, optimize, core, tested, temp));
     const suite = b.addTest(.{ .root_module = tests });
     const run = execution.addZigTest(b, suite, .unit_test);

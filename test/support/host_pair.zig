@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const agreement = @import("oracle").agreement;
+const agreement = @import("scenarios").agreement;
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;

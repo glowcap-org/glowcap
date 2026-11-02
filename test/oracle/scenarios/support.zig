@@ -4,8 +4,8 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
-const appendTraceLine = @import("../trace.zig").appendLine;
-const agreement = @import("../agreement.zig");
+const appendTraceLine = @import("trace.zig").appendLine;
+const agreement = @import("agreement.zig");
 
 /// Hold one session of a scenario to `agreement` once its trace is written.
 /// The traffic the trace leaves queued, such as the releases a settlement

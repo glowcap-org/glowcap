@@ -4,7 +4,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
-const appendTraceLine = @import("../trace.zig").appendLine;
+const appendTraceLine = @import("trace.zig").appendLine;
 const support = @import("support.zig");
 
 const DrivenGiftSeams = struct {

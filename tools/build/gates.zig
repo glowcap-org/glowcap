@@ -47,7 +47,7 @@ pub const Registered = struct {
     wasm_archives: *std.Build.Step,
     /// The scenario and agreement layer, for a test root outside the main
     /// suite whose pair harness holds pairs to the agreement.
-    oracle: *std.Build.Module,
+    scenarios: *std.Build.Module,
 };
 
 /// The full `src/root.zig` module graph for an arbitrary target, used by the
@@ -211,7 +211,7 @@ pub fn register(ctx: Context) Registered {
     // source gate, tests, oracle checks, the header staleness check, the Zig + C
     // examples, the cross-compile gate, and the benchmark checks (peer-scaling
     // in its in-process smoke mode). The binding test suites
-    // (`zig build rust-test`, and the wider `zig build bindings`) needs
+    // (`zig build rust-test`, and the wider `zig build bindings`) need
     // cargo/deno/python/racket on PATH, so it is a sibling step run alongside
     // `check`, not a dependency of it. `check` itself requires the small host
     // tool set `in_tree_runtimes` declares in toolchain.zig. The container has it.
@@ -255,7 +255,7 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("c_abi_host", host_abi_mod);
     tests_mod.addImport("c_abi_driver", driver_abi_mod);
     const scenarios_mod = scenariosModule(b, host_mods, target, optimize);
-    tests_mod.addImport("oracle", scenarios_mod);
+    tests_mod.addImport("scenarios", scenarios_mod);
     // Collection tests import the dependency-free Loam leaf directly, matching
     // the snapshot benchmark without involving storage or LMDB backends.
     tests_mod.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
@@ -335,7 +335,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = .Debug,
     });
     memcheck_mod.addImport("glowcap", memcheck_mods[layerIndex("glowcap")]);
-    memcheck_mod.addImport("oracle", scenariosModule(b, memcheck_mods, memcheck_target, .Debug));
+    memcheck_mod.addImport("scenarios", scenariosModule(b, memcheck_mods, memcheck_target, .Debug));
     frame_identity.addFixtures(b, memcheck_mod, memcheck_target, .Debug);
     memcheck_mod.addImport("syrup", memcheck_mods[layerIndex("syrup")]);
     const memcheck_layers = b.addOptions();
@@ -364,7 +364,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     fuzz_mod.addImport("glowcap", lib_mod);
-    fuzz_mod.addImport("oracle", scenarios_mod);
+    fuzz_mod.addImport("scenarios", scenarios_mod);
     // The immutable collections use the same direct leaf import as the suite;
     // their fuzz target needs neither graph storage nor an LMDB backend, and
     // its fuzz target drives it against a plain map to see where they disagree.
@@ -443,7 +443,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     oracle_tests_mod.addImport("glowcap", lib_mod);
-    oracle_tests_mod.addImport("oracle", scenarios_mod);
+    oracle_tests_mod.addImport("scenarios", scenarios_mod);
     const oracle_tests = b.addTest(.{
         .root_module = oracle_tests_mod,
     });
@@ -590,7 +590,7 @@ pub fn register(ctx: Context) Registered {
     // Hosts with distinct identities complete a keyed handshake over an in-memory
     // byte pipe, then the dialer refuses a wrong-peer sturdyref before output.
     // A sibling step (needs deno on PATH), not folded into the Zig-hermetic `check`.
-    const wasm_driver_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "bindings/ts/web/test/wasm_handshake_smoke.ts" });
+    const wasm_driver_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "bindings/ts/web/test/wasm_handshake.ts" });
     wasm_driver_test.setCwd(b.path("."));
     wasm_driver_test.has_side_effects = true;
     wasm_driver_test.step.dependOn(&wasm_driver_install.step);
@@ -643,6 +643,6 @@ pub fn register(ctx: Context) Registered {
         .test_filter = test_filter,
         .wasm_install = &wasm_driver_install.step,
         .wasm_archives = wasm_archives_step,
-        .oracle = scenarios_mod,
+        .scenarios = scenarios_mod,
     };
 }

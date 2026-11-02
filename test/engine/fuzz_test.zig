@@ -90,7 +90,7 @@ const drainApplication = program.drainApplication;
 const stepBounded = program.stepBounded;
 const heldImport = program.heldImport;
 /// The cross-peer relation the agreement target holds.
-const agreement = @import("oracle").agreement;
+const agreement = @import("scenarios").agreement;
 const audit = glowcap.ocapn.session.audit;
 
 const held_resolution = @import("fuzz/held_resolution.zig");

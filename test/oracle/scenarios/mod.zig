@@ -1,11 +1,11 @@
-//! Canonical CapTP scenario drivers and the observable-trace oracle.
+//! The CapTP scenario drivers.
 //!
 //! Each `run*` function drives a `engine.Peer` through one fixed protocol
 //! scenario (a Stage-0 abort, a driven deliver/resolve, a handshake-then-
 //! bootstrap-fetch, an inbound dispatch mode) and returns the resulting wire
 //! bytes, which the oracle tests beside this directory compare for identical
-//! observable behavior. The suites import this directory as the `oracle`
-//! module; nothing under `src/` does.
+//! observable behavior. The suites import this directory as the `scenarios`
+//! module. Nothing under `src/` does.
 //!
 //! The drivers are sync and codec-parameterized. They own no I/O and add no
 //! protocol semantics the engine lacks.
@@ -16,10 +16,10 @@ const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const appendTraceLine = @import("trace.zig").appendLine;
-const scenario_support = @import("scenario/support.zig");
+const scenario_support = @import("support.zig");
 
 pub const agreement = @import("agreement.zig");
-pub const handoff = @import("scenario/handoff.zig");
+pub const handoff = @import("handoff.zig");
 
 pub fn runStage0Abort(allocator: std.mem.Allocator) ![]u8 {
     var peer = engine.Peer.init(allocator);
