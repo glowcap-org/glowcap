@@ -12,7 +12,7 @@
 // `glowcap_driver_wake` is the one cross-thread call, and borrowed views
 // in a popped event die at the next `glowcap_driver_next_event`.
 
-import { lazySymbols, libPath } from "@glowcap/runtime/ffi";
+import { lazySymbols, libPath } from "../../ffi.ts";
 import { DRIVER_ARCHIVE_FINGERPRINT } from "@glowcap/abi";
 
 const P = "pointer",

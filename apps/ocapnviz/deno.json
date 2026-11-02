@@ -49,6 +49,7 @@
     "@glowcap/abi": "../../bindings/ts/abi/constants.ts",
     "@glowcap/runtime": "../../bindings/ts/runtime/mod.ts",
     "@glowcap/runtime/ffi": "../../bindings/ts/web/browser_ffi.ts",
+    "../../bindings/ts/runtime/ffi.ts": "../../bindings/ts/web/browser_ffi.ts",
     "@glowcap/runtime/transport": "../../bindings/ts/runtime/transport.ts",
     "@glowcap/runtime/adapter": "../../bindings/ts/runtime/adapter.ts",
     "@glowcap/runtime/websocket": "../../bindings/ts/runtime/websocket.ts",

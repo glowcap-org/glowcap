@@ -7,12 +7,15 @@ const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
 /// Browser symbol tables share the runtime-neutral FFI surface but must never
-/// import the native archive/download cascade. The compile-time subpath mapping
-/// is the boundary: native Deno/Bun programs resolve `@glowcap/runtime/ffi` to
-/// `runtime/ffi.ts`, while browser builds resolve it to `web/browser_ffi.ts`.
-/// Holding both the generated import and every complete browser mapping prevents a
-/// relative `./load.ts` import from quietly bringing Node built-ins back into
-/// a browser bundle where a tolerant bundler would merely externalize them.
+/// import the native archive/download cascade. The import map is the boundary:
+/// native Deno/Bun programs resolve `@glowcap/runtime/ffi` to `runtime/ffi.ts`,
+/// while browser builds map that subpath to `web/browser_ffi.ts`. The runtime's
+/// own generated loaders import `runtime/ffi.ts` by relative path, because JSR
+/// refuses a package that names itself, and import maps match the resolved
+/// file, so every browser map carries that file entry beside the subpath.
+/// Holding the generated imports and every complete browser mapping prevents a
+/// loader import from quietly bringing Node built-ins back into a browser
+/// bundle where a tolerant bundler would merely externalize them.
 /// Deno config inheritance does not merge import maps, so an application map
 /// mirrors the binding-owned entries explicitly when it uses the TS Host. Rooms
 /// instead uses Rust Wasm and must not retain those Host or transport mappings.
@@ -22,15 +25,17 @@ pub fn checkBrowserFfiResolver(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const shared_import = "import { lazySymbols, libPath } from \"@glowcap/runtime/ffi\";";
-    try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/internal/ffi/host.ts", &.{shared_import});
-    try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/internal/ffi/ocapn.ts", &.{shared_import});
-    try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/internal/ffi/driver.ts", &.{shared_import});
+    const runtime_import = "import { lazySymbols, libPath } from \"../../ffi.ts\";";
+    try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/internal/ffi/host.ts", &.{runtime_import});
+    try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/internal/ffi/ocapn.ts", &.{runtime_import});
+    try expectFileContains(io, gpa, root, violations, "bindings/ts/runtime/internal/ffi/driver.ts", &.{runtime_import});
     try expectFileContains(io, gpa, root, violations, "tools/gen/binding/ts_ffi.zig", &.{
+        runtime_import,
         "import { lazySymbols, libPath } from \"@glowcap/runtime/ffi\";",
     });
     try expectFileContains(io, gpa, root, violations, "bindings/ts/web/browser-bundle.json", &.{
         "\"@glowcap/runtime/ffi\": \"./browser_ffi.ts\"",
+        "\"../runtime/ffi.ts\": \"./browser_ffi.ts\"",
     });
     try expectFileContains(io, gpa, root, violations, "apps/rooms/web/deno.json", &.{
         "\"@glowcap/abi\": \"../../../bindings/ts/abi/constants.ts\"",
@@ -56,6 +61,7 @@ pub fn checkBrowserFfiResolver(
     }
     try expectFileContains(io, gpa, root, violations, "apps/ocapnviz/deno.json", &.{
         "\"@glowcap/runtime/ffi\": \"../../bindings/ts/web/browser_ffi.ts\"",
+        "\"../../bindings/ts/runtime/ffi.ts\": \"../../bindings/ts/web/browser_ffi.ts\"",
     });
 
     const path = "bindings/ts/web/browser_ffi.ts";

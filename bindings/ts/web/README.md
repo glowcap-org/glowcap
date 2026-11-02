@@ -110,8 +110,9 @@ exports with no binding at all.
    the adapter-only [`browser-bundle.json`](browser-bundle.json) and add the
    application's framework and data dependencies to it.
 
-The browser mapping in `browser-bundle.json` points `@glowcap/runtime/ffi` at the Wasm adapter, so
-the code that looks up local C libraries stays out of the browser bundle. The remaining stubs cover
+The browser mapping in `browser-bundle.json` points `@glowcap/runtime/ffi`, and the `runtime/ffi.ts`
+file the runtime's own loaders import by relative path, at the Wasm adapter, so the code that looks
+up local C libraries stays out of the browser bundle. An application map carries both entries. The remaining stubs cover
 Deno and Bun adapters that a bundler may find through a dynamic import, and the web adapter never
 selects them. Rooms uses its own Rust Wasm and a separate bundle map.
 

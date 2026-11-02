@@ -16,6 +16,10 @@ and storage formats before 1.0.
 - The C SDK archive ships the WebRTC transport's shared library and header
   beside the iroh one, so the Rust crate's `webrtc` feature links against the
   release SDK instead of failing to find `libglowcap_net_transport_webrtc`.
+- Every `@glowcap/*` package publishes to JSR. The runtime's generated FFI
+  loaders and the relay's serve entry reach their own package by relative path,
+  which JSR requires, and the browser import maps carry the file entry that
+  keeps the Wasm adapter in place of the C library loader.
 
 ## [0.1.1] - 2026-10-31
 
