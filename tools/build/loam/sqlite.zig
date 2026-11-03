@@ -20,7 +20,10 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     engine_fixture.addImport("loam_sqlite", tested);
     engine_fixture.addImport("loam_engine_temp", temp);
     tests.addImport("engine_fixture", engine_fixture);
-    const suite = b.addTest(.{ .root_module = tests });
+    const suite = b.addTest(.{
+        .root_module = tests,
+        .filters = if (gates.test_filter) |filter| b.dupeStrings(&.{filter}) else &.{},
+    });
     const run = execution.addZigTest(b, suite, .unit_test);
     const step = b.step("loam-sqlite-test", "Run the durable Loam suite over SQLite and prove each commit refusal changed nothing");
     step.dependOn(&run.step);
