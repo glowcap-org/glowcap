@@ -17,7 +17,10 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     tests.addImport("loam_lmdb", tested);
     tests.addImport("scenarios", gates.scenarios);
     tests.addImport("engine_fixture", fixture(b, target, optimize, core, tested, temp));
-    const suite = b.addTest(.{ .root_module = tests });
+    const suite = b.addTest(.{
+        .root_module = tests,
+        .filters = if (gates.test_filter) |filter| b.dupeStrings(&.{filter}) else &.{},
+    });
     const run = execution.addZigTest(b, suite, .unit_test);
     const step = b.step("loam-lmdb-test", "Exercise Loam atomicity, bounded reads, and LMDB reopen recovery");
     step.dependOn(&run.step);

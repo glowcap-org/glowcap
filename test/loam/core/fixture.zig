@@ -32,9 +32,11 @@ pub fn commit(store: *core.Store, backend: anytype) !void {
 pub fn collectionStep(store: *core.Store, backend: anytype, work: usize) !void {
     return finish(store, backend, try store.prepareCollection(work));
 }
+// Completion helper: bounded-step tests choose their own smaller work limits.
+// Batch normal completion to avoid a durable transaction per two work units.
 pub fn collect(store: *core.Store, backend: anytype) !void {
     for (0..4096) |_| {
-        try collectionStep(store, backend, 2);
+        try collectionStep(store, backend, 64);
         if (store.metadata.collection.phase == .idle) return;
     }
     return error.CollectionDidNotFinish;
