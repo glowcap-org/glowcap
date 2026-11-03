@@ -325,6 +325,15 @@ class RunnerTest(unittest.TestCase):
             self.assertEqual(GATES.main(["fetch"]), 2)
             run.assert_not_called()
 
+    def test_a_gate_runs_under_the_deadline_wrapper_with_rust_backtraces(self):
+        with mock.patch.object(GATES.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=3)
+            self.assertEqual(GATES.execute(["zig", "build", "test"], "5m"), 3)
+        (argv,), kwargs = run.call_args
+        self.assertEqual(argv[:3], ["python3", "tools/run-with-timeout.py", "--kill-after"])
+        self.assertEqual(argv[-4:], ["5m", "zig", "build", "test"])
+        self.assertEqual(kwargs["env"]["RUST_BACKTRACE"], "1")
+
     def test_the_step_summary_lists_every_recorded_gate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
