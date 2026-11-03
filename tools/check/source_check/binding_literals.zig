@@ -34,6 +34,7 @@ pub fn check(
             "bindings/ts",
             "bindings/racket",
             "apps/rooms",
+            "apps/ocapnviz/src",
         };
         const exts = [_][]const u8{ ".py", ".rs", ".ts", ".rkt" };
         for (roots) |bind_root| {

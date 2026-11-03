@@ -36,10 +36,7 @@ import { assert, assertEquals } from "@std/assert";
 import { TimelineDocument } from "./timeline.ts";
 import { Engine } from "./engine.ts";
 import { restoreSnapshotInto, takeSnapshot } from "./snapshot.ts";
-
-function engineTest(name: string, fn: () => void): void {
-	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
-}
+import { engineTest } from "./engine-test/harness.ts";
 
 /** Two peers on a session, plus a provenance claim. A document field
  *  `DocSnapshot` does not carry, which one test below needs.

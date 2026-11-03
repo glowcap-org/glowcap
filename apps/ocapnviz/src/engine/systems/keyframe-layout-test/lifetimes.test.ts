@@ -6,7 +6,7 @@ import { DEFAULT_LAYOUT_CONFIG, KeyframeLayoutSystem } from "../keyframe-layout-
 import { TimelineDocument } from "../../timeline.ts";
 import { attachedEndpoint } from "../../../schema/session-end.ts";
 import { materializeWorldAt } from "../world-materializer.ts";
-import { layoutTest } from "./harness.ts";
+import { engineTest } from "./harness.ts";
 import type { Components, GameWorld, Vec2 } from "../../world.ts";
 
 /** A document with a peer nothing announces beside peers that observations
@@ -71,7 +71,7 @@ function declaredAndObservedDoc(
 	} as unknown as TimelineDocument;
 }
 
-layoutTest("one moment is one keyframe", () => {
+engineTest("one moment is one keyframe", () => {
 	// A keyframe list is one layout per moment. When the entities the document
 	// declares were seeded as a keyframe of their own, a document that also
 	// observed something at t=0 got two keyframes at that one moment: the
@@ -88,7 +88,7 @@ layoutTest("one moment is one keyframe", () => {
 	);
 });
 
-layoutTest("nothing moves through a window in which nothing changed", () => {
+engineTest("nothing moves through a window in which nothing changed", () => {
 	// The consequence, in the pixels. The window after t=0 is the transition
 	// window, which is exactly where the duplicate moment was visible.
 	const doc = declaredAndObservedDoc();
@@ -113,7 +113,7 @@ layoutTest("nothing moves through a window in which nothing changed", () => {
 	}
 });
 
-layoutTest(
+engineTest(
 	"an entity only the document declares keeps to its own timing",
 	() => {
 		// Nothing announces an entity authored in Build, so its declared timing is
@@ -147,7 +147,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"settled update still lands a placement recompute",
 	() => {
 		// Past the transition window, `update` skips rewriting positions.

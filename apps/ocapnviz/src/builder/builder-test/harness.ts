@@ -46,9 +46,7 @@ export function looseDoc(): TimelineDocument {
 
 export const LOOSE_END = "s1::b";
 
-export function engineTest(name: string, fn: () => void): void {
-	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
-}
+export { engineTest } from "../../engine/engine-test/harness.ts";
 
 export const PIN_A = { x: 111, y: 222 };
 export const PIN_B = { x: 333, y: 444 };

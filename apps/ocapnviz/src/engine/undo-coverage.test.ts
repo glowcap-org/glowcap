@@ -25,10 +25,7 @@ import { TimelineDocument } from "./timeline.ts";
 import { Engine } from "./engine.ts";
 import type { BuilderIntent } from "./intents.ts";
 import { attachedEndpoint } from "../schema/session-end.ts";
-
-function engineTest(name: string, fn: () => void): void {
-	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
-}
+import { engineTest } from "./engine-test/harness.ts";
 
 /** Peers `a`/`b` carry a session with a state change on it, `s2` has one
  *  end nothing has attributed, so the endpoint intents have something to

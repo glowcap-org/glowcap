@@ -24,10 +24,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { Engine } from "./engine.ts";
 import { TimelineDocument } from "./timeline.ts";
-
-function engineTest(name: string, fn: () => void): void {
-	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
-}
+import { engineTest } from "./engine-test/harness.ts";
 
 /** A document with one peer at t=0 and one at t=4000, so the duration floor is a
  *  real number rather than zero. */

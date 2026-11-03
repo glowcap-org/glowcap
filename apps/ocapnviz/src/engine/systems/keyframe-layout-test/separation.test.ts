@@ -20,7 +20,7 @@ import {
 	pillSize,
 } from "../../../render/stage-labels.ts";
 import { TimelineDocument } from "../../timeline.ts";
-import { layoutTest } from "./harness.ts";
+import { engineTest } from "./harness.ts";
 import type { Vec2 } from "../../world.ts";
 
 /** One session per end, all of them hanging off a single peer, each end
@@ -168,7 +168,7 @@ function boxOverlap(
 	return Math.min(x, y);
 }
 
-layoutTest(
+engineTest(
 	"the box the solver keeps clear is the one the renderer draws",
 	() => {
 		// At 100% zoom, which is where a world-unit box and a counter-scaled
@@ -202,7 +202,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"an end's box is the shortened designator the stage writes, not the whole one",
 	() => {
 		// The two halves of one fact. The stage shortens a long designator before
@@ -233,7 +233,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"a peer's box is the shortened caption the stage writes, not the whole one",
 	() => {
 		// The same fact on the peer side, and the reason it is a separate test:
@@ -274,7 +274,7 @@ layoutTest(
 	},
 );
 
-layoutTest("wide labels are kept out of each other", () => {
+engineTest("wide labels are kept out of each other", () => {
 	// The screenshot this work started from: ends whose labels were several
 	// times wider than the bodies they named, overlapping constantly. Every
 	// node here wears a full-length designator, so the labels are the only
@@ -319,7 +319,7 @@ layoutTest("wide labels are kept out of each other", () => {
 	}
 });
 
-layoutTest(
+engineTest(
 	"a wide label costs sideways room, not room in every direction",
 	() => {
 		// What the box buys over a circle, and the reason the separation is not
@@ -361,7 +361,7 @@ layoutTest(
 	},
 );
 
-layoutTest("a peer's unattributed ends fan around it", () => {
+engineTest("a peer's unattributed ends fan around it", () => {
 	// Seeding every node with no region prefix on the same point starts the
 	// solver from a pile that its repulsion breaks arbitrarily: a peer's ends
 	// would come out gathered on one side of it, with a wedge of empty canvas
@@ -410,7 +410,7 @@ function afterOnePass(at: readonly Vec2[]): Vec2[] {
 	return nodes.map((n) => ({ x: n.x + n.vx, y: n.y + n.vy }));
 }
 
-layoutTest(
+engineTest(
 	"two nodes on one point are pushed apart, wherever they sit in the array",
 	() => {
 		// A pile has no line to separate along, so the force invents a ray for it.
@@ -484,7 +484,7 @@ function reordered(doc: TimelineDocument): TimelineDocument {
 	} as unknown as TimelineDocument;
 }
 
-layoutTest("the same document lays out identically every time", () => {
+engineTest("the same document lays out identically every time", () => {
 	// Half the contract the whole file is built on: no randomness and no wall
 	// clock, so scrubbing forward and back visits the same pixels. Two runs of
 	// one document is exactly what that catches and no more, a stray
@@ -500,7 +500,7 @@ layoutTest("the same document lays out identically every time", () => {
 	assertEquals(placements(doc()), placements(doc()));
 });
 
-layoutTest(
+engineTest(
 	"the same topology lays out identically whatever order it was stated in",
 	() => {
 		// The other half, and the one two runs of one document cannot reach. The

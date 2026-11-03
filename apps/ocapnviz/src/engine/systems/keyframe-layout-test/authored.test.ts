@@ -10,10 +10,10 @@ import { assert } from "@std/assert";
 import { DEFAULT_LAYOUT_CONFIG, KeyframeLayoutSystem } from "../keyframe-layout-system.ts";
 import { TimelineDocument } from "../../timeline.ts";
 import { attachedEndpoint } from "../../../schema/session-end.ts";
-import { dist, freshWorld, layoutTest } from "./harness.ts";
+import { dist, engineTest, freshWorld } from "./harness.ts";
 import type { Vec2 } from "../../world.ts";
 
-layoutTest("authored mode places peers at their declared position", () => {
+engineTest("authored mode places peers at their declared position", () => {
 	const doc: TimelineDocument = {
 		id: "authored-layout-test",
 		duration: 1000,
@@ -67,7 +67,7 @@ layoutTest("authored mode places peers at their declared position", () => {
 	);
 });
 
-layoutTest(
+engineTest(
 	"authored mode falls back to (0, 0) for peers without a position",
 	() => {
 		const doc: TimelineDocument = {
@@ -114,7 +114,7 @@ layoutTest(
 // defect this family was written against: a sim that integrates a
 // pinned node like any other, drifting it off its authored point.
 
-layoutTest(
+engineTest(
 	"per-topology keyframes hold a pinned peer exactly while free peers move",
 	() => {
 		const doc: TimelineDocument = {
@@ -186,7 +186,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"static-union keyframe holds a pinned peer exactly at its authored position",
 	() => {
 		const doc: TimelineDocument = {
@@ -248,7 +248,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"all-pinned doc: per-topology keyframes match authored-mode placement",
 	() => {
 		const makeDoc = (): TimelineDocument => ({
@@ -315,7 +315,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"all-pinned recomputeForPlacement stays cheap under many iterations",
 	() => {
 		// Every peer is pinned: the solver must not spend `iterations`
@@ -384,7 +384,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"pinning a peer in place does not anneal free eras",
 	() => {
 		// Placement checks equilibrium first and anneals only when a pin moved the

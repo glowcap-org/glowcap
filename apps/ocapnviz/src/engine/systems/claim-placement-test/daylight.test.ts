@@ -11,7 +11,7 @@ import { claimedPeerByEnd } from "../../claims.ts";
 import { haloRadius, LOOSE_END_CLAIMING, NODE_RADIUS } from "../../../render/draw-helpers.ts";
 import { endpointStageId, SESSION_SIDES, type SessionEndpoint, type SessionSide } from "../../../schema/session-end.ts";
 import { scenarios } from "../../../fixtures/index.ts";
-import { BODIES_TOUCH, CLAIM_DAYLIGHT, dist, layoutTest, NEAR_PEER, RING_DAYLIGHT } from "./harness.ts";
+import { BODIES_TOUCH, CLAIM_DAYLIGHT, dist, engineTest, NEAR_PEER, RING_DAYLIGHT } from "./harness.ts";
 
 /** One session edge as a claim would ride it: how long the segment is, and,
  *  when one of the ends IS a claim, how far the drawn claim ended up from the
@@ -97,7 +97,7 @@ function ringGapOn(length: number, lean: number): number {
 		haloRadius(LOOSE_END_CLAIMING.radius, RING_SCALE_AT_100_PERCENT);
 }
 
-layoutTest(
+engineTest(
 	"CLAIM_LEAN leaves daylight on every edge the recordings settle",
 	() => {
 		// The argument for the fraction, measured where it was made. `CLAIM_LEAN` is

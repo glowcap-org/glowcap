@@ -66,12 +66,9 @@ fn sinceNs(io: std.Io, start: i128) u64 {
 }
 
 /// Nearest-rank percentile over latencies already sorted ascending, `p` in
-/// [0,1], returned in milliseconds.
+/// [0,1], in milliseconds: `percentileNs` at the same rank.
 fn percentileMs(sorted_ns: []const u64, p: f64) f64 {
-    if (sorted_ns.len == 0) return 0;
-    const rank: usize = @intFromFloat(@ceil(p * @as(f64, @floatFromInt(sorted_ns.len))));
-    const idx = if (rank == 0) 0 else @min(sorted_ns.len - 1, rank - 1);
-    return @as(f64, @floatFromInt(sorted_ns[idx])) / 1_000_000.0;
+    return percentileNs(sorted_ns, p) / 1_000_000.0;
 }
 
 fn lessThanU64(_: void, a: u64, b: u64) bool {
@@ -234,11 +231,13 @@ fn meanNs(samples: []const u64) f64 {
     return @as(f64, @floatFromInt(total)) / @as(f64, @floatFromInt(samples.len));
 }
 
-/// Nearest-rank percentile over latencies already sorted ascending, in
-/// nanoseconds (the `local` mode's unit, `percentileMs` is the same rank in
-/// milliseconds).
+/// Nearest-rank percentile over latencies already sorted ascending, `p` in
+/// [0,1], in nanoseconds: the sample itself, with no unit conversion to round.
 fn percentileNs(sorted_ns: []const u64, p: f64) f64 {
-    return percentileMs(sorted_ns, p) * 1_000_000.0;
+    if (sorted_ns.len == 0) return 0;
+    const rank: usize = @intFromFloat(@ceil(p * @as(f64, @floatFromInt(sorted_ns.len))));
+    const idx = if (rank == 0) 0 else @min(sorted_ns.len - 1, rank - 1);
+    return @as(f64, @floatFromInt(sorted_ns[idx]));
 }
 
 /// The `local` mode (see contract.md): (a) in_lang, a counter spawned on this

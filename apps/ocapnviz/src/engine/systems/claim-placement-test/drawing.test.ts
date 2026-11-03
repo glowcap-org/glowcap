@@ -22,9 +22,9 @@ import {
 	BODIES_TOUCH,
 	dist,
 	docOf,
+	engineTest,
 	joined,
 	joinedAt,
-	layoutTest,
 	NEAR_PEER,
 	onSegment,
 	opened,
@@ -46,7 +46,7 @@ function readingAt(doc: TimelineDocument, t: number) {
 	};
 }
 
-layoutTest(
+engineTest(
 	"a designator two peers answer to in different eras names neither",
 	() => {
 		// The two never stand on the stage together, so every moment draws exactly
@@ -102,7 +102,7 @@ layoutTest(
 	},
 );
 
-layoutTest(
+engineTest(
 	"a claim naming its own session's far peer is neither leaned nor drawn",
 	() => {
 		// The degenerate segment, read from both sides. The end claims to be
@@ -129,7 +129,7 @@ layoutTest(
 	},
 );
 
-layoutTest("naming a peer on the wire makes the end beside it a claim", () => {
+engineTest("naming a peer on the wire makes the end beside it a claim", () => {
 	// A peer's durable name is what a claim matches, so writing one turns an
 	// ordinary loose end into a claim about that peer, and the placement has
 	// to follow in the same edit. Re-seeking alone left the layout answering
