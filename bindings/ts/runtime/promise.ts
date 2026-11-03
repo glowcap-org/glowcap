@@ -78,23 +78,23 @@ function projectVow(
 	return outU64(out);
 }
 
-/** Convert a synchronous progress refusal into the same observed promise path. */
-async function kickVowProgress(h: VowWaitHandle): Promise<void> {
-	await h.kickActions();
-}
-
-/** Own settlement and progress together in the same turn. The first observed
- * rejection is the wait's exact failure; success requires both operations.
- * Each observed wait pays for a two-input Promise.all join (aggregate promise,
- * input/result arrays and reactions), the async progress wrapper, and this
- * helper's return promise. They retire through the wait, with no Host registry
- * or wire retain. Sequential awaits orphan settlement when progress fails;
- * the progress wrapper also keeps synchronous kick refusals inside the join.
+/** Observe native settlement immediately without letting it bypass progress.
+ * Each wait owns an outcome promise with settlement reactions, one outcome record,
+ * plus this async helper's return promise. The record is consumed after progress
+ * succeeds, or retires with its promise if progress fails first. No Host registry
+ * or wire retain is added. Boxing keeps a late native rejection observed even
+ * after progress has failed; sequential bare awaits would orphan that rejection.
+ * Progress retains its existing completion order and exact failure precedence.
  */
 async function awaitDrivenVow(h: VowWaitHandle, vow: bigint): Promise<Argument> {
-	const settled = h.awaitVow(vow);
-	const [result] = await Promise.all([settled, kickVowProgress(h)]);
-	return result;
+	const settled = h.awaitVow(vow).then(
+		(value) => ({ ok: true as const, value }),
+		(error: unknown) => ({ ok: false as const, error }),
+	);
+	await h.kickActions();
+	const outcome = await settled;
+	if (!outcome.ok) throw outcome.error;
+	return outcome.value;
 }
 
 /** Shared fetch/enliven wait: register the vow, keep the inbound loop running

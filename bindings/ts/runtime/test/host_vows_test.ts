@@ -208,7 +208,7 @@ Deno.test("vow observation drives progress before waiting for a successful settl
 });
 
 for (const first of ["settlement", "progress"] as const) {
-	Deno.test(`vow observation preserves the first ${first} failure`, async () => {
+	Deno.test(`vow observation keeps progress failure authority when ${first} fails first`, async () => {
 		const settlementFailure = new Error("remote settlement failed");
 		const progressFailure = new Error("local progress failed");
 		let rejectSettlement!: (error: unknown) => void;
@@ -223,14 +223,49 @@ for (const first of ["settlement", "progress"] as const) {
 			kickActions: () => progress,
 			parkVowRelease() {},
 		};
-		const observed = Promise.allSettled([awaitMinted(handle, 41n, false)]);
-		if (first === "settlement") rejectSettlement(settlementFailure);
-		else rejectProgress(progressFailure);
+		let completed = false;
+		const observed = Promise.allSettled([awaitMinted(handle, 41n, false)]).then((outcomes) => {
+			completed = true;
+			return outcomes;
+		});
+		if (first === "settlement") {
+			rejectSettlement(settlementFailure);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			assert(!completed, "settlement rejection bypassed required progress");
+			rejectProgress(progressFailure);
+		} else {
+			rejectProgress(progressFailure);
+		}
 		const [outcome] = await observed;
-		const expected = first === "settlement" ? settlementFailure : progressFailure;
-		assert(outcome.status === "rejected" && outcome.reason === expected, "first failure identity changed");
-		if (first === "settlement") rejectProgress(progressFailure);
-		else rejectSettlement(settlementFailure);
+		assert(
+			outcome.status === "rejected" && outcome.reason === progressFailure,
+			"progress failure identity changed",
+		);
+		if (first === "progress") rejectSettlement(settlementFailure);
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 }
+
+Deno.test("vow rejection waits for successful progress before escaping", async () => {
+	const failure = new Error("remote settlement failed");
+	let releaseProgress!: () => void;
+	const progress = new Promise<void>((resolve) => releaseProgress = resolve);
+	const handle = {
+		ptr: 0n,
+		vowMinted() {},
+		attend() {},
+		awaitVow: () => Promise.reject(failure),
+		kickActions: () => progress,
+		parkVowRelease() {},
+	};
+	let completed = false;
+	const observed = Promise.allSettled([awaitMinted(handle, 43n, false)]).then((outcomes) => {
+		completed = true;
+		return outcomes;
+	});
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert(!completed, "vow rejection escaped while progress remained parked");
+	releaseProgress();
+	const [outcome] = await observed;
+	assert(outcome.status === "rejected" && outcome.reason === failure, "settlement failure identity changed");
+});
