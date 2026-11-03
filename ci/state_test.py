@@ -65,7 +65,7 @@ class StateTest(unittest.TestCase):
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 state = module(temporary, temporary)
-                self.assertEqual(len(state.STORES), 7)
+                self.assertEqual(len(state.STORES), 6)
                 inodes = {}
                 for store in state.STORES[:count]:
                     (store / "o").mkdir(parents=True)
