@@ -22,7 +22,7 @@
 (require goblins
          goblins/vat
          goblins/ocapn/captp
-         racket/string
+         (only-in "host-support.rkt" emit-ndjson ECHO-SWISS-NUM ^echo report-session)
          "iroh-netlayer.rkt"
          (only-in "../../../bindings/racket/glowcap-iroh.rkt" IROH-REACH-DIRECT))
 
@@ -30,36 +30,6 @@
 ;; rather than block-buffered until exit.
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
-
-;; The OCapN conformance suite's canonical echo swiss-num, the same one
-;; `goblins-host.rkt` publishes over TCP.
-(define ECHO-SWISS-NUM
-  (string->bytes/latin-1 "IO58l1laTyhcrgDKbEzFOO32MDd6zE5w"))
-
-;; Echo behavior: `(lambda args args)` answers with its arguments unchanged.
-(define (^echo _bcom)
-  (lambda args
-    args))
-
-(define (emit-ndjson event-fields)
-  (define (escape s) (regexp-replace* #px"[\\\\\"]" s "\\\\\\0"))
-  (define pairs
-    (for/list ([f event-fields])
-      (format "\"~a\":\"~a\"" (car f) (escape (cdr f)))))
-  (printf "{\"v\":1,~a}~n" (string-join pairs ",")))
-
-;; What the netlayer saw at the wire, printed so the driver can read back what
-;; this end believes about the session. An accepted iroh connection carries the
-;; dialer's endpoint id, the one QUIC authenticated on the way in, so a hello
-;; claiming that same id reports its provenance as an authenticated transport
-;; identity, and a hello claiming anything else stays unproven.
-(define (report-session event _handle info)
-  (when (eq? event 'open)
-    (printf "SESSION transport=~a provenance=~a partner=~a session-id=~a~n"
-            (hash-ref info 'transport)
-            (hash-ref info 'durable-provenance)
-            (hash-ref info 'partner-designator)
-            (hash-ref info 'session-id))))
 
 ;; The Direct posture: no relays and no lookup service, dialed by endpoint id
 ;; plus the direct-address hints the readiness line carries. That is the right

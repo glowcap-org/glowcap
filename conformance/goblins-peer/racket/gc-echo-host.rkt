@@ -18,17 +18,11 @@
          goblins/ocapn/captp
          goblins/ocapn/structs-urls
          "tcp-netlayer.rkt"
-         "gc-probe.rkt")
+         "gc-probe.rkt"
+         (only-in "host-support.rkt" emit-ndjson ECHO-SWISS-NUM ^echo))
 
 (file-stream-buffer-mode (current-output-port) 'line)
 (file-stream-buffer-mode (current-error-port) 'line)
-
-(define ECHO-SWISS-NUM
-  (string->bytes/latin-1 "IO58l1laTyhcrgDKbEzFOO32MDd6zE5w"))
-
-(define (^echo _bcom)
-  (lambda args
-    args))
 
 (define argv (current-command-line-arguments))
 
@@ -41,14 +35,6 @@
   (if (>= (vector-length argv) 2)
       (string->number (vector-ref argv 1))
       22130))
-
-(define (emit-ndjson event-fields)
-  (define (escape s)
-    (regexp-replace* #px"[\\\\\"]" s "\\\\\\0"))
-  (define pairs
-    (for/list ([f event-fields])
-      (format "\"~a\":\"~a\"" (car f) (escape (cdr f)))))
-  (printf "{\"v\":1,~a}~n" (string-join pairs ",")))
 
 (define a-vat (make-vat))
 (a-vat
