@@ -153,7 +153,7 @@ def inventory():
     )
 
 
-def copies():
+def copy_sources():
     sources = [
         "bench/interface/src/workflow.rs",
         "tools/interface/templates/creation.rs",
@@ -166,13 +166,7 @@ def copies():
         "bindings/rust/src/value.rs",
     ]
     return dict(
-        kind="source_derivation",
-        incremental_generated_payload_copy_bytes=0,
-        ordinary_input_snapshots=1,
-        preparation_input_snapshots=1,
-        submission_input_snapshots=0,
-        replay_input_snapshots=0,
-        reply_text="moved in both clients",
+        kind="not_instrumented",
         total_copied_bytes=None,
         total_unmeasured_reason="Allocation demand and wire bytes do not count copies. Inlining also prevents a complete memcpy-call census.",
         source_sha256={name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in sources},
@@ -305,7 +299,7 @@ def main():
             environment=recorded_environment,
             provisional=recorded_environment["storage"]["status"] != "observed",
             records=records(result.stdout),
-            wrapper_copies=copies(),
+            copy_sources=copy_sources(),
             latency_claim=bool(args.latency),
             requires_quiet_host=bool(args.latency),
         )
