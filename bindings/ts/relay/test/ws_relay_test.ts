@@ -417,20 +417,30 @@ Deno.test("rendezvous accepts only canonical fixed-size key designators", () => 
 Deno.test("a failed far-side dial closes the browser socket honestly and rejects typed", async () => {
 	// The browser's socket is the claim: it must hear the dial-fail reason,
 	// while the caller's rejection wears the type that says it was handled.
-	const ws = new FakeWebSocket();
-	const cause = new Error("connect: NetworkUnreachable");
-	const rejection = await webSocketRelay(
-		ws as unknown as WebSocket,
-		() => Promise.reject(cause),
-		"iroh relay dial failed",
-		{ idleTimeoutMs: 0, maxBytesPerSession: 0 },
-	).catch((err) => err);
-	if (!(rejection instanceof RelayDialFailed)) {
-		throw new Error(`dial failure rejected untyped: ${String(rejection)}`);
+	for (
+		const cause of [
+			new Error("connect: NetworkUnreachable"),
+			Object.freeze({
+				then() {
+					throw new Error("dial reason was awaited");
+				},
+			}),
+		]
+	) {
+		const ws = new FakeWebSocket();
+		const rejection = await webSocketRelay(
+			ws as unknown as WebSocket,
+			() => Promise.reject(cause),
+			"iroh relay dial failed",
+			{ idleTimeoutMs: 0, maxBytesPerSession: 0 },
+		).catch((err) => err);
+		if (!(rejection instanceof RelayDialFailed)) {
+			throw new Error(`dial failure rejected untyped: ${String(rejection)}`);
+		}
+		if (rejection.cause !== cause) throw new Error("the dial's own error was not retained as the cause");
+		assertEquals(ws.closeCode, 1011);
+		assertEquals(ws.closeReason, "iroh relay dial failed");
 	}
-	if (rejection.cause !== cause) throw new Error("the dial's own error was not retained as the cause");
-	assertEquals(ws.closeCode, 1011);
-	assertEquals(ws.closeReason, "iroh relay dial failed");
 });
 
 Deno.test("relayFailureLogger widens a continuing outage and keeps unexpected failures loud", async () => {
