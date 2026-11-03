@@ -66,6 +66,9 @@ async fn serve(
 		.map_err(|e| format!("binding the HTTP listener failed: {e}"))?;
 	let address = listener.local_addr().map_err(|e| e.to_string())?;
 	let port = address.port();
+	// The bound port is the first line on stdout, so a harness that asked for
+	// port 0 learns where to reach the front before anything else prints.
+	announce(&report, &format!("ROOMS-WEB-LISTENING {port}"));
 	let prepared = matches!(&browser_assets, BrowserAssets::Prepared(_));
 	let assets = match browser_assets {
 		BrowserAssets::Disabled => None,

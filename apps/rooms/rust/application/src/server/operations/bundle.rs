@@ -75,7 +75,9 @@ impl Draft {
 			}
 			let mut parts = line.split(js_whitespace).filter(|part| !part.is_empty());
 			let label = parts.next().ok_or(Invalid::NoLabel)?;
-			if pasted && label == "ROOMS-TRACE-LISTENING" {
+			// A `ROOMS-*-LISTENING` line says where a process listens, not what
+			// it grants, so a paste of the whole boot output skips it.
+			if pasted && label.ends_with("-LISTENING") {
 				continue;
 			}
 			let definition = BOOT_CAPABILITIES

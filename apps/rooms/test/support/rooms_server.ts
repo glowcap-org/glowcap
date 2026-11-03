@@ -11,9 +11,10 @@ import { Reachability } from "@glowcap/iroh";
 import { dial as dialWithRuntime, isUriLocator, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { assert } from "../assert.ts";
+import { readAnnounced, readAnnouncedPort } from "./announce.ts";
 import { spawnOwned, stopOwned } from "./children.ts";
 import { ROOT, SERVER } from "./paths.ts";
-import { delay, within } from "./wait.ts";
+import { delay } from "./wait.ts";
 
 export class TestRuntimeScope {
 	readonly #byHost = new Map<Host, Promise<Runtime>>();
@@ -93,40 +94,8 @@ export function serving(session: Session): Promise<void> {
 	return activeRuntimeScope.serve(session);
 }
 
-export async function readPort(proc: Deno.ChildProcess): Promise<number> {
-	const reader = proc.stdout.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	let exited = false;
-	const deadline = Date.now() + 10_000;
-	try {
-		while (Date.now() < deadline) {
-			const remaining = deadline - Date.now();
-			const chunk = await Promise.race([
-				reader.read(),
-				delay(remaining).then(() => undefined),
-			]);
-			if (chunk === undefined) break;
-			const { value, done } = chunk;
-			if (done) {
-				exited = true;
-				break;
-			}
-			buf += decoder.decode(value, { stream: true });
-			const match = buf.match(/ROOMS-SERVER-LISTENING (\d+)/);
-			if (match) return Number(match[1]);
-		}
-	} finally {
-		reader.releaseLock();
-	}
-	if (exited) {
-		const status = await proc.status;
-		const stderr = await new Response(proc.stderr).text();
-		throw new Error(
-			`rooms server exited ${status.code} before announcing its port${stderr === "" ? "" : `: ${stderr.trim()}`}`,
-		);
-	}
-	throw new Error("rooms server never announced its port");
+export function readPort(proc: Deno.ChildProcess): Promise<number> {
+	return readAnnouncedPort(proc, { token: "ROOMS-SERVER-LISTENING", who: "rooms server" });
 }
 
 /** A server that means no durable state. `spawnOwned` keeps the pane's live
@@ -233,23 +202,6 @@ export function startStatefulServer(
 }
 
 /** Read the server's announce token: a TCP port or a dialable transport URI. */
-export async function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): Promise<string> {
-	const reader = proc.stdout.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + withinMs;
-	try {
-		while (Date.now() < deadline) {
-			const remaining = deadline - Date.now();
-			const chunk = await within(reader.read(), "the room server announcement", remaining);
-			const { value, done } = chunk;
-			if (done) break;
-			buf += decoder.decode(value, { stream: true });
-			const match = buf.match(/ROOMS-SERVER-LISTENING (\S+)/);
-			if (match) return match[1];
-		}
-	} finally {
-		reader.releaseLock();
-	}
-	throw new Error("rooms server never announced its locator");
+export function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): Promise<string> {
+	return readAnnounced(proc, { token: "ROOMS-SERVER-LISTENING", who: "rooms server", withinMs });
 }
