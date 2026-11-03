@@ -172,3 +172,29 @@ pub fn signedGive(
     give.signature = out_sig.asBytes();
     return give;
 }
+
+/// A receive of `give` on `session` from `side`, signed by `recipient_secret`
+/// over its canonical bytes. `out_signed` and `out_sig` are the caller-owned
+/// bytes the returned receive borrows, as with `signedGive`.
+pub fn signedReceive(
+    give: model.HandoffGive,
+    session: []const u8,
+    side: []const u8,
+    handoff_count: u64,
+    recipient_secret: *const crypto.SecretKey,
+    out_signed: *[]u8,
+    out_sig: *crypto.Signature,
+    allocator: std.mem.Allocator,
+) !model.HandoffReceive {
+    var receive: model.HandoffReceive = .{
+        .receiving_session = session,
+        .receiving_side = side,
+        .handoff_count = handoff_count,
+        .signed_give = give,
+        .signature = "",
+    };
+    out_signed.* = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    out_sig.* = crypto.sign(recipient_secret, out_signed.*);
+    receive.signature = out_sig.asBytes();
+    return receive;
+}

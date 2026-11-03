@@ -19,6 +19,7 @@ const completion = glowcap.net.completion;
 const fetch_pump = @import("../../support/fetch_pump.zig");
 const handshake = @import("../../support/handshake.zig");
 const no_dial = @import("../../support/no_dial_locator.zig");
+const fixtures = @import("../../support/completion_loop_fixtures.zig");
 
 const frame_cap = 4096;
 
@@ -73,20 +74,6 @@ const Shared = struct {
     }
 };
 
-fn runLoopCapturing(loop: *Loop, until_closed: usize, out_err: *?anyerror) void {
-    loop.run(.{ .after_closed = until_closed }) catch |err| {
-        out_err.* = err;
-    };
-    // `run` returns on the close count alone and leaves any other slot's armed
-    // recv in flight, which `deinit` refuses to free. Drain here, on the
-    // loop-owner thread, exactly as `closeAndDrain` documents for an early
-    // `run` return.
-    loop.closeAndDrain() catch |err| {
-        // The run's error is the cause; the drain's is usually its consequence.
-        if (out_err.* == null) out_err.* = err;
-    };
-}
-
 /// The sender: an ordinary fetch client whose one deliver (the fetch) is the
 /// hook's trigger.
 fn senderOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
@@ -114,7 +101,7 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
     const io = threaded.io();
 
     var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, 2), &loop_err });
+    var loop_future = try io.concurrent(fixtures.runLoopCapturing, .{ &loop, @as(usize, 2), &loop_err });
 
     // The quiet partner connects and handshakes first, so it is the registry's
     // first entry. It registers `beacon` so the cross-armed bootstrap fetch is

@@ -11,7 +11,6 @@ const codec = glowcap.ocapn.codec;
 const engine = glowcap.ocapn.engine;
 const session = glowcap.ocapn.session;
 const crypto = glowcap.foundation.crypto;
-const syrup = glowcap.ocapn.codec.syrup;
 const cross_peer = @import("../../support/cross_peer.zig");
 const CountingAllocator = @import("../../support/alloc_metrics.zig").CountingAllocator;
 const peer_fixture = @import("../../support/peer_fixture.zig");
@@ -35,6 +34,7 @@ const receiveWith = fixtures.receiveWith;
 const RejectingVerifier = fixtures.RejectingVerifier;
 const RoutingVerifier = fixtures.RoutingVerifier;
 const signedGive = fixtures.signedGive;
+const signedReceive = fixtures.signedReceive;
 
 test "withdraw fulfills with the deposited capability, and a re-deposit replaces the first" {
     const allocator = std.testing.allocator;
@@ -52,17 +52,10 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
 
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
@@ -138,17 +131,10 @@ test "withdraw of a verbatim gifted cap reclaims the moved reference through the
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
 
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
@@ -233,17 +219,10 @@ test "a withdraw projects the exact deposited local target on the receiving Port
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
 
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     var exporter = engine.Peer.init(allocator);
     defer exporter.deinit();
@@ -336,17 +315,10 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
     var give_sig: crypto.Signature = undefined;
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
 

@@ -239,7 +239,7 @@ test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
 
     // The completion loop and the clients share the Threaded Io backend.
     var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, client_count), &loop_err });
+    var loop_future = try io.concurrent(fixtures.runLoopCapturing, .{ &loop, @as(usize, client_count), &loop_err });
 
     var futures: [client_count]std.Io.Future(anyerror!void) = undefined;
     for (&futures) |*f| {
@@ -413,7 +413,7 @@ test "completion loop: a hosted actor answers a call over the loop (objects on t
     const io = threaded.io();
 
     var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, clients), &loop_err });
+    var loop_future = try io.concurrent(fixtures.runLoopCapturing, .{ &loop, @as(usize, clients), &loop_err });
 
     var futures: [clients]std.Io.Future(anyerror!void) = undefined;
     for (&futures) |*f| f.* = try io.concurrent(fetchThenCall, .{ io, port, allocator });
@@ -425,21 +425,6 @@ test "completion loop: a hosted actor answers a call over the loop (objects on t
     loop_future.await(io);
     if (loop_err) |err| return err;
     if (first_err) |err| return err;
-}
-
-fn runLoopCapturing(loop: *Loop, until_closed: usize, out_err: *?anyerror) void {
-    loop.run(.{ .after_closed = until_closed }) catch |err| {
-        out_err.* = err;
-    };
-    // `run` returns on the close count alone and leaves any other slot's armed
-    // recv in flight, which `deinit` refuses to free. Drain here, on the
-    // loop-owner thread, exactly as `closeAndDrain` documents for an early
-    // `run` return.
-    loop.closeAndDrain() catch |err| {
-        // The run's error is the interesting one; the drain's is usually its
-        // consequence. Overwriting hid the cause behind the symptom.
-        if (out_err.* == null) out_err.* = err;
-    };
 }
 
 test "completion loop: churns hundreds of connection lifecycles through a small slot pool" {
@@ -478,7 +463,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
     const io = threaded.io();
 
     var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
+    var loop_future = try io.concurrent(fixtures.runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
 
     var served: usize = 0;
     var first_err: ?anyerror = null;
@@ -554,7 +539,7 @@ test "completion loop: survives abrupt mid-handshake drops under churn (close-wh
     const io = threaded.io();
 
     var loop_err: ?anyerror = null;
-    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
+    var loop_future = try io.concurrent(fixtures.runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
 
     var wave: usize = 0;
     while (wave < waves) : (wave += 1) {
