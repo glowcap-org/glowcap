@@ -87,13 +87,15 @@ impl DriverLoopOptions {
 	}
 }
 
-fn check(rc: c_int) -> Result<()> {
-	if rc == sys::OK {
-		Ok(())
-	} else {
-		Err(Error::from_code(rc))
-	}
-}
+crate::error_slot::error_slot!(
+	/// Map a `glowcap_driver_*` return code to an `Error` carrying the driver
+	/// archive's own last-error message: a refused listen or release names its
+	/// cause here, never in the unrelated ocapn slot.
+	fn check;
+	/// The calling thread's last `glowcap_driver_*` error message.
+	fn driver_last_error;
+	ffi::glowcap_driver_last_error
+);
 
 impl DriverLoop {
 	/// Create a loop over a fresh host. `seed` is the host constructor's
