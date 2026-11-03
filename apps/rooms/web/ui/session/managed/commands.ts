@@ -1,3 +1,4 @@
+import { conversationById } from "./conversation_lookup.ts";
 import { editLine } from "./edit.ts";
 // Slash commands select exact conversation fields. Command names confer no
 // authority and never cause recovery through a stronger entrance.
@@ -30,9 +31,7 @@ export function managedCommandPowers(
 		active()?.dir ?? (session.current?.intent.directories.find((row) => row.home)?.id as DirId | undefined);
 	const selected = () => {
 		const row = active();
-		return row == null || row.type === "directory"
-			? null
-			: session.current?.intent.conversations.find((entry) => entry.id === row.persistId);
+		return row == null || row.type === "directory" ? null : conversationById(session.current, row.persistId);
 	};
 	// A held room was entered by this exact link when its retained access was
 	// imported from it or minted as it. Labels and room names prove nothing.

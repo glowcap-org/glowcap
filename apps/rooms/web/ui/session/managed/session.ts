@@ -18,6 +18,7 @@ import { ManagedOpenings } from "./openings.ts";
 import { ManagedNavigation } from "./navigation.ts";
 import { ManagedTyping } from "./typing.ts";
 import { ManagedSelection } from "./selection.ts";
+import { indexAcceptedConversations } from "./conversation_lookup.ts";
 import type { ActivityPage, DirectoryIntent, ObservationView, UseView, WorkspaceSnapshot } from "./model.ts";
 import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
 import { managedAccessText as text, savedControlSource } from "../../../../lib/text/managed_access.ts";
@@ -184,6 +185,7 @@ export class ManagedRoomsSession {
 		const snapshot: WorkspaceSnapshot = await this.workspace.snapshot();
 		if (this.#stopped) throw new Error("This workspace is closed");
 		if (this.#snapshot == null || BigInt(snapshot.revision) >= BigInt(this.#snapshot.revision)) {
+			indexAcceptedConversations(snapshot);
 			this.#snapshot = snapshot;
 			this.#changed();
 		}

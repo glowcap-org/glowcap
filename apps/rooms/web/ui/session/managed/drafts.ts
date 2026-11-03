@@ -1,5 +1,6 @@
 // One staged value and one retained write per conversation. Projection never
 // replaces a newer local edit with an older accepted snapshot.
+import { conversationById } from "./conversation_lookup.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import { conversationIdentity } from "./model.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
@@ -33,7 +34,7 @@ export class ManagedDrafts {
 	}
 	stage(id: string, text: string): void {
 		if (this.#stopped) throw new Error("This workspace is closed");
-		const row = this.#session.current?.intent.conversations.find((row) => row.id === id);
+		const row = conversationById(this.#session.current, id);
 		if (row == null) {
 			throw new Error("This conversation is no longer held");
 		}
@@ -87,7 +88,7 @@ export class ManagedDrafts {
 			} catch (error) {
 				if (!this.#session.pending.includes(operation)) this.#writes.delete(id);
 				if (error instanceof WorkspaceConflict && !rebased) {
-					const row = this.#session.current?.intent.conversations.find((row) => row.id === id);
+					const row = conversationById(this.#session.current, id);
 					const original = this.#origins.get(id);
 					// An unrelated workspace edit can advance the revision. Rebase
 					// once only after proven non-admission and an unchanged exact

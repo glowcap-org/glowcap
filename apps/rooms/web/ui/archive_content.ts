@@ -1,4 +1,4 @@
-// Pure projection of archived file facts into presentation state.
+// Pure projection and comparison of archived line content.
 
 import type { ArchivedAttachment, ArchiveLine } from "../../lib/archive/protocol.ts";
 import type { AttachmentView, Item } from "./conversation.ts";
@@ -6,6 +6,11 @@ import type { AttachmentView, Item } from "./conversation.ts";
 import { archivedBytesUnavailable } from "../../lib/text/attached.ts";
 
 export const ARCHIVED_BYTES_UNAVAILABLE = archivedBytesUnavailable;
+
+/** Compare the retained preview order, treating an absent list as empty. */
+export function archivedPreviewsMatch(current: readonly string[] | undefined, next: readonly string[]): boolean {
+	return (current?.length ?? 0) === next.length && next.every((url, index) => current?.[index] === url);
+}
 
 /** Project durable metadata as an explicitly unavailable attachment. The
  * message keeps its original shape without offering a download that no

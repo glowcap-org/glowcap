@@ -8,6 +8,7 @@ import type { RoomsPermission } from "../../lib/session_content_data.ts";
 import type { RoomConv, Standing } from "./conversation.ts";
 import { archiveShareBearer, roomBearer, type RoomBearerKind } from "./session/bearer.ts";
 import { useManagedSession } from "./session/managed/context.tsx";
+import { conversationById } from "./session/managed/conversation_lookup.ts";
 import { noteTrouble } from "./store.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 
@@ -39,7 +40,7 @@ export function useRoomBearer(conv: RoomConv | null, kind: RoomBearerKind): stri
 		kind,
 	]);
 	const select = () => {
-		const row = session.current?.intent.conversations.find((row) => row.id === conv?.persistId);
+		const row = conversationById(session.current, conv?.persistId);
 		return row?.kind === "room"
 			? kind === "link" ? row.access : kind === "manager" ? row.control : row.moderator
 			: null;

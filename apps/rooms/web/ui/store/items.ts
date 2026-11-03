@@ -332,11 +332,6 @@ export function reviseItems(
 	if (history !== null) writeHistory(projection, key, history);
 }
 
-/** Change one drawn line from an archive account. See `reviseItems`. */
-export function reviseItem(projection: PageProjection, key: string, id: number, fields: Partial<Item>): void {
-	reviseItems(projection, key, new Map([[id, fields]]));
-}
-
 /** Insert newly seen lines and reorder the account's existing section by its
  * own chronology. Full recorder coordinates identify the divider independently
  * of its display text. A standing-only account can have an empty section. */

@@ -10,5 +10,14 @@ Deno.test("managed projection visits conversations and line custody once per pas
 		const cost = projectionCost(conversations, 64);
 		assertEquals(cost.conversationVisits, conversations);
 		assertEquals(cost.lineIdReads, conversations * 32);
+		assertEquals(cost.historyWrites, 0);
+	}
+});
+
+Deno.test("managed projection publishes changed line authority once per conversation", () => {
+	for (const conversations of [4, 16]) {
+		const cost = projectionCost(conversations, 64, true);
+		assertEquals(cost.historyWrites, conversations);
+		assertEquals(cost.lineIdReads, conversations * 32);
 	}
 });

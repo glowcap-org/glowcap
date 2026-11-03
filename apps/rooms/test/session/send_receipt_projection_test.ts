@@ -80,6 +80,57 @@ for (const echoFirst of [true, false]) {
 }
 
 const { reconcileSharedArchive } = await import("../../web/ui/session/shared_archive_projection.ts");
+
+Deno.test("shared archive rereads publish edits and withdrawals as one history revision", () => {
+	const page = new RoomsPage();
+	const direct = store.restoreDm(page.projection, dirId("directory"), "bob", "registration", "direct", false);
+	if (direct == null) throw new Error("direct conversation missing");
+	const records: import("../../lib/archive/protocol.ts").ArchiveLine[] = Array.from({ length: 32 }, (_, index) => ({
+		kind: "line",
+		source: "shared-archive",
+		generation: "first",
+		id: String(index),
+		conversationKind: "direct",
+		directory: "directory",
+		conversation: "bob",
+		from: "bob",
+		text: "original",
+		mine: false,
+		at: index,
+		order: index,
+		state: "present",
+		previewUrls: [],
+		attachments: [],
+	}));
+	try {
+		reconcileSharedArchive(page, direct.key, records, "bob");
+		const before = store.historyOf(page.projection, direct.key).filter((item) => item.kind === "chat");
+		let writes = 0;
+		const set = page.projection.set.bind(page.projection);
+		page.projection.set = (patch) => {
+			if (patch.histories != null) writes++;
+			set(patch);
+		};
+		reconcileSharedArchive(
+			page,
+			direct.key,
+			records.map((record, index) => ({
+				...record,
+				state: index % 2 === 0 ? "edited" : "withdrawn",
+				text: index % 2 === 0 ? "changed" : "",
+			})),
+			"bob",
+		);
+		assertEquals(writes, 1);
+		const after = store.historyOf(page.projection, direct.key).filter((item) => item.kind === "chat");
+		assertEquals(after.map((item) => item.id), before.map((item) => item.id));
+		assertEquals(after.map((item) => item.text), records.map((_, index) => index % 2 === 0 ? "changed" : ""));
+		assertEquals(after.map((item) => item.withdrawn), records.map((_, index) => index % 2 !== 0));
+	} finally {
+		store.forgetConv(page.projection, direct.key);
+	}
+});
+
 for (const archiveFirst of [true, false]) {
 	Deno.test(`direct send receipt unifies archive replay without mutation authority, archive first: ${archiveFirst}`, () => {
 		const page = new RoomsPage();

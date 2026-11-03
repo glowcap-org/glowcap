@@ -1,3 +1,4 @@
+import { conversationById } from "./conversation_lookup.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 import { ROOM_SENDER } from "../../../../lib/protocol_data.ts";
 // Intent names durable field coordinates. Activity describes live facts.
@@ -5,7 +6,7 @@ import { ROOM_SENDER } from "../../../../lib/protocol_data.ts";
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import { type DirId, dirId, type DirView } from "../../directory.ts";
-import { isSessionConv, type RoomConv, type SessionConv } from "../../conversation.ts";
+import { isSessionConv, type Item, type RoomConv, type SessionConv } from "../../conversation.ts";
 import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "../../application_data.ts";
 import type { ArchiveShareView } from "../../archive_model.ts";
 import type { ManagedRoomsSession } from "./session.ts";
@@ -342,11 +343,13 @@ export class ManagedProjection {
 			if (conversation == null) continue;
 			const heldIds = new Set<number>();
 			for (const line of row.lines ?? []) heldIds.add(line.id);
+			const revisions = new Map<number, Partial<Item>>();
 			for (const item of store.historyOf(projection, conversation.key)) {
 				if (item.kind !== "chat" || item.lineId == null) continue;
 				const held = heldIds.has(item.lineId);
-				if (item.held !== held) store.updateItem(projection, conversation.key, item.id, { held });
+				if (item.held !== held) revisions.set(item.id, { held });
 			}
+			store.reviseItems(projection, conversation.key, revisions);
 		}
 		const local = this.#session.navigation.selected;
 		const explicit = local != null && presented.has(local) &&
@@ -435,9 +438,7 @@ export class ManagedProjection {
 			if (conversation.type === "dm") store.put(projection, { ...conversation, line: "closed" });
 			if (conversation.type === "room") {
 				const identity = this.#identities.get(conversation.persistId);
-				const row = this.#session.current?.intent.conversations.find((row) =>
-					row.id === conversation.persistId
-				);
+				const row = conversationById(this.#session.current, conversation.persistId);
 				if (identity != null && row?.kind === "room") identity.endedSeat = row.seat;
 				this.#endMembership(conversation, reason);
 			}
@@ -498,16 +499,14 @@ export class ManagedProjection {
 	/** A line arriving in a room this tab holds a live seat for, but has not
 	 * presented as joined, is the join evidence itself. */
 	#hasUnjoinedSeat(conversation: SessionConv): boolean {
+		const row = conversationById(this.#session.current, conversation.persistId);
 		return conversation.type === "room" && conversation.membership !== "joined" &&
-			this.#session.current?.intent.conversations.some((row) =>
-					row.id === conversation.persistId && row.kind === "room" && row.seat != null &&
-					row.seat !== this.#identities.get(row.id)?.endedSeat
-				) === true;
+			row?.kind === "room" && row.seat != null && row.seat !== this.#identities.get(row.id)?.endedSeat;
 	}
 	/** The workspace still holds this line's handle, so the line it arrived
 	 * on can be edited through it. */
 	#holdsLineHandle(conversationId: string, lineId: number | undefined): boolean {
-		return this.#session.current?.intent.conversations.find((row) => row.id === conversationId)
+		return conversationById(this.#session.current, conversationId)
 			?.lines?.some((line) => line.id === lineId) === true;
 	}
 }

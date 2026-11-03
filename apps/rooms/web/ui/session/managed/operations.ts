@@ -1,3 +1,4 @@
+import { conversationById } from "./conversation_lookup.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 // Operations select separately retained fields. Reads use scoped Rust
 // readers. Writes run through the original command and its exact receipt.
@@ -284,7 +285,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			outcome(async () => {
 				const row = store.getConv(projection, key);
 				if (row?.type !== "room") throw new Error("This room is no longer held");
-				const held = session.current?.intent.conversations.find((room) => room.id === row.persistId);
+				const held = conversationById(session.current, row.persistId);
 				if (held?.kind !== "room" || held.access == null) {
 					throw new Error("Recovery requires the exact held room access");
 				}
@@ -304,7 +305,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			outcome(async () => {
 				const room = store.getConv(projection, key);
 				if (room?.type !== "room") throw new Error("This room is no longer held");
-				const selected = session.current?.intent.conversations.find((row) => row.id === room.persistId);
+				const selected = conversationById(session.current, room.persistId);
 				if (selected?.kind !== "room" || selected.access == null) {
 					throw new Error("No room publication authority is held");
 				}

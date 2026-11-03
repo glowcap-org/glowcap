@@ -1,5 +1,6 @@
 // A refused result candidate can be recomposed. Its receipt and selections stay
 // fixed. Keep scalar witnesses, never a workspace snapshot or capability mirror.
+import { conversationById } from "./conversation_lookup.ts";
 import { type ConversationIntent, type DirectoryIntent, fieldKey, type WorkspaceSnapshot } from "./model.ts";
 import type { LineAdoption } from "./completed_line.ts";
 
@@ -35,7 +36,7 @@ export class ResultRecipe {
 		return row;
 	}
 	conversation(snapshot: WorkspaceSnapshot, id: string): ConversationIntent {
-		const row = snapshot.intent.conversations.find((row) => row.id === id);
+		const row = conversationById(snapshot, id);
 		if (row == null) throw new Error("The initiating conversation was removed. Its original receipt remains held.");
 		this.check(`conversation:${id}`, [
 			row.kind,

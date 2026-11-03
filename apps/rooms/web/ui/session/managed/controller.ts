@@ -1,4 +1,5 @@
 // Presentation gestures act through one managed viewer and its exact receipts.
+import { conversationById } from "./conversation_lookup.ts";
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { RoomsBrowserController } from "../../controller/browser.ts";
@@ -304,7 +305,7 @@ export function createManagedController(
 		setTyping: (on) => {
 			const row = current();
 			if (row == null || row.type === "directory") return;
-			const intent = session.current?.intent.conversations.find((entry) => entry.id === row.persistId);
+			const intent = conversationById(session.current, row.persistId);
 			const selected = intent?.kind === "room" && intent.seat != null
 				? coordinate("roomSeat", intent.seat)
 				: intent?.kind === "direct" && intent.access != null

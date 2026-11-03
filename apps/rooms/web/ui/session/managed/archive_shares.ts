@@ -1,3 +1,4 @@
+import { conversationById } from "./conversation_lookup.ts";
 import { LOCAL_LIMITS } from "./local_gestures.ts";
 import { archiveDropFull, archiveReadFull } from "../../../../lib/text/archive.ts";
 import { managedSessionText as managedText, sharedHistoryLabel } from "../../../../lib/text/managed_session.ts";
@@ -58,13 +59,13 @@ export function managedArchiveReading(
 				throw new Error("Select a room or direct conversation to share its history");
 			}
 			const kind = records === "standing" ? "standing" : conversation.type === "room" ? "room" : "direct";
-			const original = session.current?.intent.conversations.find((row) => row.id === conversation.persistId);
+			const original = conversationById(session.current, conversation.persistId);
 			if (original == null) throw new Error("The original conversation is no longer held");
 			const identity = conversationIdentity(original);
 			const recipient = conversation.type === "dm"
 				? conversation.persistId
 				: await session.actions.direct(conversation.dir, peer?.trim() || "", false);
-			const selected = session.current?.intent.conversations.find((row) => row.id === conversation.persistId);
+			const selected = conversationById(session.current, conversation.persistId);
 			if (selected == null || conversationIdentity(selected) !== identity) {
 				throw new Error("The original conversation changed while acquiring the history recipient");
 			}
@@ -98,13 +99,13 @@ export function managedArchiveReading(
 		const identity = offerIdentity(selected);
 		const receiving = store.convByPersistId(page.projection, selected.channel);
 		if (receiving == null) return managedText.receivingConversationMissing;
-		const receivingIntent = session.current?.intent.conversations.find((row) => row.id === selected.channel);
+		const receivingIntent = conversationById(session.current, selected.channel);
 		if (receivingIntent == null) return managedText.receivingConversationMissing;
 		const receivingIdentity = conversationIdentity(receivingIntent);
 		const fresh = () => {
 			const current = session.current?.intent.archiveShares?.find((row) => row.id === id);
 			const conversation = store.convByPersistId(page.projection, selected.channel);
-			const intent = session.current?.intent.conversations.find((row) => row.id === selected.channel);
+			const intent = conversationById(session.current, selected.channel);
 			return current != null && offerIdentity(current) === identity && session.permits("readArchive") &&
 				conversation?.key === receiving.key && intent != null &&
 				receivingIdentity === conversationIdentity(intent);

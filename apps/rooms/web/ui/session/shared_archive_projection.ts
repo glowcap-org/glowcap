@@ -3,12 +3,10 @@ import * as store from "../store.ts";
 import type { RoomsPageContext } from "../page.ts";
 import type { Item } from "../conversation.ts";
 import type { ArchiveLine, ArchiveRecord } from "../../../lib/archive/protocol.ts";
-import { archivedAttachmentsMatch, archivedAttachmentViews } from "../archive_attachments.ts";
+import { archivedAttachmentsMatch, archivedAttachmentViews, archivedPreviewsMatch } from "../archive_content.ts";
 import { sharedArchiveDivider, sharedArchiveStanding } from "../../../lib/text/attached.ts";
 import type { AttachedSessionFiles, FileDescription, HeldFile } from "./attached_files.ts";
 
-const samePreviews = (current: readonly string[] | undefined, next: readonly string[]) =>
-	(current?.length ?? 0) === next.length && next.every((url, index) => current?.[index] === url);
 function shortId(value: string): string {
 	return value.slice(0, 8);
 }
@@ -52,6 +50,7 @@ export function reconcileSharedArchive(
 		const standing = group.standings.length === 0 ? "" : sharedArchiveStanding(group.standings.join("; "));
 		const divider = sharedArchiveDivider(from, shortId(group.source), shortId(group.generation), standing);
 		const fresh: ArchiveLine[] = [];
+		const revisions = new Map<number, Partial<Item>>();
 		for (const record of group.lines) {
 			const current = shown.get(store.historyCoordinateKey(record));
 			if (record.state === "withdrawn") {
@@ -59,7 +58,7 @@ export function reconcileSharedArchive(
 				// never showed stays unshown.
 				if (current != null && current.withdrawn !== true) {
 					files?.release(current.attachments ?? []);
-					store.reviseItem(page.projection, key, current.id, {
+					revisions.set(current.id, {
 						at: record.at,
 						text: "",
 						withdrawn: true,
@@ -77,7 +76,7 @@ export function reconcileSharedArchive(
 			if (
 				current.text !== record.text || current.from !== record.from || current.at !== record.at ||
 				current.order !== record.order || (current.edited === true) !== (record.state === "edited") ||
-				!samePreviews(current.previewUrls, record.previewUrls) || attachmentsChanged ||
+				!archivedPreviewsMatch(current.previewUrls, record.previewUrls) || attachmentsChanged ||
 				current.withdrawn === true
 			) {
 				if (attachmentsChanged) files?.release(current.attachments ?? []);
@@ -88,7 +87,7 @@ export function reconcileSharedArchive(
 							: files.holdArchived(record, index, source)
 					)
 					: null;
-				store.reviseItem(page.projection, key, current.id, {
+				revisions.set(current.id, {
 					from: record.from,
 					at: record.at,
 					order: record.order,
@@ -105,6 +104,7 @@ export function reconcileSharedArchive(
 				}
 			}
 		}
+		store.reviseItems(page.projection, key, revisions);
 		if (
 			fresh.length > 0 || standing !== "" ||
 			group.lines.some((record) => shown.has(store.historyCoordinateKey(record)))

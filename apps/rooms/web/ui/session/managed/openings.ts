@@ -2,6 +2,7 @@
 // consumes the opening before it changes presentation or waits for a receipt.
 import { SESSION_CONTENT } from "../../../../lib/session_content_data.ts";
 import type { ManagedRoomsSession } from "./session.ts";
+import { conversationById } from "./conversation_lookup.ts";
 
 export type AcquisitionTarget =
 	| { readonly kind: "direct"; readonly peer: string }
@@ -36,7 +37,7 @@ export class ConversationOpening {
 					await this.session.completeOperation(operation);
 					return;
 				}
-				if (!(await this.session.refresh()).intent.conversations.some((row) => row.id === id)) return;
+				if (conversationById(await this.session.refresh(), id) == null) return;
 				await this.session.completeResult(await this.session.command(departure, [id], operation));
 			};
 		}
