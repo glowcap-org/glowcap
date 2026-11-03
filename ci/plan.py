@@ -54,7 +54,11 @@ def select(event_name, ref, event, paths):
 
 
 def changed_paths(event, cwd):
-    base = event.get("before") or event.get("pull_request", {}).get("base", {}).get("sha", "")
+    # A follow-up cancels the prior PR run, so it must cover the whole PR.
+    if "pull_request" in event:
+        base = event["pull_request"].get("base", {}).get("sha", "")
+    else:
+        base = event.get("before", "")
     if not re.fullmatch(r"[0-9a-f]{40}", base) or base == "0" * 40:
         return None
     try:
