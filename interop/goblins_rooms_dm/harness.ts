@@ -58,7 +58,8 @@ import {
 	scrapeTraceSturdyref,
 	tracePublishUrlOf,
 } from "../../apps/rooms/test/trace/viewer.ts";
-import { freePort } from "../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../bindings/ts/test/ports.ts";
+import { webPort } from "../../apps/rooms/test/support/web_front.ts";
 import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
 import { until as untilWithin } from "../../apps/rooms/test/support/wait.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
@@ -193,10 +194,9 @@ async function watchTimeline(sturdyref: string): Promise<{ seen: Rec[]; close: (
 	return { seen, close: () => viewer.close() };
 }
 
-const httpPort = freePort();
-const roomPort = freePort();
-const tracePort = freePort();
-const vatPort = freePort();
+// The vat is handed its port on the command line and the front's relay must
+// name it before the vat exists, so this one number is chosen ahead.
+const vatPort = nonEphemeralPort();
 
 let browser: Browser | null = null;
 let web: Deno.ChildProcess | null = null;
@@ -211,28 +211,28 @@ try {
 	// and the room server as its child. The TCP arm names the vat's address as a
 	// cleartext peer the relay may dial; the iroh arm names nothing, because an
 	// iroh destination has to be a peer holding a key.
-	const env: Record<string, string> = { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) };
+	const env: Record<string, string> = { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: "0" };
 	if (!IROH) env.GLOWCAP_RELAY_TCP_PEERS = loopbackTcpDesignator(vatPort);
 	web = new Deno.Command(WEB, {
 		args: [
 			"--transport=tcp",
 			// The Goblins netlayer dials the addresses announced by this fixture.
 			...(IROH ? ["--transport=iroh", "--reachability=direct"] : []),
-			String(httpPort),
-			String(roomPort),
+			"0",
+			"0",
 		],
 		cwd: ROOT,
 		env,
-		// Discarded rather than piped: the locator comes from `/locator` over
-		// HTTP, so nothing here reads this stream, and a pipe nobody drains is a
-		// process that eventually blocks on its own output. Its stderr is read
-		// rather than inherited, because the trace capability is announced there
-		// and a viewer needs it; `scrapeTraceSturdyref` tees the stream onward, so
-		// nothing the server says is lost by reading it here.
-		stdout: "null",
+		// Piped for the HTTP port the front announces first. `webPort` drains the
+		// rest. Its stderr is read rather than inherited, because the trace
+		// capability is announced there and a viewer needs it;
+		// `scrapeTraceSturdyref` tees the stream onward, so nothing the server
+		// says is lost by reading it here.
+		stdout: "piped",
 		stderr: "piped",
 	}).spawn();
 
+	const httpPort = await webPort(web);
 	const traceRef = await scrapeTraceSturdyref(web.stderr);
 	const roomLocator = await waitForLocator(httpPort);
 	const viewer = await watchTimeline(traceRef);

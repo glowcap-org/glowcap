@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // The Rooms session process and browser members direct-message each other over
 // WebRTC DataChannels, with the room directory carrying only the signaling. The
 // process opens the first conversation and a second member opens the other.
@@ -28,13 +28,12 @@ import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
 import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
-import { waitForHttp } from "../support/rooms_server.ts";
+import { roomPortOf, sturdyrefPort } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, openDmTo } from "../page/harness.ts";
 import { startSessionPeer } from "../support/session_peer.ts";
-import { announcedSturdyref } from "../support/standalone_peer.ts";
+import { readAnnounced } from "../support/announce.ts";
 import { ROOT, SESSION } from "../support/paths.ts";
 
 const ROOM = "lobby";
@@ -47,10 +46,6 @@ const OPENING_TEXT = "hello session process, I offered and you answered";
 const ANSWER_TEXT = "answered over the channel you opened";
 
 const deadline = setTimeout(() => fail("dm-session-webrtc scenario timed out after 120s"), 120_000);
-const httpPort = freePort();
-const roomPort = freePort();
-const tracePort = freePort();
-const sessionPort = freePort();
 const state = await Deno.makeTempDir({ prefix: "glowcap-session-webrtc-dm-" });
 
 // Join `ROOM` as `nick` in a fresh tab, in the `dm` connection mode, and wait
@@ -110,23 +105,36 @@ async function openedWebrtc(sessions: Set<string>, seen: number, what: string): 
 // serve.ts serves the page and runs the room over plain TCP. The DM channel is
 // WebRTC. The browser may reach the process's TCP listener through the web
 // forward, so the process's own dial is the only path that must be WebRTC.
+const peer = startSessionPeer(state, [
+	"--transport=tcp",
+	"--port=0",
+	"--dial-transports=tcp,webrtc",
+	"--ice-servers=",
+	"--local-control",
+]);
+// The front's relay may dial only the addresses it is told, and this process's
+// listener is one of them, so the process starts first and its port is read.
+const sessionPort = sturdyrefPort(
+	await readAnnounced(peer, { token: "ROOMS-SESSION-LISTENING", who: "session process" }),
+);
 const web = spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	env: {
 		GLOWCAP_ROOMS_TRACE: "1",
-		GLOWCAP_ROOMS_TRACE_PORT: String(tracePort),
+		GLOWCAP_ROOMS_TRACE_PORT: "0",
 		GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${sessionPort}`,
 	},
 	stdout: "piped",
 	stderr: "piped",
 });
 const traceRef = scrapeTraceSturdyref(web.stderr);
+const httpPort = await webPort(web);
 
 let browser: Browser | null = null;
 let viewer: { close(): Promise<void> } | null = null;
 try {
-	await waitForHttp(httpPort);
+	const roomPort = await roomPortOf(httpPort);
 	const sturdyref = await traceRef;
 	const webrtcSessions = new Set<string>();
 	let sawRelay = false;
@@ -141,14 +149,6 @@ try {
 
 	// The process has no relay and gathers only host candidates, so the dial
 	// stays on this machine.
-	const peer = startSessionPeer(state, [
-		"--transport=tcp",
-		`--port=${sessionPort}`,
-		"--dial-transports=tcp,webrtc",
-		"--ice-servers=",
-		"--local-control",
-	]);
-	await announcedSturdyref(peer, "ROOMS-SESSION-LISTENING", "session process");
 	await control("join", { locator: [`127.0.0.1:${roomPort}`], nick: [PROCESS], room: [ROOM] });
 	await bob.waitForSelector(`#members li:has-text("${PROCESS}")`, { timeout: 30_000 }).catch(() =>
 		fail(`${MEMBER} never saw ${PROCESS} in the room`)

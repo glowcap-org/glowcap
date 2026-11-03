@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // Two browser tabs direct-message each other over a WebRTC DataChannel, the
 // room carrying only the signaling (ADR-0035, the live handoff-redeem proof).
 // Each tab joins with `?dm=webrtc`, so it advertises a bare
@@ -26,7 +26,6 @@ import { type Browser, type BrowserContext, chromium, type Page } from "playwrig
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
 import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
@@ -82,20 +81,17 @@ async function send(tab: Page, text: string): Promise<void> {
 // Wait until a bubble carrying `text` is on screen in the active conversation.
 const deadline = setTimeout(() => fail("web-dm-webrtc scenario timed out after 28s"), 28_000);
 
-const httpPort = freePort();
-const roomPort = freePort();
-const tracePort = freePort();
-
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`); the DM channel itself is WebRTC, so no cargo either.
 const web = spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
-	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
+	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: "0" },
 	stdout: "piped",
 	stderr: "piped",
 });
 const traceRef = scrapeTraceSturdyref(web.stderr);
+const httpPort = await webPort(web);
 
 let browser: Browser | null = null;
 let viewer: { close(): Promise<void> } | null = null;

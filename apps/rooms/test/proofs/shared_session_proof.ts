@@ -1,16 +1,16 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 /// <reference lib="dom" />
 // Two production pages consume one managed process workspace. Setup selects a
 // strong use field; reload and process restart must recover that exact owner.
 import { chromium, type Page } from "playwright";
 import { fail } from "../support/fail.ts";
 import { ROOT, SESSION } from "../support/paths.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
-import { waitForHttp } from "../support/rooms_server.ts";
+import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
+import { roomPortOf } from "../support/rooms_server.ts";
 import { say } from "../page/harness.ts";
 import { reapOwned, stopOwned } from "../support/children.ts";
 import { startSessionPeer } from "../support/session_peer.ts";
-import { announcedSturdyref } from "../support/standalone_peer.ts";
+import { readAnnounced } from "../support/announce.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { proveSharedMixedDirect } from "../page/shared_mixed_dm.ts";
 import { proveRoomPresence } from "../page/room_presence.ts";
@@ -30,13 +30,25 @@ import { proveAttachedSessionHolding, provePrivateRoomHolding } from "../page/ho
 import { proveSessionReplacement } from "../page/shared_session_reset.ts";
 import { loginRelay } from "../support/login_relay.ts";
 
-const httpPort = freePort();
-const roomPort = freePort();
-const sessionPort = freePort();
-const foreignPort = freePort();
-const ingress = loginRelay(httpPort);
+// The session process and the foreign directory each restart and must come back
+// on the port their clients hold, so these two numbers are chosen ahead.
+const sessionPort = nonEphemeralPort();
+const foreignPort = nonEphemeralPort();
 const state = await Deno.makeTempDir({ prefix: "glowcap-managed-shared-page-" });
 const serverState = await Deno.makeTempDir({ prefix: "glowcap-managed-shared-server-" });
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
+	cwd: ROOT,
+	env: {
+		GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${sessionPort},127.0.0.1:${foreignPort}`,
+		GLOWCAP_ROOMS_STATE: serverState,
+	},
+	stdout: "piped",
+	stderr: "inherit",
+});
+const httpPort = await webPort(front);
+const roomPort = await roomPortOf(httpPort);
+const ingress = loginRelay(httpPort);
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 const deadline = setTimeout(() => fail("managed shared-page scenario timed out after 180s"), 180_000);
 function start() {
@@ -87,19 +99,8 @@ async function bubble(page: Page, text: string) {
 	);
 }
 try {
-	spawnWeb({
-		args: ["--transport=tcp", String(httpPort), String(roomPort)],
-		cwd: ROOT,
-		env: {
-			GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${sessionPort},127.0.0.1:${foreignPort}`,
-			GLOWCAP_ROOMS_STATE: serverState,
-		},
-		stdout: "piped",
-		stderr: "inherit",
-	});
-	await waitForHttp(httpPort);
 	let peer = start();
-	const link = await announcedSturdyref(peer, "ROOMS-SESSION-LISTENING", "managed session process");
+	const link = await readAnnounced(peer, { token: "ROOMS-SESSION-LISTENING", who: "managed session process" });
 	for (const room of ["mirror-one", "mirror-two"]) {
 		await control("join", { locator: [`127.0.0.1:${roomPort}`], nick: ["durable-member"], room: [room] });
 	}
@@ -203,7 +204,10 @@ try {
 	// The actual session process restores its graph, publications and receipts.
 	await stopOwned(peer);
 	peer = start();
-	const restored = await announcedSturdyref(peer, "ROOMS-SESSION-LISTENING", "reopened managed session process");
+	const restored = await readAnnounced(peer, {
+		token: "ROOMS-SESSION-LISTENING",
+		who: "reopened managed session process",
+	});
 	if (restored !== link) fail("managed process publication changed across restart");
 	for (const page of [first, second]) {
 		await page.reload();
@@ -243,7 +247,10 @@ try {
 	await Deno.remove(state, { recursive: true });
 	await Deno.mkdir(state);
 	peer = start();
-	const replacement = await announcedSturdyref(peer, "ROOMS-SESSION-LISTENING", "replacement managed session");
+	const replacement = await readAnnounced(peer, {
+		token: "ROOMS-SESSION-LISTENING",
+		who: "replacement managed session",
+	});
 	if (replacement === link) fail("reset did not retire the old session capability");
 	await proveSessionReplacement(first, replacement);
 	if (errors.length !== 0) fail(`production page errors: ${JSON.stringify(errors)}`);

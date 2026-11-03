@@ -418,9 +418,9 @@ pub fn registerChecks(
     // unchecked; the first run found a real one. The directories are named
     // rather than passing `.` because `site/zig-pkg/` is Zig's generated
     // fetched-package tree and carries third-party fixtures that are not ours
-    // to compile.
+    // to compile; the site's capture scripts are named on their own for that.
     const deno_check_root = execution.addSystemCommand(b, .build_tool, &.{
-        "deno", "check", "apps", "bindings/proofs", "interop", "transports", "bench", "tools",
+        "deno", "check", "apps", "bindings/proofs", "interop", "transports", "bench", "tools", "site/scripts",
     });
     // The Rooms page and its proofs import the generated browser module's
     // declarations from zig-out, so the type check needs that build first.

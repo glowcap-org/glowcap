@@ -58,3 +58,15 @@ export async function readAnnouncedPort(proc: Deno.ChildProcess, announcement: A
 	}
 	return port;
 }
+
+/** Keep a child's stdout flowing after its announcement was read.
+ *
+ * A pipe nobody reads fills its 64 KiB buffer and blocks the child on its next
+ * print, and `rooms-web` relays everything its room server prints. Call this
+ * once the announcement is read and only for a child whose stdout the caller
+ * reads no further. */
+export function drainStdout(proc: Deno.ChildProcess): void {
+	proc.stdout.pipeTo(new WritableStream()).catch(() => {
+		// tolerant: a child killed mid-write errors the pipe, and nothing it printed after its announcement is wanted
+	});
+}

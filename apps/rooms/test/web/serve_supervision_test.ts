@@ -3,10 +3,10 @@
 // asset tests so each deterministic process stays inside its 30-second bound.
 
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { ROOT, WEB } from "../support/paths.ts";
 import { delay } from "../support/wait.ts";
-import { reachRoomThroughRelay, spawnWeb, waitForIndex } from "./serve_harness.ts";
+import { roomPortOf } from "../support/rooms_server.ts";
+import { reachRoomThroughRelay, startWeb, waitForIndex } from "./serve_harness.ts";
 import { assert } from "../assert.ts";
 
 Deno.test("the web front reports a room server that cannot start, and stops", async () => {
@@ -18,7 +18,7 @@ Deno.test("the web front reports a room server that cannot start, and stops", as
 			JSON.stringify({ version: 1, identitySeed: "zz", roomLinkSecret: "zz", linkedRooms: [] }) + "\n",
 		);
 		const proc = spawnOwned(WEB, {
-			args: ["--transport=tcp", String(freePort()), String(freePort())],
+			args: ["--transport=tcp", "0", "0"],
 			cwd: ROOT,
 			env: { GLOWCAP_ROOMS_STATE: dir },
 			stdout: "piped",
@@ -42,14 +42,14 @@ Deno.test("the web front reports a room server that cannot start, and stops", as
 Deno.test("rooms web UI attaches to a room server already on its port", async () => {
 	// Sharing a room port must not be fatal: the second instance's child cannot
 	// bind, so the second instance attaches to the first.
-	const roomPort = freePort();
-	const httpFirst = freePort();
-	const httpSecond = freePort();
-	const first = spawnWeb(httpFirst, roomPort);
+	const { proc: first, httpPort: httpFirst } = await startWeb();
 	let second: Deno.ChildProcess | null = null;
 	try {
-		await waitForIndex(httpFirst); // the first now owns roomPort
-		second = spawnWeb(httpSecond, roomPort);
+		await waitForIndex(httpFirst);
+		const roomPort = await roomPortOf(httpFirst); // the first owns it
+		const attached = await startWeb(roomPort);
+		second = attached.proc;
+		const httpSecond = attached.httpPort;
 		const page = await waitForIndex(httpSecond);
 		assert(
 			page.includes("glowcap rooms"),
@@ -67,14 +67,14 @@ Deno.test("rooms web UI attaches to a room server already on its port", async ()
 Deno.test("rooms web UI takes over when an attached room server dies", async () => {
 	// Attach must not leave the second instance forever pointing at a dead locator
 	// after the owning rooms-web exits and tears down the shared child.
-	const roomPort = freePort();
-	const httpFirst = freePort();
-	const httpSecond = freePort();
-	const first = spawnWeb(httpFirst, roomPort);
+	const { proc: first, httpPort: httpFirst } = await startWeb();
 	let second: Deno.ChildProcess | null = null;
 	try {
 		await waitForIndex(httpFirst);
-		second = spawnWeb(httpSecond, roomPort);
+		const roomPort = await roomPortOf(httpFirst);
+		const attached = await startWeb(roomPort);
+		second = attached.proc;
+		const httpSecond = attached.httpPort;
 		await waitForIndex(httpSecond);
 
 		try {

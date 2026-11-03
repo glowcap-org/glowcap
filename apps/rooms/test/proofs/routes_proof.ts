@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 /// <reference lib="dom" />
 // The page's address, and what standing at one means.
 //
@@ -38,7 +38,6 @@ import { spawnWeb } from "../support/web_front.ts";
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 
@@ -73,14 +72,13 @@ async function showing(tab: Page): Promise<string> {
 
 const deadline = setTimeout(() => fail("web-routes scenario timed out after 180s"), 180_000);
 
-const httpPort = freePort();
-const roomPort = freePort();
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
-	stdout: "null",
+	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 let browser: Browser | null = null;
 try {

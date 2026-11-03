@@ -30,7 +30,6 @@
 
 import { chromium } from "playwright";
 import { fail } from "../../../bindings/ts/test/assert.ts";
-import { freePort } from "../../../bindings/ts/test/ports.ts";
 
 /** The globals the page probe installs on its own `globalThis`.
  *
@@ -127,12 +126,12 @@ async function toProbe(line: string): Promise<void> {
 	await probeIn.write(enc.encode(line + "\n"));
 }
 
-const pagePort = freePort();
 const assetServer = new AbortController();
-Deno.serve(
-	{ port: pagePort, signal: assetServer.signal },
+const pageServer = Deno.serve(
+	{ port: 0, signal: assetServer.signal },
 	() => new Response(PAGE, { headers: { "content-type": "text/html; charset=utf-8" } }),
 );
+const pagePort = pageServer.addr.port;
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 let probeReceived = false;

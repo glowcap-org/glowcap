@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // A reader selects the standalone archive peer in Settings, writes a direct
 // message into it, and disappears. A fresh browser profile selects the same
 // sturdyref and recovers the line, proving the peer is a member feature rather
@@ -25,7 +25,6 @@ const ROOT = new URL("../../../../", import.meta.url).pathname;
 
 import { startArchivePeer } from "../support/archive_peer.ts";
 import { fail } from "../support/fail.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 const ROOM = "archive-room";
 const KEPT = "this line outlives the browser that wrote it";
@@ -137,15 +136,14 @@ async function see(tab: Page, text: string, who: string): Promise<void> {
 
 const deadline = setTimeout(() => fail("archive browser proof timed out after 120s"), 120_000);
 const state = await Deno.makeTempDir();
-const httpPort = freePort();
-const roomPort = freePort();
 const archive = startArchivePeer(state, ["--reachability=direct"], "inherit");
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 let browser: Browser | null = null;
 try {

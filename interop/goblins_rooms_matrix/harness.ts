@@ -13,7 +13,7 @@ import {
 } from "../../apps/rooms/test/trace/viewer.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
-import { freePort } from "../../bindings/ts/test/ports.ts";
+import { webPort } from "../../apps/rooms/test/support/web_front.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 import { WEB } from "../../apps/rooms/test/support/paths.ts";
@@ -392,24 +392,23 @@ async function reopenBrowserDm(
 	);
 }
 
-const httpPort = freePort();
-const roomPort = freePort();
-const tracePort = freePort();
 const web = new Deno.Command(WEB, {
 	args: [
 		"--transport=tcp",
 		"--transport=iroh",
-		String(httpPort),
-		String(roomPort),
+		"0",
+		"0",
 	],
 	cwd: ROOT,
-	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
-	stdout: "null",
+	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: "0" },
+	// Piped for the HTTP port the front announces first. `webPort` drains the rest.
+	stdout: "piped",
 	// Read rather than inherited, because the trace capability is announced on
 	// this stream and a viewer needs it. `scrapeTraceSturdyref` tees it onward, so
 	// nothing the server says is lost by reading it here.
 	stderr: "piped",
 }).spawn();
+const httpPort = await webPort(web);
 
 const deadline = setTimeout(() => {
 	console.error("goblins-rooms-matrix-iroh timed out after 10 minutes");

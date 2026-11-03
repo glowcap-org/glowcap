@@ -21,10 +21,10 @@ export async function run(
 	foreignRoom: Deno.ChildProcess,
 	foreignState: string,
 	foreignRoomPort: number,
-	/** The port this page's own room server holds. The last phase takes that
-	 * server down and lets `serve.ts` stand it back up, which is the only
-	 * directory in this run that can recover while another is still away. */
-	homeRoomPort: number,
+	/** The front that supervises this page's own room server. The last phase
+	 * takes that server down and lets the front stand it back up, which is the
+	 * only directory in this run that can recover while another is still away. */
+	homeFront: Deno.ChildProcess,
 	/** The sweep for text a short line box has clipped, handed down from the
 	 * scene that owns it. The filter's panel is the one surface in this run that
 	 * is only ever on screen here, so it is swept here or nowhere. */
@@ -645,5 +645,5 @@ export async function run(
 	// join card, which is where this scene picked it up.
 	await filteringRun(tab, second, foreignRoomPort, descendersIntact);
 
-	await leavingRun(tab, foreignLocator, foreignRoom, foreignState, foreignRoomPort, homeRoomPort, aboutOf);
+	await leavingRun(tab, foreignLocator, foreignRoom, foreignState, foreignRoomPort, homeFront, aboutOf);
 }

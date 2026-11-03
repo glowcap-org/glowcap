@@ -2,30 +2,29 @@
 // Cooldown preserves draft custody and never queues a future send.
 import { type Browser, chromium, type Page } from "playwright";
 import { Buffer } from "node:buffer";
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 import { reapOwned } from "../support/children.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { waitForFiniteAnimations } from "../support/animations.ts";
 import { fail } from "../support/fail.ts";
 import { ROOT } from "../support/paths.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { awaitBubble, confirmTitleLeave, reachDirectoryOnCard, say } from "../page/harness.ts";
 
-const port = freePort();
-spawnWeb({
+const front = spawnWeb({
 	args: [
 		"--transport=tcp",
 		"--admission-rates=message=1/6,room-join=1/6",
 		"--http-admission-rates=preview=1/1",
 		"--http-admission-aggregate-scale=1",
-		String(port),
-		String(freePort()),
+		"0",
+		"0",
 	],
 	cwd: ROOT,
-	stdout: "null",
+	stdout: "piped",
 	stderr: "inherit",
 });
+const port = await webPort(front);
 const deadline = setTimeout(() => fail("browser admission proof timed out after 90s"), 90_000);
 let browser: Browser | null = null;
 async function join(page: Page, nick: string) {

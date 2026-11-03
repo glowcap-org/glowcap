@@ -4,27 +4,26 @@ import { type Browser, chromium } from "playwright";
 import { run } from "../page/responsiveness.ts";
 import { fail } from "../support/fail.ts";
 import { ROOT } from "../support/paths.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 import { reapOwned } from "../support/children.ts";
 
-const port = freePort();
 // This proof measures rendering a 64-post burst after warm-up, separately from
 // policy acceptance. Both dispatch and browser mediation must admit its posts
 // and separately guarded projections through the shipped configuration.
-spawnWeb({
+const front = spawnWeb({
 	args: [
 		"--transport=tcp",
 		"--admission-rates=message=256/512",
 		"--browser-admission-rates=message=256/512",
-		String(port),
-		String(freePort()),
+		"0",
+		"0",
 	],
 	cwd: ROOT,
-	stdout: "null",
+	stdout: "piped",
 	stderr: "inherit",
 });
+const port = await webPort(front);
 const deadline = setTimeout(() => fail("responsiveness proof timed out after 150s"), 150_000);
 let browser: Browser | null = null;
 try {

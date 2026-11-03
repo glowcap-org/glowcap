@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { fileURLToPath } from "node:url";
-import { freePort } from "../../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../../bindings/ts/test/ports.ts";
 
 function terminate(child: Deno.ChildProcess): void {
 	try {
@@ -106,7 +106,7 @@ function developmentCommand(fixture: BackendFixture, port: number): Deno.Command
 
 Deno.test("rooms-dev serves source modules and finishes retirement across repeated signals", async () => {
 	const fixture = await createBackendFixture();
-	const port = freePort();
+	const port = nonEphemeralPort();
 	const child = developmentCommand(fixture, port).spawn();
 	const stdout = new Response(child.stdout).text();
 	const stderr = new Response(child.stderr).text();

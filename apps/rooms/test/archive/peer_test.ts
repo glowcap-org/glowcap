@@ -16,9 +16,9 @@ import { fetchBlob } from "../../lib/attachment.ts";
 import { roomsAddress, roomsHost } from "../../lib/locator.ts";
 import { stopOwned } from "../support/children.ts";
 import { assert } from "../assert.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { dial, roomsTest } from "../support/rooms_server.ts";
-import { announcedSturdyref } from "../support/standalone_peer.ts";
+import { readAnnounced } from "../support/announce.ts";
 
 import { startArchivePeer } from "../support/archive_peer.ts";
 
@@ -52,10 +52,10 @@ function record(): ArchiveLine {
 
 roomsTest("archive sturdyref and records survive the standalone peer restarting", async () => {
 	const directory = await Deno.makeTempDir();
-	const port = freePort();
+	const port = nonEphemeralPort();
 	let peer = startPeer(directory, port);
 	try {
-		const firstLink = await announcedSturdyref(peer, "ROOMS-ARCHIVE-LISTENING", "archive peer");
+		const firstLink = await readAnnounced(peer, { token: "ROOMS-ARCHIVE-LISTENING", who: "archive peer" });
 		const parsed = parseSturdyRef(firstLink, "v1_0");
 		let session = await dial(roomsAddress(parsed.locator), roomsHost(undefined, "interop"));
 		try {
@@ -88,7 +88,7 @@ roomsTest("archive sturdyref and records survive the standalone peer restarting"
 
 		await stopOwned(peer);
 		peer = startPeer(directory, port);
-		const secondLink = await announcedSturdyref(peer, "ROOMS-ARCHIVE-LISTENING", "archive peer");
+		const secondLink = await readAnnounced(peer, { token: "ROOMS-ARCHIVE-LISTENING", who: "archive peer" });
 		assert(secondLink === firstLink, "restart changed the archive sturdyref");
 		session = await dial(roomsAddress(parsed.locator), roomsHost(undefined, "interop"));
 		try {
@@ -118,12 +118,12 @@ roomsTest("archive sturdyref and records survive the standalone peer restarting"
 
 roomsTest("an archive-peer share redeems after restart and stays revoked", async () => {
 	const directory = await Deno.makeTempDir();
-	const port = freePort();
+	const port = nonEphemeralPort();
 	const shareId = "00000000-0000-4000-8000-00000000000a";
 	let peer = startPeer(directory, port);
 	let session: Awaited<ReturnType<typeof dial>> | null = null;
 	try {
-		const root = await announcedSturdyref(peer, "ROOMS-ARCHIVE-LISTENING", "archive peer");
+		const root = await readAnnounced(peer, { token: "ROOMS-ARCHIVE-LISTENING", who: "archive peer" });
 		const parsed = parseSturdyRef(root, "v1_0");
 		session = await dial(roomsAddress(parsed.locator), roomsHost(undefined, "interop"));
 		const archive = await session.enliven(root);
@@ -148,7 +148,7 @@ roomsTest("an archive-peer share redeems after restart and stays revoked", async
 
 		await stopOwned(peer);
 		peer = startPeer(directory, port);
-		await announcedSturdyref(peer, "ROOMS-ARCHIVE-LISTENING", "restored archive peer");
+		await readAnnounced(peer, { token: "ROOMS-ARCHIVE-LISTENING", who: "restored archive peer" });
 		session = await dial(roomsAddress(parsed.locator), roomsHost(undefined, "interop"));
 		const restoredShare = await session.enliven(shareLink);
 		assert(
@@ -167,7 +167,7 @@ roomsTest("an archive-peer share redeems after restart and stays revoked", async
 
 		await stopOwned(peer);
 		peer = startPeer(directory, port);
-		await announcedSturdyref(peer, "ROOMS-ARCHIVE-LISTENING", "twice-restored archive peer");
+		await readAnnounced(peer, { token: "ROOMS-ARCHIVE-LISTENING", who: "twice-restored archive peer" });
 		session = await dial(roomsAddress(parsed.locator), roomsHost(undefined, "interop"));
 		assert(
 			await refused(() => session!.enliven(shareLink)),

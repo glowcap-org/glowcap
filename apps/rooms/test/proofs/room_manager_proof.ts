@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // A saved room manager capability, across the reload that re-enters the room.
 //
 // Two facts in this page look like one. The card draws the manager capability
@@ -38,18 +38,15 @@ import { reapOwned } from "../support/children.ts";
 import { openRailRoom } from "../support/private_room_page.ts";
 import { fail } from "../support/fail.ts";
 import { ROOT } from "../support/paths.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 
-const httpPort = freePort();
-const roomPort = freePort();
-
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 const deadline = setTimeout(() => fail("room-manager scenario timed out after 240s"), 240_000);
 

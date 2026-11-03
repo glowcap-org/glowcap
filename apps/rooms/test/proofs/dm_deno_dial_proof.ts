@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // A Deno peer direct-messages a browser member by cold-dial rendezvous, end
 // to end (ADR-0034 capability 5, the Deno-dialer row). The browser tab opens
 // no listening socket, so it cannot be dialed the ordinary way: it registers
@@ -38,7 +38,6 @@ import { dial, roomsHost } from "../../lib/locator.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../../lib/room/client.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { until } from "../support/wait.ts";
@@ -80,17 +79,15 @@ const deadline = setTimeout(
 	120_000,
 );
 
-const httpPort = freePort();
-const roomPort = freePort();
-
 // serve.ts serves the page and runs the room + relay over plain TCP (no
 // `--transport=iroh`), so the proof needs no cargo.
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 let browser: Browser | null = null;
 let carolDirectory: Directory | null = null;

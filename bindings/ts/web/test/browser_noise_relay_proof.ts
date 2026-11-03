@@ -6,7 +6,6 @@
 import { chromium } from "playwright";
 import { RELAY_READY_MARKER } from "../../relay/mod.ts";
 import { fail } from "../../test/assert.ts";
-import { freePort } from "../../test/ports.ts";
 import { bundleProbe } from "./support.ts";
 
 declare global {
@@ -54,9 +53,8 @@ async function finishRelayOutput(output: RelayOutput): Promise<string> {
 export async function proveChromiumNoiseRelay(): Promise<void> {
 	const bundle = await bundleProbe(PROBE);
 	const wasm = await Deno.readFile(WASM);
-	const pagePort = freePort();
 	const assets = new AbortController();
-	Deno.serve({ hostname: "127.0.0.1", port: pagePort, signal: assets.signal }, (request) => {
+	const server = Deno.serve({ hostname: "127.0.0.1", port: 0, signal: assets.signal }, (request) => {
 		const path = new URL(request.url).pathname;
 		if (path === "/glowcap_host.wasm") {
 			return new Response(wasm, { headers: { "content-type": "application/wasm" } });
@@ -69,6 +67,7 @@ export async function proveChromiumNoiseRelay(): Promise<void> {
 			{ headers: { "content-type": "text/html; charset=utf-8" } },
 		);
 	});
+	const pagePort = server.addr.port;
 	const relay = new Deno.Command(Deno.execPath(), {
 		args: ["run", "--allow-net", "--allow-ffi", "--allow-env", "--allow-read", "bindings/ts/relay/serve.ts", "0"],
 		cwd: ROOT,

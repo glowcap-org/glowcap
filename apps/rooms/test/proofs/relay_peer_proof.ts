@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // The rooms browser-peer proof:
 // a wasm browser peer drives the real room-directory capabilities through
 // serve.ts's `/relay` byte pipe, with no C library loaded anywhere in this process.
@@ -21,8 +21,7 @@ import * as tcp from "@glowcap/tcp";
 import { init } from "@glowcap/web";
 import { roomsHostOptions } from "../../lib/profile.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
-import { waitForHttp } from "../support/rooms_server.ts";
+import { roomPortOf } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
@@ -30,17 +29,16 @@ const WASM = new URL("../../../../zig-out/wasm/glowcap_host.wasm", import.meta.u
 
 const deadline = setTimeout(() => fail("relay-peer scenario timed out after 30s"), 30_000);
 
-const httpPort = freePort();
-const roomPort = freePort();
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 try {
-	await waitForHttp(httpPort);
+	const roomPort = await roomPortOf(httpPort);
 
 	// Load the runtime over the wasm peer, dialing every locator through the
 	// relay: host:port becomes ws://<web-host>/relay?target=host:port.

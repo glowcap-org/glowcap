@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // A nickname is a claim the room grants and takes back, so a direct conversation
 // cannot be keyed on one. This drives the sequence that breaks that rule,
 // with three real browser peers against the page serve.ts serves:
@@ -21,22 +21,19 @@ import { spawnWeb } from "../support/web_front.ts";
 import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { directOpened } from "../page/harness.ts";
 import { fail } from "../support/fail.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
-const httpPort = freePort();
-const roomPort = freePort();
-
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 const deadline = setTimeout(() => fail("dm-retarget scenario timed out after 180s"), 180_000);
 

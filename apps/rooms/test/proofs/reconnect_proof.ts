@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // The rooms page surviving the loss of its room server, in a real browser.
 //
 // The Rust application keeps directory connections separate from page intent.
@@ -65,21 +65,18 @@ import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
 import { makeRoom, openRailRoom, roomLink } from "../support/private_room_page.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { roomLocator } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
-const httpPort = freePort();
-const roomPort = freePort();
-
 const web = spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort), "--transport=iroh"],
+	args: ["--transport=tcp", "0", "0", "--transport=iroh"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(web);
 
 /** Kill the room server, and only it.
  *

@@ -12,16 +12,17 @@
 import { parseOpsBundle } from "../../web/ui/ops/bundle.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { ROOT, WEB } from "../support/paths.ts";
 import { reachRoomThroughRelay, waitForIndex, withWeb } from "./serve_harness.ts";
 
 Deno.test("the web supervisor prints one pasteable capability bundle", async () => {
-	const httpPort = freePort();
-	const roomPort = freePort();
+	// This test reads the front's stdout whole once it has stopped, so it cannot
+	// also read the announcement of a port it asked for as 0.
+	const httpPort = nonEphemeralPort();
 	const state = await Deno.makeTempDir({ prefix: "glowcap-rooms-web-output-" });
 	const proc = spawnOwned(WEB, {
-		args: ["--transport=tcp", String(httpPort), String(roomPort), "--operator"],
+		args: ["--transport=tcp", String(httpPort), "0", "--operator"],
 		cwd: ROOT,
 		env: { GLOWCAP_ROOMS_STATE: state },
 		stdout: "piped",

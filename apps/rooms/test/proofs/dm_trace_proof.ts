@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // A direct message between two browser tabs appears on the live timeline.
 //
 // This is the whole point of the publishing half of the feed. A DM is a session
@@ -31,9 +31,9 @@ import { spawnWeb } from "../support/web_front.ts";
 
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
+import { tracePortOf } from "../../lib/trace_view.ts";
 import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { openDmTo } from "../page/harness.ts";
@@ -76,23 +76,20 @@ async function joinAs(
 
 const deadline = setTimeout(() => fail("web-dm-trace scenario timed out after 150s"), 150_000);
 
-const httpPort = freePort();
-const roomPort = freePort();
-const tracePort = freePort();
-
 // The room server serves the live timeline endpoint; serve.ts passes its own
 // environment to the child and answers `/trace` with the port, which is how each
 // tab finds it without being told.
 const web = spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
-	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
-	stdout: "inherit",
+	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: "0" },
+	stdout: "piped",
 	stderr: "piped",
 });
 // The trace sturdyref rides the server's stderr; the scraper tees the stream
 // through so the run stays observable.
 const traceRef = scrapeTraceSturdyref(web.stderr);
+const httpPort = await webPort(web);
 
 let browser: Browser | null = null;
 try {
@@ -100,12 +97,12 @@ try {
 
 	const served = await fetch(`http://127.0.0.1:${httpPort}/trace`);
 	const servedPort = (await served.text()).trim();
+	const seen = await watch(await traceRef);
+	const trace = await traceRef;
+	const tracePort = tracePortOf(trace);
 	if (servedPort !== String(tracePort)) {
 		fail(`the page is told the endpoint is on ${servedPort}, not ${tracePort}`);
 	}
-
-	const seen = await watch(await traceRef);
-	const trace = await traceRef;
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const alice = await joinAs(browser, httpPort, "web-alice", trace);
