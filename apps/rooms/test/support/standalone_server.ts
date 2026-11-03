@@ -15,7 +15,8 @@ async function serveConnection(session: Session): Promise<void> {
 	try {
 		await session.serve();
 	} catch (error) {
-		throw await retainCleanupFailures(error, [() => session.close()]);
+		await retainCleanupFailures(error, [() => session.close()]);
+		throw error;
 	}
 	await session.close();
 }

@@ -46,7 +46,8 @@ async function withConnection<T>(session: Session, connection: Ref, run: (connec
 	try {
 		answer = await run(connection);
 	} catch (error) {
-		throw await retainCleanupFailures(error, [() => session.release(connection)]);
+		await retainCleanupFailures(error, [() => session.release(connection)]);
+		throw error;
 	}
 	session.release(connection);
 	return answer;

@@ -478,9 +478,10 @@ export class Room {
 			await this.postFiles(text);
 			await this.upload(upload, source, onProgress);
 		} catch (error) {
-			throw await retainCleanupFailures(error, [async () => {
+			await retainCleanupFailures(error, [async () => {
 				await this.discard(upload);
 			}]);
+			throw error;
 		}
 	}
 

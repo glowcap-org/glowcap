@@ -144,10 +144,11 @@ export class Directory {
 			);
 			return new Directory(session, directory, serving);
 		} catch (error) {
-			throw await retainCleanupFailures(error, [
+			await retainCleanupFailures(error, [
 				() => session.close(),
 				() => serving,
 			]);
+			throw error;
 		}
 	}
 
@@ -331,7 +332,8 @@ export class Directory {
 			this.#releaseLocal(observer);
 			return snapshot.rooms;
 		} catch (error) {
-			throw await retainCleanupFailures(error, [() => this.session.release(observer)]);
+			await retainCleanupFailures(error, [() => this.session.release(observer)]);
+			throw error;
 		}
 	}
 

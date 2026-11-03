@@ -7,6 +7,7 @@ import {
 	vowFailure,
 } from "../errors.ts";
 import { assert } from "../../test/assert.ts";
+import { withCleanup } from "../cleanup.ts";
 
 Deno.test("secondary failures retain the exact primary, including when frozen", () => {
 	const primary = Object.freeze(new Error("primary"));
@@ -43,7 +44,7 @@ Deno.test("rollback runs every cleanup and preserves construction as primary", a
 	const listener = new Error("listener cleanup failed");
 	const loop = new Error("loop cleanup failed");
 	const order: string[] = [];
-	const retained = await retainCleanupFailures(primary, [
+	await retainCleanupFailures(primary, [
 		() => {
 			order.push("listener");
 			throw listener;
@@ -53,7 +54,6 @@ Deno.test("rollback runs every cleanup and preserves construction as primary", a
 			return Promise.reject(loop);
 		},
 	]);
-	assert(retained === primary, "rollback replaced the construction failure");
 	assert(order.join(",") === "listener,loop", "rollback skipped or reordered an owner");
 	assert(secondaryFailures(primary)[0] === listener, "listener cleanup did not stay first");
 	assert(secondaryFailures(primary)[1] === loop, "loop cleanup was not retained");
@@ -67,4 +67,81 @@ Deno.test("an unknown durable publication is a typed lifecycle failure", () => {
 		!(vowFailure(-12, "application refusal") instanceof PublicationNotFound),
 		"an ordinary break was misclassified",
 	);
+});
+
+Deno.test("constructor release preserves every primary and runs exactly once", async () => {
+	for (const primary of [new Error("installation refused"), null, undefined, 0]) {
+		const cleanup = new Error("release failed");
+		let releases = 0;
+		let caught = false;
+		try {
+			await withCleanup(() => {
+				throw primary;
+			}, () => {
+				releases++;
+				return Promise.reject(cleanup);
+			});
+		} catch (error) {
+			caught = true;
+			assert(Object.is(error, primary), "release replaced the installation failure");
+		}
+		assert(caught, "installation refusal resolved");
+		assert(releases === 1, "constructor release was skipped or repeated");
+		if (primary instanceof Error) {
+			assert(secondaryFailures(primary)[0] === cleanup, "release failure was lost");
+		}
+	}
+});
+
+Deno.test("constructor success waits for release and returns its result", async () => {
+	const result = {};
+	const order: string[] = [];
+	const returned = await withCleanup(() => {
+		order.push("install");
+		return result;
+	}, async () => {
+		await Promise.resolve();
+		order.push("release");
+	});
+	assert(returned === result, "constructor result changed");
+	assert(order.join(",") === "install,release", "release barrier was not joined");
+});
+
+Deno.test("constructor release failure after success is returned without a retry", async () => {
+	const cleanup = new Error("release failed");
+	let releases = 0;
+	let caught = false;
+	try {
+		await withCleanup(() => 42, () => {
+			releases++;
+			throw cleanup;
+		});
+	} catch (error) {
+		caught = true;
+		assert(error === cleanup, "release-only failure changed");
+	}
+	assert(caught && releases === 1, "release-only failure was hidden or retried");
+});
+
+Deno.test("rollback never assimilates a thrown thenable", async () => {
+	let thenCalls = 0;
+	const primary = Object.freeze({
+		then() {
+			thenCalls++;
+			throw new Error("thrown reason was awaited");
+		},
+	});
+	const cleanup = new Error("release failed");
+	await retainCleanupFailures(primary, []);
+	let caught = false;
+	try {
+		await withCleanup(() => {
+			throw primary;
+		}, () => Promise.reject(cleanup));
+	} catch (error) {
+		caught = true;
+		assert(error === primary, "thenable reason was replaced");
+	}
+	assert(caught && thenCalls === 0, "rollback assimilated the primary reason");
+	assert(secondaryFailures(primary)[0] === cleanup, "thenable primary lost its cleanup failure");
 });

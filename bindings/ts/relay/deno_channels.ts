@@ -69,16 +69,18 @@ export async function denoTcpChannel(
 	try {
 		reader = tcp.readable.getReader();
 	} catch (err) {
-		throw await retainCleanupFailures(err, [() => tcp.close()]);
+		await retainCleanupFailures(err, [() => tcp.close()]);
+		throw err;
 	}
 	let writer;
 	try {
 		writer = tcp.writable.getWriter();
 	} catch (err) {
-		throw await retainCleanupFailures(err, [
+		await retainCleanupFailures(err, [
 			() => reader.releaseLock(),
 			() => tcp.close(),
 		]);
+		throw err;
 	}
 	let closeBarrier: Promise<void> | null = null;
 	return {

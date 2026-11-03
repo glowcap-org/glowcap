@@ -65,11 +65,12 @@ export class FirstFailure {
 
 /** Run rollback barriers in order, attaching every refusal to the unchanged
  * construction failure. Cleanup is cold-path and must never short-circuit the
- * owners that follow it. */
+ * owners that follow it. It returns no reason, so a thrown thenable is never
+ * assimilated by the cleanup barrier. The caller rethrows its primary. */
 export async function retainCleanupFailures(
 	primary: unknown,
 	cleanups: readonly (() => void | Promise<void>)[],
-): Promise<unknown> {
+): Promise<void> {
 	for (const cleanup of cleanups) {
 		try {
 			await cleanup();
@@ -77,5 +78,22 @@ export async function retainCleanupFailures(
 			retainSecondaryFailure(primary, error);
 		}
 	}
-	return primary;
+}
+
+/** Join one constructor's release on success or refusal. An operation failure
+ * remains primary when release also fails; a release-only failure is returned
+ * to the caller. The constructor reference is dropped exactly once. */
+export async function withCleanup<T>(
+	operation: () => T | Promise<T>,
+	cleanup: () => void | Promise<void>,
+): Promise<T> {
+	let result: T;
+	try {
+		result = await operation();
+	} catch (primary) {
+		await retainCleanupFailures(primary, [cleanup]);
+		throw primary;
+	}
+	await cleanup();
+	return result;
 }

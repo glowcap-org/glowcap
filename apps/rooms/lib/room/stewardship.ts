@@ -149,14 +149,16 @@ export class RoomStewardship {
 				throw new Error("that moderator capability belongs to a different room");
 			}
 		} catch (error) {
-			throw await retainCleanupFailures(error, [() => this.#session.release(candidate)]);
+			await retainCleanupFailures(error, [() => this.#session.release(candidate)]);
+			throw error;
 		}
 		const previous = this.#steward;
 		if (previous !== null) {
 			try {
 				this.#session.release(previous);
 			} catch (error) {
-				throw await retainCleanupFailures(error, [() => this.#session.release(candidate)]);
+				await retainCleanupFailures(error, [() => this.#session.release(candidate)]);
+				throw error;
 			}
 		}
 		this.#steward = candidate;

@@ -15,7 +15,13 @@ import {
 	stringHint,
 	TRANSPORT_IROH,
 } from "@glowcap/runtime";
-import { DriverListener, DriverLoop, DriverServer, openDriverServer } from "@glowcap/runtime/transport";
+import {
+	DriverListener,
+	DriverLoop,
+	DriverServer,
+	openDriverServer,
+	retainCleanupFailures,
+} from "@glowcap/runtime/transport";
 import { CLOSED, INVALID_ARGUMENT } from "@glowcap/runtime/ffi";
 import { IrohChannel, IrohLoop } from "./channel.ts";
 import { type IrohConfig, IrohConnection, IrohNetlayer } from "./ffi_archive.ts";
@@ -52,7 +58,7 @@ export async function _ensureIrohProvider(
 		await netlayer.installProvider(loop);
 		return { nodeId };
 	} catch (error) {
-		await netlayer.release();
+		await retainCleanupFailures(error, [() => netlayer.release()]);
 		throw error;
 	}
 }
@@ -126,8 +132,7 @@ export async function _connectIroh(
 		conn = await loop.dial(nodeId, directAddresses);
 	} catch (e) {
 		signal?.removeEventListener("abort", cancelPending);
-		loop.close();
-		await (cancellation ?? netlayer.release());
+		await retainCleanupFailures(e, [() => loop.close(), () => cancellation ?? netlayer.release()]);
 		throw e;
 	}
 	if (signal?.aborted) {
@@ -203,8 +208,7 @@ export async function dialLocatorForRelay(
 	try {
 		conn = await loop.dial(nodeId, directAddresses);
 	} catch (e) {
-		loop.close();
-		await netlayer.release();
+		await retainCleanupFailures(e, [() => loop.close(), () => netlayer.release()]);
 		throw e;
 	}
 	loop.register(conn);

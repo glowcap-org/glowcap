@@ -84,8 +84,8 @@ export class DirectoryRegistration {
 							: [nick, locator, inbox, reconnectVoucher],
 					);
 				} catch (error) {
-					return retainCleanupFailures(error, [() => this.#session.release(inbox)]).then((primary) => {
-						throw primary;
+					return retainCleanupFailures(error, [() => this.#session.release(inbox)]).then(() => {
+						throw error;
 					});
 				}
 				return sent.then(
@@ -112,7 +112,8 @@ export class DirectoryRegistration {
 						}
 					},
 					async (error) => {
-						throw await retainCleanupFailures(error, [() => this.#session.release(inbox)]);
+						await retainCleanupFailures(error, [() => this.#session.release(inbox)]);
+						throw error;
 					},
 				);
 			},

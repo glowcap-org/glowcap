@@ -1,5 +1,5 @@
 // Registration commits identity and name together, without a callback acknowledgment.
-import { type Behavior, Ref, type Session } from "@glowcap/runtime";
+import { type Behavior, Ref, secondaryFailures, type Session } from "@glowcap/runtime";
 import { DirectoryRegistration } from "../lib/directory_registration.ts";
 import { assert, assertEquals } from "./assert.ts";
 
@@ -7,7 +7,7 @@ const ID = "11111111-1111-4111-8111-111111111111";
 function ref(): Ref {
 	return Object.create(Ref.prototype) as Ref;
 }
-function fixture() {
+function fixture(onRelease?: () => void) {
 	const released: Ref[] = [];
 	const inboxes: Ref[] = [];
 	let answer: () => Promise<unknown> = () => Promise.reject(new Error("no answer selected"));
@@ -18,7 +18,10 @@ function fixture() {
 			inboxes.push(inbox);
 			return inbox;
 		},
-		release: (value: Ref) => released.push(value),
+		release: (value: Ref) => {
+			released.push(value);
+			onRelease?.();
+		},
 		send: () => {
 			sends += 1;
 			return answer();
@@ -76,4 +79,20 @@ Deno.test("one replacement owns pending registration and synchronous refusal ret
 	assert(failed instanceof Error, "synchronous send failure is observed");
 	assert(f.released.includes(f.inboxes.at(-1)!), "unsent callback custody is returned");
 	assert(await f.registration.takeNameCapability() === predecessor, "both refusals preserve the prior name");
+});
+
+Deno.test("synchronous registration refusal keeps its reason when inbox release fails", async () => {
+	const primary = Object.freeze(new Error("marshal refusal"));
+	const cleanup = new Error("inbox release failed");
+	const f = fixture(() => {
+		throw cleanup;
+	});
+	f.answer(() => {
+		throw primary;
+	});
+	const failed = await f.registration.register("alice", "ocapn://alice.id").catch((error) => error);
+	assert(failed === primary, "inbox release replaced the synchronous send failure");
+	assertEquals(f.released.length, 1);
+	assert(f.released[0] === f.inboxes[0], "rollback released another capability");
+	assert(secondaryFailures(primary)[0] === cleanup, "inbox release failure was lost");
 });
