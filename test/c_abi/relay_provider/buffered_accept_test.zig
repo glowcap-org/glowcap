@@ -25,8 +25,8 @@ fn serveBufferedRegistration(
 
     while (!connection_claimed.load(.acquire))
         try std.Io.sleep(io, .fromMilliseconds(1), .real);
-    try ws_relay.stageServerFrame(&admitted, .ping, "hb");
-    try ws_relay.stageServerFrame(&admitted, .binary, "message-two");
+    _ = try ws_relay.stageServerFrame(&admitted, .ping, "hb");
+    _ = try ws_relay.stageServerFrame(&admitted, .binary, "message-two");
     try admitted.writer.interface.flush();
     var response_buf: [16]u8 = undefined;
     const pong = try ws_relay.readClientFrame(&admitted, &response_buf);

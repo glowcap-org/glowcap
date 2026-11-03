@@ -99,41 +99,71 @@ test "relay upgrade reader refuses a response one byte past the cap" {
 
 // --- Frames per nonblocking read ---------------------------------------------
 
-/// Stage `pongs` empty pongs and one data frame in a single socket write, then
-/// signal that the whole script is in flight.
+/// Stage `pongs` empty pongs and one data frame, flush them, then publish how
+/// many bytes the whole script is.
 fn servePongsThenData(
     io: Io,
     server: *Io.net.Server,
     pongs: usize,
-    flushed: *std.atomic.Value(bool),
+    staged: *std.atomic.Value(usize),
 ) !void {
     var leg: ws_relay.Leg = .{ .stream = try server.accept(io), .io = io };
     leg.wire();
     defer leg.close();
     try ws_relay.serveUpgrade(&leg);
-    for (0..pongs) |_| try ws_relay.stageServerFrame(&leg, .pong, &.{});
-    try ws_relay.stageServerFrame(&leg, .binary, "tail");
+    var bytes: usize = 0;
+    for (0..pongs) |_| bytes += try ws_relay.stageServerFrame(&leg, .pong, &.{});
+    bytes += try ws_relay.stageServerFrame(&leg, .binary, "tail");
     try leg.writer.interface.flush();
-    flushed.store(true, .release);
+    staged.store(bytes, .release);
 }
 
-/// Stage `count` one-byte data frames, frame `i` carrying the byte `i`.
+/// Stage `count` one-byte data frames, frame `i` carrying the byte `i`, then
+/// publish how many bytes the whole script is.
 fn serveOneByteFrames(
     io: Io,
     server: *Io.net.Server,
     count: usize,
-    flushed: *std.atomic.Value(bool),
+    staged: *std.atomic.Value(usize),
 ) !void {
     var leg: ws_relay.Leg = .{ .stream = try server.accept(io), .io = io };
     leg.wire();
     defer leg.close();
     try ws_relay.serveUpgrade(&leg);
+    var bytes: usize = 0;
     for (0..count) |index| {
         const byte = [1]u8{@intCast(index)};
-        try ws_relay.stageServerFrame(&leg, .binary, &byte);
+        bytes += try ws_relay.stageServerFrame(&leg, .binary, &byte);
     }
     try leg.writer.interface.flush();
-    flushed.store(true, .release);
+    staged.store(bytes, .release);
+}
+
+/// Pull the socket until the stream's own buffer holds the whole staged
+/// script. The server's flush says the bytes left its socket, not that they
+/// reached this one: loopback delivery can split one write, and a split hands
+/// a turn back on an empty buffer. That is a socket edge, and these tests
+/// measure the frame budget alone.
+fn bufferScript(
+    io: Io,
+    connection: *const relay.RawConnection,
+    staged: *const std.atomic.Value(usize),
+) !void {
+    const deadline = wait.deadlineAfter(io, wait.default_deadline_ms);
+    const source = connection.stream.source;
+    while (true) {
+        const expected = staged.load(.acquire);
+        const buffered = source.reader.bufferedLen();
+        if (expected != 0 and buffered == expected) return;
+        if (expected != 0 and buffered > expected) return error.UnexpectedBytes;
+        switch (try source.tryFill()) {
+            .progress => continue,
+            .would_block => {},
+            .closed => return error.Truncated,
+        }
+        if (wait.expired(io, deadline)) return error.WaitTimedOut;
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+    }
 }
 
 /// Read one data frame queued behind `pongs` pongs, counting the turns the
@@ -145,8 +175,8 @@ fn expectPongsHandBackTurns(pongs: usize, expected_turns: usize) !void {
     const io = threaded.io();
     var server = try listenLoopback(io);
     defer server.deinit(io);
-    var flushed = std.atomic.Value(bool).init(false);
-    var served = try io.concurrent(servePongsThenData, .{ io, &server, pongs, &flushed });
+    var staged = std.atomic.Value(usize).init(0);
+    var served = try io.concurrent(servePongsThenData, .{ io, &server, pongs, &staged });
     // best-effort: see `expectSizedUpgrade`.
     defer _ = served.cancel(io) catch {};
 
@@ -163,7 +193,7 @@ fn expectPongsHandBackTurns(pongs: usize, expected_turns: usize) !void {
         .failed => |failure| return failure.classification,
     };
     defer _ = connection.close();
-    try wait.untilFlag(io, wait.default_deadline_ms, &flushed);
+    try bufferScript(io, &connection, &staged);
 
     var dest: [16]u8 = undefined;
     var handed_back: usize = 0;
@@ -206,8 +236,8 @@ test "relay nonblocking read spends the frame budget without losing a byte" {
     const io = threaded.io();
     var server = try listenLoopback(io);
     defer server.deinit(io);
-    var flushed = std.atomic.Value(bool).init(false);
-    var served = try io.concurrent(serveOneByteFrames, .{ io, &server, total, &flushed });
+    var staged = std.atomic.Value(usize).init(0);
+    var served = try io.concurrent(serveOneByteFrames, .{ io, &server, total, &staged });
     // best-effort: see `expectSizedUpgrade`.
     defer _ = served.cancel(io) catch {};
 
@@ -224,7 +254,7 @@ test "relay nonblocking read spends the frame budget without losing a byte" {
         .failed => |failure| return failure.classification,
     };
     defer _ = connection.close();
-    try wait.untilFlag(io, wait.default_deadline_ms, &flushed);
+    try bufferScript(io, &connection, &staged);
 
     var dest: [256]u8 = undefined;
     var collected: [total]u8 = undefined;

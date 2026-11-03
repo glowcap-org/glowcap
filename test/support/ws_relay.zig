@@ -151,9 +151,10 @@ pub fn readClientFrame(leg: *Leg, payload_buf: []u8) !ClientFrame {
     };
 }
 
-/// Stage one unmasked server frame without flushing the carrier. Tests use this
-/// to prove several WebSocket frames delivered by one socket write.
-pub fn stageServerFrame(leg: *Leg, opcode: keyed_relay.Opcode, payload: []const u8) !void {
+/// Stage one unmasked server frame without flushing the carrier and return the
+/// bytes it staged. Tests use this to prove several WebSocket frames delivered
+/// by one socket write.
+pub fn stageServerFrame(leg: *Leg, opcode: keyed_relay.Opcode, payload: []const u8) !usize {
     const w = &leg.writer.interface;
     var header: [10]u8 = undefined;
     header[0] = 0x80 | @as(u8, @backingInt(opcode));
@@ -171,11 +172,12 @@ pub fn stageServerFrame(leg: *Leg, opcode: keyed_relay.Opcode, payload: []const 
     }
     try w.writeAll(header[0..at]);
     try w.writeAll(payload);
+    return at + payload.len;
 }
 
 /// Write one unmasked server frame to a leg.
 pub fn writeServerFrame(leg: *Leg, opcode: keyed_relay.Opcode, payload: []const u8) !void {
-    try stageServerFrame(leg, opcode, payload);
+    _ = try stageServerFrame(leg, opcode, payload);
     const w = &leg.writer.interface;
     try w.flush();
 }
