@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "interop" / "_common" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "test" / "support" / "transport" / "python"))
 from client_gate import fail, insert_bindings_path
 
 insert_bindings_path()

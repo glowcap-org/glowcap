@@ -16,7 +16,7 @@
 //! Ed25519 identity end to end on top of it.
 //!
 //! Goblins ships no WebRTC netlayer, so this is glowcap-to-glowcap by
-//! construction, exactly like `iroh-interop`: it proves the netlayer contract
+//! construction, exactly like `iroh-session`: it proves the netlayer contract
 //! carries a peer-to-peer encrypted transport, not Goblins interop (the
 //! conversation is the one the TCP gates already prove against Goblins).
 //!

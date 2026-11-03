@@ -42,7 +42,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
-const harness = @import("interop_harness");
+const harness = @import("conversation_harness");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;

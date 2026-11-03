@@ -13,7 +13,7 @@ import * as tcp from "@glowcap/tcp";
 // `zig build deno-goblins-interop`.
 
 import { formatLocatorUri, Ref, Runtime } from "@glowcap/runtime";
-import { fail, readSturdyrefPath } from "../_common/deno/client_gate.ts";
+import { fail, readSturdyrefPath } from "../../test/support/transport/deno/client_gate.ts";
 
 // The build enables V8's collector, as the binding's GC smoke does. Native
 // answer lifetime follows the promise wrapper even after its value settles.

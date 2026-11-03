@@ -224,7 +224,7 @@ impl From<(usize, u32)> for GlowcapIrohReadyEvent {
 /// resolves partners from it, so a dial by endpoint id alone, no relay, no
 /// DNS, no caller-supplied address hints, succeeds inside one process. This is
 /// the deterministic, infrastructure-free discovery path: it carries the
-/// `iroh-interop` proof and serves same-process embeddings, never the public
+/// `iroh-session` proof and serves same-process embeddings, never the public
 /// internet (that is `REACH_DISCOVERY`).
 static LOCAL_BOOK: OnceLock<MemoryLookup> = OnceLock::new();
 

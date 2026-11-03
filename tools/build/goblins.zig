@@ -16,7 +16,7 @@ const modules = @import("modules.zig");
 const execution = @import("execution.zig");
 const listing = @import("listing.zig");
 
-/// What the family draws from the root build graph. `interop_harness_mod`
+/// What the family draws from the root build graph. `conversation_harness_mod`
 /// stays root-minted because the iroh and WebRTC drivers import the same
 /// instance, and `fast_lib_mod` is the root's ReleaseFast module graph for
 /// the measured bench rows.
@@ -27,7 +27,7 @@ pub const Context = struct {
     /// The public `glowcap` module.
     lib_mod: *std.Build.Module,
     fast_lib_mod: *std.Build.Module,
-    interop_harness_mod: *std.Build.Module,
+    conversation_harness_mod: *std.Build.Module,
     check_step: *std.Build.Step,
     pin_port: ?u16,
 };
@@ -67,7 +67,7 @@ const Driven = struct {
 fn liveDriver(ctx: Context, row: LiveDriver) Driven {
     const b = ctx.b;
     const exe = modules.glowcapExecutable(b, ctx.lib_mod, ctx.target, ctx.optimize, row.exe_name, row.source);
-    exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
+    exe.root_module.addImport("conversation_harness", ctx.conversation_harness_mod);
     const run = execution.addLiveRun(b, row.posture, exe);
     // Running the live conversations needs the external runtime, but
     // *compiling* their drivers is hermetic: the check gate compiles them so
@@ -102,12 +102,12 @@ pub fn register(ctx: Context) Registered {
     // Live TCP scale: one `driver.Server` thread serves many concurrent
     // Session clients across two waves. Binds real loopback sockets at scale,
     // port-exclusive like every live step.
-    _ = liveDriver(ctx, .{ .exe_name = "glowcap-tcp-loop", .source = "interop/tcp_loop/driver.zig", .step_name = "tcp-loop", .description = "Live TCP scale: many concurrent connections served from one Server thread", .pin_port = false, .posture = .{ .deterministic = 30 } });
+    _ = liveDriver(ctx, .{ .exe_name = "glowcap-tcp-loop", .source = "test/driver/transports/tcp_loop/driver.zig", .step_name = "tcp-loop", .description = "Live TCP scale: many concurrent connections served from one Server thread", .pin_port = false, .posture = .{ .deterministic = 30 } });
 
     // Live Tor (ADR-0042): two glowcap peers hold an OCapN conversation over a
     // real hidden service. The driver starts its own Tor, so this needs `tor`
     // on PATH and outbound network access.
-    _ = liveDriver(ctx, .{ .exe_name = "glowcap-onion-interop", .source = "interop/onion_interop/driver.zig", .step_name = "onion-interop", .description = "Live Tor: two glowcap peers hold an OCapN conversation over a real onion service (needs tor + network)", .pin_port = false, .posture = .real_internet });
+    _ = liveDriver(ctx, .{ .exe_name = "glowcap-onion-session", .source = "test/driver/transports/onion_session/driver.zig", .step_name = "onion-session", .description = "Live Tor: two glowcap peers hold an OCapN conversation over a real onion service (needs tor + network)", .pin_port = false, .posture = .real_internet });
 
     // The same transport with a foreign partner: `onion` is the netlayer the
     // OCapN draft standardizes and the one upstream Goblins ships, so this is
@@ -126,11 +126,11 @@ pub fn register(ctx: Context) Registered {
     // The exporter is its own process, like every Goblins peer here: one
     // completion loop per process, and the driver's own loop is the gifter's.
     const glowcap_pair_exporter_exe = modules.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-pair-exporter", "interop/goblins_interop/glowcap_pair_exporter.zig");
-    glowcap_pair_exporter_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
+    glowcap_pair_exporter_exe.root_module.addImport("conversation_harness", ctx.conversation_harness_mod);
     b.installArtifact(glowcap_pair_exporter_exe);
     check_step.dependOn(&glowcap_pair_exporter_exe.step);
     const goblins_glowcap_pair_gift_exe = modules.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-goblins-pair-gift", "interop/goblins_interop/glowcap_pair_gift_driver.zig");
-    goblins_glowcap_pair_gift_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
+    goblins_glowcap_pair_gift_exe.root_module.addImport("conversation_harness", ctx.conversation_harness_mod);
     check_step.dependOn(&goblins_glowcap_pair_gift_exe.step);
     const run_goblins_glowcap_pair_gift = execution.addLiveRun(b, .{ .deterministic = 30 }, goblins_glowcap_pair_gift_exe);
     run_goblins_glowcap_pair_gift.step.dependOn(b.getInstallStep());

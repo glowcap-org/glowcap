@@ -19,7 +19,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
-const harness = @import("interop_harness");
+const harness = @import("conversation_harness");
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;

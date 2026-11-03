@@ -75,6 +75,11 @@ impl LoopShared {
 	}
 
 	pub(crate) fn begin_listener_close(self: &Rc<Self>, listener: u64) -> Result<()> {
+		// Host release already retired every listener. Preserve a terminal fault,
+		// but joining successful retirement needs no live FFI handle.
+		if self.released.get() {
+			return self.terminal_failure.borrow().clone().map_or(Ok(()), Err);
+		}
 		self.guard_handle()?;
 		if self.closing_listeners.borrow().contains(&listener) {
 			return Ok(());

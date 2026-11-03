@@ -113,7 +113,7 @@ pub const StepsContext = struct {
     host_mods: []*std.Build.Module,
     host_abi_mod: *std.Build.Module,
     driver_abi_mod: *std.Build.Module,
-    interop_harness_mod: *std.Build.Module,
+    conversation_harness_mod: *std.Build.Module,
     check_step: *std.Build.Step,
     site_zig_examples_check: *std.Build.Step,
     profiles: profile_build.Profiles,
@@ -160,7 +160,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const host_mods = ctx.host_mods;
     const host_abi_mod = ctx.host_abi_mod;
     const driver_abi_mod = ctx.driver_abi_mod;
-    const interop_harness_mod = ctx.interop_harness_mod;
+    const conversation_harness_mod = ctx.conversation_harness_mod;
     const check_step = ctx.check_step;
 
     // ── iroh netlayer (external siblings, plus hermetic Zig checks) ─────────
@@ -203,7 +203,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // a driver's Zig is cargo-free because externs stay unresolved and nothing
     // links, so a core or model API change cannot silently rot a driver only the
     // cargo-gated steps run. Per-row posture:
-    //   iroh-interop: live encrypted conversation, two glowcap peers over real
+    //   iroh-session: live encrypted conversation, two glowcap peers over real
     //                   iroh endpoints, dialed by id with direct-address hints.
     //   iroh-reachability: dial by node id alone over n0's public
     //                   relays and DNS/pkarr discovery, no hints. Touches public
@@ -245,10 +245,10 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         goblins: bool = false,
     }{
         .{ .step_name = "iroh-managed", .description = "Zig Session and Server over real iroh: identity, fetch, call and accepted-session lifetime (needs cargo)", .exe_name = "glowcap-iroh-managed", .root_source = "test/driver/iroh_managed.zig", .posture = .{ .deterministic = 20 } },
-        .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)", .exe_name = "glowcap-iroh-interop", .root_source = "interop/iroh_interop/driver.zig", .posture = .{ .deterministic = 20 } },
-        .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "glowcap-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig", .posture = .real_internet },
-        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one Server thread (ADR-0019, needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
-        .{ .step_name = "iroh-redeem", .description = "Live three-party redeem over iroh: a recipient Session dials the exporter by node id inside the introducing call (needs cargo)", .exe_name = "glowcap-iroh-redeem", .root_source = "interop/iroh_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-session", .description = "Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)", .exe_name = "glowcap-iroh-session", .root_source = "test/driver/transports/iroh_session/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "glowcap-iroh-reachability", .root_source = "test/driver/transports/iroh_reachability/driver.zig", .posture = .real_internet },
+        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one Server thread (ADR-0019, needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "test/driver/transports/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-redeem", .description = "Live three-party redeem over iroh: a recipient Session dials the exporter by node id inside the introducing call (needs cargo)", .exe_name = "glowcap-iroh-redeem", .root_source = "test/driver/transports/iroh_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a glowcap peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 }, .goblins = true },
         .{ .step_name = "goblins-handoff-iroh", .description = "Live encrypted handoff: Goblins gifts and exports, a glowcap Session redeems directly over iroh (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-handoff-iroh", .root_source = "interop/goblins_interop/handoff_iroh_driver.zig", .posture = .{ .deterministic = 30 }, .goblins = true },
         .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "glowcap-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true, .posture = .benchmark },
@@ -256,13 +256,13 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     for (iroh_drivers) |drv| {
         // Hermetic compile-only object (no sidecar), rides `check`.
         const compile_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
-        compile_mod.addImport("interop_harness", interop_harness_mod);
+        compile_mod.addImport("conversation_harness", conversation_harness_mod);
         const compile_obj = b.addObject(.{ .name = b.fmt("{s}-compile", .{drv.exe_name}), .root_module = compile_mod });
         check_step.dependOn(&compile_obj.step);
 
         // Runnable sibling of `check`: links the sidecar and runs from the root.
         const run_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
-        run_mod.addImport("interop_harness", interop_harness_mod);
+        run_mod.addImport("conversation_harness", conversation_harness_mod);
         linkIrohSidecar(b, run_mod, target, sidecar_archive);
         const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
         const live_step = b.step(drv.step_name, drv.description);
@@ -299,7 +299,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // module instances are shared with the archives so every export lands in
     // the executable exactly once.
     {
-        const seam_source = "interop/iroh_driver_provider/driver.zig";
+        const seam_source = "test/driver/transports/iroh_driver_provider/driver.zig";
         const seam_imports = [_]AbiImport{
             .{ .name = "glowcap", .module = lib_mod },
             .{ .name = "iroh", .module = iroh_resident_mod },
@@ -308,7 +308,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
             .{ .name = "c_abi_driver", .module = driver_abi_mod },
         };
 
-        const driver_provider_mod = modules.interopDriverProviderModule(b, target, optimize, host_mods[layerIndex("c_abi_shared")], driver_abi_mod);
+        const driver_provider_mod = modules.driverProviderModule(b, target, optimize, host_mods[layerIndex("c_abi_shared")], driver_abi_mod);
 
         // Hermetic compile-only object (no sidecar), rides `check`.
         const seam_compile_mod = b.createModule(.{
@@ -317,8 +317,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
             .optimize = optimize,
         });
         for (seam_imports) |imp| seam_compile_mod.addImport(imp.name, imp.module);
-        seam_compile_mod.addImport("interop_harness", interop_harness_mod);
-        seam_compile_mod.addImport("interop_driver_provider", driver_provider_mod);
+        seam_compile_mod.addImport("conversation_harness", conversation_harness_mod);
+        seam_compile_mod.addImport("driver_provider", driver_provider_mod);
         seam_compile_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
         const seam_compile = b.addObject(.{ .name = "glowcap-iroh-driver-provider-compile", .root_module = seam_compile_mod });
         check_step.dependOn(&seam_compile.step);
@@ -330,8 +330,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
             .optimize = optimize,
         });
         for (seam_imports) |imp| seam_run_mod.addImport(imp.name, imp.module);
-        seam_run_mod.addImport("interop_harness", interop_harness_mod);
-        seam_run_mod.addImport("interop_driver_provider", driver_provider_mod);
+        seam_run_mod.addImport("conversation_harness", conversation_harness_mod);
+        seam_run_mod.addImport("driver_provider", driver_provider_mod);
         seam_run_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
         linkIrohSidecar(b, seam_run_mod, target, sidecar_archive);
         const seam_exe = b.addExecutable(.{ .name = "glowcap-iroh-driver-provider", .root_module = seam_run_mod });
@@ -343,7 +343,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
 
     // Hermetic type-check of the resident: compile it to an object, where its
     // externs need no definition, so plain `zig build check` catches resident
-    // rot without cargo on PATH. Linking and running stay in `iroh-interop`.
+    // rot without cargo on PATH. Linking and running stay in `iroh-session`.
     const iroh_resident_check = b.addObject(.{
         .name = "iroh-resident-check",
         .root_module = iroh_resident_mod,

@@ -580,3 +580,18 @@ fn iroh_provider_dials_live() {
 		}
 	}));
 }
+
+#[cfg(feature = "tcp")]
+#[tokio::test(flavor = "current_thread")]
+async fn listener_close_joins_host_release() {
+	tokio::task::LocalSet::new()
+		.run_until(async {
+			let server = crate::tcp::listen("127.0.0.1", 0, crate::tcp::ListenOptions::default())
+				.await
+				.unwrap();
+			server.host().close(PendingWork::Cancel).await.unwrap();
+			server.close().await.unwrap();
+			server.close().await.unwrap();
+		})
+		.await;
+}

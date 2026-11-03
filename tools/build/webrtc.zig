@@ -32,7 +32,7 @@ pub const Context = struct {
     c_abi_shared_mod: *std.Build.Module,
     host_abi_mod: *std.Build.Module,
     driver_abi_mod: *std.Build.Module,
-    interop_harness_mod: *std.Build.Module,
+    conversation_harness_mod: *std.Build.Module,
     check_step: *std.Build.Step,
     /// The site's Zig example tabs compile under this step.
     site_zig_examples_check: *std.Build.Step,
@@ -87,7 +87,7 @@ fn linkSidecar(
 
 const DriverImports = struct {
     webrtc_common: bool = false,
-    interop_harness: bool = false,
+    conversation_harness: bool = false,
 };
 
 const LiveDriver = struct {
@@ -129,7 +129,7 @@ fn driverModule(
     mod.addImport("glowcap", ctx.lib_mod);
     mod.addImport("webrtc", resident_mod);
     if (drv.imports.webrtc_common) mod.addImport("webrtc_common", webrtc_common_mod);
-    if (drv.imports.interop_harness) mod.addImport("interop_harness", ctx.interop_harness_mod);
+    if (drv.imports.conversation_harness) mod.addImport("conversation_harness", ctx.conversation_harness_mod);
     return mod;
 }
 
@@ -309,7 +309,7 @@ pub fn register(ctx: Context) Registered {
             .description = "Live three-party handoff over WebRTC: a recipient Session redeems a bare webrtc give through its signaling authority, and every exporter's backend answers the offer itself (ADR-0035, needs cargo)",
             .exe_name = "glowcap-webrtc-redeem",
             .root_source = "interop/webrtc_redeem/driver.zig",
-            .imports = .{ .interop_harness = true },
+            .imports = .{ .conversation_harness = true },
         },
         .{
             .step_name = "webrtc-signaling-captp",
@@ -364,7 +364,7 @@ pub fn register(ctx: Context) Registered {
             .{ .name = "c_abi_driver", .module = ctx.driver_abi_mod },
         };
 
-        const driver_provider_mod = modules.interopDriverProviderModule(b, target, optimize, ctx.c_abi_shared_mod, ctx.driver_abi_mod);
+        const driver_provider_mod = modules.driverProviderModule(b, target, optimize, ctx.c_abi_shared_mod, ctx.driver_abi_mod);
 
         const seam_compile_mod = b.createModule(.{
             .root_source_file = b.path(seam_source),
@@ -372,7 +372,7 @@ pub fn register(ctx: Context) Registered {
             .optimize = optimize,
         });
         for (seam_imports) |imp| seam_compile_mod.addImport(imp.name, imp.module);
-        seam_compile_mod.addImport("interop_driver_provider", driver_provider_mod);
+        seam_compile_mod.addImport("driver_provider", driver_provider_mod);
         seam_compile_mod.addImport("c_abi_net_transport_webrtc", abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod));
         const seam_compile = b.addObject(.{ .name = "glowcap-webrtc-driver-provider-compile", .root_module = seam_compile_mod });
         check_step.dependOn(&seam_compile.step);
@@ -383,7 +383,7 @@ pub fn register(ctx: Context) Registered {
             .optimize = optimize,
         });
         for (seam_imports) |imp| seam_run_mod.addImport(imp.name, imp.module);
-        seam_run_mod.addImport("interop_driver_provider", driver_provider_mod);
+        seam_run_mod.addImport("driver_provider", driver_provider_mod);
         seam_run_mod.addImport("c_abi_net_transport_webrtc", abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod));
         linkSidecar(b, seam_run_mod, target, sidecar_archive);
         const seam_exe = b.addExecutable(.{ .name = "glowcap-webrtc-driver-provider", .root_module = seam_run_mod });

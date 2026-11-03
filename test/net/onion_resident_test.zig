@@ -9,7 +9,7 @@
 //!
 //! What this cannot prove is that a real Tor accepts these bytes. The byte
 //! expectations live in `onion_socks5_test.zig` and `onion_control_test.zig`,
-//! pinned against the two reference implementations. `zig build onion-interop`
+//! pinned against the two reference implementations. `zig build onion-session`
 //! and `zig build goblins-onion` are the opt-in live Tor proofs.
 
 const std = @import("std");

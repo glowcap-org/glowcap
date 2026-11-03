@@ -322,7 +322,7 @@ pub fn register(ctx: Context) Registered {
     // a second, iroh-enabled artifact that links the Rust sidecar (so it can dial
     // an ocapn:// URI), and the cross-language clients reach the room through the
     // iroh C ABI companion library. Needs cargo (sidecar + iroh ABI) and deno, so
-    // it is a sibling of `check`, like `iroh-interop`.
+    // it is a sibling of `check`, like `iroh-session`.
     const rooms_client_iroh_mod = iroh_build.irohDriverModule(b, target, optimize, lib_mod, ctx.iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
     const rooms_iroh_opts = b.addOptions();
     rooms_iroh_opts.addOption(bool, "iroh_enabled", true);

@@ -45,7 +45,7 @@ const glowcap = @import("glowcap");
 const goblins_child = @import("goblins_child.zig");
 const converse = @import("converse.zig");
 const promise_argument = @import("promise_argument.zig");
-const harness = @import("interop_harness");
+const harness = @import("conversation_harness");
 
 const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;

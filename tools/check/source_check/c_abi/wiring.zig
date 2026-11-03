@@ -115,7 +115,7 @@ pub fn checkNoAdrInRuntimeStrings(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const roots = [_][]const u8{ "src", "interop" };
+    const roots = [_][]const u8{ "src", "interop", "test/driver/transports", "test/support/transport" };
     for (roots) |rel| {
         var dir = root.openDir(io, rel, .{ .iterate = true }) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to open for ADR-runtime-string check with {s}", .{ rel, @errorName(err) });

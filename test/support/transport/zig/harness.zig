@@ -1,0 +1,327 @@
+//! Shared harness for the Zig interop drivers under `interop/*/driver.zig`:
+//! the one-verb scenario behaviors, deadline-guarded waits, the raw-peer
+//! scaffold for the drivers that speak to Goblins frame by frame, the
+//! `--port=` flag contract, the accept-and-serve bracket, and the
+//! fetch-call-assert client bracket.
+//!
+//! Each driver keeps its scenario, topology, narration, and per-step
+//! assertions stay local, and imports only the plumbing every driver
+//! re-rolled. The wait helpers are `test/support/wait.zig` itself, handed to
+//! this module by `build.zig` as the `support_wait` import and re-exported
+//! here, so the fail-loud vocabulary has one owner across both trees.
+//!
+//! Wired in `build.zig` as the `conversation_harness` module import of every Zig
+//! interop executable. Like `test/support`, this is scaffolding, not product:
+//! it sits outside the `src/` layer DAG.
+
+const std = @import("std");
+const glowcap = @import("glowcap");
+
+const model = glowcap.ocapn.model;
+const engine = glowcap.ocapn.engine;
+const actors = glowcap.actors;
+const driver = glowcap.driver;
+const net = glowcap.net;
+
+/// A published behavior that answers exactly one verb with a fixed string
+/// reply and refuses everything else with `error.NoSuchMethod`. Each driver
+/// picks a distinct reply text, so a cross-wired session fails its reply
+/// assertion instead of passing on another scenario's greeting.
+pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8) type {
+    return struct {
+        pub fn handle(self: *@This(), turn: *driver.HostTurn, called: ?[]const u8, args: driver.Args) !driver.Value {
+            _ = self;
+            defer turn.releaseArguments(args);
+            const method = called orelse return error.NoSuchMethod;
+            if (!std.mem.eql(u8, method, verb)) return error.NoSuchMethod;
+            return .{ .string = reply };
+        }
+    };
+}
+
+/// A `driver.Session`/`driver.Server` behavior a live Goblins peer calls, for
+/// a driver whose partner invokes a cap **positionally**: `(<- actor "world")`
+/// carries no method symbol, so the first argument is the name rather than the
+/// verb. `template` is a format string with one `{s}` for that name. The reply
+/// is built on the turn's arena, which the vat reclaims after the reply is
+/// encoded. A partner that names a verb wants `StaticReplyBehavior` instead.
+pub fn PositionalReplyBehavior(comptime template: []const u8) type {
+    return struct {
+        pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
+            defer turn.releaseArguments(args);
+            const arg_values = try args.values();
+            _ = self;
+            _ = verb;
+            const name: []const u8 = if (arg_values.len == 0) "stranger" else switch (arg_values[0]) {
+                .string => |s| s,
+                .bytes => |b| b,
+                else => "stranger",
+            };
+            return .{ .string = try std.fmt.allocPrint(turn.turn.arena, template, .{name}) };
+        }
+    };
+}
+
+/// The `PositionalReplyBehavior` contract as a raw `actors.Vat` actor, for
+/// the driver that binds its actor to an `engine.Peer` export by hand.
+pub fn PositionalReplyActor(comptime template: []const u8) type {
+    return struct {
+        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
+            _ = self;
+            const name: []const u8 = switch (try msg.arg(0)) {
+                .string => |s| s,
+                .bytes => |b| b,
+                else => "stranger",
+            };
+            return .{ .string = try std.fmt.allocPrint(turn.arena, template, .{name}) };
+        }
+    };
+}
+
+const wait = @import("support_wait");
+
+pub const deadlineAfter = wait.deadlineAfter;
+pub const expired = wait.expired;
+pub const untilFlag = wait.untilFlag;
+
+/// `net.tcp.connect` with a bounded retry on `ConnectionRefused`: a spawned
+/// host's readiness line can race its listener's actual bind, so the first
+/// dial may land in the gap. Any other error fails immediately, refusal past
+/// the deadline fails with the refusal.
+pub fn tcpConnectRetry(
+    io: std.Io,
+    peer: *engine.Peer,
+    loc: model.PeerLocator,
+    read_buf: []u8,
+    write_buf: []u8,
+    deadline_ms: u64,
+) !net.Connection {
+    const deadline = deadlineAfter(io, deadline_ms);
+    while (true) {
+        return net.tcp.connect(io, peer, loc, read_buf, write_buf, .{}) catch |err| switch (err) {
+            error.ConnectionRefused => {
+                if (expired(io, deadline)) return err;
+                try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real);
+                continue;
+            },
+            else => return err,
+        };
+    }
+}
+
+/// Block until `listener.waitAcceptable` (a `driver.Server` or a raw
+/// `tcp.Listener`) reports a pending connection, failing loud with
+/// `error.WaitTimedOut` past the deadline. A bare blocking `accept` against a
+/// spawned dialer is a silent hang: a child that dies before dialing parks
+/// the driver in the kernel accept with no location and no failure.
+pub fn untilAcceptable(io: std.Io, deadline_ms: u64, listener: anytype) !void {
+    const deadline = deadlineAfter(io, deadline_ms);
+    while (true) {
+        if (try listener.waitAcceptable(250)) return;
+        if (expired(io, deadline)) return error.WaitTimedOut;
+    }
+}
+
+pub const PortFlagError = error{ BadPort, BadArgument };
+
+pub const PortFlagOptions = struct {
+    /// Highest acceptable port. A driver whose sibling binds `port + 1` passes
+    /// 65534 so the pair stays in range.
+    max: u16 = 65535,
+    /// Suffix for the range diagnostic, e.g. " (carol binds port+1)".
+    note: []const u8 = "",
+    /// Exact flag spellings the driver reads itself (via `hasFlag`), tolerated
+    /// here so the unknown-argument refusal stays exact.
+    tolerated: []const []const u8 = &.{},
+};
+
+/// The interop drivers' one-flag argv contract: an optional `--port=N`
+/// (last one wins), any `opts.tolerated` flag the driver reads itself, and
+/// nothing else. Returns `default` when the flag is absent. A port outside
+/// `1..opts.max` or an unknown argument prints a diagnostic under `prefix`
+/// and fails typed.
+pub fn parsePortFlag(
+    minimal_args: anytype,
+    prefix: []const u8,
+    default: u16,
+    opts: PortFlagOptions,
+) PortFlagError!u16 {
+    var args = std.process.Args.Iterator.init(minimal_args);
+    _ = args.next(); // program name
+    var port: u16 = default;
+    while (args.next()) |arg| {
+        if (std.mem.startsWith(u8, arg, "--port=")) {
+            const parsed = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch 0;
+            if (parsed == 0 or parsed > opts.max) {
+                std.debug.print("{s}: --port must be an integer in 1..{d}{s}\n", .{ prefix, opts.max, opts.note });
+                return error.BadPort;
+            }
+            port = parsed;
+        } else {
+            const tolerated = for (opts.tolerated) |flag| {
+                if (std.mem.eql(u8, arg, flag)) break true;
+            } else false;
+            if (!tolerated) {
+                std.debug.print("{s}: unknown argument '{s}'\n", .{ prefix, arg });
+                return error.BadArgument;
+            }
+        }
+    }
+    return port;
+}
+
+/// Whether `flag` (exact spelling) appears in the argv. Pair it with
+/// `PortFlagOptions.tolerated` so `parsePortFlag` accepts the flag.
+pub fn hasFlag(minimal_args: anytype, flag: []const u8) bool {
+    var args = std.process.Args.Iterator.init(minimal_args);
+    _ = args.next(); // program name
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, flag)) return true;
+    }
+    return false;
+}
+
+/// A caller-owned negotiating peer with its frame-capped read and write
+/// buffers, for the drivers that speak to a Goblins vat frame by frame on a
+/// raw `engine.Peer` over cleartext TCP (`goblins_interop/driver.zig`,
+/// `converse.zig`, and `gc_driver.zig`). A driver that holds a session uses
+/// `driver.connect` and `driver.listen` instead. The scaffold owns the
+/// buffers and the peer, `deinit` releases both.
+pub const PeerScaffold = struct {
+    peer: engine.Peer,
+    read_buf: []u8,
+    write_buf: []u8,
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, frame_cap: usize) !PeerScaffold {
+        var peer = engine.Peer.initNegotiating(allocator);
+        errdefer peer.deinit();
+        peer.session_state.limits.max_frame_bytes = frame_cap;
+        const read_buf = try allocator.alloc(u8, frame_cap);
+        errdefer allocator.free(read_buf);
+        const write_buf = try allocator.alloc(u8, frame_cap);
+        return .{ .peer = peer, .read_buf = read_buf, .write_buf = write_buf, .allocator = allocator };
+    }
+
+    pub fn deinit(self: *PeerScaffold) void {
+        self.peer.deinit();
+        self.allocator.free(self.read_buf);
+        self.allocator.free(self.write_buf);
+    }
+};
+
+/// Call `target` on `session` and require a fulfilled string reply equal to
+/// `expected`. A mismatch or a break is `error.WrongReply`. The reply
+/// materializes into a throwaway arena, so the caller keeps no reply
+/// ownership to manage.
+pub fn expectStringReply(
+    session: *driver.Session,
+    allocator: std.mem.Allocator,
+    target: driver.Capability,
+    verb: []const u8,
+    args: []const driver.Value,
+    expected: []const u8,
+) !void {
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const reply = try session.call(target, verb, args, arena_state.allocator());
+    const ok = switch (reply) {
+        .fulfilled => |value| value == .string and std.mem.eql(u8, value.string, expected),
+        .broken => false,
+    };
+    if (!ok) return error.WrongReply;
+}
+
+/// One server bracket on a `driver.Server` the caller bound: wait at most
+/// `accept_budget_ms` for a partner, accept it, print `banner` once the
+/// session opens, publish `Actor` behind `swiss`, and serve until the
+/// partner hangs up. The caller's `driver.listen` call names the identity
+/// the accept signs with and the session's budgets.
+pub fn AcceptServeOne(
+    comptime Actor: type,
+    comptime swiss: []const u8,
+    comptime banner: ?[]const u8,
+) type {
+    return struct {
+        pub fn run(io: std.Io, server: *driver.Server, accept_budget_ms: u64) anyerror!void {
+            try untilAcceptable(io, accept_budget_ms, server);
+            const session = try server.accept();
+            defer session.deinit();
+            if (banner) |line| std.debug.print("{s}\n", .{line});
+            _ = try session.publish(swiss, Actor, .{});
+            try session.serve();
+        }
+    };
+}
+
+/// Accept, attend, and serve up to `capacity` sessions from one thread until
+/// `done`: take a pending connection when one is waiting, otherwise step the
+/// server's runtime, which serves every attended session. A connection past
+/// `capacity` is `error.TooManySessions`, so a driver that expects an exact
+/// count passes it as the capacity and compares the returned count for the
+/// missing side. The sessions close on return.
+pub fn serveAccepted(server: *driver.Server, done: *std.atomic.Value(bool), comptime capacity: usize) anyerror!usize {
+    var sessions: [capacity]*driver.Session = undefined;
+    var accepted: usize = 0;
+    defer for (sessions[0..accepted]) |session| session.deinit();
+    while (!done.load(.acquire)) {
+        if (try server.waitAcceptable(0)) {
+            if (accepted == capacity) return error.TooManySessions;
+            sessions[accepted] = try server.accept();
+            accepted += 1;
+            // An accepted session dispatches nothing until its owner attends.
+            try sessions[accepted - 1].attend();
+            continue;
+        }
+        _ = try server.runtime.stepAny(10);
+    }
+    return accepted;
+}
+
+/// How many sessions a party of the three-party redeem drivers serves: the
+/// introducing party takes the recipient, and the exporter takes the gifter and
+/// the recipient's redeem.
+const redeem_sessions = 4;
+
+/// Accept and serve every session of a three-party redeem party until `done`.
+pub fn serveAll(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+    _ = try serveAccepted(server, done, redeem_sessions);
+}
+
+/// The gifter's published `introducer`: answers `introduce` with the widget
+/// it fetched from the exporter.
+pub const Introducer = struct {
+    widget: driver.Capability,
+
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
+        if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
+        return .{ .capability = self.widget };
+    }
+};
+
+/// G: fetch E's widget over G's own runtime, publish the introducer, serve.
+/// `ready` is set once setup finished or failed and `published` only on
+/// success, so the driver waits on `ready` and then checks `published`.
+pub fn serveGifter(
+    gifter: *driver.Server,
+    exporter_locator: model.PeerLocator,
+    ready: *std.atomic.Value(bool),
+    published: *std.atomic.Value(bool),
+    done: *std.atomic.Value(bool),
+) anyerror!void {
+    defer ready.store(true, .release);
+    const to_exporter = try gifter.runtime.connectLocator(exporter_locator, .inherit);
+    const exporter = try driver.Session.adopt(gifter.runtime, to_exporter);
+    defer exporter.deinit();
+    const widget = try exporter.fetch("widget");
+    try gifter.publish("introducer", Introducer, .{ .widget = widget });
+    published.store(true, .release);
+    ready.store(true, .release);
+    try serveAll(gifter, done);
+}
+
+/// A Tor daemon a driver starts and owns, for the live onion checks. It lives in
+/// its own file because it is a process bracket rather than a CapTP helper.
+pub const Tor = @import("tor.zig").Tor;

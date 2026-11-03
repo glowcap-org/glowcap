@@ -33,7 +33,7 @@
 
 import { Ref, Runtime } from "@glowcap/runtime";
 import { listen, locator, provider, Reachability } from "@glowcap/iroh";
-import { acceptLoop, fail, parseOptionalPortArg } from "../../../interop/_common/deno/client_gate.ts";
+import { acceptLoop, fail, parseOptionalPortArg } from "../../../test/support/transport/deno/client_gate.ts";
 
 const NAME = "deno-redeem-posture-carol";
 

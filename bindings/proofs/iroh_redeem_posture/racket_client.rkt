@@ -31,7 +31,7 @@
 
 (require "../../racket/glowcap.rkt"
          "../../racket/glowcap-iroh.rkt"
-         "../../../interop/_common/racket/client_gate.rkt")
+         "../../../test/support/transport/racket/client_gate.rkt")
 
 (define NAME "racket-redeem-posture-carol")
 

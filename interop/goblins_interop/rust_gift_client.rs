@@ -28,7 +28,7 @@ use glowcap::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session, tc
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 
-#[path = "../_common/rust/client_gate.rs"]
+#[path = "../../test/support/transport/rust/client_gate.rs"]
 mod client_gate;
 
 type Fail = client_gate::Fail;

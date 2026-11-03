@@ -162,7 +162,7 @@ pub fn layerIndex(comptime name: []const u8) usize {
 pub const graphFromTable = @import("tools/build/module_graph.zig").create;
 
 const installArchive = archives.installArchive;
-const interopHarnessModule = modules.interopHarnessModule;
+const conversationHarnessModule = modules.conversationHarnessModule;
 
 const AbiImport = modules.AbiImport;
 const transportAbiModule = modules.transportAbiModule;
@@ -404,7 +404,7 @@ pub fn build(b: *std.Build) void {
 
     // Shared Zig interop-driver harness, one instance for every interop
     // executable (the goblins family's drivers and the iroh drivers below).
-    const interop_harness_mod = interopHarnessModule(b, target, optimize, lib_mod);
+    const conversation_harness_mod = conversationHarnessModule(b, target, optimize, lib_mod);
 
     // The live external-authority family (every conversation against a real
     // Goblins vat, the live transport-scale and Tor proofs, and the
@@ -416,7 +416,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .lib_mod = lib_mod,
         .fast_lib_mod = fast_lib_mod,
-        .interop_harness_mod = interop_harness_mod,
+        .conversation_harness_mod = conversation_harness_mod,
         .check_step = check_step,
         .pin_port = pin_port,
     });
@@ -437,7 +437,7 @@ pub fn build(b: *std.Build) void {
         .host_mods = host_mods,
         .host_abi_mod = host_abi_mod,
         .driver_abi_mod = driver_abi_mod,
-        .interop_harness_mod = interop_harness_mod,
+        .conversation_harness_mod = conversation_harness_mod,
         .check_step = check_step,
         .site_zig_examples_check = site_reg.zig_examples_check,
         .profiles = profiles,
@@ -469,7 +469,7 @@ pub fn build(b: *std.Build) void {
         .c_abi_shared_mod = host_mods[layerIndex("c_abi_shared")],
         .host_abi_mod = host_abi_mod,
         .driver_abi_mod = driver_abi_mod,
-        .interop_harness_mod = interop_harness_mod,
+        .conversation_harness_mod = conversation_harness_mod,
         .check_step = check_step,
         .site_zig_examples_check = site_reg.zig_examples_check,
         .browser_preflight = browser_preflight,
