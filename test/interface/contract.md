@@ -181,6 +181,13 @@ observations active. Both retain remote break messages as runtime failures and
 check that typed observation preserves the independent raw outcome. Both
 profiles are asserted at the shared fixture boundary.
 
+The handoff fixture declares Introducer.get-greeter returning Direct.
+A generated Rust client receives Bob's greeter from Alice and calls it
+positionally. Independent message fixtures define the request and expected
+reply. The other test uses Goblins to create Tasks through the generated Zig
+argument checker. Both tests check Syrup/V1.0 negotiation. The runtime still
+handles handoff, and Loam creates Tasks and builds their capability replies.
+
 The runtime owns promise, settlement, and listener behavior. The generator
 must adapt to its public ownership contract. Qualification covers independently
 retained pending arguments, listener cancellation, repeated observation, and

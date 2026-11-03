@@ -154,6 +154,11 @@ where
 	}
 }
 
+pub fn introducer_get_greeter(session: &Session, target: impl AsSendTarget) -> Pending<Ref> {
+	let raw = session.send(target, "get-greeter", &[]);
+	Pending::new(raw, capability)
+}
+
 pub fn factory_open<'a>(session: &Session, target: impl AsSendTarget, arg0: impl Into<Reference<'a>>) -> Pending<Ref> {
 	let raw = session.send(target, "open", &[arg0.into().argument()]);
 	Pending::new(raw, capability)

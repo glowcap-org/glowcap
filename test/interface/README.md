@@ -46,6 +46,7 @@ Run from the repository root through `.agents/skills/work/bin/glowcap-dev`.
 zig build gen-interface-fixtures
 zig build gen-interface-fixtures-check interface-test interface-fixtures-check
 zig build interface-conversation-check
+zig build interface-goblins-check
 zig build tasks-app-test
 ```
 
@@ -53,3 +54,18 @@ The generator check detects stale output. `interface-test` covers description
 validation, truncation, literals, and allocation-failure cleanup.
 `interface-conversation-check` runs Rust and TypeScript against raw behaviors.
 `tasks-app-test` retains the application's independent server tests.
+
+`interface-goblins-check` runs two tests against the pinned Goblins version.
+A generated Rust client receives Bob's greeter from Alice and pipelines a
+positional call to it. It checks the reply and verifies that a second
+introduction returns the same greeter.
+
+The other test uses Goblins to create a Task and call it. It replays the
+creation receipt, checks that invalid text creates nothing, then makes another
+valid call. Tasks uses its generated Zig argument checker. Loam creates the
+child and builds the capability reply.
+
+Both tests check that the session negotiated Syrup/V1.0. Response waits have
+deadlines. The Rust client stops and joins its Goblins process when the test
+ends, including on failure. The Tasks supervisor stops its server and removes
+the temporary store.

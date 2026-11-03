@@ -11,6 +11,7 @@ const rust = @import("rust.zig");
 const zig = @import("zig.zig");
 const calls = @import("calls.zig");
 const selected = .{
+    .{ "fixture.Introducer", "get-greeter", "introducer_get_greeter" },
     .{ "fixture.Factory", "open", "factory_open" },
     .{ "fixture.Factory", "accept", "factory_accept" },
     .{ "fixture.Sink", "push", "sink_push" },

@@ -11,3 +11,8 @@ pub fn creation_arguments() -> Vec<Argument> {
 pub const PREPARED_VERB: &str = "mutate";
 pub const PREPARED_SEQUENCE: i64 = 1;
 pub const PREPARED_OPERATION: &str = "accept";
+// Ordinary and Goblins consumers use different subsets of these fixtures.
+#[allow(dead_code)]
+pub const HANDOFF_NAME: &str = "glowcap-carol";
+#[allow(dead_code)]
+pub const HANDOFF_RESULT: &str = "Hello glowcap-carol, I'm Bob, handed off directly from the exporter!";
