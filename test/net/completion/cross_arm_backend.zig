@@ -6,7 +6,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
-const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const tcp = glowcap.net.tcp;
 const completion = glowcap.net.completion;
@@ -32,15 +31,25 @@ pub const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 /// EOF once `eof_when_exhausted` is set. An idle poll with nothing to do
 /// returns `error.ScriptParked`, each test phase ends there.
 pub const CrossArmBackend = struct {
-    pub const Fd = i32;
-
-    pub fn applyKeepalive(_: *CrossArmBackend, _: Fd, _: completion.Keepalive) !void {
-        return error.OperationUnsupported;
-    }
-
-    pub fn wireFraming(_: *CrossArmBackend, _: Fd) model.transport.WireFraming {
-        return .byte_stream;
-    }
+    const shared = fixtures.ScriptedContract(@This());
+    pub const Fd = shared.Fd;
+    pub const applyKeepalive = shared.applyKeepalive;
+    pub const wireFraming = shared.wireFraming;
+    pub const ListenTarget = shared.ListenTarget;
+    pub const loopListenTarget = shared.loopListenTarget;
+    pub const listenerPending = shared.listenerPending;
+    pub const openListener = shared.openListener;
+    pub const ListenerAddress = shared.ListenerAddress;
+    pub const listenerAddress = shared.listenerAddress;
+    pub const listenerPort = shared.listenerPort;
+    pub const closeFd = shared.closeFd;
+    pub const ConnectTarget = shared.ConnectTarget;
+    pub const startDial = shared.startDial;
+    pub const shutdownFd = shared.shutdownFd;
+    pub const verifiedChannelKey = shared.verifiedChannelKey;
+    const push = shared.push;
+    pub const submitClose = shared.submitClose;
+    pub const peek = shared.peek;
 
     pub var chunks: []const []const u8 = &.{};
     pub var hold_sends: bool = false;
@@ -82,54 +91,6 @@ pub const CrossArmBackend = struct {
         self.* = .{};
     }
 
-    pub const ListenTarget = u16;
-
-    pub fn loopListenTarget(port: u16) ListenTarget {
-        return port;
-    }
-
-    pub fn openListener(self: *@This(), port: u16) !Fd {
-        _ = self;
-        _ = port;
-        return 1;
-    }
-
-    pub const ListenerAddress = u16;
-    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
-        return 1;
-    }
-    /// A scripted listener binds at `openListener`; nothing pends.
-    pub fn listenerPending(_: *@This(), _: Fd) bool {
-        return false;
-    }
-    pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
-    }
-
-    pub fn closeFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    pub const ConnectTarget = void;
-
-    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
-        _ = self;
-        _ = user_data;
-        _ = target;
-        return error.UnsupportedTransport;
-    }
-
-    pub fn shutdownFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    fn push(self: *CrossArmBackend, c: completion.Completion) void {
-        self.ready[self.ready_len] = c;
-        self.ready_len += 1;
-    }
-
     pub fn submitAccept(self: *CrossArmBackend, user_data: u64, listen_fd: Fd) !void {
         _ = listen_fd;
         if (self.accepted) return;
@@ -151,12 +112,6 @@ pub const CrossArmBackend = struct {
         } else {
             self.pending_recv = user_data;
         }
-    }
-
-    pub fn verifiedChannelKey(self: *CrossArmBackend, fd: Fd) ?[32]u8 {
-        _ = self;
-        _ = fd;
-        return null;
     }
 
     pub fn recycleBorrowed(self: *CrossArmBackend, comp: completion.Completion) void {
@@ -182,16 +137,6 @@ pub const CrossArmBackend = struct {
             self.push(.{ .user_data = target_user_data, .result = -1 });
         }
         self.push(.{ .user_data = cancel_user_data, .result = 0 });
-    }
-
-    pub fn submitClose(self: *CrossArmBackend, user_data: u64, fd: Fd) !void {
-        _ = fd;
-        self.push(.{ .user_data = user_data, .result = 0 });
-    }
-
-    /// No submission queue here, so a peek is a zero-timeout poll.
-    pub fn peek(self: *CrossArmBackend, out: []completion.Completion) !usize {
-        return self.poll(out, 0);
     }
 
     pub fn poll(self: *CrossArmBackend, out: []completion.Completion, timeout_ms: i32) !usize {

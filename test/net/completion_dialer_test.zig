@@ -12,6 +12,7 @@ const completion = glowcap.net.completion;
 const Loop = glowcap.net.TcpLoop;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
+const fixtures = @import("../support/completion_loop_fixtures.zig");
 
 const ip = std.Io.net;
 
@@ -294,15 +295,20 @@ test "completion loop: reserved dials cannot be starved by ordinary admission" {
 /// allocator catches a double free), close the socket exactly once, and leave
 /// the slot reusable.
 const FailingConnectBackend = struct {
-    pub const Fd = i32;
-
-    pub fn applyKeepalive(_: *FailingConnectBackend, _: Fd, _: completion.Keepalive) !void {
-        return error.OperationUnsupported;
-    }
-
-    pub fn wireFraming(_: *FailingConnectBackend, _: Fd) model.transport.WireFraming {
-        return .byte_stream;
-    }
+    const shared = fixtures.ScriptedContract(@This());
+    pub const Fd = shared.Fd;
+    pub const applyKeepalive = shared.applyKeepalive;
+    pub const wireFraming = shared.wireFraming;
+    pub const ListenTarget = shared.ListenTarget;
+    pub const loopListenTarget = shared.loopListenTarget;
+    pub const listenerPending = shared.listenerPending;
+    pub const openListener = shared.openListener;
+    pub const ListenerAddress = shared.ListenerAddress;
+    pub const listenerAddress = shared.listenerAddress;
+    pub const listenerPort = shared.listenerPort;
+    pub const shutdownFd = shared.shutdownFd;
+    pub const verifiedChannelKey = shared.verifiedChannelKey;
+    pub const peek = shared.peek;
 
     var open_sockets: usize = 0;
     var closed_fds: usize = 0;
@@ -317,32 +323,6 @@ const FailingConnectBackend = struct {
 
     pub fn deinit(self: *FailingConnectBackend) void {
         self.* = .{};
-    }
-
-    pub const ListenTarget = u16;
-
-    pub fn loopListenTarget(port: u16) ListenTarget {
-        return port;
-    }
-
-    /// A scripted listener binds at `openListener`; nothing pends here; a
-    /// wrapped adapter's pending setup reports through the adapter itself.
-    pub fn listenerPending(_: *@This(), _: Fd) bool {
-        return false;
-    }
-
-    pub fn openListener(self: *@This(), port: u16) !Fd {
-        _ = self;
-        _ = port;
-        return 1;
-    }
-
-    pub const ListenerAddress = u16;
-    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
-        return 1;
-    }
-    pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -361,11 +341,6 @@ const FailingConnectBackend = struct {
         return error.SubmitFailed;
     }
 
-    pub fn shutdownFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
     pub fn openSocket() !Fd {
         open_sockets += 1;
         return 9;
@@ -381,12 +356,6 @@ const FailingConnectBackend = struct {
         _ = self;
         _ = user_data;
         _ = fd;
-    }
-
-    pub fn verifiedChannelKey(self: *FailingConnectBackend, fd: Fd) ?[32]u8 {
-        _ = self;
-        _ = fd;
-        return null;
     }
 
     pub fn recycleBorrowed(self: *FailingConnectBackend, comp: completion.Completion) void {
@@ -409,11 +378,6 @@ const FailingConnectBackend = struct {
         _ = self;
         _ = user_data;
         _ = fd;
-    }
-
-    /// No submission queue here, so a peek is a zero-timeout poll.
-    pub fn peek(self: *FailingConnectBackend, out: []completion.Completion) !usize {
-        return self.poll(out, 0);
     }
 
     pub fn poll(self: *FailingConnectBackend, out: []completion.Completion, timeout_ms: i32) !usize {

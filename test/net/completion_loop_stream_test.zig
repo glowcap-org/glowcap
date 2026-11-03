@@ -9,7 +9,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
-const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const tcp = glowcap.net.tcp;
 const Loop = glowcap.net.TcpLoop;
@@ -33,15 +32,27 @@ const FakeEvent = fixtures.FakeEvent;
 /// armed while the pool is empty completes `recv_no_buffer`, exactly the
 /// platform backends' starvation shape, and sends complete synchronously.
 const ScriptBackend = struct {
-    pub const Fd = i32;
-
-    pub fn applyKeepalive(_: *ScriptBackend, _: Fd, _: completion.Keepalive) !void {
-        return error.OperationUnsupported;
-    }
-
-    pub fn wireFraming(_: *ScriptBackend, _: Fd) model.transport.WireFraming {
-        return .byte_stream;
-    }
+    const shared = fixtures.ScriptedContract(@This());
+    pub const Fd = shared.Fd;
+    pub const applyKeepalive = shared.applyKeepalive;
+    pub const wireFraming = shared.wireFraming;
+    pub const ListenTarget = shared.ListenTarget;
+    pub const loopListenTarget = shared.loopListenTarget;
+    pub const listenerPending = shared.listenerPending;
+    pub const openListener = shared.openListener;
+    pub const ListenerAddress = shared.ListenerAddress;
+    pub const listenerAddress = shared.listenerAddress;
+    pub const listenerPort = shared.listenerPort;
+    pub const closeFd = shared.closeFd;
+    pub const ConnectTarget = shared.ConnectTarget;
+    pub const startDial = shared.startDial;
+    pub const shutdownFd = shared.shutdownFd;
+    pub const verifiedChannelKey = shared.verifiedChannelKey;
+    pub const recycleBorrowed = shared.recycleBorrowed;
+    const push = shared.push;
+    pub const submitCancel = shared.submitCancel;
+    pub const submitClose = shared.submitClose;
+    pub const peek = shared.peek;
 
     /// The per-connection inbound script (the same bytes for every
     /// connection), set by the test before `Loop.init`.
@@ -72,56 +83,6 @@ const ScriptBackend = struct {
         self.* = .{ .pool_free = 0 };
     }
 
-    pub const ListenTarget = u16;
-
-    pub fn loopListenTarget(port: u16) ListenTarget {
-        return port;
-    }
-
-    /// A scripted listener binds at `openListener`; nothing pends here; a
-    /// wrapped adapter's pending setup reports through the adapter itself.
-    pub fn listenerPending(_: *@This(), _: Fd) bool {
-        return false;
-    }
-
-    pub fn openListener(self: *@This(), port: u16) !Fd {
-        _ = self;
-        _ = port;
-        return 1;
-    }
-
-    pub const ListenerAddress = u16;
-    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
-        return 1;
-    }
-    pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
-    }
-
-    pub fn closeFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    pub const ConnectTarget = void;
-
-    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
-        _ = self;
-        _ = user_data;
-        _ = target;
-        return error.UnsupportedTransport;
-    }
-
-    pub fn shutdownFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    fn push(self: *ScriptBackend, c: completion.Completion) void {
-        self.ready[self.ready_len] = c;
-        self.ready_len += 1;
-    }
-
     pub fn submitAccept(self: *ScriptBackend, user_data: u64, listen_fd: Fd) !void {
         _ = listen_fd;
         if (self.accepts >= accept_count) return;
@@ -149,37 +110,10 @@ const ScriptBackend = struct {
         }
     }
 
-    pub fn verifiedChannelKey(self: *ScriptBackend, fd: Fd) ?[32]u8 {
-        _ = self;
-        _ = fd;
-        return null;
-    }
-
-    pub fn recycleBorrowed(self: *ScriptBackend, comp: completion.Completion) void {
-        _ = comp;
-        self.recycles += 1;
-        self.pool_free += 1;
-    }
-
     pub fn submitSend(self: *ScriptBackend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         _ = fd;
         self.sends_ok += 1;
         self.push(.{ .user_data = user_data, .result = @intCast(bytes.len) });
-    }
-
-    pub fn submitCancel(self: *ScriptBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
-        _ = .{ target_user_data, fd };
-        self.push(.{ .user_data = cancel_user_data, .result = 0 });
-    }
-
-    pub fn submitClose(self: *ScriptBackend, user_data: u64, fd: Fd) !void {
-        _ = fd;
-        self.push(.{ .user_data = user_data, .result = 0 });
-    }
-
-    /// No submission queue here, so a peek is a zero-timeout poll.
-    pub fn peek(self: *ScriptBackend, out: []completion.Completion) !usize {
-        return self.poll(out, 0);
     }
 
     pub fn poll(self: *ScriptBackend, out: []completion.Completion, timeout_ms: i32) !usize {
@@ -313,15 +247,27 @@ test "completion loop: a frame split across two recv completions applies exactly
 /// front/back outbound split, a reply appended while a write was in flight
 /// could realloc the queue and free the storage this held slice points into.
 const HeldSendBackend = struct {
-    pub const Fd = i32;
-
-    pub fn applyKeepalive(_: *HeldSendBackend, _: Fd, _: completion.Keepalive) !void {
-        return error.OperationUnsupported;
-    }
-
-    pub fn wireFraming(_: *HeldSendBackend, _: Fd) model.transport.WireFraming {
-        return .byte_stream;
-    }
+    const shared = fixtures.ScriptedContract(@This());
+    pub const Fd = shared.Fd;
+    pub const applyKeepalive = shared.applyKeepalive;
+    pub const wireFraming = shared.wireFraming;
+    pub const ListenTarget = shared.ListenTarget;
+    pub const loopListenTarget = shared.loopListenTarget;
+    pub const listenerPending = shared.listenerPending;
+    pub const openListener = shared.openListener;
+    pub const ListenerAddress = shared.ListenerAddress;
+    pub const listenerAddress = shared.listenerAddress;
+    pub const listenerPort = shared.listenerPort;
+    pub const closeFd = shared.closeFd;
+    pub const ConnectTarget = shared.ConnectTarget;
+    pub const startDial = shared.startDial;
+    pub const shutdownFd = shared.shutdownFd;
+    pub const verifiedChannelKey = shared.verifiedChannelKey;
+    pub const recycleBorrowed = shared.recycleBorrowed;
+    const push = shared.push;
+    pub const submitCancel = shared.submitCancel;
+    pub const submitClose = shared.submitClose;
+    pub const peek = shared.peek;
 
     /// The inbound wire script, set by the test before `Loop.init`.
     var chunks: []const []const u8 = &.{};
@@ -350,56 +296,6 @@ const HeldSendBackend = struct {
         self.* = .{ .allocator = self.allocator, .pool_free = 0 };
     }
 
-    pub const ListenTarget = u16;
-
-    pub fn loopListenTarget(port: u16) ListenTarget {
-        return port;
-    }
-
-    /// A scripted listener binds at `openListener`; nothing pends here; a
-    /// wrapped adapter's pending setup reports through the adapter itself.
-    pub fn listenerPending(_: *@This(), _: Fd) bool {
-        return false;
-    }
-
-    pub fn openListener(self: *@This(), port: u16) !Fd {
-        _ = self;
-        _ = port;
-        return 1;
-    }
-
-    pub const ListenerAddress = u16;
-    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
-        return 1;
-    }
-    pub fn listenerPort(address: ListenerAddress) ?u16 {
-        return address;
-    }
-
-    pub fn closeFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    pub const ConnectTarget = void;
-
-    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
-        _ = self;
-        _ = user_data;
-        _ = target;
-        return error.UnsupportedTransport;
-    }
-
-    pub fn shutdownFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    fn push(self: *HeldSendBackend, c: completion.Completion) void {
-        self.ready[self.ready_len] = c;
-        self.ready_len += 1;
-    }
-
     pub fn submitAccept(self: *HeldSendBackend, user_data: u64, listen_fd: Fd) !void {
         _ = listen_fd;
         // One scripted connection; the loop's re-armed accept pends forever.
@@ -413,18 +309,6 @@ const HeldSendBackend = struct {
         self.push(fixtures.scriptedRecv(self, user_data, chunks));
     }
 
-    pub fn verifiedChannelKey(self: *HeldSendBackend, fd: Fd) ?[32]u8 {
-        _ = self;
-        _ = fd;
-        return null;
-    }
-
-    pub fn recycleBorrowed(self: *HeldSendBackend, comp: completion.Completion) void {
-        _ = comp;
-        self.recycles += 1;
-        self.pool_free += 1;
-    }
-
     pub fn submitSend(self: *HeldSendBackend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         _ = fd;
         self.sends += 1;
@@ -433,21 +317,6 @@ const HeldSendBackend = struct {
         // and this script has one connection, so one held slot suffices.
         const snapshot = try self.allocator.dupe(u8, bytes);
         self.held = .{ .user_data = user_data, .bytes = bytes, .snapshot = snapshot };
-    }
-
-    pub fn submitCancel(self: *HeldSendBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
-        _ = .{ target_user_data, fd };
-        self.push(.{ .user_data = cancel_user_data, .result = 0 });
-    }
-
-    pub fn submitClose(self: *HeldSendBackend, user_data: u64, fd: Fd) !void {
-        _ = fd;
-        self.push(.{ .user_data = user_data, .result = 0 });
-    }
-
-    /// No submission queue here, so a peek is a zero-timeout poll.
-    pub fn peek(self: *HeldSendBackend, out: []completion.Completion) !usize {
-        return self.poll(out, 0);
     }
 
     pub fn poll(self: *HeldSendBackend, out: []completion.Completion, timeout_ms: i32) !usize {

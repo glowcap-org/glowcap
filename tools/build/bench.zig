@@ -62,6 +62,9 @@ pub fn register(
         /// it imports the dependency-free Loam collections leaf directly,
         /// matching the map's tests without linking storage or OS backends.
         needs_persistent: bool = false,
+        /// The peer-scaling bench weighs live heap through the budget tests'
+        /// `LiveBytesAllocator`, the one owner of that lens.
+        needs_alloc_metrics: bool = false,
     }{
         .{ .step_name = "bench-floors", .description = "Measure each primitive alone: Ed25519, the Noise XK handshake and records, a frame copy, and a loopback round trip", .name = "floors-bench", .path = "bench/floors_bench.zig", .smoke_on_check = true },
         .{ .step_name = "bench-frame-view", .description = "Run frame/view benchmark", .name = "frame-view-bench", .path = "bench/frame_view_bench.zig" },
@@ -71,7 +74,7 @@ pub fn register(
         .{ .step_name = "bench-codec", .description = "Run codec/dispatch throughput benchmark", .name = "codec-bench", .path = "bench/codec_bench.zig" },
         .{ .step_name = "bench-dispatch-scaling", .description = "Measure inbound dispatch ns/turn across N peers (cold-cache regime) with p50/p99", .name = "dispatch-scaling-bench", .path = "bench/dispatch_scaling_bench.zig", .gate_on_check = true, .profile_step = "profile-dispatch-scaling" },
         .{ .step_name = "bench-outbound", .description = "Measure the outbound engine path (send/step/takeOutbound) and the op:gc-answers release storm", .name = "outbound-bench", .path = "bench/outbound_bench.zig", .gate_on_check = true, .profile_step = "profile-outbound" },
-        .{ .step_name = "bench-peer-scaling", .description = "Measure per-session memory and live authenticated socket scale", .name = "peer-scaling-bench", .path = "bench/peer_scaling_bench.zig", .smoke_on_check = true, .live_smoke_on_runtime = true },
+        .{ .step_name = "bench-peer-scaling", .description = "Measure per-session memory and live authenticated socket scale", .name = "peer-scaling-bench", .path = "bench/peer_scaling_bench.zig", .smoke_on_check = true, .live_smoke_on_runtime = true, .needs_alloc_metrics = true },
         .{ .step_name = "bench-snapshot", .description = "Measure vat snapshot/restore: O(objects), flat in object size, off by default", .name = "snapshot-bench", .path = "bench/snapshot_bench.zig", .smoke_on_check = true, .needs_persistent = true },
     };
     // Cap'n Proto RPC echo benches (Rust capnp-rpc and the C++ reference
@@ -100,6 +103,9 @@ pub fn register(
         const exe = glowcapExecutable(b, lib_mod, target, optimize, bench.name, bench.path);
         if (bench.needs_persistent) {
             exe.root_module.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
+        }
+        if (bench.needs_alloc_metrics) {
+            exe.root_module.addImport("alloc_metrics", b.createModule(.{ .root_source_file = b.path("test/support/alloc_metrics.zig"), .target = target, .optimize = optimize }));
         }
         const run = execution.addArtifact(b, .benchmark, exe);
         run.addPassthruArgs();
