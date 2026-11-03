@@ -28,23 +28,9 @@ const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
 const crypto = glowcap.foundation.crypto;
-const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc mesh";
-
-/// The published actor: answers `greet` with a static greeting.
-const Greeter = struct {
-    done: *std.atomic.Value(bool),
-
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        _ = turn;
-        if (!msg.is("greet")) return error.NoSuchMethod;
-        self.done.store(true, .release);
-        return .{ .string = greeting };
-    }
-};
 
 /// The in-tree signaling object (ADR-0035): a rendezvous keyed by peer
 /// designator that routes the offer, the answer, and the ICE candidates between
@@ -147,69 +133,6 @@ fn bringUpViaHub(
     return error.ChannelBringUpTimeout;
 }
 
-/// The exporter half: the answerer serves a Greeter behind the keyed handshake.
-fn exporterHalf(
-    resident: *webrtc.Resident,
-    peer: *webrtc.Peer,
-    allocator: std.mem.Allocator,
-    seed: [crypto.seed_bytes]u8,
-) anyerror!void {
-    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
-    defer host.deinit();
-
-    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
-    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
-    const session = try host.openAcceptedAdvertised(webrtc.transport_name);
-    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
-
-    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
-    defer allocator.free(read_buf);
-    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
-    defer pump.deinit();
-
-    // Publish before the handshake settles: the dialer's fetch can arrive in
-    // the same pump round that opens the session.
-    var served = std.atomic.Value(bool).init(false);
-    _ = try host.publish("greeter", Greeter, .{ .done = &served });
-    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
-    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 10_000);
-}
-
-/// The recipient half: the offerer completes the keyed handshake, pins the
-/// exporter's key, fetches the Greeter, and calls it.
-fn recipientHalf(
-    resident: *webrtc.Resident,
-    peer: *webrtc.Peer,
-    allocator: std.mem.Allocator,
-    seed: [crypto.seed_bytes]u8,
-    expect_designator: []const u8,
-) anyerror!void {
-    var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
-    defer host.deinit();
-
-    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
-    try host.setAdvertisedLocator(webrtc_common.locator(designator[0..]));
-    const session = try host.openDialedLocator(webrtc_common.locator(expect_designator));
-    try webrtc_common.bindAuthorizedChannel(&host, session, peer);
-
-    const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
-    defer allocator.free(read_buf);
-    var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
-    defer pump.deinit();
-
-    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
-    const partner = try host.partnerIdentity(session);
-    if (!std.mem.eql(u8, partner.designator, expect_designator)) return error.PartnerMismatch;
-
-    const greeter = try webrtc_common.fetchRef(resident, peer, &pump, &host, session, "greeter", 10_000);
-    try webrtc_common.sendAndExpectString(resident, peer, &pump, &host, session, greeter, .{
-        .verb = "greet",
-        .args = &.{.{ .string = "glowcap" }},
-    }, greeting, 10_000);
-    _ = try pump.drive(&host, session, peer);
-    peer.close();
-}
-
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
 
@@ -245,8 +168,8 @@ pub fn main(init: std.process.Init) !void {
     try bringUpViaHub(&hub, &offerer_resident, &offerer, &answerer_resident, &answerer, recipient_designator[0..], exporter_designator[0..]);
 
     // The exporter serves on its own thread; the recipient drives on this one.
-    var exporter_future = try io.concurrent(exporterHalf, .{ &answerer_resident, &answerer, allocator, exporter_seed });
-    const recipient_result = recipientHalf(&offerer_resident, &offerer, allocator, recipient_seed, exporter_designator[0..]);
+    var exporter_future = try io.concurrent(webrtc_common.serveGreeter, .{ &answerer_resident, &answerer, allocator, exporter_seed, frame_cap, greeting });
+    const recipient_result = webrtc_common.dialAndGreet(&offerer_resident, &offerer, allocator, recipient_seed, exporter_designator[0..], frame_cap, greeting);
     const exporter_result = exporter_future.await(io);
     try recipient_result;
     try exporter_result;

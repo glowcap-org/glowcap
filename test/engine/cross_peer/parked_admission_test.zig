@@ -36,6 +36,7 @@ const receiveWith = fixtures.receiveWith;
 const RejectingVerifier = fixtures.RejectingVerifier;
 const RoutingVerifier = fixtures.RoutingVerifier;
 const signedGive = fixtures.signedGive;
+const signedReceive = fixtures.signedReceive;
 
 test "an early withdraw verifies before waiting and retains only one accepted count" {
     const allocator = std.testing.allocator;
@@ -50,16 +51,10 @@ test "an early withdraw verifies before waiting and retains only one accepted co
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
 
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    var receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
 
     var exporter = peer_fixture.openPeer(allocator);
     defer exporter.deinit();
@@ -185,17 +180,10 @@ test "a permissive resolver cannot pass malformed signed widths into pending ret
         const give_sig = crypto.sign(&gifter_secret, give_signed);
         give.signature = give_sig.asBytes();
 
-        var receive: model.HandoffReceive = .{
-            .receiving_session = receiving_session[0..],
-            .receiving_side = &recipient_side,
-            .handoff_count = 1,
-            .signed_give = give,
-            .signature = "",
-        };
-        const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+        var receive_signed: []u8 = undefined;
+        var receive_sig: crypto.Signature = undefined;
+        const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
         defer allocator.free(receive_signed);
-        const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-        receive.signature = receive_sig.asBytes();
 
         // The gift is absent, so a healthy envelope would reach
         // pending retention; only the width check can turn this one away.
@@ -244,17 +232,10 @@ test "a permissive resolver cannot pass malformed signed widths into pending ret
     var give_sig: crypto.Signature = undefined;
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
@@ -287,17 +268,10 @@ test "early-withdraw admission OOM leaves no pending row or replay state" {
     var give_sig: crypto.Signature = undefined;
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     const Snapshot = struct {
         step_oom: bool,
@@ -425,17 +399,10 @@ test "a second early withdraw past max_pending_withdraws refuses loud and projec
         var give_sig: crypto.Signature = undefined;
         const give = try signedGive(gift_id, recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
         defer allocator.free(give_signed);
-        var receive: model.HandoffReceive = .{
-            .receiving_session = receiving_session[0..],
-            .receiving_side = &recipient_side,
-            .handoff_count = @intCast(i + 1),
-            .signed_give = give,
-            .signature = "",
-        };
-        const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+        var receive_signed: []u8 = undefined;
+        var receive_sig: crypto.Signature = undefined;
+        const receive = try signedReceive(give, receiving_session[0..], &recipient_side, @intCast(i + 1), &recipient_secret, &receive_signed, &receive_sig, allocator);
         defer allocator.free(receive_signed);
-        const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-        receive.signature = receive_sig.asBytes();
 
         var handoff_arg = model.Handoff{ .receive = receive };
         const frame = try syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{

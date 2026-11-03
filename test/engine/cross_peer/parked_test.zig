@@ -35,6 +35,7 @@ const receiveWith = fixtures.receiveWith;
 const RejectingVerifier = fixtures.RejectingVerifier;
 const RoutingVerifier = fixtures.RoutingVerifier;
 const signedGive = fixtures.signedGive;
+const signedReceive = fixtures.signedReceive;
 
 test "a withdraw that arrives before its deposit parks and settles once the gift lands" {
     const allocator = std.testing.allocator;
@@ -51,17 +52,10 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
 
-    var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = &recipient_side,
-        .handoff_count = 1,
-        .signed_give = give,
-        .signature = "",
-    };
-    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    var receive_signed: []u8 = undefined;
+    var receive_sig: crypto.Signature = undefined;
+    const receive = try signedReceive(give, receiving_session[0..], &recipient_side, 1, &recipient_secret, &receive_signed, &receive_sig, allocator);
     defer allocator.free(receive_signed);
-    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
-    receive.signature = receive_sig.asBytes();
 
     // Next settlement is observable through the mandatory listener callback.
     var exporter = peer_fixture.openPeer(allocator);

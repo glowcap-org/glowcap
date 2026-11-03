@@ -4,23 +4,10 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const protocol_oracle = @import("../oracle/protocol_oracle.zig");
+const session_harness = @import("session_harness.zig");
 
 const model = glowcap.ocapn.model;
-const syrup = glowcap.ocapn.codec.syrup;
 const slot = glowcap.ocapn.session.slot;
-
-/// Encode a payload reference the way CapTP does: as the fulfill of an
-/// `op:resolve`. Bytes come only from `syrup.encodeMessage`.
-fn encodeFulfillRef(allocator: std.mem.Allocator, reference: model.Reference) ![]u8 {
-    var frame = try syrup.encodeMessage(allocator, .{
-        .resolve = .{
-            .answer = .from(7),
-            .resolution = .{ .fulfill = .{ .reference = reference } },
-        },
-    });
-    defer frame.deinit();
-    return try allocator.dupe(u8, frame.bytes());
-}
 
 test "slot projects each CapTP wire reference" {
     try std.testing.expect(slot.toReference(.{ .local_unresolved = 7 }).?.near.kind == .promise);
@@ -40,9 +27,9 @@ test "slot toReference matches the Reference the syrup codec already encodes" {
     };
     for (cases) |case| {
         const from_slot = slot.toReference(case[0]).?;
-        const via_slot = try encodeFulfillRef(allocator, from_slot);
+        const via_slot = try session_harness.encodeFulfillRef(allocator, from_slot);
         defer allocator.free(via_slot);
-        const via_ref = try encodeFulfillRef(allocator, case[1]);
+        const via_ref = try session_harness.encodeFulfillRef(allocator, case[1]);
         defer allocator.free(via_ref);
         try std.testing.expectEqualStrings(via_ref, via_slot);
     }
@@ -67,7 +54,7 @@ test "slot projection through real syrup codec matches oracle corpus descriptors
     for (oracle_cases) |case| {
         const fixture = protocol_oracle.fixtureByName(case[0]).?;
         const reference = slot.toReference(case[1]).?;
-        const encoded = try encodeFulfillRef(allocator, reference);
+        const encoded = try session_harness.encodeFulfillRef(allocator, reference);
         defer allocator.free(encoded);
         try std.testing.expectEqualStrings(fixture.bytes(), encoded);
     }
