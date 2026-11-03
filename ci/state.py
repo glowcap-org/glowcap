@@ -48,8 +48,12 @@ STORES = (
     CACHE / "tool/deno/gen",
     CACHE / "tool/deno/check_cache_v2",
     CACHE / "tool/deno/dep_analysis_cache_v2",
-    CACHE / "tool/deno/v8_code_cache_v2",
 )
+# Deno's V8 code cache (`tool/deno/v8_code_cache_v2`) stays behind. V8 reads
+# a cached script with no checksum (`verify_snapshot_checksum` is off in
+# release builds), so a torn copy of that SQLite file is a fatal V8 error in
+# the next `deno check` instead of a cache miss. Every other store's reader
+# keys its entries by their inputs and recompiles on a mismatch.
 GIB = 1 << 30
 
 
