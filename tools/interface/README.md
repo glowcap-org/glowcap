@@ -28,6 +28,11 @@ argument and a void result. Its preparation retains through the binding before
 sequence acquisition. Tasks and this projection share the request/replay
 helper. Unsupported projections fail explicitly.
 
+Ordinary Rust and TypeScript calls preserve trailing optional arguments and
+explicit undefined values. Omission shortens the argument list. Rust refuses a
+missing argument followed by a present one, and TypeScript checks arity and
+value types before sending. Contract null remains an unsupported target type.
+
 Generated helpers delegate promise and reference ownership to the bindings.
 Tasks owns its workflow and the server's policy. Binding changes needed by a
 proof belong in the binding and have regression coverage there.

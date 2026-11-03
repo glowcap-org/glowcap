@@ -2,6 +2,7 @@
 import { type Argument, GlowcapError, type HostProfile, Ref, VowBroken } from "@glowcap/runtime";
 import * as generated from "../generated/callbacks.ts";
 import { invocation } from "./invocation.ts";
+import { presence } from "./presence.ts";
 import { assert, withPair } from "./pair.ts";
 
 type Outcome = "reader" | "wrong" | "broken" | "cancel";
@@ -110,6 +111,7 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 }
 
 await invocation();
+await presence();
 for (const profile of ["interop", "glowcap"] satisfies HostProfile[]) {
 	for (const outcome of ["reader", "wrong", "broken", "cancel"] satisfies Outcome[]) {
 		await scenario(profile, outcome);

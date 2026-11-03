@@ -10,6 +10,7 @@ pub const Named = struct { api: []const u8, call: Call };
 pub const Call = struct {
     wire_name: ?[]const u8,
     parameters: []const Kind,
+    required_parameters: usize,
     result: Kind,
     effect: Effect,
 };
@@ -19,18 +20,20 @@ pub fn read(a: std.mem.Allocator, model: *Model, receiver: []const u8, method_na
     const effect: Effect = if (fields[2].is("call")) .call else if (fields[2].is("tell")) .tell else if (fields[2].is("loam.receipt")) .receipt else return error.UnsupportedProjection;
     const parameters = try a.alloc(Kind, fields[0].children.len);
     errdefer a.free(parameters);
-    for (fields[0].children, parameters) |parameter, *kind| {
+    var required_parameters = parameters.len;
+    for (fields[0].children, parameters, 0..) |parameter, *kind, i| {
         const param = try parameter.fields("parameter", 3);
-        if (param[2].boolean) return error.UnsupportedProjection;
+        if (param[2].boolean) required_parameters = @min(required_parameters, i);
         kind.* = try classify(model, param[1]);
     }
-    return .{ .wire_name = method_name, .parameters = parameters, .result = try classify(model, fields[1]), .effect = effect };
+    return .{ .wire_name = method_name, .parameters = parameters, .required_parameters = required_parameters, .result = try classify(model, fields[1]), .effect = effect };
 }
 
 fn classify(model: *Model, input: Node) !Kind {
     const node = try model.resolve(input);
     if (node.is("string")) return .text;
     if (node.is("undefined")) return .nothing;
+    if (node.is("null")) return error.UnsupportedTarget;
     if (node.is("value")) return .value;
     if (node.kind == .record) {
         if (std.mem.eql(u8, node.bytes, "interface")) return .target;

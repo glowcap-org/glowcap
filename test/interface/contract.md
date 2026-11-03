@@ -156,6 +156,12 @@ Uncertain commit, conflict, expiry, local validation, wrong fulfillment, remote
 break, and transport failure remain distinguishable. Unknown break values
 remain observable, and declared break cases must not close the error universe.
 
+Ordinary Rust calls use unit for undefined and `Option` for optional arguments.
+They return a local validation result around the pending handle when an optional
+suffix could contain a hole. TypeScript counts supplied arguments, so an omitted
+argument differs from explicitly passed `undefined`. Present undefined is encoded
+as the binding's `null` representation for void. Contract null is still unsupported.
+
 The Rust prepared-receipt fixture accepts one `promise<value>` argument and a
 void reply. Its generated input is a borrowed `RemotePromise`. Preparation
 retains it for the receiving Host before asking for a sequence, then owns the

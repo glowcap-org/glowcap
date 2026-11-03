@@ -18,8 +18,8 @@ need no Zig installation. Building the compiler from source requires Zig.
 
 ## Execution map
 
-The current work is milestone 2. Complete its conversation and cost evidence
-before comparing authoring frontends. Syrup remains the direct compiler input.
+The current work is milestone 2. Conversation and generation-cost baselines are
+retained. Compare authoring frontends next. Syrup remains the direct compiler input.
 
 | Work | State and next action | Owner |
 | --- | --- | --- |
@@ -28,9 +28,10 @@ before comparing authoring frontends. Syrup remains the direct compiler input.
 | Rust and TypeScript callbacks | Both profiles preserve pending admission, callbacks, pipelines, wrong replies and remote breaks. Rust drops polled observations, and TypeScript cancels sessions with observers active | [Proof suite](../../test/interface/README.md) |
 | Binding prerequisites | Rust retention and TypeScript owning-thread capability fulfillment are implemented using existing Host operations | `bindings/rust`, `bindings/ts` |
 | Prepared pending arguments | Rust capture, drop/observation, submission/replay, cancellation, and cross-Host refusal run on both profiles. Binding tests check final retain retirement | Milestone 2 ownership case |
-| Remaining conversation coverage | Qualify export failure. Generated Rust recipient handoff and plain Goblins calling the generated Zig Tasks boundary run on Syrup/V1.0 | Milestone 2 runtime cases |
+| Conversation coverage | Zig creation export failure and retry are qualified. Generated Rust recipient handoff and plain Goblins calling the generated Zig Tasks boundary run on Syrup/V1.0 | Milestone 2 runtime cases |
 | Invocation shape | Generated Rust and TypeScript callers preserve absent, empty, and named selectors on both profiles | Server-adapter qualification remains |
-| Cost and authoring decision | Measure generation first, then compare text and Cap'n Proto adapters | Milestone 2 decision |
+| Argument presence | Rust and TypeScript distinguish omission from explicit undefined and refuse invalid holes on both profiles. Null remains unsupported by the targets | [Proof suite](../../test/interface/README.md) |
+| Cost and authoring decision | [Generation and paired costs](../../bench/interface/results.md) are recorded at their measured source revision. Compare text and Cap'n Proto adapters next | Milestone 2 decision |
 
 The [earlier experiment](../research/interface-design-proof.md) is background
 research. Its live results are not reproducible from the retained sources.

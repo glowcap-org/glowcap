@@ -114,6 +114,16 @@ fn nothing(value: Argument) -> Result<(), Error> {
 		Err(Error::InvalidReply)
 	}
 }
+
+// Presence is fixed stack scratch. A missing optional argument ends the supplied
+// prefix; a later Some is refused before arguments acquire wire custody.
+fn optional_argument_count(present: &[bool]) -> Result<usize, Error> {
+	let count = present.iter().take_while(|value| **value).count();
+	if present[count..].iter().any(|value| *value) {
+		return Err(Error::InvalidArgument);
+	}
+	Ok(count)
+}
 use std::rc::Rc;
 
 /// Exact target, sequence, and owned arguments, retained for submission and replay.
@@ -205,6 +215,108 @@ pub fn invoke_empty(session: &Session, target: impl AsSendTarget) -> Pending<Str
 pub fn invoke_named(session: &Session, target: impl AsSendTarget) -> Pending<String> {
 	let raw = session.send(target, "then", &[]);
 	Pending::new(raw, text)
+}
+
+pub fn presence_required(session: &Session, target: impl AsSendTarget, arg0: ()) -> Pending<()> {
+	let raw = session.send(target, "required", &[arg0.into()]);
+	Pending::new(raw, nothing)
+}
+
+pub fn presence_optional(
+	session: &Session,
+	target: impl AsSendTarget,
+	// Omit only a trailing suffix of these arguments.
+	arg0: Option<()>,
+) -> Result<Pending<()>, Error> {
+	let count = optional_argument_count(&[arg0.is_some()])?;
+	let arguments = [
+		// Fixed stack scratch; omitted slots are outside the sent prefix.
+		arg0.map(Argument::from).unwrap_or(Argument::Void),
+	];
+	let raw = session.send(target, "optional", &arguments[..count]);
+	Ok(Pending::new(raw, nothing))
+}
+
+pub fn presence_suffix(
+	session: &Session,
+	target: impl AsSendTarget,
+	arg0: &str,
+	// Omit only a trailing suffix of these arguments.
+	arg1: Option<()>,
+) -> Result<Pending<()>, Error> {
+	let count = 1 + optional_argument_count(&[arg1.is_some()])?;
+	let arguments = [
+		// Fixed stack scratch; omitted slots are outside the sent prefix.
+		arg0.into(),
+		arg1.map(Argument::from).unwrap_or(Argument::Void),
+	];
+	let raw = session.send(target, "suffix", &arguments[..count]);
+	Ok(Pending::new(raw, nothing))
+}
+
+pub fn presence_pair(
+	session: &Session,
+	target: impl AsSendTarget,
+	// Omit only a trailing suffix of these arguments.
+	arg0: Option<&str>,
+	arg1: Option<&str>,
+) -> Result<Pending<()>, Error> {
+	let count = optional_argument_count(&[arg0.is_some(), arg1.is_some()])?;
+	let arguments = [
+		// Fixed stack scratch; omitted slots are outside the sent prefix.
+		arg0.map(Argument::from).unwrap_or(Argument::Void),
+		arg1.map(Argument::from).unwrap_or(Argument::Void),
+	];
+	let raw = session.send(target, "pair", &arguments[..count]);
+	Ok(Pending::new(raw, nothing))
+}
+
+pub fn presence_references<'a>(
+	session: &Session,
+	target: impl AsSendTarget,
+	// Omit only a trailing suffix of these arguments.
+	arg0: Option<Reference<'a>>,
+	arg1: Option<Reference<'a>>,
+) -> Result<Pending<()>, Error> {
+	let count = optional_argument_count(&[arg0.is_some(), arg1.is_some()])?;
+	let arguments = [
+		// Fixed stack scratch; omitted slots are outside the sent prefix.
+		arg0.map(Reference::argument).unwrap_or(Argument::Void),
+		arg1.map(Reference::argument).unwrap_or(Argument::Void),
+	];
+	let raw = session.send(target, "references", &arguments[..count]);
+	Ok(Pending::new(raw, nothing))
+}
+
+pub fn presence_value(
+	session: &Session,
+	target: impl AsSendTarget,
+	// Omit only a trailing suffix of these arguments.
+	arg0: Option<Argument>,
+) -> Result<Pending<()>, Error> {
+	let count = optional_argument_count(&[arg0.is_some()])?;
+	let arguments = [
+		// Fixed stack scratch; omitted slots are outside the sent prefix.
+		arg0.unwrap_or(Argument::Void),
+	];
+	let raw = session.send(target, "value", &arguments[..count]);
+	Ok(Pending::new(raw, nothing))
+}
+
+pub fn presence_notify(
+	session: &Session,
+	target: impl AsSendTarget,
+	// Omit only a trailing suffix of these arguments.
+	arg0: Option<()>,
+) -> Result<(), Error> {
+	let count = optional_argument_count(&[arg0.is_some()])?;
+	let arguments = [
+		// Fixed stack scratch; omitted slots are outside the sent prefix.
+		arg0.map(Argument::from).unwrap_or(Argument::Void),
+	];
+	session
+		.tell(target, "notify", &arguments[..count])
+		.map_err(Error::Runtime)
 }
 
 pub fn prepare_accept(
