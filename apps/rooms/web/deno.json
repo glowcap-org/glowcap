@@ -15,6 +15,7 @@
   "imports": {
     "@glowcap/abi": "../../../bindings/ts/abi/constants.ts",
     "@glowcap/runtime/cleanup": "../../../bindings/ts/runtime/cleanup.ts",
+    "@glowcap/runtime/text": "../../../bindings/ts/runtime/text.ts",
     // dep react: The UI library for the Rooms web client.
     "react": "npm:react@19.3.0",
     // dep @types/react: React's types for the type checker.

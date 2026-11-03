@@ -2,6 +2,7 @@
   "license": "Apache-2.0",
   "imports": {
     "@glowcap/runtime/cleanup": "./bindings/ts/runtime/cleanup.ts",
+    "@glowcap/runtime/text": "./bindings/ts/runtime/text.ts",
     "@glowcap/runtime": "./bindings/ts/runtime/mod.ts",
     "@glowcap/runtime/ffi": "./bindings/ts/runtime/ffi.ts",
     "@glowcap/runtime/adapter": "./bindings/ts/runtime/adapter.ts",

@@ -12,6 +12,7 @@
 // there. An attachment's is in `attachment.ts` beside the record it describes.
 
 import { WEBRTC_MAX_SIGNAL_BYTES } from "@glowcap/abi";
+import { utf8ByteLengthUpTo } from "@glowcap/runtime/text";
 import * as APPLICATION_DATA from "./application_data.ts";
 
 /** Hard length caps a room enforces, so an oversize name or line is refused at
@@ -524,32 +525,6 @@ export function relayedSignalFits(kind: "description" | "candidate", id: string,
 
 export function utf8Fits(text: string, maxBytes: number): boolean {
 	return utf8ByteLengthUpTo(text, maxBytes) <= maxBytes;
-}
-
-/** UTF-8 bytes of `text`, stopping early once `stopAfter` is passed. The same
- * counter lives in `bindings/ts/webrtc/signal.ts`. Rooms keeps its own because
- * a chat app's line budget must not depend on the WebRTC package's internals
- * for a pure string measurement. */
-function utf8ByteLengthUpTo(text: string, stopAfter?: number): number {
-	let bytes = 0;
-	for (let i = 0; i < text.length; i++) {
-		const code = text.charCodeAt(i);
-		if (code < 0x80) bytes += 1;
-		else if (code < 0x800) bytes += 2;
-		else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
-			const next = text.charCodeAt(i + 1);
-			if (next >= 0xdc00 && next <= 0xdfff) {
-				bytes += 4;
-				i++;
-			} else {
-				bytes += 3;
-			}
-		} else {
-			bytes += 3;
-		}
-		if (stopAfter != null && bytes > stopAfter) return bytes;
-	}
-	return bytes;
 }
 
 /** A directory exchange that has not been explicitly retired by its offerer
