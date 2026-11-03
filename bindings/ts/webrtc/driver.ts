@@ -10,11 +10,7 @@ import {
 	type DriverLoop,
 	type DriverProvider,
 	DriverServer,
-	ensureRuntimeReady,
-	listenerLoopUnavailable,
-	loopTierAvailable,
-	prepareListenerLoop,
-	retainCleanupFailures,
+	openDriverServer,
 } from "@glowcap/runtime/transport";
 import {
 	ab,
@@ -569,29 +565,21 @@ export class Server extends DriverServer {
  * the library through `Server.provideOffer`, the offerer's candidates through
  * the `onCandidate` sink the authority was given, and iterating the server
  * yields the session once the channel opens. */
-export async function listen(
+export function listen(
 	signaling: SignalingAuthority,
 	config: DriverConfig = {},
 	options: ListenOptions = {},
 ): Promise<Server> {
-	await ensureRuntimeReady();
-	if (!loopTierAvailable()) throw listenerLoopUnavailable();
-	const { loop, ownsLoop } = prepareListenerLoop(options.host, options.seed, undefined);
-	let listener: DriverListener | null = null;
-	try {
-		const book = installNetlayer(loop, signaling, config);
-		// An empty designator asks the library for the Host's own key.
-		listener = await DriverListener.open(loop, TRANSPORT_WEBRTC, "");
-		listener.select();
-		const server = new Server({ listener, ownedLoop: ownsLoop ? loop : undefined }, book);
-		listener = null;
-		return server;
-	} catch (error) {
-		const cleanups: Array<() => void | Promise<void>> = [];
-		const failedListener = listener;
-		if (failedListener != null) cleanups.push(() => failedListener.close());
-		if (ownsLoop) cleanups.push(() => loop.close());
-		await retainCleanupFailures(error, cleanups);
-		throw error;
-	}
+	return openDriverServer({
+		host: options.host,
+		seed: options.seed,
+		codec: undefined,
+		async open(loop, adopt, ownedLoop) {
+			const book = installNetlayer(loop, signaling, config);
+			// An empty designator asks the library for the Host's own key.
+			const listener = adopt(await DriverListener.open(loop, TRANSPORT_WEBRTC, ""));
+			listener.select();
+			return new Server({ listener, ownedLoop }, book);
+		},
+	});
 }

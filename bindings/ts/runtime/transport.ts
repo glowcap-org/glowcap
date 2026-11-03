@@ -101,7 +101,7 @@ export { ensureRuntimeReady, ffi, type Ptr } from "./internal/ffi/runtime.ts";
 // inspect and use the active target layout but cannot replace it.
 export { L as abiLayout } from "./internal/layout.ts";
 export { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "./internal/seam.ts";
-export { DriverServer, listenerLoopUnavailable, prepareListenerLoop } from "./internal/server.ts";
+export { DriverServer, listenerLoopUnavailable, openDriverServer, prepareListenerLoop } from "./internal/server.ts";
 export { DriverListener, DriverLoop, loopTierAvailable, type ProviderTarget } from "./driver_loop.ts";
 export { GlowcapError, retainCleanupFailures, retainSecondaryFailure } from "./errors.ts";
 export type { CarrierFailure, CarrierPhase } from "./carrier_failure.ts";

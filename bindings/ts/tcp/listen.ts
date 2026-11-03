@@ -5,17 +5,12 @@
 import {
 	designatorHostPort,
 	DriverListener,
-	DriverLoop,
 	DriverServer,
-	ensureRuntimeReady,
 	formatPeerUri,
 	GlowcapError,
 	HINT_DIRECT_ADDRESSES,
 	Host,
-	listenerLoopUnavailable,
-	loopTierAvailable,
-	prepareListenerLoop,
-	retainCleanupFailures,
+	openDriverServer,
 	stringHint,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_NOISE_TCP,
@@ -24,7 +19,7 @@ import {
 import type { Codec } from "@glowcap/runtime/transport";
 import { addressDesignator } from "./address.ts";
 import { type Config, installProvider as installTcpProvider } from "./transport.ts";
-import { INVALID_ARGUMENT, IO } from "@glowcap/abi";
+import { INVALID_ARGUMENT } from "@glowcap/abi";
 
 export interface ListenOptions {
 	/** Defaults inherited by every TCP stream admitted through this provider. */
@@ -112,44 +107,26 @@ function dialableSocketAddress(boundAddress: string, advertisedHost?: string): s
 
 /** Bind plain TCP through the generic driver. A supplied Host is transferred
  * before binding, preserving that wrapper as the server's Host authority. */
-async function listenProfile(
+function listenProfile(
 	transport: string,
 	bindHost: string,
 	port: number,
 	options: ListenOptions,
 	seed?: Uint8Array,
 ): Promise<Server> {
-	await ensureRuntimeReady();
-	if (!loopTierAvailable()) throw listenerLoopUnavailable();
-	let prepared: { loop: DriverLoop; ownsLoop: boolean } | null = null;
-	let listener: DriverListener | null = null;
-	try {
-		prepared = prepareListenerLoop(options.host, seed, options.codec);
-		const loop = prepared.loop;
-		installTcpProvider(loop, options.config);
-		listener = await DriverListener.open(
-			loop,
-			transport,
-			addressDesignator(bindHost, port),
-			options.signal,
-		);
-		configureTcpProfileListener(listener, transport, options);
-		const server = new Server({
-			listener,
-			ownedLoop: prepared.ownsLoop ? loop : undefined,
-		});
-		listener = null;
-		return server;
-	} catch (error) {
-		const primary = error instanceof GlowcapError ? error : new GlowcapError(IO, String(error));
-		const failedListener = listener;
-		const ownedLoop = prepared?.ownsLoop ? prepared.loop : null;
-		const cleanups: Array<() => void | Promise<void>> = [];
-		if (failedListener != null) cleanups.push(() => failedListener.close());
-		if (ownedLoop != null) cleanups.push(() => ownedLoop.close());
-		await retainCleanupFailures(primary, cleanups);
-		throw primary;
-	}
+	return openDriverServer({
+		host: options.host,
+		seed,
+		codec: options.codec,
+		async open(loop, adopt, ownedLoop) {
+			installTcpProvider(loop, options.config);
+			const listener = adopt(
+				await DriverListener.open(loop, transport, addressDesignator(bindHost, port), options.signal),
+			);
+			configureTcpProfileListener(listener, transport, options);
+			return new Server({ listener, ownedLoop });
+		},
+	});
 }
 
 export function listen(

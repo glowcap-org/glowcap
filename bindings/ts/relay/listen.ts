@@ -13,18 +13,12 @@
 import {
 	DriverListener,
 	DriverServer,
-	ensureRuntimeReady,
-	GlowcapError,
 	type Host,
-	listenerLoopUnavailable,
-	loopTierAvailable,
-	prepareListenerLoop,
-	retainCleanupFailures,
+	openDriverServer,
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_NOISE_RELAY,
 } from "@glowcap/runtime/transport";
 import type { Codec, DriverLoop } from "@glowcap/runtime/transport";
-import { IO } from "@glowcap/abi";
 import { installProvider, type TlsTrust } from "./transport.ts";
 import { relayRoute } from "./route.ts";
 
@@ -54,38 +48,23 @@ async function ensureRelayProvider(loop: DriverLoop, options: RelayListenOptions
 	});
 }
 
-async function listenProfile(
+function listenProfile(
 	transport: string,
 	options: RelayListenOptions,
 ): Promise<DriverServer> {
-	await ensureRuntimeReady();
-	if (!loopTierAvailable()) throw listenerLoopUnavailable();
-	let prepared: { loop: DriverLoop; ownsLoop: boolean } | null = null;
-	let listener: DriverListener | null = null;
-	try {
-		prepared = prepareListenerLoop(options.host, options.seed, options.codec);
-		const loop = prepared.loop;
-		await ensureRelayProvider(loop, options);
-		// The provider registers as the listener opens, so a completed open is
-		// the commit point: the relay answered and holds this peer's sockets.
-		listener = await DriverListener.open(loop, transport, "", options.signal);
-		listener.select();
-		const server = new DriverServer({
-			listener,
-			ownedLoop: prepared.ownsLoop ? loop : undefined,
-		});
-		listener = null;
-		return server;
-	} catch (error) {
-		const primary = error instanceof GlowcapError ? error : new GlowcapError(IO, String(error));
-		const failedListener = listener;
-		const ownedLoop = prepared?.ownsLoop ? prepared.loop : null;
-		const cleanups: Array<() => void | Promise<void>> = [];
-		if (failedListener != null) cleanups.push(() => failedListener.close());
-		if (ownedLoop != null) cleanups.push(() => ownedLoop.close());
-		await retainCleanupFailures(primary, cleanups);
-		throw primary;
-	}
+	return openDriverServer({
+		host: options.host,
+		seed: options.seed,
+		codec: options.codec,
+		async open(loop, adopt, ownedLoop) {
+			await ensureRelayProvider(loop, options);
+			// The provider registers as the listener opens, so a completed open is
+			// the commit point: the relay answered and holds this peer's sockets.
+			const listener = adopt(await DriverListener.open(loop, transport, "", options.signal));
+			listener.select();
+			return new DriverServer({ listener, ownedLoop });
+		},
+	});
 }
 
 /** Register the identity-addressed cleartext relay profile. */

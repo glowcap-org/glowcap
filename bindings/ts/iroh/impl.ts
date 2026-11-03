@@ -15,13 +15,7 @@ import {
 	stringHint,
 	TRANSPORT_IROH,
 } from "@glowcap/runtime";
-import {
-	DriverListener,
-	DriverLoop,
-	DriverServer,
-	prepareListenerLoop,
-	retainCleanupFailures,
-} from "@glowcap/runtime/transport";
+import { DriverListener, DriverLoop, DriverServer, openDriverServer } from "@glowcap/runtime/transport";
 import { CLOSED, INVALID_ARGUMENT } from "@glowcap/runtime/ffi";
 import { IrohChannel, IrohLoop } from "./channel.ts";
 import { type IrohConfig, IrohConnection, IrohNetlayer } from "./ffi_archive.ts";
@@ -257,35 +251,22 @@ export class IrohServer extends DriverServer {
  * A server that treats a live session as presence should set
  * `config.idleTimeoutMs`, because that is what ends a connection whose peer was
  * killed rather than closed and so lets `serve()` settle. */
-export async function listen(
+export function listen(
 	config: IrohConfig,
 	options: ListenOptions = {},
 ): Promise<IrohServer> {
-	const { loop, ownsLoop } = prepareListenerLoop(options.host, options.seed, undefined);
-	let listener: DriverListener | null = null;
-	try {
-		const endpoint = await _ensureIrohProvider(loop, config);
-		const endpointNodeId = endpoint.nodeId;
-		listener = await DriverListener.open(
-			loop,
-			TRANSPORT_IROH,
-			endpointNodeId,
-			config.signal,
-		);
-		listener.select();
-		const server = new IrohServer(
-			listener,
-			endpointNodeId,
-			ownsLoop ? loop : undefined,
-		);
-		listener = null;
-		return server;
-	} catch (error) {
-		const cleanups: Array<() => void | Promise<void>> = [];
-		const failedListener = listener;
-		if (failedListener != null) cleanups.push(() => failedListener.close());
-		if (ownsLoop) cleanups.push(() => loop.close());
-		await retainCleanupFailures(error, cleanups);
-		throw error;
-	}
+	return openDriverServer({
+		host: options.host,
+		seed: options.seed,
+		codec: undefined,
+		async open(loop, adopt, ownedLoop) {
+			const endpoint = await _ensureIrohProvider(loop, config);
+			const endpointNodeId = endpoint.nodeId;
+			const listener = adopt(
+				await DriverListener.open(loop, TRANSPORT_IROH, endpointNodeId, config.signal),
+			);
+			listener.select();
+			return new IrohServer(listener, endpointNodeId, ownedLoop);
+		},
+	});
 }
