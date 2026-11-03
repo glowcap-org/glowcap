@@ -9,7 +9,7 @@ The Cap'n Proto adapter uses the same expected description.
 | Case | Retained mapping and evidence |
 | --- | --- |
 | Bounds | Name counts UTF-8 bytes from 1 to 64. Count is integer 0 through 16. Both reach the checked model. Factory.add also reaches the existing bounded creation emitter |
-| Selectors | Direct has no selector. Named preserves the empty symbol, `then`, and `a-b` |
+| Selectors | Direct prepends no symbol to its whole argument list. Named prepends the exact empty symbol, `then`, or `a-b` |
 | Presence | Required undefined and optional undefined remain different parameter descriptions. The text runtime proof sends zero arguments and one void argument |
 | Null | Null input and result survive description checking. Existing call targets refuse both with `UnsupportedTarget` |
 | Pending references | Factory accepts Reader and promise of Reader. Prepared retains the existing receipt shape with promise of value |

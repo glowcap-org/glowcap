@@ -89,10 +89,10 @@ test "text diagnostics refuse unsupported constructs and invalid checked contrac
         "module comparison\ninterface Reader { read(value?: string, later: string) -> string }",
         "module comparison\ntype Name = string(min_bytes: 65, max_bytes: 64)",
         "module comparison\ninterface Reader { read() -> Missing }",
+        "module comparison\ninterface Reader { () -> string read() -> string }",
     }) |invalid| try std.testing.expectError(error.InvalidDescription, text.translate(a, invalid, &diagnostic));
     for ([_][]const u8{
         "module comparison\ninterface Reader { read() -> string read() -> string }",
-        "module comparison\ninterface Reader { () -> string read() -> string }",
         "module comparison\ntype Name = string(max_bytes: 64, max_bytes: 32)",
         "module comparison\ninterface Reader { \"\\ud800\"() -> string }",
         "module comparison\ninterface Reader { read( -> string }",
@@ -146,4 +146,32 @@ test "expanded qualified names refuse before allocation grows with impossible ou
     }
     // Extra input after the existing output budget is exhausted acquires no scratch.
     try std.testing.expectEqual(allocated[0], allocated[1]);
+}
+
+test "canonical descriptions admit direct or named methods and refuse their mixture" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const prefix = "<17'glowcap:interface1+{12\"loam.receipt1+14\"glowcap.values1+}{1\"I<9'interface";
+    const suffix = ">}>";
+    const method = "<6'method[]9'undefined4'call>";
+    var direct = try Model.init(try description.read(allocator, prefix ++ "{f" ++ method ++ "}" ++ suffix));
+    _ = try direct.method("I", null);
+    var named = try Model.init(try description.read(allocator, prefix ++ "{0\"" ++ method ++ "1\"m" ++ method ++ "}" ++ suffix));
+    _ = try named.method("I", "");
+    _ = try named.method("I", "m");
+    const mixed = try description.read(allocator, prefix ++ "{0\"" ++ method ++ "f" ++ method ++ "}" ++ suffix);
+    try std.testing.expectError(error.InvalidDescription, Model.init(mixed));
+}
+
+test "text mixed invocation uses the shared checked-model diagnostic" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    for ([_][]const u8{
+        "module comparison\ninterface Reader { () -> string read() -> string }",
+    }) |input| {
+        var diagnostic: text.Diagnostic = .{};
+        try std.testing.expectError(error.InvalidDescription, text.translate(arena.allocator(), input, &diagnostic));
+        try std.testing.expectEqualStrings("description rejected by checked model", diagnostic.message);
+    }
 }

@@ -290,8 +290,20 @@ walks the remote object graph.
 
 ## Calls, capabilities, and promises
 
-An interface describes named dispatch or one direct-invocation signature.
-Mixing both is refused rather than guessing which dispatch a message intended.
+A direct signature describes the whole wire argument list. Its caller prepends
+no selector. A named method is shorthand for prepending its exact symbol to
+that list, including the empty symbol. OCapN adds no separate method slot.
+
+The current language permits one direct signature or named methods per
+interface. That is a language scope choice, enforced by the shared checked
+model for every input format.
+
+The actor and binding APIs can peel a leading symbol into `verb`. A generated
+direct receiver must reconstruct the whole list from `verb` and the remaining
+arguments before checking its signature. A first symbol is then ordinary data,
+including for `AnyReceiver`. A named receiver instead uses that symbol for
+dispatch. This receiver projection remains to be implemented and qualified.
+The retained direct-call fixtures cover callers and the actor splitting boundary.
 
 The example's `reader()` must return an actual restricted facet to withhold
 write authority. Changing only the static type does not restrict access.

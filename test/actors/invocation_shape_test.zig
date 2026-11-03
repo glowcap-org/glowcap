@@ -131,3 +131,22 @@ test "attenuation grants an empty selector without granting direct invocation" {
     try std.testing.expectError(actors.ocap.Error.Attenuated, vat.near(proxy, .{}));
     try std.testing.expectError(actors.ocap.Error.Attenuated, vat.near(proxy, .{ .verb = "call" }));
 }
+
+test "direct raw argument list reconstructs a leading symbol after actor splitting" {
+    for ([_][]const u8{ "", "call" }) |symbol| {
+        const authored = [_]model.Argument{ .{ .symbol = symbol }, .{ .integer = 37 } };
+        const wire_delivery = try actors.Delivery.fromArgs(.fromOwnedSlice(&authored));
+        try std.testing.expectEqualStrings(symbol, wire_delivery.verb.?);
+        try std.testing.expectEqual(@as(usize, 1), try wire_delivery.args.len());
+        // A direct receiver takes the whole list, including the peeled symbol.
+        // This scalar fixture reconstructs borrowed data, not a server adapter.
+        const reconstructed = [_]model.Argument{
+            .{ .symbol = wire_delivery.verb.? },
+            .{ .integer = (try wire_delivery.arg(0)).integer },
+        };
+        try expectArgs(&authored, .fromOwnedSlice(&reconstructed));
+        const near_delivery = (actors.Message{ .verb = null, .args = &authored }).delivery();
+        try std.testing.expect(near_delivery.verb == null);
+        try expectArgs(&authored, near_delivery.args);
+    }
+}

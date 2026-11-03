@@ -237,8 +237,6 @@ const Parser = struct {
     fn interface(self: *Parser) Error![]const u8 {
         try self.expect("{");
         var methods: std.ArrayList(Entry) = .empty;
-        var direct = false;
-        var named = false;
         while (!try self.accept("}")) {
             if ((try self.peek()).kind == .end) return self.fail("unterminated interface");
             var effect: []const u8 = "call";
@@ -248,15 +246,12 @@ const Parser = struct {
             } else if (try self.accept("tell")) effect = "tell";
             const token = try self.peek();
             const selector = if (token.kind == .punctuation and std.mem.eql(u8, token.text, "(")) selector: {
-                direct = true;
                 break :selector "f";
             } else selector: {
                 const name = try self.next();
                 if (name.kind != .word and name.kind != .string) return self.fail("expected method selector");
-                named = true;
                 break :selector try self.atom(name.text, '"');
             };
-            if (direct and named) return self.fail("direct and named methods cannot share an interface");
             try self.expect("(");
             var parameters: std.ArrayList([]const u8) = .empty;
             if (!try self.accept(")")) while (true) {
