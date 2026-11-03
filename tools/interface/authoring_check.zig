@@ -48,7 +48,7 @@ fn identifier(name: []const u8) error{InvalidIdentifier}!void {
     }
     var keywords = std.mem.tokenizeScalar(
         u8,
-        "abstract as async await become bool box break case catch char class const continue crate debugger default defer delete do double dyn else enum export extends extern false final finally float fn for function gen goto if impl implements import in instanceof int interface let long loop macro macro_rules match mod move mut namespace native new null override package priv private protected pub public ref return safe self Self short sizeof static struct super switch synchronized this throw throws trait transient true try type typeof union unsafe unsized use var virtual void volatile where while with yield",
+        "abstract arguments as async await become bool box break case catch char class const continue crate debugger default defer delete do double dyn else enum eval export extends extern false final finally float fn for function gen goto if impl implements import in instanceof int interface let long loop macro macro_rules match mod move mut namespace native new null override package priv private protected pub public ref return safe self Self short sizeof static struct super switch synchronized this throw throws trait transient true try type typeof union unsafe unsized use var virtual void volatile where while with yield",
         ' ',
     );
     while (keywords.next()) |keyword| if (std.mem.eql(u8, name, keyword)) return error.InvalidIdentifier;

@@ -15,7 +15,18 @@ fixture = "test/interface/authoring/comparison.syrup"
 with tempfile.TemporaryDirectory(prefix="glowcap-authoring-cli-") as directory:
     for target in ("rust", "ts"):
         output = Path(directory) / f"generated.{target}"
-        for name in ("", "_", "9invalid", "a-b", "fn", "class", "await", "safe\n}\npub fn injected() {}"):
+        for name in (
+            "",
+            "_",
+            "9invalid",
+            "a-b",
+            "fn",
+            "class",
+            "await",
+            "eval",
+            "arguments",
+            "safe\n}\npub fn injected() {}",
+        ):
             result = subprocess.run(
                 [checker, "syrup", fixture, target, "comparison.Reader", "read", name, output],
                 capture_output=True,
