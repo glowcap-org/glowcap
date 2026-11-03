@@ -1,6 +1,7 @@
 // Visible selection changes immediately. One retained command and one latest
 // scalar choice settle in order. An older acknowledgment cannot move the view.
 import type { ManagedRoomsSession } from "./session.ts";
+import { conversationById } from "./conversation_lookup.ts";
 import { WorkspaceConflict } from "./operation.ts";
 import { MAX_CONFLICT_REPREPARATIONS } from "./acquisition.ts";
 import { conversationNoLongerOpen } from "../../../../lib/text/attached.ts";
@@ -45,7 +46,7 @@ export class ManagedNavigation {
 						choice.operation,
 						() =>
 							this.#session.command("select", [choice.id], choice.operation, (snapshot) => {
-								if (!snapshot.intent.conversations.some((row) => row.id === choice.id)) {
+								if (conversationById(snapshot, choice.id) == null) {
 									throw new Error(conversationNoLongerOpen);
 								}
 							}),

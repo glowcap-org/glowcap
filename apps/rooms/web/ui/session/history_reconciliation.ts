@@ -5,14 +5,16 @@
 
 import * as store from "../store.ts";
 import type { ArchiveLine, ArchiveRecord } from "../../../lib/archive/protocol.ts";
-import { adoptableArchiveDigests, archivedAttachmentsMatch, archivedAttachmentViews } from "../archive_attachments.ts";
+import {
+	adoptableArchiveDigests,
+	archivedAttachmentsMatch,
+	archivedAttachmentViews,
+	archivedPreviewsMatch,
+} from "../archive_content.ts";
 import { fetchesOnArrival } from "../media.ts";
 import { type Item, silencedFrom } from "../conversation.ts";
 import type { RoomsPageContext } from "../page.ts";
 import type { AttachedSessionFiles, FileDescription, HeldFile } from "./attached_files.ts";
-
-const samePreviews = (current: readonly string[] | undefined, next: readonly string[]) =>
-	(current?.length ?? 0) === next.length && next.every((url, index) => current?.[index] === url);
 
 /** Apply the archive's current rows and report whether any remain visible. */
 export function reconcileAttachedHistory(
@@ -90,7 +92,7 @@ export function reconcileAttachedHistory(
 		if (
 			!attachmentsChanged && current.from === record.from && current.mine === record.mine &&
 			current.at === record.at && current.order === record.order && current.text === record.text &&
-			samePreviews(current.previewUrls, record.previewUrls) &&
+			archivedPreviewsMatch(current.previewUrls, record.previewUrls) &&
 			(current.edited === true) === (record.state === "edited") && current.withdrawn !== true
 		) continue;
 		const line = attachmentsChanged ? materialize(record) : null;

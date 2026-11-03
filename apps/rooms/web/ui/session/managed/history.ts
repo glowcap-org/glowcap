@@ -1,3 +1,4 @@
+import { conversationById } from "./conversation_lookup.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 // One reader owns the selected archive. File sources retain that exact reader.
 // Changing selection never retargets an already displayed record.
@@ -231,7 +232,7 @@ export class ManagedHistory {
 				if (original == null) continue;
 				const fresh = () => {
 					const current = this.#session.current;
-					const selected = current?.intent.conversations.find((entry) => entry.id === row.id);
+					const selected = conversationById(current, row.id);
 					return !this.#closed && epoch === this.#epoch &&
 						current != null && this.#readable(current) && selection === this.#sourceIdentity(current) &&
 						selected != null &&

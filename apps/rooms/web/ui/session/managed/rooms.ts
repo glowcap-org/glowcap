@@ -1,4 +1,5 @@
 // Room use, control and receipt occurrences stay in separately typed fields.
+import { conversationById } from "./conversation_lookup.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { RoomsRoomController } from "../../controller/session.ts";
@@ -14,9 +15,7 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 	const projection = page.projection;
 	const room = (key: string) => {
 		const view = store.getConv(projection, key);
-		const row = view?.type === "room"
-			? session.current?.intent.conversations.find((row) => row.id === view.persistId)
-			: null;
+		const row = view?.type === "room" ? conversationById(session.current, view.persistId) : null;
 		if (row?.kind !== "room") throw new Error("This room is no longer in the workspace");
 		return row;
 	};
@@ -31,7 +30,7 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 	async function role(key: string, property: "moderator" | "control", uri: string): Promise<void> {
 		const selected = room(key);
 		const snapshot = await session.candidate();
-		const row = snapshot.intent.conversations.find((row) => row.id === selected.id) as RoomIntent;
+		const row = conversationById(snapshot, selected.id) as RoomIntent;
 		const access = fieldKey();
 		row[property] = access;
 		const kind = property === "moderator" ? "roomAccess" : "roomControl";
@@ -41,7 +40,7 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 		const selected = room(key);
 		if (selected[property] !== expected) throw new Error("The selected room authority changed");
 		const snapshot = await session.candidate();
-		const row = snapshot.intent.conversations.find((row) => row.id === selected.id) as RoomIntent;
+		const row = conversationById(snapshot, selected.id) as RoomIntent;
 		if (property === "moderator") delete row.moderator;
 		else row.control = null;
 		await session.actions.replace(snapshot);
@@ -138,7 +137,7 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 			outcome(async () => {
 				const selected = room(key);
 				const snapshot = await session.candidate();
-				const row = snapshot.intent.conversations.find((row) => row.id === selected.id) as RoomIntent;
+				const row = conversationById(snapshot, selected.id) as RoomIntent;
 				if (uri != null && uri !== "") {
 					const access = fieldKey();
 					row.access = access;

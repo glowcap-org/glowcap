@@ -1,5 +1,6 @@
 // Recipes come from the session selected custody under ShareCustody admission.
 // Presentation tokens identify local fields. They are never publication names.
+import { conversationById } from "./managed/conversation_lookup.ts";
 import type { RoomConv } from "../conversation.ts";
 import type { ManagedRoomsSession } from "./managed/session.ts";
 import { coordinate } from "./managed/model.ts";
@@ -14,7 +15,7 @@ export async function roomBearer(
 	conv: RoomConv,
 	kind: RoomBearerKind,
 ): Promise<string | null> {
-	const row = session.current?.intent.conversations.find((row) => row.id === conv.persistId);
+	const row = conversationById(session.current, conv.persistId);
 	if (row?.kind !== "room" || !session.permits("shareCustody")) return null;
 	const key = kind === "link" ? row.access : kind === "manager" ? row.control : row.moderator;
 	if (key == null) return null;

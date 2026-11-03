@@ -1,5 +1,6 @@
 // Delivery is permanent evidence. A numeric line name is usable only while
 // the exact field acquired from that receipt remains in the same membership.
+import { conversationById } from "./conversation_lookup.ts";
 import * as z from "zod/mini";
 import { conversationIdentity, HistoryCoordinateSchema, type WorkspaceSnapshot } from "./model.ts";
 
@@ -28,7 +29,7 @@ export class CompletedLine {
 	constructor(readonly result: LineResult | null, readonly adoption?: LineAdoption) {}
 	/** Read immediately before presentation, with no asynchronous work between. */
 	receipt(snapshot: WorkspaceSnapshot | null) {
-		const row = snapshot?.intent.conversations.find((row) => row.id === this.adoption?.conversation);
+		const row = conversationById(snapshot, this.adoption?.conversation);
 		const live = row != null && this.adoption != null &&
 			conversationIdentity(row) === this.adoption.identity && row.inbox === this.adoption.inbox &&
 			(row.kind === "room" ? row.seat != null : !row.closed) &&

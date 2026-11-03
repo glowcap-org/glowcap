@@ -1,4 +1,5 @@
 // Own retained gesture coordination from preparation through result acquisition.
+import { conversationById } from "./conversation_lookup.ts";
 import type { RoomsManagedCommand, RoomsManagedWorkspace } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { WorkspaceSnapshot } from "./model.ts";
@@ -181,7 +182,7 @@ export class ManagedEffects {
 	reserve(operation: string, name: string, args: string[]): void {
 		let scope = gestureScope(name, args);
 		if (name === "setEffectiveStanding") {
-			const room = this.session.current?.intent.conversations.find((row) => row.id === args[0]);
+			const room = conversationById(this.session.current, args[0]);
 			const directory = this.session.current?.intent.directories.find((row) => row.id === room?.directory);
 			scope = room?.kind === "room" && room.standing != null
 				? gestureScope("setRoomStanding", [room.id])
@@ -194,7 +195,7 @@ export class ManagedEffects {
 				id !== operation && record.intent != null && gesturesConflict(
 					record.intent,
 					{ name, args, scope },
-					(id) => this.session.current?.intent.conversations.find((row) => row.id === id)?.directory,
+					(id) => conversationById(this.session.current, id)?.directory,
 				)
 			) {
 				throw new Error("An operation on this target is still pending. Finish or recover it first.");

@@ -1,3 +1,4 @@
+import { conversationById } from "./conversation_lookup.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 // Page gestures acquire exact receipt occurrences. Rust executes all effects.
 import type {
@@ -486,7 +487,7 @@ export class ManagedActions {
 		}
 		if (this.#acquisitions.has(id)) return await this.recoverAcquisition(id);
 		const snapshot = await this.#session.candidate();
-		const conversation = snapshot.intent.conversations.find((row) => row.id === event.target.id);
+		const conversation = conversationById(snapshot, event.target.id);
 		if (conversation?.kind !== "direct") throw new Error("The initiating direct conversation is no longer held");
 		const notice = event.notice;
 		const source = fieldKey();

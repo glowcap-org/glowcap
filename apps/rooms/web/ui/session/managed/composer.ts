@@ -1,5 +1,6 @@
 // Submission stays with the initiating draft and conversation through command
 // admission, effect completion and exact result acquisition.
+import { conversationById } from "./conversation_lookup.ts";
 import { clearRefusal, remaining, rememberRefusal } from "../../admission_feedback.ts";
 import { conversationIdentity } from "./model.ts";
 import { editLine } from "./edit.ts";
@@ -337,7 +338,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		line?: number,
 		keep: number[] = [],
 	): Promise<ManagedOperation> {
-		const original = session.current?.intent.conversations.find((row) => row.id === id);
+		const original = conversationById(session.current, id);
 		if (original == null) throw new Error("The original conversation was removed");
 		const identity = conversationIdentity(original);
 		const originalLine = line == null ? undefined : original.lines?.find((row) => row.id === line)?.handle;
@@ -364,7 +365,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 				operation,
 				async () => {
 					const snapshot = await session.refresh();
-					const current = snapshot.intent.conversations.find((row) => row.id === id);
+					const current = conversationById(snapshot, id);
 					if (
 						current == null || conversationIdentity(current) !== identity ||
 						(line != null && current.lines?.find((row) => row.id === line)?.handle !== originalLine)

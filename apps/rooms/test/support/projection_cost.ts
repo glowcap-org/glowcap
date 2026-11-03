@@ -3,9 +3,10 @@ import { fixture, room } from "../session/managed_projection/fixture.ts";
 import * as store from "../../web/ui/store.ts";
 import type { Conv } from "../../web/ui/conversation.ts";
 
-export function projectionCost(conversations: number, displayedLines: number) {
+export function projectionCost(conversations: number, displayedLines: number, changeHeld = false) {
 	let conversationVisits = 0;
 	let lineIdReads = 0;
+	let historyWrites = 0;
 	const f = fixture();
 	try {
 		const rows = Array.from({ length: conversations }, (_, index) => ({
@@ -29,7 +30,7 @@ export function projectionCost(conversations: number, displayedLines: number) {
 				store.deliver(f.page.projection, conversation.key, {
 					...store.chatItem(f.page.projection, "peer", "retained line", false),
 					lineId: at + 1,
-					held: at % 2 === 0,
+					held: changeHeld ? at % 2 !== 0 : at % 2 === 0,
 				});
 			}
 		}
@@ -57,6 +58,7 @@ export function projectionCost(conversations: number, displayedLines: number) {
 		const set = f.page.projection.set.bind(f.page.projection);
 		f.page.projection.set = (patch) => {
 			if (patch.convs) countValues(patch.convs);
+			if (patch.histories) historyWrites++;
 			set(patch);
 		};
 		f.page.projection.set({ convs: new Map(f.page.projection.get().convs) });
@@ -71,7 +73,7 @@ export function projectionCost(conversations: number, displayedLines: number) {
 				throw new Error("projection changed exact displayed line custody");
 			}
 		}
-		return { conversations, displayedLines, conversationVisits: visits, lineIdReads };
+		return { conversations, displayedLines, conversationVisits: visits, lineIdReads, historyWrites };
 	} finally {
 		f.close();
 	}

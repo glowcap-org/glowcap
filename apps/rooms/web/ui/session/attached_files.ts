@@ -6,7 +6,7 @@ import * as store from "../store.ts";
 import { blobOf } from "../blob.ts";
 import type { AttachmentView, Item, ViewerDirection } from "../conversation.ts";
 
-import { ARCHIVED_BYTES_UNAVAILABLE } from "../archive_attachments.ts";
+import { ARCHIVED_BYTES_UNAVAILABLE } from "../archive_content.ts";
 import { settleViewCleanup } from "./cleanup.ts";
 import type { PageProjection } from "../store/projection.ts";
 
