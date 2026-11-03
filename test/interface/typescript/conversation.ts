@@ -1,50 +1,42 @@
-// Generated calls meet raw behaviors while the factory answer remains pending.
-import { type Argument, Host, Ref, Runtime } from "@glowcap/runtime";
-import * as tcp from "@glowcap/tcp";
+// Generated callers meet raw behaviors while the factory answer remains pending.
+import { type Argument, GlowcapError, type HostProfile, Ref, VowBroken } from "@glowcap/runtime";
 import * as generated from "../generated/callbacks.ts";
 import { invocation } from "./invocation.ts";
+import { assert, withPair } from "./pair.ts";
 
-function assert(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
-}
+type Outcome = "reader" | "wrong" | "broken" | "cancel";
 
-async function scenario(wrong: boolean): Promise<void> {
-	await using host = new Host();
-	let settle: ((value: Argument) => void) | undefined;
-	let sink: Ref | undefined;
-	let argument: Ref | undefined;
-	let pending = false;
+async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
+	await withPair(profile, async (host, client, accepted) => {
+		let settle: ((value: Argument) => void) | undefined;
+		let rejectOpen: ((reason: unknown) => void) | undefined;
+		let sink: Ref | undefined;
+		let argument: Ref | undefined;
+		let pending = false;
 
-	host.publish("factory", (verb, args) => {
-		assert(args.length === 1 && args[0] instanceof Ref, "reference argument");
-		if (verb === "open") {
-			sink = args[0];
-			pending = true;
-			return new Promise<Argument>((resolve) => settle = resolve);
-		}
-		if (verb === "accept") {
-			assert(pending, "argument must arrive before fulfillment");
-			argument = args[0];
-			return undefined;
-		}
-		throw new Error("unknown factory method");
-	});
-	const server = await tcp.listen("127.0.0.1", 0, { host });
-	await using runtime = await Runtime.open({ providers: [tcp.provider()] });
-	const accepting = server[Symbol.asyncIterator]().next();
-	const client = await runtime.connect(tcp.locator("127.0.0.1", server.port));
-	const incoming = await accepting;
-	assert(!incoming.done, "accepted connection");
-	const accepted = incoming.value;
-	const serving = accepted.serve();
-	const reader = accepted.spawn((verb, args) => {
-		assert(args.length === 0, "reader arguments");
-		if (verb === "read") return "reader value";
-		if (verb === "then") return "ordinary then method";
-		throw new Error("unknown reader method");
-	});
-	const failures: unknown[] = [];
-	try {
+		host.publish("factory", (verb, args) => {
+			assert(args.length === 1 && args[0] instanceof Ref, "reference argument");
+			if (verb === "open") {
+				sink = args[0];
+				pending = true;
+				return new Promise<Argument>((resolve, reject) => {
+					settle = resolve;
+					rejectOpen = reject;
+				});
+			}
+			if (verb === "accept") {
+				assert(pending, "argument must arrive before fulfillment");
+				argument = args[0];
+				return undefined;
+			}
+			throw new Error("unknown factory method");
+		});
+		const reader = accepted.spawn((verb, args) => {
+			assert(args.length === 0, "reader arguments");
+			if (verb === "read") return "reader value";
+			if (verb === "then") return "ordinary then method";
+			throw new Error("unknown reader method");
+		});
 		const root = await client.fetch("factory");
 		let received: Ref | undefined;
 		let notices = 0;
@@ -66,38 +58,63 @@ async function scenario(wrong: boolean): Promise<void> {
 		await generated.sink_changed(accepted, sink, "notice");
 		await generated.sink_push(accepted, sink, argument).observe();
 		assert(received && notices === 1, "callback and notification delivered");
+
 		const raw = opened.raw.then((value) => value);
 		const pipelined = generated.reader_read(client, opened.raw);
-		const typed = opened.observe();
+		const observed = Promise.allSettled([opened.observe(), raw, pipelined.observe()]);
 		pending = false;
-		settle(wrong ? "not a reader" : reader);
-		if (wrong) {
-			const results = await Promise.allSettled([typed, pipelined.observe()]);
-			assert(results[0].status === "rejected" && results[0].reason instanceof TypeError, "typed refusal");
-			assert(results[1].status === "rejected", "invalid pipeline refused");
-			assert(await raw === "not a reader", "typed refusal preserves raw observation");
+		if (outcome === "cancel") {
+			await client.close({ pending: "cancel" });
+		} else if (outcome === "broken") {
+			assert(rejectOpen, "factory rejection authority");
+			rejectOpen(new Error("future factory refusal"));
 		} else {
-			const reference = await typed;
-			assert(reference instanceof Ref && await raw instanceof Ref, "capability fulfillment");
-			assert(await pipelined.observe() === "reader value", "pipeline result");
-			assert(await generated.reader_then(client, reference).observe() === "ordinary then method", "wire then");
+			settle(outcome === "wrong" ? "not a reader" : reader);
 		}
-	} catch (error) {
-		failures.push(error);
-	}
-	for (const cleanup of [() => client.close({ pending: "cancel" }), () => server.close(), () => serving]) {
-		try {
-			await cleanup();
-		} catch (error) {
-			failures.push(error);
+		const [typed, untyped, pipeline] = await observed;
+		if (outcome === "reader") {
+			assert(typed.status === "fulfilled" && typed.value instanceof Ref, "typed capability fulfillment");
+			assert(untyped.status === "fulfilled" && untyped.value instanceof Ref, "raw capability fulfillment");
+			assert(pipeline.status === "fulfilled" && pipeline.value === "reader value", "pipeline result");
+			assert(await generated.reader_then(client, typed.value).observe() === "ordinary then method", "wire then");
+		} else if (outcome === "wrong") {
+			assert(typed.status === "rejected" && typed.reason instanceof TypeError, "typed refusal");
+			assert(
+				untyped.status === "fulfilled" && untyped.value === "not a reader",
+				"raw outcome survives typed refusal",
+			);
+			assert(pipeline.status === "rejected", "invalid pipeline refused");
+		} else {
+			assert(
+				typed.status === "rejected" && untyped.status === "rejected" && pipeline.status === "rejected",
+				"all observations refused",
+			);
+			assert(typed.reason === untyped.reason, "typed observation replaced runtime failure");
+			assert(
+				typed.reason instanceof GlowcapError && pipeline.reason instanceof GlowcapError,
+				"runtime failure remains typed",
+			);
+			if (outcome === "broken") {
+				assert(
+					typed.reason instanceof VowBroken && pipeline.reason instanceof VowBroken,
+					"remote break remains typed",
+				);
+				assert(typed.reason.reason === "future factory refusal", "unknown remote break retained");
+				assert(pipeline.reason.reason === "future factory refusal", "pipeline remote break retained");
+			} else {
+				// The late application result must not revive the closed call.
+				settle(reader);
+			}
 		}
-	}
-	if (failures.length) throw new AggregateError(failures, "interface conversation failed");
+	});
 }
 
 await invocation();
-await scenario(false);
-await scenario(true);
+for (const profile of ["interop", "glowcap"] satisfies HostProfile[]) {
+	for (const outcome of ["reader", "wrong", "broken", "cancel"] satisfies Outcome[]) {
+		await scenario(profile, outcome);
+	}
+}
 console.log(
-	"interface TypeScript: immediate send, pending argument, callback, pipeline, invalid reply, and then passed",
+	"interface TypeScript: both profiles, pending callbacks, pipelines, invalid replies, breaks, and close cancellation passed",
 );

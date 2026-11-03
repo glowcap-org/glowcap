@@ -139,9 +139,6 @@ async fn scenario(codec: Codec, version: CaptpVersion, outcome: Outcome, settled
 		},
 	)
 	.await;
-	let profile = pair.client.profile().unwrap();
-	assert_eq!(profile.codec, codec);
-	assert_eq!(profile.captp_version, version);
 	let root = pair.client.fetch("prepared").await.unwrap();
 	let original = pair.client.send(&root, "source", &[]);
 	barrier(&pair, &root).await;
@@ -240,9 +237,6 @@ async fn abandon(codec: Codec, version: CaptpVersion, invalid_sequence: bool) {
 		},
 	)
 	.await;
-	let profile = pair.client.profile().unwrap();
-	assert_eq!(profile.codec, codec);
-	assert_eq!(profile.captp_version, version);
 	let root = pair.client.fetch("prepared").await.unwrap();
 	let original = pair.client.send(&root, "source", &[]);
 	barrier(&pair, &root).await;

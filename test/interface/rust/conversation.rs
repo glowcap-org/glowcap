@@ -2,7 +2,9 @@
 //! behaviors. Factory.open stays pending through argument admission and callback.
 use crate::callbacks;
 use crate::pair::Pair;
-use glowcap::{Argument, Host, Ref, Resolver};
+use glowcap::{Argument, Host, HostOptions, HostProfile, Ref, Resolver};
+use std::future::{Future, IntoFuture, poll_fn};
+use std::task::Poll;
 use std::{cell::RefCell, rc::Rc};
 
 #[derive(Default)]
@@ -17,14 +19,32 @@ struct Sink {
 	notices: usize,
 }
 
-pub async fn run() {
-	scenario(false, false).await;
-	scenario(false, true).await;
-	scenario(true, false).await;
+#[derive(Clone, Copy, Debug)]
+enum Outcome {
+	Reader,
+	Wrong,
+	Broken,
+}
+#[derive(Clone, Copy, Debug)]
+enum Handle {
+	Keep,
+	Discard,
+	CancelObservation,
 }
 
-async fn scenario(wrong_fulfillment: bool, discard_original: bool) {
-	let host = Host::with_options(Default::default()).unwrap();
+pub async fn run() {
+	for profile in [HostProfile::Interop, HostProfile::Glowcap] {
+		for outcome in [Outcome::Reader, Outcome::Wrong, Outcome::Broken] {
+			for handle in [Handle::Keep, Handle::Discard, Handle::CancelObservation] {
+				scenario(profile, outcome, handle).await;
+			}
+		}
+	}
+}
+
+async fn scenario(profile: HostProfile, outcome: Outcome, handle: Handle) {
+	let options = HostOptions::with_profile(profile);
+	let host = Host::with_options(options).unwrap();
 	let reader = host
 		.spawn(|verb, args| {
 			assert!(args.is_empty());
@@ -63,7 +83,7 @@ async fn scenario(wrong_fulfillment: bool, discard_original: bool) {
 		})
 	})
 	.unwrap();
-	let pair = Pair::open(&host, Default::default()).await;
+	let pair = Pair::open(&host, options).await;
 	let client = &pair.client;
 	let accepted = &pair.accepted;
 	let root = client.fetch("factory").await.unwrap();
@@ -89,13 +109,27 @@ async fn scenario(wrong_fulfillment: bool, discard_original: bool) {
 		.await
 		.unwrap_err();
 	assert!(matches!(foreign, callbacks::Error::Runtime(error) if error.kind() == glowcap::ErrorKind::InvalidArgument));
-	if discard_original {
-		drop(opened.take());
-		callbacks::factory_accept(client, &root, &retained).await.unwrap();
-	} else {
-		callbacks::factory_accept(client, &root, opened.as_ref().unwrap().raw())
+	match handle {
+		Handle::Keep => callbacks::factory_accept(client, &root, opened.as_ref().unwrap().raw())
 			.await
-			.unwrap();
+			.unwrap(),
+		Handle::Discard | Handle::CancelObservation => {
+			let original = opened.take().unwrap();
+			if matches!(handle, Handle::CancelObservation) {
+				let mut observation = std::pin::pin!(original.into_future());
+				poll_fn(|cx| {
+					assert!(
+						observation.as_mut().poll(cx).is_pending(),
+						"factory settled before cancellation"
+					);
+					Poll::Ready(())
+				})
+				.await;
+			} else {
+				drop(original);
+			}
+			callbacks::factory_accept(client, &root, &retained).await.unwrap();
+		}
 	}
 	assert!(factory.borrow().resolver.is_some());
 	let sink_target = factory.borrow().sink.clone().unwrap();
@@ -107,26 +141,46 @@ async fn scenario(wrong_fulfillment: bool, discard_original: bool) {
 	let raw_observer = client.listen(&alias);
 	let pipelined = callbacks::reader_read(client, &retained);
 	let mut resolver = factory.borrow_mut().resolver.take().unwrap();
-	if wrong_fulfillment {
-		resolver.fulfill(&Argument::String("not a reader".into())).unwrap();
-		assert!(matches!(
-			opened.take().unwrap().await,
-			Err(callbacks::Error::InvalidReply)
-		));
-		assert_eq!(raw_observer.await.unwrap().as_str(), Some("not a reader"));
-		assert!(matches!(pipelined.await, Err(callbacks::Error::Runtime(_))));
-	} else {
-		resolver.fulfill_value(&(&reader).into()).unwrap();
-		if let Some(opened) = opened {
-			let _ = opened.await.unwrap();
+	match outcome {
+		Outcome::Wrong => {
+			resolver.fulfill(&Argument::String("not a reader".into())).unwrap();
+			if let Some(opened) = opened {
+				assert!(matches!(opened.await, Err(callbacks::Error::InvalidReply)));
+			}
+			assert_eq!(raw_observer.await.unwrap().as_str(), Some("not a reader"));
+			assert!(matches!(pipelined.await, Err(callbacks::Error::Runtime(_))));
 		}
-		assert_eq!(pipelined.await.unwrap(), "reader value");
-		let observed = Ref::try_from(&raw_observer.await.unwrap()).unwrap();
-		assert_eq!(
-			callbacks::reader_then(client, &observed).await.unwrap(),
-			"ordinary then method"
-		);
+		Outcome::Broken => {
+			resolver.break_with("future factory refusal").unwrap();
+			if let Some(opened) = opened {
+				let Err(callbacks::Error::Runtime(error)) = opened.await else {
+					panic!("typed call lost remote break")
+				};
+				assert_eq!(error.message(), Some("future factory refusal"));
+			}
+			assert_eq!(
+				raw_observer.await.unwrap_err().message(),
+				Some("future factory refusal")
+			);
+			let Err(callbacks::Error::Runtime(error)) = pipelined.await else {
+				panic!("pipeline lost remote break")
+			};
+			assert_eq!(error.message(), Some("future factory refusal"));
+		}
+		Outcome::Reader => {
+			resolver.fulfill_value(&(&reader).into()).unwrap();
+			if let Some(opened) = opened {
+				let _ = opened.await.unwrap();
+			}
+			assert_eq!(pipelined.await.unwrap(), "reader value");
+			let observed = Ref::try_from(&raw_observer.await.unwrap()).unwrap();
+			assert_eq!(
+				callbacks::reader_then(client, &observed).await.unwrap(),
+				"ordinary then method"
+			);
+		}
 	}
+
 	drop(retained);
 	pair.close().await;
 }

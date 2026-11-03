@@ -28,6 +28,12 @@ Generated Rust and TypeScript callers distinguish positional invocation, empty-s
 methods, and named methods on both profiles. Rust checks that the positional
 tell carries no answer authority.
 
+The callback matrix holds the factory reply open through admission and checks
+wrong fulfillment, remote break messages, and independent raw observation.
+Rust drops both unobserved handles and polled observations while retaining the
+argument. TypeScript cancels with original, repeated, and pipelined observations
+active. Shared pair fixtures assert the negotiated profile and own cleanup.
+
 Expected message constants come from `messages.syrup`, never from the interface
 definitions under test. A `fixture:ref` value is a substitution slot for a
 Host-owned reference, never a transmitted value.

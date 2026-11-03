@@ -139,6 +139,7 @@ listening, and events, over a Host it has adopted.
   ([ADR-0030](decisions/adr/ADR-0030-failure-and-close-policy.md)). This works on the Zig Host, the C ABI, the
   driver loop, and all four bindings. Close reports the first failure, a bounded list of the rest, and their count.
   A second close waits on the first.
+  TypeScript cancellation rejects pending original, repeated, and pipelined observations with typed close failures.
 
 The value model covers the pinned OCapN scalar and aggregate forms, including big integers, Struct, and Error as
 data, plus Goblins' Set and Keyword. An Error value stays distinct from a broken promise on every surface. OCapN Null
