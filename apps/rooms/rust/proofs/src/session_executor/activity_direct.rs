@@ -76,10 +76,7 @@ pub(super) async fn run(
 	let mut intent = candidate.intent.clone();
 	let mut received = (**row).clone();
 	received.id = rooms_application::fields::Text::new("received".into()).unwrap();
-	received.access = Some(custody::FieldKey::new(
-		destination.key.slot(),
-		destination.key.generation(),
-	));
+	received.access = Some(destination.key.retag());
 	received.inbox = None;
 	received.lines = List::default();
 	let mut conversations = intent.conversations.as_slice().to_vec();

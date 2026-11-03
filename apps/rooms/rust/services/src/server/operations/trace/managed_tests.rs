@@ -10,6 +10,7 @@ use rooms_application::{
 	session::operations::{Snapshot, mutation::Kind},
 };
 use rooms_glowcap::client::workspace::Import;
+use rooms_testing::scratch::Scratch;
 use std::{num::NonZeroU64, rc::Rc, time::Duration};
 use tokio_tungstenite::tungstenite::{
 	Message,
@@ -53,23 +54,11 @@ impl tokio_tungstenite::tungstenite::handshake::server::Callback for CaptureRequ
 }
 #[tokio::test]
 async fn session_peer_trace_uses_exact_recipe_retires_on_narrowing_and_recovers() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(25), scenario(false))
-				.await
-				.expect("managed trace deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(25), scenario(false)).await;
 }
 #[tokio::test]
 async fn session_peer_trace_records_exporter_close_4403() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(25), scenario(true))
-				.await
-				.expect("managed trace refusal deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(25), scenario(true)).await;
 }
 async fn scenario(refused: bool) {
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -120,8 +109,10 @@ async fn scenario(refused: bool) {
 	)
 	.await
 	.unwrap();
-	let temp = Temp::new();
-	let mut peer = Peer::open(tcp_config(temp.0.clone()), Rc::new(|_| {})).await.unwrap();
+	let temp = Scratch::create("managed-trace");
+	let mut peer = Peer::open(tcp_config(temp.to_path_buf()), Rc::new(|_| {}))
+		.await
+		.unwrap();
 	let local = peer.local().unwrap();
 	let reference = local.host.enliven(&timeline.sturdyref).await.unwrap();
 	let mut snapshot = local.workspace.snapshot().await.unwrap();
@@ -206,25 +197,6 @@ async fn scenario(refused: bool) {
 	server.abort();
 }
 
-struct Temp(std::path::PathBuf);
-impl Temp {
-	fn new() -> Self {
-		let mut nonce = [0; 8];
-		rooms_platform::entropy::fill(&mut nonce).unwrap();
-		let path = std::env::temp_dir().join(format!(
-			"rooms-managed-trace-{}-{:x}",
-			std::process::id(),
-			u64::from_be_bytes(nonce)
-		));
-		std::fs::create_dir(&path).unwrap();
-		Self(path)
-	}
-}
-impl Drop for Temp {
-	fn drop(&mut self) {
-		let _ = std::fs::remove_dir_all(&self.0);
-	}
-}
 fn tcp_config(state: std::path::PathBuf) -> Config {
 	Config {
 		admission: rooms_application::admission::Settings::defaults(4096, 8),
@@ -245,55 +217,50 @@ fn tcp_config(state: std::path::PathBuf) -> Config {
 
 #[tokio::test]
 async fn trace_web_channel_requires_swiss_at_fetch_and_refuses_unknown_routes() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(20), async {
-				let swiss = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-				let timeline = super::Trace::start(0, swiss.into(), None, None, Rc::new(|_| {}))
-					.await
-					.unwrap();
-				let parsed = glowcap::parse_sturdyref(&timeline.sturdyref, glowcap::CaptpVersion::V1_0).unwrap();
-				let glowcap::HintValue::String(endpoint) =
-					parsed.locator.hints.get(rooms_application::web_channel::HINT).unwrap()
-				else {
-					panic!("exact browser channel missing");
-				};
-				let (ws, _) = tokio_tungstenite::connect_async(endpoint).await.unwrap();
-				let host = glowcap::Host::from_seed([219; 32]).unwrap();
-				let session = glowcap::Session::dial_channel(
-					&host,
-					&parsed.locator,
-					rooms_platform::websocket::WsBytes::new(ws).into_channel(),
-					Some(Duration::from_secs(5)),
-					None,
-				)
-				.await
-				.unwrap();
-				assert!(
-					session.fetch("wrong-swiss").await.is_err(),
-					"opening the channel grants no trace capability"
-				);
-				let trace = session.fetch(swiss).await.unwrap();
-				let inbox = host.spawn(|_, _| Ok(glowcap::Argument::Void)).unwrap();
-				session.send(&trace, "subscribe", &[inbox.into()]).await.unwrap();
-				for route in [
-					format!("ws://127.0.0.1:{}/unknown?cap={swiss}", timeline.port),
-					format!("ws://127.0.0.1:{}/captp?cap={swiss}", timeline.port),
-					format!("ws://127.0.0.1:{}/", timeline.port),
-				] {
-					let (mut ws, _) = tokio_tungstenite::connect_async(route).await.unwrap();
-					let Some(Ok(Message::Close(Some(close)))) = ws.next().await else {
-						panic!("unadmitted route was not closed");
-					};
-					assert_eq!(close.code, CloseCode::from(4403));
-				}
-				drop(trace);
-				session.close(glowcap::PendingWork::Cancel).await.unwrap();
-				host.close(glowcap::PendingWork::Cancel).await.unwrap();
-				timeline.close().await;
-			})
+	rooms_testing::local_set::run_within(Duration::from_secs(20), async {
+		let swiss = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+		let timeline = super::Trace::start(0, swiss.into(), None, None, Rc::new(|_| {}))
 			.await
-			.expect("trace channel admission deadline");
-		})
-		.await;
+			.unwrap();
+		let parsed = glowcap::parse_sturdyref(&timeline.sturdyref, glowcap::CaptpVersion::V1_0).unwrap();
+		let glowcap::HintValue::String(endpoint) =
+			parsed.locator.hints.get(rooms_application::web_channel::HINT).unwrap()
+		else {
+			panic!("exact browser channel missing");
+		};
+		let (ws, _) = tokio_tungstenite::connect_async(endpoint).await.unwrap();
+		let host = glowcap::Host::from_seed([219; 32]).unwrap();
+		let session = glowcap::Session::dial_channel(
+			&host,
+			&parsed.locator,
+			rooms_platform::websocket::WsBytes::new(ws).into_channel(),
+			Some(Duration::from_secs(5)),
+			None,
+		)
+		.await
+		.unwrap();
+		assert!(
+			session.fetch("wrong-swiss").await.is_err(),
+			"opening the channel grants no trace capability"
+		);
+		let trace = session.fetch(swiss).await.unwrap();
+		let inbox = host.spawn(|_, _| Ok(glowcap::Argument::Void)).unwrap();
+		session.send(&trace, "subscribe", &[inbox.into()]).await.unwrap();
+		for route in [
+			format!("ws://127.0.0.1:{}/unknown?cap={swiss}", timeline.port),
+			format!("ws://127.0.0.1:{}/captp?cap={swiss}", timeline.port),
+			format!("ws://127.0.0.1:{}/", timeline.port),
+		] {
+			let (mut ws, _) = tokio_tungstenite::connect_async(route).await.unwrap();
+			let Some(Ok(Message::Close(Some(close)))) = ws.next().await else {
+				panic!("unadmitted route was not closed");
+			};
+			assert_eq!(close.code, CloseCode::from(4403));
+		}
+		drop(trace);
+		session.close(glowcap::PendingWork::Cancel).await.unwrap();
+		host.close(glowcap::PendingWork::Cancel).await.unwrap();
+		timeline.close().await;
+	})
+	.await;
 }

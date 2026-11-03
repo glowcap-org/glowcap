@@ -4,23 +4,17 @@ use super::super::{
 	Error,
 	value::{self, Stored, Values},
 };
+use super::MAX_SAFE;
 use rooms_application::archive::{
 	self, ConversationKind, Filter, Kind, Record, blobs::Address, index::Entry, output::Output,
 };
 use std::sync::Arc;
 use wasm_bindgen::{JsCast, JsValue};
-const MAX_SAFE: u64 = (1 << 53) - 1;
 fn kind(record: &Record) -> &'static str {
 	if record.kind() == Kind::Line {
 		"line"
 	} else {
 		"standing"
-	}
-}
-fn conversation(kind: ConversationKind) -> &'static str {
-	match kind {
-		ConversationKind::Room => "room",
-		ConversationKind::Direct => "direct",
 	}
 }
 fn json(value: impl serde::Serialize) -> Result<JsValue, Error> {
@@ -34,7 +28,7 @@ pub(super) fn key(record: &Record) -> Result<JsValue, Error> {
 		&c.source,
 		&c.generation,
 		kind(record),
-		record.conversation_kind().map(conversation).unwrap_or(""),
+		record.conversation_kind().map(ConversationKind::wire).unwrap_or(""),
 		record.directory(),
 		record.conversation(),
 		&c.id,
@@ -45,7 +39,7 @@ pub(super) fn key(record: &Record) -> Result<JsValue, Error> {
 pub(super) fn context(record: &Record) -> Result<JsValue, Error> {
 	json((
 		kind(record),
-		record.conversation_kind().map(conversation).unwrap_or(""),
+		record.conversation_kind().map(ConversationKind::wire).unwrap_or(""),
 		record.directory(),
 		record.conversation(),
 	))
@@ -61,7 +55,7 @@ pub(super) fn selected_context(filter: &Filter) -> Result<Option<JsValue>, Error
 	) else {
 		return Ok(None);
 	};
-	json(("line", conversation(kind), directory, conversation_id)).map(Some)
+	json(("line", kind.wire(), directory, conversation_id)).map(Some)
 }
 pub(super) fn coordinates(record: &Record) -> Result<JsValue, Error> {
 	let c = record.coordinates();
@@ -71,7 +65,7 @@ pub(super) fn coordinates(record: &Record) -> Result<JsValue, Error> {
 			&c.generation,
 			&c.id,
 			"line",
-			conversation(k),
+			k.wire(),
 			record.directory(),
 			record.conversation(),
 		)),
@@ -91,7 +85,7 @@ pub(in crate::storage) fn address_key(address: &Address) -> Result<JsValue, Erro
 		&c.source,
 		&c.generation,
 		&c.id,
-		conversation(address.conversation_kind()),
+		address.conversation_kind().wire(),
 		address.directory(),
 		address.conversation(),
 		address.index(),
@@ -104,7 +98,7 @@ pub(in crate::storage) fn address_coordinates(address: &Address) -> Result<JsVal
 		&c.generation,
 		&c.id,
 		"line",
-		conversation(address.conversation_kind()),
+		address.conversation_kind().wire(),
 		address.directory(),
 		address.conversation(),
 	))

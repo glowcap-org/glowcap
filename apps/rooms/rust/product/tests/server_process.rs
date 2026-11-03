@@ -1,50 +1,15 @@
 //! Exercise the directory executable's loader, options, custody, banner, and
 //! signal barrier the way an operator meets them.
 #![cfg(test)]
+use rooms_testing::{child_process::Process, scratch::Scratch};
 use std::{
 	io::{BufRead, BufReader},
-	path::PathBuf,
-	process::{Child, Command, ExitStatus, Stdio},
+	process::{Command, Stdio},
 	sync::mpsc,
-	time::{Duration, Instant},
+	time::Duration,
 };
 #[path = "server_process/operator.rs"]
 mod operator;
-struct Process(Child);
-impl Process {
-	fn wait(&mut self) -> ExitStatus {
-		let deadline = Instant::now() + Duration::from_secs(5);
-		loop {
-			if let Some(status) = self.0.try_wait().unwrap() {
-				return status;
-			}
-			assert!(Instant::now() < deadline, "directory process did not finish");
-			std::thread::sleep(Duration::from_millis(5));
-		}
-	}
-	fn signal(&mut self, name: &str) {
-		assert!(
-			Command::new("/bin/kill")
-				.args([name, &self.0.id().to_string()])
-				.status()
-				.unwrap()
-				.success()
-		);
-		assert!(self.wait().success(), "directory signal shutdown failed");
-	}
-}
-impl Drop for Process {
-	fn drop(&mut self) {
-		let _ = self.0.kill();
-		let _ = self.0.wait();
-	}
-}
-struct Temp(PathBuf);
-impl Drop for Temp {
-	fn drop(&mut self) {
-		std::fs::remove_dir_all(&self.0).unwrap();
-	}
-}
 fn command() -> Command {
 	let installed = std::env::var_os("GLOWCAP_ROOMS_SERVER_TEST_BIN");
 	let mut command = Command::new(
@@ -65,7 +30,7 @@ fn command() -> Command {
 }
 /// Read `process`'s stderr until `until` appears, answering everything read.
 fn stderr_until(process: &mut Process, until: &str) -> String {
-	let stderr = process.0.stderr.take().unwrap();
+	let stderr = process.child.stderr.take().unwrap();
 	let (sender, receiver) = mpsc::sync_channel(1);
 	let until = until.to_owned();
 	std::thread::spawn(move || {
@@ -90,9 +55,8 @@ fn stderr_until(process: &mut Process, until: &str) -> String {
 
 #[test]
 fn rooms_server_executable_prints_the_capabilities_it_minted() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-server-caps-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
-	let state = temp.0.join("state");
+	let temp = Scratch::create("server-caps");
+	let state = temp.join("state");
 	let started = || {
 		let mut cmd = command();
 		cmd.arg(format!("--state={}", state.display()))
@@ -105,7 +69,7 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 		cmd
 	};
 	// Standalone, the block names what is serving and ends on the ready line.
-	let mut process = Process(started().spawn().unwrap());
+	let mut process = Process::new(started().spawn().unwrap(), "directory");
 	let block = stderr_until(&mut process, "rooms: ready");
 	assert!(
 		block.lines().any(|line| line == "rooms: directory listening"),
@@ -167,7 +131,10 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	process.signal("-TERM");
 	// Supervised, only complete recipes print. A new listening address changes
 	// their route, while the saved publication identities remain exact.
-	let mut again = Process(started().env("GLOWCAP_ROOMS_SUPERVISED", "1").spawn().unwrap());
+	let mut again = Process::new(
+		started().env("GLOWCAP_ROOMS_SUPERVISED", "1").spawn().unwrap(),
+		"directory",
+	);
 	let lines = stderr_until(&mut again, "ROOMS-IRC");
 	assert!(!lines.contains("rooms: directory listening"), "{lines}");
 	assert_eq!(
@@ -199,20 +166,23 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 
 #[test]
 fn rooms_server_executable_custody_restart_and_signals() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-server-process-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
-	let mut help = Process(command().arg("--help").stdout(Stdio::null()).spawn().unwrap());
+	let temp = Scratch::create("server-process");
+	let mut help = Process::new(
+		command().arg("--help").stdout(Stdio::null()).spawn().unwrap(),
+		"directory",
+	);
 	assert!(help.wait().success());
-	let mut invalid = Process(
+	let mut invalid = Process::new(
 		command()
 			.args(["--transport=tcp", "--port=bad"])
 			.stderr(Stdio::null())
 			.spawn()
 			.unwrap(),
+		"directory",
 	);
 	assert!(!invalid.wait().success());
 	for transport in ["tcp", "iroh"] {
-		let state = temp.0.join(transport);
+		let state = temp.join(transport);
 		let mut document = None;
 		let mut designator = None;
 		for signal in ["-TERM", "-INT"] {
@@ -222,8 +192,8 @@ fn rooms_server_executable_custody_restart_and_signals() {
 			if transport == "iroh" {
 				cmd.arg("--reachability=direct");
 			}
-			let mut process = Process(cmd.stdout(Stdio::piped()).spawn().unwrap());
-			let stdout = process.0.stdout.take().unwrap();
+			let mut process = Process::new(cmd.stdout(Stdio::piped()).spawn().unwrap(), "directory");
+			let stdout = process.child.stdout.take().unwrap();
 			let (sender, receiver) = mpsc::sync_channel(1);
 			let reader = std::thread::spawn(move || {
 				let mut line = String::new();
@@ -259,13 +229,14 @@ fn rooms_server_executable_custody_restart_and_signals() {
 				assert_eq!(&bytes, previous);
 			}
 			document = Some(bytes);
-			let mut contender = Process(
+			let mut contender = Process::new(
 				command()
 					.arg(format!("--state={}", state.display()))
 					.arg("--transport=tcp")
 					.stderr(Stdio::null())
 					.spawn()
 					.unwrap(),
+				"directory",
 			);
 			assert!(
 				!contender.wait().success(),

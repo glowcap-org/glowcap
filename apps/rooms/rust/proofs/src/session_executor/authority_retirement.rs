@@ -1,5 +1,5 @@
 //! Callback retirement authenticates its source and removes only matching recipes.
-use super::*;
+use super::{requests::coordinate, *};
 use rooms_application::content::session::workspace::{self, Conversation, InboxSelection};
 use rooms_glowcap::client::workspace::Workspace;
 
@@ -11,12 +11,6 @@ async fn authority_notices_preserve_replacements_and_seats_without_restoring_wit
 pub(super) async fn run() {
 	for role in ["room", "steward", "manager"] {
 		run_case(role).await;
-	}
-}
-fn coordinate(role: custody::Role, slot: u64) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(NonZeroU64::new(slot).unwrap(), NonZeroU64::new(1).unwrap()),
 	}
 }
 async fn run_case(role: &str) {
@@ -180,19 +174,10 @@ async fn run_case(role: &str) {
 				for row in replaced.conversations.as_mut_slice() {
 					let Conversation::Room(room) = row else { panic!("room") };
 					if selected_role == custody::Role::RoomAccess {
-						room.access = Some(custody::FieldKey::new(
-							replacement_key.slot(),
-							replacement_key.generation(),
-						));
-						room.moderator = Some(custody::FieldKey::new(
-							replacement_key.slot(),
-							replacement_key.generation(),
-						));
+						room.access = Some(replacement_key.retag());
+						room.moderator = Some(replacement_key.retag());
 					} else {
-						room.control = Some(custody::FieldKey::new(
-							replacement_key.slot(),
-							replacement_key.generation(),
-						));
+						room.control = Some(replacement_key.retag());
 					}
 				}
 				let replacement_coordinate = custody::Coordinate {

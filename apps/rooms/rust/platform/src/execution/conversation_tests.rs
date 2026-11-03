@@ -41,13 +41,7 @@ impl rooms_glowcap::client::Tasks for ObservedDeadline {
 
 #[tokio::test]
 async fn conversation_capabilities_have_independent_lifetimes_and_bounded_transfers() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("conversation scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let host = Host::from_seed([84; 32]).unwrap();

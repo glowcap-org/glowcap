@@ -31,7 +31,7 @@ pub(super) async fn run(
 		result: coordinate(role),
 		destination: custody::Coordinate {
 			role,
-			key: custody::FieldKey::new(source.slot(), source.generation()),
+			key: source.retag(),
 		},
 	});
 	let acquisition = command

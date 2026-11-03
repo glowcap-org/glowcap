@@ -251,8 +251,7 @@ pub(super) async fn run() {
 						let selected = requests::coordinate(custody::Role::SessionAccess, 8);
 						owner.import(selected, foreign, None).await.unwrap();
 						let mut mismatched = row.clone();
-						mismatched.source =
-							Some(custody::FieldKey::new(selected.key.slot(), selected.key.generation()));
+						mismatched.source = Some(selected.key.retag());
 						let error = match owner.room_source(&mismatched, &intent).await {
 							Ok(_) => panic!("foreign session cannot realize a local worker"),
 							Err(error) => error,

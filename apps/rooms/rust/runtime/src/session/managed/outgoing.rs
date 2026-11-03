@@ -56,12 +56,6 @@ pub(super) struct Capture<P: Tasks> {
 	post: bool,
 	upload: bool,
 }
-fn coordinate<K>(role: custody::Role, key: FieldKey<K>) -> Coordinate {
-	Coordinate {
-		role,
-		key: FieldKey::new(key.slot(), key.generation()),
-	}
-}
 fn restore(location: records::Location) -> Result<ReferenceRequest> {
 	Ok(ReferenceRequest::RestorePage {
 		page: location
@@ -79,17 +73,17 @@ pub(super) fn references(
 		.outgoing
 		.as_slice()
 		.iter()
-		.find(|origin| coordinate(custody::Role::Line, origin.line) == target)
+		.find(|origin| Coordinate::new(custody::Role::Line, origin.line) == target)
 	else {
 		return Ok(Vec::new());
 	};
-	std::iter::once(coordinate(custody::Role::SessionAccess, origin.source))
+	std::iter::once(Coordinate::new(custody::Role::SessionAccess, origin.source))
 		.chain(
 			origin
 				.files
 				.as_slice()
 				.iter()
-				.map(|file| coordinate(custody::Role::SourceBlob, file.source)),
+				.map(|file| Coordinate::new(custody::Role::SourceBlob, file.source)),
 		)
 		.map(|key| {
 			restore(records::location(
@@ -247,7 +241,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 			.outgoing
 			.as_slice()
 			.iter()
-			.find(|origin| coordinate(custody::Role::Line, origin.line) == target)
+			.find(|origin| Coordinate::new(custody::Role::Line, origin.line) == target)
 			.cloned()
 		else {
 			return Ok(None);
@@ -497,7 +491,7 @@ pub(super) fn adopt(
 		.find(|previous| previous.line == origin.line)
 		.into_iter()
 		.flat_map(|previous| previous.files.as_slice())
-		.map(|file| coordinate(custody::Role::SourceBlob, file.source))
+		.map(|file| Coordinate::new(custody::Role::SourceBlob, file.source))
 		.collect();
 	let receipt = record
 		.effects
@@ -585,7 +579,7 @@ pub(super) fn adopt(
 fn insert<K>(record: &mut records::Record, role: custody::Role, key: FieldKey<K>, reference: Field) -> Result<()> {
 	record
 		.custody
-		.insert(records::restored(coordinate(role, key), reference))
+		.insert(records::restored(Coordinate::new(role, key), reference))
 		.map_err(|_| loam::refusal("outgoing custody is full"))?;
 	Ok(())
 }

@@ -1,24 +1,19 @@
 //! An uncertain host authority write cannot be followed by another write
 //! from the stale in-memory document. Restart reloads the disk authority.
 use super::*;
+use rooms_testing::scratch::Scratch;
 
 #[tokio::test]
 async fn host_authority_requires_reconciliation_after_uncertain_replacement() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(30), scenario())
-				.await
-				.expect("authority reconciliation deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(30), scenario()).await;
 }
 async fn scenario() {
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	let asked = Asked {
 		operator: true,
 		..Default::default()
 	};
-	let running = start_with(temp.0.clone(), tcp(), asked.clone()).await;
+	let running = start_with(temp.to_path_buf(), tcp(), asked.clone()).await;
 	let runtime = runtime().await;
 	let session = runtime
 		.connect(
@@ -38,8 +33,8 @@ async fn scenario() {
 		.send(&operator, "giveSteward", &["garden".into()])
 		.await
 		.unwrap();
-	let document = temp.0.join(rooms_application::server::document::FILE);
-	let saved = temp.0.join("rooms.saved");
+	let document = temp.join(rooms_application::server::document::FILE);
+	let saved = temp.join("rooms.saved");
 	let before = std::fs::read(&document).unwrap();
 	std::fs::rename(&document, &saved).unwrap();
 	std::fs::create_dir(&document).unwrap();
@@ -69,7 +64,7 @@ async fn scenario() {
 	session.close(PendingWork::Cancel).await.unwrap();
 	running.stop.send(()).unwrap();
 	running.task.await.unwrap().unwrap();
-	let running = start_with(temp.0.clone(), tcp(), asked).await;
+	let running = start_with(temp.to_path_buf(), tcp(), asked).await;
 	let session = runtime
 		.connect(
 			&glowcap::parse_locator(&running.location).unwrap(),

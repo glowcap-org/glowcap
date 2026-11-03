@@ -170,13 +170,7 @@ fn pending<T>(future: &mut (impl Future<Output = T> + Unpin)) -> bool {
 	matches!(std::pin::Pin::new(future).poll(&mut cx), Poll::Pending)
 }
 async fn run(scenario: impl Future<Output = ()>) {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario)
-				.await
-				.expect("signaling scenario deadline");
-		})
-		.await
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario).await
 }
 fn message(error: glowcap::Error) -> String {
 	error.message().unwrap_or_default().to_owned()

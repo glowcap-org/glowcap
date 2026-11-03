@@ -1,6 +1,7 @@
 //! The room policy read as values: entrances, seating, presence, lines,
 //! files, invitations, and what each asks the adapter to do.
 use super::*;
+use crate::room::test_value::Value;
 use crate::{
 	directory::{Event, RoomChange, creation::RecoveryKey, registration::Id},
 	failure::FailureCode,
@@ -272,7 +273,7 @@ fn lines_are_said_edited_and_withdrawn_with_history_kept() {
 	assert!(
 		matches!(effects.persist.as_ref().unwrap(), history::Persist::Append { room, .. } if room == entrance.room.as_str())
 	);
-	let args = [Value::Text("hi there")];
+	let args = [Value::Text("hi there".into())];
 	let effects = world.rooms.line_verb(1, line, "edit", &args, 0).unwrap();
 	assert!(
 		matches!(&effects.effects.tells[1].notice, Notice::Line { marker: Some((ChangeKind::Edited, _)), line, .. } if line.text == "hi there")
@@ -349,7 +350,7 @@ fn files_are_staged_posted_and_read_through_the_store() {
 	);
 	world
 		.rooms
-		.upload_verb(upload, "write", &[Value::Bytes(&[1, 2, 3])], 0)
+		.upload_verb(upload, "write", &[Value::Bytes(vec![1, 2, 3])], 0)
 		.unwrap();
 	let blob = match &effects.effects.tells[1].notice {
 		Notice::Line { files, .. } => files[0].clone(),
@@ -357,14 +358,17 @@ fn files_are_staged_posted_and_read_through_the_store() {
 	};
 	match world
 		.rooms
-		.blob_verb(&blob, "read", &[Value::Natural(0), Value::Natural(10)], 0)
+		.blob_verb(&blob, "read", &[Value::Integer(0), Value::Integer(10)], 0)
 		.unwrap()
 	{
 		crate::files::ReadOutcome::Ready(bytes) => assert_eq!(bytes, &[1, 2, 3]),
 		crate::files::ReadOutcome::Waiting(_) => panic!("the bytes are there"),
 	}
 	// A refile down to nothing withdraws; the file goes with it.
-	let effects = world.rooms.line_verb(1, line, "refile", &[Value::Text("")], 0).unwrap();
+	let effects = world
+		.rooms
+		.line_verb(1, line, "refile", &[Value::Text("".into())], 0)
+		.unwrap();
 	assert!(matches!(
 		&effects.effects.tells[0].notice,
 		Notice::Line {
@@ -375,14 +379,14 @@ fn files_are_staged_posted_and_read_through_the_store() {
 	assert!(
 		world
 			.rooms
-			.blob_verb(&blob, "read", &[Value::Natural(0), Value::Natural(10)], 0)
+			.blob_verb(&blob, "read", &[Value::Integer(0), Value::Integer(10)], 0)
 			.is_err()
 	);
 	// A spent upload is refused, and the idle clock reclaims a quiet one.
 	assert!(
 		world
 			.rooms
-			.upload_verb(upload, "write", &[Value::Bytes(&[1])], 0)
+			.upload_verb(upload, "write", &[Value::Bytes(vec![1])], 0)
 			.is_err()
 	);
 	let description = crate::files::FileDescription::parse("slow.bin", "", 5, 0, 0).unwrap();

@@ -112,7 +112,7 @@ pub(super) fn restore<R: References>(
 fn coordinates<'a>(data: &'a Data<'_>) -> impl Iterator<Item = Coordinate> + 'a {
 	core::iter::once(Coordinate {
 		role: custody::Role::SessionAccess,
-		key: FieldKey::new(data.source.slot(), data.source.generation()),
+		key: data.source.retag(),
 	})
 	.chain(data.targets.0.iter().copied())
 	.chain(data.retained.0.iter().copied())

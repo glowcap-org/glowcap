@@ -1,20 +1,23 @@
 //! Exercise the installed interactive client with real stdin and directory peers.
 #![cfg(test)]
+use rooms_testing::child_process::Process;
 use std::{
 	io::{BufRead, BufReader, Write},
-	process::{Child, Command, Stdio},
+	process::{Command, Stdio},
 	sync::mpsc::{self, Receiver},
 	thread::JoinHandle,
 	time::{Duration, Instant},
 };
 
-struct Process {
-	child: Child,
+/// The shared child guard, plus the thread that reads its stdout lines.
+struct Chat {
+	// Declared before `reader`: the child dies first, which ends the reader.
+	process: Process,
 	lines: Receiver<String>,
-	reader: Option<JoinHandle<()>>,
+	reader: Reader,
 }
-impl Process {
-	fn spawn(mut command: Command) -> Self {
+impl Chat {
+	fn spawn(mut command: Command, name: &'static str) -> Self {
 		let mut child = command
 			.stdin(Stdio::piped())
 			.stdout(Stdio::piped())
@@ -31,9 +34,9 @@ impl Process {
 			}
 		});
 		Self {
-			child,
+			process: Process::new(child, name).within(Duration::from_secs(8)),
 			lines,
-			reader: Some(reader),
+			reader: Reader(Some(reader)),
 		}
 	}
 	fn until(&self, needle: &str) -> String {
@@ -52,36 +55,30 @@ impl Process {
 		}
 	}
 	fn send(&mut self, text: &str) {
-		writeln!(self.child.stdin.as_mut().unwrap(), "{text}").unwrap();
+		writeln!(self.process.child.stdin.as_mut().unwrap(), "{text}").unwrap();
 	}
 	fn wait(&mut self) {
-		let deadline = Instant::now() + Duration::from_secs(8);
-		loop {
-			if let Some(status) = self.child.try_wait().unwrap() {
-				assert!(status.success(), "process failed: {status}");
-				self.reader.take().unwrap().join().unwrap();
-				return;
-			}
-			assert!(Instant::now() < deadline, "client did not observe shutdown");
-			std::thread::sleep(Duration::from_millis(10));
-		}
+		let status = self.process.wait();
+		assert!(status.success(), "process failed: {status}");
+		self.reader.join();
 	}
 	fn signal(&mut self, signal: &str) {
-		assert!(
-			Command::new("/bin/kill")
-				.args([signal, &self.child.id().to_string()])
-				.status()
-				.unwrap()
-				.success()
-		);
-		self.wait();
+		self.process.signal(signal);
+		self.reader.join();
 	}
 }
-impl Drop for Process {
+/// The stdout reader, joined after the child that feeds it has been reaped.
+struct Reader(Option<JoinHandle<()>>);
+impl Reader {
+	fn join(&mut self) {
+		self.0.take().unwrap().join().unwrap();
+	}
+}
+impl Drop for Reader {
 	fn drop(&mut self) {
-		let _ = self.child.kill();
-		let _ = self.child.wait();
-		if let Some(reader) = self.reader.take() {
+		if let Some(reader) = self.0.take() {
+			// best-effort: the child is gone, so a reader that panicked has
+			// nothing left to report, and a drop cannot propagate it.
 			let _ = reader.join();
 		}
 	}
@@ -96,10 +93,10 @@ fn executable(variable: &str, fallback: &str) -> Command {
 	command.env_remove("LD_LIBRARY_PATH");
 	command
 }
-fn chat(locator: &str, room: &str) -> Process {
+fn chat(locator: &str, room: &str) -> Chat {
 	let mut command = executable("GLOWCAP_ROOMS_CHAT_TEST_BIN", env!("CARGO_BIN_EXE_rooms-chat"));
 	command.args([locator, room, "alice"]);
-	let client = Process::spawn(command);
+	let client = Chat::spawn(command, "client");
 	client.until("(type a line");
 	client
 }
@@ -111,7 +108,7 @@ fn installed_chat_switches_preserves_refused_membership_and_observes_shutdown() 
 		if transport == "iroh" {
 			command.arg("--reachability=direct");
 		}
-		let mut server = Process::spawn(command);
+		let mut server = Chat::spawn(command, "server");
 		let banner = server.until("ROOMS-SERVER-LISTENING ");
 		let announced = banner.strip_prefix("ROOMS-SERVER-LISTENING ").unwrap();
 		let locator = if transport == "tcp" {
@@ -141,7 +138,7 @@ fn installed_chat_switches_preserves_refused_membership_and_observes_shutdown() 
 		first.until("typed line exceeds");
 		first.send("after-oversize");
 		first.until("alice: after-oversize");
-		drop(first.child.stdin.take());
+		drop(first.process.child.stdin.take());
 		first.wait();
 		// Keep stdin open to prove signal handling wakes the terminal reader.
 		occupied.signal("-TERM");

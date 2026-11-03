@@ -128,12 +128,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn interruption_retains_exact_request_until_recovery_completes() {
-		let state = std::env::temp_dir().join(format!("rooms-acquisition-{}", super::super::operation().unwrap()));
-		tokio::fs::create_dir(&state).await.unwrap();
+		let state = rooms_testing::scratch::Scratch::create("acquisition");
 		let listener = UnixListener::bind(state.join("control.sock")).unwrap();
 		let options = Options {
 			verb: "recover".into(),
-			state: state.clone(),
+			state: state.to_path_buf(),
 			named: Default::default(),
 			arguments: Vec::new(),
 		};
@@ -178,6 +177,5 @@ mod tests {
 			json!({"verb":"release-acquisition", "id":id})
 		);
 		assert!(!path(&state, id).unwrap().exists());
-		tokio::fs::remove_dir_all(state).await.unwrap();
 	}
 }

@@ -8,16 +8,11 @@ use tokio::{
 #[tokio::test]
 async fn named_contact_fences_lookup_before_reusing_route() {
 	for change in ["none", "access", "source", "name", "inbox", "removed"] {
-		let state = std::env::temp_dir().join(format!(
-			"rooms-contact-{}-{}",
-			std::process::id(),
-			super::super::operation().unwrap()
-		));
-		tokio::fs::create_dir(&state).await.unwrap();
+		let state = rooms_testing::scratch::Scratch::create("contact");
 		let listener = UnixListener::bind(state.join("control.sock")).unwrap();
 		let options = Options {
 			verb: "reply".into(),
-			state: state.clone(),
+			state: state.to_path_buf(),
 			named: [("dm".into(), vec!["Bob".into()])].into(),
 			arguments: Vec::new(),
 		};
@@ -62,6 +57,5 @@ async fn named_contact_fences_lookup_before_reusing_route() {
 			.await
 			.unwrap()
 			.unwrap();
-		tokio::fs::remove_dir_all(state).await.unwrap();
 	}
 }

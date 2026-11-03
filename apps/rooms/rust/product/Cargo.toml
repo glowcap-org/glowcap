@@ -27,6 +27,7 @@ hyper-util.workspace = true
 http-body-util.workspace = true
 
 [dev-dependencies]
+rooms-testing = { path = "../testing" }
 rooms-glowcap = { path = "../glowcap" }
 rooms-runtime = { path = "../runtime" }
 glowcap = { workspace = true, features = ["tcp"] }

@@ -28,7 +28,7 @@ fn locations(record: &MetadataRecord, selection: &InboxSelection) -> Result<[rec
 		.custody
 		.get(custody::Coordinate {
 			role: custody::Role::SessionAccess,
-			key: custody::FieldKey::new(key.slot(), key.generation()),
+			key: key.retag(),
 		})
 		.ok_or_else(|| refuse("inbox source custody is absent"))?;
 	let inbox = record

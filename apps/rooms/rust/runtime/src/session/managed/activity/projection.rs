@@ -118,11 +118,7 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 						json!({"kind":"occupancy", "listed":listed, "claimable":claimable})
 					}
 					inbox::Notice::Authority { kind, token, claimable } => {
-						json!({"kind":"authority", "authority":match kind {
-						rooms_application::room::stewardship::Kind::Room => "room",
-						rooms_application::room::stewardship::Kind::Steward => "steward",
-						rooms_application::room::stewardship::Kind::Manager => "manager",
-					}, "token":token, "claimable":claimable})
+						json!({"kind":"authority", "authority":kind.wire(), "token":token, "claimable":claimable})
 					}
 				},
 				MembershipTarget::Direct(_) => return Err("direct notification needs its protocol consumer".into()),

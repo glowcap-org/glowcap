@@ -44,10 +44,7 @@ impl<D: Deadline + Clone> Session<D> {
 			..Default::default()
 		};
 		filter.validate().map_err(crate::client::Error::from)?;
-		let kind = match kind {
-			ConversationKind::Room => "room",
-			ConversationKind::Direct => "direct",
-		};
+		let kind = kind.wire();
 		let reply = self
 			.call(
 				verbs::READ_HISTORY,
@@ -81,10 +78,7 @@ impl<D: Deadline + Clone> Session<D> {
 			..Default::default()
 		};
 		filter.validate().map_err(crate::client::Error::from)?;
-		let kind = match kind {
-			ConversationKind::Room => "room",
-			ConversationKind::Direct => "direct",
-		};
+		let kind = kind.wire();
 		let reply = self
 			.call(
 				verbs::READ_HISTORY_VIEW,

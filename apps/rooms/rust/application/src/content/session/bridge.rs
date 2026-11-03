@@ -131,7 +131,7 @@ pub fn retire<R: custody::References, C>(record: &mut workspace::Record<R, C>) {
 	for witness in retired {
 		let source = custody::Coordinate {
 			role: custody::Role::SessionAccess,
-			key: custody::FieldKey::new(witness.source.slot(), witness.source.generation()),
+			key: witness.source.retag(),
 		};
 		let keys: alloc::vec::Vec<_> = core::iter::once(source).chain(witness.access).collect();
 		super::outgoing::release_sources(record, &keys);
@@ -149,7 +149,7 @@ pub fn forget<R: custody::References, C>(record: &mut workspace::Record<R, C>, r
 		.flat_map(|witness| {
 			core::iter::once(custody::Coordinate {
 				role: custody::Role::SessionAccess,
-				key: custody::FieldKey::new(witness.source.slot(), witness.source.generation()),
+				key: witness.source.retag(),
 			})
 			.chain(witness.access)
 		})

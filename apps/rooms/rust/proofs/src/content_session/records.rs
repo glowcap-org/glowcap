@@ -219,7 +219,7 @@ pub fn run() {
 	);
 	let restored = records::decode_custody(pages.iter().map(restored).collect()).unwrap();
 	assert_eq!(restored.room_access(key(256, 1)).unwrap().reference.0, 256);
-	#[cfg(not(target_arch = "wasm32"))]
+	#[cfg(all(test, not(target_arch = "wasm32")))]
 	register_family();
 }
 
@@ -330,15 +330,10 @@ fn graph(encoded: &records::Encoded<'_, References, i32>) {
 	assert!(decode(&unexpected_family).is_err());
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 fn register_family() {
 	use glowcap::loam::{Limits, OpenMode, Schema, Sqlite, Store};
-	let nonce = std::time::SystemTime::now()
-		.duration_since(std::time::UNIX_EPOCH)
-		.unwrap()
-		.as_nanos();
-	let path = std::env::temp_dir().join(format!("rooms-records-{}-{nonce:x}", std::process::id()));
-	std::fs::create_dir(&path).unwrap();
+	let path = rooms_testing::scratch::Scratch::create("records");
 	let schemas: Vec<_> = records::SCHEMAS
 		.iter()
 		.map(|schema| Schema {
@@ -350,7 +345,7 @@ fn register_family() {
 		.collect();
 	let mut store = Store::open(
 		Sqlite {
-			path: path.clone(),
+			path: path.to_path_buf(),
 			identity: [45; 16],
 			mode: OpenMode::Create,
 			capacity_bytes: 256 * 1024 * 1024,
@@ -361,5 +356,4 @@ fn register_family() {
 	.unwrap();
 	store.close().unwrap();
 	drop(store);
-	std::fs::remove_dir_all(path).unwrap();
 }

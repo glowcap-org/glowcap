@@ -116,10 +116,7 @@ pub(super) async fn run(
 	let registration = requests::coordinate(custody::Role::DirectoryName, 97);
 	owner.import(registration, directory_access, None).await.unwrap();
 	let mut reregistered = installed;
-	reregistered.directories.as_mut_slice()[0].name = Some(custody::FieldKey::new(
-		registration.key.slot(),
-		registration.key.generation(),
-	));
+	reregistered.directories.as_mut_slice()[0].name = Some(registration.key.retag());
 	owner.replace_workspace(&reregistered).await.unwrap();
 	for callback in &callbacks {
 		assert!(
@@ -215,10 +212,7 @@ async fn registration_precedes_seat(
 		assert_eq!(joins.get(), prior);
 	}
 	let mut registered = workspace.snapshot().await.unwrap().intent;
-	registered.directories.as_mut_slice()[0].name = Some(custody::FieldKey::new(
-		registration.key.slot(),
-		registration.key.generation(),
-	));
+	registered.directories.as_mut_slice()[0].name = Some(registration.key.retag());
 	owner.replace_workspace(&registered).await.unwrap();
 	let report = rooms
 		.reconcile(owner, &registered, "ocapn://member.id", &mut entropy, |_| {

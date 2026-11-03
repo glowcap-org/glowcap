@@ -159,14 +159,14 @@ impl Directs {
 		self.state.routes.borrow_mut().clear();
 		let mut result = self.offerer.close().await.map_err(|e| e.to_string());
 		if let Some(task) = self.registration.take() {
-			result = crate::cleanup::combine(result, task.await.map_err(|e| e.to_string()).and_then(|r| r));
+			crate::cleanup::retain(&mut result, task.await.map_err(|e| e.to_string()).and_then(|r| r));
 		}
 		// The receiver has only weak references to state. Drop the sender after
 		// publication retirement, then observe every admitted acknowledgement.
 		let delivery = self.delivery.take();
 		drop(self);
 		if let Some(task) = delivery {
-			result = crate::cleanup::combine(result, task.await.map_err(|e| e.to_string()).and_then(|r| r));
+			crate::cleanup::retain(&mut result, task.await.map_err(|e| e.to_string()).and_then(|r| r));
 		}
 		result
 	}

@@ -2,6 +2,7 @@
 use super::*;
 use glowcap::{Argument, Ref};
 use rooms_application::directory::creation::SUBSCRIBE_PUBLICATION;
+use rooms_testing::scratch::Scratch;
 
 async fn named(directory: &Directory<HostPlatform>, name: &str) -> Vec<rooms_application::directory::RoomInfo> {
 	let reply = directory
@@ -19,18 +20,12 @@ async fn named(directory: &Directory<HostPlatform>, name: &str) -> Vec<rooms_app
 
 #[tokio::test]
 async fn named_managed_publication_reopens_without_members_and_fences_policy_replacement() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(20), dormant())
-				.await
-				.expect("dormant public membership deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(20), dormant()).await;
 }
 async fn dormant() {
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	let running = super::super::start_with(
-		temp.0.clone(),
+		temp.to_path_buf(),
 		tcp(),
 		crate::server::Asked {
 			operator: true,
@@ -105,7 +100,7 @@ async fn dormant() {
 	closing_tolerated(peer.close(PendingWork::Cancel).await);
 	running.stop.send(()).unwrap();
 	running.task.await.unwrap().unwrap();
-	let running = start(temp.0.clone(), tcp()).await;
+	let running = start(temp.to_path_buf(), tcp()).await;
 	let peer = runtime().await;
 	let locator = glowcap::parse_locator(&running.location).unwrap();
 	let saved = glowcap::parse_sturdyref(&manager, glowcap::CaptpVersion::V1_0).unwrap();
@@ -158,17 +153,11 @@ async fn dormant() {
 
 #[tokio::test]
 async fn public_membership_reopens_exact_publication_and_refuses_same_name_replacement() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(20), journey())
-				.await
-				.expect("public membership deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(20), journey()).await;
 }
 async fn journey() {
-	let temp = Temp::new();
-	let running = start(temp.0.clone(), tcp()).await;
+	let temp = Scratch::create("server");
+	let running = start(temp.to_path_buf(), tcp()).await;
 	let locator = glowcap::parse_locator(&running.location).unwrap();
 	let alice_runtime = runtime().await;
 	let alice = Client::new(

@@ -30,7 +30,7 @@ pub(super) fn read(value: &Argument, intent: &str) -> Result<Settlement> {
 	let data = serde_json::to_string(&Registration {
 		nick: Text::new(nick.into()).ok_or_else(|| loam::refusal("invalid granted nickname"))?,
 		id: Text::new(id.as_str().into()).ok_or_else(|| loam::refusal("invalid registration identity"))?,
-		name: FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
+		name: coordinate.key.retag(),
 	})
 	.map_err(|_| loam::refusal("invalid registration result"))?;
 	let field = Argument::List(vec![

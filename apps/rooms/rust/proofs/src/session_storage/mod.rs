@@ -208,30 +208,22 @@ async fn session_graph_lmdb_commit_and_cold_reopen() {
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 async fn commit_and_cold_reopen(disk: crate::disk::Disk) {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			let nonce = std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH)
-				.unwrap()
-				.as_nanos();
-			let path =
-				std::env::temp_dir().join(format!("rooms-session-graph-{disk:?}-{}-{nonce:x}", std::process::id()));
-			std::fs::create_dir(&path).unwrap();
-			let mut store = disk
-				.open(path.clone(), [81; 16], OpenMode::Create, &schemas(), limits())
-				.unwrap();
-			let resource = create(&store).await;
-			store.close().unwrap();
-			drop(store);
-			let mut store = disk
-				.open(path.clone(), [81; 16], OpenMode::Open, &schemas(), limits())
-				.unwrap();
-			reopen(&store, resource).await;
-			store.close().unwrap();
-			drop(store);
-			std::fs::remove_dir_all(path).unwrap();
-		})
-		.await;
+	rooms_testing::local_set::run(async {
+		let path = rooms_testing::scratch::Scratch::create(&format!("session-graph-{disk:?}"));
+		let mut store = disk
+			.open(path.to_path_buf(), [81; 16], OpenMode::Create, &schemas(), limits())
+			.unwrap();
+		let resource = create(&store).await;
+		store.close().unwrap();
+		drop(store);
+		let mut store = disk
+			.open(path.to_path_buf(), [81; 16], OpenMode::Open, &schemas(), limits())
+			.unwrap();
+		reopen(&store, resource).await;
+		store.close().unwrap();
+		drop(store);
+	})
+	.await;
 }
 
 #[cfg(target_arch = "wasm32")]

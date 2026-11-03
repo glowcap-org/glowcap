@@ -59,13 +59,7 @@ fn description(size: usize) -> FileDescription {
 }
 #[tokio::test]
 async fn inline_sources_stream_expire_and_retire_with_their_owner() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(15), scenario())
-				.await
-				.expect("source scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(15), scenario()).await;
 }
 async fn scenario() {
 	let server = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();

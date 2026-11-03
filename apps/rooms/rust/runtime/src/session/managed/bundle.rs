@@ -92,7 +92,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			.iter()
 			.map(|key| custody::Coordinate {
 				role: custody::Role::Operator,
-				key: custody::FieldKey::new(key.slot(), key.generation()),
+				key: key.retag(),
 			})
 			.chain(intent.operations.as_slice().iter().map(|row| row.handle))
 			.filter(|coordinate| !next.coordinates().any(|selected| selected == *coordinate))

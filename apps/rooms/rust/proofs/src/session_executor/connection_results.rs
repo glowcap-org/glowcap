@@ -1,5 +1,5 @@
 //! Exact connection acquisition stays private across replacement and restart.
-use super::*;
+use super::{requests::coordinate, *};
 use rooms_application::{
 	content::session::{results::Connection, workspace::Operations},
 	session::operations::mutation::Kind,
@@ -74,12 +74,6 @@ fn registration(acquisitions: Rc<Cell<usize>>, leases: Rc<Cell<usize>>, malforme
 			leases,
 			malformed,
 		}),
-	}
-}
-fn coordinate(role: custody::Role, slot: u64) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(NonZeroU64::new(slot).unwrap(), NonZeroU64::new(1).unwrap()),
 	}
 }
 async fn command(

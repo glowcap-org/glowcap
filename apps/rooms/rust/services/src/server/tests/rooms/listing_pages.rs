@@ -3,21 +3,16 @@
 //! other row.
 use super::*;
 use rooms_application::directory::{LIST, MAX_ROWS};
+use rooms_testing::scratch::Scratch;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[tokio::test]
 async fn a_listing_walk_crosses_a_page_boundary_while_a_room_closes() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(60), walk())
-				.await
-				.expect("listing walk deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(60), walk()).await;
 }
 
 async fn walk() {
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	// Two creators each open half the rooms, inside the per-creator cap,
 	// with room creation admitted faster than its production rate.
 	let settings = rooms_application::admission::Settings::parse(
@@ -27,7 +22,7 @@ async fn walk() {
 	)
 	.unwrap();
 	let running =
-		super::super::start_with_admission(temp.0.clone(), tcp(), crate::server::Asked::default(), settings).await;
+		super::super::start_with_admission(temp.to_path_buf(), tcp(), crate::server::Asked::default(), settings).await;
 	let dial = glowcap::parse_locator(&running.location).unwrap();
 	let total = MAX_ROWS + 4;
 	let mut creators = Vec::new();

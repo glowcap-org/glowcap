@@ -157,7 +157,7 @@ async fn serve(
 				Err(error) => {
 					let mut result = crate::cleanup::combine(Err(error.to_string()), supervisor.close().await);
 					if let Some(tor) = tor {
-						result = crate::cleanup::combine(result, tor.close().await);
+						crate::cleanup::retain(&mut result, tor.close().await);
 					}
 					return result;
 				}
@@ -214,10 +214,10 @@ async fn serve(
 	};
 	stop.send_replace(true);
 	while let Some(ended) = workers.join_next().await {
-		result = crate::cleanup::combine(result, ended.map_err(|e| e.to_string()).and_then(|r| r));
+		crate::cleanup::retain(&mut result, ended.map_err(|e| e.to_string()).and_then(|r| r));
 	}
 	if let Some(tor) = tor {
-		result = crate::cleanup::combine(result, tor.close().await);
+		crate::cleanup::retain(&mut result, tor.close().await);
 	}
 	result
 }

@@ -205,21 +205,13 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	};
 	if retiring_membership {
 		let coordinate = coordinates[0];
-		local::retire_membership(
-			&mut record.intent,
-			&mut record.custody,
-			FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
-		)
-		.map_err(|_| refuse("selected membership has changed"))?;
+		local::retire_membership(&mut record.intent, &mut record.custody, coordinate.key.retag())
+			.map_err(|_| refuse("selected membership has changed"))?;
 	}
 	if retiring_publication {
 		let coordinate = coordinates[0];
-		local::retire_publication(
-			&mut record.intent,
-			&mut record.custody,
-			FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
-		)
-		.map_err(|_| refuse("selected publication has changed"))?;
+		local::retire_publication(&mut record.intent, &mut record.custody, coordinate.key.retag())
+			.map_err(|_| refuse("selected publication has changed"))?;
 	}
 	let retained = coordinates
 		.into_iter()

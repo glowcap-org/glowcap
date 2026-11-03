@@ -1,5 +1,6 @@
 //! Direct sharing preserves exact held authority under a retained source receipt.
-use super::publication_results::{PEERING, coordinate, lifecycle, registration};
+use super::publication_results::{PEERING, lifecycle, registration};
+use super::requests::coordinate;
 use super::*;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]

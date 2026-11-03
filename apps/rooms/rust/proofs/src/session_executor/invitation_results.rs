@@ -1,6 +1,7 @@
 //! Invitation entrances stay private. Only the executor acquires membership.
 use super::membership_results::{self as membership, MEMBER};
-use super::publication_results::{coordinate, lifecycle};
+use super::publication_results::lifecycle;
+use super::requests::coordinate;
 use super::*;
 use rooms_application::content::session::{results::Acceptance, workspace};
 

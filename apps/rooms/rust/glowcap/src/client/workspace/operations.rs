@@ -226,7 +226,7 @@ mod tests {
 			assert_eq!(selection.capability_at(stale), None);
 		}
 		let selection = OperationsSelection {
-			operators: List::new(vec![custody::FieldKey::new(key.slot(), key.generation())]).unwrap(),
+			operators: List::new(vec![key.retag()]).unwrap(),
 			operations: List::new(Vec::new()).unwrap(),
 		};
 		assert_eq!(selection.capability_at(coordinate), None);

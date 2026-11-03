@@ -7,6 +7,7 @@ use rooms_glowcap::{Value, archive as wire};
 use std::{
 	cell::Cell,
 	future::Future,
+	marker::PhantomData,
 	rc::{Rc, Weak},
 };
 use tokio::sync::{mpsc, oneshot, watch};
@@ -133,28 +134,35 @@ enum Reply {
 	Remote(Resolver),
 	Clear(oneshot::Sender<Result<(), Error>>),
 }
-struct Permit {
+/// One admission's share of a count-and-bytes budget, returned on drop. The
+/// marker keeps the request budget and the capture budget apart: a permit
+/// for one cannot stand for the other.
+pub(super) struct Held<Budget> {
 	held: Rc<Cell<(usize, usize)>>,
 	bytes: usize,
+	budget: PhantomData<Budget>,
 }
-impl Drop for Permit {
+impl<Budget> Held<Budget> {
+	fn new(held: Rc<Cell<(usize, usize)>>, bytes: usize) -> Self {
+		Self {
+			held,
+			bytes,
+			budget: PhantomData,
+		}
+	}
+}
+impl<Budget> Drop for Held<Budget> {
 	fn drop(&mut self) {
 		let (count, bytes) = self.held.get();
 		self.held.set((count - 1, bytes - self.bytes));
 	}
 }
+enum Requests {}
+pub(super) enum Captures {}
+type Permit = Held<Requests>;
 /// One file put's share of the capture budget, held until its bytes are
 /// stored or refused.
-pub(super) struct FilePermit {
-	held: Rc<Cell<(usize, usize)>>,
-	bytes: usize,
-}
-impl Drop for FilePermit {
-	fn drop(&mut self) {
-		let (count, bytes) = self.held.get();
-		self.held.set((count - 1, bytes - self.bytes));
-	}
-}
+pub(super) type FilePermit = Held<Captures>;
 impl<P: Platform> Archive<P> {
 	pub fn usage(&self) -> Usage {
 		let (requests, request_bytes) = self.0.admitted.get();
@@ -245,10 +253,7 @@ impl<P: Platform> State<P> {
 			return Err(Error::busy("archive request backlog is full"));
 		}
 		self.admitted.set((count + 1, held + bytes));
-		Ok(Permit {
-			held: self.admitted.clone(),
-			bytes,
-		})
+		Ok(Permit::new(self.admitted.clone(), bytes))
 	}
 	/// Admit a file put's declared bytes into the capture budget. Refused
 	/// synchronously, so a caller learns at once that its files will not be
@@ -262,10 +267,7 @@ impl<P: Platform> State<P> {
 			return Err(Error::busy("archive file capture budget is full"));
 		}
 		self.captures.set((count + 1, held + bytes));
-		Ok(FilePermit {
-			held: self.captures.clone(),
-			bytes,
-		})
+		Ok(FilePermit::new(self.captures.clone(), bytes))
 	}
 	fn facet_permit(&self, facet: &Facet) -> Result<FacetPermit, Error> {
 		let bytes =

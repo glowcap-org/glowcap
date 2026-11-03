@@ -107,8 +107,8 @@ pub(super) async fn run(host: &Host, exporter: &Host, owner: &managed::Session<P
 				kind: ShareKind::Direct,
 				conversation: Some(Text::new("direct".into()).unwrap()),
 				from: Text::new("peer".into()).unwrap(),
-				access: custody::FieldKey::new(destination.key.slot(), destination.key.generation()),
-				source: custody::FieldKey::new(origin.key.slot(), origin.key.generation()),
+				access: destination.key.retag(),
+				source: origin.key.retag(),
 				durable: true,
 			}])
 			.unwrap();
@@ -116,11 +116,8 @@ pub(super) async fn run(host: &Host, exporter: &Host, owner: &managed::Session<P
 			intent.invitations = List::new(vec![Invitation {
 				id: Text::new("room-arrival".into()).unwrap(),
 				directory: Text::new("directory".into()).unwrap(),
-				authority: InvitationAuthority::RoomAccess(custody::FieldKey::new(
-					destination.key.slot(),
-					destination.key.generation(),
-				)),
-				source: Some(custody::FieldKey::new(origin.key.slot(), origin.key.generation())),
+				authority: InvitationAuthority::RoomAccess(destination.key.retag()),
+				source: Some(origin.key.retag()),
 				label: Text::new("garden".into()).unwrap(),
 				from: Text::new("peer".into()).unwrap(),
 			}])

@@ -36,7 +36,7 @@ impl Request<'_> {
 			.custody
 			.get(Coordinate {
 				role: custody::Role::DirectoryAccess,
-				key: custody::FieldKey::new(directory.access.slot(), directory.access.generation()),
+				key: directory.access.retag(),
 			})
 			.ok_or_else(|| refuse("creation directory custody is absent"))?;
 		let target = receipt

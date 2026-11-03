@@ -111,7 +111,7 @@ impl Request<'_> {
 		let prior = current.lines().iter().find(|old| old.id == line.id);
 		let release = prior.filter(|old| old.handle != line.handle).map(|old| Coordinate {
 			role: custody::Role::Line,
-			key: custody::FieldKey::new(old.handle.slot(), old.handle.generation()),
+			key: old.handle.retag(),
 		});
 		if replacement.releases.as_slice() != release.as_slice()
 			|| (record.custody.get(selection.destination).is_some()
@@ -187,11 +187,11 @@ impl Request<'_> {
 			|| !next.lines.is_empty()
 			|| next.access.map(|key| Coordinate {
 				role: custody::Role::DirectAccess,
-				key: custody::FieldKey::new(key.slot(), key.generation()),
+				key: key.retag(),
 			}) != Some(selection.destination)
 			|| next.source.map(|key| Coordinate {
 				role: custody::Role::SessionAccess,
-				key: custody::FieldKey::new(key.slot(), key.generation()),
+				key: key.retag(),
 			}) != replacement.source
 		{
 			return Ok(false);

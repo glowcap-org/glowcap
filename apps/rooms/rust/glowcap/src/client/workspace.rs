@@ -30,6 +30,7 @@ pub use directories::{DirectoryAcquisition, DirectoryImport};
 pub use discovery::DirectoryReader;
 pub use presence::Typing;
 pub use rooms::PublicRoomImport;
+mod observer;
 mod results;
 mod submission;
 mod uploads;
@@ -321,20 +322,16 @@ impl<D: Deadline + Clone> Workspace<D> {
 	}
 }
 impl<D: Deadline> Command<D> {
-	pub async fn adopted(&self) -> Result<bool, Error> {
-		let reply = self
-			.caller
-			.call(
-				&self.source,
-				"effect-adopted",
-				&[self.operation.as_str().into()],
-				"the original adoption did not answer",
-			)
-			.await?;
-		match reply {
-			Argument::Boolean(value) => Ok(value),
-			_ => Err(loam::refusal("invalid adoption status").into()),
+	fn observer(&self) -> observer::EffectObserver<'_, D> {
+		observer::EffectObserver {
+			caller: &self.caller,
+			source: &self.source,
+			operation: &self.operation,
+			canonical: &self.canonical,
 		}
+	}
+	pub async fn adopted(&self) -> Result<bool, Error> {
+		self.observer().adopted().await
 	}
 	pub fn retained_bytes(&self) -> usize {
 		size_of::<Self>()
@@ -374,34 +371,19 @@ impl<D: Deadline> Command<D> {
 		EffectStatus::read(&reply)
 	}
 	pub async fn status(&self) -> Result<EffectStatus, Error> {
-		let reply = self
-			.caller
-			.call(
-				&self.source,
-				"effect-status",
-				&[self.operation.clone().into(), self.source.clone().into()],
-				"the session receipt did not answer",
-			)
-			.await?;
-		EffectStatus::read(&reply)
+		self.observer().status("the session receipt did not answer").await
 	}
 	/// Wait on the original receipt and its live worker without dispatching.
 	pub async fn receive(&self) -> Result<EffectStatus, Error> {
-		results::receive(&self.caller, &self.source, &self.operation, &self.canonical).await
+		self.observer().receive().await
 	}
 	/// Committed data is encoded JSON text, optionally paired with exact
 	/// returned custody. An unsettled receipt returns its status instead.
 	/// A terminal failed observation returns its retained diagnostic error.
 	pub async fn result(&self) -> Result<Argument, Error> {
-		self.caller
-			.call(
-				&self.source,
-				"effect-result",
-				&[self.operation.clone().into(), self.canonical.clone().into()],
-				"the original session result did not answer",
-			)
+		self.observer()
+			.result("the original session result did not answer")
 			.await
-			.and_then(results::observed)
 	}
 }
 fn coordinate_text(coordinate: custody::Coordinate) -> Result<String, Error> {

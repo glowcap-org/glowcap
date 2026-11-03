@@ -81,7 +81,7 @@ fn locations(record: &MetadataRecord, input: Invocation<'_>) -> Result<[records:
 	Ok([
 		locate(custody::Coordinate {
 			role: custody::Role::SessionAccess,
-			key: custody::FieldKey::new(source.slot(), source.generation()),
+			key: source.retag(),
 		})?,
 		locate(target)?,
 	])

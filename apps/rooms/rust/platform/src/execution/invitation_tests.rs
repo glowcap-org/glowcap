@@ -49,13 +49,7 @@ impl rooms_glowcap::client::Tasks for Platform {
 
 #[tokio::test]
 async fn invitation_receipts_survive_cancellation_and_room_queries_need_no_membership() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("invitation scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let host = Host::from_seed([85; 32]).unwrap();

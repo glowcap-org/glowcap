@@ -1,9 +1,9 @@
 //! Exercise the executable's loader, CLI, custody, banner and signal barrier.
 #![cfg(test)]
+use rooms_testing::{child_process::Process, scratch::Scratch};
 use std::{
 	io::{BufRead, BufReader},
-	path::PathBuf,
-	process::{Child, Command, ExitStatus, Stdio},
+	process::{Command, Stdio},
 	sync::mpsc,
 	time::{Duration, Instant},
 };
@@ -11,45 +11,6 @@ use std::{
 mod client;
 #[path = "session_process/journey.rs"]
 mod journey;
-struct Process(Child);
-impl Process {
-	fn wait(&mut self) -> ExitStatus {
-		let deadline = Instant::now() + Duration::from_secs(5);
-		loop {
-			if let Some(status) = self.0.try_wait().unwrap() {
-				return status;
-			}
-			assert!(Instant::now() < deadline, "session process did not finish");
-			std::thread::sleep(Duration::from_millis(5));
-		}
-	}
-	fn signal(&mut self, name: &str) {
-		assert!(
-			Command::new("/bin/kill")
-				.args([name, &self.0.id().to_string()])
-				.status()
-				.unwrap()
-				.success()
-		);
-		assert_eq!(
-			self.wait().success(),
-			name != "-KILL",
-			"unexpected session shutdown status"
-		);
-	}
-}
-impl Drop for Process {
-	fn drop(&mut self) {
-		let _ = self.0.kill();
-		let _ = self.0.wait();
-	}
-}
-struct Temp(PathBuf);
-impl Drop for Temp {
-	fn drop(&mut self) {
-		let _ = std::fs::remove_dir_all(&self.0);
-	}
-}
 fn command() -> Command {
 	let installed = std::env::var_os("GLOWCAP_ROOMS_SESSION_TEST_BIN");
 	let mut command = Command::new(
@@ -69,14 +30,19 @@ fn command() -> Command {
 }
 #[test]
 fn session_peer_executable_custody_restart_and_signals() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-session-process-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
-	let mut help = Process(command().arg("--help").stdout(Stdio::null()).spawn().unwrap());
+	let temp = Scratch::create("session-process");
+	let mut help = Process::new(
+		command().arg("--help").stdout(Stdio::null()).spawn().unwrap(),
+		"session",
+	);
 	assert!(help.wait().success());
-	let mut invalid = Process(command().arg("--port=bad").stderr(Stdio::null()).spawn().unwrap());
+	let mut invalid = Process::new(
+		command().arg("--port=bad").stderr(Stdio::null()).spawn().unwrap(),
+		"session",
+	);
 	assert!(!invalid.wait().success());
 	for transport in ["tcp", "iroh"] {
-		let state = temp.0.join(transport);
+		let state = temp.join(transport);
 		let mut identity = None;
 		let mut publication = None;
 		let mut receipt_base = None;
@@ -87,8 +53,8 @@ fn session_peer_executable_custody_restart_and_signals() {
 			if transport == "iroh" {
 				cmd.arg("--reachability=direct");
 			}
-			let mut process = Process(cmd.stdout(Stdio::piped()).spawn().unwrap());
-			let stdout = process.0.stdout.take().unwrap();
+			let mut process = Process::new(cmd.stdout(Stdio::piped()).spawn().unwrap(), "session");
+			let stdout = process.child.stdout.take().unwrap();
 			let (sender, receiver) = mpsc::sync_channel(1);
 			let reader = std::thread::spawn(move || {
 				let mut line = String::new();
@@ -137,13 +103,14 @@ fn session_peer_executable_custody_restart_and_signals() {
 				.unwrap();
 			assert!(ready.status.success(), "a running peer checks ready");
 			assert_eq!(String::from_utf8(ready.stdout).unwrap().trim(), link);
-			let mut contender = Process(
+			let mut contender = Process::new(
 				command()
 					.arg(format!("--state={}", state.display()))
 					.arg("--transport=tcp")
 					.stderr(Stdio::null())
 					.spawn()
 					.unwrap(),
+				"session",
 			);
 			assert!(
 				!contender.wait().success(),

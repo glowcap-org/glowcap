@@ -83,8 +83,8 @@ pub(super) async fn run() {
 							.accesses
 							.try_push(session::workspace::Access {
 								id: Text::new("observer".into()).unwrap(),
-								access: Some(custody::FieldKey::new(access.key.slot(), access.key.generation())),
-								control: Some(custody::FieldKey::new(control.key.slot(), control.key.generation())),
+								access: Some(access.key.retag()),
+								control: Some(control.key.retag()),
 							})
 							.unwrap();
 						let acquisition = workspace

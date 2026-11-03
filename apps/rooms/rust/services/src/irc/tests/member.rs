@@ -2,13 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn member_channels_require_confirmation_and_old_handles_cannot_rejoin() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("IRC member deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

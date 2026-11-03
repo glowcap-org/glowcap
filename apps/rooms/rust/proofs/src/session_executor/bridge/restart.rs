@@ -29,7 +29,7 @@ async fn recover(disk: Disk, test: &str) {
 		// It is written first because the submit phase exits without returning.
 		let name = std::env::var("GLOWCAP_BRIDGE_LOAM_RESTART_PHASE").unwrap();
 		std::fs::write(path.join(format!("{name}.ran")), []).unwrap();
-		tokio::task::LocalSet::new().run_until(phase(disk, path)).await;
+		rooms_testing::local_set::run(phase(disk, path)).await;
 		return;
 	}
 	let database = Database::new("bridge-physical-recovery");

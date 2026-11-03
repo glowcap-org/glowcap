@@ -51,7 +51,7 @@ fn append<O: Output>(record: &Record, row: &mut Vec<O::Value>) {
 			attachments,
 		} => {
 			row.extend([
-				O::text(conversation_tag(*conversation_kind)),
+				O::text(conversation_kind.wire()),
 				O::document(record.directory()),
 				O::document(conversation),
 				O::document(from),
@@ -59,11 +59,7 @@ fn append<O: Output>(record: &Record, row: &mut Vec<O::Value>) {
 				O::boolean(*mine),
 				O::integer(*at),
 				O::integer(*order),
-				O::text(match state {
-					LineState::Present => "present",
-					LineState::Edited => "edited",
-					LineState::Withdrawn => "withdrawn",
-				}),
+				O::text(state.wire()),
 			]);
 			row.push(O::list(
 				attachments
@@ -86,12 +82,6 @@ fn append<O: Output>(record: &Record, row: &mut Vec<O::Value>) {
 		}
 	}
 }
-fn conversation_tag(kind: ConversationKind) -> &'static str {
-	match kind {
-		ConversationKind::Room => "room",
-		ConversationKind::Direct => "direct",
-	}
-}
 pub fn filter<O: Output>(filter: &Filter) -> Result<O::Value, Error> {
 	filter.validate()?;
 	let optional = |s: Option<&str>| s.map_or_else(O::null, O::text);
@@ -103,7 +93,7 @@ pub fn filter<O: Output>(filter: &Filter) -> Result<O::Value, Error> {
 				.kind
 				.map(|kind| if kind == Kind::Standing { "standing" } else { "line" }),
 		),
-		optional(filter.conversation_kind.map(conversation_tag)),
+		optional(filter.conversation_kind.map(ConversationKind::wire)),
 		filter.directory.as_ref().map_or_else(O::null, O::document),
 		filter.conversation.as_ref().map_or_else(O::null, O::document),
 		optional(filter.digest.as_deref()),

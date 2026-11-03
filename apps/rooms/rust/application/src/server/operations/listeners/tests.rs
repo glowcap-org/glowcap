@@ -1,58 +1,12 @@
 use super::*;
+use crate::room::test_value::Value;
 use alloc::vec;
 
-/// A wire value the asks are read from.
-#[derive(Clone, Debug)]
-enum V {
-	Text(String),
-	Int(i128),
-	List(Vec<V>),
+fn t(text: &str) -> Value {
+	Value::Text(text.into())
 }
-impl ArgumentView for V {
-	fn boolean(&self) -> Option<bool> {
-		None
-	}
-	fn is_null(&self) -> bool {
-		false
-	}
-	fn text(&self) -> Option<&str> {
-		match self {
-			Self::Text(text) => Some(text),
-			_ => None,
-		}
-	}
-	fn integer(&self) -> Option<i128> {
-		match self {
-			Self::Int(n) => Some(*n),
-			_ => None,
-		}
-	}
-	fn float(&self) -> Option<f64> {
-		None
-	}
-	fn contains_capability(&self) -> bool {
-		false
-	}
-}
-impl ListArgument for V {
-	fn list_len(&self) -> Option<usize> {
-		match self {
-			Self::List(items) => Some(items.len()),
-			_ => None,
-		}
-	}
-	fn at(&self, index: usize) -> Option<Self> {
-		match self {
-			Self::List(items) => items.get(index).cloned(),
-			_ => None,
-		}
-	}
-}
-fn t(text: &str) -> V {
-	V::Text(text.into())
-}
-fn pair(name: &str, value: V) -> V {
-	V::List(vec![t(name), value])
+fn pair(name: &str, value: Value) -> Value {
+	Value::List(vec![t(name), value])
 }
 
 struct Env(BTreeMap<&'static str, &'static str>);
@@ -66,7 +20,7 @@ impl Environment for Env {
 fn an_up_is_read_exactly() {
 	let (transport, ask) = Ask::read(&[
 		t(Transport::KeyedTcp.name()),
-		V::List(vec![pair("port", V::Int(7)), pair("bind", t("::1"))]),
+		Value::List(vec![pair("port", Value::Integer(7)), pair("bind", t("::1"))]),
 	])
 	.unwrap();
 	assert_eq!(transport, Transport::KeyedTcp);
@@ -74,37 +28,37 @@ fn an_up_is_read_exactly() {
 	assert_eq!(ask.bind.as_deref(), Some("::1"));
 	let intent = ask.intent(transport);
 	assert_eq!(Ask::from_intent(&intent), ask);
-	let refused = |args: &[V]| Ask::read(args).unwrap_err().reason();
+	let refused = |args: &[Value]| Ask::read(args).unwrap_err().reason();
 	assert_eq!(refused(&[]), "up takes a transport and, optionally, its named options");
 	assert!(refused(&[t("carrier-pigeon")]).starts_with("listener-unsupported: \"carrier-pigeon\" names no transport"));
 	assert_eq!(
-		refused(&[t("iroh"), V::List(vec![pair("port", V::Int(1))])]),
+		refused(&[t("iroh"), Value::List(vec![pair("port", Value::Integer(1))])]),
 		"a iroh listener has no \"port\" option"
 	);
 	assert_eq!(
-		refused(&[t("tcp"), V::List(vec![pair("relay", t("x"))])]),
+		refused(&[t("tcp"), Value::List(vec![pair("relay", t("x"))])]),
 		"a tcp listener has no \"relay\" option (it takes bind, port, advertise)"
 	);
 	assert_eq!(
 		refused(&[
 			t("tcp"),
-			V::List(vec![pair("port", V::Int(1)), pair("port", V::Int(2))])
+			Value::List(vec![pair("port", Value::Integer(1)), pair("port", Value::Integer(2))])
 		]),
 		"the port listener option was supplied twice"
 	);
 	assert_eq!(
-		refused(&[t("tcp"), V::List(vec![pair("port", V::Int(70000))])]),
+		refused(&[t("tcp"), Value::List(vec![pair("port", Value::Integer(70000))])]),
 		"port is an integer between 0 and 65535"
 	);
 	assert_eq!(
-		refused(&[t("keyed-relay"), V::List(vec![pair("relay", t(""))])]),
+		refused(&[t("keyed-relay"), Value::List(vec![pair("relay", t(""))])]),
 		"relay is a non-empty string under 4 KiB"
 	);
 	assert_eq!(
-		read_down(&[V::Int(0)]).unwrap_err().reason(),
+		read_down(&[Value::Integer(0)]).unwrap_err().reason(),
 		"down takes the number list answered"
 	);
-	assert_eq!(read_down(&[V::Int(3)]).unwrap(), 3);
+	assert_eq!(read_down(&[Value::Integer(3)]).unwrap(), 3);
 }
 
 #[test]

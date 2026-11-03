@@ -157,7 +157,7 @@ pub async fn run(
 			while let Some(ended) = clients.join_next().await {
 				match ended {
 					Ok(Err(error)) => report(Notice::ClientEnded(error)),
-					Err(error) => result = crate::cleanup::combine(result, Err(error.to_string())),
+					Err(error) => crate::cleanup::retain(&mut result, Err(error.to_string())),
 					Ok(Ok(())) => {}
 				}
 			}
@@ -166,17 +166,17 @@ pub async fn run(
 		}
 	};
 	if let Some(inboxes) = inboxes {
-		result = crate::cleanup::combine(result, inboxes.close().await);
+		crate::cleanup::retain(&mut result, inboxes.close().await);
 	}
-	result = crate::cleanup::combine(result, direct.close().await.map_err(|e| e.to_string()));
-	result = crate::cleanup::combine(
-		result,
+	crate::cleanup::retain(&mut result, direct.close().await.map_err(|e| e.to_string()));
+	crate::cleanup::retain(
+		&mut result,
 		runtime.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
 	);
 	while let Some(ended) = partners.join_next().await {
 		match ended {
 			Ok(Err(error)) => report(Notice::InboxEnded(error.to_string())),
-			Err(error) => result = crate::cleanup::combine(result, Err(error.to_string())),
+			Err(error) => crate::cleanup::retain(&mut result, Err(error.to_string())),
 			Ok(Ok(())) => {}
 		}
 	}

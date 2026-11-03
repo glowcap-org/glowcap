@@ -16,11 +16,10 @@ pub fn exercise(link: &str, management_link: &str, original_base: Option<u64>) -
 		.enable_all()
 		.build()
 		.unwrap()
-		.block_on(tokio::task::LocalSet::new().run_until(async {
-			tokio::time::timeout(Duration::from_secs(8), attached(link, management_link, original_base))
-				.await
-				.expect("managed executable client deadline")
-		}))
+		.block_on(rooms_testing::local_set::run_within(
+			Duration::from_secs(8),
+			attached(link, management_link, original_base),
+		))
 }
 async fn revision(control: &Control<HostPlatform>) -> u64 {
 	let state = control.describe().await.unwrap();
@@ -130,7 +129,7 @@ pub fn shutdown_with_live_observer(link: &str, halt: impl FnOnce()) {
 		.enable_all()
 		.build()
 		.unwrap()
-		.block_on(tokio::task::LocalSet::new().run_until(async {
+		.block_on(rooms_testing::local_set::run(async {
 			let parsed = glowcap::parse_sturdyref(link, CaptpVersion::V1_0).unwrap();
 			let runtime = Runtime::open(RuntimeConfig::providers([
 				tcp::provider(Default::default()),

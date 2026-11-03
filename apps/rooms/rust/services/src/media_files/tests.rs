@@ -27,11 +27,7 @@ pub(super) fn description(name: &str, size: usize) -> FileDescription {
 }
 #[tokio::test]
 async fn incoming_materialization_is_shared_by_archive_and_views_through_expiration() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(20), scenario()).await.unwrap();
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(20), scenario()).await;
 }
 async fn scenario() {
 	let runtime = Rc::new(
@@ -84,7 +80,7 @@ async fn scenario() {
 	assert_eq!(owner.usage().files, 1);
 	let first = file.materialize();
 	let second = duplicate.materialize();
-	let path = std::env::temp_dir().join(format!("rooms-received-{}", std::process::id()));
+	let path = rooms_testing::scratch::Scratch::new("received");
 	let (archive, worker) = SessionArchive::new(
 		rooms_platform::HostPlatform,
 		runtime.clone(),
@@ -139,7 +135,6 @@ async fn scenario() {
 	);
 	drop((first, second));
 	assert_eq!(owner.usage(), Usage::default());
-	std::fs::remove_dir_all(path).unwrap();
 	pressure(client.session()).await;
 	super::batch_tests::run(client.session()).await;
 	super::upload_tests::run(client.session(), &peer).await;

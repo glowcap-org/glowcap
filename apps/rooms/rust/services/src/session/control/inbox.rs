@@ -259,18 +259,13 @@ impl Inbox {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	fn path() -> PathBuf {
-		static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-		std::env::temp_dir().join(format!(
-			"rooms-inbox-{}-{}",
-			std::process::id(),
-			NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-		))
+	fn path() -> rooms_testing::scratch::Scratch {
+		rooms_testing::scratch::Scratch::new("inbox")
 	}
 	#[test]
 	fn journal_uncertainty_comes_from_the_write_outcome_not_its_rendered_class() {
 		let path = path();
-		let mut inbox = Inbox::open(path.clone()).unwrap();
+		let mut inbox = Inbox::open(path.to_path_buf()).unwrap();
 		inbox.journal_failure(WriteFailure::Unchanged(storage::StorageError::Io(
 			std::io::ErrorKind::PermissionDenied.into(),
 		)));
@@ -285,12 +280,11 @@ mod tests {
 				.is_err()
 		);
 		drop(inbox);
-		std::fs::remove_dir_all(path).unwrap();
 	}
 	#[test]
 	fn acknowledgement_journal_replays_without_reusing_identifiers() {
 		let path = path();
-		let mut inbox = Inbox::open(path.clone()).unwrap();
+		let mut inbox = Inbox::open(path.to_path_buf()).unwrap();
 		inbox.append(json!({"text":"one"})).unwrap();
 		inbox.append(json!({"text":"two"})).unwrap();
 		let before = std::fs::metadata(path.join(NAME)).unwrap().len();
@@ -300,21 +294,20 @@ mod tests {
 			"acknowledgement appends instead of rewriting retained events"
 		);
 		drop(inbox);
-		let mut inbox = Inbox::open(path.clone()).unwrap();
+		let mut inbox = Inbox::open(path.to_path_buf()).unwrap();
 		assert_eq!(inbox.pending(0)["pending"][0]["text"], "one");
 		inbox.append(json!({"text":"three"})).unwrap();
 		assert_eq!(inbox.pending(0)["pending"][1]["id"], 3);
 		inbox.compact().unwrap();
 		drop(inbox);
-		let inbox = Inbox::open(path.clone()).unwrap();
+		let inbox = Inbox::open(path.to_path_buf()).unwrap();
 		assert_eq!(inbox.pending(0)["remaining"], 2);
 		drop(inbox);
-		std::fs::remove_dir_all(path).unwrap();
 	}
 	#[test]
 	fn full_journal_can_dismiss_and_resume_without_losing_identifier_sequence() {
 		let path = path();
-		let mut inbox = Inbox::open(path.clone()).unwrap();
+		let mut inbox = Inbox::open(path.to_path_buf()).unwrap();
 		inbox
 			.append(json!({"text":"x".repeat(MAX_BYTES - ACK_RESERVE - 128)}))
 			.unwrap();
@@ -326,26 +319,24 @@ mod tests {
 		inbox.append(json!({"text":"recovered"})).unwrap();
 		assert_eq!(inbox.pending(0)["pending"][0]["id"], 2);
 		drop(inbox);
-		let inbox = Inbox::open(path.clone()).unwrap();
+		let inbox = Inbox::open(path.to_path_buf()).unwrap();
 		assert_eq!(inbox.pending(0)["pending"][0]["text"], "recovered");
 		drop(inbox);
-		std::fs::remove_dir_all(path).unwrap();
 	}
 	#[test]
 	fn unclean_shutdown_keeps_a_gap_until_explicit_resume() {
 		let path = path();
-		let inbox = Inbox::open(path.clone()).unwrap();
+		let inbox = Inbox::open(path.to_path_buf()).unwrap();
 		inbox.begin().unwrap();
 		drop(inbox);
-		let mut inbox = Inbox::open(path.clone()).unwrap();
+		let mut inbox = Inbox::open(path.to_path_buf()).unwrap();
 		assert_eq!(inbox.pending(0)["gap"]["class"], "uncertain");
 		assert!(inbox.append(json!({"text":"not silently resumed"})).is_err());
 		inbox.resume().unwrap();
 		inbox.close().unwrap();
 		drop(inbox);
-		let inbox = Inbox::open(path.clone()).unwrap();
+		let inbox = Inbox::open(path.to_path_buf()).unwrap();
 		assert!(inbox.pending(0)["gap"].is_null());
 		drop(inbox);
-		std::fs::remove_dir_all(path).unwrap();
 	}
 }

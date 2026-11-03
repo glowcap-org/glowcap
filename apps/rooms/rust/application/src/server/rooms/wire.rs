@@ -214,7 +214,7 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(String::new()));
 			out.push(e.text(AUTHORITY_CHANGED.into()));
-			out.push(e.text(super::Rooms::<u8, u8>::authority_kind_name(*kind).into()));
+			out.push(e.text(kind.wire().into()));
 			out.push(e.text(token.clone()));
 			out.push(e.boolean(false));
 		}

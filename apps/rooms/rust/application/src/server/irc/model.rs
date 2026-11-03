@@ -8,20 +8,19 @@ use super::{
 	protocol::fold,
 	registration::{Invalid as RegistrationInvalid, SaslPlain, validate_realname},
 };
-use crate::fields::lower_hex;
+use crate::{directory::MAX_PUBLICATION_ID, fields::lower_hex};
 use alloc::string::{String, ToString};
 use serde::{Deserialize, Serialize};
 
 /// The longest connection or lease name, shared with the gateway
 /// description a snapshot carries.
 pub use crate::bridge::gateway::MAX_NAME;
-pub const MAX_PUBLICATION_ID: usize = 128;
 /// A network must leave room for `/`, `#`, and at least one channel unit in
 /// the 32-unit room name it will eventually prefix.
 pub const MAX_NETWORK_NAME: usize = crate::server::rooms::MAX_ROOM - 3;
 /// Bytes of entropy a durable bridge name derives from, as hex in the
 /// document.
-pub const ENTROPY_BYTES: usize = 16;
+pub use crate::server::links::ENTROPY_BYTES;
 /// The fresh draws one bridge keeps when it is remembered: the room's and
 /// the steward's, each the authority behind that side's capability.
 #[derive(Clone, Copy, Debug)]

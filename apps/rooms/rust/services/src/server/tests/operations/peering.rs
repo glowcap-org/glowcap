@@ -3,16 +3,11 @@
 //! source's own capability, taken down by its lease, and taken down with
 //! its publisher's session.
 use super::*;
+use rooms_testing::scratch::Scratch;
 
 #[tokio::test]
 async fn rooms_server_lists_a_room_another_directory_publishes_until_its_lease_revokes() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(60), peering())
-				.await
-				.expect("peering scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(60), peering()).await;
 }
 
 /// One phase of a scenario under its own deadline, so a hang names itself.
@@ -28,10 +23,10 @@ async fn peering() {
 		directory::Directory,
 		room::{Room, SubscribeOptions},
 	};
-	let (source_state, destination_state) = (Temp::new(), Temp::new());
-	let source = start_with(source_state.0.clone(), tcp(), Asked::default()).await;
+	let (source_state, destination_state) = (Scratch::create("server"), Scratch::create("server"));
+	let source = start_with(source_state.to_path_buf(), tcp(), Asked::default()).await;
 	let destination = start_with(
-		destination_state.0.clone(),
+		destination_state.to_path_buf(),
 		tcp(),
 		Asked {
 			peering: true,

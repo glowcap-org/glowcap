@@ -133,17 +133,20 @@ pub async fn run(
 		state.posts.stop();
 		state.changed.send_replace(());
 	}
-	result = crate::cleanup::combine(result, listener.close().await.map_err(|e| e.to_string()));
+	crate::cleanup::retain(&mut result, listener.close().await.map_err(|e| e.to_string()));
 	if !observed {
-		result = crate::cleanup::combine(result, feeding.await.map_err(|e| e.to_string()).and_then(|r| r));
+		crate::cleanup::retain(&mut result, feeding.await.map_err(|e| e.to_string()).and_then(|r| r));
 	}
-	result = crate::cleanup::combine(result, host.close(PendingWork::Cancel).await.map_err(|e| e.to_string()));
+	crate::cleanup::retain(
+		&mut result,
+		host.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
+	);
 	while let Some(ended) = sessions.join_next().await {
-		result = crate::cleanup::combine(result, ended.map_err(|e| e.to_string()));
+		crate::cleanup::retain(&mut result, ended.map_err(|e| e.to_string()));
 	}
 	while let Some(ended) = closing.join_next().await {
-		result = crate::cleanup::combine(
-			result,
+		crate::cleanup::retain(
+			&mut result,
 			ended
 				.map_err(|e| e.to_string())
 				.and_then(|(_, r)| r.map_err(|e| e.to_string())),

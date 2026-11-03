@@ -140,87 +140,72 @@ async fn authentication(role: Role, accepted: bool) {
 
 #[tokio::test]
 async fn tls_sasl_feed_and_member_success_refusal_and_pacing() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(5), async {
-				for role in [Role::Feed, Role::Member] {
-					authentication(role, true).await;
-					authentication(role, false).await;
-				}
-			})
-			.await
-			.expect("TLS/SASL scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(5), async {
+		for role in [Role::Feed, Role::Member] {
+			authentication(role, true).await;
+			authentication(role, false).await;
+		}
+	})
+	.await;
 }
 
 #[tokio::test]
 async fn certificate_trust_and_hostname_refuse_before_irc_registration() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(5), async {
-				for (host, trusted) in [("localhost", false), ("127.0.0.1", true)] {
-					let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-					let endpoint = Endpoint::new(host, listener.local_addr().unwrap().port(), true).unwrap();
-					let (connection, worker, mut events) = Connection::open(
-						endpoint,
-						Some(trust(trusted)),
-						Role::Member,
-						"alice",
-						"test identity",
-						None,
-						Duration::ZERO,
-					)
-					.unwrap();
-					let task = tokio::task::spawn_local(worker.run());
-					let (socket, _) = listener.accept().await.unwrap();
-					assert!(acceptor().accept(socket).await.is_err());
-					assert!(
-						connection
-							.finished()
-							.await
-							.unwrap_err()
-							.contains("TLS handshake failed")
-					);
-					assert!(!connection.registered());
-					assert!(task.await.unwrap().is_err());
-					assert!(events.next().await.is_none());
-				}
-			})
-			.await
-			.expect("certificate refusal deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(5), async {
+		for (host, trusted) in [("localhost", false), ("127.0.0.1", true)] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let endpoint = Endpoint::new(host, listener.local_addr().unwrap().port(), true).unwrap();
+			let (connection, worker, mut events) = Connection::open(
+				endpoint,
+				Some(trust(trusted)),
+				Role::Member,
+				"alice",
+				"test identity",
+				None,
+				Duration::ZERO,
+			)
+			.unwrap();
+			let task = tokio::task::spawn_local(worker.run());
+			let (socket, _) = listener.accept().await.unwrap();
+			assert!(acceptor().accept(socket).await.is_err());
+			assert!(
+				connection
+					.finished()
+					.await
+					.unwrap_err()
+					.contains("TLS handshake failed")
+			);
+			assert!(!connection.registered());
+			assert!(task.await.unwrap().is_err());
+			assert!(events.next().await.is_none());
+		}
+	})
+	.await;
 }
 
 #[tokio::test]
 async fn cancellation_retires_a_stalled_tls_handshake() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(5), async {
-				let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-				let endpoint = Endpoint::new("localhost", listener.local_addr().unwrap().port(), true).unwrap();
-				let (connection, worker, _events) = Connection::open(
-					endpoint,
-					Some(trust(true)),
-					Role::Feed,
-					"feed",
-					"bridge bot; admin: alice",
-					None,
-					Duration::ZERO,
-				)
-				.unwrap();
-				let task = tokio::task::spawn_local(worker.run());
-				let (mut socket, _) = listener.accept().await.unwrap();
-				let mut bytes = [0; 4096];
-				assert!(socket.read(&mut bytes).await.unwrap() > 0, "TLS handshake started");
-				connection.close().await.unwrap();
-				task.await.unwrap().unwrap();
-				while socket.read(&mut bytes).await.unwrap() != 0 {}
-				assert!(!connection.registered());
-			})
-			.await
-			.expect("TLS cancellation deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(5), async {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let endpoint = Endpoint::new("localhost", listener.local_addr().unwrap().port(), true).unwrap();
+		let (connection, worker, _events) = Connection::open(
+			endpoint,
+			Some(trust(true)),
+			Role::Feed,
+			"feed",
+			"bridge bot; admin: alice",
+			None,
+			Duration::ZERO,
+		)
+		.unwrap();
+		let task = tokio::task::spawn_local(worker.run());
+		let (mut socket, _) = listener.accept().await.unwrap();
+		let mut bytes = [0; 4096];
+		assert!(socket.read(&mut bytes).await.unwrap() > 0, "TLS handshake started");
+		connection.close().await.unwrap();
+		task.await.unwrap().unwrap();
+		while socket.read(&mut bytes).await.unwrap() != 0 {}
+		assert!(!connection.registered());
+	})
+	.await;
 }

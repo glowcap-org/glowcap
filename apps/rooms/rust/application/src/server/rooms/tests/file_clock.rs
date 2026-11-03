@@ -27,7 +27,7 @@ fn failed_adapter_publication_releases_only_its_reservation_without_a_timer() {
 	);
 	world
 		.rooms
-		.upload_verb(kept, "write", &[Value::Bytes(&[1, 2, 3])], 0)
+		.upload_verb(kept, "write", &[Value::Bytes(vec![1, 2, 3])], 0)
 		.unwrap();
 }
 
@@ -52,7 +52,7 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 	let write_at = start + UPLOAD_IDLE_MS - 1;
 	world
 		.rooms
-		.upload_verb(upload, "write", &[Value::Bytes(&[1])], write_at)
+		.upload_verb(upload, "write", &[Value::Bytes(vec![1])], write_at)
 		.unwrap();
 	assert_eq!(world.rooms.next_upload_deadline(), Some(write_at + UPLOAD_IDLE_MS));
 	// The original deadline is now harmless: successful progress renewed it.
@@ -62,7 +62,7 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 		.blob_verb(
 			&blob,
 			"read",
-			&[Value::Natural(0), Value::Natural(1)],
+			&[Value::Integer(0), Value::Integer(1)],
 			start + UPLOAD_IDLE_MS,
 		)
 		.unwrap()
@@ -75,7 +75,7 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 	assert!(
 		world
 			.rooms
-			.upload_verb(upload, "write", &[Value::Bytes(&[2])], write_at + UPLOAD_IDLE_MS)
+			.upload_verb(upload, "write", &[Value::Bytes(vec![2])], write_at + UPLOAD_IDLE_MS)
 			.is_err()
 	);
 	assert!(
@@ -84,7 +84,7 @@ fn uploads_start_and_renew_from_event_time_after_a_quiet_server() {
 			.blob_verb(
 				&blob,
 				"read",
-				&[Value::Natural(0), Value::Natural(1)],
+				&[Value::Integer(0), Value::Integer(1)],
 				write_at + UPLOAD_IDLE_MS
 			)
 			.is_err()

@@ -1,5 +1,6 @@
-use super::{tests::Temp, *};
+use super::*;
 use rooms_application::archive::shares::{self, ApplyError, Change, Command, Share};
+use rooms_testing::scratch::Scratch;
 use std::{fs, io, time::Duration};
 const ID: &str = "12345678-1234-4234-8234-123456789abc";
 fn share() -> Share {
@@ -15,40 +16,40 @@ fn share() -> Share {
 }
 #[tokio::test]
 async fn share_identity_and_revocation_survive_restart_under_archive_custody() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	assert!(archive.active_shares().await.unwrap().is_empty());
 	assert_eq!(
 		archive.change_share(Command::Issue(share())).await.unwrap(),
 		Change::Issued
 	);
-	let before = fs::read(temp.0.join(shares::FILE)).unwrap();
+	let before = fs::read(temp.join(shares::FILE)).unwrap();
 	assert_eq!(
 		archive.change_share(Command::Issue(share())).await.unwrap(),
 		Change::Unchanged
 	);
-	assert_eq!(fs::read(temp.0.join(shares::FILE)).unwrap(), before);
-	assert!(FileArchive::open(&temp.0, Options::default()).await.is_err());
+	assert_eq!(fs::read(temp.join(shares::FILE)).unwrap(), before);
+	assert!(FileArchive::open(&temp, Options::default()).await.is_err());
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	assert_eq!(archive.active_shares().await.unwrap(), vec![share()]);
 	assert_eq!(
 		archive.change_share(Command::Revoke(ID.into())).await.unwrap(),
 		Change::Revoked
 	);
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	assert!(archive.active_shares().await.unwrap().is_empty());
 	assert!(archive.change_share(Command::Issue(share())).await.is_err());
 	drop(archive);
-	fs::write(temp.0.join(shares::FILE), b"{broken").unwrap();
-	assert!(FileArchive::open(&temp.0, Options::default()).await.is_err());
-	assert_eq!(fs::read(temp.0.join(shares::FILE)).unwrap(), b"{broken");
+	fs::write(temp.join(shares::FILE), b"{broken").unwrap();
+	assert!(FileArchive::open(&temp, Options::default()).await.is_err());
+	assert_eq!(fs::read(temp.join(shares::FILE)).unwrap(), b"{broken");
 }
 #[tokio::test]
 async fn cancelled_share_observation_drains_before_another_admission() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let store = archive.store.clone();
 	let (held, ready) = std::sync::mpsc::channel();
 	let (release, wait) = std::sync::mpsc::channel();
@@ -71,8 +72,8 @@ async fn cancelled_share_observation_drains_before_another_admission() {
 }
 #[test]
 fn uncertain_share_rename_requires_recovery_and_restores_the_actual_revocation() {
-	let temp = Temp::new();
-	let mut store = Store::open(temp.0.clone(), Options::default()).unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut store = Store::open(temp.to_path_buf(), Options::default()).unwrap();
 	store
 		.shares
 		.apply(Command::Issue(share()), |bytes| {
@@ -91,6 +92,6 @@ fn uncertain_share_rename_requires_recovery_and_restores_the_actual_revocation()
 	assert!(store.live().is_err());
 	assert!(store.shares.records().is_err());
 	drop(store);
-	let store = Store::open(temp.0.clone(), Options::default()).unwrap();
+	let store = Store::open(temp.to_path_buf(), Options::default()).unwrap();
 	assert!(store.shares.get(ID).unwrap().unwrap().revoked());
 }

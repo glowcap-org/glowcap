@@ -90,12 +90,8 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 					&values,
 					"revokeRoomAuthority takes a room authority kind and publication token",
 				)?;
-				let kind = match kind.as_str() {
-					"room" => Kind::Room,
-					"steward" => Kind::Steward,
-					"manager" => Kind::Manager,
-					_ => return Err("revokeRoomAuthority takes a room authority kind and publication token".into()),
-				};
+				let kind = Kind::parse(&kind)
+					.ok_or("revokeRoomAuthority takes a room authority kind and publication token")?;
 				if kind == Kind::Steward {
 					let publication = irc::authority::by_token(&shared.borrow(), &token);
 					if let Some(publication) = publication {
@@ -148,7 +144,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 				let (held, published) = (name.clone(), name.clone());
 				authority::submit(
 					&state,
-					"giveSteward",
+					verbs::GIVE_STEWARD,
 					move |state| Ok(state.authority.remembered(&held, true, false, None)?),
 					move |state, caller| {
 						state.publish_room(&published)?;
@@ -167,7 +163,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 				let (held, published) = (name.clone(), name.clone());
 				authority::submit(
 					&state,
-					"giveManager",
+					verbs::GIVE_MANAGER,
 					move |state| Ok(state.authority.remembered(&held, false, true, None)?),
 					move |state, caller| {
 						state.publish_room(&published)?;
@@ -199,7 +195,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(Option<&str>, &[Argument]) 
 				let held = token.clone();
 				authority::submit(
 					&state,
-					"revokeSteward",
+					verbs::REVOKE_STEWARD,
 					move |state| {
 						let name = state.links.resolve(Kind::Steward, &held)?;
 						Ok(Some(state.authority.with_steward_revoked(&name)?.0))

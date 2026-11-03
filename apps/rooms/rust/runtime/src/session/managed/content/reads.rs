@@ -58,7 +58,7 @@ pub(super) fn selected_history(call: &mut Call<'_>, input: Invocation<'_>, local
 	}
 	let selected = record.intent.archive.map(|key| custody::Coordinate {
 		role: custody::Role::ArchiveAccess,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
+		key: key.retag(),
 	});
 	let target = match selected {
 		Some(coordinate) => records::Field::Retained(records::location(
@@ -138,7 +138,7 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 		};
 		custody::Coordinate {
 			role: custody::Role::ArchiveAccess,
-			key: custody::FieldKey::new(key.slot(), key.generation()),
+			key: key.retag(),
 		}
 	} else if input.verb == "workspace-history-reader" {
 		if history_source(input.args)?.0 {
@@ -149,7 +149,7 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 		};
 		custody::Coordinate {
 			role: custody::Role::ArchiveAccess,
-			key: custody::FieldKey::new(key.slot(), key.generation()),
+			key: key.retag(),
 		}
 	} else if matches!(input.verb, "history-reader" | "bridge-form-reader") {
 		seat(input.args)?
@@ -206,7 +206,7 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		};
 		let selected = custody::Coordinate {
 			role: custody::Role::ArchiveAccess,
-			key: custody::FieldKey::new(key.slot(), key.generation()),
+			key: key.retag(),
 		};
 		let field = record
 			.custody

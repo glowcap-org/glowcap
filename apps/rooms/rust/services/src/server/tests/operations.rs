@@ -11,10 +11,11 @@ mod operator;
 mod peering;
 mod trace;
 
-use super::{Running, Temp, runtime, start_with, tcp};
+use super::{Running, runtime, start_with, tcp};
 use crate::server::Asked;
 use glowcap::{Argument, ConnectOptions, PendingWork, Session};
 use rooms_application::server::operations::listeners::{ONION_NEEDS_TOR, TRANSPORTS, Transport};
+use rooms_testing::scratch::Scratch;
 use std::time::Duration;
 
 const KEYED_TCP: &str = glowcap::TRANSPORT_KEYED_TCP;
@@ -115,23 +116,17 @@ pub(super) fn whole(answer: &Argument) -> (i64, std::collections::BTreeMap<Strin
 
 #[tokio::test]
 async fn rooms_server_administers_listeners_and_answers_diagnostics() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(60), scenario())
-				.await
-				.expect("operations scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(60), scenario()).await;
 }
 
 async fn scenario() {
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	let asked = Asked {
 		admin_listeners: true,
 		diagnostics: true,
 		..Default::default()
 	};
-	let running = start_with(temp.0.clone(), tcp(), asked.clone()).await;
+	let running = start_with(temp.to_path_buf(), tcp(), asked.clone()).await;
 	let tokens: Vec<&str> = running
 		.capabilities
 		.iter()
@@ -141,7 +136,7 @@ async fn scenario() {
 	let listeners_swiss = running.capabilities[0].swiss.clone();
 	let diagnostics_swiss = running.capabilities[1].swiss.clone();
 	assert_eq!(
-		std::fs::read_to_string(temp.0.join("admin-listeners")).unwrap().trim(),
+		std::fs::read_to_string(temp.join("admin-listeners")).unwrap().trim(),
 		listeners_swiss
 	);
 	let runtime = runtime().await;
@@ -272,7 +267,7 @@ async fn scenario() {
 	let keyed = text(&row, 7).to_string();
 	assert!(keyed.starts_with("ocapn://") && keyed.contains(".keyed-tcp"), "{keyed}");
 	assert!(keyed.contains(&format!("%3A{port}")), "{keyed}");
-	let kept = std::fs::read_to_string(temp.0.join("operations.json")).unwrap();
+	let kept = std::fs::read_to_string(temp.join("operations.json")).unwrap();
 	assert!(
 		kept.contains("\"keyed-tcp\"") && kept.contains(&port.to_string()),
 		"{kept}"
@@ -336,7 +331,7 @@ async fn scenario() {
 
 	// The restart reuses the swiss numbers and replays the kept keyed-tcp
 	// seat on the same port; taking it down forgets it.
-	let again = start_with(temp.0.clone(), tcp(), asked).await;
+	let again = start_with(temp.to_path_buf(), tcp(), asked).await;
 	assert_eq!(again.capabilities[0].swiss, listeners_swiss);
 	let session = runtime
 		.connect(
@@ -360,7 +355,7 @@ async fn scenario() {
 	);
 	let seats = list(&session, &admin).await;
 	assert_eq!(int(seat(&seats, KEYED_TCP), 6), 0);
-	let kept = std::fs::read_to_string(temp.0.join("operations.json")).unwrap();
+	let kept = std::fs::read_to_string(temp.join("operations.json")).unwrap();
 	assert!(!kept.contains(KEYED_TCP), "{kept}");
 	assert!(
 		refused(&session, &admin, "down", &[Argument::Integer(restored_id)])
@@ -376,41 +371,36 @@ async fn scenario() {
 
 #[tokio::test]
 async fn no_capability_exists_without_its_flag() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(30), async {
-				let temp = Temp::new();
-				let flagged = start_with(
-					temp.0.clone(),
-					tcp(),
-					Asked {
-						diagnostics: true,
-						..Default::default()
-					},
-				)
-				.await;
-				let swiss = flagged.capabilities[0].swiss.clone();
-				flagged.stop.send(()).unwrap();
-				flagged.task.await.unwrap().unwrap();
-				let plain = start_with(temp.0.clone(), tcp(), Asked::default()).await;
-				assert!(plain.capabilities.is_empty());
-				let runtime = runtime().await;
-				let session = runtime
-					.connect(
-						&glowcap::parse_locator(&plain.location).unwrap(),
-						ConnectOptions::default(),
-					)
-					.await
-					.unwrap();
-				assert!(session.fetch(&swiss).await.is_err(), "a stale swiss answers nothing");
-				session.fetch("directory").await.unwrap();
-				session.close(PendingWork::Cancel).await.unwrap();
-				plain.stop.send(()).unwrap();
-				plain.task.await.unwrap().unwrap();
-				runtime.close(PendingWork::Cancel).await.unwrap();
-			})
-			.await
-			.expect("flag scenario deadline");
-		})
+	rooms_testing::local_set::run_within(Duration::from_secs(30), async {
+		let temp = Scratch::create("server");
+		let flagged = start_with(
+			temp.to_path_buf(),
+			tcp(),
+			Asked {
+				diagnostics: true,
+				..Default::default()
+			},
+		)
 		.await;
+		let swiss = flagged.capabilities[0].swiss.clone();
+		flagged.stop.send(()).unwrap();
+		flagged.task.await.unwrap().unwrap();
+		let plain = start_with(temp.to_path_buf(), tcp(), Asked::default()).await;
+		assert!(plain.capabilities.is_empty());
+		let runtime = runtime().await;
+		let session = runtime
+			.connect(
+				&glowcap::parse_locator(&plain.location).unwrap(),
+				ConnectOptions::default(),
+			)
+			.await
+			.unwrap();
+		assert!(session.fetch(&swiss).await.is_err(), "a stale swiss answers nothing");
+		session.fetch("directory").await.unwrap();
+		session.close(PendingWork::Cancel).await.unwrap();
+		plain.stop.send(()).unwrap();
+		plain.task.await.unwrap().unwrap();
+		runtime.close(PendingWork::Cancel).await.unwrap();
+	})
+	.await;
 }

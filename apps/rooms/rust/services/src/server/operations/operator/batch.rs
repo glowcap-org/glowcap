@@ -2,7 +2,7 @@
 //! The operations worker owns the batch even after its caller disconnects.
 use super::{Category, ResetScope, Shared, Value, acts, irc, sources};
 use glowcap::Argument;
-use rooms_application::server::operations::operator::{inventory::Act, page, read_retire, rows};
+use rooms_application::server::operations::operator::{inventory::Act, page, read_retire, rows, verbs};
 
 struct Notices(Shared);
 impl Notices {
@@ -64,7 +64,7 @@ pub(super) fn retire_matching(shared: &Shared, caller: u64, values: &[Value<'_>]
 pub(super) fn disconnect_session(shared: &Shared, caller: u64, id: String) -> Result<Argument, String> {
 	let state = shared.borrow();
 	let shared = shared.clone();
-	state.operations.later(&state, "disconnectSession", move |store| {
+	state.operations.later(&state, verbs::DISCONNECT_SESSION, move |store| {
 		Box::pin(async move {
 			acts::prepare(&shared, &store, caller, Act::Disconnect(id)).await?;
 			Ok(Argument::Void)
@@ -75,7 +75,7 @@ pub(super) fn disconnect_session(shared: &Shared, caller: u64, id: String) -> Re
 pub(super) fn remove_room(shared: &Shared, caller: u64, id: String) -> Result<Argument, String> {
 	let state = shared.borrow();
 	let shared = shared.clone();
-	state.operations.later(&state, "removeOperatorRoom", move |store| {
+	state.operations.later(&state, verbs::REMOVE_ROOM, move |store| {
 		Box::pin(async move {
 			let act = if irc::operator::contains(&shared.borrow(), &id) {
 				Act::RemoveIrc(id)
@@ -90,27 +90,25 @@ pub(super) fn remove_room(shared: &Shared, caller: u64, id: String) -> Result<Ar
 pub(super) fn release_reference(shared: &Shared, caller: u64, id: String) -> Result<Argument, String> {
 	let state = shared.borrow();
 	let shared = shared.clone();
-	state
-		.operations
-		.later(&state, "releaseOperatorReference", move |store| {
-			Box::pin(async move {
-				let act = sources(&shared.borrow(), caller, Category::References, None)?
-					.into_iter()
-					.find_map(|source| match &source.row {
-						rows::Row::Reference { id: held, .. } if *held == id => source.retire,
-						_ => None,
-					})
-					.ok_or("that retained reference is no longer present")?;
-				acts::prepare(&shared, &store, caller, act).await?;
-				Ok(Argument::Void)
-			})
+	state.operations.later(&state, verbs::RELEASE_REFERENCE, move |store| {
+		Box::pin(async move {
+			let act = sources(&shared.borrow(), caller, Category::References, None)?
+				.into_iter()
+				.find_map(|source| match &source.row {
+					rows::Row::Reference { id: held, .. } if *held == id => source.retire,
+					_ => None,
+				})
+				.ok_or("that retained reference is no longer present")?;
+			acts::prepare(&shared, &store, caller, act).await?;
+			Ok(Argument::Void)
 		})
+	})
 }
 
 pub(super) fn reset(shared: &Shared, caller: u64, scope: ResetScope) -> Result<Argument, String> {
 	let state = shared.borrow();
 	let shared = shared.clone();
-	state.operations.later(&state, "resetOperatorScope", move |store| {
+	state.operations.later(&state, verbs::RESET_SCOPE, move |store| {
 		Box::pin(async move {
 			let _notices = Notices::hold(&shared);
 			let categories: &[Category] = match scope {

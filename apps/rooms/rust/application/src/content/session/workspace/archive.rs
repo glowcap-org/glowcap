@@ -1,6 +1,6 @@
 //! Received archive selections retain the exact source of their arrival.
 //! Descriptive scope cannot reconstruct the reader or its admission authority.
-use super::{Id, Intent, InvalidIntent, coordinate, custody};
+use super::{Id, Intent, InvalidIntent, custody};
 use crate::archive::{Filter, ShareKind};
 use serde::{Deserialize, Serialize};
 
@@ -21,8 +21,8 @@ pub struct ReceivedArchive {
 impl ReceivedArchive {
 	pub fn coordinates(&self) -> impl Iterator<Item = custody::Coordinate> {
 		[
-			coordinate(custody::Role::ArchiveAccess, self.access),
-			coordinate(custody::Role::SessionAccess, self.source),
+			custody::Coordinate::new(custody::Role::ArchiveAccess, self.access),
+			custody::Coordinate::new(custody::Role::SessionAccess, self.source),
 		]
 		.into_iter()
 	}

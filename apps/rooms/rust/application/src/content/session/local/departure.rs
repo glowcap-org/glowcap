@@ -4,7 +4,7 @@ use super::Refusal;
 use crate::{
 	content::session::{
 		custody::{Coordinate, Custody, FieldKey, References, Role},
-		workspace::{Conversation, Id, Intent, Reconnect, coordinate},
+		workspace::{Conversation, Id, Intent, Reconnect},
 	},
 	session::checkpoint::commands::Command,
 };
@@ -40,7 +40,7 @@ pub fn retire_authority<R: References>(
 			room.moderator = None;
 		}
 	}
-	release(intent, custody, [coordinate(Role::RoomAccess, key)]);
+	release(intent, custody, [Coordinate::new(Role::RoomAccess, key)]);
 }
 
 /// A retired manager publication cannot clear a replacement control generation.
@@ -57,7 +57,7 @@ pub fn retire_room_control<R: References>(
 			room.control = None;
 		}
 	}
-	release(intent, custody, [coordinate(Role::RoomControl, key)]);
+	release(intent, custody, [Coordinate::new(Role::RoomControl, key)]);
 }
 
 /// Retire every workspace alias of the selected exact seat before dispatching
@@ -96,11 +96,16 @@ pub fn retire_membership<R: References>(
 		release(
 			intent,
 			custody,
-			core::iter::once(coordinate(Role::RoomSeat, seat))
-				.chain(subject.map(|key| coordinate(Role::RoomSubject, key)))
-				.chain(files.map(|key| coordinate(Role::RoomFiles, key)))
-				.chain(inbox.map(|key| coordinate(Role::RoomInbox, key)))
-				.chain(lines.as_slice().iter().map(|row| coordinate(Role::Line, row.handle))),
+			core::iter::once(Coordinate::new(Role::RoomSeat, seat))
+				.chain(subject.map(|key| Coordinate::new(Role::RoomSubject, key)))
+				.chain(files.map(|key| Coordinate::new(Role::RoomFiles, key)))
+				.chain(inbox.map(|key| Coordinate::new(Role::RoomInbox, key)))
+				.chain(
+					lines
+						.as_slice()
+						.iter()
+						.map(|row| Coordinate::new(Role::Line, row.handle)),
+				),
 		);
 	}
 	if retired { Ok(()) } else { Err(Refusal::Missing) }
@@ -120,8 +125,8 @@ pub fn retire_publication<R: References>(
 			intent,
 			custody,
 			[
-				coordinate(Role::RoomAccess, row.room),
-				coordinate(Role::PublicationLease, row.lease),
+				Coordinate::new(Role::RoomAccess, row.room),
+				Coordinate::new(Role::PublicationLease, row.lease),
 			],
 		);
 	}
@@ -221,8 +226,8 @@ pub(super) fn apply<R: References>(
 					intent,
 					custody,
 					[
-						coordinate(Role::RoomAccess, row.room),
-						coordinate(Role::PublicationLease, row.lease),
+						Coordinate::new(Role::RoomAccess, row.room),
+						Coordinate::new(Role::PublicationLease, row.lease),
 					],
 				);
 			}
@@ -238,15 +243,9 @@ pub(super) fn apply<R: References>(
 				return Err(Refusal::Missing);
 			};
 			let (role, selected) = if command == Command::DropRoomManager {
-				(
-					Role::RoomControl,
-					row.control.map(|key| FieldKey::new(key.slot(), key.generation())),
-				)
+				(Role::RoomControl, row.control.map(|key| key.retag()))
 			} else {
-				(
-					Role::RoomAccess,
-					row.moderator.map(|key| FieldKey::new(key.slot(), key.generation())),
-				)
+				(Role::RoomAccess, row.moderator.map(|key| key.retag()))
 			};
 			if selected != Some(expected) {
 				return Err(Refusal::Missing);

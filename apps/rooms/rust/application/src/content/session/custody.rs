@@ -45,6 +45,10 @@ impl<K> FieldKey<K> {
 	pub const fn generation(self) -> NonZeroU64 {
 		self.generation
 	}
+	/// The same slot and generation under another role tag.
+	pub const fn retag<T>(self) -> FieldKey<T> {
+		FieldKey::new(self.slot, self.generation)
+	}
 }
 impl<K> Serialize for FieldKey<K> {
 	fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
@@ -157,7 +161,7 @@ macro_rules! custody {
 		}
 		impl<R: References> Retained<'_, R> {
 			pub fn coordinate(&self) -> Coordinate {
-				match self { $(Self::$kind(field) => Coordinate { role: Role::$kind, key: FieldKey::new(field.key.slot(), field.key.generation()) },)* }
+				match self { $(Self::$kind(field) => Coordinate { role: Role::$kind, key: field.key.retag() },)* }
 			}
 		}
 		impl<R: References> RetainedField<R> {
@@ -167,13 +171,13 @@ macro_rules! custody {
 			/// Select an existing exact typed field, never reconstruct authority.
 			pub fn get(&self, coordinate: Coordinate) -> Option<Retained<'_, R>> {
 				let key = coordinate.key;
-				match coordinate.role { $(Role::$kind => self.$field(FieldKey::new(key.slot(), key.generation())).map(Retained::$kind),)* }
+				match coordinate.role { $(Role::$kind => self.$field(key.retag()).map(Retained::$kind),)* }
 			}
 			/// Remove only the exact role, slot and generation. Effects retain their
 			/// own occurrences independently of workspace custody.
 			pub fn remove(&mut self, coordinate: Coordinate) -> Option<RetainedField<R>> {
 				let key = coordinate.key;
-				match coordinate.role { $(Role::$kind => self.$remove(FieldKey::new(key.slot(), key.generation())).map(RetainedField::$kind),)* }
+				match coordinate.role { $(Role::$kind => self.$remove(key.retag()).map(RetainedField::$kind),)* }
 			}
 			pub fn insert(&mut self, field: RetainedField<R>) -> Result<(), Refusal> {
 				match field { $(RetainedField::$kind(field) => self.$insert(field),)* }
@@ -240,6 +244,10 @@ pub struct Coordinate {
 	pub key: FieldKey<()>,
 }
 impl Coordinate {
+	/// The coordinate of a role's typed key.
+	pub const fn new<K>(role: Role, key: FieldKey<K>) -> Self {
+		Self { role, key: key.retag() }
+	}
 	/// Wire coordinates are JSON objects with an exact typed key. Positional
 	/// arrays cannot supply a checked role or select receipt/custody authority.
 	pub fn decode(raw: &str) -> Result<Self, serde_json::Error> {

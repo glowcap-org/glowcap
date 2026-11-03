@@ -312,7 +312,7 @@ fn manager(
 				let (held, published) = (name.clone(), name.clone());
 				submit(
 					&state,
-					"giveSteward",
+					verbs::GIVE_STEWARD,
 					move |state| {
 						require_manager(state, &held, generation)?;
 						Ok(state.authority.remembered(&held, true, false, None)?)
@@ -445,7 +445,7 @@ fn set_policy(
 	let (held_id, held_name) = (id.clone(), name.clone());
 	submit(
 		state,
-		"setRoomPolicy",
+		verbs::SET_POLICY,
 		move |state| {
 			require_manager(state, &held_id, generation)?;
 			if state.authority.managed_room(&held_id).is_none() {

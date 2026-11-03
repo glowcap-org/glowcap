@@ -256,8 +256,7 @@ impl Case {
 		let mut intent = Intent::empty();
 		let coordinate = self.coordinate(slot).key;
 		if self.role == custody::Role::Operator {
-			intent.operators =
-				List::new(vec![custody::FieldKey::new(coordinate.slot(), coordinate.generation())]).unwrap();
+			intent.operators = List::new(vec![coordinate.retag()]).unwrap();
 		} else if matches!(self.role, custody::Role::Operations | custody::Role::IrcConnection) {
 			intent.operations = List::new(vec![rooms_application::content::session::workspace::Operations {
 				connection: (self.role == custody::Role::IrcConnection).then(|| {

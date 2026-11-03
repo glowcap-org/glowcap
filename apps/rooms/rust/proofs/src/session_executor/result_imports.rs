@@ -1,13 +1,7 @@
 //! Result import preserves exact receipt custody through the original source.
-use super::*;
+use super::{requests::coordinate, *};
 use rooms_application::content::permissions::Permission;
 
-fn coordinate(role: custody::Role, slot: u64) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(NonZeroU64::new(slot).unwrap(), NonZeroU64::new(1).unwrap()),
-	}
-}
 async fn snapshot(host: &Host, source: &Ref) -> Argument {
 	host.send(source, "snapshot", &[]).await.unwrap()
 }

@@ -4,7 +4,7 @@ use super::*;
 use glowcap::Argument;
 use rooms_application::{
 	failure::FailureCode,
-	room::authority::{GOVERNS, KICK, room_identity},
+	room::authority::{GIVE_STEWARD, GOVERNS, KICK, REVOKE_STEWARD, room_identity},
 	server::{
 		irc::{model::entropy_bytes, room::prefix_refusal},
 		operations::faces::{StewardshipRow, Visibility},
@@ -148,11 +148,7 @@ pub(in crate::server) fn change(
 	let shared = shared.clone();
 	state.operations.later(
 		&state,
-		if revoke.is_some() {
-			"revokeSteward"
-		} else {
-			"giveSteward"
-		},
+		if revoke.is_some() { REVOKE_STEWARD } else { GIVE_STEWARD },
 		move |store| {
 			Box::pin(async move {
 				update(&shared, &store, &publication, revoke.as_deref()).await?;

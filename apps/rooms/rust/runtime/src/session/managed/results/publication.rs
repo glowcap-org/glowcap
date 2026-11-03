@@ -12,7 +12,7 @@ pub(super) fn read(value: &Argument) -> Result<Settlement> {
 	let reference = Ref::try_from(value).map_err(|_| loam::refusal("publication returned no lease capability"))?;
 	let coordinate = coordinate();
 	let row = Publication {
-		lease: FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
+		lease: coordinate.key.retag(),
 	};
 	Ok(Settlement(Argument::List(vec![
 		serde_json::to_string(&row)

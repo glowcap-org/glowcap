@@ -36,6 +36,13 @@ impl Abort {
 		}
 	}
 }
+/// Completes once a stop flag is raised. Its writers only ever send `true`
+/// into a flag that began `false`, so an unseen change always means stopped.
+pub(crate) async fn stopped(stop: &mut watch::Receiver<bool>) {
+	if !*stop.borrow() {
+		let _ = stop.changed().await;
+	}
+}
 impl Drop for Abort {
 	fn drop(&mut self) {
 		if let Some(signal) = &self.signal {

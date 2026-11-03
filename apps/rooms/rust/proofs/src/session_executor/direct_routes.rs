@@ -159,7 +159,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, source:
 	let workspace::Conversation::Direct(row) = &mut collision_intent.conversations.as_mut_slice()[0] else {
 		unreachable!()
 	};
-	row.inbox = Some(custody::FieldKey::new(collision.key.slot(), collision.key.generation()));
+	row.inbox = Some(collision.key.retag());
 	assert!(
 		owner.replace_workspace(&collision_intent).await.is_err(),
 		"callback installation reserves its route slot before accepting handoffs"
@@ -181,10 +181,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, source:
 		unreachable!()
 	};
 	let old_inbox = row.inbox.unwrap();
-	row.inbox = Some(custody::FieldKey::new(
-		self_collision.key.slot(),
-		self_collision.key.generation(),
-	));
+	row.inbox = Some(self_collision.key.retag());
 	assert!(
 		workspace
 			.prepare_acquisition(
@@ -196,7 +193,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, source:
 				}],
 				&[custody::Coordinate {
 					role: custody::Role::DirectInbox,
-					key: custody::FieldKey::new(old_inbox.slot(), old_inbox.generation())
+					key: old_inbox.retag()
 				}],
 				&self_colliding
 			)
@@ -215,7 +212,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, source:
 	let workspace::Conversation::Direct(row) = &mut restarted.conversations.as_mut_slice()[0] else {
 		unreachable!()
 	};
-	row.inbox = Some(custody::FieldKey::new(next.key.slot(), next.key.generation()));
+	row.inbox = Some(next.key.retag());
 	let selected = workspace::InboxSelection::direct(row).unwrap();
 	owner.replace_workspace(&restarted).await.unwrap();
 	let restarted_request = vec![

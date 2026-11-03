@@ -13,13 +13,7 @@ use std::{
 
 #[tokio::test]
 async fn bridge_forms_follow_membership_authority_and_cancelled_submissions_are_not_replayed() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("bridge scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let fixture: Value = serde_json::from_str(include_str!("../../../proofs/fixtures/bridge-client.json")).unwrap();

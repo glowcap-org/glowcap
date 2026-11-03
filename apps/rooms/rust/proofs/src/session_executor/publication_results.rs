@@ -1,5 +1,5 @@
 //! Publication captures exact directory and shared room custody before waits.
-use super::*;
+use super::{requests::coordinate, *};
 use rooms_application::content::{permissions::Permission, session::results::Publication};
 pub(super) const PEERING: Schema = Schema {
 	id: 0x535055424c303031,
@@ -119,12 +119,6 @@ pub(super) fn registration(
 			room,
 			malformed,
 		}),
-	}
-}
-pub(super) fn coordinate(role: custody::Role, slot: u64) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(NonZeroU64::new(slot).unwrap(), NonZeroU64::new(1).unwrap()),
 	}
 }
 async fn command(host: &Host, source: &Ref, id: &str, slot: u64) -> (Vec<Argument>, String) {
@@ -385,7 +379,7 @@ async fn run_case(invalid: bool) {
 					intent.peering = List::new(vec![rooms_application::content::session::workspace::Peering {
 						id: rooms_application::fields::Text::new("published".into()).unwrap(),
 						directory: rooms_application::fields::Text::new("directory".into()).unwrap(),
-						room: key(), lease: custody::FieldKey::new(selected_lease.key.slot(), selected_lease.key.generation()),
+						room: key(), lease: selected_lease.key.retag(),
 						name: rooms_application::fields::Text::new("Shared room".into()).unwrap(),
 					}]).unwrap();
 					for changed in ["id", "directory", "name", "room"] {

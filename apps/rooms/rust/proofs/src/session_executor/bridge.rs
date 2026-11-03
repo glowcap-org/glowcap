@@ -1,5 +1,6 @@
 //! Exact bridge origin, declaration and credential custody through real Loam.
-use super::publication_results::{coordinate, lifecycle};
+use super::publication_results::lifecycle;
+use super::requests::coordinate;
 use super::*;
 use rooms_application::{
 	bridge::{Answers, Form},

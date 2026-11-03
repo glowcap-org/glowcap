@@ -1,6 +1,5 @@
 use super::{
 	blob_tests::{Bytes, line},
-	tests::Temp,
 	*,
 };
 use crate::archive::Archive;
@@ -11,6 +10,7 @@ use rooms_application::archive::{
 };
 use rooms_glowcap::client::{Client, archive::Archive as ClientArchive};
 use rooms_platform::HostPlatform;
+use rooms_testing::scratch::Scratch;
 use std::{rc::Rc, time::Duration};
 const ID: &str = "12345678-1234-4234-8234-123456789abc";
 fn spec(id: &str) -> Share {
@@ -26,17 +26,11 @@ fn spec(id: &str) -> Share {
 }
 #[tokio::test]
 async fn durable_share_revocation_reaches_held_descendants_and_queued_reads() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(20), scenario())
-				.await
-				.expect("archive share progress");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(20), scenario()).await;
 }
 async fn scenario() {
-	let temp = Temp::new();
-	let mut backend = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut backend = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let files = [Bytes::new(b"kept".to_vec())];
 	backend.put_with_files(line("one", &files), &files).await.unwrap();
 	backend.change_share(Command::Issue(spec(ID))).await.unwrap();
@@ -93,7 +87,7 @@ async fn scenario() {
 		.unwrap();
 	assert!(root.share(&second).await.is_err());
 	let ledger = rooms_application::archive::shares::Ledger::restore(
-		&std::fs::read(temp.0.join(rooms_application::archive::shares::FILE)).unwrap(),
+		&std::fs::read(temp.join(rooms_application::archive::shares::FILE)).unwrap(),
 	)
 	.unwrap();
 	assert!(ledger.get(second.id()).unwrap().is_some());
@@ -187,8 +181,8 @@ async fn scenario() {
 	let third = spec("12345678-1234-4234-8234-123456789abe");
 	let third_link = root.share(&third).await.unwrap();
 	let third_view = ClientArchive::new(client.clone(), client.session().enliven(&third_link).await.unwrap());
-	let path = temp.0.join(rooms_application::archive::shares::FILE);
-	let backup = temp.0.join("saved-shares");
+	let path = temp.join(rooms_application::archive::shares::FILE);
+	let backup = temp.join("saved-shares");
 	std::fs::rename(&path, &backup).unwrap();
 	std::fs::create_dir(&path).unwrap();
 	assert!(root.revoke_share(third.id()).await.is_err());
@@ -218,7 +212,7 @@ async fn scenario() {
 		owner,
 	));
 	drop((root_ref, shared_ref, accepted));
-	let mut backend = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut backend = FileArchive::open(&temp, Options::default()).await.unwrap();
 	assert_eq!(backend.active_shares().await.unwrap(), vec![third]);
 	assert!(backend.change_share(Command::Issue(spec(ID))).await.is_err());
 	let (restored_owner, mut restored_worker) = Archive::new(rooms_platform::HostPlatform, backend);

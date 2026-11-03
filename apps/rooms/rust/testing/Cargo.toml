@@ -1,0 +1,15 @@
+[package]
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+name = "rooms-testing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokio.workspace = true

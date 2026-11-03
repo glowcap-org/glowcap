@@ -105,7 +105,7 @@ fn location(record: &MetadataRecord, input: Invocation<'_>) -> Result<records::L
 		.custody
 		.get(custody::Coordinate {
 			role: custody::Role::DirectoryAccess,
-			key: custody::FieldKey::new(row.access.slot(), row.access.generation()),
+			key: row.access.retag(),
 		})
 		.ok_or_else(|| refuse("directory custody is absent"))?;
 	Ok(records::location(&held))

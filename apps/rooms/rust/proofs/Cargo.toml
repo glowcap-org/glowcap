@@ -55,6 +55,7 @@ rooms-services = { path = "../services" }
 rooms-platform = { path = "../platform" }
 rooms-runtime = { path = "../runtime" }
 rooms-glowcap = { path = "../glowcap", features = ["loam"] }
+rooms-testing = { path = "../testing" }
 glowcap = { workspace = true, features = ["tcp"] }
 tokio.workspace = true
 futures-util = { workspace = true, features = ["alloc"] }

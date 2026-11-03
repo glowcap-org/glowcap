@@ -3,29 +3,8 @@ use glowcap::{ConnectOptions, Runtime, RuntimeConfig, iroh, tcp};
 use rooms_application::archive::{Body, ConversationKind, Coordinates, Filter, LineState, Record, shares::Share};
 use rooms_glowcap::client::{Client, archive::Archive as ClientArchive};
 use rooms_platform::HostPlatform;
-use std::{
-	path::PathBuf,
-	sync::atomic::{AtomicU64, Ordering},
-	time::Duration,
-};
-static NEXT: AtomicU64 = AtomicU64::new(0);
-struct Temp(PathBuf);
-impl Temp {
-	fn new() -> Self {
-		let path = std::env::temp_dir().join(format!(
-			"rooms-archive-peer-{}-{}",
-			std::process::id(),
-			NEXT.fetch_add(1, Ordering::Relaxed)
-		));
-		std::fs::create_dir(&path).unwrap();
-		Self(path)
-	}
-}
-impl Drop for Temp {
-	fn drop(&mut self) {
-		std::fs::remove_dir_all(&self.0).unwrap();
-	}
-}
+use rooms_testing::scratch::Scratch;
+use std::{path::PathBuf, time::Duration};
 #[tokio::test]
 async fn archive_peer_tcp_identity_archive_shares_restart_and_active_shutdown() {
 	check(false).await;
@@ -35,18 +14,12 @@ async fn archive_peer_direct_iroh_identity_archive_shares_restart_and_active_shu
 	check(true).await;
 }
 async fn check(iroh: bool) {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(20), scenario(iroh))
-				.await
-				.expect("host archive service deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(20), scenario(iroh)).await;
 }
 async fn scenario(use_iroh: bool) {
-	let temp = Temp::new();
+	let temp = Scratch::create("archive-peer");
 	let identity = rooms_application::archive::identity::Identity::new([202; 32], [17; 16]);
-	std::fs::write(temp.0.join("peer.json"), identity.encode()).unwrap();
+	std::fs::write(temp.join("peer.json"), identity.encode()).unwrap();
 	let transport = || {
 		if use_iroh {
 			Transport::Iroh(iroh::Reachability::Direct)
@@ -75,7 +48,7 @@ async fn scenario(use_iroh: bool) {
 		let (stop, stopped) = tokio::sync::oneshot::channel();
 		let (ready, link) = tokio::sync::oneshot::channel();
 		let config = Config {
-			state: temp.0.clone(),
+			state: temp.to_path_buf(),
 			transport: transport(),
 		};
 		let task = tokio::task::spawn_local(run(
@@ -129,7 +102,7 @@ async fn scenario(use_iroh: bool) {
 			assert_eq!(archive.read_all(&Filter::default()).await.unwrap().len(), 1);
 			assert_eq!(archive.shares().await.unwrap()[0].share, spec);
 		}
-		assert!(FileArchive::open(&temp.0, Options::default()).await.is_err());
+		assert!(FileArchive::open(&temp, Options::default()).await.is_err());
 		stop.send(()).unwrap();
 		task.await.unwrap().unwrap();
 		assert!(archive.read_all(&Filter::default()).await.is_err());
@@ -144,7 +117,7 @@ async fn scenario(use_iroh: bool) {
 		}
 	}
 	runtime.close(PendingWork::Cancel).await.unwrap();
-	assert_eq!(std::fs::read(temp.0.join("peer.json")).unwrap(), identity.encode());
+	assert_eq!(std::fs::read(temp.join("peer.json")).unwrap(), identity.encode());
 }
 #[test]
 fn archive_peer_configuration_requires_state_and_resolves_explicit_transport_options() {

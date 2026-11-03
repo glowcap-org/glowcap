@@ -100,17 +100,18 @@ fn entropy_failure(error: impl std::fmt::Display) -> DiskFailure {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use rooms_testing::scratch::Scratch;
 	#[tokio::test]
 	async fn identity_is_explicit_durable_and_never_replaces_malformed_state() {
-		let temp = super::super::tests::Temp::new();
-		let path = temp.0.join(identity::FILE);
-		let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+		let temp = Scratch::create("archive-rust");
+		let path = temp.join(identity::FILE);
+		let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 		assert!(!path.exists());
 		let first = archive.identity().await.unwrap().encode();
 		assert_eq!(archive.identity().await.unwrap().encode(), first);
-		assert!(FileArchive::open(&temp.0, Options::default()).await.is_err());
+		assert!(FileArchive::open(&temp, Options::default()).await.is_err());
 		drop(archive);
-		let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+		let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 		assert_eq!(archive.identity().await.unwrap().encode(), first);
 		#[cfg(unix)]
 		{

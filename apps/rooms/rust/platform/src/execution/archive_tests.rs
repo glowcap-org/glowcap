@@ -88,13 +88,7 @@ fn facet(session: &Rc<Session>, index: Rc<RefCell<Index>>, scope: Facet) -> Ref 
 }
 #[tokio::test]
 async fn archive_clients_keep_scopes_and_validate_replies_over_tcp() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("archive scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let Loopback {

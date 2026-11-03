@@ -72,7 +72,7 @@ pub(super) async fn after_post(
 			direct.lines = List::default();
 			let coordinate = custody::Coordinate {
 				role: custody::Role::Line,
-				key: custody::FieldKey::new(key.slot(), key.generation()),
+				key: key.retag(),
 			};
 			mutate(
 				host,

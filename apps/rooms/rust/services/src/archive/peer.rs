@@ -4,7 +4,7 @@ use super::{
 	Archive,
 	file::{FileArchive, Options},
 };
-use crate::cleanup::combine;
+use crate::cleanup::{combine, retain};
 use glowcap::{Host, PendingWork};
 use rooms_platform::serving::{CONNECTION_LIMIT, Listener, PartnerNotice, Retry, accept_ended, serve_partner};
 use std::{future::Future, rc::Rc};
@@ -81,7 +81,7 @@ async fn serve(
 	let mut retry = Retry::default();
 	tokio::pin!(shutdown);
 	ready(&link);
-	let result = loop {
+	let mut result = loop {
 		tokio::select! {
 			_ = &mut shutdown => break Ok(()),
 			ended = &mut worker => { worker_observed = true; break Err(format!("archive storage worker ended unexpectedly: {ended:?}")); },
@@ -101,7 +101,7 @@ async fn serve(
 			},
 		}
 	};
-	let mut result = combine(result, listener.close().await.map_err(|e| e.to_string()));
+	retain(&mut result, listener.close().await.map_err(|e| e.to_string()));
 	let closed = owner.close().await.map_err(|e| e.to_string()).and_then(|r| {
 		if r.publication_failures == 0 {
 			Ok(())
@@ -109,11 +109,14 @@ async fn serve(
 			Err("archive publication cleanup failed".to_owned())
 		}
 	});
-	result = combine(result, closed);
+	retain(&mut result, closed);
 	if !worker_observed {
-		result = combine(result, worker.await.map(|_| ()).map_err(|e| e.to_string()));
+		retain(&mut result, worker.await.map(|_| ()).map_err(|e| e.to_string()));
 	}
-	result = combine(result, host.close(PendingWork::Cancel).await.map_err(|e| e.to_string()));
+	retain(
+		&mut result,
+		host.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
+	);
 	while let Some(ended) = connections.join_next().await {
 		if let Err(join) = ended {
 			report(PartnerNotice::TaskFailed(join));

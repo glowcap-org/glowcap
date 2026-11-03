@@ -31,10 +31,7 @@ pub(super) async fn run(
 	let session::workspace::Conversation::Room(room) = &mut replacement_intent.conversations.as_mut_slice()[0] else {
 		panic!("room")
 	};
-	room.seat = Some(custody::FieldKey::new(
-		replacement_key.slot(),
-		replacement_key.generation(),
-	));
+	room.seat = Some(replacement_key.retag());
 	owner.replace_workspace(&replacement_intent).await.unwrap();
 	let current = workspace.snapshot().await.unwrap();
 	let mut candidate = current.intent.clone();

@@ -82,7 +82,7 @@ impl Channel {
 		self.stop.send_replace(true);
 		let mut result = self.room.leave().await.map_err(|e| e.to_string());
 		if let Some(task) = self.pump.take() {
-			result = crate::cleanup::combine(result, task.await.map_err(|e| e.to_string()).and_then(|r| r));
+			crate::cleanup::retain(&mut result, task.await.map_err(|e| e.to_string()).and_then(|r| r));
 		}
 		result
 	}

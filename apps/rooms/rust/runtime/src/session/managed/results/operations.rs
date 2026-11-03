@@ -13,7 +13,7 @@ pub(super) fn connection(value: &Argument) -> Result<Settlement> {
 	let reference = Ref::try_from(value).map_err(|_| loam::refusal("gateway returned no connection capability"))?;
 	let coordinate = connection_coordinate();
 	let data = serde_json::to_string(&Connection {
-		connection: FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
+		connection: coordinate.key.retag(),
 	})
 	.map_err(|_| loam::refusal("invalid connection result"))?;
 	Ok(Settlement(Argument::List(vec![

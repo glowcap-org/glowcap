@@ -34,11 +34,7 @@ pub(super) async fn retire<P: Deadline + Clone>(
 	else {
 		return Err(loam::refusal("authority notification required"));
 	};
-	let role = match kind {
-		rooms_application::room::stewardship::Kind::Room => "room",
-		rooms_application::room::stewardship::Kind::Steward => "steward",
-		rooms_application::room::stewardship::Kind::Manager => "manager",
-	};
+	let role = kind.wire();
 	// Only authority notifications pay this bounded ingress copy. The existing
 	// callback charge retains the original notice through admission and commit.
 	let encoded = serde_json::to_string(selected).map_err(|_| loam::refusal("invalid authority selection"))?;

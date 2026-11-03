@@ -49,11 +49,7 @@ fn optional<A: ListArgument>(row: &A, at: usize, max: usize) -> Result<Option<St
 	}
 }
 fn conversation(value: &str) -> Result<ConversationKind, Error> {
-	match value {
-		"room" => Ok(ConversationKind::Room),
-		"direct" => Ok(ConversationKind::Direct),
-		_ => Err(Error::Record),
-	}
+	ConversationKind::parse(value).ok_or(Error::Record)
 }
 pub fn record<A: ListArgument>(row: &A) -> Result<Record, Error> {
 	record_at(row, 0)
@@ -86,12 +82,7 @@ fn record_at<A: ListArgument>(row: &A, offset: usize) -> Result<Record, Error> {
 		let kind = item(row, offset + 4)?;
 		let kind = conversation(kind.text().ok_or(Error::Record)?)?;
 		let state = item(row, offset + 12)?;
-		let state = match state.text().ok_or(Error::Record)? {
-			"present" => LineState::Present,
-			"edited" => LineState::Edited,
-			"withdrawn" => LineState::Withdrawn,
-			_ => return Err(Error::Record),
-		};
+		let state = LineState::parse(state.text().ok_or(Error::Record)?).ok_or(Error::Record)?;
 		let line_text = document(row, offset + 8, crate::room::line::MAX_LINE_BYTES, true)?;
 		let previews = if count == 15 {
 			let values = item(row, offset + 14)?;

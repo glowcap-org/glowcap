@@ -12,7 +12,7 @@ pub(super) fn read(value: &Argument) -> Result<Settlement> {
 	let reference = Ref::try_from(value).map_err(|_| loam::refusal("directory returned no direct inbox"))?;
 	let coordinate = coordinate();
 	let data = serde_json::to_string(&Direct::Ready {
-		inbox: FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
+		inbox: coordinate.key.retag(),
 	})
 	.map_err(|_| loam::refusal("invalid direct result"))?;
 	Ok(Settlement(Argument::List(vec![

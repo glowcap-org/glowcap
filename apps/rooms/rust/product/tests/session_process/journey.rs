@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 use std::io::Read;
 
 fn ready(mut command: Command, prefix: &str) -> (Process, String) {
-	let mut process = Process(command.stdout(Stdio::piped()).spawn().unwrap());
-	let output = process.0.stdout.take().unwrap();
+	let mut process = Process::new(command.stdout(Stdio::piped()).spawn().unwrap(), "session");
+	let output = process.child.stdout.take().unwrap();
 	let (send, receive) = mpsc::channel();
 	let prefix = prefix.to_owned();
 	std::thread::spawn(move || {
@@ -25,16 +25,23 @@ fn ready(mut command: Command, prefix: &str) -> (Process, String) {
 }
 fn call(state: &std::path::Path, verb: &str, named: Value) -> Value {
 	let options = json!({"verb":verb,"state":state,"named":named,"arguments":[]});
-	let mut process = Process(
+	let mut process = Process::new(
 		super::command()
 			.args(["control", &options.to_string()])
 			.stdout(Stdio::piped())
 			.spawn()
 			.unwrap(),
+		"session",
 	);
 	let status = process.wait();
 	let mut output = String::new();
-	process.0.stdout.take().unwrap().read_to_string(&mut output).unwrap();
+	process
+		.child
+		.stdout
+		.take()
+		.unwrap()
+		.read_to_string(&mut output)
+		.unwrap();
 	assert!(status.success(), "{verb} {named}: {output}");
 	serde_json::from_str(&output).unwrap()
 }
@@ -59,8 +66,7 @@ fn direct_message(state: &std::path::Path, text: &str) -> String {
 }
 #[test]
 fn managed_local_control_joins_and_replies_through_actual_custody() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-managed-journey-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
+	let temp = Scratch::create("managed-journey");
 	let installed = std::env::var_os("GLOWCAP_ROOMS_SERVER_TEST_BIN");
 	let mut server = Command::new(
 		installed
@@ -75,7 +81,7 @@ fn managed_local_control_joins_and_replies_through_actual_custody() {
 	let locator = format!("127.0.0.1:{port}");
 	let mut peers = Vec::new();
 	for nick in ["managed-one", "managed-two"] {
-		let state = temp.0.join(nick);
+		let state = temp.join(nick);
 		let mut command = super::command();
 		command.args([
 			format!("--state={}", state.display()),
@@ -139,18 +145,20 @@ fn managed_local_control_joins_and_replies_through_actual_custody() {
 }
 #[test]
 fn a_session_whose_stdout_is_closed_keeps_serving_its_local_control() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-closed-stdout-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
-	let state = temp.0.join("unread");
+	let temp = Scratch::create("closed-stdout");
+	let state = temp.join("unread");
 	let mut command = super::command();
 	command.args([
 		format!("--state={}", state.display()),
 		"--transport=tcp".into(),
 		"--local-control".into(),
 	]);
-	let mut process = Process(command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap());
-	drop(process.0.stdout.take());
-	let errors = process.0.stderr.take().unwrap();
+	let mut process = Process::new(
+		command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap(),
+		"session",
+	);
+	drop(process.child.stdout.take());
+	let errors = process.child.stderr.take().unwrap();
 	let (send, receive) = mpsc::channel();
 	std::thread::spawn(move || {
 		for line in BufReader::new(errors).lines().map_while(Result::ok) {

@@ -1,47 +1,12 @@
 //! Exercise the executable's loader, CLI, custody, banner and signal barrier.
 #![cfg(test)]
+use rooms_testing::{child_process::Process, scratch::Scratch};
 use std::{
 	io::{BufRead, BufReader},
-	path::PathBuf,
-	process::{Child, Command, ExitStatus, Stdio},
+	process::{Command, Stdio},
 	sync::mpsc,
-	time::{Duration, Instant},
+	time::Duration,
 };
-struct Process(Child);
-impl Process {
-	fn wait(&mut self) -> ExitStatus {
-		let deadline = Instant::now() + Duration::from_secs(5);
-		loop {
-			if let Some(status) = self.0.try_wait().unwrap() {
-				return status;
-			}
-			assert!(Instant::now() < deadline, "archive process did not finish");
-			std::thread::sleep(Duration::from_millis(5));
-		}
-	}
-	fn signal(&mut self, name: &str) {
-		assert!(
-			Command::new("/bin/kill")
-				.args([name, &self.0.id().to_string()])
-				.status()
-				.unwrap()
-				.success()
-		);
-		assert!(self.wait().success(), "archive signal shutdown failed");
-	}
-}
-impl Drop for Process {
-	fn drop(&mut self) {
-		let _ = self.0.kill();
-		let _ = self.0.wait();
-	}
-}
-struct Temp(PathBuf);
-impl Drop for Temp {
-	fn drop(&mut self) {
-		std::fs::remove_dir_all(&self.0).unwrap();
-	}
-}
 fn command() -> Command {
 	let installed = std::env::var_os("GLOWCAP_ROOMS_ARCHIVE_TEST_BIN");
 	let mut command = Command::new(
@@ -62,14 +27,19 @@ fn command() -> Command {
 }
 #[test]
 fn archive_peer_executable_custody_restart_and_signals() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-archive-process-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
-	let mut help = Process(command().arg("--help").stdout(Stdio::null()).spawn().unwrap());
+	let temp = Scratch::create("archive-process");
+	let mut help = Process::new(
+		command().arg("--help").stdout(Stdio::null()).spawn().unwrap(),
+		"archive",
+	);
 	assert!(help.wait().success());
-	let mut invalid = Process(command().arg("--port=bad").stderr(Stdio::null()).spawn().unwrap());
+	let mut invalid = Process::new(
+		command().arg("--port=bad").stderr(Stdio::null()).spawn().unwrap(),
+		"archive",
+	);
 	assert!(!invalid.wait().success());
 	for transport in ["tcp", "iroh"] {
-		let state = temp.0.join(transport);
+		let state = temp.join(transport);
 		let mut identity = None;
 		let mut swiss = None;
 		for signal in ["-TERM", "-INT"] {
@@ -79,8 +49,8 @@ fn archive_peer_executable_custody_restart_and_signals() {
 			if transport == "iroh" {
 				cmd.arg("--reachability=direct");
 			}
-			let mut process = Process(cmd.stdout(Stdio::piped()).spawn().unwrap());
-			let stdout = process.0.stdout.take().unwrap();
+			let mut process = Process::new(cmd.stdout(Stdio::piped()).spawn().unwrap(), "archive");
+			let stdout = process.child.stdout.take().unwrap();
 			let (sender, receiver) = mpsc::sync_channel(1);
 			let reader = std::thread::spawn(move || {
 				let mut line = String::new();
@@ -105,13 +75,14 @@ fn archive_peer_executable_custody_restart_and_signals() {
 				assert_eq!(&bytes, previous);
 			}
 			identity = Some(bytes);
-			let mut contender = Process(
+			let mut contender = Process::new(
 				command()
 					.arg(format!("--state={}", state.display()))
 					.arg("--transport=tcp")
 					.stderr(Stdio::null())
 					.spawn()
 					.unwrap(),
+				"archive",
 			);
 			assert!(
 				!contender.wait().success(),

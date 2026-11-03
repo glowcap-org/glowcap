@@ -14,7 +14,10 @@ pub(super) fn read(value: &Argument, intent: &str) -> Result<Acquisition> {
 	let [_, action, identity] = request.as_slice() else {
 		return Err(loam::refusal("invalid manager recovery intent"));
 	};
-	if name != "operator" || action != "giveManager" || identity.is_empty() {
+	if name != "operator"
+		|| action != rooms_application::server::operations::operator::verbs::GIVE_MANAGER
+		|| identity.is_empty()
+	{
 		return Err(loam::refusal("invalid manager recovery intent"));
 	}
 	let uri = authority::room_link(&rooms_glowcap::Value(value))
@@ -23,7 +26,7 @@ pub(super) fn read(value: &Argument, intent: &str) -> Result<Acquisition> {
 	glowcap::parse_sturdyref(&uri, glowcap::CaptpVersion::V1_0)?;
 	let coordinate = coordinate();
 	let data = serde_json::to_string(&RoomManager {
-		control: FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
+		control: coordinate.key.retag(),
 	})
 	.map_err(|_| loam::refusal("invalid manager result"))?;
 	Ok(Acquisition {

@@ -105,12 +105,12 @@ impl<D: Deadline + Clone> Workspace<D> {
 			expected,
 			vec![
 				Import {
-					coordinate: selected(custody::Role::DirectoryAccess, access),
+					coordinate: custody::Coordinate::new(custody::Role::DirectoryAccess, access),
 					reference,
 					uri,
 				},
 				Import {
-					coordinate: selected(custody::Role::SessionAccess, source),
+					coordinate: custody::Coordinate::new(custody::Role::SessionAccess, source),
 					reference: self.reference.clone(),
 					uri: None,
 				},
@@ -123,11 +123,5 @@ impl<D: Deadline + Clone> Workspace<D> {
 			acquisition,
 			conflicted: Cell::new(false),
 		})
-	}
-}
-fn selected<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
 	}
 }

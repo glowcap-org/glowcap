@@ -43,14 +43,8 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, platfor
 			id: Text::new("collaborator-direct".into()).unwrap(),
 			directory: directory.id.clone(),
 			peer: Text::new("peer".into()).unwrap(),
-			source: Some(custody::FieldKey::new(
-				initiating.key.slot(),
-				initiating.key.generation(),
-			)),
-			access: Some(custody::FieldKey::new(
-				destination.key.slot(),
-				destination.key.generation(),
-			)),
+			source: Some(initiating.key.retag()),
+			access: Some(destination.key.retag()),
 			introduction: Some(workspace::Introduction {
 				access: directory.access,
 				name: directory.name.unwrap(),
@@ -98,10 +92,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, platfor
 						&mappings,
 						&releases,
 						&altered,
-						Some(custody::FieldKey::new(
-							initiating.key.slot(),
-							initiating.key.generation()
-						))
+						Some(initiating.key.retag())
 					)
 					.unwrap()
 					.submit()
@@ -121,10 +112,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, platfor
 				&mappings,
 				&[],
 				&candidate,
-				Some(custody::FieldKey::new(
-					initiating.key.slot(),
-					initiating.key.generation(),
-				)),
+				Some(initiating.key.retag()),
 			)
 			.unwrap()
 			.submit()

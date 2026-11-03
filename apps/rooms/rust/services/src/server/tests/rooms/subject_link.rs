@@ -3,21 +3,16 @@
 //! later redeems it and calls the object directly.
 use super::*;
 use rooms_application::room::subject::Invalid;
+use rooms_testing::scratch::Scratch;
 
 #[tokio::test]
 async fn a_linked_subject_survives_a_restart_and_a_later_member_calls_it() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(30), linked_subject())
-				.await
-				.expect("linked subject deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(30), linked_subject()).await;
 }
 
 async fn linked_subject() {
-	let temp = Temp::new();
-	let running = start(temp.0.clone(), tcp()).await;
+	let temp = Scratch::create("server");
+	let running = start(temp.to_path_buf(), tcp()).await;
 
 	// Alice hosts the board on her own listener and makes it the subject.
 	let alice = super::super::Member::listen().await;
@@ -59,7 +54,7 @@ async fn linked_subject() {
 
 	// After a restart, Bob arrives, reads the subject, and calls the board on
 	// Alice's host. The room server is not on that path.
-	let running = start(temp.0.clone(), tcp()).await;
+	let running = start(temp.to_path_buf(), tcp()).await;
 	let bob_runtime = runtime().await;
 	let bob = Client::new(
 		bob_runtime

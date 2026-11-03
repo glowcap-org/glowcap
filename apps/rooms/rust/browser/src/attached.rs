@@ -11,7 +11,7 @@ mod uploads;
 mod view;
 use crate::{ice, platform::Platform, transport};
 use glowcap::{Host, PendingWork, Runtime};
-use rooms_runtime::cleanup::{combine as retain, failed};
+use rooms_runtime::cleanup::{self, failed};
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 type Result<T> = std::result::Result<T, String>;
@@ -103,9 +103,9 @@ impl Environment {
 		}
 		let incoming = self.incoming.close().await;
 		let (ice, runtime) = tokio::join!(self.ice.close(), self.runtime.close(PendingWork::Cancel));
-		retain(
+		cleanup::combine(
 			incoming,
-			retain(
+			cleanup::combine(
 				ice.map_err(|error| error.to_string()),
 				runtime.map_err(|error| error.to_string()),
 			),

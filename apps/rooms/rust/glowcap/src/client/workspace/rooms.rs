@@ -83,7 +83,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 			vec![Import {
 				coordinate: custody::Coordinate {
 					role: custody::Role::SessionAccess,
-					key: custody::FieldKey::new(selected.source.slot(), selected.source.generation()),
+					key: selected.source.retag(),
 				},
 				reference: self.reference.clone(),
 				uri: None,

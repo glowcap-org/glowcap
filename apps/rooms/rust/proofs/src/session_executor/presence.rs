@@ -94,8 +94,8 @@ pub(super) async fn run() {
 				owner.replace_workspace(&original).await.unwrap();
 				let mut changed = original.clone();
 				match &mut changed.conversations.as_mut_slice()[0] {
-					session::workspace::Conversation::Room(row) => row.seat = Some(custody::FieldKey::new(next.key.slot(), next.key.generation())),
-					session::workspace::Conversation::Direct(row) => row.access = Some(custody::FieldKey::new(next.key.slot(), next.key.generation())),
+					session::workspace::Conversation::Room(row) => row.seat = Some(next.key.retag()),
+					session::workspace::Conversation::Direct(row) => row.access = Some(next.key.retag()),
 				}
 				owner.replace_workspace(&changed).await.unwrap();
 				assert!(sender.set(true).await.is_err(), "retained sender cannot follow a replacement selection");

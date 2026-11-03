@@ -12,14 +12,8 @@ use rooms_application::{
 };
 use rooms_glowcap::client::{Client, archive::Archive};
 use rooms_runtime::archive::session::MAX_STREAMS;
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 use tokio::sync::oneshot;
-struct Temp(PathBuf);
-impl Drop for Temp {
-	fn drop(&mut self) {
-		std::fs::remove_dir_all(&self.0).unwrap();
-	}
-}
 struct Bytes {
 	description: FileDescription,
 	bytes: Vec<u8>,
@@ -91,18 +85,11 @@ fn record_message(owner: &SessionArchive, id: u64, source: File<HostPlatform>) -
 }
 #[tokio::test]
 async fn session_archive_files_follow_their_keeper_across_selection() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(20), scenario())
-				.await
-				.expect("session archive file deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(20), scenario()).await;
 }
 async fn scenario() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-session-archive-files-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
-	let peer_path = temp.0.join("peer");
+	let temp = rooms_testing::scratch::Scratch::create("session-archive-files");
+	let peer_path = temp.join("peer");
 	let description = FileDescription::new("file".into(), "text/plain".into(), 40_000, 0, 0).unwrap();
 	let bytes: Vec<_> = (0..40_000).map(|n| (n % 251) as u8).collect();
 	let mut seed = FileArchive::open(&peer_path, Options::default()).await.unwrap();
@@ -217,9 +204,7 @@ async fn scenario() {
 	let (owner, worker) = SessionArchive::new(
 		rooms_platform::HostPlatform,
 		runtime.clone(),
-		FileArchive::open(temp.0.join("local"), Options::default())
-			.await
-			.unwrap(),
+		FileArchive::open(temp.join("local"), Options::default()).await.unwrap(),
 	);
 	let worker = tokio::task::spawn_local(worker.run());
 	assert_eq!(
@@ -465,7 +450,7 @@ async fn scenario() {
 	let (interrupted, task) = SessionArchive::new(
 		rooms_platform::HostPlatform,
 		runtime.clone(),
-		FileArchive::open(temp.0.join("interrupted"), Options::default())
+		FileArchive::open(temp.join("interrupted"), Options::default())
 			.await
 			.unwrap(),
 	);
@@ -481,7 +466,7 @@ async fn scenario() {
 	assert!(held[0].blob(0).await.is_err());
 	assert!(client.session().is_open());
 	drop(held);
-	capture_tests::run(runtime.clone(), &client, &link, &temp.0).await;
+	capture_tests::run(runtime.clone(), &client, &link, &temp).await;
 	drop(local_blob);
 	drop(peer_blob);
 	drop(local);

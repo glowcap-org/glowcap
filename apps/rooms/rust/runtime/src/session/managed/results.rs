@@ -131,7 +131,7 @@ impl Prepared {
 						Ok::<_, glowcap::Error>(Argument::List(vec![
 							serde_json::to_string(&Coordinate {
 								role: custody::Role::Line,
-								key: FieldKey::new(key.slot(), key.generation()),
+								key: key.retag(),
 							})
 							.map_err(|_| loam::refusal("invalid line coordinate"))?
 							.into(),
@@ -160,7 +160,7 @@ impl Prepared {
 					lookup: Lookup::Publication {
 						coordinate: Coordinate {
 							role: custody::Role::RoomAccess,
-							key: FieldKey::new(key.slot(), key.generation()),
+							key: key.retag(),
 						},
 						uri: uri.into(),
 					},
@@ -200,7 +200,7 @@ impl Prepared {
 					label: row.label,
 					visibility: row.visibility,
 					generation: row.generation,
-					steward: returned.as_ref().map(|_| FieldKey::new(key.slot(), key.generation())),
+					steward: returned.as_ref().map(|_| key.retag()),
 				})
 				.map_err(|_| loam::refusal("invalid stewardship data"))?;
 				if !Text::<32768>::accepts_utf16(data.encode_utf16()) {

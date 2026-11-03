@@ -90,8 +90,8 @@ pub(super) async fn run(
 		(result, registered) = client.drive(&mut input) => (result, registered, None),
 	};
 	writer.fail("the IRC connection ended");
-	result = crate::cleanup::combine(
-		result,
+	crate::cleanup::retain(
+		&mut result,
 		match registered.take() {
 			Some(registered) => registered.close().await,
 			None => client.close().await,
@@ -104,12 +104,12 @@ pub(super) async fn run(
 			.map_err(|_| "IRC output owner disappeared".to_owned())
 			.and_then(|result| result),
 	};
-	result = crate::cleanup::combine(result, pump_result);
+	crate::cleanup::retain(&mut result, pump_result);
 	let _ = close.send(());
 	match pumping.join_next().await {
-		Some(Ok(shutdown)) => result = crate::cleanup::combine(result, shutdown),
-		Some(Err(error)) => result = crate::cleanup::combine(result, Err(error.to_string())),
-		None => result = crate::cleanup::combine(result, Err("IRC output owner disappeared".into())),
+		Some(Ok(shutdown)) => crate::cleanup::retain(&mut result, shutdown),
+		Some(Err(error)) => crate::cleanup::retain(&mut result, Err(error.to_string())),
+		None => crate::cleanup::retain(&mut result, Err("IRC output owner disappeared".into())),
 	}
 	result
 }
@@ -314,21 +314,21 @@ impl ClientState {
 	async fn close(&mut self) -> Result<(), String> {
 		let mut result = Ok(());
 		if let Some(directs) = self.directs.take() {
-			result = crate::cleanup::combine(result, directs.close().await);
+			crate::cleanup::retain(&mut result, directs.close().await);
 		}
 		if let Some(session) = self.session.take() {
-			result = crate::cleanup::combine(
-				result,
+			crate::cleanup::retain(
+				&mut result,
 				session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
 			);
 		}
 		self.directory = None;
 		if let Some(attachment) = self.attachment.take() {
-			result = crate::cleanup::combine(result, attachment.close().await);
+			crate::cleanup::retain(&mut result, attachment.close().await);
 		}
 		if let Some(runtime) = self.runtime.take() {
-			result = crate::cleanup::combine(
-				result,
+			crate::cleanup::retain(
+				&mut result,
 				runtime.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
 			);
 		}
@@ -594,20 +594,20 @@ impl Registered {
 			channels,
 		} = self;
 		let mut result = Ok(());
-		result = crate::cleanup::combine(result, directs.close().await);
+		crate::cleanup::retain(&mut result, directs.close().await);
 		// Memberships are independently owned and already bounded at admission.
 		// One slow leave must not multiply its deadline by the number of rooms.
 		let mut leaving: FuturesUnordered<_> = channels.into_values().map(Channel::close).collect();
 		while let Some(ended) = leaving.next().await {
-			result = crate::cleanup::combine(result, ended);
+			crate::cleanup::retain(&mut result, ended);
 		}
-		result = crate::cleanup::combine(
-			result,
+		crate::cleanup::retain(
+			&mut result,
 			session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
 		);
-		result = crate::cleanup::combine(result, attachment.close().await);
-		result = crate::cleanup::combine(
-			result,
+		crate::cleanup::retain(&mut result, attachment.close().await);
+		crate::cleanup::retain(
+			&mut result,
 			runtime.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
 		);
 		result

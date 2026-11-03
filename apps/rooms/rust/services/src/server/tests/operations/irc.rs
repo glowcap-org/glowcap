@@ -1,8 +1,9 @@
 //! Exercise the gateway through the same Config/run path as rooms-server.
 mod operator;
-use super::super::{Temp, runtime, start_with, start_with_admission, tcp};
+use super::super::{runtime, start_with, start_with_admission, tcp};
 use crate::server::{Asked, Config};
 use glowcap::{Argument, ConnectOptions, PendingWork, Ref};
+use rooms_testing::scratch::Scratch;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 use tokio::{
 	io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -24,13 +25,7 @@ fn member(value: Argument) -> Ref {
 
 #[tokio::test]
 async fn host_irc_gateway_seats_two_channels_and_retires_exact_capabilities() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(30), scenario())
-				.await
-				.expect("host gateway deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(30), scenario()).await;
 }
 async fn scenario() {
 	// This lifetime proof replaces the same membership repeatedly without the
@@ -97,7 +92,7 @@ async fn scenario() {
 			result.unwrap();
 		}
 	});
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	let asked = Asked {
 		irc: true,
 		operator: true,
@@ -105,7 +100,7 @@ async fn scenario() {
 		trace: true,
 		..Default::default()
 	};
-	let running = start_with_admission(temp.0.clone(), tcp(), asked.clone(), config.admission).await;
+	let running = start_with_admission(temp.to_path_buf(), tcp(), asked.clone(), config.admission).await;
 	let viewer = super::trace::Viewer::subscribe(running.trace.as_deref().unwrap()).await;
 	let runtime = runtime().await;
 	let session = runtime
@@ -564,7 +559,7 @@ async fn scenario() {
 	running.stop.send(()).unwrap();
 	running.task.await.unwrap().unwrap();
 	assert!(running.notices.borrow().is_empty(), "{:?}", running.notices.borrow());
-	let running = start_with(temp.0.clone(), tcp(), asked).await;
+	let running = start_with(temp.to_path_buf(), tcp(), asked).await;
 	let session = runtime
 		.connect(
 			&glowcap::parse_locator(&running.location).unwrap(),
@@ -578,7 +573,7 @@ async fn scenario() {
 	let gateway = session.fetch(&swiss).await.unwrap();
 	let network = cap(session.send(&gateway, "connection", &["net".into()]).await.unwrap());
 	let operator = session.fetch(&operator_token).await.unwrap();
-	operator::scenario(&session, &operator, &network, &temp.0, &moderator).await;
+	operator::scenario(&session, &operator, &network, &temp, &moderator).await;
 	session.send(&network, "closeConnection", &[]).await.unwrap();
 	assert!(
 		session

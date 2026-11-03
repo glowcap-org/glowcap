@@ -107,8 +107,7 @@ mod tests {
 
 	#[test]
 	fn an_unknown_timeline_locator_names_its_remedy_and_keeps_every_other_recipe() {
-		let directory = std::env::temp_dir().join(format!("rooms-capability-read-{}", std::process::id()));
-		std::fs::create_dir_all(&directory).unwrap();
+		let directory = rooms_testing::scratch::Scratch::create("capability-read");
 		for capability in &BOOT_CAPABILITIES {
 			std::fs::write(directory.join(capability.file), "a".repeat(64)).unwrap();
 		}
@@ -119,7 +118,6 @@ mod tests {
 		.unwrap()
 		.unwrap();
 		let printed = query.read().unwrap();
-		std::fs::remove_dir_all(&directory).unwrap();
 		for capability in &BOOT_CAPABILITIES {
 			let line = printed.lines().find(|line| line.starts_with(capability.token)).unwrap();
 			if capability.id == "trace" {

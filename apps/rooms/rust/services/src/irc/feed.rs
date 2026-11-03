@@ -158,9 +158,9 @@ pub fn open<C: Copy + Ord, R: Clone>(
 }
 impl<C: Copy + Ord, R: Clone> Worker<C, R> {
 	pub async fn run(mut self) -> Result<(), String> {
-		let result = self.drive().await;
+		let mut result = self.drive().await;
 		let cleanup = self.disconnected();
-		let result = crate::cleanup::combine(result, cleanup);
+		crate::cleanup::retain(&mut result, cleanup);
 		match &result {
 			Ok(()) => self.status(FeedStatus::Dormant, ""),
 			Err(reason) => self.status(FeedStatus::Backoff, reason),

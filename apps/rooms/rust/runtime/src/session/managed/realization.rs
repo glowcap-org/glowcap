@@ -75,12 +75,6 @@ pub struct MembershipDestinations {
 fn refuse(message: &str) -> glowcap::Error {
 	loam::refusal(message)
 }
-fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
-	}
-}
 fn encoded<T: serde::Serialize>(value: &T) -> Result<String> {
 	serde_json::to_string(value).map_err(|_| refuse("invalid worker field selection"))
 }
@@ -203,7 +197,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			return Err(refuse("session is closing"));
 		}
 		let mut held = self
-			.restore_custody(&[coordinate(custody::Role::SessionAccess, selected.source())])
+			.restore_custody(&[custody::Coordinate::new(
+				custody::Role::SessionAccess,
+				selected.source(),
+			)])
 			.await?;
 		if self.state.closing.get() {
 			return Err(refuse("session is closing"));
@@ -263,7 +260,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			return Err(refuse("session is closing"));
 		}
 		let mut held = self
-			.restore_custody(&[coordinate(custody::Role::SessionAccess, selection.source())])
+			.restore_custody(&[custody::Coordinate::new(
+				custody::Role::SessionAccess,
+				selection.source(),
+			)])
 			.await?;
 		let source = held.remove(0);
 		// Shared wakes cover this owner's content and grant inventory. Foreign
@@ -328,7 +328,7 @@ impl<P: Deadline + Clone> Source<P> {
 				let retired = row
 					.inbox
 					.replace(*next)
-					.map(|key| coordinate(custody::Role::DirectoryInbox, key));
+					.map(|key| custody::Coordinate::new(custody::Role::DirectoryInbox, key));
 				*prior = Some(*next);
 				retired
 			}
@@ -353,7 +353,7 @@ impl<P: Deadline + Clone> Source<P> {
 				let retired = row
 					.inbox
 					.replace(*next)
-					.map(|key| coordinate(custody::Role::RoomInbox, key));
+					.map(|key| custody::Coordinate::new(custody::Role::RoomInbox, key));
 				*prior = Some(*next);
 				retired
 			}
@@ -539,7 +539,7 @@ impl<P: Deadline + Clone> Source<P> {
 		let releases = row
 			.name
 			.filter(|old| *old != destination)
-			.map(|key| coordinate(custody::Role::DirectoryName, key));
+			.map(|key| custody::Coordinate::new(custody::Role::DirectoryName, key));
 		row.name = Some(destination);
 		row.assigned_nick =
 			Some(Text::new(acquired.nick.text().clone()).ok_or_else(|| refuse("invalid granted nickname"))?);
@@ -547,8 +547,8 @@ impl<P: Deadline + Clone> Source<P> {
 		command.prepare_result_acquisition(
 			snapshot.revision,
 			&[ResultImport {
-				result: coordinate(custody::Role::DirectoryName, acquired.name),
-				destination: coordinate(custody::Role::DirectoryName, destination),
+				result: custody::Coordinate::new(custody::Role::DirectoryName, acquired.name),
+				destination: custody::Coordinate::new(custody::Role::DirectoryName, destination),
 			}],
 			releases.as_slice(),
 			&snapshot.intent,
@@ -585,21 +585,30 @@ impl<P: Deadline + Clone> Source<P> {
 			.ok_or_else(|| refuse("room was retired"))?;
 		let selected = [
 			(
-				Some(coordinate(custody::Role::RoomSeat, acquired.seat)),
-				Some(coordinate(custody::Role::RoomSeat, destination.seat)),
-				row.seat.map(|key| coordinate(custody::Role::RoomSeat, key)),
+				Some(custody::Coordinate::new(custody::Role::RoomSeat, acquired.seat)),
+				Some(custody::Coordinate::new(custody::Role::RoomSeat, destination.seat)),
+				row.seat
+					.map(|key| custody::Coordinate::new(custody::Role::RoomSeat, key)),
 			),
 			(
-				acquired.subject.map(|key| coordinate(custody::Role::RoomSubject, key)),
+				acquired
+					.subject
+					.map(|key| custody::Coordinate::new(custody::Role::RoomSubject, key)),
 				destination
 					.subject
-					.map(|key| coordinate(custody::Role::RoomSubject, key)),
-				row.subject.map(|key| coordinate(custody::Role::RoomSubject, key)),
+					.map(|key| custody::Coordinate::new(custody::Role::RoomSubject, key)),
+				row.subject
+					.map(|key| custody::Coordinate::new(custody::Role::RoomSubject, key)),
 			),
 			(
-				acquired.files.map(|key| coordinate(custody::Role::RoomFiles, key)),
-				destination.files.map(|key| coordinate(custody::Role::RoomFiles, key)),
-				row.files.map(|key| coordinate(custody::Role::RoomFiles, key)),
+				acquired
+					.files
+					.map(|key| custody::Coordinate::new(custody::Role::RoomFiles, key)),
+				destination
+					.files
+					.map(|key| custody::Coordinate::new(custody::Role::RoomFiles, key)),
+				row.files
+					.map(|key| custody::Coordinate::new(custody::Role::RoomFiles, key)),
 			),
 		];
 		let imports: Vec<_> = selected

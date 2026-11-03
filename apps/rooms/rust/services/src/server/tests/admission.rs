@@ -1,121 +1,118 @@
 //! Real dispatch, isolation, cleanup and steady crowded-room cost.
 use super::*;
 use rooms_glowcap::client::room::Room;
+use rooms_testing::scratch::Scratch;
 #[tokio::test]
 async fn refused_post_preserves_membership_and_other_peer_and_cleanup_progress() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			let temp = Temp::new();
-			let running = start(temp.0.clone(), tcp()).await;
-			let runtime = runtime().await;
-			let locator = glowcap::parse_locator(&running.location).unwrap();
-			let first = Client::new(
-				runtime.connect(&locator, Default::default()).await.unwrap(),
-				HostPlatform,
-			);
-			let directory = Directory::fetch(first.clone()).await.unwrap();
-			let entrance = directory.open("Admission").await.unwrap();
-			let (member, _messages) = Room::subscribe(first.clone(), entrance, "Alice", Default::default())
-				.await
-				.unwrap();
-			for _ in 0..rooms_application::admission::Class::Message.default_rate().burst() {
-				member.say("hello").await.unwrap();
-			}
-			let error = member
-				.say("not admitted")
-				.await
-				.err()
-				.expect("quota refuses before broadcast");
-			let reason = error.to_string();
-			let advice = rooms_application::failure::Failure::parse(&reason)
-				.unwrap()
-				.retry_advice()
-				.unwrap();
-			assert_eq!(advice.class, rooms_application::admission::Class::Message);
-			let other_runtime = super::runtime().await;
-			let other = Client::new(
-				other_runtime.connect(&locator, Default::default()).await.unwrap(),
-				HostPlatform,
-			);
-			let other_directory = Directory::fetch(other.clone()).await.unwrap();
-			let other_entrance = other_directory.enter("Admission").await.unwrap();
-			let (healthy, _healthy_messages) =
-				Room::subscribe(other.clone(), other_entrance, "Bob", Default::default())
-					.await
-					.unwrap();
-			healthy.say("independent allowance").await.unwrap();
-			member.leave().await.unwrap();
-			healthy.leave().await.unwrap();
-			closing_tolerated(first.session().close(PendingWork::Cancel).await);
-			closing_tolerated(other.session().close(PendingWork::Cancel).await);
-			running.stop.send(()).unwrap();
-			running.task.await.unwrap().unwrap();
-			runtime.close(PendingWork::Cancel).await.unwrap();
-			other_runtime.close(PendingWork::Cancel).await.unwrap();
-		})
-		.await;
+	rooms_testing::local_set::run(async {
+		let temp = Scratch::create("server");
+		let running = start(temp.to_path_buf(), tcp()).await;
+		let runtime = runtime().await;
+		let locator = glowcap::parse_locator(&running.location).unwrap();
+		let first = Client::new(
+			runtime.connect(&locator, Default::default()).await.unwrap(),
+			HostPlatform,
+		);
+		let directory = Directory::fetch(first.clone()).await.unwrap();
+		let entrance = directory.open("Admission").await.unwrap();
+		let (member, _messages) = Room::subscribe(first.clone(), entrance, "Alice", Default::default())
+			.await
+			.unwrap();
+		for _ in 0..rooms_application::admission::Class::Message.default_rate().burst() {
+			member.say("hello").await.unwrap();
+		}
+		let error = member
+			.say("not admitted")
+			.await
+			.err()
+			.expect("quota refuses before broadcast");
+		let reason = error.to_string();
+		let advice = rooms_application::failure::Failure::parse(&reason)
+			.unwrap()
+			.retry_advice()
+			.unwrap();
+		assert_eq!(advice.class, rooms_application::admission::Class::Message);
+		let other_runtime = super::runtime().await;
+		let other = Client::new(
+			other_runtime.connect(&locator, Default::default()).await.unwrap(),
+			HostPlatform,
+		);
+		let other_directory = Directory::fetch(other.clone()).await.unwrap();
+		let other_entrance = other_directory.enter("Admission").await.unwrap();
+		let (healthy, _healthy_messages) = Room::subscribe(other.clone(), other_entrance, "Bob", Default::default())
+			.await
+			.unwrap();
+		healthy.say("independent allowance").await.unwrap();
+		member.leave().await.unwrap();
+		healthy.leave().await.unwrap();
+		closing_tolerated(first.session().close(PendingWork::Cancel).await);
+		closing_tolerated(other.session().close(PendingWork::Cancel).await);
+		running.stop.send(()).unwrap();
+		running.task.await.unwrap().unwrap();
+		runtime.close(PendingWork::Cancel).await.unwrap();
+		other_runtime.close(PendingWork::Cancel).await.unwrap();
+	})
+	.await;
 }
 
 #[tokio::test]
 async fn ordinary_crowded_room_cost_sample() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			let temp = Temp::new();
-			let running = start(temp.0.clone(), tcp()).await;
-			let mut runtimes = Vec::new();
-			let mut members = Vec::new();
-			let mut messages = Vec::new();
-			let locator = glowcap::parse_locator(&running.location).unwrap();
-			for index in 0..8 {
-				let runtime = runtime().await;
-				let client = Client::new(
-					runtime.connect(&locator, Default::default()).await.unwrap(),
-					HostPlatform,
-				);
-				let directory = Directory::fetch(client.clone()).await.unwrap();
-				let entrance = if index == 0 {
-					directory.open("Cost").await.unwrap()
-				} else {
-					directory.enter("Cost").await.unwrap()
-				};
-				let (member, incoming) = Room::subscribe(client, entrance, &format!("peer{index}"), Default::default())
-					.await
-					.unwrap();
-				members.push(member);
-				messages.push(incoming);
-				runtimes.push(runtime);
-			}
-			let start = std::time::Instant::now();
-			for member in &members {
-				for _ in 0..8 {
-					member.say("A small ordinary message").await.unwrap();
-				}
-			}
-			println!(
-				"host cost: 64 posts, 8 recipients, average round-trip us={}",
-				start.elapsed().as_micros() / 64
+	rooms_testing::local_set::run(async {
+		let temp = Scratch::create("server");
+		let running = start(temp.to_path_buf(), tcp()).await;
+		let mut runtimes = Vec::new();
+		let mut members = Vec::new();
+		let mut messages = Vec::new();
+		let locator = glowcap::parse_locator(&running.location).unwrap();
+		for index in 0..8 {
+			let runtime = runtime().await;
+			let client = Client::new(
+				runtime.connect(&locator, Default::default()).await.unwrap(),
+				HostPlatform,
 			);
-			for member in members {
-				member.leave().await.unwrap();
+			let directory = Directory::fetch(client.clone()).await.unwrap();
+			let entrance = if index == 0 {
+				directory.open("Cost").await.unwrap()
+			} else {
+				directory.enter("Cost").await.unwrap()
+			};
+			let (member, incoming) = Room::subscribe(client, entrance, &format!("peer{index}"), Default::default())
+				.await
+				.unwrap();
+			members.push(member);
+			messages.push(incoming);
+			runtimes.push(runtime);
+		}
+		let start = std::time::Instant::now();
+		for member in &members {
+			for _ in 0..8 {
+				member.say("A small ordinary message").await.unwrap();
 			}
-			drop(messages);
-			running.stop.send(()).unwrap();
-			running.task.await.unwrap().unwrap();
-			for runtime in runtimes {
-				runtime.close(PendingWork::Cancel).await.unwrap();
-			}
-		})
-		.await;
+		}
+		println!(
+			"host cost: 64 posts, 8 recipients, average round-trip us={}",
+			start.elapsed().as_micros() / 64
+		);
+		for member in members {
+			member.leave().await.unwrap();
+		}
+		drop(messages);
+		running.stop.send(()).unwrap();
+		running.task.await.unwrap().unwrap();
+		for runtime in runtimes {
+			runtime.close(PendingWork::Cancel).await.unwrap();
+		}
+	})
+	.await;
 }
 
 /// The full timing case runs once outside the default test run.
 #[tokio::test]
 #[ignore = "live thirty-second churn acceptance; run explicitly with a 45 second deadline"]
 async fn live_thirty_second_proved_reconnect_debt() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			let temp = Temp::new();
-			let running = start(temp.0.clone(), Transport::Iroh(iroh::Reachability::Direct)).await;
+	rooms_testing::local_set::run(async {
+			let temp = Scratch::create("server");
+			let running = start(temp.to_path_buf(), Transport::Iroh(iroh::Reachability::Direct)).await;
 			let runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
 				iroh::Reachability::Direct,
 			))]))

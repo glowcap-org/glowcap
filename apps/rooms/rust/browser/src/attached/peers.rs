@@ -1,6 +1,7 @@
 //! Accepted sessions have one Host-level owner, independent of the listener
 //! generation that delivered them. Retiring a listener does not retire peers.
-use super::{Result, retain};
+use super::{Result, cleanup};
+use crate::abort::stopped;
 use glowcap::{PendingWork, Session};
 use std::{
 	cell::{Cell, RefCell},
@@ -89,21 +90,16 @@ impl Admission {
 		Ok(())
 	}
 }
-async fn stopped(stop: &mut watch::Receiver<bool>) {
-	if !*stop.borrow() {
-		let _ = stop.changed().await;
-	}
-}
 async fn serve(session: Session, mut stop: watch::Receiver<bool>) -> Result<()> {
 	let serving = session.serve();
 	tokio::pin!(serving);
 	let ended = tokio::select! { result = &mut serving => Some(result.map_err(|e| e.to_string())), () = stopped(&mut stop) => None };
-	let result = retain(
+	let result = cleanup::combine(
 		ended.clone().unwrap_or(Ok(())),
 		session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
 	);
 	if ended.is_none() {
-		retain(result, serving.await.map_err(|e| e.to_string()))
+		cleanup::combine(result, serving.await.map_err(|e| e.to_string()))
 	} else {
 		result
 	}
@@ -121,7 +117,10 @@ async fn run(state: Rc<State>, mut stop: watch::Receiver<bool>) -> Result<()> {
 	state.closed.set(true);
 	let mut outcome = Ok(());
 	while let Some(ended) = poll_fn(|cx| state.workers.borrow_mut().poll_join_next(cx)).await {
-		outcome = retain(outcome, ended.map_err(|e| e.to_string()).and_then(|outcome| outcome));
+		cleanup::retain(
+			&mut outcome,
+			ended.map_err(|e| e.to_string()).and_then(|outcome| outcome),
+		);
 	}
 	outcome
 }

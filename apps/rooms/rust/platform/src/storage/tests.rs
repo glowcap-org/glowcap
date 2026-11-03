@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn directory_release_does_not_wait_for_inherited_descriptors() {
-	let path = std::env::temp_dir().join(format!("rooms-directory-lease-{}", std::process::id()));
+	let scratch = rooms_testing::scratch::Scratch::new("directory-lease");
+	let path = scratch.to_path_buf();
 	let owner = std::sync::Arc::new(Directory::open(path.clone(), ".lock").unwrap());
 	let worker = owner.clone();
 	// A duplicate models the open-file description inherited between fork and
@@ -21,5 +22,4 @@ fn directory_release_does_not_wait_for_inherited_descriptors() {
 		Err(StorageError::InUse(_))
 	));
 	drop(next);
-	fs::remove_dir_all(path).unwrap();
 }

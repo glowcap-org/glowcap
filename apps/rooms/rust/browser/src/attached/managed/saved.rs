@@ -68,7 +68,7 @@ impl RoomsManagedWorkspace {
 			} else {
 				rows.remove(index);
 			}
-			let releases = [coordinate(custody::Role::SessionControl, control)];
+			let releases = [custody::Coordinate::new(custody::Role::SessionControl, control)];
 			let acquisition = workspace
 				.prepare_acquisition(snapshot.revision, Vec::new(), &releases, &snapshot.intent)
 				.map_err(|e| e.to_string())?;
@@ -130,7 +130,7 @@ impl RoomsManagedWorkspace {
 			if let Some(index) = existing
 				&& let Some(access) = snapshot.intent.accesses.as_slice()[index].access
 			{
-				releases.push(coordinate(custody::Role::SessionAccess, access));
+				releases.push(custody::Coordinate::new(custody::Role::SessionAccess, access));
 			}
 			let mut platform = environment.platform.clone();
 			let access = access
@@ -158,14 +158,14 @@ impl RoomsManagedWorkspace {
 			let mut imports = Vec::with_capacity(usize::from(access.is_some()) + usize::from(control.is_some()));
 			if let Some((key, reference, uri)) = access {
 				imports.push(Import {
-					coordinate: coordinate(custody::Role::SessionAccess, key),
+					coordinate: custody::Coordinate::new(custody::Role::SessionAccess, key),
 					reference,
 					uri,
 				});
 			}
 			if let Some((key, reference, uri)) = control {
 				imports.push(Import {
-					coordinate: coordinate(custody::Role::SessionControl, key),
+					coordinate: custody::Coordinate::new(custody::Role::SessionControl, key),
 					reference,
 					uri,
 				});

@@ -18,7 +18,7 @@ pub(super) fn install(
 	Ok(row
 		.inbox
 		.replace(next)
-		.map(|key| coordinate(custody::Role::DirectInbox, key)))
+		.map(|key| custody::Coordinate::new(custody::Role::DirectInbox, key)))
 }
 
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {

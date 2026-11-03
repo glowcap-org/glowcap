@@ -175,9 +175,16 @@ pub(super) async fn within<T>(ms: u64, work: impl core::future::Future<Output = 
 
 pub(super) struct Database {
 	#[cfg(not(target_arch = "wasm32"))]
-	path: std::path::PathBuf,
+	directory: Directory,
 	#[cfg(target_arch = "wasm32")]
 	name: String,
+}
+/// Where a host database lives: a directory this proof made and removes when
+/// it drops, or the parent's directory a child process reopens and leaves.
+#[cfg(not(target_arch = "wasm32"))]
+enum Directory {
+	Owned(rooms_testing::scratch::Scratch),
+	Reopened(std::path::PathBuf),
 }
 #[cfg(target_arch = "wasm32")]
 thread_local! {
@@ -186,22 +193,23 @@ thread_local! {
 impl Database {
 	#[cfg(not(target_arch = "wasm32"))]
 	pub fn at(path: std::path::PathBuf) -> Self {
-		Self { path }
+		Self {
+			directory: Directory::Reopened(path),
+		}
 	}
 	#[cfg(not(target_arch = "wasm32"))]
 	pub fn path(&self) -> &std::path::Path {
-		&self.path
+		match &self.directory {
+			Directory::Owned(scratch) => scratch,
+			Directory::Reopened(path) => path,
+		}
 	}
 	pub fn new(verb: &str) -> Self {
 		#[cfg(not(target_arch = "wasm32"))]
 		{
-			let nonce = std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH)
-				.unwrap()
-				.as_nanos();
-			let path = std::env::temp_dir().join(format!("rooms-executor-{verb}-{}-{nonce:x}", std::process::id()));
-			std::fs::create_dir(&path).unwrap();
-			Self { path }
+			Self {
+				directory: Directory::Owned(rooms_testing::scratch::Scratch::create(&format!("executor-{verb}"))),
+			}
 		}
 		#[cfg(target_arch = "wasm32")]
 		{
@@ -224,7 +232,7 @@ impl Database {
 			// proofs that reopen a store run on every disk engine.
 			let mode = if create { OpenMode::Create } else { OpenMode::Open };
 			crate::disk::Disk::Sqlite
-				.open(self.path.clone(), [111; 16], mode, schemas, limits)
+				.open(self.path().to_path_buf(), [111; 16], mode, schemas, limits)
 				.unwrap()
 		}
 		#[cfg(target_arch = "wasm32")]
@@ -235,9 +243,10 @@ impl Database {
 		}
 	}
 	pub fn remove(self) {
+		// Dropping removes the directory. The browser harness deletes its
+		// databases after all owners close.
 		#[cfg(not(target_arch = "wasm32"))]
-		std::fs::remove_dir_all(self.path).unwrap();
-		// The browser harness deletes these databases after all owners close.
+		drop(self);
 	}
 }
 pub(super) async fn create(store: &Store, policy: &Policy, schema: Schema, payload: &[u8], depth: u16) -> Resource {

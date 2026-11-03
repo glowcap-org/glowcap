@@ -3,6 +3,7 @@
 //! signaling relay with its timeout, identity across restart, and shutdown.
 use super::*;
 use rooms_platform::HostPlatform;
+use rooms_testing::scratch::Scratch;
 mod admission;
 mod admission_pressure;
 mod config;
@@ -15,32 +16,7 @@ use rooms_application::{
 	signaling::{Description, Incoming},
 };
 use rooms_glowcap::client::{Client, directory::Directory};
-use std::{
-	cell::RefCell,
-	path::PathBuf,
-	rc::Rc,
-	sync::atomic::{AtomicU64, Ordering},
-	time::Duration,
-};
-
-static NEXT: AtomicU64 = AtomicU64::new(0);
-struct Temp(PathBuf);
-impl Temp {
-	fn new() -> Self {
-		let path = std::env::temp_dir().join(format!(
-			"rooms-server-{}-{}",
-			std::process::id(),
-			NEXT.fetch_add(1, Ordering::Relaxed)
-		));
-		std::fs::create_dir(&path).unwrap();
-		Self(path)
-	}
-}
-impl Drop for Temp {
-	fn drop(&mut self) {
-		let _ = std::fs::remove_dir_all(&self.0);
-	}
-}
+use std::{cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
 
 struct Running {
 	stop: tokio::sync::oneshot::Sender<()>,
@@ -203,18 +179,12 @@ fn closing_tolerated(result: glowcap::Result<()>) {
 
 #[tokio::test]
 async fn rooms_server_registers_watches_introduces_and_relays_signaling_over_tcp() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(30), members())
-				.await
-				.expect("host directory service deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(30), members()).await;
 }
 
 async fn members() {
-	let temp = Temp::new();
-	let running = start(temp.0.clone(), tcp()).await;
+	let temp = Scratch::create("server");
+	let running = start(temp.to_path_buf(), tcp()).await;
 	let dial = glowcap::parse_locator(&running.location).unwrap();
 	let alice_member = Member::listen().await;
 	let alice = Client::new(alice_member.connect(&running.location).await, HostPlatform);
@@ -466,23 +436,22 @@ async fn members() {
 
 #[tokio::test]
 async fn rooms_server_expires_an_unanswered_signaling_exchange() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			// Past the exchange timeout, so the paused clock reaches the
-			// expiry before this deadline; only the setup spends real time.
-			tokio::time::timeout(Duration::from_secs(90), expiry())
-				.await
-				.expect("host directory expiry deadline");
-		})
-		.await;
+	rooms_testing::local_set::run(async {
+		// Past the exchange timeout, so the paused clock reaches the
+		// expiry before this deadline; only the setup spends real time.
+		tokio::time::timeout(Duration::from_secs(90), expiry())
+			.await
+			.expect("host directory expiry deadline");
+	})
+	.await;
 }
 
 /// An offer whose target never answers is retired by the directory's own
 /// clock, and the originator hears why on its reply. The clock is paused
 /// once the offer is on its way, so the thirty seconds pass at once.
 async fn expiry() {
-	let temp = Temp::new();
-	let running = start(temp.0.clone(), tcp()).await;
+	let temp = Scratch::create("server");
+	let running = start(temp.to_path_buf(), tcp()).await;
 	let dial = glowcap::parse_locator(&running.location).unwrap();
 	// One Host holds one session per partner, so each member is its own.
 	let (bob_runtime, carol_runtime) = (runtime().await, runtime().await);
@@ -547,17 +516,11 @@ async fn expiry() {
 
 #[tokio::test]
 async fn rooms_server_keeps_its_identity_across_restart_over_iroh() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(30), restart())
-				.await
-				.expect("host directory restart deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(30), restart()).await;
 }
 
 async fn restart() {
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	let runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
 		iroh::Reachability::Direct,
 	))]))
@@ -565,7 +528,7 @@ async fn restart() {
 	.unwrap();
 	let mut previous = None;
 	for _ in 0..2 {
-		let running = start(temp.0.clone(), Transport::Iroh(iroh::Reachability::Direct)).await;
+		let running = start(temp.to_path_buf(), Transport::Iroh(iroh::Reachability::Direct)).await;
 		let locator = glowcap::parse_locator(&running.location).unwrap();
 		if let Some(previous) = &previous {
 			assert_eq!(&locator.designator, previous, "the identity seed names the same node");
@@ -586,7 +549,7 @@ async fn restart() {
 			Peer::open(
 				Config {
 					admission: rooms_application::admission::Settings::defaults(8192, 1),
-					state: Some(temp.0.clone()),
+					state: Some(temp.to_path_buf()),
 					transport: tcp(),
 					history: false,
 					asked: Default::default(),
@@ -605,7 +568,7 @@ async fn restart() {
 		running.task.await.unwrap().unwrap();
 		assert!(running.notices.borrow().is_empty(), "{:?}", running.notices.borrow());
 	}
-	let kept = std::fs::read_to_string(temp.0.join("rooms.json")).unwrap();
+	let kept = std::fs::read_to_string(temp.join("rooms.json")).unwrap();
 	assert!(kept.contains("\"identitySeed\""));
 	runtime.close(PendingWork::Cancel).await.unwrap();
 }
