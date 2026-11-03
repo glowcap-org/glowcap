@@ -41,7 +41,6 @@ const recipient_script = "conformance/goblins-peer/racket/gift-recipient.rkt";
 /// is the name glowcap publishes under.
 const greeter_swiss = "glowcapExportGreeterSwissnum0001";
 const introducer_swiss = "introducerSwissnum0123456789ABCD";
-const deadline_ms: u64 = 60_000;
 
 const opts: driver.SessionOptions = .{
     .frame_cap = frame_cap,
@@ -191,7 +190,7 @@ pub fn main(init: std.process.Init) !void {
     // over the alias: from here, only exact-object withdrawal can carry the
     // mark.
     {
-        const deadline = harness.deadlineAfter(io, deadline_ms);
+        const deadline = harness.deadlineAfter(io, goblins_child.deadline_ms);
         while (!replaced.load(.acquire)) {
             if (harness.expired(io, deadline)) {
                 goblins_child.dumpChildStderr(io, "goblins-exporter", &alice);
@@ -203,18 +202,12 @@ pub fn main(init: std.process.Init) !void {
 
     // Carol enlivens Alice's introducer, receives the give naming glowcap, and
     // must reach glowcap directly to use it.
-    var carol_argv: [8][]const u8 = undefined;
-    var carol = try std.process.spawn(io, .{
-        .argv = goblins_child.racketArgv(&carol_argv, &.{
-            recipient_script,
-            alice_designator,
-            introducer_swiss,
-            carol_port_str,
-        }),
-        .environ_map = init.environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    var carol = try goblins_child.spawnScript(io, init.environ_map, &.{
+        recipient_script,
+        alice_designator,
+        introducer_swiss,
+        carol_port_str,
+    }, .{});
     var carol_reaped = false;
     defer if (!carol_reaped) carol.kill(io);
 
@@ -238,24 +231,14 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
-    const out = child.stdout orelse return error.NoChildStdout;
-    var rbuf: [8192]u8 = undefined;
-    var reader = out.readerStreaming(io, &rbuf);
-    const deadline = harness.deadlineAfter(io, deadline_ms);
-    while (!harness.expired(io, deadline)) {
-        const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => return err,
-        };
-        std.debug.print("goblins-exporter: {s}", .{line});
-        if (std.mem.indexOf(u8, line, "GIFT OK:") != null) {
-            // The greeting must be the primed original, not the decoy the
-            // alias names: exact-object identity, proven live.
-            if (std.mem.indexOf(u8, line, "primed with alice-mark-7") == null) return error.WrongObjectWithdrawn;
-            return;
-        }
-        if (std.mem.indexOf(u8, line, "GIFT ERR:") != null or
-            std.mem.indexOf(u8, line, "GIFT TIMEOUT") != null) return error.HandoffFailed;
-    }
-    return error.HandoffFailed;
+    const confirmed = try goblins_child.followChildVerdict(io, child, "goblins-exporter", goblins_child.deadline_ms, {}, judgeCarolLine);
+    if (!confirmed) return error.HandoffFailed;
+}
+
+/// Carol's greeting must be the primed original, not the decoy the alias
+/// names: exact-object identity, proven live.
+fn judgeCarolLine(_: void, line: []const u8) !goblins_child.LineVerdict {
+    if (std.mem.indexOf(u8, line, "GIFT OK:") == null) return .more;
+    if (std.mem.indexOf(u8, line, "primed with alice-mark-7") == null) return error.WrongObjectWithdrawn;
+    return .confirmed;
 }

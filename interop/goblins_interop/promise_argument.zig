@@ -25,8 +25,6 @@ const tcp = glowcap.net.tcp;
 
 const host_addr = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
-/// The wait for the Goblins dialer, matching the sibling brackets.
-const deadline_ms: i32 = 60_000;
 const dialer_script = "conformance/goblins-peer/racket/glowcap-answer-argument.rkt";
 /// The host script publishes `await` under this swiss-num beside echo.
 const await_swiss = "glowcapAwaitSwissnumABCDEF123456";
@@ -220,18 +218,12 @@ pub fn receiveFromGoblins(init: std.process.Init) !void {
         serving.await(io) catch {};
     };
 
-    var argv_buf: [6][]const u8 = undefined;
-    var child = try std.process.spawn(io, .{
-        .argv = goblins_child.racketArgv(&argv_buf, &.{ dialer_script, port_text, reader_swiss }),
-        .environ_map = init.environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    var child = try goblins_child.spawnScript(io, init.environ_map, &.{ dialer_script, port_text, reader_swiss }, .{});
     var reaped = false;
     defer if (!reaped) child.kill(io);
 
     var scratch: [4096]u8 = undefined;
-    const line = goblins_child.awaitChildStdoutLine(io, &child, "ANSWER ARG", &scratch, deadline_ms) orelse {
+    const line = goblins_child.awaitChildStdoutLine(io, &child, "ANSWER ARG", &scratch, @intCast(goblins_child.deadline_ms)) orelse {
         std.debug.print("goblins-interop: the answer-argument dialer printed no verdict\n", .{});
         goblins_child.dumpChildStderr(io, "goblins-interop", &child);
         return error.AnswerArgumentNeverSettled;
