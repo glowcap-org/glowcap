@@ -1,7 +1,7 @@
 import { CLOSED, INTERNAL } from "@glowcap/abi";
 import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
-import { type PromiseFactoryHandle, promiseFor } from "../promise.ts";
+import { awaitMinted, type PromiseFactoryHandle, promiseFor } from "../promise.ts";
 import { type LoopChannel, Session } from "../session.ts";
 import { refFromId } from "../value.ts";
 import { assert, assertRejects } from "../../test/assert.ts";
@@ -120,4 +120,152 @@ Deno.test("send admission preserves the exact failure through every dependent ha
 			assert(!observed.ok && observed.error === failure, "send replaced the originating failure");
 		}
 	}
+});
+
+for (const mode of ["minted", "remote"] as const) {
+	for (const progress of ["reject", "throw", "late"] as const) {
+		Deno.test(`${mode} vow observation owns settlement after progress ${progress}`, async () => {
+			const failure = new GlowcapError(CLOSED, "session closing");
+			let rejectSettlement!: (failure: unknown) => void;
+			const settled = new Promise<null>((_resolve, reject) => rejectSettlement = reject);
+			const unhandled: Promise<unknown>[] = [];
+			const record = (event: PromiseRejectionEvent) => {
+				event.preventDefault();
+				unhandled.push(event.promise);
+			};
+			const parked: bigint[] = [];
+			const handle: PromiseFactoryHandle = {
+				ptr: 0n,
+				hostRaw: 0n,
+				hostOwner: {},
+				vowMinted() {},
+				attend() {},
+				awaitVow: () => settled,
+				kickActions: () => {
+					if (progress === "late") setTimeout(() => rejectSettlement(failure), 0);
+					else rejectSettlement(failure);
+					if (progress === "throw") throw failure;
+					return Promise.reject(failure);
+				},
+				parkVowRelease: (vow) => parked.push(vow),
+				scheduleProgress() {},
+				trackVow() {},
+				recordBackgroundFailure(error) {
+					throw error;
+				},
+			};
+			globalThis.addEventListener("unhandledrejection", record);
+			try {
+				const observed = mode === "minted" ? awaitMinted(handle, 31n, false) : promiseFor(handle, 31n);
+				const failures = await Promise.allSettled([observed, observed.then((value) => value)]);
+				assert(
+					failures.every((outcome) => outcome.status === "rejected" && outcome.reason === failure),
+					`${mode}: observation replaced the primary failure`,
+				);
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				assert(
+					!unhandled.includes(settled),
+					`${mode}: native vow settlement was orphaned after progress failed`,
+				);
+				assert(unhandled.length === 0, `${mode}: an internal observation escaped`);
+				assert(parked.length === (mode === "minted" ? 1 : 0), `${mode}: vow release ownership changed`);
+			} finally {
+				globalThis.removeEventListener("unhandledrejection", record);
+			}
+		});
+	}
+}
+
+Deno.test("vow observation drives progress before waiting for a successful settlement", async () => {
+	let resolveSettlement!: (value: null) => void;
+	const settled = new Promise<null>((resolve) => resolveSettlement = resolve);
+	let releaseProgress!: () => void;
+	const progress = new Promise<void>((resolve) => releaseProgress = resolve);
+	let kicked!: () => void;
+	const didKick = new Promise<void>((resolve) => kicked = resolve);
+	const handle = {
+		ptr: 0n,
+		vowMinted() {},
+		attend() {},
+		awaitVow: () => settled,
+		kickActions: () => {
+			resolveSettlement(null);
+			kicked();
+			return progress;
+		},
+		parkVowRelease() {},
+	};
+	let completed = false;
+	const result = awaitMinted(handle, 37n, false).then((value) => {
+		completed = true;
+		return value;
+	});
+	await didKick;
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert(!completed, "settlement returned before its required progress completed");
+	releaseProgress();
+	assert(await result === null, "the driven settlement changed its value");
+});
+
+for (const first of ["settlement", "progress"] as const) {
+	Deno.test(`vow observation keeps progress failure authority when ${first} fails first`, async () => {
+		const settlementFailure = new Error("remote settlement failed");
+		const progressFailure = new Error("local progress failed");
+		let rejectSettlement!: (error: unknown) => void;
+		const settled = new Promise<null>((_resolve, reject) => rejectSettlement = reject);
+		let rejectProgress!: (error: unknown) => void;
+		const progress = new Promise<void>((_resolve, reject) => rejectProgress = reject);
+		const handle = {
+			ptr: 0n,
+			vowMinted() {},
+			attend() {},
+			awaitVow: () => settled,
+			kickActions: () => progress,
+			parkVowRelease() {},
+		};
+		let completed = false;
+		const observed = Promise.allSettled([awaitMinted(handle, 41n, false)]).then((outcomes) => {
+			completed = true;
+			return outcomes;
+		});
+		if (first === "settlement") {
+			rejectSettlement(settlementFailure);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			assert(!completed, "settlement rejection bypassed required progress");
+			rejectProgress(progressFailure);
+		} else {
+			rejectProgress(progressFailure);
+		}
+		const [outcome] = await observed;
+		assert(
+			outcome.status === "rejected" && outcome.reason === progressFailure,
+			"progress failure identity changed",
+		);
+		if (first === "progress") rejectSettlement(settlementFailure);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+}
+
+Deno.test("vow rejection waits for successful progress before escaping", async () => {
+	const failure = new Error("remote settlement failed");
+	let releaseProgress!: () => void;
+	const progress = new Promise<void>((resolve) => releaseProgress = resolve);
+	const handle = {
+		ptr: 0n,
+		vowMinted() {},
+		attend() {},
+		awaitVow: () => Promise.reject(failure),
+		kickActions: () => progress,
+		parkVowRelease() {},
+	};
+	let completed = false;
+	const observed = Promise.allSettled([awaitMinted(handle, 43n, false)]).then((outcomes) => {
+		completed = true;
+		return outcomes;
+	});
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert(!completed, "vow rejection escaped while progress remained parked");
+	releaseProgress();
+	const [outcome] = await observed;
+	assert(outcome.status === "rejected" && outcome.reason === failure, "settlement failure identity changed");
 });

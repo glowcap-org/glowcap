@@ -1,11 +1,86 @@
 import * as tcp from "@glowcap/tcp";
-import { DESIGNATOR_SCHEME_ADDRESS, TIMEOUT } from "@glowcap/abi";
+import { CLOSED, DESIGNATOR_SCHEME_ADDRESS, TIMEOUT } from "@glowcap/abi";
 import { connectTcp, listenTcp } from "../../runtime/internal/seam.ts";
-import { bareLocator, GlowcapError, HANDSHAKE_TIMEOUT_MS, Host, Runtime, Session, Sym } from "../../runtime/mod.ts";
+import {
+	bareLocator,
+	GlowcapError,
+	HANDSHAKE_TIMEOUT_MS,
+	Host,
+	Ref,
+	Runtime,
+	Session,
+	Sym,
+} from "../../runtime/mod.ts";
 import { assert, ok, within } from "./support.ts";
 
-/** Prove finish-close settlement and finite-grace escalation on both fronts. */
+/** Prove cancel observation, finish settlement, and finite-grace escalation. */
 export async function runFinishClosePolicy(): Promise<void> {
+	// A loop-backed client's cancel must own both the progress refusal and the
+	// native vow rejection, including a pipeline behind a still-pending call.
+	for (const profile of ["interop", "glowcap"] as const) {
+		await using serverHost = new Host(undefined, { profile });
+		await using server = await tcp.listen("127.0.0.1", 0, { host: serverHost });
+		await using runtime = await Runtime.open({ profile, providers: [tcp.provider()] });
+		let entered!: () => void;
+		const callEntered = new Promise<void>((resolve) => entered = resolve);
+		let releaseAnswer!: (value: null) => void;
+		const answer = new Promise<null>((resolve) => releaseAnswer = resolve);
+		let returned: Ref | undefined;
+		serverHost.publish("pending", (verb, args) => {
+			if (verb === "accept") {
+				assert(args[0] instanceof Ref, "pending argument lifted to a capability");
+				returned = args[0];
+				return undefined;
+			}
+			entered();
+			return answer;
+		});
+		const accepting = server[Symbol.asyncIterator]().next();
+		const client = await runtime.connect(tcp.locator("127.0.0.1", server.port));
+		const incoming = await accepting;
+		assert(!incoming.done, "cancel proof accepted its partner");
+		const serving = Promise.allSettled([incoming.value.serve()]);
+		let serveOutcome: PromiseSettledResult<void> | undefined;
+		try {
+			const service = await client.fetch("pending");
+			const pending = client.send(service, "open");
+			await within(callEntered, 2_000, "the pending call reaching its partner");
+			await client.send(service, "accept", [pending]);
+			assert(returned instanceof Ref, "partner retained the unresolved capability");
+			let received: Ref | undefined;
+			client.publish("callback", (_verb, args) => {
+				assert(args[0] instanceof Ref, "returned pending capability lifted");
+				received = args[0];
+			});
+			// Send the same unresolved answer back through an ordinary callback.
+			const callback = await incoming.value.fetch("callback");
+			await incoming.value.send(callback, "push", [returned]);
+			assert(received instanceof Ref, "original client retained the returned capability");
+			const pipeline = client.send(pending, "read");
+			const observed = Promise.allSettled([pending, pending.then((value) => value), pipeline]);
+			await within(client.close({ pending: "cancel" }), 5_000, "cancel with active observations");
+			const [first, repeated, dependent] = await within(observed, 2_000, "cancelled vow observations");
+			for (const outcome of [first, repeated, dependent]) {
+				assert(
+					outcome.status === "rejected" && outcome.reason instanceof GlowcapError &&
+						outcome.reason.code === CLOSED,
+					"cancelled observation retained its typed CLOSED failure",
+				);
+			}
+			assert(
+				first.status === "rejected" && repeated.status === "rejected" && first.reason === repeated.reason,
+				"repeated observation retained the same failure object",
+			);
+		} finally {
+			releaseAnswer(null);
+			await client.close({ pending: "cancel" });
+			await server.close();
+			[serveOutcome] = await serving;
+		}
+		if (serveOutcome?.status === "rejected") throw serveOutcome.reason;
+		ok(`${profile} cancel close owns original, repeated, and pipelined vow observations`);
+	}
+
 	// Work admitted before the close barrier may settle within its grace. Repeated
 	// close calls observe the one barrier rather than starting parallel teardown.
 	{

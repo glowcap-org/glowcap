@@ -29,6 +29,9 @@ impl Pair {
 		let locator = server.locator().unwrap();
 		let (client, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
 		let client = Rc::new(client.unwrap());
+		let negotiated = client.profile().unwrap();
+		assert_eq!(negotiated.codec, options.codec);
+		assert_eq!(negotiated.captp_version, options.captp_version);
 		let accepted = accepted.unwrap();
 		let serving = tokio::task::spawn_local(accepted.serve());
 		Self {

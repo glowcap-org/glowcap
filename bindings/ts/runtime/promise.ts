@@ -78,6 +78,25 @@ function projectVow(
 	return outU64(out);
 }
 
+/** Observe native settlement immediately without letting it bypass progress.
+ * Each wait owns an outcome promise with settlement reactions, one outcome record,
+ * plus this async helper's return promise. The record is consumed after progress
+ * succeeds, or retires with its promise if progress fails first. No Host registry
+ * or wire retain is added. Boxing keeps a late native rejection observed even
+ * after progress has failed; sequential bare awaits would orphan that rejection.
+ * Progress retains its existing completion order and exact failure precedence.
+ */
+async function awaitDrivenVow(h: VowWaitHandle, vow: bigint): Promise<Argument> {
+	const settled = h.awaitVow(vow).then(
+		(value) => ({ ok: true as const, value }),
+		(error: unknown) => ({ ok: false as const, error }),
+	);
+	await h.kickActions();
+	const outcome = await settled;
+	if (!outcome.ok) throw outcome.error;
+	return outcome.value;
+}
+
 /** Shared fetch/enliven wait: register the vow, keep the inbound loop running
  * (the completion's bytes arrive on it), kick the drain so the deliver leaves
  * now, and await the drain-routed outcome. */
@@ -89,9 +108,7 @@ export async function awaitMinted(
 	try {
 		h.vowMinted(vow, trackGc);
 		h.attend();
-		const settled = h.awaitVow(vow);
-		await h.kickActions();
-		const result = await settled;
+		const result = await awaitDrivenVow(h, vow);
 		h.parkVowRelease(vow);
 		return result;
 	} catch (failure) {
@@ -147,9 +164,7 @@ export function promiseFor(
 ): RemotePromise {
 	const begin = async (): Promise<Argument> => {
 		h.attend(); // the settle's bytes arrive on the inbound loop
-		const settled = h.awaitVow(vow);
-		await h.kickActions();
-		return await settled;
+		return await awaitDrivenVow(h, vow);
 	};
 	const project = (
 		op: "index" | "untag" | "get",

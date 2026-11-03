@@ -175,10 +175,16 @@ empty-symbol, and named invocation on both profiles. The raw Rust notification
 behavior verifies that a tell has no result channel. Qualification must hold the factory reply
 pending while admitting the dependent calls. A pre-resolved answer is not proof.
 
+The Rust matrix drops unobserved handles and polled observations while retaining
+the argument. TypeScript closes with original, repeated, and pipelined
+observations active. Both retain remote break messages as runtime failures and
+check that typed observation preserves the independent raw outcome. Both
+profiles are asserted at the shared fixture boundary.
+
 The runtime owns promise, settlement, and listener behavior. The generator
-must adapt to its public ownership contract. In particular, independently retained pending
-arguments, listener cancellation, repeated observation, and references surviving
-answer release need qualification against that owner. ADR-0070 supplies stored
+must adapt to its public ownership contract. Qualification covers independently
+retained pending arguments, listener cancellation, repeated observation, and
+references surviving answer release. ADR-0070 supplies stored
 resolution retention. It does not by itself prove a binding exposes every
 operation preparation needs. No generator-owned vow registry is permitted.
 

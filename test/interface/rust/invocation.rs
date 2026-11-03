@@ -46,9 +46,6 @@ pub async fn run() {
 		})
 		.unwrap();
 		let pair = Pair::open(&host, options).await;
-		let negotiated = pair.client.profile().unwrap();
-		assert_eq!(negotiated.codec, options.codec);
-		assert_eq!(negotiated.captp_version, options.captp_version);
 		let target = pair.client.fetch("invocation").await.unwrap();
 		assert_eq!(
 			callbacks::invoke_direct(&pair.client, &target, "positional input")

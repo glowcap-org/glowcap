@@ -25,10 +25,10 @@ before comparing authoring frontends. Syrup remains the direct compiler input.
 | --- | --- | --- |
 | Contract and independent messages | Authored and checked | [Fixture contract](../../test/interface/contract.md) |
 | Compiler and first Tasks migration | Bounded reader/model, Zig creation checks, Rust preparation and replay run | [Compiler](../../tools/interface/README.md) |
-| Rust and TypeScript callbacks | Pending admission, callbacks, pipelines, wrong replies and independent observation pass | [Proof suite](../../test/interface/README.md) |
+| Rust and TypeScript callbacks | Both profiles preserve pending admission, callbacks, pipelines, wrong replies and remote breaks. Rust drops polled observations, and TypeScript cancels sessions with observers active | [Proof suite](../../test/interface/README.md) |
 | Binding prerequisites | Rust retention and TypeScript owning-thread capability fulfillment are implemented using existing Host operations | `bindings/rust`, `bindings/ts` |
 | Prepared pending arguments | Rust capture, drop/observation, submission/replay, cancellation, and cross-Host refusal run on both profiles. Binding tests check final retain retirement | Milestone 2 ownership case |
-| Remaining conversation coverage | Qualify breaks, cancellation, export failure, supported handoff and Goblins in both directions | Milestone 2 runtime cases |
+| Remaining conversation coverage | Qualify export failure, supported handoff and Goblins in both directions | Milestone 2 runtime cases |
 | Invocation shape | Generated Rust and TypeScript callers preserve absent, empty, and named selectors on both profiles | Server-adapter qualification remains |
 | Cost and authoring decision | Measure generation first, then compare text and Cap'n Proto adapters | Milestone 2 decision |
 
