@@ -6,7 +6,8 @@ import { roomsHost } from "../../lib/locator.ts";
 import { DIRECTORY, LIST } from "../../lib/protocol.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { ROOT, WEB } from "../support/paths.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
+import { roomPortOf } from "../support/rooms_server.ts";
+import { webPort } from "../support/web_front.ts";
 import { delay, within } from "../support/wait.ts";
 
 function remaining(deadline: number, what: string): number {
@@ -38,23 +39,29 @@ export async function waitForIndex(port: number, deadline = Date.now() + 10_000)
 	throw new Error(`rooms web UI did not start: ${lastError}`);
 }
 
-export function spawnWeb(httpPort: number, roomPort: number): Deno.ChildProcess {
-	return spawnOwned(WEB, {
-		args: ["--transport=tcp", String(httpPort), String(roomPort)],
+/** Start a front that chooses its own ports and read the HTTP port it bound.
+ * A front handed `roomPort` attaches to the room server already holding it. */
+export async function startWeb(roomPort = 0): Promise<{ proc: Deno.ChildProcess; httpPort: number }> {
+	const proc = spawnOwned(WEB, {
+		args: ["--transport=tcp", "0", String(roomPort)],
 		cwd: ROOT,
 		stdout: "piped",
 		stderr: "piped",
 	});
+	try {
+		return { proc, httpPort: await webPort(proc) };
+	} catch (error) {
+		await stopOwned(proc);
+		throw error;
+	}
 }
 
 export async function withWeb(
 	fn: (httpPort: number, roomPort: number) => Promise<void>,
 ): Promise<void> {
-	const httpPort = freePort();
-	const roomPort = freePort();
-	const proc = spawnWeb(httpPort, roomPort);
+	const { proc, httpPort } = await startWeb();
 	try {
-		await fn(httpPort, roomPort);
+		await fn(httpPort, await roomPortOf(httpPort));
 	} finally {
 		await stopOwned(proc);
 	}

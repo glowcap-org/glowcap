@@ -1,9 +1,8 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // The shipped page refreshes operator inventories through its Rust read owner.
 import { chromium } from "playwright";
 
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
@@ -13,25 +12,24 @@ import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
 
 const root = new URL("../../../../", import.meta.url).pathname;
 const state = await Deno.makeTempDir({ prefix: "rooms-operations-refresh-" });
-const http = freePort();
-const room = freePort();
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const deadline = setTimeout(() => fail("operations-refresh scenario timed out after 180s"), 180_000);
 try {
-	spawnWeb({
+	const front = spawnWeb({
 		// This pagination fixture creates 35 resources in seconds.
 		args: [
 			"--transport=tcp",
 			"--admission-rates=create=64/120",
 			"--browser-admission-rates=create=64/120",
-			String(http),
-			String(room),
+			"0",
+			"0",
 		],
 		cwd: root,
 		env: { GLOWCAP_ROOMS_STATE: state, GLOWCAP_ROOMS_OPERATOR: "1" },
-		stdout: "null",
+		stdout: "piped",
 		stderr: "inherit",
 	});
+	const http = await webPort(front);
 	await waitForHttp(http);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const tab = await browser.newPage();

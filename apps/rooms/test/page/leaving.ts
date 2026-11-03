@@ -24,7 +24,7 @@ export async function run(
 	foreignRoom: Deno.ChildProcess,
 	foreignState: string,
 	foreignRoomPort: number,
-	homeRoomPort: number,
+	homeFront: Deno.ChildProcess,
 	aboutOf: (room: string) => Locator,
 ): Promise<void> {
 	// A directory with nothing open on it is still a directory this tab is on: a
@@ -335,5 +335,5 @@ export async function run(
 		fail(`pressing "this directory" left ${JSON.stringify(cleared)} in the field instead of clearing it`);
 	}
 
-	await goneRun(tab, foreignRoom, foreignState, foreignRoomPort, homeRoomPort, aboutOf);
+	await goneRun(tab, foreignRoom, foreignState, foreignRoomPort, homeFront, aboutOf);
 }

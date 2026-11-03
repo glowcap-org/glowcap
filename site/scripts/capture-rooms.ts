@@ -39,7 +39,8 @@
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { startIrcServer } from "../../apps/rooms/test/irc/server_process.ts";
 import { reapOwned } from "../../apps/rooms/test/support/children.ts";
-import { freePort } from "../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../bindings/ts/test/ports.ts";
+import { roomPortOf } from "../../apps/rooms/test/support/rooms_server.ts";
 import { spawnWeb } from "../../apps/rooms/test/support/web_front.ts";
 import { awaitLocator, outDirArg, pinToLatest, plainRun, shot as capture, still } from "./capture.ts";
 
@@ -148,8 +149,9 @@ class IrcClient {
  * capability minted into a state directory of its own. Everything it prints
  * is kept, because the complete `ROOMS-*` capability lines it announces at
  * boot are what the operations capture pastes into Holdings. */
-const http = freePort();
-const roomPort = freePort();
+// This capture keeps the front's whole stdout, so it cannot also read the
+// announcement of a port it asked for as 0. The room server chooses its own.
+const http = nonEphemeralPort();
 const url = `http://127.0.0.1:${http}/`;
 const state = await Deno.makeTempDir({ prefix: "rooms-capture-state-" });
 const web = spawnWeb({
@@ -157,7 +159,7 @@ const web = spawnWeb({
 	args: [
 		"--transport=tcp",
 		String(http),
-		String(roomPort),
+		"0",
 		"--diagnostics",
 		"--admin-listeners",
 		"--operator",
@@ -174,6 +176,7 @@ for (const stream of [web.stdout, web.stderr]) {
 	})().catch(() => {});
 }
 await awaitLocator(http, "the web peer");
+const roomPort = await roomPortOf(http);
 const irc = await startIrcServer(`127.0.0.1:${roomPort}`);
 const ircPort = irc.port;
 

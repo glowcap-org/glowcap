@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // Starting a direct message from somebody else's room.
 //
 // A reader who pastes another directory's locator into the join card ends up
@@ -27,8 +27,7 @@ import { spawnWeb } from "../support/web_front.ts";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
-import { roomLocator } from "../support/rooms_server.ts";
+import { roomLocator, roomPortOf } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, openDmTo, reachDirectoryOnCard } from "../page/harness.ts";
 
@@ -41,18 +40,16 @@ const REPLY_TEXT = "got it bo, replying from mine";
 // address this page's relay may dial besides its own: a relay dials iroh
 // anywhere and cleartext TCP only where it is told, and the visitor's page is
 // the one that has to reach the room it is visiting.
-function serveRooms(httpPort: number, roomPort: number, reaches?: number): Deno.ChildProcess {
-	return spawnWeb({
+async function serveRooms(reaches?: number): Promise<{ http: number; room: number }> {
+	const front = spawnWeb({
 		env: reaches === undefined ? {} : { GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${reaches}` },
-		args: [
-			"--transport=tcp",
-			String(httpPort),
-			String(roomPort),
-		],
+		args: ["--transport=tcp", "0", "0"],
 		cwd: ROOT,
-		stdout: "null",
+		stdout: "piped",
 		stderr: "inherit",
 	});
+	const http = await webPort(front);
+	return { http, room: await roomPortOf(http) };
 }
 
 // Join `ROOM` as `nick` in a fresh, isolated tab. `directory` is the locator to
@@ -93,13 +90,8 @@ async function send(tab: Page, text: string): Promise<void> {
 
 const deadline = setTimeout(() => fail("web-dm-foreign-room scenario timed out after 180s"), 180_000);
 
-const hostHttp = freePort();
-const hostRoom = freePort();
-const visitorHttp = freePort();
-const visitorRoom = freePort();
-
-serveRooms(hostHttp, hostRoom);
-serveRooms(visitorHttp, visitorRoom, hostRoom);
+const { http: hostHttp, room: hostRoom } = await serveRooms();
+const { http: visitorHttp } = await serveRooms(hostRoom);
 
 let browser: Browser | null = null;
 try {

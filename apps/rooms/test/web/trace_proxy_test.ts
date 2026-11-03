@@ -8,7 +8,7 @@
 import { TRACE_REFUSED_CLOSE_CODE, traceCapUrl } from "../../lib/trace_publish.ts";
 import { assert } from "../assert.ts";
 import { ROOT, WEB } from "../support/paths.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { until, within } from "../support/wait.ts";
 import { roomsTest, waitForHttp } from "../support/rooms_server.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
@@ -46,17 +46,17 @@ function firstAnswer(url: string): Promise<{ kind: "message"; text: string } | {
 
 roomsTest("the page origin carries trace sockets, admission and refusal alike", async () => {
 	const stateDir = await Deno.makeTempDir();
-	const httpPort = freePort();
-	const roomPort = freePort();
-	const tracePort = freePort();
+	// The front advertises a trace route through its own address, so its HTTP port
+	// is named before it starts. The room and the trace endpoint choose theirs.
+	const httpPort = nonEphemeralPort();
 	const web = spawnOwned(WEB, {
-		args: ["--transport=tcp", String(httpPort), String(roomPort)],
+		args: ["--transport=tcp", String(httpPort), "0"],
 		cwd: ROOT,
 		env: {
 			...Deno.env.toObject(),
 			GLOWCAP_ROOMS_STATE: stateDir,
 			GLOWCAP_ROOMS_TRACE: "1",
-			GLOWCAP_ROOMS_TRACE_PORT: String(tracePort),
+			GLOWCAP_ROOMS_TRACE_PORT: "0",
 			GLOWCAP_ROOMS_TRACE_CONNECT: `ws://127.0.0.1:${httpPort}/trace/captp`,
 		},
 		stdout: "null",

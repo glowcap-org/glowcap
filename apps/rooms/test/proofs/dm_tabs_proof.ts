@@ -1,6 +1,6 @@
 import { proveFiniteAnimationWait } from "../page/animation_wait.ts";
 import { waitForFiniteAnimations } from "../support/animations.ts";
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // Two browser tabs direct-message each other end to end on the page's default
 // DM transport: each advertises a `webrtc` locator, and the room carries only
 // the signaling (ADR-0035). Neither tab opens a listening socket, so neither
@@ -40,7 +40,6 @@ import { type Browser, type BrowserContext, chromium, type Page } from "playwrig
 import { establishLocalSession } from "../support/session_setup.ts";
 import { inkContrast } from "../ink_contrast.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, confirmTitleLeave, directOpened, openDmTo } from "../page/harness.ts";
@@ -142,16 +141,14 @@ async function downloadFile(tab: Page, name: string, expected: string, who: stri
 // Wait until a bubble carrying `text` is on screen in the active conversation.
 const deadline = setTimeout(() => fail("web-dm-tabs scenario timed out after 180s"), 180_000);
 
-const httpPort = freePort();
-const roomPort = freePort();
-
 // The Rooms web service serves the page and runs the room + relay over plain TCP.
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 let browser: Browser | null = null;
 try {

@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // Two browser tabs direct-message over Rooms' server-reachable DM mode. Both
 // advertise noise-relay locators, so one Wasm Host dials through the managed
 // relay connector, the other accepts through its held rendezvous socket, and
@@ -9,7 +9,6 @@ import { spawnWeb } from "../support/web_front.ts";
 import { type Browser, chromium, type Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { directOpened } from "../page/harness.ts";
@@ -58,14 +57,13 @@ async function sees(tab: Page, text: string, who: string): Promise<void> {
 }
 
 const deadline = setTimeout(() => fail("Rooms noise-relay DM scenario exceeded 120 seconds"), 120_000);
-const httpPort = freePort();
-const roomPort = freePort();
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 let browser: Browser | null = null;
 try {

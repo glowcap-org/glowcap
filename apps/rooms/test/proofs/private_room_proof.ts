@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // A room nobody can look up, and the only way into one.
 //
 // A public room is reached by its name: the directory lists it, `enter` finds
@@ -47,10 +47,10 @@ import { type Browser, chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
 import { fail } from "../support/fail.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { joinAs, ROOM } from "../support/join.ts";
 import { say } from "../page/harness.ts";
-import { waitForHttp } from "../support/rooms_server.ts";
+import { readPort, waitForHttp } from "../support/rooms_server.ts";
 import {
 	directoriesNamed,
 	makeRoom,
@@ -70,35 +70,29 @@ const PUBLIC_LINE = "this is my own plans room";
 
 const deadline = setTimeout(() => fail("web-private-room scenario timed out after 240s"), 240_000);
 
-const httpPort = freePort();
-const roomPort = freePort();
 // A second authority: another room server, not another room on the page's own.
-// A port nothing ever listens on stands for a link whose peer is not there.
-const foreignRoomPort = freePort();
-const deadPort = freePort();
-const foreignLocator = `127.0.0.1:${foreignRoomPort}`;
-
-spawnOwned(SERVER, {
-	args: ["--transport=tcp", `--port=${foreignRoomPort}`],
+const foreign = spawnOwned(SERVER, {
+	args: ["--transport=tcp", "--port=0"],
 	cwd: ROOT,
-	stdout: "null",
+	stdout: "piped",
 	stderr: "inherit",
 });
+const foreignRoomPort = await readPort(foreign);
+const foreignLocator = `127.0.0.1:${foreignRoomPort}`;
+// A port nothing ever listens on stands for a link whose peer is not there.
+const deadPort = nonEphemeralPort();
 
-spawnWeb({
-	args: [
-		"--transport=tcp",
-		String(httpPort),
-		String(roomPort),
-	],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
 	// A relay dials iroh anywhere and cleartext TCP only where it is told, so
 	// the two addresses this scenario's links name are named here. Production
 	// cross-server joins use authenticated iroh, which needs no such list.
 	env: { GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${foreignRoomPort},127.0.0.1:${deadPort}` },
-	stdout: "null",
+	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 let browser: Browser | null = null;
 try {

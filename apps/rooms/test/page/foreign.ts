@@ -7,7 +7,7 @@
 
 import type { Page } from "playwright";
 import { fail } from "../support/fail.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { fillSettled, reachDirectoryOnCard, waitForPostedLine } from "./harness.ts";
 export async function run(
 	tab: Page,
@@ -160,7 +160,7 @@ export async function run(
 	// the page must let it go rather than keep a row for it and dial it forever,
 	// and it must leave what was typed in the field, because correcting an
 	// address is an edit and not a retype.
-	const typo = `127.0.0.1:${freePort()}`;
+	const typo = `127.0.0.1:${nonEphemeralPort()}`;
 	await tab.fill("#locator", typo);
 	await tab.click("#joinBtn");
 	await tab.waitForFunction(

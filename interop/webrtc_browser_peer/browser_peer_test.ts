@@ -26,7 +26,6 @@
 // `deno run --allow-all interop/webrtc_browser_peer/browser_peer_test.ts`.
 
 import { chromium } from "playwright";
-import { freePort } from "../../bindings/ts/test/ports.ts";
 import { bundleProbe } from "../../bindings/ts/web/test/support.ts";
 import { fail } from "../../bindings/ts/test/assert.ts";
 
@@ -57,14 +56,14 @@ try {
 	const page = `<!doctype html><meta charset=utf-8><title>webrtc browser peer probe</title>` +
 		`<pre id=status>connecting…</pre><script type=module>${probeJs}</script>`;
 
-	const pagePort = freePort();
-	Deno.serve({ port: pagePort, signal: assetServer.signal }, (req) => {
+	const pageServer = Deno.serve({ port: 0, signal: assetServer.signal }, (req) => {
 		const url = new URL(req.url);
 		if (url.pathname === "/glowcap_host.wasm") {
 			return new Response(wasmBytes, { headers: { "content-type": "application/wasm" } });
 		}
 		return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
 	});
+	const pagePort = pageServer.addr.port;
 
 	browser = await chromium.launch({
 		args: [

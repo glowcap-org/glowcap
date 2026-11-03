@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // The rooms page sends a direct message, end to end, from a real browser. A
 // headless Chromium loads the shipped page, joins a room, and messages a member
 // privately, the three-party handoff `demo-rooms-dm-iroh` proves, with the
@@ -26,7 +26,6 @@ import { enterOrOpen } from "../../lib/enter_room.ts";
 import { dial, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { roomLocator } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { until } from "../support/wait.ts";
@@ -37,16 +36,15 @@ const DM_TEXT = "hi Bob, privately, from a browser";
 const REPLY_TEXT = `got your DM: ${DM_TEXT}`;
 
 const deadline = setTimeout(() => fail("web-dm scenario timed out after 120s"), 120_000);
-const httpPort = freePort();
-
 // serve.ts hosts the page and an iroh room + relay; its room server picks its own
 // iroh endpoint (no port to pin).
-spawnWeb({
-	args: ["--transport=tcp", "--transport=iroh", "--reachability=direct", String(httpPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "--transport=iroh", "--reachability=direct", "0"],
 	cwd: ROOT,
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 // Bob: a host iroh member in this process. He mints one Host publication inbox per peer
 // the directory asks him for, served on his own iroh endpoint (the redeem

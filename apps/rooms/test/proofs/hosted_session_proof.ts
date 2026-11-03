@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // A local browser session shared from one Rooms page and attached from another.
 //
 // Two origins matter here. The hosting tab files its WebRTC answering inbox on
@@ -11,19 +11,19 @@ import { reapOwned } from "../support/children.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
 import { reachDirectoryOnCard } from "../page/harness.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { attachThroughSettings, reattachThroughSettings } from "../page/session_attach.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 
-function serveRooms(httpPort: number, roomPort: number): void {
-	spawnWeb({
-		args: ["--transport=tcp", String(httpPort), String(roomPort), "--transport=iroh"],
+async function serveRooms(): Promise<number> {
+	const front = spawnWeb({
+		args: ["--transport=tcp", "0", "0", "--transport=iroh"],
 		cwd: ROOT,
-		stdout: "null",
+		stdout: "piped",
 		stderr: "inherit",
 	});
+	return await webPort(front);
 }
 
 async function pageAt(browser: Browser, port: number, label: string): Promise<{ context: BrowserContext; page: Page }> {
@@ -63,14 +63,10 @@ async function share(page: Page): Promise<string> {
 	return sturdyref;
 }
 
-const hostHttp = freePort();
-const hostRoom = freePort();
-const attachingHttp = freePort();
-const attachingRoom = freePort();
 const deadline = setTimeout(() => fail("cross-directory hosted session scenario timed out after 180s"), 180_000);
 
-serveRooms(hostHttp, hostRoom);
-serveRooms(attachingHttp, attachingRoom);
+const hostHttp = await serveRooms();
+const attachingHttp = await serveRooms();
 
 let browser: Browser | null = null;
 try {

@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // The page's first paint is in the theme the reader left.
 //
 // A session decides the theme, and a session is not up during the first paint.
@@ -26,17 +26,15 @@ import { reapOwned } from "../support/children.ts";
 import { fail } from "../support/fail.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { ROOT } from "../support/paths.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 
-const httpPort = freePort();
-const roomPort = freePort();
-spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
-	stdout: "null",
+	stdout: "piped",
 	stderr: "null",
 });
+const httpPort = await webPort(front);
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 const deadline = setTimeout(() => fail("boot-theme scenario timed out after 90s"), 90_000);

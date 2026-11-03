@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 /// <reference lib="dom" />
 // What the visualizer draws, all the way through a member's life in a room.
 //
@@ -43,7 +43,6 @@ import { fail } from "../support/fail.ts";
 import { joinAs } from "../support/join.ts";
 import { awaitBubble, openDmTo, say } from "../page/harness.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 /** One record off the endpoint, as the converter takes it, and the shape of
@@ -356,20 +355,17 @@ function pause(ms = 2_500): Promise<void> {
 
 const deadline = setTimeout(() => fail("web-trace-lifecycle timed out after 300s"), 300_000);
 
-const httpPort = freePort();
-const roomPort = freePort();
-const tracePort = freePort();
-
 const web = spawnWeb({
-	args: ["--transport=tcp", String(httpPort), String(roomPort)],
+	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
-	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: String(tracePort) },
-	stdout: "inherit",
+	env: { GLOWCAP_ROOMS_TRACE: "1", GLOWCAP_ROOMS_TRACE_PORT: "0" },
+	stdout: "piped",
 	stderr: "piped",
 });
 // The trace sturdyref rides the server's stderr; the scraper tees the stream
 // through so the run stays observable.
 const traceRef = scrapeTraceSturdyref(web.stderr);
+const httpPort = await webPort(web);
 
 let browser: Browser | null = null;
 try {

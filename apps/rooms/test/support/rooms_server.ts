@@ -5,13 +5,19 @@
 // leaked one fails whichever test runs next rather than the one that leaked it.
 // All scenarios start the installed Rust server. The build owns that prerequisite.
 
-import type { Host, Runtime, Session } from "@glowcap/runtime";
+import { designatorHostPort, type Host, type Runtime, type Session } from "@glowcap/runtime";
 import { Reachability } from "@glowcap/iroh";
 
-import { dial as dialWithRuntime, isUriLocator, roomsHost } from "../../lib/locator.ts";
+import {
+	dial as dialWithRuntime,
+	isUriLocator,
+	roomsHost,
+	roomsLocator,
+	roomsSturdyrefLocator,
+} from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { assert } from "../assert.ts";
-import { readAnnounced, readAnnouncedPort } from "./announce.ts";
+import { drainStdout, readAnnounced, readAnnouncedPort } from "./announce.ts";
 import { spawnOwned, stopOwned } from "./children.ts";
 import { ROOT, SERVER } from "./paths.ts";
 import { delay } from "./wait.ts";
@@ -94,8 +100,12 @@ export function serving(session: Session): Promise<void> {
 	return activeRuntimeScope.serve(session);
 }
 
-export function readPort(proc: Deno.ChildProcess): Promise<number> {
-	return readAnnouncedPort(proc, { token: "ROOMS-SERVER-LISTENING", who: "rooms server" });
+/** The port a server started with `--port=0` bound, read from its announcement.
+ * The rest of its stdout is drained, so a caller reads no stdout of its own. */
+export async function readPort(proc: Deno.ChildProcess): Promise<number> {
+	const port = await readAnnouncedPort(proc, { token: "ROOMS-SERVER-LISTENING", who: "rooms server" });
+	drainStdout(proc);
+	return port;
 }
 
 /** A server that means no durable state. `spawnOwned` keeps the pane's live
@@ -152,6 +162,18 @@ export async function roomLocator(port: number, who = "rooms-web"): Promise<stri
 		await delay(50);
 	}
 	throw new Error(`${who} did not answer with a room locator`);
+}
+
+/** The TCP port of the room the front on `httpPort` supervises, read from the
+ * locator it serves. A front started with room port 0 learns it there, and a
+ * second front that attaches to the room is handed it. */
+export async function roomPortOf(httpPort: number, who = "rooms-web"): Promise<number> {
+	return designatorHostPort(roomsLocator(await roomLocator(httpPort, who)).designator).port;
+}
+
+/** The TCP port a session process announced in its sturdyref. */
+export function sturdyrefPort(sturdyref: string): number {
+	return designatorHostPort(roomsSturdyrefLocator(sturdyref).designator).port;
 }
 
 /** Wait until `rooms-web` answers `/locator` on `port`, or throw. */

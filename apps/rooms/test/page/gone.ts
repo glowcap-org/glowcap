@@ -60,7 +60,7 @@ export async function run(
 	foreignRoom: Deno.ChildProcess,
 	foreignState: string,
 	foreignRoomPort: number,
-	homeRoomPort: number,
+	homeFront: Deno.ChildProcess,
 	aboutOf: (room: string) => Locator,
 ): Promise<void> {
 	// "Reconnecting…" is the whole message when there is one directory it could be
@@ -281,9 +281,12 @@ export async function run(
 	// that was still true.
 	// Pause the replacement server itself: this also holds recovery when the
 	// workspace's connector is hosted outside this browser tab.
-	const pattern = `${SERVER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} .*--port=${homeRoomPort}( |$)`;
+	// Selected beneath the front that supervises it, so a room server started by
+	// another proof on this host is never taken for it.
+	const entrypoint = SERVER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const serverPid = async () => {
-		const found = await new Deno.Command("pgrep", { args: ["-f", pattern] }).output();
+		const found = await new Deno.Command("pgrep", { args: ["-P", String(homeFront.pid), "-f", entrypoint] })
+			.output();
 		const pids = new TextDecoder().decode(found.stdout).trim().split(/\s+/).filter(Boolean).map(Number);
 		return pids.length === 1 ? pids[0] : null;
 	};

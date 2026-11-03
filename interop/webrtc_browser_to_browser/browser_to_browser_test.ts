@@ -15,7 +15,6 @@
 // `deno run --allow-all interop/webrtc_browser_to_browser/browser_to_browser_test.ts`.
 
 import { type Browser, chromium } from "playwright";
-import { freePort } from "../../bindings/ts/test/ports.ts";
 import { bundleProbe } from "../../bindings/ts/web/test/support.ts";
 import { fail } from "../../bindings/ts/test/assert.ts";
 
@@ -56,8 +55,7 @@ try {
 		`<pre id=status>connecting…</pre><script type=module>${probeJs}</script>`;
 
 	const relay = new SignalRelay();
-	const pagePort = freePort();
-	Deno.serve({ port: pagePort, signal: assetServer.signal }, (req) => {
+	const pageServer = Deno.serve({ port: 0, signal: assetServer.signal }, (req) => {
 		const url = new URL(req.url);
 		if (url.pathname === "/signal") {
 			const role = url.searchParams.get("role") ?? "offerer";
@@ -70,6 +68,7 @@ try {
 		}
 		return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
 	});
+	const pagePort = pageServer.addr.port;
 
 	browser = await chromium.launch({
 		args: [

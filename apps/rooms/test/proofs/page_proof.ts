@@ -1,4 +1,4 @@
-import { spawnWeb } from "../support/web_front.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // The rooms web page as a real browser peer, end to end. A headless Chromium
 // loads the ACTUAL page rooms-web serves, the
 // bundled `@glowcap/web` graph, `glowcap_host.wasm`, and the UI, joins a
@@ -26,7 +26,7 @@ import { spawnWeb } from "../support/web_front.ts";
 import { chromium } from "playwright";
 import { fail } from "../support/fail.ts";
 import { ROOT, SERVER } from "../support/paths.ts";
-import { freePort } from "../../../../bindings/ts/test/ports.ts";
+import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import * as opening from "../page/opening.ts";
 import { proveFocusKeepsMobileViewport } from "../page/mobile_controls.ts";
@@ -45,19 +45,23 @@ import * as memberCard from "../page/member_card.ts";
 import { recordNotices } from "../page/harness.ts";
 import { reapOwned, spawnOwned } from "../support/children.ts";
 
-const httpPort = freePort();
 // The Operations scene needs the room server started with every operator
 // capability and somewhere their swiss numbers persist, so the scene can
 // read what the server printed. The state directory is this test's to remove.
-// The trace port is fixed so `/trace` can answer it, which is how the page's
-// take of the trace capability finds the endpoint to present the swiss to.
+// The trace port is asked for as 0 and `/trace` answers the one the room server
+// bound, which is how the page's take of the trace capability finds the
+// endpoint to present the swiss to.
 const opsState = await Deno.makeTempDir({ prefix: "glowcap-rooms-page-ops-" });
 const foreignState = await Deno.makeTempDir({ prefix: "glowcap-rooms-page-foreign-" });
-const tracePort = freePort();
-const roomPort = freePort();
-const foreignRoomPort = freePort();
-const hangPort = freePort();
-const hang = Deno.listen({ hostname: "127.0.0.1", port: hangPort });
+// The home and foreign room servers are each stopped and stood back up on the
+// port the page holds for them, so these two numbers are chosen ahead of their
+// children. The home server's supervisor respawns it with the arguments it
+// started with, so port 0 would bring it back somewhere the page cannot find.
+const homeRoomPort = nonEphemeralPort();
+const foreignRoomPort = nonEphemeralPort();
+// This proof binds the hanging listener itself, so it reads the port it got.
+const hang = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+const hangPort = (hang.addr as Deno.NetAddr).port;
 const held: Deno.Conn[] = [];
 const holding = (async () => {
 	try {
@@ -78,12 +82,8 @@ const foreignRoom = spawnOwned(SERVER, {
 	stderr: "inherit",
 });
 
-spawnWeb({
-	args: [
-		"--transport=tcp",
-		String(httpPort),
-		String(roomPort),
-	],
+const front = spawnWeb({
+	args: ["--transport=tcp", "0", String(homeRoomPort)],
 	cwd: ROOT,
 	env: {
 		GLOWCAP_RELAY_TCP_PEERS: `127.0.0.1:${foreignRoomPort},127.0.0.1:${hangPort}`,
@@ -94,11 +94,12 @@ spawnWeb({
 		GLOWCAP_ROOMS_PEERING: "1",
 		GLOWCAP_ROOMS_TRACE: "1",
 		GLOWCAP_ROOMS_IRC: "1",
-		GLOWCAP_ROOMS_TRACE_PORT: String(tracePort),
+		GLOWCAP_ROOMS_TRACE_PORT: "0",
 	},
 	stdout: "piped",
 	stderr: "inherit",
 });
+const httpPort = await webPort(front);
 
 // The scenario's own deadline. A throw from a timer does not reach the try
 // below, so the `finally` there cleans up nothing on this path. What reaps the
@@ -203,7 +204,7 @@ try {
 			foreignRoom,
 			foreignState,
 			foreignRoomPort,
-			roomPort,
+			front,
 			descendersIntact,
 		));
 	await phase("standing", () => standing.run(tab, foreignLocator, httpPort, activeBrowser, second));

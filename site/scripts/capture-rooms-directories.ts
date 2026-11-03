@@ -27,12 +27,12 @@
  *   rooms-directories-phone-*.webp  the same session shared to a phone, every directory included
  */
 import { type BrowserContext, chromium, type Page } from "playwright";
-import { spawnWeb } from "../../apps/rooms/test/support/web_front.ts";
-import { freePort } from "../../bindings/ts/test/ports.ts";
+import { spawnWeb, webPort } from "../../apps/rooms/test/support/web_front.ts";
+import { roomPortOf } from "../../apps/rooms/test/support/rooms_server.ts";
 import { reapOwned } from "../../apps/rooms/test/support/children.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { directOpened, openDmTo, reachDirectoryOnCard } from "../../apps/rooms/test/page/harness.ts";
-import { awaitLocator, outDirArg, pinToLatest, plainRun, shot, still } from "./capture.ts";
+import { outDirArg, pinToLatest, plainRun, shot, still } from "./capture.ts";
 
 const outDir = outDirArg();
 
@@ -48,28 +48,25 @@ interface Directory {
 	locator: string;
 }
 
-function directory(name: string, member: string): Directory {
-	const room = freePort();
-	return { http: freePort(), room, name, member, locator: `127.0.0.1:${room}` };
-}
-
-/** Start a directory. `reaches` are the other directories this page's relay may
- * dial: a relay dials cleartext TCP only where it is told. */
-function serve(dir: Directory, reaches: Directory[] = []): void {
-	spawnWeb({
+/** Start a directory and learn where it listens: the front and its room server
+ * each choose their own port and the front announces them. `reaches` are the
+ * other directories this page's relay may dial, so they are up before it
+ * starts: a relay dials cleartext TCP only where it is told. */
+async function directory(name: string, member: string, reaches: Directory[] = []): Promise<Directory> {
+	const front = spawnWeb({
 		env: reaches.length === 0 ? {} : { GLOWCAP_RELAY_TCP_PEERS: reaches.map((r) => r.locator).join(",") },
-		args: ["--transport=tcp", String(dir.http), String(dir.room)],
-		stdout: "null",
+		args: ["--transport=tcp", "0", "0"],
+		stdout: "piped",
 		stderr: "inherit",
 	});
+	const http = await webPort(front);
+	const room = await roomPortOf(http, `the directory serving ${name}`);
+	return { http, room, name, member, locator: `127.0.0.1:${room}` };
 }
 
-/** A directory is up once its page answers with its room locator. */
-const ready = (dir: Directory): Promise<void> => awaitLocator(dir.http, `the directory serving ${dir.name}`);
-
-const home = directory("workshop", "ren");
-const zines = directory("zine-swap", "oskar");
-const sky = directory("night-sky", "lu");
+const zines = await directory("zine-swap", "oskar");
+const sky = await directory("night-sky", "lu");
+const home = await directory("workshop", "ren", [zines, sky]);
 const human = "mira";
 
 /** Type a line and send it, then wait for it to render on every page given. */
@@ -113,10 +110,6 @@ async function open(page: Page, list: "#roomList" | "#dmList", name: string): Pr
 	await page.locator("#roomName", { hasText: name }).waitFor({ timeout: 30_000 });
 }
 
-serve(home, [zines, sky]);
-serve(zines);
-serve(sky);
-
 const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
 const contexts: BrowserContext[] = [];
 async function tab(dir: Directory, scale = 1): Promise<Page> {
@@ -135,7 +128,6 @@ async function tab(dir: Directory, scale = 1): Promise<Page> {
 
 try {
 	await Deno.mkdir(outDir, { recursive: true });
-	await Promise.all([home, zines, sky].map(ready));
 
 	// Each member is at home: one directory, the one that served their page.
 	const members = new Map<Directory, Page>();
