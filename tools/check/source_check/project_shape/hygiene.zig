@@ -62,7 +62,7 @@ pub fn checkRawNuls(
 }
 
 fn keepTextSource(path: []const u8) bool {
-    return isTextSource(path) and !vendoredOrGenerated(path);
+    return isTextSource(path);
 }
 
 /// Every registered Rooms TypeScript test names the scenario its module owns
@@ -271,7 +271,7 @@ pub fn checkDiscardedErrors(
 }
 
 fn keepDiscardScanned(path: []const u8) bool {
-    return !vendoredOrGenerated(path) and (keepZig(path) or firstPartyTypeScript(path));
+    return keepZig(path) or firstPartyTypeScript(path);
 }
 
 /// A `.ts` or `.tsx` source that is product or tool code rather than a test,

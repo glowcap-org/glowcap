@@ -27,7 +27,7 @@ pub fn checkZigDeadPrivateFns(
             try checkFile(self.gpa, self.violations, path, contents);
         }
     };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "dead-function", "src", Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "dead-function", "src", &source_tree.isZigPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
 }
 
 fn checkFile(

@@ -163,7 +163,7 @@ pub fn checkBindingStructPins(
             }
         }
     };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "canonical layout manifest", "src/c_abi", Sink{ .gpa = gpa, .abi_types = &abi_types }, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "canonical layout manifest", "src/c_abi", &source_tree.isZigPath, Sink{ .gpa = gpa, .abi_types = &abi_types }, Sink.visit);
     if (abi_types.items.len == 0) {
         try appendViolation(gpa, violations, "src/c_abi: no binding-projected `archive_contract.layout` rows found; struct mirrors have no canonical inventory", .{});
         return;

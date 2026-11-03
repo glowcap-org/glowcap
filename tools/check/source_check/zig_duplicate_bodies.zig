@@ -79,7 +79,7 @@ fn collectTree(
             try collectBodies(self.gpa, self.bodies, path, contents);
         }
     };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "duplicate-body", name, Sink{ .gpa = gpa, .bodies = bodies }, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "duplicate-body", name, &source_tree.isZigPath, Sink{ .gpa = gpa, .bodies = bodies }, Sink.visit);
 }
 
 /// Append every function body of `contents` long enough to compare.

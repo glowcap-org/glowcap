@@ -106,7 +106,7 @@ fn collectDeclaredFns(
         }
     };
     const sink: Sink = .{ .gpa = gpa, .out = out, .aliases = &aliases };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "doc-symbol", "src", sink, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "doc-symbol", "src", &source_tree.isZigPath, sink, Sink.visit);
 
     // An alias of an alias resolves once its target has, so pass until no
     // alias is new.
@@ -180,7 +180,7 @@ pub fn checkZigDocSymbolClaims(
         }
     };
     const sink: Sink = .{ .gpa = gpa, .violations = violations, .declared = &declared };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "doc-symbol", "src", sink, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "doc-symbol", "src", &source_tree.isZigPath, sink, Sink.visit);
 }
 
 fn checkSpan(

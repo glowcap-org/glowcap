@@ -218,7 +218,7 @@ pub fn checkDurablePinWriters(
         }
     };
     for (roots) |tree| {
-        try source_tree.visitZigFiles(io, gpa, root, violations, "pin-parity", tree, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
+        try source_tree.visitSourceFiles(io, gpa, root, violations, "pin-parity", tree, &source_tree.isZigPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
     }
 }
 

@@ -203,7 +203,7 @@ pub fn checkSigningDomains(
         }
     };
     const sink: Sink = .{ .gpa = gpa, .violations = violations, .seen_counts = &seen_counts };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "signing-domain", "src", sink, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "signing-domain", "src", &source_tree.isZigPath, sink, Sink.visit);
 
     // The other direction: a registered signing file that no longer signs is status-allow: lifecycle transition
     // a stale entry vouching for nothing.

@@ -7,7 +7,6 @@
 const std = @import("std");
 const text_match = @import("../text_match.zig");
 const source_tree = @import("../source_tree.zig");
-const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 const corpus = @import("corpus.zig");
 

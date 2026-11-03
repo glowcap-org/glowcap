@@ -217,6 +217,8 @@ test "namesAfterPrefix collects each name, skips an empty one, and reads a trail
     try std.testing.expectEqual(@as(usize, 2), names.items.len);
     try std.testing.expectEqualStrings("ONE", names.items[0]);
     try std.testing.expectEqualStrings("TWO", names.items[1]);
+}
+
 /// Whether `byte` continues a JavaScript or TypeScript identifier, which adds
 /// `$` to the C identifier bytes.
 pub fn isJsIdentChar(byte: u8) bool {

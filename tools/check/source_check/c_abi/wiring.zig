@@ -104,7 +104,7 @@ pub fn checkHostPumpImportGate(
             }
         }
     };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "host_pump import", "src", Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "host_pump import", "src", &source_tree.isZigPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
 }
 
 /// ADR names belong in docs and comments, never in strings that can reach a

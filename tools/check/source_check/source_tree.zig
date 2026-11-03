@@ -188,8 +188,8 @@ pub fn collectSourceFiles(
 /// first-party source far below it, so a larger file is a read failure.
 pub const source_read_limit = 4 << 20;
 
-/// Call `visit(ctx, path, contents)` for every `.zig` file beneath `root_path`
-/// in sorted order, skipping generated and vendored trees. `path` is
+/// Call `visit(ctx, path, contents)` for every file beneath `root_path` that
+/// `keep` accepts, in sorted order, skipping generated and vendored trees. `path` is
 /// repository-relative and `contents` is read whole within
 /// `source_read_limit`, owned by this function, and freed after the call, so a
 /// visitor that keeps text copies it. A visitor may blank bytes in place.
@@ -199,17 +199,18 @@ pub const source_read_limit = 4 << 20;
 /// walk goes on with the next file. Any other walk failure is this function's
 /// error. A check that needs to stop early, keep the
 /// contents, or send a failure somewhere else walks the tree itself.
-pub fn visitZigFiles(
+pub fn visitSourceFiles(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     label: []const u8,
     root_path: []const u8,
+    keep: *const fn (path: []const u8) bool,
     ctx: anytype,
     visit: *const fn (@TypeOf(ctx), path: []const u8, contents: []u8) std.mem.Allocator.Error!void,
 ) !void {
-    const files = (try collectSourceFiles(io, gpa, root, root_path, &isZigPath)) orelse {
+    const files = (try collectSourceFiles(io, gpa, root, root_path, keep)) orelse {
         try violation_log.appendViolation(gpa, violations, "{s}: no such directory for the {s} check", .{ root_path, label });
         return;
     };
@@ -227,11 +228,12 @@ pub fn visitZigFiles(
     }
 }
 
-fn isZigPath(path: []const u8) bool {
+/// Whether `path` is a Zig source file.
+pub fn isZigPath(path: []const u8) bool {
     return std.mem.endsWith(u8, path, ".zig");
 }
 
-test "visitZigFiles reads each Zig file once and names a missing tree" {
+test "visitSourceFiles reads each kept file once and names a missing tree" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -256,11 +258,11 @@ test "visitZigFiles reads each Zig file once and names a missing tree" {
     };
     var seen: Seen = .{ .gpa = gpa };
     defer seen.log.deinit(gpa);
-    try visitZigFiles(io, gpa, tmp.dir, &violations, "probe", "src", &seen, Seen.visit);
+    try visitSourceFiles(io, gpa, tmp.dir, &violations, "probe", "src", &isZigPath, &seen, Seen.visit);
     try std.testing.expectEqualStrings("src/a.zig=1;src/b.zig=2;", seen.log.items);
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 
-    try visitZigFiles(io, gpa, tmp.dir, &violations, "probe", "absent", &seen, Seen.visit);
+    try visitSourceFiles(io, gpa, tmp.dir, &violations, "probe", "absent", &isZigPath, &seen, Seen.visit);
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
     try std.testing.expectEqualStrings("absent: no such directory for the probe check", violations.items[0]);
 }

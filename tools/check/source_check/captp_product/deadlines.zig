@@ -41,7 +41,7 @@ pub fn checkCliCaptpDeadlines(
             }
         }
     };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "CapTP-deadline", "cli", Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "CapTP-deadline", "cli", &source_tree.isZigPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
 }
 
 /// A teaching surface must not demonstrate the unbounded wait.
@@ -218,5 +218,5 @@ pub fn checkExampleCaptpDeadlines(
             }
         }
     };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "CapTP-deadline", "examples/zig", Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "CapTP-deadline", "examples/zig", &source_tree.isZigPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
 }

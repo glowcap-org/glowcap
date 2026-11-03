@@ -543,7 +543,7 @@ pub fn checkBareKeyedTables(
         }
     };
     const sink: Sink = .{ .gpa = gpa, .violations = violations, .seen = &seen };
-    try source_tree.visitZigFiles(io, gpa, root, violations, "bare-key namespace", "src", sink, Sink.visit);
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "bare-key namespace", "src", &source_tree.isZigPath, sink, Sink.visit);
 
     for (registered) |t| {
         const key = try std.fmt.allocPrint(gpa, "{s}|{s}", .{ t.file, t.name });
