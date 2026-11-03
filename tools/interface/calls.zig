@@ -8,15 +8,14 @@ pub const Kind = enum { text, target, pending_target, pending_value, nothing, va
 pub const Effect = enum { call, tell, receipt };
 pub const Named = struct { api: []const u8, call: Call };
 pub const Call = struct {
-    wire_name: []const u8,
+    wire_name: ?[]const u8,
     parameters: []const Kind,
     result: Kind,
     effect: Effect,
 };
 
-pub fn read(a: std.mem.Allocator, model: *Model, receiver: []const u8, method_name: []const u8) !Call {
-    const receiver_fields = try (try model.definitions.get(receiver)).fields("interface", 1);
-    const fields = try (try receiver_fields[0].get(method_name)).fields("method", 3);
+pub fn read(a: std.mem.Allocator, model: *Model, receiver: []const u8, method_name: ?[]const u8) !Call {
+    const fields = try model.method(receiver, method_name);
     const effect: Effect = if (fields[2].is("call")) .call else if (fields[2].is("tell")) .tell else if (fields[2].is("loam.receipt")) .receipt else return error.UnsupportedProjection;
     const parameters = try a.alloc(Kind, fields[0].children.len);
     errdefer a.free(parameters);

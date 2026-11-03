@@ -8,7 +8,7 @@ owns executable qualification.
 | Source | Responsibility |
 | --- | --- |
 | `description.zig` | Bounded Syrup description reader |
-| `model.zig` | Declaration validation, references, and type resolution |
+| `model.zig` | Declaration validation, method selection, references, and type resolution |
 | `calls.zig` | Checked ordinary-call signatures |
 | `zig.zig`, `rust.zig` | Tasks creation projections |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |

@@ -73,3 +73,36 @@ export function reader_then(
 	const raw = session.send(target, "then", []);
 	return new Pending(raw, text);
 }
+
+export function invoke_direct(
+	session: Session,
+	target: Ref | RemotePromise,
+	arg0: string,
+): Pending<string> {
+	const raw = session.send(target, null, [arg0]);
+	return new Pending(raw, text);
+}
+
+export function notify_direct(
+	session: Session,
+	target: Ref | RemotePromise,
+	arg0: Argument,
+): Promise<void> {
+	return session.tell(target, null, [arg0]);
+}
+
+export function invoke_empty(
+	session: Session,
+	target: Ref | RemotePromise,
+): Pending<string> {
+	const raw = session.send(target, "", []);
+	return new Pending(raw, text);
+}
+
+export function invoke_named(
+	session: Session,
+	target: Ref | RemotePromise,
+): Pending<string> {
+	const raw = session.send(target, "then", []);
+	return new Pending(raw, text);
+}

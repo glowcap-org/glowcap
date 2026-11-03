@@ -17,6 +17,10 @@ const selected = .{
     .{ "fixture.Sink", "changed", "sink_changed" },
     .{ "fixture.Reader", "read", "reader_read" },
     .{ "fixture.Reader", "then", "reader_then" },
+    .{ "fixture.Direct", @as(?[]const u8, null), "invoke_direct" },
+    .{ "fixture.Notify", @as(?[]const u8, null), "notify_direct" },
+    .{ "fixture.Hostile", "", "invoke_empty" },
+    .{ "fixture.Hostile", "then", "invoke_named" },
 };
 const prepared = .{.{ "fixture.Prepared", "accept", "prepare_accept" }};
 
@@ -196,4 +200,18 @@ test "prepared receipt emitters refuse unqualified shapes" {
         .effect = .receipt,
     } }};
     try std.testing.expectError(error.UnsupportedProjection, @import("typescript.zig").emit(std.testing.allocator, &methods));
+}
+
+test "checked call selection preserves positional, empty, and named methods" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var model = try Model.init(try description.read(arena.allocator(), @embedFile("contract")));
+    const direct = try calls.read(arena.allocator(), &model, "fixture.Direct", null);
+    try std.testing.expect(direct.wire_name == null);
+    const empty = try calls.read(arena.allocator(), &model, "fixture.Hostile", "");
+    try std.testing.expectEqualStrings("", empty.wire_name.?);
+    const named = try calls.read(arena.allocator(), &model, "fixture.Hostile", "then");
+    try std.testing.expectEqualStrings("then", named.wire_name.?);
+    try std.testing.expectError(error.InvalidDescription, calls.read(arena.allocator(), &model, "fixture.Direct", ""));
+    try std.testing.expectError(error.InvalidDescription, calls.read(arena.allocator(), &model, "fixture.Hostile", null));
 }

@@ -29,7 +29,7 @@ before comparing authoring frontends. Syrup remains the direct compiler input.
 | Binding prerequisites | Rust retention and TypeScript owning-thread capability fulfillment are implemented using existing Host operations | `bindings/rust`, `bindings/ts` |
 | Prepared pending arguments | Rust capture, drop/observation, submission/replay, cancellation, and cross-Host refusal run on both profiles. Binding tests check final retain retirement | Milestone 2 ownership case |
 | Remaining conversation coverage | Qualify breaks, cancellation, export failure, supported handoff and Goblins in both directions | Milestone 2 runtime cases |
-| Invocation shape | Runtime preserves absent, empty, and named selectors | Generated-path qualification still required |
+| Invocation shape | Generated Rust and TypeScript callers preserve absent, empty, and named selectors on both profiles | Server-adapter qualification remains |
 | Cost and authoring decision | Measure generation first, then compare text and Cap'n Proto adapters | Milestone 2 decision |
 
 The [earlier experiment](../research/interface-design-proof.md) is background

@@ -183,6 +183,25 @@ pub fn reader_then(session: &Session, target: impl AsSendTarget) -> Pending<Stri
 	Pending::new(raw, text)
 }
 
+pub fn invoke_direct(session: &Session, target: impl AsSendTarget, arg0: &str) -> Pending<String> {
+	let raw = session.send(target, None::<&str>, &[arg0.into()]);
+	Pending::new(raw, text)
+}
+
+pub fn notify_direct(session: &Session, target: impl AsSendTarget, arg0: Argument) -> Result<(), Error> {
+	session.tell(target, None::<&str>, &[arg0]).map_err(Error::Runtime)
+}
+
+pub fn invoke_empty(session: &Session, target: impl AsSendTarget) -> Pending<String> {
+	let raw = session.send(target, "", &[]);
+	Pending::new(raw, text)
+}
+
+pub fn invoke_named(session: &Session, target: impl AsSendTarget) -> Pending<String> {
+	let raw = session.send(target, "then", &[]);
+	Pending::new(raw, text)
+}
+
 pub fn prepare_accept(
 	session: Rc<Session>,
 	target: Ref,
