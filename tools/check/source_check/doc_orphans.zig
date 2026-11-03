@@ -27,10 +27,6 @@ const appendViolation = violation_log.appendViolation;
 /// same change that empties it.
 const roots = [_][]const u8{ "apps/rooms", "bindings/ts" };
 
-fn isSourcePath(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx");
-}
-
 fn checkFile(
     gpa: std.mem.Allocator,
     path: []const u8,
@@ -86,7 +82,7 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (roots) |root_path| {
-        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, source_tree.isTypeScriptPath)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to open for the doc-orphan check", .{root_path});
             continue;
         };

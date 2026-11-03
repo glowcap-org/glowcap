@@ -1,6 +1,7 @@
 //! Whole-module exports on the supported Zig consumer namespaces.
 
 const std = @import("std");
+const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -184,7 +185,7 @@ fn checkSource(
     try collectScope(gpa, &tree, tree.rootDecls(), "", &bindings, &actual);
 
     for (actual.items) |name| {
-        if (!contains(expected, name)) try appendViolation(
+        if (!text_match.inSet(expected, name)) try appendViolation(
             gpa,
             violations,
             "{s}: added whole-module consumer export `{s}`; only a consumer-intended API change updates the exact inventory in tools/check/source_check/project_shape/zig_module_surface.zig",
@@ -192,7 +193,7 @@ fn checkSource(
         );
     }
     for (expected) |name| {
-        if (!contains(actual.items, name)) try appendViolation(
+        if (!text_match.inSet(actual.items, name)) try appendViolation(
             gpa,
             violations,
             "{s}: missing whole-module consumer export `{s}`; restore it, or update the exact inventory only for a consumer-intended API change",
@@ -297,7 +298,7 @@ fn appendQualified(
 ) !void {
     const qualified = try qualify(gpa, prefix, name);
     errdefer gpa.free(qualified);
-    if (contains(exports.items, qualified)) {
+    if (text_match.inSet(exports.items, qualified)) {
         gpa.free(qualified);
         return;
     }
@@ -309,11 +310,6 @@ fn qualify(gpa: std.mem.Allocator, prefix: []const u8, name: []const u8) ![]u8 {
         gpa.dupe(u8, name)
     else
         std.fmt.allocPrint(gpa, "{s}.{s}", .{ prefix, name });
-}
-
-fn contains(names: []const []const u8, needle: []const u8) bool {
-    for (names) |name| if (std.mem.eql(u8, name, needle)) return true;
-    return false;
 }
 
 fn freeViolations(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8)) void {

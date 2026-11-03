@@ -36,10 +36,6 @@ const roots = [_][]const u8{ "apps/rooms", "bindings/ts" };
 /// demanding it would fail before the first build instead of on a real mistake.
 const generated = "zig-out/";
 
-fn isSourcePath(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx");
-}
-
 fn isSpace(c: u8) bool {
     return c == ' ' or c == '\t' or c == '\n' or c == '\r';
 }
@@ -135,7 +131,7 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (roots) |root_path| {
-        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, source_tree.isTypeScriptPath)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to open for the runtime-path check", .{root_path});
             continue;
         };

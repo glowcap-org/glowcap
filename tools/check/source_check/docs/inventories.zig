@@ -2,6 +2,7 @@
 //! and the fuzz corpus seeds.
 
 const std = @import("std");
+const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -116,7 +117,7 @@ pub fn checkCommunityReviewCiMatrix(
 
         var expected = true;
         for (gates.items) |gate| {
-            if (!containsStep(running.items, gate)) {
+            if (!text_match.inSet(running.items, gate)) {
                 expected = false;
                 break;
             }
@@ -166,13 +167,6 @@ pub fn collectBuildSteps(
         if (name.len > 0) try out.append(arena, name);
         at = stop;
     }
-}
-
-fn containsStep(steps: []const []const u8, needle: []const u8) bool {
-    for (steps) |step| {
-        if (std.mem.eql(u8, step, needle)) return true;
-    }
-    return false;
 }
 
 /// Every checked-in fuzz corpus entry must be wired as a seed.

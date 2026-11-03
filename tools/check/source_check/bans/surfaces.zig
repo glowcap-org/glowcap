@@ -29,10 +29,6 @@ pub const deferral_markers: []const Ban = blk: {
                         ".zig", ".rs", ".py", ".rkt", ".ts",   ".js",
                         ".c",   ".h",  ".sh", ".css", ".html",
                     },
-                    // Fragments match the walked tree's RELATIVE paths, so a
-                    // repo-rooted spelling here is dead config. Generated
-                    // output dirs only; first-party source is always held.
-                    .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".vite/", ".deno/", "dist/", ".zig-cache", "zig-out" },
                     .exclude = &.{"tools/check/source_check/bans/surfaces.zig"},
                 },
             },
@@ -116,7 +112,6 @@ pub const rooms_env_namespace: []const Ban = &.{
         .where = .{ .tree = .{
             .dir = "apps/rooms",
             .suffixes = &.{ ".ts", ".tsx", ".md", ".py", ".rkt", ".rs", ".zig", ".yml" },
-            .skip_dirs = &.{"node_modules/"},
         } },
         .kind = .forbid,
         .needles = &.{ "\"ROOMS_", "'ROOMS_", "`ROOMS_" },

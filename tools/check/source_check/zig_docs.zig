@@ -27,6 +27,7 @@
 //! and bare `ownedFrameFromView` as readily as `Peer.sendBorrowed`.
 
 const std = @import("std");
+const source_tree = @import("source_tree.zig");
 const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 
@@ -47,13 +48,6 @@ fn isDocLine(line: []const u8) bool {
     return std.mem.startsWith(u8, t, "///") or std.mem.startsWith(u8, t, "//!");
 }
 
-fn isForeign(type_name: []const u8) bool {
-    for (foreign_types) |f| {
-        if (std.mem.eql(u8, type_name, f)) return true;
-    }
-    return false;
-}
-
 /// Collect every function declared under `src/` into `out`: each `fn <name>(`,
 /// and each alias `const <name> = <path>;` whose path ends in a collected
 /// function, so a doc comment may name the alias a type exposes.
@@ -64,12 +58,6 @@ fn collectDeclaredFns(
     out: *std.StringHashMap(void),
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src: failed to open for zig-doc claim check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer dir.close(io);
-
     // An alias resolves after the walk, because its target may be declared in
     // a file later in the walk.
     const Alias = struct { name: []const u8, target: []const u8 };
@@ -82,46 +70,43 @@ fn collectDeclaredFns(
         aliases.deinit(gpa);
     }
 
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be read for the doc-symbol check ({s})", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        out: *std.StringHashMap(void),
+        aliases: *std.ArrayList(Alias),
 
-        var rest: []const u8 = contents;
-        while (std.mem.indexOf(u8, rest, "fn ")) |at| {
-            // Only a real declaration: `fn ` at a token boundary.
-            const before_ok = at == 0 or !text_match.isIdentChar(rest[at - 1]);
-            var i = at + 3;
-            const start = i;
-            while (i < rest.len and text_match.isIdentChar(rest[i])) i += 1;
-            if (before_ok and i > start and i < rest.len and rest[i] == '(') {
+        fn visit(self: @This(), _: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            var rest: []const u8 = contents;
+            while (std.mem.indexOf(u8, rest, "fn ")) |at| {
+                // Only a real declaration: `fn ` at a token boundary.
+                const before_ok = at == 0 or !text_match.isIdentChar(rest[at - 1]);
+                var i = at + 3;
+                const start = i;
+                while (i < rest.len and text_match.isIdentChar(rest[i])) i += 1;
+                if (before_ok and i > start and i < rest.len and rest[i] == '(') {
+                    const name = rest[start..i];
+                    if (!self.out.contains(name)) try self.out.put(try self.gpa.dupe(u8, name), {});
+                }
+                rest = rest[at + 3 ..];
+            }
+
+            rest = contents;
+            while (std.mem.indexOf(u8, rest, "const ")) |at| {
+                const before_ok = at == 0 or !text_match.isIdentChar(rest[at - 1]);
+                var i = at + 6;
+                const start = i;
+                while (i < rest.len and text_match.isIdentChar(rest[i])) i += 1;
                 const name = rest[start..i];
-                if (!out.contains(name)) try out.put(try gpa.dupe(u8, name), {});
-            }
-            rest = rest[at + 3 ..];
-        }
-
-        rest = contents;
-        while (std.mem.indexOf(u8, rest, "const ")) |at| {
-            const before_ok = at == 0 or !text_match.isIdentChar(rest[at - 1]);
-            var i = at + 6;
-            const start = i;
-            while (i < rest.len and text_match.isIdentChar(rest[i])) i += 1;
-            const name = rest[start..i];
-            rest = rest[at + 6 ..];
-            if (!before_ok or name.len == 0) continue;
-            if (aliasTarget(rest[i - start ..])) |target| {
-                try aliases.append(gpa, .{ .name = try gpa.dupe(u8, name), .target = try gpa.dupe(u8, target) });
+                rest = rest[at + 6 ..];
+                if (!before_ok or name.len == 0) continue;
+                if (aliasTarget(rest[i - start ..])) |target| {
+                    try self.aliases.append(self.gpa, .{ .name = try self.gpa.dupe(u8, name), .target = try self.gpa.dupe(u8, target) });
+                }
             }
         }
-    }
+    };
+    const sink: Sink = .{ .gpa = gpa, .out = out, .aliases = &aliases };
+    try source_tree.visitZigFiles(io, gpa, root, violations, "doc-symbol", "src", sink, Sink.visit);
 
     // An alias of an alias resolves once its target has, so pass until no
     // alias is new.
@@ -171,40 +156,31 @@ pub fn checkZigDocSymbolClaims(
     try collectDeclaredFns(io, gpa, root, &declared, violations);
     if (declared.count() == 0) return;
 
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src: cannot be opened for the doc-symbol check ({s})", .{@errorName(err)});
-        return;
-    };
-    defer dir.close(io);
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        violations: *std.ArrayList([]const u8),
+        declared: *const std.StringHashMap(void),
 
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be read for the doc-symbol check ({s})", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            var line_no: usize = 0;
+            var lines = std.mem.splitScalar(u8, contents, '\n');
+            while (lines.next()) |line| {
+                line_no += 1;
+                if (!isDocLine(line)) continue;
 
-        var line_no: usize = 0;
-        var lines = std.mem.splitScalar(u8, contents, '\n');
-        while (lines.next()) |line| {
-            line_no += 1;
-            if (!isDocLine(line)) continue;
-
-            var rest: []const u8 = line;
-            while (std.mem.indexOfScalar(u8, rest, '`')) |open| {
-                const after = rest[open + 1 ..];
-                const close = std.mem.indexOfScalar(u8, after, '`') orelse break;
-                const span = after[0..close];
-                rest = after[close + 1 ..];
-                try checkSpan(gpa, violations, &declared, path, line_no, span);
+                var rest: []const u8 = line;
+                while (std.mem.indexOfScalar(u8, rest, '`')) |open| {
+                    const after = rest[open + 1 ..];
+                    const close = std.mem.indexOfScalar(u8, after, '`') orelse break;
+                    const span = after[0..close];
+                    rest = after[close + 1 ..];
+                    try checkSpan(self.gpa, self.violations, self.declared, path, line_no, span);
+                }
             }
         }
-    }
+    };
+    const sink: Sink = .{ .gpa = gpa, .violations = violations, .declared = &declared };
+    try source_tree.visitZigFiles(io, gpa, root, violations, "doc-symbol", "src", sink, Sink.visit);
 }
 
 fn checkSpan(
@@ -241,7 +217,7 @@ fn checkSpan(
     // like a call target (contains an upper-case letter, or is a known verb
     // shape) before demanding it exist. This keeps `Kind.tcp` out of scope.
     if (!hasUpper(method) and !isBareVerb(method)) return;
-    if (isForeign(type_name)) return;
+    if (text_match.inSet(&foreign_types, type_name)) return;
 
     if (!declared.contains(method)) {
         try appendViolation(

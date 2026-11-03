@@ -194,22 +194,12 @@ pub fn checkDurablePinWriters(
         }
     }
 
-    for (roots) |tree| {
-        const files = (try source_tree.collectSourceFiles(io, gpa, root, tree, keepFirstPartyZig)) orelse {
-            try appendViolation(gpa, violations, "{s}: failed to open for the durable-pin writer check", .{tree});
-            continue;
-        };
-        defer {
-            for (files) |path| gpa.free(path);
-            gpa.free(files);
-        }
-        for (files) |path| {
-            if (std.mem.eql(u8, path, this_check)) continue;
-            const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}: cannot be read for the pin-parity check ({s})", .{ path, @errorName(err) });
-                continue;
-            };
-            defer gpa.free(contents);
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        violations: *std.ArrayList([]const u8),
+
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            if (std.mem.eql(u8, path, this_check)) return;
 
             for (verbs) |verb| {
                 if (std.mem.indexOf(u8, contents, verb.call) == null) continue;
@@ -219,13 +209,16 @@ pub fn checkDurablePinWriters(
                 }
                 if (allowed) continue;
                 try appendViolation(
-                    gpa,
-                    violations,
+                    self.gpa,
+                    self.violations,
                     "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0028), and that layer is the one where {s}. Either this file has that standing and belongs in `verbs` in tools/check/source_check/captp_product/pins.zig, or it should be naming the identity it dialed instead (`demandPartnerDurableKey`), or reading through `demandedPartnerKey` / `verifiedChannelKey` / `partnerDurableProvenance`.",
                     .{ path, verb.call, verb.standing },
                 );
             }
         }
+    };
+    for (roots) |tree| {
+        try source_tree.visitZigFiles(io, gpa, root, violations, "pin-parity", tree, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
     }
 }
 

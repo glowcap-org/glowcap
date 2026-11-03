@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const json_files = @import("../json_files.zig");
+const source_tree = @import("../source_tree.zig");
 const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 
@@ -92,28 +93,18 @@ pub fn checkHostPumpImportGate(
     // list stopped naming files when every slice of the split was adding one.
     const host_core_dir = "src/driver/core/";
     const needle = "@import(\"host/pump.zig\")";
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src: failed to open for host_pump import gate with {s}", .{@errorName(err)});
-        return;
-    };
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
-        defer gpa.free(path);
-        if (std.mem.startsWith(u8, path, host_core_dir)) continue;
-        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for host_pump import gate with {s}", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, needle) != null) {
-            try appendViolation(gpa, violations, "{s}: imports host/pump.zig — only the Host core's own files may (Host private pump)", .{path});
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        violations: *std.ArrayList([]const u8),
+
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            if (std.mem.startsWith(u8, path, host_core_dir)) return;
+            if (std.mem.indexOf(u8, contents, needle) != null) {
+                try appendViolation(self.gpa, self.violations, "{s}: imports host/pump.zig — only the Host core's own files may (Host private pump)", .{path});
+            }
         }
-    }
+    };
+    try source_tree.visitZigFiles(io, gpa, root, violations, "host_pump import", "src", Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
 }
 
 /// ADR names belong in docs and comments, never in strings that can reach a

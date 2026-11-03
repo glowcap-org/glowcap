@@ -177,7 +177,7 @@ const contributor_scopes = [_]bans.Where{
     .{ .tree = .{ .dir = "apps", .suffixes = &.{".md"} } },
     .{ .tree = .{ .dir = "bench", .suffixes = &.{".md"} } },
     .{ .tree = .{ .dir = "bindings", .suffixes = &.{".md"} } },
-    .{ .tree = .{ .dir = "conformance", .suffixes = &.{".md"}, .skip_dirs = &.{"upstream"} } },
+    .{ .tree = .{ .dir = "conformance", .suffixes = &.{".md"} } },
     .{ .tree = .{ .dir = "examples", .suffixes = &.{".md"} } },
     .{ .tree = .{ .dir = "interop", .suffixes = &.{".md"} } },
     .{ .tree = .{ .dir = "site", .suffixes = &.{".md"} } },
@@ -217,7 +217,7 @@ const em_dash_scopes = prose_scopes ++ [_]bans.Where{
     .{ .files = &.{"AGENTS.md"} },
     // The Rooms Rust crates carry the largest body of first-party comment
     // prose outside `src/`; their doc comments are human surfaces too.
-    .{ .tree = .{ .dir = "apps/rooms/rust", .suffixes = &.{".rs"}, .skip_dirs = &.{"target/"} } },
+    .{ .tree = .{ .dir = "apps/rooms/rust", .suffixes = &.{".rs"} } },
 };
 
 /// The em-dash is a strong occasional tool, and doc-voice allows exactly two
@@ -265,11 +265,11 @@ const justification_tic_scopes = [_]bans.Where{
     .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
     .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },
     .{ .tree = .{ .dir = "include", .suffixes = &.{".h"} } },
-    .{ .tree = .{ .dir = "bindings", .suffixes = &.{ ".rs", ".ts", ".tsx", ".py", ".rkt" }, .skip_dirs = &.{ "node_modules", "target/" } } },
+    .{ .tree = .{ .dir = "bindings", .suffixes = &.{ ".rs", ".ts", ".tsx", ".py", ".rkt" } } },
     .{ .tree = .{ .dir = "conformance/goblins-peer/racket", .suffixes = &.{".rkt"} } },
     .{ .tree = .{ .dir = "conformance/ocapn-conformance", .suffixes = &.{".zig"} } },
     .{ .tree = .{ .dir = "interop", .suffixes = &.{ ".zig", ".rs", ".ts", ".py", ".rkt" } } },
-    .{ .tree = .{ .dir = "apps", .suffixes = &.{ ".zig", ".rs", ".ts", ".tsx", ".css", ".md", ".py", ".rkt" }, .skip_dirs = &.{ "node_modules", "target/" } } },
+    .{ .tree = .{ .dir = "apps", .suffixes = &.{ ".zig", ".rs", ".ts", ".tsx", ".css", ".md", ".py", ".rkt" } } },
 };
 
 /// The which-is-what justification tic is one authorial habit repeated
@@ -474,15 +474,6 @@ pub fn checkParagraphLength(
     }
 }
 
-fn isListItem(trimmed: []const u8) bool {
-    if (std.mem.startsWith(u8, trimmed, "- ") or std.mem.startsWith(u8, trimmed, "* ")) return true;
-    // An ordered item: digits then `.` or `)` then a space.
-    var i: usize = 0;
-    while (i < trimmed.len and std.ascii.isDigit(trimmed[i])) i += 1;
-    if (i == 0 or i + 1 >= trimmed.len) return false;
-    return (trimmed[i] == '.' or trimmed[i] == ')') and trimmed[i + 1] == ' ';
-}
-
 fn checkSentencesIn(
     gpa: std.mem.Allocator,
     violations: *std.ArrayList([]const u8),
@@ -556,7 +547,7 @@ fn checkSentencesIn(
         // A list item is a new thought, so it starts a new sentence. Without
         // this a bulleted list of identifiers, which carries no sentence
         // punctuation at all, reads as one enormous run-on.
-        if (isListItem(trimmed)) {
+        if (paragraphs.isListItem(trimmed)) {
             run = 0;
             run_line = line_no;
         }

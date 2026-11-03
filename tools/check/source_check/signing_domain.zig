@@ -32,6 +32,7 @@
 //! healthy tree passes.
 
 const std = @import("std");
+const source_tree = @import("source_tree.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -155,63 +156,54 @@ pub fn checkSigningDomains(
         seen_counts.deinit();
     }
 
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src: cannot be opened for the signing-domain check ({s})", .{@errorName(err)});
-        return;
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        violations: *std.ArrayList([]const u8),
+        seen_counts: *std.StringHashMap(usize),
+
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            const rel = path["src/".len..];
+            // Rule 1: registered signing sites only, at the registered count.
+            // The needle also covers the `foundation.crypto.sign(` form.
+            const sign_hits = countOnCode(contents, "crypto.sign(");
+            if (sign_hits > 0) {
+                if (signingSites(rel)) |expected| {
+                    if (sign_hits != expected) {
+                        try appendViolation(self.gpa, self.violations, "src/{s}: {d} `crypto.sign(` sites, but tools/check/source_check/signing_domain.zig registers {d}. A durable-key signature signs a fixed-shape record under a named constructor; update the row in the same diff as the site.", .{ rel, sign_hits, expected });
+                    }
+                    const key = try self.gpa.dupe(u8, rel);
+                    if (self.seen_counts.contains(key)) self.gpa.free(key) else try self.seen_counts.put(key, sign_hits);
+                } else {
+                    try appendViolation(self.gpa, self.violations, "src/{s}: `crypto.sign(` outside the registered signing files. The durable key signs only fixed-shape records; register the file and its record shape in tools/check/source_check/signing_domain.zig or route the signature through an existing seam.", .{rel});
+                }
+            }
+
+            // Rule 2: outside the sessionSecret seam, a secret key surfaces only
+            // to derive its public half.
+            if (!inList(&secret_seam_files, rel)) {
+                if (findUnqualified(contents, ".secretKey()", ".secretKey().publicKey()")) {
+                    try appendViolation(self.gpa, self.violations, "src/{s}: `.secretKey()` without an immediate `.publicKey()`. Signing material flows through `Node.sessionSecret` (the one registered seam); anything else reads only the public half.", .{rel});
+                }
+            }
+
+            // Rule 3: the Ed25519-to-X25519 map and its wrappers stay confined.
+            if (!std.mem.eql(u8, rel, bridge_home)) {
+                if (countOnCode(contents, "fromEd25519(") > 0 or countOnCode(contents, "publicKeyFromEd25519(") > 0) {
+                    try appendViolation(self.gpa, self.violations, "src/{s}: direct Ed25519-to-X25519 conversion outside {s}. The bridge has one home so the key-reuse hazard ADR-0041 accepts stays inspectable; call `crypto.x25519FromPeerKey` / `crypto.x25519FromSecretKey` from a registered channel file instead.", .{ rel, bridge_home });
+                }
+                if (countOnCode(contents, ".keypair.sign(") > 0) {
+                    try appendViolation(self.gpa, self.violations, "src/{s}: raw Ed25519 signing outside {s}. Every signature goes through `crypto.sign` so rule 1 can see it.", .{ rel, bridge_home });
+                }
+                if (!inList(&wrapper_callers, rel)) {
+                    if (countOnCode(contents, "x25519FromPeerKey(") > 0 or countOnCode(contents, "x25519FromSecretKey(") > 0) {
+                        try appendViolation(self.gpa, self.violations, "src/{s}: durable-key X25519 conversion outside the registered channel files. Register the file in tools/check/source_check/signing_domain.zig `wrapper_callers` in the same diff that gives it a sealed channel to own.", .{rel});
+                    }
+                }
+            }
+        }
     };
-    defer dir.close(io);
-
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const rel = entry.path;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{rel});
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be read for the signing-domain check ({s})", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-
-        // Rule 1: registered signing sites only, at the registered count.
-        // The needle also covers the `foundation.crypto.sign(` form.
-        const sign_hits = countOnCode(contents, "crypto.sign(");
-        if (sign_hits > 0) {
-            if (signingSites(rel)) |expected| {
-                if (sign_hits != expected) {
-                    try appendViolation(gpa, violations, "src/{s}: {d} `crypto.sign(` sites, but tools/check/source_check/signing_domain.zig registers {d}. A durable-key signature signs a fixed-shape record under a named constructor; update the row in the same diff as the site.", .{ rel, sign_hits, expected });
-                }
-                const key = try gpa.dupe(u8, rel);
-                if (seen_counts.contains(key)) gpa.free(key) else try seen_counts.put(key, sign_hits);
-            } else {
-                try appendViolation(gpa, violations, "src/{s}: `crypto.sign(` outside the registered signing files. The durable key signs only fixed-shape records; register the file and its record shape in tools/check/source_check/signing_domain.zig or route the signature through an existing seam.", .{rel});
-            }
-        }
-
-        // Rule 2: outside the sessionSecret seam, a secret key surfaces only
-        // to derive its public half.
-        if (!inList(&secret_seam_files, rel)) {
-            if (findUnqualified(contents, ".secretKey()", ".secretKey().publicKey()")) {
-                try appendViolation(gpa, violations, "src/{s}: `.secretKey()` without an immediate `.publicKey()`. Signing material flows through `Node.sessionSecret` (the one registered seam); anything else reads only the public half.", .{rel});
-            }
-        }
-
-        // Rule 3: the Ed25519-to-X25519 map and its wrappers stay confined.
-        if (!std.mem.eql(u8, rel, bridge_home)) {
-            if (countOnCode(contents, "fromEd25519(") > 0 or countOnCode(contents, "publicKeyFromEd25519(") > 0) {
-                try appendViolation(gpa, violations, "src/{s}: direct Ed25519-to-X25519 conversion outside {s}. The bridge has one home so the key-reuse hazard ADR-0041 accepts stays inspectable; call `crypto.x25519FromPeerKey` / `crypto.x25519FromSecretKey` from a registered channel file instead.", .{ rel, bridge_home });
-            }
-            if (countOnCode(contents, ".keypair.sign(") > 0) {
-                try appendViolation(gpa, violations, "src/{s}: raw Ed25519 signing outside {s}. Every signature goes through `crypto.sign` so rule 1 can see it.", .{ rel, bridge_home });
-            }
-            if (!inList(&wrapper_callers, rel)) {
-                if (countOnCode(contents, "x25519FromPeerKey(") > 0 or countOnCode(contents, "x25519FromSecretKey(") > 0) {
-                    try appendViolation(gpa, violations, "src/{s}: durable-key X25519 conversion outside the registered channel files. Register the file in tools/check/source_check/signing_domain.zig `wrapper_callers` in the same diff that gives it a sealed channel to own.", .{rel});
-                }
-            }
-        }
-    }
+    const sink: Sink = .{ .gpa = gpa, .violations = violations, .seen_counts = &seen_counts };
+    try source_tree.visitZigFiles(io, gpa, root, violations, "signing-domain", "src", sink, Sink.visit);
 
     // The other direction: a registered signing file that no longer signs is status-allow: lifecycle transition
     // a stale entry vouching for nothing.

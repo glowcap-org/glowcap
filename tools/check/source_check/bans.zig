@@ -229,7 +229,7 @@ const rust_sidecar_ffi_safety = [_]Ban{.{
     .where = .{ .tree = .{
         .dir = "transports",
         .suffixes = &.{".rs"},
-        .skip_dirs = &.{ "/target/", "/sidecar-runtime/" },
+        .skip_dirs = &.{"/sidecar-runtime/"},
     } },
     .kind = .forbid,
     .needles = &.{"pub extern \"C\" fn"},

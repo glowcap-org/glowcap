@@ -2,6 +2,7 @@
 //! comment hiding a declaration, and the faults reported at their line.
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 const ui = @import("ui.zig");
 
@@ -35,7 +36,7 @@ fn checkCssFile(
     };
     defer gpa.free(css);
     if (cssFault(css)) |fault| {
-        try appendViolation(gpa, violations, "{s}:{d}: {s}", .{ path, lineAt(css, fault.at), fault.why });
+        try appendViolation(gpa, violations, "{s}:{d}: {s}", .{ path, text_match.lineNumberAt(css, fault.at), fault.why });
     }
 }
 
@@ -98,13 +99,4 @@ fn commentHidesDeclaration(body: []const u8) ?usize {
         if (n > 0 and k < body.len and body[k] == ':') return j;
     }
     return null;
-}
-
-fn lineAt(src: []const u8, at: usize) usize {
-    var n: usize = 1;
-    const end = @min(at, src.len);
-    for (src[0..end]) |c| {
-        if (c == '\n') n += 1;
-    }
-    return n;
 }

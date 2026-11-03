@@ -24,6 +24,7 @@
 //! Validated by putting each banned spelling back: every one is caught.
 
 const std = @import("std");
+const source_tree = @import("source_tree.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -44,10 +45,6 @@ const banned = [_][]const u8{
     "rights === \"none\"",
     "rights !== \"none\"",
 };
-
-fn isSource(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx");
-}
 
 /// The browser bundle is a build artifact that happens to sit in the tree, and
 /// it carries whatever the sources said in minified form.
@@ -70,7 +67,7 @@ pub fn checkRoomsSessionAccess(
         var walker = try dir.walk(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
-            if (entry.kind != .file or !isSource(entry.path) or isGenerated(entry.path)) continue;
+            if (entry.kind != .file or !source_tree.isTypeScriptPath(entry.path) or isGenerated(entry.path)) continue;
             const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
             defer gpa.free(path);
             const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {

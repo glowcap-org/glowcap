@@ -11,6 +11,7 @@
 //! and template literals. A `className` full of words stays admissible.
 
 const std = @import("std");
+const source_tree = @import("../source_tree.zig");
 const violation_log = @import("../violation_log.zig");
 const ui_sources = @import("ui_sources.zig");
 
@@ -400,7 +401,7 @@ pub fn checkRoomsTextCatalog(
     defer walker.deinit();
     while (walker.next(io) catch null) |entry| {
         if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.basename, ".tsx") and !std.mem.endsWith(u8, entry.basename, ".ts")) continue;
+        if (!source_tree.isTypeScriptPath(entry.basename)) continue;
         if (isExempt(entry.path)) {
             seen_exempt += 1;
             continue;

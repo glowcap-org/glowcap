@@ -4,6 +4,7 @@
 //! repository's own GitHub blob links resolving to real tree paths.
 
 const std = @import("std");
+const text_match = @import("../text_match.zig");
 const source_tree = @import("../source_tree.zig");
 const violation_log = @import("../violation_log.zig");
 
@@ -212,7 +213,7 @@ fn checkRepoBlobLinksInFile(
         root.access(io, target, .{}) catch |err| {
             try appendViolation(gpa, violations, "{s}:{d}: GitHub link names missing tree path `{s}` ({s})", .{
                 path,
-                lineNumberAt(contents, at),
+                text_match.lineNumberAt(contents, at),
                 target,
                 @errorName(err),
             });
@@ -239,14 +240,6 @@ fn blobLinkTarget(rest: []const u8) ?[]const u8 {
     }
     if (target.len == 0) return null;
     return target;
-}
-
-fn lineNumberAt(contents: []const u8, at: usize) usize {
-    var n: usize = 1;
-    for (contents[0..@min(at, contents.len)]) |c| {
-        if (c == '\n') n += 1;
-    }
-    return n;
 }
 
 /// The Markdown surfaces and Zig comment lines this repository owns must not
@@ -292,12 +285,15 @@ pub fn checkDanglingReferenceLinks(
             continue;
         };
         defer dir.close(io);
-        var walker = try dir.walk(gpa);
+        var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
+            if (entry.kind == .directory) {
+                try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
+                continue;
+            }
             if (entry.kind != .file) continue;
             if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-            if (std.mem.indexOf(u8, entry.path, "upstream/") != null) continue;
             const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
             defer gpa.free(path);
             try checkDanglingRefsInZigFile(io, gpa, root, violations, path);

@@ -397,7 +397,7 @@ pub fn checkExampleFenceIndent(
     // `apps/ocapnviz/` is the maintainer's own viewer, carried over from the
     // pre-Zig glowcap tree and possibly headed for its own repository; its
     // docs keep their source style until that decision lands.
-    const skip_fragments = [_][]const u8{ "target/", "node_modules/", "upstream/", "zig-out/", ".zig-cache/", "apps/ocapnviz/" };
+    const skip_fragments = [_][]const u8{"apps/ocapnviz/"};
 
     for (top_files) |path| {
         try checkFenceIndentFile(io, gpa, root, path, &tab_langs, &space_langs, violations);

@@ -75,7 +75,9 @@ fn endsAbbreviation(prefix: []const u8) bool {
     return false;
 }
 
-fn isListItem(trimmed: []const u8) bool {
+/// Whether a trimmed markdown line opens a list item: `- `, `* `, or digits then
+/// `.` or `)` then a space.
+pub fn isListItem(trimmed: []const u8) bool {
     if (std.mem.startsWith(u8, trimmed, "- ") or std.mem.startsWith(u8, trimmed, "* ")) return true;
     var i: usize = 0;
     while (i < trimmed.len and std.ascii.isDigit(trimmed[i])) i += 1;

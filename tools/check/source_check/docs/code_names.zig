@@ -5,6 +5,7 @@
 //! gone, the doc is stale. A name wholly from outside the repository passes.
 
 const std = @import("std");
+const text_match = @import("../text_match.zig");
 const source_tree = @import("../source_tree.zig");
 const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
@@ -68,7 +69,6 @@ pub fn check(
 }
 
 fn isCode(path: []const u8) bool {
-    if (std.mem.indexOf(u8, path, "/upstream/") != null and std.mem.endsWith(u8, path, ".md")) return false;
     for (code_suffixes) |suffix| if (std.mem.endsWith(u8, path, suffix)) return true;
     return false;
 }

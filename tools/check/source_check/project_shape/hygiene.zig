@@ -286,18 +286,6 @@ fn firstPartyTypeScript(path: []const u8) bool {
         !std.mem.endsWith(u8, base, ".test.ts") and !std.mem.endsWith(u8, base, "_proof.ts");
 }
 
-/// Trees no first-party rule governs: extracted Zig packages, npm state,
-/// pinned upstream submodules, and build output that may sit under a scanned
-/// root.
-fn vendoredOrGenerated(path: []const u8) bool {
-    return std.mem.indexOf(u8, path, "zig-pkg/") != null or
-        std.mem.startsWith(u8, path, "upstream/") or
-        std.mem.indexOf(u8, path, "/upstream/") != null or
-        std.mem.indexOf(u8, path, "node_modules/") != null or
-        std.mem.indexOf(u8, path, ".zig-cache/") != null or
-        std.mem.indexOf(u8, path, "zig-out/") != null;
-}
-
 /// True when `line` is a code (non-comment) line carrying one of the discard
 /// forms outside string or character literals, the ban tables in this very
 /// tree hold discard-shaped needles as data, and data is not a discard.

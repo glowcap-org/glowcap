@@ -1,5 +1,6 @@
 //! Narration in first-party comments obeys the same lifetime rule as static docs.
 const std = @import("std");
+const text_match = @import("../text_match.zig");
 const source_tree = @import("../source_tree.zig");
 const narration = @import("static_docs.zig");
 
@@ -8,14 +9,14 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind == .directory) {
-            if (source_tree.sourceTreeDirectory(entry.path) and !in(entry.basename, &.{ "upstream", "vendor", "third_party" })) try walker.enter(io, entry);
+            if (source_tree.sourceTreeDirectory(entry.path) and !text_match.inSet(&.{ "upstream", "vendor", "third_party" }, entry.basename)) try walker.enter(io, entry);
             continue;
         }
         if (entry.kind != .file) continue;
         const ext = std.fs.path.extension(entry.path);
-        const hash = in(ext, &.{ ".py", ".sh", ".bash" });
-        const scheme = in(ext, &.{ ".rkt", ".scm" });
-        if (!hash and !scheme and !in(ext, &.{ ".zig", ".rs", ".c", ".h", ".ts", ".tsx", ".js", ".mjs", ".jsx", ".css" })) continue;
+        const hash = text_match.inSet(&.{ ".py", ".sh", ".bash" }, ext);
+        const scheme = text_match.inSet(&.{ ".rkt", ".scm" }, ext);
+        if (!hash and !scheme and !text_match.inSet(&.{ ".zig", ".rs", ".c", ".h", ".ts", ".tsx", ".js", ".mjs", ".jsx", ".css" }, ext)) continue;
         const text = try root.readFileAlloc(io, entry.path, gpa, .limited(16 << 20));
         defer gpa.free(text);
         const header = text[0..@min(text.len, 400)];
@@ -31,10 +32,6 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
             }
         }
     }
-}
-fn in(ext: []const u8, set: []const []const u8) bool {
-    for (set) |candidate| if (std.mem.eql(u8, ext, candidate)) return true;
-    return false;
 }
 
 const Comments = struct {
