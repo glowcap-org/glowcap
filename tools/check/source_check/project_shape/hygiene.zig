@@ -37,39 +37,32 @@ pub fn checkRawNuls(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for ([_][]const u8{ "src", "cli", "apps", "bindings", "examples", "tools", "docs", "site", "ui" }) |tree| {
-        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to open for raw-NUL check with {s}", .{
-                tree,
-                @errorName(err),
-            });
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, tree, keepTextSource)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to open for raw-NUL check", .{tree});
             continue;
         };
-        defer dir.close(io);
-        var walker = try dir.walkSelectively(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind == .directory) {
-                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
-                continue;
-            }
-            if (entry.kind != .file or !isTextSource(entry.path) or vendoredOrGenerated(entry.path)) continue;
-            const contents = dir.readFileAlloc(io, entry.path, gpa, .limited(16 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}/{s}: failed to read for raw-NUL check with {s}", .{
-                    tree,
-                    entry.path,
-                    @errorName(err),
-                });
+        defer {
+            for (files) |path| gpa.free(path);
+            gpa.free(files);
+        }
+        for (files) |path| {
+            const contents = root.readFileAlloc(io, path, gpa, .limited(16 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: failed to read for raw-NUL check with {s}", .{ path, @errorName(err) });
                 continue;
             };
             defer gpa.free(contents);
             if (std.mem.indexOfScalar(u8, contents, 0) != null) try appendViolation(
                 gpa,
                 violations,
-                "{s}/{s}: first-party text source contains a raw NUL byte; write the separator as an escape",
-                .{ tree, entry.path },
+                "{s}: first-party text source contains a raw NUL byte; write the separator as an escape",
+                .{path},
             );
         }
     }
+}
+
+fn keepTextSource(path: []const u8) bool {
+    return isTextSource(path) and !vendoredOrGenerated(path);
 }
 
 /// Every registered Rooms TypeScript test names the scenario its module owns
@@ -140,25 +133,20 @@ pub fn checkRemoveDiscards(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for ([_][]const u8{ "src", "cli" }) |tree| {
-        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to open for remove-discard check with {s}", .{ tree, @errorName(err) });
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, tree, keepZig)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to open for remove-discard check", .{tree});
             continue;
         };
-        defer dir.close(io);
-        var walker = try dir.walkSelectively(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind == .directory) {
-                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
-                continue;
-            }
-            if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
-            defer gpa.free(path);
-            try checkRemoveDiscardsInFile(io, gpa, root, violations, path);
+        defer {
+            for (files) |path| gpa.free(path);
+            gpa.free(files);
         }
+        for (files) |path| try checkRemoveDiscardsInFile(io, gpa, root, violations, path);
     }
+}
+
+fn keepZig(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".zig");
 }
 
 /// True when `line` is a code (non-comment) line that discards a presence-bool
@@ -267,31 +255,23 @@ pub fn checkDiscardedErrors(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for ([_][]const u8{ "src", "cli", "apps", "examples", "tools", "interop", "bench", "conformance" }) |tree| {
-        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to open for discarded-error check with {s}", .{ tree, @errorName(err) });
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, tree, keepDiscardScanned)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to open for discarded-error check", .{tree});
             continue;
         };
-        defer dir.close(io);
-        var walker = try dir.walkSelectively(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind == .directory) {
-                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
-                continue;
-            }
-            if (entry.kind != .file) continue;
-            if (vendoredOrGenerated(entry.path)) continue;
-            const forms: []const []const u8 = if (std.mem.endsWith(u8, entry.path, ".zig"))
-                &discard_forms
-            else if (firstPartyTypeScript(entry.path))
-                &ts_discard_forms
-            else
-                continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
-            defer gpa.free(path);
+        defer {
+            for (files) |path| gpa.free(path);
+            gpa.free(files);
+        }
+        for (files) |path| {
+            const forms: []const []const u8 = if (std.mem.endsWith(u8, path, ".zig")) &discard_forms else &ts_discard_forms;
             try checkDiscardedErrorsInFile(io, gpa, root, violations, path, forms);
         }
     }
+}
+
+fn keepDiscardScanned(path: []const u8) bool {
+    return !vendoredOrGenerated(path) and (keepZig(path) or firstPartyTypeScript(path));
 }
 
 /// A `.ts` or `.tsx` source that is product or tool code rather than a test,

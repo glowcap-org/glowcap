@@ -9,6 +9,18 @@ const violation_log = @import("violation_log.zig");
 const appendViolation = violation_log.appendViolation;
 const readSourceSubject = source_tree.readSourceSubject;
 
+const binding_exts = [_][]const u8{ ".py", ".rs", ".ts", ".rkt" };
+
+fn keepBindingSource(path: []const u8) bool {
+    for (binding_exts) |ext| {
+        if (std.mem.endsWith(u8, path, ext)) {
+            return std.mem.indexOf(u8, path, "node_modules") == null and
+                std.mem.indexOf(u8, path, "/target/") == null;
+        }
+    }
+    return false;
+}
+
 pub fn check(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -36,33 +48,16 @@ pub fn check(
             "apps/rooms",
             "apps/ocapnviz/src",
         };
-        const exts = [_][]const u8{ ".py", ".rs", ".ts", ".rkt" };
         for (roots) |bind_root| {
-            var dir = root.openDir(io, bind_root, .{ .iterate = true }) catch |err| {
-                try appendViolation(gpa, violations, "{s}: cannot be opened for the binding-literal check ({s})", .{ bind_root, @errorName(err) });
+            const files = (try source_tree.collectSourceFiles(io, gpa, root, bind_root, keepBindingSource)) orelse {
+                try appendViolation(gpa, violations, "{s}: cannot be opened for the binding-literal check", .{bind_root});
                 continue;
             };
-            defer dir.close(io);
-            var walker = try dir.walkSelectively(gpa);
-            defer walker.deinit();
-            while (try walker.next(io)) |entry| {
-                if (entry.kind == .directory) {
-                    try source_tree.enterSourceDirectory(io, gpa, &walker, bind_root, entry);
-                    continue;
-                }
-                if (entry.kind != .file) continue;
-                var ok_ext = false;
-                for (exts) |ext| {
-                    if (std.mem.endsWith(u8, entry.path, ext)) {
-                        ok_ext = true;
-                        break;
-                    }
-                }
-                if (!ok_ext) continue;
-                if (std.mem.indexOf(u8, entry.path, "node_modules") != null) continue;
-                if (std.mem.indexOf(u8, entry.path, "/target/") != null) continue;
-                const rel = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ bind_root, entry.path });
-                defer gpa.free(rel);
+            defer {
+                for (files) |path| gpa.free(path);
+                gpa.free(files);
+            }
+            for (files) |rel| {
                 var allow = false;
                 for (allowed) |a| {
                     if (std.mem.eql(u8, rel, a)) {

@@ -4,9 +4,9 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libglowcap_net_transport_onion`. The
-// hand-written sibling (`onion.rs`) owns the opaque types and re-exports
-// this block, so consumers keep their `sys::onion::glowcap_onion_*` paths.
+// The raw extern block of `libglowcap_net_transport_onion`. The hand-written
+// sibling (`onion.rs`) owns the opaque types and re-exports this block, so
+// consumers keep their `sys::onion::glowcap_onion_*` paths.
 
 #![allow(dead_code)]
 

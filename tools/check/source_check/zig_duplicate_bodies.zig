@@ -16,6 +16,7 @@
 //! `switch`) is logic and counts as code.
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -29,7 +30,7 @@ const max_shingle_owners: usize = 128;
 /// A body with at least this share of initializer rows is a table.
 const table_row_percent: usize = 60;
 /// Repository directories whose Zig files are compared with each other.
-const walked_roots = [_][]const u8{ "src", "test", "bench" };
+const walked_roots = [_][]const u8{ "src", "test", "bench", "tools" };
 
 const Body = struct {
     path: []const u8,
@@ -141,7 +142,7 @@ fn isTable(body: []const []const u8, code_lines: usize) bool {
 /// Whether `code` is `.field = value,` with a value that neither fails nor
 /// branches.
 fn isBindingRow(code: []const u8) bool {
-    if (code.len < 2 or code[0] != '.' or !isIdentStart(code[1])) return false;
+    if (code.len < 2 or code[0] != '.' or !text_match.isIdentStart(code[1])) return false;
     const eq = std.mem.indexOf(u8, code, " = ") orelse return false;
     if (!std.mem.endsWith(u8, code, ",")) return false;
     const value = code[eq + 3 ..];
@@ -162,7 +163,7 @@ fn fnHead(line: []const u8) ?FnHead {
     if (!std.mem.startsWith(u8, rest, "fn ")) return null;
     rest = rest[3..];
     var end: usize = 0;
-    while (end < rest.len and isIdentChar(rest[end])) end += 1;
+    while (end < rest.len and text_match.isIdentChar(rest[end])) end += 1;
     if (end == 0 or end >= rest.len or rest[end] != '(') return null;
     return .{ .indent = indent, .name = rest[0..end] };
 }
@@ -173,14 +174,6 @@ fn isClose(line: []const u8, indent: usize) bool {
     return std.mem.eql(u8, std.mem.trimEnd(u8, line[indent..], " "), "}");
 }
 
-fn isIdentStart(ch: u8) bool {
-    return std.ascii.isAlphabetic(ch) or ch == '_';
-}
-
-fn isIdentChar(ch: u8) bool {
-    return std.ascii.isAlphanumeric(ch) or ch == '_';
-}
-
 /// Sorted, deduplicated hashes of every `shingle_len`-token window of the
 /// body's code, with each non-keyword, non-field identifier read as one
 /// token.
@@ -188,7 +181,7 @@ fn shinglesOf(gpa: std.mem.Allocator, body: []const []const u8) ![]const u64 {
     var tokens: std.ArrayList([]const u8) = .empty;
     defer tokens.deinit(gpa);
     for (body) |line| {
-        const code = line[0 .. std.mem.indexOf(u8, line, "//") orelse line.len];
+        const code = text_match.codeOfLine(line);
         var i: usize = 0;
         while (i < code.len) {
             const ch = code[i];
@@ -197,15 +190,15 @@ fn shinglesOf(gpa: std.mem.Allocator, body: []const []const u8) ![]const u64 {
                 continue;
             }
             const start = i;
-            if (isIdentStart(ch) or (ch == '@' and i + 1 < code.len and isIdentStart(code[i + 1]))) {
+            if (text_match.isIdentStart(ch) or (ch == '@' and i + 1 < code.len and text_match.isIdentStart(code[i + 1]))) {
                 i += 1;
-                while (i < code.len and isIdentChar(code[i])) i += 1;
+                while (i < code.len and text_match.isIdentChar(code[i])) i += 1;
                 const word = code[start..i];
                 const field = start > 0 and code[start - 1] == '.';
                 const keep = word[0] == '@' or field or std.zig.Token.getKeyword(word) != null;
                 try tokens.append(gpa, if (keep) word else "I");
             } else if (std.ascii.isDigit(ch)) {
-                while (i < code.len and isIdentChar(code[i])) i += 1;
+                while (i < code.len and text_match.isIdentChar(code[i])) i += 1;
                 try tokens.append(gpa, code[start..i]);
             } else {
                 i += 1;

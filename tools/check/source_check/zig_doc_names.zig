@@ -8,6 +8,7 @@
 //! (std, a wire spec) sit in `foreign_names`.
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -59,17 +60,8 @@ pub fn checkZigDocBareNames(
 fn collectCodeWords(words: *std.StringHashMap(void), contents: []const u8) !void {
     var lines = std.mem.splitScalar(u8, contents, '\n');
     while (lines.next()) |line| {
-        const code = line[0 .. std.mem.indexOf(u8, line, "//") orelse line.len];
-        var i: usize = 0;
-        while (i < code.len) {
-            if (!isIdentStart(code[i])) {
-                i += 1;
-                continue;
-            }
-            const start = i;
-            while (i < code.len and isIdentChar(code[i])) i += 1;
-            try words.put(code[start..i], {});
-        }
+        var idents: text_match.IdentIter = .init(text_match.codeOfLine(line));
+        while (idents.next()) |word| try words.put(word, {});
     }
 }
 
@@ -118,14 +110,6 @@ fn bareName(span: []const u8) ?[]const u8 {
 fn isForeign(name: []const u8) bool {
     for (foreign_names) |f| if (std.mem.eql(u8, name, f)) return true;
     return false;
-}
-
-fn isIdentStart(c: u8) bool {
-    return std.ascii.isAlphabetic(c) or c == '_';
-}
-
-fn isIdentChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
 test "a bare doc name must be spelled in code, not only in comments" {

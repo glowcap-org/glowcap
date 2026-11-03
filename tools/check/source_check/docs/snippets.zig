@@ -403,35 +403,30 @@ pub fn checkExampleFenceIndent(
         try checkFenceIndentFile(io, gpa, root, path, &tab_langs, &space_langs, violations);
     }
     for (dirs) |dir_path| {
-        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to open for fence-indent check with {s}", .{ dir_path, @errorName(err) });
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, dir_path, isMarkdownDoc)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to open for fence-indent check", .{dir_path});
             continue;
         };
-        defer dir.close(io);
-
-        var walker = try dir.walkSelectively(gpa);
-        defer walker.deinit();
-        walk: while (try walker.next(io)) |entry| {
-            if (entry.kind == .directory) {
-                try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
-                continue;
-            }
-            if (entry.kind != .file) continue;
-            const is_doc = std.mem.endsWith(u8, entry.path, ".md") or std.mem.endsWith(u8, entry.path, ".smd");
-            if (!is_doc) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
-            defer gpa.free(path);
+        defer {
+            for (files) |path| gpa.free(path);
+            gpa.free(files);
+        }
+        files: for (files) |path| {
             // Match on the repo-relative path: a walked entry's own path is
             // relative to the directory being walked, which would never carry
             // a fragment that names the top-level directory.
             for (skip_fragments) |frag| {
                 if (std.mem.indexOf(u8, path, frag) != null) {
-                    continue :walk;
+                    continue :files;
                 }
             }
             try checkFenceIndentFile(io, gpa, root, path, &tab_langs, &space_langs, violations);
         }
     }
+}
+
+fn isMarkdownDoc(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".smd");
 }
 
 fn checkFenceIndentFile(

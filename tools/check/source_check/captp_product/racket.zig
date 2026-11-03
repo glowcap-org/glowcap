@@ -44,17 +44,17 @@ pub fn checkBindingTestAggregate(
         scenario_count += 1;
         const required = try std.fmt.allocPrint(gpa, "scenarios/{s}", .{entry.path});
         defer gpa.free(required);
-        const count = stringLiteralCount(require_form, required);
+        const count = stringLiteralCount(require_form, required, .exact);
         if (count != 1) {
             try appendViolation(gpa, violations, "{s}: scenario `{s}` must appear exactly once in the aggregate require form; found {d}", .{ aggregate_path, required, count });
         }
     }
     const support = "scenarios/support.rkt";
-    const support_count = stringLiteralCount(require_form, support);
+    const support_count = stringLiteralCount(require_form, support, .exact);
     if (support_count != 1) {
         try appendViolation(gpa, violations, "{s}: shared scenario support must appear exactly once in the aggregate require form; found {d}", .{ aggregate_path, support_count });
     }
-    const aggregate_count = prefixedStringLiteralCount(require_form, "scenarios/");
+    const aggregate_count = stringLiteralCount(require_form, "scenarios/", .prefix);
     if (aggregate_count != scenario_count + 1) {
         try appendViolation(gpa, violations, "{s}: aggregate names {d} scenario paths but the directory owns {d} scenarios plus support; remove stale or duplicate entries", .{ aggregate_path, aggregate_count, scenario_count });
     }
@@ -94,22 +94,11 @@ fn findRequireForm(contents: []const u8) ?[]const u8 {
     return null;
 }
 
-fn stringLiteralCount(contents: []const u8, wanted: []const u8) usize {
-    var count: usize = 0;
-    var i: usize = 0;
-    while (i < contents.len) : (i += 1) {
-        if (contents[i] == ';') {
-            while (i < contents.len and contents[i] != '\n') : (i += 1) {}
-        } else if (contents[i] == '"') {
-            const start = i + 1;
-            skipString(contents, &i);
-            if (i <= contents.len and std.mem.eql(u8, contents[start..i], wanted)) count += 1;
-        }
-    }
-    return count;
-}
+const LiteralMatch = enum { exact, prefix };
 
-fn prefixedStringLiteralCount(contents: []const u8, prefix: []const u8) usize {
+/// How many string literals in `contents` equal `wanted` or start with it,
+/// skipping `;` comments.
+fn stringLiteralCount(contents: []const u8, wanted: []const u8, match: LiteralMatch) usize {
     var count: usize = 0;
     var i: usize = 0;
     while (i < contents.len) : (i += 1) {
@@ -118,7 +107,13 @@ fn prefixedStringLiteralCount(contents: []const u8, prefix: []const u8) usize {
         } else if (contents[i] == '"') {
             const start = i + 1;
             skipString(contents, &i);
-            if (i <= contents.len and std.mem.startsWith(u8, contents[start..i], prefix)) count += 1;
+            if (i > contents.len) continue;
+            const literal = contents[start..i];
+            const hit = switch (match) {
+                .exact => std.mem.eql(u8, literal, wanted),
+                .prefix => std.mem.startsWith(u8, literal, wanted),
+            };
+            if (hit) count += 1;
         }
     }
     return count;
@@ -156,9 +151,9 @@ test "Racket aggregate parser ignores comments and rejects duplicate scenario li
         \\         "scenarios/one.rkt")
     ;
     const form = findRequireForm(source).?;
-    try std.testing.expectEqual(@as(usize, 2), stringLiteralCount(form, "scenarios/one.rkt"));
-    try std.testing.expectEqual(@as(usize, 3), prefixedStringLiteralCount(form, "scenarios/"));
-    try std.testing.expectEqual(@as(usize, 0), stringLiteralCount(form, "scenarios/comment.rkt"));
+    try std.testing.expectEqual(@as(usize, 2), stringLiteralCount(form, "scenarios/one.rkt", .exact));
+    try std.testing.expectEqual(@as(usize, 3), stringLiteralCount(form, "scenarios/", .prefix));
+    try std.testing.expectEqual(@as(usize, 0), stringLiteralCount(form, "scenarios/comment.rkt", .exact));
 }
 
 /// Every Racket script under `conformance/goblins-peer/racket/` must read as

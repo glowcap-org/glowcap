@@ -19,35 +19,7 @@ pub fn checkCssWellFormed(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    for (ui.css_files) |path| {
-        try checkCssFile(io, gpa, root, violations, path);
-    }
-    for (ui.css_dirs) |dir_path| {
-        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch {
-            try appendViolation(gpa, violations, "{s}: could not be read", .{dir_path});
-            continue;
-        };
-        defer dir.close(io);
-        var it = dir.iterate();
-        while (true) {
-            const entry = (it.next(io) catch |err| {
-                try appendViolation(
-                    gpa,
-                    violations,
-                    "{s}: failed while listing stylesheets with {s}",
-                    .{ dir_path, @errorName(err) },
-                );
-                break;
-            }) orelse break;
-            if (entry.kind == .directory) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".css")) continue;
-            if (std.mem.eql(u8, entry.name, "tokens.css")) continue;
-            if (std.mem.eql(u8, entry.name, "mark.css")) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.name });
-            defer gpa.free(path);
-            try checkCssFile(io, gpa, root, violations, path);
-        }
-    }
+    try ui.forEachStylesheet(io, gpa, root, violations, checkCssFile);
 }
 
 fn checkCssFile(

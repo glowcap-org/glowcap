@@ -27,6 +27,7 @@
 //! and bare `ownedFrameFromView` as readily as `Peer.sendBorrowed`.
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -44,10 +45,6 @@ const foreign_types = [_][]const u8{
 fn isDocLine(line: []const u8) bool {
     const t = std.mem.trimStart(u8, line, " \t");
     return std.mem.startsWith(u8, t, "///") or std.mem.startsWith(u8, t, "//!");
-}
-
-fn isIdentChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
 fn isForeign(type_name: []const u8) bool {
@@ -100,10 +97,10 @@ fn collectDeclaredFns(
         var rest: []const u8 = contents;
         while (std.mem.indexOf(u8, rest, "fn ")) |at| {
             // Only a real declaration: `fn ` at a token boundary.
-            const before_ok = at == 0 or !isIdentChar(rest[at - 1]);
+            const before_ok = at == 0 or !text_match.isIdentChar(rest[at - 1]);
             var i = at + 3;
             const start = i;
-            while (i < rest.len and isIdentChar(rest[i])) i += 1;
+            while (i < rest.len and text_match.isIdentChar(rest[i])) i += 1;
             if (before_ok and i > start and i < rest.len and rest[i] == '(') {
                 const name = rest[start..i];
                 if (!out.contains(name)) try out.put(try gpa.dupe(u8, name), {});
@@ -113,10 +110,10 @@ fn collectDeclaredFns(
 
         rest = contents;
         while (std.mem.indexOf(u8, rest, "const ")) |at| {
-            const before_ok = at == 0 or !isIdentChar(rest[at - 1]);
+            const before_ok = at == 0 or !text_match.isIdentChar(rest[at - 1]);
             var i = at + 6;
             const start = i;
-            while (i < rest.len and isIdentChar(rest[i])) i += 1;
+            while (i < rest.len and text_match.isIdentChar(rest[i])) i += 1;
             const name = rest[start..i];
             rest = rest[at + 6 ..];
             if (!before_ok or name.len == 0) continue;
@@ -149,7 +146,7 @@ fn aliasTarget(after_name: []const u8) ?[]const u8 {
     while (i < after_name.len and after_name[i] == ' ') i += 1;
     const start = i;
     var last_dot: ?usize = null;
-    while (i < after_name.len and (isIdentChar(after_name[i]) or after_name[i] == '.')) : (i += 1) {
+    while (i < after_name.len and (text_match.isIdentChar(after_name[i]) or after_name[i] == '.')) : (i += 1) {
         if (after_name[i] == '.') last_dot = i;
     }
     if (i == start or i >= after_name.len or after_name[i] != ';') return null;
@@ -225,7 +222,7 @@ fn checkSpan(
     // than the bare `Peer.sendKeyedStartSession`, and a rename that swept its
     // two-segment referrers while leaving the qualified ones behind is the
     // exact drift this check exists to catch.
-    for (span) |c| if (!isIdentChar(c) and c != '.') return;
+    for (span) |c| if (!text_match.isIdentChar(c) and c != '.') return;
     const dot = std.mem.lastIndexOfScalar(u8, span, '.') orelse return;
     const method = span[dot + 1 ..];
     const owner_path = span[0..dot];
@@ -413,7 +410,7 @@ fn checkBareFnSpan(
     span: []const u8,
 ) !void {
     if (span.len == 0) return;
-    for (span) |c| if (!isIdentChar(c) and c != '.') return;
+    for (span) |c| if (!text_match.isIdentChar(c) and c != '.') return;
     // A `std.` path is declared outside this tree, so it proves nothing here.
     if (std.mem.startsWith(u8, span, "std.")) return;
     const last = if (std.mem.lastIndexOfScalar(u8, span, '.')) |at| span[at + 1 ..] else span;

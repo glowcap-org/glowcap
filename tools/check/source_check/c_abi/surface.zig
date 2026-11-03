@@ -220,6 +220,15 @@ pub fn checkCAbiHeaderCommentSeparation(
     }
 }
 
+const consumer_exts = [_][]const u8{ ".rs", ".ts", ".py", ".rkt", ".c", ".h", ".zig", ".scm" };
+
+fn isConsumerSource(path: []const u8) bool {
+    for (consumer_exts) |ext| {
+        if (std.mem.endsWith(u8, path, ext)) return true;
+    }
+    return false;
+}
+
 /// Every function the C headers export must have a consumer: a reference
 /// somewhere under `bindings/`, `examples/`, `interop/`, or `test/`. An export
 /// nobody consumes or exercises is dead surface — the drift mode is a verb the
@@ -259,28 +268,18 @@ pub fn checkAbiExportsConsumed(
     var consumed = std.StringHashMap(void).init(gpa);
     defer consumed.deinit();
     const consumer_roots = [_][]const u8{ "bindings", "examples", "interop", "test" };
-    const consumer_exts = [_][]const u8{ ".rs", ".ts", ".py", ".rkt", ".c", ".h", ".zig", ".scm" };
     for (consumer_roots) |dir_path| {
-        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to open for ABI consumer check with {s}", .{ dir_path, @errorName(err) });
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, dir_path, isConsumerSource)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to open for ABI consumer check", .{dir_path});
             continue;
         };
-        defer dir.close(io);
-        var walker = try dir.walkSelectively(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind == .directory) {
-                try source_tree.enterSourceDirectory(io, gpa, &walker, dir_path, entry);
-                continue;
-            }
-            if (entry.kind != .file) continue;
-            var ext_ok = false;
-            for (consumer_exts) |ext| {
-                if (std.mem.endsWith(u8, entry.basename, ext)) ext_ok = true;
-            }
-            if (!ext_ok) continue;
-            const contents = dir.readFileAlloc(io, entry.path, gpa, .limited(1 << 24)) catch |err| {
-                try appendViolation(gpa, violations, "{s}/{s}: failed to read for ABI consumer check with {s}", .{ dir_path, entry.path, @errorName(err) });
+        defer {
+            for (files) |path| gpa.free(path);
+            gpa.free(files);
+        }
+        for (files) |path| {
+            const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 24)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: failed to read for ABI consumer check with {s}", .{ path, @errorName(err) });
                 continue;
             };
             defer gpa.free(contents);

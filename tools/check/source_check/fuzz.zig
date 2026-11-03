@@ -12,6 +12,7 @@
 //! its seeds, and is never once mutated, it looks like coverage and is not.
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -191,7 +192,7 @@ fn seedListCount(source: []const u8) usize {
     while (std.mem.indexOfPos(u8, source, at, opener)) |hit| {
         at = hit + opener.len;
         var start = hit;
-        while (start > 0 and isIdentChar(source[start - 1])) start -= 1;
+        while (start > 0 and text_match.isIdentChar(source[start - 1])) start -= 1;
         if (std.mem.endsWith(u8, source[start..hit], "regression_seeds")) count += 1;
     }
     return count;
@@ -204,7 +205,7 @@ fn mentionsSeedList(body: []const u8) bool {
     var at: usize = 0;
     while (std.mem.indexOfPos(u8, body, at, "regression_seeds")) |hit| {
         at = hit + "regression_seeds".len;
-        if (at >= body.len or !isIdentChar(body[at])) return true;
+        if (at >= body.len or !text_match.isIdentChar(body[at])) return true;
     }
     return false;
 }
@@ -229,15 +230,11 @@ fn mentionsIdentifier(haystack: []const u8, name: []const u8) bool {
     var at: usize = 0;
     while (std.mem.indexOfPos(u8, haystack, at, name)) |hit| {
         at = hit + name.len;
-        const before_ok = hit == 0 or !isIdentChar(haystack[hit - 1]);
-        const after_ok = at >= haystack.len or !isIdentChar(haystack[at]);
+        const before_ok = hit == 0 or !text_match.isIdentChar(haystack[hit - 1]);
+        const after_ok = at >= haystack.len or !text_match.isIdentChar(haystack[at]);
         if (before_ok and after_ok) return true;
     }
     return false;
-}
-
-fn isIdentChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
 /// The braces of the test whose name ends at `at`, or an empty slice when the

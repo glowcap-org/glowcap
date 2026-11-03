@@ -195,25 +195,15 @@ pub fn checkDurablePinWriters(
     }
 
     for (roots) |tree| {
-        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to open for the durable-pin writer check with {s}", .{ tree, @errorName(err) });
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, tree, keepFirstPartyZig)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to open for the durable-pin writer check", .{tree});
             continue;
         };
-        defer dir.close(io);
-
-        var walker = try dir.walkSelectively(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind == .directory) {
-                try source_tree.enterSourceDirectory(io, gpa, &walker, tree, entry);
-                continue;
-            }
-            if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-            // Vendored trees carry no glowcap rule; skipping by name keeps the
-            // walk from reading a dependency's sources.
-            if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
-            defer gpa.free(path);
+        defer {
+            for (files) |path| gpa.free(path);
+            gpa.free(files);
+        }
+        for (files) |path| {
             if (std.mem.eql(u8, path, this_check)) continue;
             const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: cannot be read for the pin-parity check ({s})", .{ path, @errorName(err) });
@@ -237,4 +227,10 @@ pub fn checkDurablePinWriters(
             }
         }
     }
+}
+
+/// Zig sources only, and not a vendored dependency's: those carry no glowcap
+/// rule, and skipping them by name keeps the walk from reading their sources.
+fn keepFirstPartyZig(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".zig") and std.mem.indexOf(u8, path, "node_modules/") == null;
 }
