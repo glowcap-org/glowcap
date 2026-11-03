@@ -13,6 +13,8 @@ Compare generated Rust calls with equivalent handwritten calls over loopback
 TCP. Both use the same actor and current-thread runtime, with Syrup and CapTP
 1.0. Setup, fetching, warmup and teardown stay outside timed operations.
 
+The [recorded measurements](results.md) retain the paired values and environment.
+
 ```sh
 .agents/skills/work/bin/glowcap-dev zig build bench-interface-diagnostics -Doptimize=ReleaseFast
 .agents/skills/work/bin/glowcap-dev zig build bench-interface-generation -Doptimize=ReleaseFast

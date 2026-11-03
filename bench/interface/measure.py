@@ -213,23 +213,19 @@ def smoke(binary):
         sys.stdout.write(result.stdout)
         sys.stderr.write(result.stderr)
         raise RuntimeError(f"interface benchmark exited {result.returncode}")
-    rows = [
-        dict(field.split("=", 1) for field in line.split()[1:])
-        for line in result.stdout.splitlines()
-        if line.startswith("interface_")
-    ]
+    rows = records(result.stdout)
     for client in ("raw", "generated"):
         for row in ("ordinary", "preparation", "submission", "replay"):
-            records = [
+            matches = [
                 record
                 for record in rows
                 if record.get("client") == client
                 and record.get("row") == row
                 and ("rust_allocations" in record or "outbound_frames" in record)
             ]
-            assert len(records) == 2, (client, row, records)
-            alloc = next(record for record in records if "rust_allocations" in record)
-            wire = next(record for record in records if "outbound_frames" in record)
+            assert len(matches) == 2, (client, row, matches)
+            alloc = next(record for record in matches if "rust_allocations" in record)
+            wire = next(record for record in matches if "outbound_frames" in record)
             assert int(alloc["native_allocations"]) > 0
             assert int(wire["outbound_frames"]) > 0 and int(wire["logical_calls"]) == 1
             assert int(wire["committed_effects"]) == int(row == "submission")

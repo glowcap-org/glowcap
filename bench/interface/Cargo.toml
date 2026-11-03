@@ -1,4 +1,7 @@
 [package]
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
 name = "interface-bench"
 version = "0.1.2"
 edition = "2024"
