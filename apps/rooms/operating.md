@@ -414,6 +414,8 @@ trace to the same endpoint.
 
 `rooms-web` serves the page, its `/relay` WebSocket, `/locator`, `/ice`, and
 `/llms.txt`, and supervises the room server.
+On startup it prints `ROOMS-WEB-LISTENING` followed by the HTTP port it
+bound, so a supervisor that passes `--http-port=0` learns where to reach it.
 
 - It keeps one room identity across server crashes. A server that had been
   running comes straight back. One that exits as soon as it starts is

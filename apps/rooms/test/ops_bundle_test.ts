@@ -6,6 +6,7 @@ import { assertEquals } from "./assert.ts";
 Deno.test("the server capability block is accepted without its other output", () => {
 	const parsed = parseOpsBundle(`
 rooms: ready
+ROOMS-WEB-LISTENING 8080
 ROOMS-TRACE-LISTENING ocapn://127.0.0.1.tcp/s/not-the-trace-swiss
 ROOMS-ADMIN-LISTENERS ocapn://127.0.0.1%3A1234.tcp/s/listeners-swiss
 ROOMS-DIAGNOSTICS ocapn://127.0.0.1%3A1234.tcp/s/diagnostics-swiss

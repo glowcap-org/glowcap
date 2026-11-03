@@ -88,8 +88,8 @@ impl Web {
 			if line.starts_with("ROOMS-SESSION-") {
 				web.shared.push(line.clone());
 			}
-			if let Some(url) = line.trim().strip_prefix("web ui           http://localhost:") {
-				web.port = url.parse().unwrap();
+			if let Some(port) = line.strip_prefix("ROOMS-WEB-LISTENING ") {
+				web.port = port.parse().unwrap();
 			}
 			if line == "rooms: ready" {
 				break;
