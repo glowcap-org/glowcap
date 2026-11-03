@@ -2,7 +2,7 @@
 const MIN_TEXT_BYTES: usize = 1;
 const MAX_TEXT_BYTES: usize = 4096;
 const ADD_VERB: &str = "add";
-use glowcap::{Argument, Ref, RemotePromise};
+use glowcap::{Argument, Ref, RemotePromise, Session};
 use std::{
 	future::{Future, IntoFuture},
 	pin::Pin,
@@ -77,17 +77,43 @@ impl<T> IntoFuture for Pending<T> {
 fn capability(value: Argument) -> Result<Ref, Error> {
 	Ref::try_from(&value).map_err(|_| Error::InvalidReply)
 }
-use glowcap::Session;
 use std::rc::Rc;
-/// Exact target, sequence, and copied argument snapshot. Submit never refreshes it.
-pub struct PreparedAdd {
+
+/// Exact target, sequence, and owned arguments, retained for submission and replay.
+pub struct PreparedMutation<T> {
 	session: Rc<Session>,
 	target: Ref,
 	arguments: Vec<Argument>,
+	decode: fn(Argument) -> Result<T, Error>,
 }
-impl PreparedAdd {
-	pub fn submit(&self) -> Pending<Ref> {
-		Pending::new(self.session.send(&self.target, "mutate", &self.arguments), capability)
+impl<T> PreparedMutation<T> {
+	pub fn submit(&self) -> Pending<T> {
+		Pending::new(self.session.send(&self.target, "mutate", &self.arguments), self.decode)
+	}
+}
+
+// Snapshots live inline in the future until acquisition succeeds. Cancellation
+// releases them without allocating the request vector or copying its wire verb.
+// A successful preparation owns one vector through submission and replay.
+fn prepare_mutation<T, Arguments>(
+	session: Rc<Session>,
+	target: Ref,
+	make_arguments: Arguments,
+	decode: fn(Argument) -> Result<T, Error>,
+) -> impl Future<Output = Result<PreparedMutation<T>, Error>> + use<T, Arguments>
+where
+	Arguments: FnOnce(i64) -> Vec<Argument>,
+{
+	let sequence = session.send(&target, "mutation-sequence", &[]);
+	async move {
+		let reply = sequence.await?;
+		let number = reply.as_i64().filter(|n| *n > 0).ok_or(Error::InvalidSequence)?;
+		Ok(PreparedMutation {
+			session,
+			target,
+			arguments: make_arguments(number),
+			decode,
+		})
 	}
 }
 /// Copies text before acquiring a sequence. The prepared request owns that
@@ -96,21 +122,17 @@ pub fn prepare_add(
 	session: Rc<Session>,
 	target: Ref,
 	text: &str,
-) -> Result<impl Future<Output = Result<PreparedAdd, Error>> + use<>, Error> {
+) -> Result<impl Future<Output = Result<PreparedMutation<Ref>, Error>> + use<>, Error> {
 	if text.len() < MIN_TEXT_BYTES || text.len() > MAX_TEXT_BYTES {
 		return Err(Error::InvalidArgument);
 	}
 	let snapshot = text.to_owned();
-	let sequence = session.send(&target, "mutation-sequence", &[]);
-	Ok(async move {
-		let reply = sequence.await?;
-		let number = reply.as_i64().filter(|n| *n > 0).ok_or(Error::InvalidSequence)?;
-		Ok(PreparedAdd {
-			session,
-			target,
-			arguments: vec![number.into(), ADD_VERB.into(), snapshot.into()],
-		})
-	})
+	Ok(prepare_mutation(
+		session,
+		target,
+		move |number| vec![number.into(), ADD_VERB.into(), snapshot.into()],
+		capability,
+	))
 }
 
 /// Submit once. Use prepare_add when the caller needs to retain and replay.

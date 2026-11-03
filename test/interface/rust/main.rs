@@ -2,6 +2,10 @@
 #[path = "../generated/callbacks.rs"]
 pub mod callbacks;
 mod conversation;
+#[path = "../generated/expected.rs"]
+mod expected;
+mod pair;
+mod prepared;
 mod tasks;
 
 #[tokio::main(flavor = "current_thread")]
@@ -13,6 +17,7 @@ async fn main() {
 			tokio::time::timeout(std::time::Duration::from_secs(15), async {
 				tasks::run(args[1].parse().unwrap(), &args[2]).await;
 				conversation::run().await;
+				prepared::run().await;
 			})
 			.await
 			.expect("interface conversation proof timed out");

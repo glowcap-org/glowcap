@@ -87,6 +87,18 @@ class Fixtures(unittest.TestCase):
         self.assertIn(False, self.methods("fixture.Direct"))
         self.assertNotIn(False, names)
 
+    def test_prepared_pending_value_contract(self):
+        parameters, reply, convention = record(self.methods("fixture.Prepared")["accept"], "method")
+        self.assertEqual(reply.name, "undefined")
+        self.assertEqual(convention.name, "loam.receipt")
+        name, kind, optional = record(parameters[0], "parameter")
+        self.assertEqual(name, "value")
+        self.assertFalse(optional)
+        self.assertEqual(record(kind, "promise")[0].name, "value")
+        verb, sequence, operation, argument = self.messages["prepared"]
+        self.assertEqual((verb.name, sequence, operation), ("mutate", 1, "accept"))
+        self.assertEqual(record(argument, "fixture:ref"), ["pending"])
+
     def test_reference_closure(self):
         found = set()
 

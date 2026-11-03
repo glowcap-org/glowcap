@@ -10,12 +10,13 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
     try out.appendSlice(a, @embedFile("templates/pending.ts.in"));
     for (methods) |method| {
         const call = method.call;
+        if (call.effect == .receipt) return error.UnsupportedProjection;
         try out.print(a, "\nexport function {s}(\n\tsession: Session,\n\ttarget: Ref | RemotePromise,\n", .{method.api});
         for (call.parameters, 0..) |kind, i| {
-            if (kind == .nothing) return error.UnsupportedProjection;
+            if (kind == .nothing or kind == .pending_value) return error.UnsupportedProjection;
             try out.print(a, "\targ{d}: {s},\n", .{ i, typeName(kind) });
         }
-        if (call.tell) {
+        if (call.effect == .tell) {
             try out.appendSlice(a, "): Promise<void> {\n\treturn session.tell(target, ");
         } else {
             try out.print(a, "): Pending<{s}> {{\n\tconst raw = session.send(target, ", .{typeName(call.result)});
@@ -27,7 +28,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
             try out.print(a, "arg{d}", .{i});
         }
         try out.appendSlice(a, "]);\n");
-        if (!call.tell) try out.print(a, "\treturn new Pending(raw, {s});\n", .{switch (call.result) {
+        if (call.effect != .tell) try out.print(a, "\treturn new Pending(raw, {s});\n", .{switch (call.result) {
             .target => "capability",
             .text => "text",
             .nothing => "nothing",
@@ -45,5 +46,6 @@ fn typeName(kind: calls.Kind) []const u8 {
         .text => "string",
         .nothing => "void",
         .value => "Argument",
+        .pending_value => "RemotePromise",
     };
 }

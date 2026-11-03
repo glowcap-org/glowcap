@@ -56,9 +56,9 @@ not imply arbitrary-label Syrup support. `tagged` has exactly one payload
 position, even when that payload is a tuple.
 
 Method keys are exact wire names as strings. False denotes direct invocation.
-Empty string is a valid named method and differs from false. The current
-[actor API loses that distinction](../../docs/boundaries.md#invocation-shape),
-so no target can qualify that case while it does.
+Empty string is a valid named method and differs from false. The runtime
+preserves all three selector forms. Generated client and server qualification
+remains a separate milestone-2 case.
 
 Conventions are
 `call`, `tell`, and `loam.receipt`. A tell result must be `undefined`, denoting
@@ -155,6 +155,18 @@ sequence, and snapshot. Replay never acquires a fresh sequence automatically.
 Uncertain commit, conflict, expiry, local validation, wrong fulfillment, remote
 break, and transport failure remain distinguishable. Unknown break values
 remain observable, and declared break cases must not close the error universe.
+
+The Rust prepared-receipt fixture accepts one `promise<value>` argument and a
+void reply. Its generated input is a borrowed `RemotePromise`. Preparation
+retains it for the receiving Host before asking for a sequence, then owns the
+reference through submission and replay. Both wire profiles cover pending and
+settled inputs with data, capability, and broken outcomes. Replay checks the
+same envelope and capability authority, respecting runtime shortening and
+terminal promise-wrapper behavior.
+
+An identical replayed promise is observed once. The current Host observation
+path exposes the one settling listener glowcap-next permits across the wire.
+It does not multicast that listener to multiple local observers.
 
 The callback fixture opens a Reader through Factory, calls Sink.push with it,
 and passes a still-pending Reader to Factory.accept. Reader has a wire method

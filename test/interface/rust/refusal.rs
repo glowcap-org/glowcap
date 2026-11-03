@@ -2,10 +2,9 @@
 //! contracts.syrup. A bad public reply must preserve the committed effect and
 //! exact request, and a remote refusal must retain its original diagnostic.
 use super::interface;
+use crate::expected;
 use glowcap::{Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Runtime, RuntimeConfig, tcp};
 use std::{cell::RefCell, rc::Rc};
-#[path = "../generated/expected.rs"]
-mod expected;
 
 #[derive(Default)]
 struct State {

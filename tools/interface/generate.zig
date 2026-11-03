@@ -18,6 +18,7 @@ const selected = .{
     .{ "fixture.Reader", "read", "reader_read" },
     .{ "fixture.Reader", "then", "reader_then" },
 };
+const prepared = .{.{ "fixture.Prepared", "accept", "prepare_accept" }};
 
 pub const step_name = "gen-interface-fixtures";
 pub const outputs = [_]Output{
@@ -36,22 +37,22 @@ fn generate(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
     return emitter.emit(a, method);
 }
 
-fn generateCalls(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
+fn generateCalls(a: std.mem.Allocator, comptime emitter: type, comptime selections: anytype) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     var model = try Model.init(try description.read(arena.allocator(), @embedFile("contract")));
-    var methods: [selected.len]calls.Named = undefined;
-    inline for (selected, 0..) |method, i| {
+    var methods: [selections.len]calls.Named = undefined;
+    inline for (selections, 0..) |method, i| {
         methods[i] = .{ .api = method[2], .call = try calls.read(arena.allocator(), &model, method[0], method[1]) };
     }
     return emitter.emit(a, &methods);
 }
 
 fn generateCallbacks(a: std.mem.Allocator) ![]u8 {
-    return generateCalls(a, @import("callbacks.zig"));
+    return generateCalls(a, @import("callbacks.zig"), selected ++ prepared);
 }
 fn generateTypeScript(a: std.mem.Allocator) ![]u8 {
-    return generateCalls(a, @import("typescript.zig"));
+    return generateCalls(a, @import("typescript.zig"), selected);
 }
 
 fn generateZig(a: std.mem.Allocator) ![]u8 {
@@ -155,7 +156,7 @@ test "TypeScript projection refuses void parameters and accepts void results" {
             .wire_name = "void-argument",
             .parameters = &.{.nothing},
             .result = .nothing,
-            .tell = tell,
+            .effect = if (tell) .tell else .call,
         } }};
         try std.testing.expectError(error.UnsupportedProjection, typescript.emit(std.testing.allocator, &methods));
     }
@@ -163,8 +164,36 @@ test "TypeScript projection refuses void parameters and accepts void results" {
         .wire_name = "void-result",
         .parameters = &.{},
         .result = .nothing,
-        .tell = false,
+        .effect = .call,
     } }};
     const source = try typescript.emit(std.testing.allocator, &methods);
     defer std.testing.allocator.free(source);
+}
+
+test "prepared receipt emitters refuse unqualified shapes" {
+    for ([_]calls.Kind{ .text, .target, .pending_target, .nothing, .value }) |kind| {
+        const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
+            .wire_name = "accept",
+            .parameters = &.{kind},
+            .result = .nothing,
+            .effect = .receipt,
+        } }};
+        try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods));
+    }
+    for ([_]calls.Kind{ .text, .target, .pending_target, .pending_value, .value }) |kind| {
+        const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
+            .wire_name = "accept",
+            .parameters = &.{.pending_value},
+            .result = kind,
+            .effect = .receipt,
+        } }};
+        try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods));
+    }
+    const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
+        .wire_name = "accept",
+        .parameters = &.{.pending_value},
+        .result = .nothing,
+        .effect = .receipt,
+    } }};
+    try std.testing.expectError(error.UnsupportedProjection, @import("typescript.zig").emit(std.testing.allocator, &methods));
 }

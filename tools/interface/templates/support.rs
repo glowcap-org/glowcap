@@ -1,4 +1,4 @@
-use glowcap::{Argument, Ref, RemotePromise};
+use glowcap::{Argument, Ref, RemotePromise, Session};
 use std::{
 	future::{Future, IntoFuture},
 	pin::Pin,

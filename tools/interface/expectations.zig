@@ -29,5 +29,12 @@ pub fn generate(a: std.mem.Allocator) ![]u8 {
         try out.appendSlice(a, ",\n");
     }
     try out.appendSlice(a, "\t]\n}\n");
+    const prepared = try root.get("prepared");
+    if (prepared.kind != .list or prepared.children.len != 4 or prepared.children[0].kind != .symbol or prepared.children[1].kind != .integer or prepared.children[2].kind != .string) return error.InvalidDescription;
+    try out.appendSlice(a, "pub const PREPARED_VERB: &str = ");
+    try literal(&out, a, prepared.children[0].bytes);
+    try out.print(a, ";\npub const PREPARED_SEQUENCE: i64 = {d};\npub const PREPARED_OPERATION: &str = ", .{prepared.children[1].integer});
+    try literal(&out, a, prepared.children[2].bytes);
+    try out.appendSlice(a, ";\n");
     return out.toOwnedSlice(a);
 }
