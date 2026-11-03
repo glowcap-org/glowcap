@@ -6,6 +6,125 @@ const std = @import("std");
 const t = @import("tree_fixture.zig");
 const h = t.h;
 
+const ExportProbe = struct {
+    pub fn handle(_: *@This(), _: *h.driver.HostTurn, _: ?[]const u8, _: h.driver.Args) !h.driver.Value {
+        return .void;
+    }
+};
+
+// Keep successful ordinary projections so the next new actor still needs the
+// growth that failed. No map capacity or export table is edited by the test.
+fn reachExportGrowth(tree: *t.Tree) !void {
+    const port = &tree.client.pair.b.served.port;
+    const allocator = port.allocator;
+    defer port.allocator = allocator;
+    for (0..64) |_| {
+        const actor = try tree.server.host.vat.spawn(h.driver.Hosting(ExportProbe), .{ .inner = .{} });
+        defer tree.server.host.vat.releaseActor(actor.local);
+        var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+        port.allocator = failing.allocator();
+        defer port.allocator = allocator;
+        _ = port.prepareProjection(&tree.server.host.vat, actor) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            try std.testing.expect(failing.has_induced_failure);
+            return;
+        };
+        try std.testing.expect(!failing.has_induced_failure);
+    }
+    return error.NoExportGrowth;
+}
+
+test "loam hosted creation retries a postcommit export allocation refusal without repeating its effect" {
+    var backend = try h.loam.Volatile.init(h.a, h.f.store_id, 16 * 1024 * 1024);
+    defer backend.deinit();
+    var store: h.loam.core.Store = undefined;
+    const data = try open(&backend, &store);
+    defer store.deinit() catch unreachable;
+    var tree: t.Tree = undefined;
+    try tree.init(&store, &backend, data);
+    defer tree.deinit();
+    // This fixture negotiates the default profile. The proof concerns native
+    // export ownership after commit, independently of encoding the reply.
+    try std.testing.expectEqual(t.s.model.Preference.default_offer.codec, tree.client.pair.b.served.port.peer.session_state.codec);
+    try std.testing.expectEqual(t.s.model.Preference.default_offer.captp_version, tree.client.pair.b.served.port.peer.session_state.captp_version);
+    try reachExportGrowth(&tree);
+
+    var answer: t.s.captures.CapturedRef = .{};
+    const arguments = [_]t.s.model.Argument{ .{ .integer = 1 }, .{ .string = "add" } };
+    try tree.client.send(tree.client.parent, "mutate", &arguments, &answer);
+    const batch = try tree.server.untilWrite(&backend);
+    const index = tree.server.attached.writing.?.operation.?;
+    const op = &tree.server.attached.operations[index];
+    const revision = store.metadata.revision;
+    const outcome = backend.commit(batch);
+    try std.testing.expect(outcome == .committed);
+    try tree.server.attached.completeWrite(batch.ticket, outcome);
+    try std.testing.expect(op.phase == .settling);
+    try std.testing.expect(answer.ref == null and !answer.broken);
+    try std.testing.expectEqual(revision + 1, store.metadata.revision);
+    const committed = store.metadata;
+    const result = op.reply.capability;
+    const endpoint = try tree.server.attached.designated(result);
+    const actor = tree.server.host.localActorFor(result).?.local;
+    const roots = tree.server.host.vat.actors.get(actor).?.roots;
+    const retains = tree.server.host.capabilities.retainCount(result);
+    const resolver = op.resolver;
+    const pending = tree.server.attached.pending_bytes;
+    const invocations = tree.server.attached.stats.invocations;
+    const resolver_count = tree.server.host.resolver_index.count();
+    const routes = tree.server.host.node.foreign_imports.count();
+    const port = &tree.client.pair.b.served.port;
+    try std.testing.expect(!port.reverse_exports.contains(actor));
+    try std.testing.expect(roots > 0 and retains != null and retains.? > 0);
+    try std.testing.expect(pending > 0 and resolver_count > 0);
+    const exports = port.exports.count();
+    const reverse = port.reverse_exports.count();
+    const positions = port.peer.session_state.exports.len();
+    const allocator = port.allocator;
+    var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    port.allocator = failing.allocator();
+    defer {
+        port.allocator = allocator;
+        // An assertion failure must not hide its cause behind Busy teardown.
+        if (op.phase != .free) tree.server.drain(&backend) catch unreachable;
+    }
+    try std.testing.expectError(error.OutOfMemory, tree.server.attached.advance());
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expectEqual(positions, port.peer.session_state.exports.len());
+    try std.testing.expectEqual(exports, port.exports.count());
+    try std.testing.expectEqual(reverse, port.reverse_exports.count());
+    try std.testing.expectEqual(roots, tree.server.host.vat.actors.get(actor).?.roots);
+    try std.testing.expectEqual(retains, tree.server.host.capabilities.retainCount(result));
+    try std.testing.expectEqual(resolver_count, tree.server.host.resolver_index.count());
+    try std.testing.expectEqual(routes, tree.server.host.node.foreign_imports.count());
+    try std.testing.expectEqualDeep(resolver, op.resolver);
+    try std.testing.expect(op.phase == .settling and op.reply.capability.eql(result));
+    try std.testing.expectEqual(pending, tree.server.attached.pending_bytes);
+    try std.testing.expectEqualDeep(committed, store.metadata);
+    try std.testing.expect(answer.ref == null and !answer.broken);
+
+    port.allocator = allocator;
+    try tree.server.attached.advance();
+    try tree.client.pump();
+    const child = try answer.require();
+    try std.testing.expectEqual(invocations, tree.server.attached.stats.invocations);
+    try std.testing.expectEqual(@as(usize, 0), tree.server.attached.pending_bytes);
+    try std.testing.expectEqual(resolver_count - 1, tree.server.host.resolver_index.count());
+    try std.testing.expectEqualDeep(committed, store.metadata);
+    const replayed = try tree.add(&backend, tree.client.parent, 1);
+    // Every-turn sleeping may restore a fresh actor and wire name. The exact
+    // durable endpoint, rather than that ephemeral name, is receipt identity.
+    const replay_actor = port.refForExport(replayed.far.import_position.int()) orelse return error.NoReplayExport;
+    const replay_capability = try tree.server.host.liftLocalActor(replay_actor);
+    defer tree.server.host.releaseCapabilityTerminal(replay_capability, null);
+    try std.testing.expect(endpoint.eql(try tree.server.attached.designated(replay_capability)));
+    try std.testing.expectEqual(@as(i64, 0), try tree.count(&backend, child));
+    try std.testing.expectEqual(committed.revision, store.metadata.revision);
+    try std.testing.expectEqual(@as(i64, 3), try tree.count(&backend, tree.client.parent));
+    try std.testing.expectEqualDeep(t.Latest{ .created = 1, .content = 1 }, try t.latest(&store, &backend, data.owner));
+    try std.testing.expectEqual(@as(usize, 0), tree.server.attached.pending_bytes);
+}
+
 fn open(backend: *h.loam.Volatile, store: *h.loam.core.Store) !h.Data {
     store.* = try h.loam.core.Store.init(h.a, try backend.open(), &h.schemas, h.limits);
     return h.seedSubtree(store, backend, 2);
