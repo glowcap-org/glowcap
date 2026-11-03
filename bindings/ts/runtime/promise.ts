@@ -78,6 +78,25 @@ function projectVow(
 	return outU64(out);
 }
 
+/** Convert a synchronous progress refusal into the same observed promise path. */
+async function kickVowProgress(h: VowWaitHandle): Promise<void> {
+	await h.kickActions();
+}
+
+/** Own settlement and progress together in the same turn. The first observed
+ * rejection is the wait's exact failure; success requires both operations.
+ * Each observed wait pays for a two-input Promise.all join (aggregate promise,
+ * input/result arrays and reactions), the async progress wrapper, and this
+ * helper's return promise. They retire through the wait, with no Host registry
+ * or wire retain. Sequential awaits orphan settlement when progress fails;
+ * the progress wrapper also keeps synchronous kick refusals inside the join.
+ */
+async function awaitDrivenVow(h: VowWaitHandle, vow: bigint): Promise<Argument> {
+	const settled = h.awaitVow(vow);
+	const [result] = await Promise.all([settled, kickVowProgress(h)]);
+	return result;
+}
+
 /** Shared fetch/enliven wait: register the vow, keep the inbound loop running
  * (the completion's bytes arrive on it), kick the drain so the deliver leaves
  * now, and await the drain-routed outcome. */
@@ -89,9 +108,7 @@ export async function awaitMinted(
 	try {
 		h.vowMinted(vow, trackGc);
 		h.attend();
-		const settled = h.awaitVow(vow);
-		await h.kickActions();
-		const result = await settled;
+		const result = await awaitDrivenVow(h, vow);
 		h.parkVowRelease(vow);
 		return result;
 	} catch (failure) {
@@ -147,9 +164,7 @@ export function promiseFor(
 ): RemotePromise {
 	const begin = async (): Promise<Argument> => {
 		h.attend(); // the settle's bytes arrive on the inbound loop
-		const settled = h.awaitVow(vow);
-		await h.kickActions();
-		return await settled;
+		return await awaitDrivenVow(h, vow);
 	};
 	const project = (
 		op: "index" | "untag" | "get",
