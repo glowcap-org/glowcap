@@ -48,11 +48,17 @@
 (define response-ch (make-async-channel))
 (define dialer-vat (make-vat))
 
+;; Spawned on its own so the exit path can reach it: a caller that leaves
+;; without closing its endpoint leaves the glowcap peer waiting out an idle
+;; timeout to learn the session is over.
+(define netlayer
+  (dialer-vat 'run
+              (lambda ()
+                (spawn ^iroh-netlayer IROH-REACH-DIRECT #:session-trace report-session))))
+
 (dialer-vat
  'run
  (lambda ()
-   (define netlayer
-     (spawn ^iroh-netlayer IROH-REACH-DIRECT #:session-trace report-session))
    (define mycapn (spawn-mycapn netlayer))
 
    (define target
@@ -71,13 +77,16 @@
        (lambda (err) (async-channel-put response-ch `(err ,err))))))
 
 (define reply (sync/timeout 30.0 response-ch))
+(define (leave code)
+  (dialer-vat 'run (lambda () ($ netlayer 'shutdown)))
+  (exit code))
 (case (and (pair? reply) (car reply))
   [(ok)
    (printf "DIAL OK: ~v~n" (cadr reply))
-   (exit 0)]
+   (leave 0)]
   [(err)
    (printf "DIAL ERR: ~v~n" (cadr reply))
-   (exit 1)]
+   (leave 1)]
   [else
    (printf "DIAL TIMEOUT~n")
-   (exit 1)])
+   (leave 1)])
