@@ -25,15 +25,9 @@ Build options:
 - `-Dattach=true` joins an already-running server instead of spawning one. It
   works on demo steps that also take `-Dport`. `demo-accountability` rejects
   it, because each caller needs a fresh host.
-- `-Dtransport=iroh|tcp|onion` on `rooms-web` and `rooms-dev` picks the room
-  transport, iroh by default.
-- `-Dhot-reload=false` on `rooms-dev` serves compiled generations through the
-  web front with the same state and grants. The default uses Vite Fast Refresh.
-  Production compiler selection does not depend on this option.
-
-The Rooms operations capabilities are server flags passed after `--`, as in
-`zig build rooms-web -- --diagnostics`, and `rooms-dev` passes all of them.
-[Operating Rooms](../apps/rooms/operating.md) lists each flag.
+[Developing Rooms](../apps/rooms/developing.md#build-steps) describes its transport
+and hot-reload options. [Operating Rooms](../apps/rooms/operating.md) lists the
+server flags passed after `--`. `rooms-dev` enables every operations capability.
 
 ## Adding a step
 
@@ -53,6 +47,7 @@ zig build check                             # Run in-process Zig, static, genera
 zig build check-build                       # Compile everything check runs, so its deadline measures only the runs; part of check
 zig build runtime-check                     # Run deterministic process, application, and language-workspace checks without cross-step contention
 zig build runtime-check-build               # Compile everything runtime-check runs, so its deadline measures only the runs; part of runtime-check
+zig build runtime-toolchain-check           # Check runtime gate declarations and installed tools before compiling its proofs; part of runtime-check
 zig build runtime-check -Doptimize=ReleaseSafe # Run against CI's optimized product archives
 zig build check-external                    # Run outside-authority protocol conformance and every shipped Rooms page browser proof (needs uv + racket + goblins + cargo + deno + Playwright)
 zig build test                              # Run the unit and scenario test suite (test/all_test.zig); part of check

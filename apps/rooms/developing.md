@@ -23,6 +23,11 @@ Every Rooms command is a `zig build` step. Builds finish before services start.
 The [startup guide](../../CONTRIBUTING.md#preview-startup) explains cold builds,
 cached launches, and when a delay needs investigation.
 
+`rooms-web` and `rooms-dev` use iroh by default. Select TCP or onion with
+`-Dtransport=tcp` or `-Dtransport=onion`. `rooms-dev` uses Vite Fast Refresh by
+default. `-Dhot-reload=false` serves compiled generations through the web front,
+using the same state and grants. It does not select a different production compiler.
+
 | Command | Does | Needs |
 | --- | --- | --- |
 | `zig build rooms-web` | Builds the services and the page, serves the page. `-Dtransport=tcp` or `onion`, `-Dport=`, server flags after `--` | Cargo, Deno. Tor for `onion` |

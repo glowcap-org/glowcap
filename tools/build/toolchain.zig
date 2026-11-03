@@ -154,13 +154,12 @@ pub fn register(
     check_step.dependOn(step);
 
     // The process gate gets the same graph-derived declaration and presence
-    // check, but only for programs its own members reach. It runs before the
-    // first process family, so a stale container fails with one toolchain
-    // diagnosis instead of several unrelated spawn errors.
+    // check, but only for programs its own members reach. CI explicitly runs
+    // this step before its compile and test phases. In a direct runtime-check
+    // invocation it is a sibling of the proofs, preserving focused graphs.
     const runtime_verdict = toolchain_check.create(b, runtime_gate.step, &in_tree_runtimes);
-    const runtime_preflight = b.addWriteFiles();
-    _ = runtime_preflight.add("runtime-toolchain-check.ok", "");
-    runtime_preflight.step.dependOn(runtime_verdict.declaration);
+    const runtime_preflight = b.step("runtime-toolchain-check", "Check runtime gate declarations and installed tools before compiling its proofs");
+    runtime_preflight.dependOn(runtime_verdict.declaration);
     const runtime_present = execution.addArtifact(b, .{ .deterministic = 10 }, present);
     runtime_present.addArg("programs");
     for (runtime_verdict.reached) |index| {
@@ -169,16 +168,16 @@ pub fn register(
     }
     runtime_present.has_side_effects = true;
     runtime_present.step.dependOn(runtime_verdict.declaration);
-    runtime_preflight.step.dependOn(&runtime_present.step);
+    runtime_preflight.dependOn(&runtime_present.step);
     for (in_tree_capabilities) |capability| {
         if (!containsGate(capability.gates, .runtime)) continue;
         const probe_run = execution.addLiveRun(b, .{ .deterministic = 10 }, present);
         probe_run.addArgs(&.{ "capability", capability.expected, capability.why, "--" });
         probe_run.addArgs(capability.probe);
         probe_run.step.dependOn(runtime_verdict.declaration);
-        runtime_preflight.step.dependOn(&probe_run.step);
+        runtime_preflight.dependOn(&probe_run.step);
     }
-    runtime_gate.addPrerequisite(&runtime_preflight.step);
+    runtime_gate.step.dependOn(runtime_preflight);
     runtime_gate.finalize(check_step);
     execution.addCompileHalf(check_step, b.step("check-build", "Compile everything check runs, so its deadline measures only the runs"));
 }

@@ -98,7 +98,7 @@ class InventoryTest(unittest.TestCase):
             with self.subTest(phase=phase):
                 self.assertTrue(gates)
                 for kind, command in gates:
-                    self.assertIn(kind, ("gate", "build", "long"))
+                    self.assertIn(kind, ("gate", "prerequisite", "build", "long"))
                     self.assertRegex(command, r"^(zig build|bash|python3) \S")
                     if not command.startswith("zig build"):
                         interpreter, path = command.split()[:2]
@@ -120,6 +120,14 @@ class InventoryTest(unittest.TestCase):
             infrastructure.index("python3 tools/run_with_timeout_test.py"),
             infrastructure.index("zig build infrastructure-check"),
         )
+
+    def test_runtime_preflight_precedes_its_compile_and_process_proofs(self):
+        runtime = GROUPS.PHASES["runtime"]
+        commands = [command.split() for _, command in runtime]
+        preflight = next(i for i, argv in enumerate(commands) if "runtime-toolchain-check" in argv)
+        self.assertEqual(runtime[preflight][0], "prerequisite")
+        for step in ("runtime-check-build", "runtime-check"):
+            self.assertLess(preflight, next(i for i, argv in enumerate(commands) if step in argv))
 
     def test_groups_without_shards_compile_nothing_ahead(self):
         shards = {group.name: group.shards for group in GROUPS.GROUPS}
