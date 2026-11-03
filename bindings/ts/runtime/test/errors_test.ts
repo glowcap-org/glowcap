@@ -93,17 +93,14 @@ Deno.test("constructor release preserves every primary and runs exactly once", a
 	}
 });
 
-Deno.test("constructor success waits for release and returns its result", async () => {
-	const result = {};
+Deno.test("constructor success waits for release", async () => {
 	const order: string[] = [];
-	const returned = await withCleanup(() => {
+	await withCleanup(() => {
 		order.push("install");
-		return result;
 	}, async () => {
 		await Promise.resolve();
 		order.push("release");
 	});
-	assert(returned === result, "constructor result changed");
 	assert(order.join(",") === "install,release", "release barrier was not joined");
 });
 
@@ -112,7 +109,7 @@ Deno.test("constructor release failure after success is returned without a retry
 	let releases = 0;
 	let caught = false;
 	try {
-		await withCleanup(() => 42, () => {
+		await withCleanup(() => {}, () => {
 			releases++;
 			throw cleanup;
 		});

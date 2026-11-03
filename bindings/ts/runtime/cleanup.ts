@@ -83,17 +83,15 @@ export async function retainCleanupFailures(
 /** Join one constructor's release on success or refusal. An operation failure
  * remains primary when release also fails; a release-only failure is returned
  * to the caller. The constructor reference is dropped exactly once. */
-export async function withCleanup<T>(
-	operation: () => T | Promise<T>,
+export async function withCleanup(
+	operation: () => void | Promise<void>,
 	cleanup: () => void | Promise<void>,
-): Promise<T> {
-	let result: T;
+): Promise<void> {
 	try {
-		result = await operation();
+		await operation();
 	} catch (primary) {
 		await retainCleanupFailures(primary, [cleanup]);
 		throw primary;
 	}
 	await cleanup();
-	return result;
 }
