@@ -12,8 +12,8 @@ runner that compiles cold:
 - `gate`: an ordinary check.
 - `prerequisite`: a check that runs before compilation and stops the phase
   on any failure, because the later commands depend on it.
-- `build`: a gate whose time is mostly a cold compile. A phase opens with the
-  build its proofs share, so each proof's deadline times the proof. When it
+- `build`: a gate whose time is mostly a cold compile. A phase compiles the
+  build its proofs share first, so each proof's deadline times the proof. When it
   runs out of time the phase stops, because every later gate needs it.
 - `long`: a gate that serializes many process proofs, each under its own
   deadline, so its healthy duration is itself tens of minutes.

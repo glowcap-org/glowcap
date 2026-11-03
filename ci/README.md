@@ -60,6 +60,10 @@ run reports every failing test. A build that runs out of time ends its phase,
 because every later gate needs it. The aggregate check requires every selected
 group and macOS to pass, and its summary links each failing job.
 
+Runtime build and test jobs first run `zig build runtime-toolchain-check`.
+It checks declarations and installed tools before expensive compilation or
+process proofs. A failed prerequisite stops later commands in that job.
+
 A deadline holds on the slowest machine that runs it: a hosted runner compiles
 cold, an order of magnitude slower than a warm workstation. Tests that use
 more than half their deadline warn, locally too.
