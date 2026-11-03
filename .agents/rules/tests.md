@@ -82,6 +82,11 @@ implementation as the authority in prose.
 - `test/support`: shared helpers, including copy utilities.
 - `test/interface`: compiler descriptions and independent application message fixtures.
 - `test/api_surface_test.zig`: references every exported declaration.
+- The root of `test/`: the compile roots, which are the suite roots, the
+  LMDB and SQLite suite roots, and the process probes. A Zig module is bounded
+  by its root file's directory and the test tree's fixtures import across
+  layers, so a root that reaches them sits here, and `test_wiring.zig` holds
+  each to a suite or build-family owner.
 - `bindings/rust`: the Rust binding's tests, `zig build rust-test`.
 - `bindings/proofs`: per-binding proof families, every peer glowcap.
 

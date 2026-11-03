@@ -304,3 +304,19 @@ pub const FakeBackend = struct {
         return n;
     }
 };
+
+/// Run the loop on its own task until `until_closed` sessions closed, then
+/// drain it there, keeping the first error for the test to read.
+pub fn runLoopCapturing(loop: *glowcap.net.TcpLoop, until_closed: usize, out_err: *?anyerror) void {
+    loop.run(.{ .after_closed = until_closed }) catch |err| {
+        out_err.* = err;
+    };
+    // `run` returns on the close count alone and leaves any other slot's armed
+    // recv in flight, which `deinit` refuses to free. Drain here, on the
+    // loop-owner thread, exactly as `closeAndDrain` documents for an early
+    // `run` return.
+    loop.closeAndDrain() catch |err| {
+        // The run's error is the cause; the drain's is usually its consequence.
+        if (out_err.* == null) out_err.* = err;
+    };
+}

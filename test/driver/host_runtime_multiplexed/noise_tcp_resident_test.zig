@@ -22,30 +22,11 @@ const opts: driver.SessionOptions = .{
     .settle = .{ .ms = 10_000 },
 };
 
-const Echo = struct {
-    pub fn handle(_: *Echo, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
-        defer ht.releaseArguments(args);
-        const verb = selector orelse return error.NoSuchMethod;
-        if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
-        return .{ .string = "pong, sealed" };
-    }
-};
+const echo_server = @import("echo.zig").EchoServer("pong, sealed");
 
 fn retire(resident: *TcpResident) void {
     resident.closeAndDrain(2_000) catch |err| std.debug.panic("completion resident drain failed: {t}", .{err});
     resident.deinit();
-}
-
-fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    var session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("echo", Echo, .{});
-    while (!done.load(.acquire)) {
-        _ = session.stepReadable(20) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => break,
-            else => |e| return e,
-        };
-    }
 }
 
 test "noise-tcp listens and dials on completion residents, sealed by the Host" {
@@ -82,7 +63,7 @@ test "noise-tcp listens and dials on completion residents, sealed by the Host" {
     try std.testing.expect(net.netlayer.directAddrHint(advertised.hints) != null);
 
     var done = std.atomic.Value(bool).init(false);
-    var server_future = try io.concurrent(serve, .{ server, &done });
+    var server_future = try io.concurrent(echo_server.serve, .{ server, &done });
     defer {
         done.store(true, .release);
         server_future.await(io) catch {};

@@ -29,14 +29,7 @@ const opts: driver.SessionOptions = .{
     .settle = .{ .ms = 10_000 },
 };
 
-const Echo = struct {
-    pub fn handle(_: *Echo, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
-        defer ht.releaseArguments(args);
-        const verb = selector orelse return error.NoSuchMethod;
-        if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
-        return .{ .string = "pong through a foreign provider" };
-    }
-};
+const echo_server = @import("echo.zig").EchoServer("pong through a foreign provider");
 
 /// Fails the test on any contract violation or teardown failure.
 const Recorder = struct {
@@ -83,18 +76,6 @@ const TcpProvider = struct {
     }
 };
 
-fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    var session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("echo", Echo, .{});
-    while (!done.load(.acquire)) {
-        _ = session.stepReadable(20) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => break,
-            else => |e| return e,
-        };
-    }
-}
-
 test "an external completion resident serves a dial through a foreign stream provider's table" {
     if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
@@ -122,7 +103,7 @@ test "an external completion resident serves a dial through a foreign stream pro
     defer allocator.free(designator);
 
     var done = std.atomic.Value(bool).init(false);
-    var server_future = try io.concurrent(serve, .{ server, &done });
+    var server_future = try io.concurrent(echo_server.serve, .{ server, &done });
     defer {
         done.store(true, .release);
         server_future.await(io) catch {};
