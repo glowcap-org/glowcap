@@ -127,6 +127,10 @@ From [`bench/capnp/rust/Cargo.toml`](../bench/capnp/rust/Cargo.toml):
 - **tokio-util**: Adapts tokio streams to the futures traits capnp-rpc uses.
 - **capnpc**: Compiles echo.capnp into Rust at build time.
 
+From [`bench/interface/Cargo.toml`](../bench/interface/Cargo.toml):
+
+- **tokio**: One current-thread runtime drives both TCP endpoints of the benchmark.
+
 From [`bench/langs/clients/rust_bench/Cargo.toml`](../bench/langs/clients/rust_bench/Cargo.toml):
 
 - **tokio**: The async runtime for the Rust benchmark client.

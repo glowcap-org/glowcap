@@ -161,6 +161,9 @@ fn addHeaderGen(
     check_mod.addImport("iroh_sidecar_stub", support.iroh_sidecar_stub);
     check_mod.addImport("webrtc_sidecar_stub", support.webrtc_sidecar_stub);
     const check_exe = bb.addExecutable(.{ .name = hg.check_step_name, .root_module = check_mod });
+    if (std.mem.eql(u8, hg.check_step_name, "gen-interface-fixtures-check")) {
+        @import("interface_bench.zig").registerGeneration(bb, check_exe, opt);
+    }
     const check_run = execution.addArtifact(bb, .{ .deterministic = 30 }, check_exe);
     check_run.setCwd(bb.path("."));
     const check_step_h = bb.step(hg.check_step_name, hg.check_desc);

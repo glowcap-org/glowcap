@@ -58,6 +58,9 @@ ordinary bench build.
 
 ## Results
 
+The [interface benchmark](interface/README.md) pairs handwritten and generated
+Rust calls and reports generation process costs separately.
+
 The [performance report](https://glowcap.org/performance/) and
 [comparison report](https://glowcap.org/performance/compared/) contain the
 generated figures, with their source revision and run environment.
