@@ -55,17 +55,17 @@ validation, truncation, literals, and allocation-failure cleanup.
 `interface-conversation-check` runs Rust and TypeScript against raw behaviors.
 `tasks-app-test` retains the application's independent server tests.
 
-`interface-goblins-check` needs the pinned Goblins installation and runs two
-Syrup/V1.0 conversations. Generated Rust Carol receives Bob's greeter through
-Goblins Alice, pipelines a positional call, and checks its exact reply and
-canonical capability identity. A plain Goblins caller drives the real Tasks
-server through its generated Zig argument checker, then checks callable results,
-receipt replay, invalid text refusal, and a valid call after refusal.
-The existing Host and Loam owners manage capability export and mutation.
+`interface-goblins-check` runs two tests against the pinned Goblins version.
+A generated Rust client receives Bob's greeter from Alice and pipelines a
+positional call to it. It checks the reply and verifies that a second
+introduction returns the same greeter.
 
-Finite process deadlines bound both conversations. The Rust recipient stops and
-joins its Goblins host after success or failure. The shared Tasks supervisor
-stops the server and removes its temporary store. The Goblins caller uses the
-raw Goblins API, while the Tasks server uses its existing generated argument
-checker and Loam reply owner. This proves that server boundary without adding
-a general generated server adapter.
+The other test uses Goblins to create a Task and call it. It replays the
+creation receipt, checks that invalid text creates nothing, then makes another
+valid call. Tasks uses its generated Zig argument checker. Loam creates the
+child and builds the capability reply.
+
+Both tests check that the session negotiated Syrup/V1.0. Response waits have
+deadlines. The Rust client stops and joins its Goblins process when the test
+ends, including on failure. The Tasks supervisor stops its server and removes
+the temporary store.
