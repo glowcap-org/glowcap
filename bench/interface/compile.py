@@ -19,6 +19,7 @@ def build_command(client, probe=None):
     command = [
         "cargo",
         "rustc",
+        "--locked",
         "--release",
         "--manifest-path",
         "bench/interface/Cargo.toml",
@@ -51,6 +52,11 @@ def build(client, marks, probe=None):
         print(result.stdout, end="")
         print(result.stderr, end="")
         result.check_returncode()
+    dependencies = Path("zig-out/interface-compile/release/interface-bench.d").read_text()
+    for source in ("test/interface/generated/callbacks.rs", "apps/tasks/rust/interface.rs"):
+        assert (source in dependencies) == (client == "generated"), (
+            f"{client} build selected the wrong modules: {source}"
+        )
     if probe is not None:
         compiled = [
             line.strip().split()[1] for line in result.stderr.splitlines() if line.strip().startswith("Compiling ")
@@ -77,8 +83,10 @@ def main():
         for client in clients:
             elapsed = build(client, args.marks, f"{run}-{pair}-{client}")
             samples.append(dict(client=client, pair=pair, elapsed_ns=elapsed))
+    recorded_environment = environment()
     report = dict(
-        environment=environment(),
+        environment=recorded_environment,
+        provisional=recorded_environment["storage"]["status"] != "observed",
         scope="fresh top crate and link, warmed dependencies, including Cargo bookkeeping and deadline launcher",
         shared_code="actor, TCP pair, runtime, timers, assertions and profile bridge",
         samples=samples,

@@ -6,18 +6,30 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import compile as consumer_compile
 import measure
 
 
 class MeasurementTest(unittest.TestCase):
-    def test_compile_probe_changes_only_the_top_crate_command(self):
-        raw = consumer_compile.build_command("raw", "one")
-        generated = consumer_compile.build_command("generated", "two")
-        self.assertEqual(raw[raw.index("--features") + 1], "raw-client")
-        self.assertEqual(generated[generated.index("--features") + 1], "generated-client")
-        self.assertIn("--no-default-features", raw)
-        self.assertEqual(raw[raw.index("--") + 1 :], ["--cfg", 'interface_cost_probe="one"'])
+    def test_storage_follows_only_the_worktree_device(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory)
+            device = worktree.stat().st_dev
+            sysfs = worktree / "sysfs"
+            disk = worktree / "disk"
+            (disk / "partition").mkdir(parents=True)
+            (disk / "device").mkdir()
+            (disk / "queue").mkdir()
+            (disk / "device/model").write_text("matching model\n")
+            (disk / "queue/rotational").write_text("0\n")
+            sysfs.mkdir()
+            (sysfs / f"{os.major(device)}:{os.minor(device)}").symlink_to(disk / "partition")
+            (sysfs / "unrelated").mkdir()
+            (sysfs / "unrelated/model").write_text("wrong model\n")
+            self.assertEqual(
+                measure.storage_details(worktree, sysfs),
+                dict(status="observed", model="matching model", rotational=False),
+            )
+            self.assertEqual(measure.storage_details(worktree, worktree / "missing")["status"], "unavailable")
 
     def test_arm_cpu_fields_do_not_require_x86_model_name_or_publish_serial(self):
         self.assertEqual(

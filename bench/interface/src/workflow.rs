@@ -169,10 +169,10 @@ pub fn verify(pair: &Pair, row: Row, before: (usize, usize, usize, usize), resul
 	match result {
 		ResultValue::Text(text) => assert_eq!(text, "benchmark reply"),
 		ResultValue::Prepared(request) => {
-			let _held_until_after_snapshot = request;
+			std::hint::black_box(request);
 		}
 		ResultValue::Child(child) => {
-			let _held_until_after_snapshot = child;
+			std::hint::black_box(child);
 		}
 	}
 }

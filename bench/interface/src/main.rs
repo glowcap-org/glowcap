@@ -108,6 +108,7 @@ async fn diagnostic(client: Client, row: Row, warmup: usize) -> wire::Counts {
 	let rust_before = RUST.start();
 	let native_before = native.start();
 	let result = workflow::operation(&pair, client, row, request.as_ref()).await;
+	std::hint::black_box(&result);
 	let native_cost = native.stop(native_before);
 	let rust_cost = RUST.stop(rust_before);
 	workflow::verify(&pair, row, before, &result);
@@ -193,6 +194,7 @@ async fn timed(options: &Options, client: Client, row: Row, pair_index: usize) {
 		}
 		let start = Instant::now();
 		let result = workflow::operation(&pair, client, row, request.as_ref()).await;
+		std::hint::black_box(&result);
 		let ns = start.elapsed().as_nanos() as u64;
 		if options.mode == "profile" {
 			meter::end(phase(client, row));

@@ -38,6 +38,36 @@ def cpu_details(text):
     return result
 
 
+def storage_details(worktree=Path("."), sysfs=Path("/sys/dev/block")):
+    device = worktree.stat().st_dev
+    node = sysfs / f"{os.major(device)}:{os.minor(device)}"
+    result = dict(status="unavailable", model=None, rotational=None)
+    if not node.exists():
+        return result
+    # Follow only this filesystem's device and its parents. Do not borrow a
+    # model from another disk or publish the device number or sysfs path.
+    for parent in (node.resolve(), *node.resolve().parents):
+        model = parent / "device/model"
+        rotational = parent / "queue/rotational"
+        if result["model"] is None and model.is_file():
+            try:
+                result["model"] = model.read_text().strip()
+            except OSError:
+                pass  # Optional environment metadata can be hidden by a container.
+        if result["rotational"] is None and rotational.is_file():
+            try:
+                flag = rotational.read_text().strip()
+            except OSError:
+                flag = ""
+            if flag in {"0", "1"}:
+                result["rotational"] = flag == "1"
+        if result["model"] is not None and result["rotational"] is not None:
+            break
+    if result["model"] or result["rotational"] is not None:
+        result["status"] = "observed"
+    return result
+
+
 def environment():
     cpu = {}
     memory = "unavailable"
@@ -53,7 +83,7 @@ def environment():
         kernel=platform.release(),
         cpu=cpu,
         worktree_filesystem=command("stat", "-f", "-c", "%T", ".") if sys.platform == "linux" else "unrecorded",
-        storage_device="unmeasured",
+        storage=storage_details(),
         consumer_manifest_sha256=hashlib.sha256(Path("bench/interface/Cargo.toml").read_bytes()).hexdigest(),
         consumer_lock_sha256=hashlib.sha256(Path("bench/interface/Cargo.lock").read_bytes()).hexdigest()
         if Path("bench/interface/Cargo.lock").exists()
@@ -250,8 +280,10 @@ def main():
     elif args.generator:
         assert 1 <= args.generation_samples <= 100
         run_generator(args.generator)
+        recorded_environment = environment()
         report = dict(
-            environment=environment(),
+            environment=recorded_environment,
+            provisional=recorded_environment["storage"]["status"] != "observed",
             inventory=inventory(),
             generation=[run_generator(args.generator) for _ in range(args.generation_samples)],
             rss_scope="wait4 includes inherited pre-exec RSS, so this bounds rather than isolates the generator peak",
@@ -268,8 +300,10 @@ def main():
         sys.stdout.write(result.stdout)
         sys.stderr.write(result.stderr)
         result.check_returncode()
+        recorded_environment = environment()
         report = dict(
-            environment=environment(),
+            environment=recorded_environment,
+            provisional=recorded_environment["storage"]["status"] != "observed",
             records=records(result.stdout),
             wrapper_copies=copies(),
             latency_claim=bool(args.latency),

@@ -42,6 +42,8 @@ argument vector. The actor keeps only the latest receipt, so its history does
 not grow with the sample count. These calls do not measure durable Loam
 commits or recovery.
 
+Returned values pass through `std::hint::black_box` before the timer stops.
+
 ## Allocations and messages
 
 Timing uses the normal allocators. A diagnostic build installs a Rust meter
@@ -82,9 +84,13 @@ visible copy callers, but inlining prevents a complete copied-byte count.
 The build comparison selects only the raw or generated client. Raw builds do
 not import generated modules. Both still compile the actor, TCP pair, runtime,
 timers, assertions and profile bridge, with identical dependencies and settings.
+The benchmark's committed Cargo lockfile fixes their dependency resolution.
+All Cargo builds use `--locked`.
+
 After warming both selections, each sample changes an unused compiler flag
 for the top crate, forcing fresh compilation and linking. A sample fails if
 Cargo compiles another crate.
+Its dependency file also checks which generated modules were compiled.
 
 Build times include Cargo bookkeeping and the deadline launcher. They exclude
 full clean builds. Generation runs the built fixture verifier after warmup,
@@ -95,6 +101,10 @@ The RSS value from `wait4` bounds the generator's peak and includes inherited
 memory before execution. It does not isolate the generator's resident memory.
 JSON reports under `zig-out/bench-reports/` record revision, dirty state,
 toolchains, container pin digest, CPU, kernel, memory and CPU affinity.
+Storage metadata comes from the worktree's device number and its sysfs parents.
+Only the model and rotational flag are published, with no disk identifiers.
+Reports mark figures provisional when that metadata is unavailable.
+
 The source inventory separates compiler code, embedded tests, qualification
 sources, generated outputs and benchmark code. Helpers outside test blocks
 count as implementation. Generated output gives no credit against compiler

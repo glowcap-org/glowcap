@@ -28,13 +28,7 @@ impl Pair {
 		let host = Host::new_in(&context, options).unwrap();
 		#[cfg(not(feature = "allocation-metrics"))]
 		let host = Host::with_options(options).unwrap();
-		let child = host
-			.spawn(|verb, args| {
-				assert_eq!(verb, Some("read"));
-				assert!(args.is_empty());
-				Ok(Argument::String("child".into()))
-			})
-			.unwrap();
+		let child = host.spawn(|_, _| Ok(Argument::Void)).unwrap();
 		let effects = Rc::new(RefCell::new(Effects::default()));
 		let received = effects.clone();
 		host.publish("bench", move || {

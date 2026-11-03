@@ -15,10 +15,10 @@ pub fn register(b: *std.Build, optimize: std.builtin.OptimizeMode, runtime_gate:
     const marks = b.addLibrary(.{ .name = "interface_bench_marks", .linkage = .static, .root_module = marks_module });
     const build = commands.addInstalledSystemRun(b, .build_tool, &.{"env"});
     build.addFileArg2(marks.getEmittedBin(), .{ .prefix = "GLOWCAP_INTERFACE_MARKS=", .make_absolute = true });
-    build.addArgs(&.{ "cargo", "build", "--release", "--manifest-path", "bench/interface/Cargo.toml" });
+    build.addArgs(&.{ "cargo", "build", "--locked", "--release", "--manifest-path", "bench/interface/Cargo.toml" });
     const metrics_build = commands.addInstalledSystemRun(b, .build_tool, &.{"env"});
     metrics_build.addFileArg2(marks.getEmittedBin(), .{ .prefix = "GLOWCAP_INTERFACE_MARKS=", .make_absolute = true });
-    metrics_build.addArgs(&.{ "cargo", "build", "--release", "--manifest-path", "bench/interface/Cargo.toml", "--features", "allocation-metrics", "--target-dir", "zig-out/interface-allocation" });
+    metrics_build.addArgs(&.{ "cargo", "build", "--locked", "--release", "--manifest-path", "bench/interface/Cargo.toml", "--features", "allocation-metrics", "--target-dir", "zig-out/interface-allocation" });
     const binary = "bench/interface/target/release/interface-bench";
     const run = commands.addRootedSystemCommand(b, .benchmark, &.{ "python3", "bench/interface/measure.py", "--latency", binary });
     run.setEnvironmentVariable("GLOWCAP_BENCH_ZIG_OPTIMIZE", @tagName(optimize));
@@ -38,7 +38,7 @@ pub fn register(b: *std.Build, optimize: std.builtin.OptimizeMode, runtime_gate:
     smoke.step.dependOn(&measurement_test.step);
     const lint = commands.addInstalledSystemRun(b, .build_tool, &.{"env"});
     lint.addFileArg2(marks.getEmittedBin(), .{ .prefix = "GLOWCAP_INTERFACE_MARKS=", .make_absolute = true });
-    lint.addArgs(&.{ "cargo", "clippy", "--release", "--manifest-path", "bench/interface/Cargo.toml", "--all-targets", "--all-features", "--target-dir", "zig-out/interface-allocation", "--", "-D", "warnings" });
+    lint.addArgs(&.{ "cargo", "clippy", "--locked", "--release", "--manifest-path", "bench/interface/Cargo.toml", "--all-targets", "--all-features", "--target-dir", "zig-out/interface-allocation", "--", "-D", "warnings" });
     const lint_step = b.step("interface-bench-lint", "Lint the paired interface benchmark and its diagnostic allocation feature (needs cargo)");
     lint_step.dependOn(&lint.step);
     smoke.step.dependOn(lint_step);
