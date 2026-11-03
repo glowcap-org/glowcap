@@ -33,6 +33,7 @@ import {
 	retainCleanupFailures,
 	Session,
 	TRANSPORT_PROVIDER_SIZE,
+	withCleanup,
 } from "@glowcap/runtime/transport";
 import type { DriverProvider, ProviderTarget, Ptr } from "@glowcap/runtime/transport";
 import { relayS } from "./ffi.ts";
@@ -112,24 +113,16 @@ export async function installProvider(
 	options: RelayOptions,
 ): Promise<void> {
 	const raw = openRuntime(options);
-	try {
+	await withCleanup(() => {
 		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
 		checkRelay(relayS.glowcap_relay_transport_provider(raw, packageBytes));
 		loop.installProvider((register) => register(packageBytes));
-	} catch (primary) {
-		throw await retainCleanupFailures(primary, [
-			() =>
-				new FfiDiagnostic("relay").check(
-					"runtime release after refused installation",
-					(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
-				),
-		]);
-	}
-	// Registration retained the runtime; this drops only the constructor lease.
-	await new FfiDiagnostic("relay").check(
-		"runtime release",
-		(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
-	);
+	}, () =>
+		// Registration retained the runtime; this drops only the constructor lease.
+		new FfiDiagnostic("relay").check(
+			"runtime release",
+			(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
+		));
 }
 
 /** Configure this archive's keyed-relay/noise-relay package for `connect`. */
@@ -183,7 +176,8 @@ export function connector(): Connector {
 				(session) => session.closeTransport(),
 			);
 		} catch (error) {
-			throw await retainCleanupFailures(error, [() => channel.close()]);
+			await retainCleanupFailures(error, [() => channel.close()]);
+			throw error;
 		} finally {
 			request.signal?.removeEventListener("abort", cancel);
 		}

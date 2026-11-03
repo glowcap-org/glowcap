@@ -48,7 +48,8 @@ export class RoomManager {
 				throw new RoomManagerMismatch("that room manager belongs to a different room");
 			}
 		} catch (error) {
-			throw await retainCleanupFailures(error, [() => session.release(manager)]);
+			await retainCleanupFailures(error, [() => session.release(manager)]);
+			throw error;
 		}
 		session.release(manager);
 		return new RoomManager(session, sturdyref);

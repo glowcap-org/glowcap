@@ -46,14 +46,16 @@ export async function openManagedRoom(
 			"the room manager bootstrap did not answer its authorities",
 		);
 	} catch (error) {
-		throw await retainCleanupFailures(error, [() => session.release(bootstrap), () => session.release(room)]);
+		await retainCleanupFailures(error, [() => session.release(bootstrap), () => session.release(room)]);
+		throw error;
 	}
 	if (
 		!Array.isArray(authority) || authority.length !== 2 || typeof authority[0] !== "string" ||
 		authority[0] === "" || typeof authority[1] !== "string" || authority[1] === ""
 	) {
 		const error = new Error("the room manager bootstrap answered incomplete authority");
-		throw await retainCleanupFailures(error, [() => session.release(bootstrap), () => session.release(room)]);
+		await retainCleanupFailures(error, [() => session.release(bootstrap), () => session.release(room)]);
+		throw error;
 	}
 	try {
 		if (
@@ -61,14 +63,16 @@ export async function openManagedRoom(
 			parseRoomsSturdyref(authority[1]).swissnum.length === 0
 		) throw new Error("the room manager bootstrap answered empty authority");
 	} catch (error) {
-		throw await retainCleanupFailures(error, [() => session.release(bootstrap), () => session.release(room)]);
+		await retainCleanupFailures(error, [() => session.release(bootstrap), () => session.release(room)]);
+		throw error;
 	}
 	try {
 		session.release(bootstrap);
 	} catch (error) {
 		// A release can fail after consuming its occurrence. Never attempt it a
 		// second time, and retire only the room that cannot be returned safely.
-		throw await retainCleanupFailures(error, [() => session.release(room)]);
+		await retainCleanupFailures(error, [() => session.release(room)]);
+		throw error;
 	}
 	return { room, roomLink: authority[0], managerLink: authority[1] };
 }

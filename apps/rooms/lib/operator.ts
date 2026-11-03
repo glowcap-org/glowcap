@@ -241,7 +241,8 @@ export async function subscribeOperator(
 			});
 		};
 	} catch (error) {
-		throw await retainCleanupFailures(error, [() => session.release(observer)]);
+		await retainCleanupFailures(error, [() => session.release(observer)]);
+		throw error;
 	}
 }
 

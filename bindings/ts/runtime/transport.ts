@@ -104,6 +104,7 @@ export { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "./int
 export { DriverServer, listenerLoopUnavailable, openDriverServer, prepareListenerLoop } from "./internal/server.ts";
 export { DriverListener, DriverLoop, loopTierAvailable, type ProviderTarget } from "./driver_loop.ts";
 export { GlowcapError, retainCleanupFailures, retainSecondaryFailure } from "./errors.ts";
+export { withCleanup } from "./cleanup.ts";
 export type { CarrierFailure, CarrierPhase } from "./carrier_failure.ts";
 export { Host } from "./host.ts";
 export {

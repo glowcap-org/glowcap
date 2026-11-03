@@ -8,6 +8,7 @@ import {
 	Host,
 	retainCleanupFailures,
 	TRANSPORT_PROVIDER_SIZE,
+	withCleanup,
 } from "@glowcap/runtime/transport";
 import type { DriverProvider, ProviderTarget } from "@glowcap/runtime/transport";
 import { TRANSPORT_ONION } from "@glowcap/abi";
@@ -21,16 +22,15 @@ import { checkOnion, type NetlayerOptions, openNetlayer } from "./ffi_archive.ts
  * the driver lease keeps the callback runtime live until driver teardown. */
 export async function installProvider(loop: ProviderTarget, options: NetlayerOptions): Promise<void> {
 	const raw = openNetlayer(options);
-	try {
+	await withCleanup(() => {
 		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
 		checkOnion(onionS.glowcap_onion_transport_provider(raw, packageBytes));
 		loop.installProvider((register) => register(packageBytes));
-	} finally {
-		await new FfiDiagnostic("onion").check(
+	}, () =>
+		new FfiDiagnostic("onion").check(
 			"netlayer release",
 			(error, cap, errorLen) => onionS.glowcap_onion_netlayer_release(raw, error, cap, errorLen),
-		);
-	}
+		));
 }
 
 /** Configure one FFI onion provider package for generic `connect`. */

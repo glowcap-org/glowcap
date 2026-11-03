@@ -350,11 +350,12 @@ export class DirectMessage {
 			// DirectMessage exists to own either. Release the exact occurrences and
 			// close only an otherwise-unowned redeemed session; a sibling line may
 			// already be using a deduplicated exporter connection.
-			throw await retainCleanupFailures(error, [
+			await retainCleanupFailures(error, [
 				...(replyInbox === null ? [] : [() => session.release(replyInbox!)]),
 				() => session.release(dm),
 				...(owns && (linesOnSession.get(session) ?? 0) === 0 ? [() => session.close()] : []),
 			]);
+			throw error;
 		}
 	}
 

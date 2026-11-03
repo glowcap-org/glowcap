@@ -36,6 +36,7 @@ export async function takeOperationsCap<T>(
 	try {
 		return { cap, taken: await first(cap) };
 	} catch (error) {
-		throw await retainCleanupFailures(error, [() => session.release(cap)]);
+		await retainCleanupFailures(error, [() => session.release(cap)]);
+		throw error;
 	}
 }

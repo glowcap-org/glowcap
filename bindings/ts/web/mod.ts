@@ -260,7 +260,8 @@ function browserConnectors(
 				(session) => session.closeTransport(),
 			);
 		} catch (error) {
-			throw await runtimeApi.retainCleanupFailures(error, [() => channel.close()]);
+			await runtimeApi.retainCleanupFailures(error, [() => channel.close()]);
+			throw error;
 		}
 	};
 	const tcp = new runtimeApi.Connector(

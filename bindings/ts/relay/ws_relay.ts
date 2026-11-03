@@ -173,13 +173,8 @@ export async function webSocketRelay(
 		try {
 			channel = await getChannel();
 		} catch (err) {
-			throw new RelayDialFailed(
-				dialFailReason,
-				await retainCleanupFailures(err, [
-					cancel,
-					() => close(1011, dialFailReason),
-				]),
-			);
+			await retainCleanupFailures(err, [cancel, () => close(1011, dialFailReason)]);
+			throw new RelayDialFailed(dialFailReason, err);
 		}
 		await relayBytes(source, sink, channel, config, () => close());
 	} finally {
