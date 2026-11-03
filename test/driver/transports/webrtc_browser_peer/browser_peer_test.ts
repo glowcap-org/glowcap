@@ -5,7 +5,7 @@
 // runs a full keyed OCapN session over that channel: fetch the answerer's
 // `greeter`, call `greet`, and check the reply.
 //
-// This is the browser twin of `webrtc-interop` (two Zig peers). There the
+// This is the browser twin of `webrtc-session` (two Zig peers). There the
 // signaling is ferried in-process between two Zig peers; here it crosses a real
 // process and runtime boundary. This harness ferries it out of band over the
 // answerer's stdio, one JSON line each way, the stand-in for the OCapN
@@ -23,15 +23,15 @@
 // (the devcontainer image ships one; elsewhere
 // `tools/check/playwright-preflight.sh` names the pinned version and how to get
 // it). Run directly:
-// `deno run --allow-all interop/webrtc_browser_peer/browser_peer_test.ts`.
+// `deno run --allow-all test/driver/transports/webrtc_browser_peer/browser_peer_test.ts`.
 
 import { chromium } from "playwright";
-import { bundleProbe } from "../../bindings/ts/web/test/support.ts";
-import { fail } from "../../bindings/ts/test/assert.ts";
+import { bundleProbe } from "../../../../bindings/ts/web/test/support.ts";
+import { fail } from "../../../../bindings/ts/test/assert.ts";
 
-const ROOT = new URL("../../", import.meta.url).pathname;
+const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ANSWERER = `${ROOT}zig-out/bin/glowcap-webrtc-answerer`;
-const WASM = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
+const WASM = new URL("../../../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const deadline = setTimeout(() => fail("browser-peer scenario timed out after 60s"), 60_000);
 

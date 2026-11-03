@@ -1,5 +1,5 @@
 //! C ABI glue shared by the driver-provider seam proofs
-//! (`test/driver/transports/iroh_driver_provider`, `interop/webrtc_driver_provider`): the
+//! (`test/driver/transports/iroh_driver_provider`, `test/driver/transports/webrtc_driver_provider`): the
 //! failure report for a driver call, and the cleanup and step helpers that turn
 //! a return code into the driver's own `expectOk` verdict.
 //!

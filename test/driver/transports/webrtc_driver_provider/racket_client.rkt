@@ -20,11 +20,11 @@
 
 (require json
          racket/runtime-path
-         "../../bindings/racket/glowcap.rkt"
-         "../../bindings/racket/glowcap-webrtc.rkt"
-         "../../test/support/transport/racket/client_gate.rkt")
+         "../../../../bindings/racket/glowcap.rkt"
+         "../../../../bindings/racket/glowcap-webrtc.rkt"
+         "../../../support/transport/racket/client_gate.rkt")
 
-(define-runtime-path bin-dir "../../zig-out/bin")
+(define-runtime-path bin-dir "../../../../zig-out/bin")
 
 (define GATE "racket-webrtc-driver-provider")
 (define WAIT-SECONDS 20)

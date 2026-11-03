@@ -1,4 +1,4 @@
-//! The shared WebRTC interop signaling core (ADR-0035): the one signaling-inbox
+//! The shared WebRTC conversation signaling core (ADR-0035): the one signaling-inbox
 //! actor and the one channel-bring-up client that `webrtc-signaling-captp` and
 //! the WebRTC CapTP signaling drivers share. It lives here so those drivers
 //! are thin callers of one spine rather than two byte-identical copies of it.
@@ -25,7 +25,7 @@ const HostSession = driver.core.HostSession;
 
 /// The CapTP signaling session must carry one bounded WebRTC SDP or ICE string.
 /// The stdio signaling wire the standalone peers speak with a harness.
-pub const stdio = @import("webrtc_common/stdio.zig");
+pub const stdio = @import("webrtc/stdio.zig");
 
 pub const signaling_frame_bytes: usize = webrtc.max_signal_bytes;
 
@@ -276,6 +276,11 @@ pub fn sessionOpenDone(ctx: *anyopaque) bool {
     return session.sessionOpen();
 }
 
+fn sessionClosedDone(ctx: *anyopaque) bool {
+    const session: *HostSession = @ptrCast(@alignCast(ctx));
+    return session.sessionClosed();
+}
+
 pub fn refDone(ctx: *anyopaque) bool {
     const captured: *CapturedRef = @ptrCast(@alignCast(ctx));
     return captured.state != .pending;
@@ -387,6 +392,13 @@ pub fn serveGreeter(
     _ = try host.publish("greeter", Greeter, .{ .done = &served, .greeting = greeting });
     try waitFor(resident, peer, &pump, &host, session, session, sessionOpenDone, 10_000);
     try serveUntil(resident, peer, &pump, &host, session, &served, atomicFlagDone, 10_000);
+    // The caller owns shutdown after observing its reply. Exiting here would
+    // turn an ordinary client close into a race with transport destruction.
+    serveUntil(resident, peer, &pump, &host, session, session, sessionClosedDone, 10_000) catch |err| switch (err) {
+        // tolerant: the greeting completed, and this is the caller closing its channel.
+        error.ChannelClosed => return,
+        else => return err,
+    };
 }
 
 /// The dialing half over an open channel: run the keyed handshake as the

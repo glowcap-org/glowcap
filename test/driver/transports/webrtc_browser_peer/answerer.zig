@@ -5,7 +5,7 @@
 //! process is the answerer over the Zig sidecar (`glowcap_webrtc_sidecar_*`),
 //! serving a Greeter behind the keyed handshake. The harness ferries the
 //! signaling between the two out of band over this process's stdio, one JSON
-//! object per line (`webrtc_common/stdio.zig`):
+//! object per line (`test/support/transport/webrtc/stdio.zig`):
 //!
 //!   out  {"type":"identity","designator":"…"} this peer's key designator (first)
 //!   in   {"type":"offer","sdp":"…"}            the browser's SDP offer
@@ -17,7 +17,7 @@
 //! keyed dial, so the handshake proves this peer's identity end to end.
 //!
 //! Once the DataChannel opens, the keyed handshake, bootstrap fetch, and
-//! deliver/resolve run exactly as `webrtc-interop` proves them between two
+//! deliver/resolve run exactly as `webrtc-session` proves them between two
 //! Zig peers. Here the far peer is a browser. The answerer signs a fixed key so
 //! the harness hands the browser its designator to pin.
 //!
@@ -27,9 +27,9 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
-const webrtc_common = @import("webrtc_common");
+const webrtc_harness = @import("webrtc_harness");
 
-const stdio = webrtc_common.stdio;
+const stdio = webrtc_harness.stdio;
 const crypto = glowcap.foundation.crypto;
 
 const frame_cap: usize = 4096;
@@ -63,6 +63,6 @@ pub fn main(init: std.process.Init) !void {
     var reader = try io.concurrent(stdio.Signaling.readInbound, .{ &signaling, io, allocator });
     defer reader.cancel(io);
     try signaling.openChannel(&resident, 600);
-    try webrtc_common.serveGreeter(&resident, &peer, allocator, answerer_seed, frame_cap, greeting);
+    try webrtc_harness.serveGreeter(&resident, &peer, allocator, answerer_seed, frame_cap, greeting);
     try signaling.check();
 }

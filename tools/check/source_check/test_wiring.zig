@@ -115,6 +115,7 @@ const TypeScriptSuite = struct {
 };
 
 const typescript_suites = [_]TypeScriptSuite{
+    .{ .dir = "test/driver/transports", .owners = &.{"tools/build/"} },
     .{ .dir = "apps/rooms/test", .owners = &.{ "tools/build/rooms.zig", "tools/build/rooms/" } },
     .{ .dir = "bindings/ts", .owners = &.{"tools/build/"}, .runs_inside = true },
 };

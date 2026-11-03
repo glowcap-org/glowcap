@@ -20,11 +20,11 @@
 import { durableIdentityAuthenticated, Runtime } from "@glowcap/runtime";
 import { locator } from "@glowcap/webrtc";
 import { listen, provider, type SignalingAuthority } from "@glowcap/webrtc/driver";
-import { fail } from "../../test/support/transport/deno/client_gate.ts";
+import { fail } from "../../../support/transport/deno/client_gate.ts";
 
 const GATE = "deno-webrtc-driver-provider";
 const DEADLINE_MS = 25_000;
-const BIN = new URL("../../zig-out/bin/", import.meta.url).pathname;
+const BIN = new URL("../../../../zig-out/bin/", import.meta.url).pathname;
 
 type Line = { type: string; designator?: string; sdp?: string; candidate?: unknown };
 

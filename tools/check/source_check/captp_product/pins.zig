@@ -35,10 +35,10 @@ const expectFileContains = text_match.expectFileContains;
 /// verbs.
 ///
 /// Every Zig tree a caller could live in is scanned, including `bindings/` and
-/// the repository root, because the tempting place to reach for a proof is an
-/// interop or app driver rather than `src/`. Tests are exempt as a class:
-/// proving what these verbs do is their job, and they reach for them
-/// deliberately.
+/// the repository root, because the tempting place to reach for a proof is a
+/// live conversation or app driver rather than `src/`. Ordinary unit tests
+/// deliberately exercise these verbs, while transport drivers and their shared
+/// harnesses remain subject to the realizer ownership check.
 ///
 /// It replaces the transport-to-mechanism mirror check, whose invariant went
 /// away with the table: a transport symbol names an address grammar, not what
@@ -100,7 +100,7 @@ pub fn checkDurablePinWriters(
                 "src/driver/core/host/session.zig",
                 "src/driver/core/host/session/ingress.zig",
                 "src/c_abi/host/session.zig",
-                "interop/webrtc_common.zig",
+                "test/support/transport/webrtc.zig",
             },
             .standing = "it realized the connection, or it carries the testimony of an embedder that did",
             .foreign = .{ .entry = "glowcap_host_session_bind_verified_channel_key" },
@@ -117,7 +117,7 @@ pub fn checkDurablePinWriters(
             .foreign = .{ .none_because = "it is the state the verbs write, not a fact anyone states; C reads the verdict through glowcap_host_session_partner_identity" },
         },
     };
-    const roots = [_][]const u8{ "src", "cli", "interop", "apps", "examples", "bench", "bindings", "tools" };
+    const roots = [_][]const u8{ "src", "cli", "interop", "test/driver/transports", "test/support/transport", "apps", "examples", "bench", "bindings", "tools" };
     // This file spells the needles it searches for, so it would otherwise
     // report itself. Naming the exemption is the correct version of that.
     const this_check = "tools/check/source_check/captp_product/pins.zig";
