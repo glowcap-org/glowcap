@@ -98,6 +98,12 @@ export function createManagedController(
 		// New public selections read through held directory authority. A delayed
 		// discovery projection cannot establish absence or select a publication.
 		const original = session.current?.intent.directories.find((row) => row.id === id);
+		// Naming a room is the first act on a directory this tab holds, so the
+		// field is offered while the directory is still connecting or, after a
+		// reload, reconnecting. A read through a session that is not open yet
+		// answers broken, so wait for the registration `reach` waits for.
+		if (original != null && original.nick !== "") await session.directoryRegistered(original, signal);
+		if (signal.aborted) return;
 		const reader = await session.workspace.directoryReader(id);
 		let matches: RoomInfo[];
 		try {

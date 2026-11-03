@@ -56,6 +56,33 @@ for (const superseded of [false, true]) {
 		}
 	});
 }
+Deno.test("naming a room on a directory still registering reads its listing only once registered", async () => {
+	// After a reload the home directory is reconnecting while the rail already
+	// offers its room field. A listing read before the directory registered
+	// answers broken, so the pick holds for the registration first.
+	const f = fixture();
+	store.openDir(f.page.projection, f.id, f.route);
+	const session = f.page.managedSession!;
+	const asked = deferred<void>();
+	const registered = deferred<void>();
+	session.directoryRegistered = (original) => {
+		assertEquals(original.id, f.id);
+		asked.resolve();
+		return registered.promise;
+	};
+	try {
+		const pick = f.controller.pickRoom(f.id, "new-room");
+		await asked.promise;
+		assertEquals(f.calls, []);
+		registered.resolve();
+		await pick;
+		assertEquals(f.calls.slice(0, 2), [["directoryReader", f.id], ["freeReader"]]);
+	} finally {
+		registered.resolve();
+		await session.openings.close();
+		f.close();
+	}
+});
 Deno.test("showing the current address preserves a pending room acquisition; leaving it supersedes selection", async () => {
 	const f = fixture();
 	const prior = Object.getOwnPropertyDescriptor(globalThis, "location");
