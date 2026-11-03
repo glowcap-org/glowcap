@@ -31,7 +31,9 @@ beside it and the YAML reads as a list.
 ## How a run is built
 
 For a pull request into `dev`, [`plan.py`](plan.py) adds the groups its
-changed paths reach:
+changed paths reach. Each follow-up compares the full pull request with its
+base, so a documentation edit keeps the checks that earlier code changes
+require:
 
 | Changed files | Additional Linux groups |
 | --- | --- |

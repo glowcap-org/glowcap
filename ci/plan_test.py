@@ -92,6 +92,47 @@ class PlanTest(unittest.TestCase):
             for base in ("", "0" * 40, "1" * 40, "--help"):
                 self.assertIsNone(PLAN.changed_paths({"before": base}, root))
 
+    def test_docs_followup_keeps_the_pull_requests_code_coverage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-c", "commit.gpgsign=false", *args], cwd=root, stderr=subprocess.DEVNULL, text=True
+                ).strip()
+
+            git("init", "-q")
+            git("config", "user.name", "CI fixture")
+            git("config", "user.email", "ci@example.invalid")
+            (root / "README.md").write_text("base\n")
+            git("add", "README.md")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            peer = root / "conformance/goblins-peer/peer.rkt"
+            peer.parent.mkdir(parents=True)
+            peer.write_text("fixture\n")
+            git("add", "conformance/goblins-peer/peer.rkt")
+            git("commit", "-qm", "code change")
+            before = git("rev-parse", "HEAD")
+            (root / "README.md").write_text("follow-up docs\n")
+            git("add", "README.md")
+            git("commit", "-qm", "docs followup")
+
+            event = {"before": before, "pull_request": {"base": {"ref": "dev", "sha": base}}}
+            paths = PLAN.changed_paths(event, root)
+            self.assertEqual(set(paths), {"README.md", "conformance/goblins-peer/peer.rkt"})
+            groups, full = PLAN.select("pull_request", "refs/pull/7/merge", event, paths)
+            self.assertIn("interop", groups)
+            self.assertIn("transports", groups)
+            self.assertFalse(full)
+            self.assertEqual(PLAN.changed_paths({"before": before}, root), ["README.md"])
+            for metadata in ({}, {"sha": ""}, {"sha": "--help"}, {"sha": "0" * 40}, {"sha": "1" * 40}):
+                with self.subTest(base=metadata):
+                    event["pull_request"]["base"] = metadata
+                    self.assertIsNone(PLAN.changed_paths(event, root))
+            del event["pull_request"]["base"]
+            self.assertIsNone(PLAN.changed_paths(event, root))
+
     def test_actions_output_from_an_unrelated_working_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
