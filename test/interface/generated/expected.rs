@@ -8,3 +8,6 @@ pub fn creation_arguments() -> Vec<Argument> {
 		Argument::String("write tests".into()),
 	]
 }
+pub const PREPARED_VERB: &str = "mutate";
+pub const PREPARED_SEQUENCE: i64 = 1;
+pub const PREPARED_OPERATION: &str = "accept";

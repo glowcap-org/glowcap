@@ -1,4 +1,4 @@
-use glowcap::{AsSendTarget, Session};
+use glowcap::AsSendTarget;
 
 /// A borrowed reference argument, lowered synchronously before the send returns.
 /// It never owns an independent pending reference across a suspension.

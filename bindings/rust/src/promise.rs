@@ -403,9 +403,20 @@ impl RemotePromise {
 	/// to after this handle is dropped or awaited. Its final drop releases the
 	/// owned occurrence. Refused calls and await-only observers cannot be retained.
 	pub fn retain(&self) -> Result<Ref> {
-		let raw = PromiseArgument::from(self).mint(&self.session.host)?;
+		self.retain_in(&self.session.host)
+	}
+
+	/// Retain an argument for a particular Host before starting dependent work.
+	/// A foreign Host, refused call, or await-only observer is rejected before
+	/// minting an occurrence. No remote outcome is observed or changed.
+	pub fn retain_for(&self, host: &crate::Host) -> Result<Ref> {
+		self.retain_in(&host.shared())
+	}
+
+	fn retain_in(&self, host: &Rc<crate::host::HostShared>) -> Result<Ref> {
+		let raw = PromiseArgument::from(self).mint(host)?;
 		let mut reference = Ref::from_sys(&raw);
-		reference.attach_guard(crate::gc::owned_guard(&self.session.host, raw.id));
+		reference.attach_guard(crate::gc::owned_guard(host, raw.id));
 		Ok(reference)
 	}
 

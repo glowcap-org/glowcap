@@ -17,8 +17,13 @@ format, target mappings, and acceptance cases.
 | `generated/` | Emitted callback clients and independent message constants |
 | `run.ts` | Starts the Tasks server and runs the Rust proof with bounded lifetime and cleanup |
 
-The Rust Tasks scenario consumes the application's generated interface. Callback
-projections are self-contained and share their helper template with Tasks.
+The Rust Tasks scenario consumes the application's generated interface. Tasks
+and prepared pending arguments share one receipt helper. The raw receipt actor
+checks capture, replay, cancellation, cross-Host refusal, and data, capability,
+and broken outcomes on both profiles. Binding tests check retained-reference
+retirement while the session stays usable. Actor teardown follows the Port's
+separate export root.
+
 Expected message constants come from `messages.syrup`, never from the interface
 definitions under test. A `fixture:ref` value is a substitution slot for a
 Host-owned reference, never a transmitted value.

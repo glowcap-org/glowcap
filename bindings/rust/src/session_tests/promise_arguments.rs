@@ -91,7 +91,7 @@ async fn promise_argument_passes_as_a_capability() {
 			// observation. Awaiting the original and releasing one occurrence
 			// leave the other usable, and its final drop gives the retain back.
 			let pending = session.send(&root, "make", &[]);
-			let first = pending.retain().unwrap();
+			let first = pending.retain_for(&session.host()).unwrap();
 			let second = pending.retain().unwrap();
 			assert_eq!(first, second);
 			let stale = Ref::bare_id(first.id());
@@ -107,6 +107,7 @@ async fn promise_argument_passes_as_a_capability() {
 			let refused = session.send(&stale, "greet", &[]);
 			assert!(refused.vow().is_none(), "released occurrence was admitted");
 			let failure = refused.retain().unwrap_err();
+			assert_eq!(refused.retain_for(&session.host()).unwrap_err(), failure);
 			assert_eq!(
 				refused.await.unwrap_err(),
 				failure,
@@ -114,6 +115,10 @@ async fn promise_argument_passes_as_a_capability() {
 			);
 			let observer = session.listen(&root);
 			assert_eq!(observer.retain().unwrap_err().kind(), ErrorKind::InvalidArgument);
+			assert_eq!(
+				observer.retain_for(&session.host()).unwrap_err().kind(),
+				ErrorKind::InvalidArgument
+			);
 			drop(observer);
 			retained_outcomes(&session, &root).await;
 
@@ -128,12 +133,18 @@ async fn promise_argument_passes_as_a_capability() {
 			.unwrap();
 			let second_root = second.fetch("root").await.unwrap();
 			let foreign = second.send(&second_root, "make", &[]);
+			assert_eq!(
+				foreign.retain_for(&session.host()).unwrap_err().kind(),
+				ErrorKind::InvalidArgument
+			);
+			let retained_foreign = foreign.retain_for(&second.host()).unwrap();
 			let error = session.send(&root, "use", &[(&foreign).into()]).await.unwrap_err();
 			assert_eq!(error.kind(), ErrorKind::InvalidArgument);
 			assert_eq!(
 				second.send(&foreign, "greet", &[]).await.unwrap(),
 				Argument::String("hello from the greeter".into())
 			);
+			drop(retained_foreign);
 			second.close(crate::PendingWork::Cancel).await.unwrap();
 			second_host.await.unwrap();
 			session.close(crate::PendingWork::Cancel).await.unwrap();
@@ -153,7 +164,7 @@ async fn retained_outcomes(session: &Session, root: &Ref) {
 				if settled {
 					session.send(root, "data", &[]).await.unwrap();
 				}
-				let retained = pending.retain().unwrap();
+				let retained = pending.retain_for(&session.host()).unwrap();
 				let original = if observe {
 					Some(pending.await)
 				} else {

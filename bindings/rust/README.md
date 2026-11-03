@@ -89,7 +89,9 @@ reference).
   the application publishes anything that depends on it.
 - `RemotePromise::retain()` returns an owned `Ref` to the answer. Retain before
   suspending when an argument must survive dropping or awaiting the original
-  call handle. The reference releases its occurrence on final drop.
+  call handle. The reference releases its occurrence on final drop. Before
+  starting dependent work, `retain_for(&host)` also rejects a promise from
+  another Host.
 - `caretaker` creates a revocable forwarder. `attenuate` restricts a reference
   to selected methods.
 - Local sends, tells, and proxy forwarding run through the Host, which tracks which actors are

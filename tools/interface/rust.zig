@@ -14,6 +14,7 @@ pub fn emit(a: std.mem.Allocator, method: Creation) ![]u8 {
     try literal(&out, a, method.wire_name);
     try out.appendSlice(a, ";\n");
     try out.appendSlice(a, @embedFile("templates/support.rs"));
+    try out.appendSlice(a, @embedFile("templates/receipt.rs"));
     try out.appendSlice(a, @embedFile("templates/creation.rs"));
     return out.toOwnedSlice(a);
 }
