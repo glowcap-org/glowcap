@@ -209,10 +209,12 @@ function openRecord(session: string, partner: string): string {
 		session,
 		a: "rooms",
 		b: partner,
-		// Required, and a record the endpoint cannot read is dropped in
-		// silence, so omitting it looks like a feed that never delivers.
+		// The endpoint drops a record it cannot read in silence, so a missing
+		// required field looks like a feed that never delivers. `valid_opened`
+		// in the Rooms trace server names the required set.
 		transport: "tcp",
 		codec: "syrup",
+		captp_version: "1.0",
 	});
 }
 

@@ -61,6 +61,7 @@ pub fn register(
 
     // Production Live mode is a browser product, so its last proof is a sibling
     // rather than part of `check`: it needs the devcontainer's pinned Chromium.
+    // CI runs it in the browser lane (`ci/groups.py`).
     // The app-owned task builds Vite's dist, serves only that output, and drives
     // its wasm OCapN peer against the Rooms server's trace capability endpoint.
     const ocapnviz_live_browser = execution.addSystemCommand(b, .{ .browser_proof = 120 }, &.{"env"});

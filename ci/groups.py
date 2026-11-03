@@ -169,6 +169,7 @@ GROUPS = (
                 *BROWSER_BUILDS,
                 gate("zig build loam-browser-test"),
                 gate("zig build rooms-rust-browser-test"),
+                gate("zig build ocapnviz-live-browser"),
             ],
             # Every supported browser journey is release evidence. The family runs
             # concurrently within a shard and grows with every journey, so it runs
