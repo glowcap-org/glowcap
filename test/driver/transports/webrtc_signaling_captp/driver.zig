@@ -20,7 +20,7 @@
 //! verbs over the signaling session, and once its DataChannel opens closes the
 //! signaling session. The exporter's `serve` returns, and both peers then hold
 //! the direct keyed OCapN session over the DataChannel exactly as
-//! `webrtc-interop` proves it. A green run proves the signaling capability, over
+//! `webrtc-session` proves it. A green run proves the signaling capability, over
 //! the wire, brings up a real channel that carries a real session.
 //!
 //! `poll` is the one narrowing from the ADR's push-trickle shape: a pull keeps
@@ -37,7 +37,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
-const webrtc_common = @import("webrtc_common");
+const webrtc_harness = @import("webrtc_harness");
 
 /// A finite budget for the signaling session: its handshake, each answer
 /// wait, and the host's wait for the recipient to dial. Unbounded would turn
@@ -52,12 +52,12 @@ const tcp = glowcap.net.tcp;
 const ip = std.Io.net;
 
 // The signaling inbox actor, the channel-bring-up client, and the SDP frame cap
-// are the shared WebRTC signaling core (interop/webrtc_common.zig), driven the
+// are the shared WebRTC signaling core (test/support/transport/webrtc.zig), driven the
 // same way by any future Host-integrated WebRTC handoff.
-const SignalingInbox = webrtc_common.SignalingInbox;
-const bringUpViaCapTP = webrtc_common.bringUpViaCapTP;
-const waitOpen = webrtc_common.waitOpen;
-const signaling_frame_bytes = webrtc_common.signaling_frame_bytes;
+const SignalingInbox = webrtc_harness.SignalingInbox;
+const bringUpViaCapTP = webrtc_harness.bringUpViaCapTP;
+const waitOpen = webrtc_harness.waitOpen;
+const signaling_frame_bytes = webrtc_harness.signaling_frame_bytes;
 
 /// The signaling session carries one bounded SDP or ICE string per frame.
 const signaling_opts: driver.SessionOptions = .{
@@ -92,7 +92,7 @@ fn exporterHalf(
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
     try waitOpen(resident, peer, 2000);
 
-    try webrtc_common.serveGreeter(resident, peer, allocator, seed, frame_cap, greeting);
+    try webrtc_harness.serveGreeter(resident, peer, allocator, seed, frame_cap, greeting);
 }
 
 /// The recipient half: bring the channel up over the signaling session, then
@@ -119,7 +119,7 @@ fn recipientHalf(
     }
 
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
-    try webrtc_common.dialAndGreet(resident, offerer, allocator, seed, expect_designator, frame_cap, greeting);
+    try webrtc_harness.dialAndGreet(resident, offerer, allocator, seed, expect_designator, frame_cap, greeting);
 }
 
 pub fn main(init: std.process.Init) !void {

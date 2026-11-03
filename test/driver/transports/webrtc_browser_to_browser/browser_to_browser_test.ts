@@ -12,14 +12,14 @@
 // Chromium (the devcontainer image ships one; elsewhere
 // `tools/check/playwright-preflight.sh` names the pinned version and how to get
 // it). Run directly:
-// `deno run --allow-all interop/webrtc_browser_to_browser/browser_to_browser_test.ts`.
+// `deno run --allow-all test/driver/transports/webrtc_browser_to_browser/browser_to_browser_test.ts`.
 
 import { type Browser, chromium } from "playwright";
-import { bundleProbe } from "../../bindings/ts/web/test/support.ts";
-import { fail } from "../../bindings/ts/test/assert.ts";
+import { bundleProbe } from "../../../../bindings/ts/web/test/support.ts";
+import { fail } from "../../../../bindings/ts/test/assert.ts";
 
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
-const WASM = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
+const WASM = new URL("../../../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 // A byte-transparent signaling relay for exactly two peers: it forwards every
 // message from one role to the other, buffering for a role that has not yet status-allow: pending state or quoted runtime label
 // connected so no early identity or offer is lost. It never parses a payload.

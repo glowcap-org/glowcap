@@ -22,12 +22,12 @@
 //!
 //! Not part of the hermetic `zig build check`: it links the Rust sidecar
 //! staticlib (`zig build webrtc-sidecar-build`, needs cargo), so it runs as the sibling
-//! step `zig build webrtc-interop`.
+//! step `zig build webrtc-session`.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
-const webrtc_common = @import("webrtc_common");
+const webrtc_harness = @import("webrtc_harness");
 
 const crypto = glowcap.foundation.crypto;
 
@@ -192,11 +192,11 @@ pub fn main(init: std.process.Init) !void {
 
     // The answerer serves on its own thread; the offerer drives the conversation
     // on this one. Each peer handle is used by exactly one thread past bring-up.
-    var answerer_future = try io.concurrent(webrtc_common.serveGreeter, .{ &answerer_resident, &answerer, allocator, answerer_seed, frame_cap, greeting });
-    const offerer_result = webrtc_common.dialAndGreet(&offerer_resident, &offerer, allocator, offerer_seed, answerer_designator[0..], frame_cap, greeting);
+    var answerer_future = try io.concurrent(webrtc_harness.serveGreeter, .{ &answerer_resident, &answerer, allocator, answerer_seed, frame_cap, greeting });
+    const offerer_result = webrtc_harness.dialAndGreet(&offerer_resident, &offerer, allocator, offerer_seed, answerer_designator[0..], frame_cap, greeting);
     const answerer_result = answerer_future.await(io);
     try offerer_result;
     try answerer_result;
 
-    std.debug.print("webrtc-interop: readiness-driven try-I/O and keyed OCapN round-tripped over a real DataChannel\n", .{});
+    std.debug.print("webrtc-session: readiness-driven try-I/O and keyed OCapN round-tripped over a real DataChannel\n", .{});
 }

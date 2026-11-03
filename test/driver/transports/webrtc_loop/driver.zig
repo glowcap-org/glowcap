@@ -26,7 +26,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
-const webrtc_common = @import("webrtc_common");
+const webrtc_harness = @import("webrtc_harness");
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
@@ -50,8 +50,8 @@ const Greeter = struct {
         return .{ .string = greeting };
     }
 };
-const CapturedRef = webrtc_common.CapturedRef;
-const CapturedString = webrtc_common.CapturedString;
+const CapturedRef = webrtc_harness.CapturedRef;
+const CapturedString = webrtc_harness.CapturedString;
 
 const Designator = [crypto.PeerKey.designator_len]u8;
 
@@ -268,10 +268,10 @@ fn clientOnce(
     const secret = crypto.SecretKey.fromSeed(seed);
 
     const client_designator = secret.publicKey().toDesignator();
-    var sdp_buf: [webrtc_common.signaling_frame_bytes]u8 = undefined;
+    var sdp_buf: [webrtc_harness.signaling_frame_bytes]u8 = undefined;
     var sdp_len: usize = 0;
     const offer_sdp = try peer.createOffer(&sdp_buf, &sdp_len);
-    var signal_buf: [webrtc_common.signaling_frame_bytes]u8 = undefined;
+    var signal_buf: [webrtc_harness.signaling_frame_bytes]u8 = undefined;
     const answered = try hub.offer(&peer, &client_designator, offer_sdp, &signal_buf);
     defer hub.forget(answered.fd);
     try peer.setRemoteAnswer(answered.answer);
@@ -284,7 +284,7 @@ fn clientOnce(
         while (try peer.nextLocalCandidate(&signal_buf, &cand_len)) |ice| {
             try hub.backend.provideRemoteCandidate(answered.fd, ice);
         }
-        if (try webrtc_common.pollOpen(&resident, &peer, 50)) break;
+        if (try webrtc_harness.pollOpen(&resident, &peer, 50)) break;
         elapsed += 50;
         if (elapsed >= bring_up_timeout_ms) return error.ChannelBringUpTimeout;
     }
@@ -311,15 +311,15 @@ fn clientOnce(
 
     const read_buf = try allocator.alloc(u8, webrtc.max_packet_bytes);
     defer allocator.free(read_buf);
-    var packet_pump = webrtc_common.PacketPump{ .read_buf = read_buf };
+    var packet_pump = webrtc_harness.PacketPump{ .read_buf = read_buf };
     defer packet_pump.deinit();
 
-    try webrtc_common.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, dialed, webrtc_common.sessionOpenDone, bring_up_timeout_ms);
+    try webrtc_harness.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, dialed, webrtc_harness.sessionOpenDone, bring_up_timeout_ms);
 
     var fetched = CapturedRef{};
     const fetch_vow = try client_host.fetch(dialed, "greeter");
     try client_host.vowOn(fetch_vow, .{ .ctx = &fetched, .func = CapturedRef.record });
-    try webrtc_common.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, &fetched, webrtc_common.refDone, bring_up_timeout_ms);
+    try webrtc_harness.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, &fetched, webrtc_harness.refDone, bring_up_timeout_ms);
     const greeter = try fetched.require();
 
     var i: usize = 0;
@@ -327,7 +327,7 @@ fn clientOnce(
         var reply = CapturedString{};
         const vow = try client_host.send(dialed, greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} });
         try client_host.vowOn(vow, .{ .ctx = &reply, .func = CapturedString.record });
-        try webrtc_common.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, &reply, webrtc_common.stringDone, bring_up_timeout_ms);
+        try webrtc_harness.waitFor(&resident, &peer, &packet_pump, &client_host, dialed, &reply, webrtc_harness.stringDone, bring_up_timeout_ms);
         if (!std.mem.eql(u8, try reply.require(), greeting)) return error.WrongReply;
     }
     _ = try packet_pump.drive(&client_host, dialed, &peer);

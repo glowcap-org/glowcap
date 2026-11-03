@@ -24,7 +24,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "test" / "support" / "transport" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "support" / "transport" / "python"))
 from client_gate import fail, ignore_port_args, insert_bindings_path
 
 insert_bindings_path()
@@ -32,7 +32,7 @@ insert_bindings_path()
 from glowcap import Runtime, webrtc  # noqa: E402
 
 GATE = "python-webrtc-driver-provider"
-BIN = Path(__file__).resolve().parents[2] / "zig-out" / "bin"
+BIN = Path(__file__).resolve().parents[4] / "zig-out" / "bin"
 ANSWERER = BIN / "glowcap-webrtc-answerer"
 OFFERER = BIN / "glowcap-webrtc-offerer"
 DEADLINE_S = 20.0
@@ -164,6 +164,10 @@ async def dial_proof() -> None:
             async with session:
                 greeter = await asyncio.wait_for(session.fetch("greeter"), timeout=DEADLINE_S)
                 greeting = await asyncio.wait_for(session.send(greeter, "greet", []), timeout=DEADLINE_S)
+                # The answerer must keep serving until the caller closes.
+                again = await asyncio.wait_for(session.send(greeter, "greet", []), timeout=DEADLINE_S)
+                if again != greeting:
+                    fail(GATE, f"the second greet returned {again!r}, expected {greeting!r}")
         if not isinstance(greeting, str) or not greeting:
             fail(GATE, f"greet returned {greeting!r}")
         print(f"{GATE}: OK the Python binding dialed the answerer and heard {greeting!r}")

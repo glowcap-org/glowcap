@@ -413,7 +413,7 @@ zig build webrtc-sidecar-test       # Run the WebRTC sidecar Rust unit tests, in
 zig build webrtc-datachannel-test   # Prove a headless Chromium RTCDataChannel carries bytes both directions to a Rust webrtc-crate peer on loopback (ADR-0035, needs cargo + deno + a Playwright Chromium)
 zig build webrtc-resident-check     # Type-check the WebRTC DataChannel netlayer resident (ADR-0035), compile-only, no cargo; part of check-build
 zig build webrtc-internal-test      # Run WebRTC resident ownership, bounded-signaling, managed-dial, and managed-accept tests against a scripted sidecar; part of check
-zig build webrtc-interop            # Live WebRTC: two Zig glowcap peers hold a keyed OCapN session over a real DataChannel (ADR-0035, needs cargo)
+zig build webrtc-session            # Live WebRTC: two Zig glowcap peers hold a keyed OCapN session over a real DataChannel (ADR-0035, needs cargo)
 zig build webrtc-loop               # Live WebRTC scale: many concurrent DataChannels, each answered by the completion backend and served from one HostRuntime thread with the client's identity proved (ADR-0035, ADR-0018, needs cargo)
 zig build webrtc-redeem             # Live three-party handoff over WebRTC: a recipient Session redeems a bare webrtc give through its signaling authority, and every exporter's backend answers the offer itself (ADR-0035, needs cargo)
 zig build webrtc-driver-provider    # Live WebRTC C-provider proof: the generic C driver dials and listens through the WebRTC provider's signaling callbacks, the offer is handed in with provide_offer, and releasing the loop cancels a dial still in flight (needs cargo)

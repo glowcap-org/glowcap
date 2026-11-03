@@ -11,7 +11,7 @@
 //! That is the ADR-0035 signaling-capability shape, proven in Zig before the
 //! browser arm drives the same verbs over the wire.
 //!
-//! The delta from `webrtc-interop` is exactly the signaling path: there the
+//! The delta from `webrtc-session` is exactly the signaling path: there the
 //! driver ferries SDP and ICE between the two peers directly. Here every offer,
 //! answer, and candidate routes through the hub's `offer` / `candidate` verbs.
 //! Once the channel is open, the keyed handshake and the greet round-trip are
@@ -25,7 +25,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
-const webrtc_common = @import("webrtc_common");
+const webrtc_harness = @import("webrtc_harness");
 
 const crypto = glowcap.foundation.crypto;
 
@@ -168,8 +168,8 @@ pub fn main(init: std.process.Init) !void {
     try bringUpViaHub(&hub, &offerer_resident, &offerer, &answerer_resident, &answerer, recipient_designator[0..], exporter_designator[0..]);
 
     // The exporter serves on its own thread; the recipient drives on this one.
-    var exporter_future = try io.concurrent(webrtc_common.serveGreeter, .{ &answerer_resident, &answerer, allocator, exporter_seed, frame_cap, greeting });
-    const recipient_result = webrtc_common.dialAndGreet(&offerer_resident, &offerer, allocator, recipient_seed, exporter_designator[0..], frame_cap, greeting);
+    var exporter_future = try io.concurrent(webrtc_harness.serveGreeter, .{ &answerer_resident, &answerer, allocator, exporter_seed, frame_cap, greeting });
+    const recipient_result = webrtc_harness.dialAndGreet(&offerer_resident, &offerer, allocator, recipient_seed, exporter_designator[0..], frame_cap, greeting);
     const exporter_result = exporter_future.await(io);
     try recipient_result;
     try exporter_result;

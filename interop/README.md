@@ -1,9 +1,8 @@
 # interop/
 
 Cross-implementation interoperability drivers. They run glowcap against a live
-Spritely Goblins vat over a real OCapN session. The WebRTC transport tests
-also live here. The iroh, TCP, and onion tests between glowcap peers live in
-[`test/driver/transports`](../test/driver/transports/README.md).
+Spritely Goblins vat over a real OCapN session. Tests between glowcap peers
+live in [`test/driver/transports`](../test/driver/transports/README.md).
 
 Protocol fixtures under [`../conformance/`](../conformance/README.md) remain the
 reference for wire correctness. The C ABI boundary between Zig and its
@@ -31,14 +30,6 @@ Shared language helpers and the Zig conversation harness live in
 | [`goblins_rooms_irc/`](goblins_rooms_irc/)     | Both shipped IRC edges composed with real Goblins: a TLS/SASL IRC fixture exchanges room lines through the bridge, then an ordinary IRC client and Goblins exchange room traffic through the front before Goblins replies on the IRC-initiated direct session. | `zig build goblins-rooms-irc` (`-bridge` / `-front`) |
 | [`goblins_rooms_peering/`](goblins_rooms_peering/) | A real Goblins vat enters a glowcap foreign listing over the v1.0 Syrup baseline, discovery is revoked, and the vat keeps using the room it was handed. | `zig build goblins-rooms-peering` |
 | [`goblins_rooms_matrix/`](goblins_rooms_matrix/) | Sparse heavyweight end check: clean modular runs cover room topology, every DM pair, close/reopen, and restart. A final run reproduces Goblins' pinned cross-receiver count defect. | `zig build goblins-rooms-matrix-iroh` |
-| [`webrtc_interop/`](webrtc_interop/)           | Two glowcap peers hold a keyed OCapN session over a real DataChannel, signaling ferried in-process (ADR-0035).         | `zig build webrtc-interop`                                          |
-| [`webrtc_mesh/`](webrtc_mesh/)                 | The capability-routed signaling shape: an in-process hub introduces two peers, then a keyed session runs over the DataChannel it brought up. | `zig build webrtc-mesh`                                             |
-| [`webrtc_signaling_captp/`](webrtc_signaling_captp/) | The signaling object as a real OCapN capability: offer, answer, and candidates all cross a keyed CapTP session before the DataChannel exists. | `zig build webrtc-signaling-captp`                                  |
-| [`webrtc_loop/`](webrtc_loop/)                 | Live WebRTC scale: many concurrent DataChannels served from one loop thread through the generic Host completion adapter.      | `zig build webrtc-loop`                                             |
-| [`webrtc_redeem/`](webrtc_redeem/)             | WebRTC three-party redeem: a give naming a bare webrtc designator settles over a real DataChannel the recipient's runtime signals. | `zig build webrtc-redeem`                                           |
-| [`webrtc_driver_provider/`](webrtc_driver_provider/) | The generic C driver dials WebRTC through the provider's signaling callbacks, the answerer is signaled by hand and adopted, and `glowcap_driver_step` is the only progress after that. The Rust, Python, Racket, and Deno clients dial the same answerer through their `webrtc.provider`, and the Rust client also listens, accepting `offerer.zig` through `webrtc::listen`. | `zig build webrtc-driver-provider` / `bindings-webrtc-driver-provider` |
-| [`webrtc_browser_peer/`](webrtc_browser_peer/) | A real headless Chromium runs the wasm Host and dials the answerer over a DataChannel carrying a keyed session (`webrtc_common.zig` holds the shared sidecar plumbing). | `zig build webrtc-browser-peer` (+ `webrtc-answerer`)               |
-| [`webrtc_browser_to_browser/`](webrtc_browser_to_browser/) | Two headless Chromium peers bring up a direct DataChannel through a byte-transparent signaling relay and hold a keyed session end to end. | `zig build webrtc-browser-to-browser`                               |
 
 `zig build goblins-onion`, in [`goblins_interop/`](goblins_interop/), runs a
 real Goblins vat and a glowcap peer over hidden service circuits in both
