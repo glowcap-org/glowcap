@@ -99,6 +99,17 @@ class Fixtures(unittest.TestCase):
         self.assertEqual((verb.name, sequence, operation), ("mutate", 1, "accept"))
         self.assertEqual(record(argument, "fixture:ref"), ["pending"])
 
+    def test_goblins_handoff_contract_and_independent_messages(self):
+        params, result, convention = record(self.methods("fixture.Introducer")["get-greeter"], "method")
+        self.assertEqual(params, [])
+        self.assertEqual(record(result, "ref"), ["fixture.Direct"])
+        self.assertEqual(convention.name, "call")
+        self.assertEqual(syrup.syrup_encode(self.messages["introduce"]), b"[11'get-greeter]")
+        self.assertEqual(syrup.syrup_encode(self.messages["handoff-call"]), b'[13"glowcap-carol]')
+        self.assertEqual(
+            self.messages["handoff-result"], "Hello glowcap-carol, I'm Bob, handed off directly from the exporter!"
+        )
+
     def test_reference_closure(self):
         found = set()
 

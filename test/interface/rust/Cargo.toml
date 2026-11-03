@@ -18,9 +18,13 @@ all = { level = "deny", priority = -1 }
 name = "interface-conversation-proof"
 path = "main.rs"
 
+[[bin]]
+name = "interface-goblins-proof"
+path = "../../../interop/goblins_interop/interface_client.rs"
+
 # Keep the archive set explicit: this client composes the tokio driver with the
 # TCP provider and pays for no unrelated transport archive.
 [dependencies]
 glowcap = { path = "../../../bindings/rust", package = "glowcap", default-features = false, features = ["async", "tcp"] }
 # dep tokio: The async runtime for the Rust interface proof.
-tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync", "process"] }

@@ -36,5 +36,15 @@ pub fn generate(a: std.mem.Allocator) ![]u8 {
     try out.print(a, ";\npub const PREPARED_SEQUENCE: i64 = {d};\npub const PREPARED_OPERATION: &str = ", .{prepared.children[1].integer});
     try literal(&out, a, prepared.children[2].bytes);
     try out.appendSlice(a, ";\n");
+    const invocation = try root.get("handoff-call");
+    if (invocation.kind != .list or invocation.children.len != 1 or invocation.children[0].kind != .string) return error.InvalidDescription;
+    try out.appendSlice(a, "// Ordinary and Goblins consumers use different subsets of these fixtures.\n#[allow(dead_code)]\npub const HANDOFF_NAME: &str = ");
+    try literal(&out, a, invocation.children[0].bytes);
+    try out.appendSlice(a, ";\n");
+    const reply = try root.get("handoff-result");
+    if (reply.kind != .string) return error.InvalidDescription;
+    try out.appendSlice(a, "#[allow(dead_code)]\npub const HANDOFF_RESULT: &str = ");
+    try literal(&out, a, reply.bytes);
+    try out.appendSlice(a, ";\n");
     return out.toOwnedSlice(a);
 }

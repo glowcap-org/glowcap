@@ -23,6 +23,14 @@ function nothing(value: Argument): void {
 	if (value !== null) throw new TypeError("expected void reply");
 }
 
+export function introducer_get_greeter(
+	session: Session,
+	target: Ref | RemotePromise,
+): Pending<Ref> {
+	const raw = session.send(target, "get-greeter", []);
+	return new Pending(raw, capability);
+}
+
 export function factory_open(
 	session: Session,
 	target: Ref | RemotePromise,

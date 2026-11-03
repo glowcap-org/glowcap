@@ -200,6 +200,7 @@ GROUPS = (
                 build("zig build build rooms-archive-build"),
                 gate("zig build bindings-goblins-interop"),
                 gate("zig build bindings-goblins-handoff"),
+                gate("zig build interface-goblins-check"),
                 gate("zig build bindings-goblins-gift"),
                 gate("zig build goblins-handoff"),
                 gate("zig build goblins-handoff-iroh"),

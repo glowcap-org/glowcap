@@ -67,7 +67,7 @@ pub fn register(
     tasks_app_test_step.dependOn(&run_tasks_board.step);
     check_step.dependOn(tasks_app_test_step);
 
-    @import("interface.zig").registerRuntime(b, tasks_server_exe, runtime_gate);
+    @import("interface.zig").registerRuntime(b, tasks_server_exe, runtime_gate, check_step);
 
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
     // coordinator hands an agent capabilities to tools, attenuated to read-only,
