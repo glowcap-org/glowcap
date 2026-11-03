@@ -2,10 +2,7 @@
 use super::*;
 
 fn coordinate(slot: u64) -> custody::Coordinate {
-	custody::Coordinate {
-		role: custody::Role::Operations,
-		key: custody::FieldKey::new(NonZeroU64::new(slot).unwrap(), NonZeroU64::new(1).unwrap()),
-	}
+	requests::coordinate(custody::Role::Operations, slot)
 }
 fn entry(coordinate: custody::Coordinate, target: &Ref) -> Argument {
 	Argument::List(vec![

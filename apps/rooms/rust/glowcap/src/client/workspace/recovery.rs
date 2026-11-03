@@ -74,20 +74,16 @@ impl<D: Deadline + Clone> Workspace<D> {
 	}
 }
 impl<D: Deadline> RecoveredEffect<D> {
-	pub async fn adopted(&self) -> Result<bool, Error> {
-		let reply = self
-			.caller
-			.call(
-				&self.source,
-				"effect-adopted",
-				&[self.operation.as_str().into()],
-				"the original adoption did not answer",
-			)
-			.await?;
-		match reply {
-			Argument::Boolean(value) => Ok(value),
-			_ => Err(loam::refusal("invalid adoption status").into()),
+	fn observer(&self) -> super::observer::EffectObserver<'_, D> {
+		super::observer::EffectObserver {
+			caller: &self.caller,
+			source: &self.source,
+			operation: &self.operation,
+			canonical: &self.canonical,
 		}
+	}
+	pub async fn adopted(&self) -> Result<bool, Error> {
+		self.observer().adopted().await
 	}
 	pub fn canonical(&self) -> &str {
 		&self.canonical
@@ -96,31 +92,14 @@ impl<D: Deadline> RecoveredEffect<D> {
 		size_of::<Self>() + self.operation.capacity() + self.canonical.capacity()
 	}
 	pub async fn status(&self) -> Result<EffectStatus, Error> {
-		let reply = self
-			.caller
-			.call(
-				&self.source,
-				"effect-status",
-				&[self.operation.clone().into(), self.source.clone().into()],
-				"the original receipt did not answer",
-			)
-			.await?;
-		EffectStatus::read(&reply)
+		self.observer().status("the original receipt did not answer").await
 	}
 	/// Wait on this exact observer, including a retained execution interruption.
 	pub async fn receive(&self) -> Result<EffectStatus, Error> {
-		super::results::receive(&self.caller, &self.source, &self.operation, &self.canonical).await
+		self.observer().receive().await
 	}
 	pub async fn result(&self) -> Result<Argument, Error> {
-		self.caller
-			.call(
-				&self.source,
-				"effect-result",
-				&[self.operation.clone().into(), self.canonical.clone().into()],
-				"the original result did not answer",
-			)
-			.await
-			.and_then(super::results::observed)
+		self.observer().result("the original result did not answer").await
 	}
 	/// Give up on this receipt. Its outcome stays unknown, an unadopted result
 	/// is forfeited, and the operation can never be resumed or resubmitted. A
@@ -161,18 +140,6 @@ impl<D: Deadline + Clone> RecoveredEffect<D> {
 		intent: &Intent,
 		source: Option<custody::FieldKey<custody::SessionAccess>>,
 	) -> glowcap::Result<ResultAcquisition<D>> {
-		super::results::prepare(
-			super::results::Witness {
-				caller: &self.caller,
-				source: &self.source,
-				operation: &self.operation,
-				canonical: &self.canonical,
-			},
-			expected,
-			imports,
-			releases,
-			intent,
-			source,
-		)
+		super::results::prepare(self.observer(), expected, imports, releases, intent, source)
 	}
 }

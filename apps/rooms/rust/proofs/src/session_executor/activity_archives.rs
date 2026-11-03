@@ -58,8 +58,8 @@ pub(super) async fn run(
 		kind: ShareKind::Room,
 		conversation: Some(Text::new("garden".into()).unwrap()),
 		from: Text::new("peer".into()).unwrap(),
-		access: custody::FieldKey::new(access.key.slot(), access.key.generation()),
-		source: custody::FieldKey::new(origin.key.slot(), origin.key.generation()),
+		access: access.key.retag(),
+		source: origin.key.retag(),
 		durable: false,
 	}])
 	.unwrap();
@@ -189,13 +189,13 @@ pub(super) async fn sharing(
 	let mut intent = original.intent.clone();
 	let archive = requests::coordinate(custody::Role::ArchiveAccess, 94);
 	let recipient = requests::coordinate(custody::Role::DirectAccess, 95);
-	intent.archive = Some(custody::FieldKey::new(archive.key.slot(), archive.key.generation()));
+	intent.archive = Some(archive.key.retag());
 	let session::workspace::Conversation::Direct(mut row) = intent.conversations.as_slice()[0].clone() else {
 		panic!("direct recipient");
 	};
 	let conversation = row.id.text().as_str().unwrap().to_owned();
 	row.id = Text::new("sharing-recipient".into()).unwrap();
-	row.access = Some(custody::FieldKey::new(recipient.key.slot(), recipient.key.generation()));
+	row.access = Some(recipient.key.retag());
 	row.source = None;
 	row.inbox = None;
 	row.introduction = None;

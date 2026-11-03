@@ -98,7 +98,7 @@ pub(super) async fn serve(
 		while let Some(ended) = tasks.join_next().await {
 			match ended {
 				Ok(Err(error)) => (environment.report)(super::Notice::ShutdownConnectionEnded(error)),
-				Err(error) => result = crate::cleanup::combine(result, Err(error.to_string())),
+				Err(error) => crate::cleanup::retain(&mut result, Err(error.to_string())),
 				Ok(Ok(())) => {}
 			}
 		}

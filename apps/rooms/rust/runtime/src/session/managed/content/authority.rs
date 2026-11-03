@@ -3,12 +3,6 @@
 use super::*;
 use rooms_application::room::stewardship::Kind;
 
-fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
-	}
-}
 fn callback(input: Invocation<'_>) -> Result<Invocation<'_>> {
 	if input.args.len() != 5 {
 		return Err(refuse(
@@ -21,12 +15,7 @@ fn callback(input: Invocation<'_>) -> Result<Invocation<'_>> {
 	})
 }
 fn kind(input: Invocation<'_>) -> Result<Kind> {
-	match text(&input.args[3])? {
-		"room" => Ok(Kind::Room),
-		"steward" => Ok(Kind::Steward),
-		"manager" => Ok(Kind::Manager),
-		_ => Err(refuse("unknown retired room authority")),
-	}
+	Kind::parse(text(&input.args[3])?).ok_or_else(|| refuse("unknown retired room authority"))
 }
 fn selection(input: Invocation<'_>, record: &MetadataRecord) -> Result<Option<custody::Coordinate>> {
 	let workspace::InboxSelection::Room { id, .. } = inbox::selection(callback(input)?)? else {
@@ -43,9 +32,15 @@ fn selection(input: Invocation<'_>, record: &MetadataRecord) -> Result<Option<cu
 		})
 		.ok_or_else(|| refuse("the original room is no longer held"))?;
 	Ok(match kind(input)? {
-		Kind::Room => room.access.map(|key| coordinate(custody::Role::RoomAccess, key)),
-		Kind::Steward => room.moderator.map(|key| coordinate(custody::Role::RoomAccess, key)),
-		Kind::Manager => room.control.map(|key| coordinate(custody::Role::RoomControl, key)),
+		Kind::Room => room
+			.access
+			.map(|key| custody::Coordinate::new(custody::Role::RoomAccess, key)),
+		Kind::Steward => room
+			.moderator
+			.map(|key| custody::Coordinate::new(custody::Role::RoomAccess, key)),
+		Kind::Manager => room
+			.control
+			.map(|key| custody::Coordinate::new(custody::Role::RoomControl, key)),
 	})
 }
 pub(super) fn requirement(input: Invocation<'_>, root: &Ref) -> Result<Requirement> {
@@ -101,17 +96,9 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>, root: &Ref) -> 
 	}
 	let mut record = records::decode(input)?;
 	if coordinate.role == custody::Role::RoomControl {
-		local::retire_room_control(
-			&mut record.intent,
-			&mut record.custody,
-			custody::FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
-		);
+		local::retire_room_control(&mut record.intent, &mut record.custody, coordinate.key.retag());
 	} else {
-		local::retire_authority(
-			&mut record.intent,
-			&mut record.custody,
-			custody::FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
-		);
+		local::retire_authority(&mut record.intent, &mut record.custody, coordinate.key.retag());
 	}
 	records::replace(call, input, &mut record)?;
 	Ok(Argument::Void)

@@ -172,27 +172,14 @@ impl Serialize for Record {
 				previews,
 				attachments,
 			} => {
-				map.serialize_entry(
-					"conversationKind",
-					match conversation_kind {
-						ConversationKind::Room => "room",
-						ConversationKind::Direct => "direct",
-					},
-				)?;
+				map.serialize_entry("conversationKind", conversation_kind.wire())?;
 				map.serialize_entry("conversation", conversation)?;
 				map.serialize_entry("from", from)?;
 				map.serialize_entry("text", text)?;
 				map.serialize_entry("mine", mine)?;
 				map.serialize_entry("at", at)?;
 				map.serialize_entry("order", order)?;
-				map.serialize_entry(
-					"state",
-					match state {
-						LineState::Present => "present",
-						LineState::Edited => "edited",
-						LineState::Withdrawn => "withdrawn",
-					},
-				)?;
+				map.serialize_entry("state", state.wire())?;
 				map.serialize_entry("previewUrls", previews)?;
 				map.serialize_entry("attachments", attachments)?;
 			}

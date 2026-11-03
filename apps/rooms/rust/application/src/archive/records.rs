@@ -42,6 +42,21 @@ pub enum ConversationKind {
 	Room,
 	Direct,
 }
+impl ConversationKind {
+	pub fn parse(value: &str) -> Option<Self> {
+		match value {
+			"room" => Some(Self::Room),
+			"direct" => Some(Self::Direct),
+			_ => None,
+		}
+	}
+	pub const fn wire(self) -> &'static str {
+		match self {
+			Self::Room => "room",
+			Self::Direct => "direct",
+		}
+	}
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -54,6 +69,23 @@ pub enum LineState {
 	Present,
 	Edited,
 	Withdrawn,
+}
+impl LineState {
+	pub fn parse(value: &str) -> Option<Self> {
+		match value {
+			"present" => Some(Self::Present),
+			"edited" => Some(Self::Edited),
+			"withdrawn" => Some(Self::Withdrawn),
+			_ => None,
+		}
+	}
+	pub const fn wire(self) -> &'static str {
+		match self {
+			Self::Present => "present",
+			Self::Edited => "edited",
+			Self::Withdrawn => "withdrawn",
+		}
+	}
 }
 pub use super::attachment::Attachment;
 #[derive(Clone, Debug, PartialEq, Eq)]

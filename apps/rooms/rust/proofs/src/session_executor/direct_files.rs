@@ -109,11 +109,11 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, line: &
 			&[rooms_glowcap::client::workspace::ResultImport {
 				result: custody::Coordinate {
 					role: custody::Role::Line,
-					key: custody::FieldKey::new(receipt_line.slot(), receipt_line.generation()),
+					key: receipt_line.retag(),
 				},
 				destination: custody::Coordinate {
 					role: custody::Role::Line,
-					key: custody::FieldKey::new(posted.handle.slot(), posted.handle.generation()),
+					key: posted.handle.retag(),
 				},
 			}],
 			&[],

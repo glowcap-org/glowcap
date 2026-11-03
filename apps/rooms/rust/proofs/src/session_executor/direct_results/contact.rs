@@ -25,10 +25,7 @@ pub(super) async fn refuse_replacement(host: &Host, source: &Ref, platform: &Pla
 			directory: directory.id.clone(),
 			peer: rooms_application::fields::Text::new("peer".into()).unwrap(),
 			source: None,
-			access: Some(custody::FieldKey::new(
-				destination.key.slot(),
-				destination.key.generation(),
-			)),
+			access: Some(destination.key.retag()),
 			introduction: Some(workspace::Introduction {
 				access: directory.access,
 				name: directory.name.unwrap(),

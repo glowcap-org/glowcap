@@ -1,22 +1,16 @@
 //! Intent selects exact typed custody fields. Validation and local retirement
 //! share this borrowed walk. Effect receipts own their independent occurrences.
 use super::{Conversation, Directory, Intent, Invitation, InvitationAuthority, PostedLine};
-use crate::content::session::custody::{Coordinate, Custody, FieldKey, References, Role};
+use crate::content::session::custody::{Coordinate, Custody, References, Role};
 
-pub(in crate::content::session) fn coordinate<K>(role: Role, key: FieldKey<K>) -> Coordinate {
-	Coordinate {
-		role,
-		key: FieldKey::new(key.slot(), key.generation()),
-	}
-}
 impl Directory {
 	/// Validation and retirement share every exact directory selection.
 	pub fn coordinates(&self) -> impl Iterator<Item = Coordinate> {
 		[
-			Some(coordinate(Role::DirectoryAccess, self.access)),
-			self.name.map(|key| coordinate(Role::DirectoryName, key)),
-			self.source.map(|key| coordinate(Role::SessionAccess, key)),
-			self.inbox.map(|key| coordinate(Role::DirectoryInbox, key)),
+			Some(Coordinate::new(Role::DirectoryAccess, self.access)),
+			self.name.map(|key| Coordinate::new(Role::DirectoryName, key)),
+			self.source.map(|key| Coordinate::new(Role::SessionAccess, key)),
+			self.inbox.map(|key| Coordinate::new(Role::DirectoryInbox, key)),
 		]
 		.into_iter()
 		.flatten()
@@ -29,26 +23,26 @@ impl Conversation {
 		let (fields, lines): ([Option<Coordinate>; 10], &[PostedLine]) = match self {
 			Self::Room(room) => (
 				[
-					room.access.map(|key| coordinate(Role::RoomAccess, key)),
-					room.accepted.map(|key| coordinate(Role::AcceptedAccess, key)),
-					room.seat.map(|key| coordinate(Role::RoomSeat, key)),
-					room.subject.map(|key| coordinate(Role::RoomSubject, key)),
-					room.files.map(|key| coordinate(Role::RoomFiles, key)),
-					room.moderator.map(|key| coordinate(Role::RoomAccess, key)),
-					room.control.map(|key| coordinate(Role::RoomControl, key)),
-					room.source.map(|key| coordinate(Role::SessionAccess, key)),
-					room.inbox.map(|key| coordinate(Role::RoomInbox, key)),
+					room.access.map(|key| Coordinate::new(Role::RoomAccess, key)),
+					room.accepted.map(|key| Coordinate::new(Role::AcceptedAccess, key)),
+					room.seat.map(|key| Coordinate::new(Role::RoomSeat, key)),
+					room.subject.map(|key| Coordinate::new(Role::RoomSubject, key)),
+					room.files.map(|key| Coordinate::new(Role::RoomFiles, key)),
+					room.moderator.map(|key| Coordinate::new(Role::RoomAccess, key)),
+					room.control.map(|key| Coordinate::new(Role::RoomControl, key)),
+					room.source.map(|key| Coordinate::new(Role::SessionAccess, key)),
+					room.inbox.map(|key| Coordinate::new(Role::RoomInbox, key)),
 					room.public_entry
 						.as_ref()
-						.map(|entry| coordinate(Role::DirectoryAccess, entry.access)),
+						.map(|entry| Coordinate::new(Role::DirectoryAccess, entry.access)),
 				],
 				room.lines.as_slice(),
 			),
 			Self::Direct(direct) => (
 				[
-					direct.access.map(|key| coordinate(Role::DirectAccess, key)),
-					direct.source.map(|key| coordinate(Role::SessionAccess, key)),
-					direct.inbox.map(|key| coordinate(Role::DirectInbox, key)),
+					direct.access.map(|key| Coordinate::new(Role::DirectAccess, key)),
+					direct.source.map(|key| Coordinate::new(Role::SessionAccess, key)),
+					direct.inbox.map(|key| Coordinate::new(Role::DirectInbox, key)),
 					None,
 					None,
 					None,
@@ -63,7 +57,7 @@ impl Conversation {
 		fields
 			.into_iter()
 			.flatten()
-			.chain(lines.iter().map(|line| coordinate(Role::Line, line.handle)))
+			.chain(lines.iter().map(|line| Coordinate::new(Role::Line, line.handle)))
 			.chain(
 				match self {
 					Self::Direct(row) => row.introduction.as_ref(),
@@ -72,9 +66,9 @@ impl Conversation {
 				.into_iter()
 				.flat_map(|witness| {
 					[
-						coordinate(Role::DirectoryAccess, witness.access),
-						coordinate(Role::DirectoryName, witness.name),
-						coordinate(Role::DirectoryInbox, witness.callback),
+						Coordinate::new(Role::DirectoryAccess, witness.access),
+						Coordinate::new(Role::DirectoryName, witness.name),
+						Coordinate::new(Role::DirectoryInbox, witness.callback),
 					]
 				}),
 			)
@@ -129,12 +123,15 @@ impl Intent {
 			.chain(self.invitations.as_slice().iter().flat_map(Invitation::coordinates))
 			.chain(self.peering.as_slice().iter().flat_map(|row| {
 				[
-					coordinate(Role::RoomAccess, row.room),
-					coordinate(Role::PublicationLease, row.lease),
+					Coordinate::new(Role::RoomAccess, row.room),
+					Coordinate::new(Role::PublicationLease, row.lease),
 				]
 			}))
-			.chain(self.archive.map(|key| coordinate(Role::ArchiveAccess, key)))
-			.chain(self.archive_control.map(|key| coordinate(Role::ArchiveControl, key)))
+			.chain(self.archive.map(|key| Coordinate::new(Role::ArchiveAccess, key)))
+			.chain(
+				self.archive_control
+					.map(|key| Coordinate::new(Role::ArchiveControl, key)),
+			)
 			.chain(
 				self.archive_shares
 					.as_slice()
@@ -145,13 +142,13 @@ impl Intent {
 				self.operators
 					.as_slice()
 					.iter()
-					.map(|&key| coordinate(Role::Operator, key)),
+					.map(|&key| Coordinate::new(Role::Operator, key)),
 			)
 			.chain(self.operations.as_slice().iter().map(|row| row.handle))
 			.chain(self.accesses.as_slice().iter().flat_map(|row| {
 				[
-					row.access.map(|key| coordinate(Role::SessionAccess, key)),
-					row.control.map(|key| coordinate(Role::SessionControl, key)),
+					row.access.map(|key| Coordinate::new(Role::SessionAccess, key)),
+					row.control.map(|key| Coordinate::new(Role::SessionControl, key)),
 				]
 				.into_iter()
 				.flatten()
@@ -161,8 +158,8 @@ impl Intent {
 impl InvitationAuthority {
 	pub fn coordinate(self) -> Coordinate {
 		match self {
-			Self::Offer(key) => coordinate(Role::Offer, key),
-			Self::RoomAccess(key) => coordinate(Role::RoomAccess, key),
+			Self::Offer(key) => Coordinate::new(Role::Offer, key),
+			Self::RoomAccess(key) => Coordinate::new(Role::RoomAccess, key),
 		}
 	}
 }
@@ -170,7 +167,7 @@ impl Invitation {
 	pub fn coordinates(&self) -> impl Iterator<Item = Coordinate> {
 		[
 			Some(self.authority.coordinate()),
-			self.source.map(|key| coordinate(Role::SessionAccess, key)),
+			self.source.map(|key| Coordinate::new(Role::SessionAccess, key)),
 		]
 		.into_iter()
 		.flatten()

@@ -252,13 +252,6 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	pub fn generation(&self, key: &RoomKey) -> Option<&str> {
 		self.rooms.get(key).map(|room| room.entry_id.as_str())
 	}
-	pub(super) fn authority_kind_name(kind: crate::room::stewardship::Kind) -> &'static str {
-		match kind {
-			crate::room::stewardship::Kind::Room => "room",
-			crate::room::stewardship::Kind::Steward => "steward",
-			crate::room::stewardship::Kind::Manager => "manager",
-		}
-	}
 	pub(super) fn public_kind(policy: RoomPolicy) -> MembershipKind {
 		policy.public_membership().unwrap_or(MembershipKind::Observer)
 	}

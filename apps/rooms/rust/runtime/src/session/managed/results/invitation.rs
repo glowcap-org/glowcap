@@ -12,7 +12,7 @@ pub(super) fn read(value: &Argument) -> Result<Settlement> {
 	let reference = Ref::try_from(value).map_err(|_| loam::refusal("invitation returned no entrance capability"))?;
 	let coordinate = coordinate();
 	let row = Acceptance {
-		entrance: FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
+		entrance: coordinate.key.retag(),
 	};
 	Ok(Settlement(Argument::List(vec![
 		serde_json::to_string(&row)

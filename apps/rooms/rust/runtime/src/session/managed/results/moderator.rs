@@ -26,7 +26,7 @@ pub(super) fn read(value: &Argument) -> Result<Acquisition> {
 	glowcap::parse_sturdyref(grant.steward_link, glowcap::CaptpVersion::V1_0)?;
 	let coordinate = coordinate();
 	let data = serde_json::to_string(&RoomModerator {
-		moderator: FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
+		moderator: coordinate.key.retag(),
 	})
 	.map_err(|_| loam::refusal("invalid moderator result"))?;
 	Ok(Acquisition {

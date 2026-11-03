@@ -15,7 +15,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 		for row in selected.as_slice() {
 			let coordinate = custody::Coordinate {
 				role: custody::Role::PublicationLease,
-				key: custody::FieldKey::new(row.lease.slot(), row.lease.generation()),
+				key: row.lease.retag(),
 			};
 			let reader = self.operations_reader(coordinate, Some(Kind::Peering)).await?;
 			let phase = reader.publication_phase().await?;

@@ -28,7 +28,7 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 		if let Some(existing) = current.and_then(|key| {
 			record.custody.get(custody::Coordinate {
 				role: custody::Role::DirectAccess,
-				key: custody::FieldKey::new(key.slot(), key.generation()),
+				key: key.retag(),
 			})
 		}) {
 			let location = records::location(&existing);
@@ -86,7 +86,7 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		if let Some(current) = row.access {
 			let previous = custody::Coordinate {
 				role: coordinate.role,
-				key: custody::FieldKey::new(current.slot(), current.generation()),
+				key: current.retag(),
 			};
 			let held = record
 				.custody
@@ -116,10 +116,7 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 			.custody
 			.insert(records::restored(coordinate, records::Field::Held(reference.clone())))
 			.map_err(|_| refuse("reciprocal route custody is full or conflicts"))?;
-		row.access = Some(custody::FieldKey::new(
-			coordinate.key.slot(),
-			coordinate.key.generation(),
-		));
+		row.access = Some(coordinate.key.retag());
 		records::replace(call, input, &mut record)?;
 		return Ok(Argument::Void);
 	}

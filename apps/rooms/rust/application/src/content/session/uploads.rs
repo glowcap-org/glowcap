@@ -136,15 +136,12 @@ impl Intent {
 		let (role, key, lines) = match conversation {
 			workspace::Conversation::Room(room) => (
 				custody::Role::RoomFiles,
-				room.files
-					.map(|key| custody::FieldKey::new(key.slot(), key.generation())),
+				room.files.map(|key| key.retag()),
 				room.lines.as_slice(),
 			),
 			workspace::Conversation::Direct(direct) if !direct.closed => (
 				custody::Role::DirectAccess,
-				direct
-					.access
-					.map(|key| custody::FieldKey::new(key.slot(), key.generation())),
+				direct.access.map(|key| key.retag()),
 				direct.lines.as_slice(),
 			),
 			_ => return Err(refuse("direct conversation is closed")),
@@ -159,7 +156,7 @@ impl Intent {
 				.handle;
 			coordinates.push(custody::Coordinate {
 				role: custody::Role::Line,
-				key: custody::FieldKey::new(key.slot(), key.generation()),
+				key: key.retag(),
 			});
 		}
 		Ok(coordinates)

@@ -1,5 +1,5 @@
 //! Receipt-owned uploads preserve staging, exact sources and bounded streaming.
-use super::*;
+use super::{requests::coordinate, *};
 use rooms_application::{
 	content::permissions::Permission,
 	content::session::uploads::{Description, Intent as UploadIntent, Kind, Outcome},
@@ -163,12 +163,6 @@ fn registration(trace: Rc<Trace>) -> Registration {
 		})
 		.collect(),
 		content: Box::new(Target(trace)),
-	}
-}
-fn coordinate(role: custody::Role, slot: u64) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(NonZeroU64::new(slot).unwrap(), NonZeroU64::new(1).unwrap()),
 	}
 }
 fn workspace() -> Intent {

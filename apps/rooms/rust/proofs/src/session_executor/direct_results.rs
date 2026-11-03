@@ -400,10 +400,7 @@ pub(super) async fn run() {
 							id: rooms_application::fields::Text::new("direct".into()).unwrap(),
 							directory: rooms_application::fields::Text::new("directory".into()).unwrap(),
 							peer: rooms_application::fields::Text::new("peer".into()).unwrap(),
-							access: Some(custody::FieldKey::new(
-								destination.key.slot(),
-								destination.key.generation(),
-							)),
+							access: Some(destination.key.retag()),
 							closed: false,
 							lines: List::default(),
 							draft: rooms_application::fields::Text::new("".into()).unwrap(),

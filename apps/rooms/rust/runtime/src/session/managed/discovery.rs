@@ -76,7 +76,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		workspace.check_discovery(&selected).await.map_err(error)?;
 		let coordinate = custody::Coordinate {
 			role: custody::Role::DirectoryAccess,
-			key: custody::FieldKey::new(selected.access.slot(), selected.access.generation()),
+			key: selected.access.retag(),
 		};
 		let target = self.restore_custody(&[coordinate]).await?.remove(0);
 		let connection = supervision::retirement::exporter(&self.state.writer.host, &target)?;

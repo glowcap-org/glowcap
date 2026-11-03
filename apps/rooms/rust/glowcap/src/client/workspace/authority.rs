@@ -2,12 +2,6 @@
 use super::*;
 use rooms_application::room::authority;
 
-fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
-	}
-}
 impl<D: Deadline + Clone> Workspace<D> {
 	/// Learn presentation from the exact imported entrance before preparing the
 	/// atomic acquisition. The same reference is retained by that transaction.
@@ -20,7 +14,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 			let Some(access) = room.access else { continue };
 			let Some(imported) = imports
 				.iter()
-				.find(|entry| entry.coordinate == coordinate(custody::Role::RoomAccess, access))
+				.find(|entry| entry.coordinate == custody::Coordinate::new(custody::Role::RoomAccess, access))
 			else {
 				continue;
 			};
@@ -77,12 +71,12 @@ impl<D: Deadline + Clone> Workspace<D> {
 			let manager = room.control.and_then(|key| {
 				imports
 					.iter()
-					.find(|entry| entry.coordinate == coordinate(custody::Role::RoomControl, key))
+					.find(|entry| entry.coordinate == custody::Coordinate::new(custody::Role::RoomControl, key))
 			});
 			let moderator = room.moderator.and_then(|key| {
 				imports
 					.iter()
-					.find(|entry| entry.coordinate == coordinate(custody::Role::RoomAccess, key))
+					.find(|entry| entry.coordinate == custody::Coordinate::new(custody::Role::RoomAccess, key))
 			});
 			if manager.is_none() && moderator.is_none() {
 				continue;
@@ -90,7 +84,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 			let access = room
 				.access
 				.ok_or_else(|| loam::refusal("room role import requires exact continuing room access"))?;
-			let selected = coordinate(custody::Role::RoomAccess, access);
+			let selected = custody::Coordinate::new(custody::Role::RoomAccess, access);
 			let imported = imports.iter().find(|entry| entry.coordinate == selected);
 			if let Some(manager) = manager {
 				let governed = self

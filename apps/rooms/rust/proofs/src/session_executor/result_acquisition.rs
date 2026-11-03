@@ -50,12 +50,8 @@ pub(super) async fn membership(
 		});
 		let selected = exists.then(|| field(role, 9).key);
 		match role {
-			custody::Role::RoomSubject => {
-				room.subject = selected.map(|key| custody::FieldKey::new(key.slot(), key.generation()))
-			}
-			custody::Role::RoomFiles => {
-				room.files = selected.map(|key| custody::FieldKey::new(key.slot(), key.generation()))
-			}
+			custody::Role::RoomSubject => room.subject = selected.map(|key| key.retag()),
+			custody::Role::RoomFiles => room.files = selected.map(|key| key.retag()),
 			_ => unreachable!(),
 		}
 		if exists {

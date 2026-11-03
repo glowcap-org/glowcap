@@ -264,10 +264,7 @@ pub(super) fn result_acquisition(
 			if coordinate.role != custody::Role::SessionAccess {
 				return Err("Worker source must select session access".into());
 			}
-			Ok(custody::FieldKey::<custody::SessionAccess>::new(
-				coordinate.key.slot(),
-				coordinate.key.generation(),
-			))
+			Ok(coordinate.key.retag())
 		})
 		.transpose()
 	{

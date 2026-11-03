@@ -20,7 +20,7 @@ mod saved;
 pub(super) mod signaling;
 mod uploads;
 use super::{
-	Environment, Result,
+	Environment, Result, cleanup,
 	driver::{Driver, Held},
 	js_error, rejected, scalar,
 };
@@ -126,7 +126,7 @@ impl Owner {
 			std::rc::Rc::new(move |reason| trouble.report("Trace publisher", reason)),
 		));
 		if let Err(error) = opened.session().configure_trace(trace.clone()) {
-			let cleanup = super::retain(
+			let cleanup = cleanup::combine(
 				trace.close().await.map_err(|error| error.to_string()),
 				opened.close().await.map_err(|error| error.to_string()),
 			);
@@ -243,12 +243,6 @@ fn key<K>(platform: &mut Platform) -> Result<custody::FieldKey<K>> {
 		.and_then(|generation| NonZeroU64::new(u64::from_be_bytes(generation)))
 		.ok_or("Empty custody generation")?;
 	Ok(custody::FieldKey::new(slot, generation))
-}
-fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
-	}
 }
 
 /// Opens one tab's actual Store before exposing workspace or management. This
@@ -389,7 +383,7 @@ impl RoomsManagedApplication {
 				.find(|row| row.id.text().as_str() == Some(&id))
 				.and_then(|row| row.access)
 				.ok_or("No held workspace access for this row")?;
-			let fields = [coordinate(custody::Role::SessionAccess, selected)];
+			let fields = [custody::Coordinate::new(custody::Role::SessionAccess, selected)];
 			let mut held = environment
 				.platform
 				.within(
@@ -444,7 +438,7 @@ impl RoomsManagedApplication {
 				.find(|row| row.id.text().as_str() == Some(&id))
 				.and_then(|row| row.control)
 				.ok_or("No held management control for this row")?;
-			let fields = [coordinate(custody::Role::SessionControl, selected)];
+			let fields = [custody::Coordinate::new(custody::Role::SessionControl, selected)];
 			let mut held = environment
 				.platform
 				.within(

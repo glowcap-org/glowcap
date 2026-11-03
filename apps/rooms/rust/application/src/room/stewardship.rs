@@ -13,6 +13,23 @@ pub enum Kind {
 	Steward,
 	Manager,
 }
+impl Kind {
+	pub fn parse(value: &str) -> Option<Self> {
+		match value {
+			"room" => Some(Self::Room),
+			"steward" => Some(Self::Steward),
+			"manager" => Some(Self::Manager),
+			_ => None,
+		}
+	}
+	pub const fn wire(self) -> &'static str {
+		match self {
+			Self::Room => "room",
+			Self::Steward => "steward",
+			Self::Manager => "manager",
+		}
+	}
+}
 
 /// A validated sturdyref and its decoded publication generation. The adapter
 /// supplies the token through the existing binding's sturdyref parser.

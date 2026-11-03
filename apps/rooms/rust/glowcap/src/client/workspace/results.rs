@@ -1,7 +1,8 @@
 //! Acquisition keeps the command's original source and committed result keys.
 //! Its candidate selects those exact occurrences in one workspace transaction.
 use super::acquisition::{candidate_arguments, coordinate};
-use super::{Caller, Command, Deadline, EffectStatus, Error};
+use super::observer::EffectObserver;
+use super::{Caller, Command, Deadline, Error};
 use glowcap::{Argument, Result, loam};
 use rooms_application::content::session::{custody, records, workspace::Intent};
 use std::rc::Rc;
@@ -38,28 +39,6 @@ pub struct ResultImport {
 	pub destination: custody::Coordinate,
 }
 
-pub(super) async fn receive<D: Deadline>(
-	caller: &Caller<D>,
-	source: &glowcap::Ref,
-	operation: &str,
-	canonical: &str,
-) -> core::result::Result<EffectStatus, Error> {
-	let value = caller
-		.call(
-			source,
-			"effect-reader",
-			&[operation.into(), canonical.into()],
-			"the original receipt observer did not answer",
-		)
-		.await?;
-	let reader = glowcap::Ref::try_from(&value).map_err(|_| loam::refusal("effect observer capability required"))?;
-	EffectStatus::read(
-		&caller
-			.wait(&reader, "read", &[operation.into(), source.clone().into()])
-			.await?,
-	)
-}
-
 /// Seven fixed arguments plus bounded mapping/release spines. Original operation
 /// and canonical intent copy once from Command. Candidate encoding has the same
 /// aggregate limit as ordinary acquisition. Capability results stay in Loam.
@@ -92,29 +71,11 @@ impl<D: Deadline + Clone> Command<D> {
 		intent: &Intent,
 		source: Option<custody::FieldKey<custody::SessionAccess>>,
 	) -> Result<ResultAcquisition<D>> {
-		prepare(
-			Witness {
-				caller: &self.caller,
-				source: &self.source,
-				operation: &self.operation,
-				canonical: &self.canonical,
-			},
-			expected,
-			imports,
-			releases,
-			intent,
-			source,
-		)
+		prepare(self.observer(), expected, imports, releases, intent, source)
 	}
 }
-pub(super) struct Witness<'a, D> {
-	pub caller: &'a Caller<D>,
-	pub source: &'a glowcap::Ref,
-	pub operation: &'a str,
-	pub canonical: &'a str,
-}
 pub(super) fn prepare<D: Deadline + Clone>(
-	witness: Witness<'_, D>,
+	witness: EffectObserver<'_, D>,
 	expected: u64,
 	imports: &[ResultImport],
 	releases: &[custody::Coordinate],
@@ -140,7 +101,7 @@ pub(super) fn prepare<D: Deadline + Clone>(
 	let source = source.map_or(Ok(Argument::Void), |key| {
 		coordinate(custody::Coordinate {
 			role: custody::Role::SessionAccess,
-			key: custody::FieldKey::new(key.slot(), key.generation()),
+			key: key.retag(),
 		})
 	})?;
 	Ok(ResultAcquisition {

@@ -23,7 +23,7 @@ pub(in crate::session::managed) fn selected<P: Tasks + Deadline + Clone + 'stati
 		platform,
 		coordinate: Coordinate {
 			role: custody::Role::ArchiveAccess,
-			key: FieldKey::new(key.slot(), key.generation()),
+			key: key.retag(),
 		},
 	}))
 }

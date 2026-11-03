@@ -29,11 +29,7 @@ impl Change {
 		let [kind, directory, conversation] = args else {
 			return Err(Error::Filter);
 		};
-		let kind = match kind.text() {
-			Some("room") => ConversationKind::Room,
-			Some("direct") => ConversationKind::Direct,
-			_ => return Err(Error::Filter),
-		};
+		let kind = kind.text().and_then(ConversationKind::parse).ok_or(Error::Filter)?;
 		let directory = directory.document(MAX_CONTEXT_BYTES).ok_or(Error::Filter)?;
 		let conversation = conversation.document(MAX_CONVERSATION_BYTES).ok_or(Error::Filter)?;
 		bounded_text(&directory, MAX_CONTEXT_BYTES, false)?;

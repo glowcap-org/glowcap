@@ -1,6 +1,6 @@
 //! Bounded application work on one continuously polled local executor. The
 //! stop signal bypasses admission. Dropping a JS observation retains its job.
-use super::{Environment, Result, TroubleReporter, js_error, rejected};
+use super::{Environment, Result, TroubleReporter, cleanup, js_error, rejected};
 use std::{
 	cell::{Cell, RefCell},
 	future::Future,
@@ -157,7 +157,7 @@ impl Driver {
 						};
 						let closed = retirement.environment.close().await;
 						let outcome = if closed.is_err() {
-							let outcome = super::retain(retirement.failure.clone(), closed);
+							let outcome = cleanup::combine(retirement.failure.clone(), closed);
 							if owned_budget.retain_failed_close.get() {
 								*pending_retirement.borrow_mut() = Some(retirement);
 							}
@@ -165,7 +165,7 @@ impl Driver {
 						} else {
 							// Drained failures are terminal evidence. Retrying an empty
 							// JoinSet cannot turn a failed task into successful close.
-							super::retain(retirement.failure, drain(&mut retirement.serving).await)
+							cleanup::combine(retirement.failure, drain(&mut retirement.serving).await)
 						};
 						ended.send_replace(Some(outcome));
 					}
@@ -348,7 +348,7 @@ async fn run(
 	// terminal outcomes and cleanup failures survive application shutdown.
 	while incoming.try_recv().is_ok() {}
 	tasks.abort_all();
-	failure = super::retain(failure, drain(&mut tasks).await);
+	cleanup::retain(&mut failure, drain(&mut tasks).await);
 	let close = environment.close().await;
 	if close.is_err() {
 		if budget.retain_failed_close.get() {
@@ -358,10 +358,10 @@ async fn run(
 				failure: failure.clone(),
 			});
 		}
-		return super::retain(failure, close);
+		return cleanup::combine(failure, close);
 	}
-	failure = super::retain(failure, close);
-	failure = super::retain(failure, drain(&mut serving).await);
+	cleanup::retain(&mut failure, close);
+	cleanup::retain(&mut failure, drain(&mut serving).await);
 	failure
 }
 
@@ -376,8 +376,8 @@ async fn drain(tasks: &mut JoinSet<Result<()>>) -> Result<()> {
 	let mut result = Ok(());
 	while let Some(outcome) = tasks.join_next().await {
 		match outcome {
-			Ok(outcome) => result = super::retain(result, outcome),
-			Err(error) if !error.is_cancelled() => result = super::retain(result, Err(error.to_string())),
+			Ok(outcome) => cleanup::retain(&mut result, outcome),
+			Err(error) if !error.is_cancelled() => cleanup::retain(&mut result, Err(error.to_string())),
 			Err(_) => {}
 		}
 	}

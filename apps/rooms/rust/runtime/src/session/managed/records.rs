@@ -46,7 +46,7 @@ macro_rules! roles {
 		impl custody::References for Metadata { $(type $role = Location;)* }
 		fn located(coordinate: custody::Coordinate, location: Location) -> custody::RetainedField<Metadata> {
 			match coordinate.role { $(custody::Role::$role => custody::RetainedField::$role(custody::Held {
-				key: custody::FieldKey::new(coordinate.key.slot(), coordinate.key.generation()), reference: location,
+				key: coordinate.key.retag(), reference: location,
 			}),)* }
 		}
 		pub fn reference<'a>(field: &custody::Retained<'a, References>) -> &'a Field {
@@ -57,7 +57,7 @@ macro_rules! roles {
 		}
 		pub fn restored(coordinate: custody::Coordinate, reference: Field) -> custody::RetainedField<References> {
 			match coordinate.role { $(custody::Role::$role => custody::RetainedField::$role(custody::Held {
-				key: custody::FieldKey::new(coordinate.key.slot(), coordinate.key.generation()), reference,
+				key: coordinate.key.retag(), reference,
 			}),)* }
 		}
 	};

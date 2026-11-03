@@ -209,10 +209,7 @@ impl Dispatch {
 					if key != *expected {
 						return Err(Refusal);
 					}
-					(
-						custody::Role::RoomAccess,
-						custody::FieldKey::new(key.slot(), key.generation()),
-					)
+					(custody::Role::RoomAccess, key.retag())
 				}
 				ArgumentTarget::DirectInbox(key) => {
 					let (Selection::Direct(id) | Selection::Introduction(id)) = &self.selection else {
@@ -224,10 +221,7 @@ impl Dispatch {
 					}) {
 						return Err(Refusal);
 					}
-					(
-						custody::Role::DirectInbox,
-						custody::FieldKey::new(key.slot(), key.generation()),
-					)
+					(custody::Role::DirectInbox, key.retag())
 				}
 				ArgumentTarget::DirectoryInbox(key) => {
 					let Selection::Directory(id) = &self.selection else {
@@ -241,10 +235,7 @@ impl Dispatch {
 					{
 						return Err(Refusal);
 					}
-					(
-						custody::Role::DirectoryInbox,
-						custody::FieldKey::new(key.slot(), key.generation()),
-					)
+					(custody::Role::DirectoryInbox, key.retag())
 				}
 				ArgumentTarget::SelectedRoom(id) => {
 					let room = Self::room(intent, id)?;
@@ -253,10 +244,7 @@ impl Dispatch {
 					};
 					if !intent.conversations.as_slice().iter().any(|row| matches!(row, workspace::Conversation::Direct(row) if row.id.text().as_str() == Some(direct.as_str()) && row.directory == room.directory)) { return Err(Refusal); }
 					let key = room.access.ok_or(Refusal)?;
-					(
-						custody::Role::RoomAccess,
-						custody::FieldKey::new(key.slot(), key.generation()),
-					)
+					(custody::Role::RoomAccess, key.retag())
 				}
 				ArgumentTarget::Inbox(key) => {
 					let Selection::Room(id, _) = &self.selection else {
@@ -265,15 +253,9 @@ impl Dispatch {
 					if Self::room(intent, id)?.inbox != Some(*key) {
 						return Err(Refusal);
 					}
-					(
-						custody::Role::RoomInbox,
-						custody::FieldKey::new(key.slot(), key.generation()),
-					)
+					(custody::Role::RoomInbox, key.retag())
 				}
-				ArgumentTarget::Room(key) => (
-					custody::Role::RoomAccess,
-					custody::FieldKey::new(key.slot(), key.generation()),
-				),
+				ArgumentTarget::Room(key) => (custody::Role::RoomAccess, key.retag()),
 			};
 			targets.push(custody::Coordinate { role, key });
 		}

@@ -1,5 +1,9 @@
 //! Bounded operator action grammar, shared by session dispatchers.
 use super::effect::{Mutation, Reply};
+use crate::{
+	room::{authority, stewardship::Kind},
+	server::operations::operator::verbs,
+};
 use alloc::{string::String, vec, vec::Vec};
 
 #[derive(Clone, Copy, Debug)]
@@ -29,31 +33,31 @@ pub fn mutation(action: &str, args: &[String]) -> Result<Mutation, InvalidAction
 	let invalid = || InvalidAction;
 	let text = |value: &String| value.clone();
 	let (verb, args): (String, Vec<String>) = match (action, args) {
-		("revokeRoomLink", [name]) => (action.into(), vec![text(name)]),
-		("revokeRoomAuthority", [kind, token]) if matches!(kind.as_str(), "room" | "steward" | "manager") => {
+		(authority::REVOKE_ROOM_LINK, [name]) => (action.into(), vec![text(name)]),
+		(verbs::REVOKE_ROOM_AUTHORITY, [kind, token]) if Kind::parse(kind).is_some() => {
 			(action.into(), vec![text(kind), text(token)])
 		}
-		("revokeNick", [nick, session]) => (action.into(), vec![text(nick), text(session)]),
-		("disconnectSession", [session]) => (action.into(), vec![text(session)]),
-		("removeRoom", [room]) => ("removeOperatorRoom".into(), vec![text(room)]),
-		("releaseReference", [reference]) => ("releaseOperatorReference".into(), vec![text(reference)]),
-		("clearTrouble", []) => ("clearOperatorTrouble".into(), Vec::new()),
+		(verbs::REVOKE_NICK, [nick, session]) => (action.into(), vec![text(nick), text(session)]),
+		(verbs::DISCONNECT_SESSION, [session]) => (action.into(), vec![text(session)]),
+		("removeRoom", [room]) => (verbs::REMOVE_ROOM.into(), vec![text(room)]),
+		("releaseReference", [reference]) => (verbs::RELEASE_REFERENCE.into(), vec![text(reference)]),
+		("clearTrouble", []) => (verbs::CLEAR_TROUBLE.into(), Vec::new()),
 		("reset", [scope])
 			if matches!(
 				scope.as_str(),
 				"links" | "registrations" | "sessions" | "rooms" | "runtime" | "all"
 			) =>
 		{
-			("resetOperatorScope".into(), vec![text(scope)])
+			(verbs::RESET_SCOPE.into(), vec![text(scope)])
 		}
-		("giveModerator", [name]) => ("giveSteward".into(), vec![text(name)]),
-		("giveManager", [identity]) if !identity.is_empty() => ("giveManager".into(), vec![text(identity)]),
-		("revokeModerator", [name]) => ("revokeSteward".into(), vec![text(name)]),
+		("giveModerator", [name]) => (authority::GIVE_STEWARD.into(), vec![text(name)]),
+		(verbs::GIVE_MANAGER, [identity]) if !identity.is_empty() => (verbs::GIVE_MANAGER.into(), vec![text(identity)]),
+		("revokeModerator", [name]) => (authority::REVOKE_STEWARD.into(), vec![text(name)]),
 		_ => return Err(invalid()),
 	};
 	let reply = match verb.as_str() {
-		"giveSteward" | "revokeSteward" => Reply::Stewardship,
-		"giveManager" => Reply::RoomManager,
+		authority::GIVE_STEWARD | authority::REVOKE_STEWARD => Reply::Stewardship,
+		verbs::GIVE_MANAGER => Reply::RoomManager,
 		_ => Reply::Acknowledgment,
 	};
 	Ok(Mutation {

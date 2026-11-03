@@ -108,74 +108,25 @@ mod tests {
 	use crate::{
 		directory::{MemberChange, OriginProof, PublicationKind, RoomChange},
 		fields::{Nullable, SafeInteger, Text},
-		room::{ArgumentView, ListArgument, policy::MembershipKind},
+		room::{policy::MembershipKind, test_value::Value},
 	};
 
-	/// A value the way a binding would decode it.
-	#[derive(Clone, Debug, PartialEq)]
-	enum V {
-		Text(String),
-		Integer(u64),
-		Null,
-		List(Vec<V>),
-	}
 	struct Build;
 	impl BuildArguments for Build {
-		type Value = V;
-		fn text(value: String) -> V {
-			V::Text(value)
+		type Value = Value;
+		fn text(value: String) -> Value {
+			Value::Text(value)
 		}
-		fn integer(value: u64) -> V {
-			V::Integer(value)
+		fn integer(value: u64) -> Value {
+			Value::Integer(value)
 		}
-		fn null() -> V {
-			V::Null
+		fn null() -> Value {
+			Value::Null
 		}
-		fn list(values: Vec<V>) -> V {
-			V::List(values)
-		}
-	}
-	impl ArgumentView for &V {
-		fn boolean(&self) -> Option<bool> {
-			None
-		}
-		fn is_null(&self) -> bool {
-			matches!(self, V::Null)
-		}
-		fn text(&self) -> Option<&str> {
-			match self {
-				V::Text(text) => Some(text),
-				_ => None,
-			}
-		}
-		fn integer(&self) -> Option<i128> {
-			match self {
-				V::Integer(n) => Some(*n as i128),
-				_ => None,
-			}
-		}
-		fn float(&self) -> Option<f64> {
-			None
-		}
-		fn contains_capability(&self) -> bool {
-			false
+		fn list(values: Vec<Value>) -> Value {
+			Value::List(values)
 		}
 	}
-	impl ListArgument for &V {
-		fn list_len(&self) -> Option<usize> {
-			match self {
-				V::List(items) => Some(items.len()),
-				_ => None,
-			}
-		}
-		fn at(&self, index: usize) -> Option<Self> {
-			match self {
-				V::List(items) => items.get(index),
-				_ => None,
-			}
-		}
-	}
-
 	fn garden(kind: PublicationKind) -> RoomInfo {
 		let foreign = kind != PublicationKind::Local;
 		RoomInfo {
@@ -301,14 +252,14 @@ mod tests {
 			count: 1,
 		};
 		let args = event::<Build>(&registered, Shape::Baseline);
-		assert_eq!(crate::directory::event(&&V::List(args)), Some(registered));
+		assert_eq!(crate::directory::event(&&Value::List(args)), Some(registered));
 		let opened = Event::Room {
 			kind: RoomChange::Opened,
 			entry: garden(PublicationKind::Local),
 		};
 		let args = event::<Build>(&opened, Shape::Publication);
-		assert_eq!(crate::directory::event(&&V::List(args)), Some(opened));
+		assert_eq!(crate::directory::event(&&Value::List(args)), Some(opened));
 		let args = event::<Build>(&Event::Truncated(4), Shape::Baseline);
-		assert_eq!(crate::directory::event(&&V::List(args)), Some(Event::Truncated(4)));
+		assert_eq!(crate::directory::event(&&Value::List(args)), Some(Event::Truncated(4)));
 	}
 }

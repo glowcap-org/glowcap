@@ -31,7 +31,7 @@ fn source(record: &MetadataRecord, selected: custody::FieldKey<custody::Line>) -
 		.custody
 		.get(custody::Coordinate {
 			role: custody::Role::SessionAccess,
-			key: custody::FieldKey::new(origin.source.slot(), origin.source.generation()),
+			key: origin.source.retag(),
 		})
 		.ok_or_else(|| refuse("original outgoing source was retired"))?;
 	Ok(records::location(&held))

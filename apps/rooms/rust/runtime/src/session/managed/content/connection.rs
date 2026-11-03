@@ -32,7 +32,7 @@ fn target(input: Invocation<'_>, record: &MetadataRecord) -> Result<Option<recor
 				.custody
 				.get(custody::Coordinate {
 					role: custody::Role::DirectAccess,
-					key: custody::FieldKey::new(key.slot(), key.generation()),
+					key: key.retag(),
 				})
 				.map(|field| records::location(&field))
 				.ok_or_else(|| refuse("direct route custody absent"))

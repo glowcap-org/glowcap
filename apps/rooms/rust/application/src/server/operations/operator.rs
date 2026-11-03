@@ -333,12 +333,12 @@ pub fn two_texts<A: ArgumentView>(args: &[A], shape: &str) -> Result<(String, St
 
 /// The verbs, as the wire names them.
 pub mod verbs {
+	pub use crate::room::authority::{GIVE_STEWARD, REVOKE_ROOM_LINK, REVOKE_STEWARD, UNREGISTER_ROOM};
 	pub const SNAPSHOT: &str = "operatorSnapshot";
 	pub const RETIRE_MATCHING: &str = "operatorRetireMatching";
 	pub const WATCH: &str = "watch";
 	pub const UNWATCH: &str = "unwatch";
 	pub const CHANGED: &str = "changed";
-	pub const REVOKE_ROOM_LINK: &str = "revokeRoomLink";
 	pub const REVOKE_ROOM_AUTHORITY: &str = "revokeRoomAuthority";
 	pub const REVOKE_NICK: &str = "revokeNick";
 	pub const DISCONNECT_SESSION: &str = "disconnectSession";
@@ -346,11 +346,7 @@ pub mod verbs {
 	pub const RELEASE_REFERENCE: &str = "releaseOperatorReference";
 	pub const CLEAR_TROUBLE: &str = "clearOperatorTrouble";
 	pub const RESET_SCOPE: &str = "resetOperatorScope";
-	pub const GIVE_STEWARD: &str = "giveSteward";
 	pub const GIVE_MANAGER: &str = "giveManager";
-	pub const REVOKE_STEWARD: &str = "revokeSteward";
-	pub const UNREGISTER_ROOM: &str = "unregisterRoom";
-	pub const SET_ROOM_POLICY: &str = "setRoomPolicy";
 }
 
 /// The categories a whole snapshot answers, each as one page at cursor

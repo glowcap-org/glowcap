@@ -28,7 +28,7 @@ fn populate(intent: &workspace::Intent) -> custody::Custody<References> {
 		macro_rules! held {
 			($reference:expr) => {
 				Held {
-					key: custody::FieldKey::new(key.slot(), key.generation()),
+					key: key.retag(),
 					reference: $reference,
 				}
 			};

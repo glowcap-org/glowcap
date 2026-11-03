@@ -1,6 +1,7 @@
 //! Browser inboxes follow exact managed registrations and the shared session feeds.
-use super::super::retain;
+use super::super::cleanup;
 use super::*;
+use crate::abort::stopped;
 use crate::signaling::Listener;
 use glowcap::{DialOrigin, HintValue, Locator};
 use rooms_glowcap::{client::directory::signaling::Route, routes::Address};
@@ -84,11 +85,6 @@ impl Owner {
 impl Drop for Owner {
 	fn drop(&mut self) {
 		self.stop.send_replace(true);
-	}
-}
-async fn stopped(stop: &mut watch::Receiver<bool>) {
-	if !*stop.borrow_and_update() {
-		let _ = stop.changed().await;
 	}
 }
 enum Preparation {
@@ -206,8 +202,8 @@ async fn run(
 			},
 			ended = workers.join_next(), if !workers.is_empty() => {
 				match ended {
-					Some(Ok((id, result))) => { held.remove(&id); outcome = retain(outcome, result); },
-					Some(Err(error)) => { outcome = retain(outcome, Err(error.to_string())); break; },
+					Some(Ok((id, result))) => { held.remove(&id); cleanup::retain(&mut outcome, result); },
+					Some(Err(error)) => { cleanup::retain(&mut outcome, Err(error.to_string())); break; },
 					None => unreachable!("nonempty signaling workers"),
 				}
 			},
@@ -221,8 +217,8 @@ async fn run(
 	shutdown.send_replace(true);
 	while let Some(ended) = workers.join_next().await {
 		match ended {
-			Ok((_, result)) => outcome = retain(outcome, result),
-			Err(error) => outcome = retain(outcome, Err(error.to_string())),
+			Ok((_, result)) => cleanup::retain(&mut outcome, result),
+			Err(error) => cleanup::retain(&mut outcome, Err(error.to_string())),
 		}
 	}
 	outcome
@@ -249,7 +245,7 @@ async fn listen(
 	} = services;
 	let mut rejections = JoinSet::new();
 	let mut delay = 1_000;
-	let result = loop {
+	let mut result = loop {
 		if *stop.borrow() {
 			break Ok(());
 		}
@@ -298,7 +294,7 @@ async fn listen(
 		};
 		let mut result = result;
 		while let Some(ended) = rejections.join_next().await {
-			result = retain(result, ended.map_err(|e| e.to_string()).and_then(|result| result));
+			cleanup::retain(&mut result, ended.map_err(|e| e.to_string()).and_then(|result| result));
 		}
 		if *stop.borrow() {
 			break result;
@@ -314,9 +310,9 @@ async fn listen(
 		delay = (delay * 2).min(30_000);
 	};
 	routes.0.borrow_mut().remove(id);
-	let mut result = retain(result, registration.close().await.map_err(|e| e.to_string()));
+	cleanup::retain(&mut result, registration.close().await.map_err(|e| e.to_string()));
 	while let Some(ended) = rejections.join_next().await {
-		result = retain(result, ended.map_err(|e| e.to_string()).and_then(|result| result));
+		cleanup::retain(&mut result, ended.map_err(|e| e.to_string()).and_then(|result| result));
 	}
 	result
 }

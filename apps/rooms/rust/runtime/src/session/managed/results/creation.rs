@@ -29,11 +29,11 @@ fn coordinates(row: &ManagedRoom) -> [Coordinate; 2] {
 	[
 		Coordinate {
 			role: custody::Role::RoomAccess,
-			key: FieldKey::new(row.room.slot(), row.room.generation()),
+			key: row.room.retag(),
 		},
 		Coordinate {
 			role: custody::Role::RoomControl,
-			key: FieldKey::new(row.control.slot(), row.control.generation()),
+			key: row.control.retag(),
 		},
 	]
 }

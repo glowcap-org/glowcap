@@ -4,7 +4,7 @@ use super::{Refusal, conversation, departure};
 use crate::{
 	content::session::{
 		custody::{self, Custody, FieldKey, References, Role},
-		workspace::{Conversation, Intent, coordinate},
+		workspace::{Conversation, Intent},
 	},
 	fields::List,
 	session::{
@@ -25,7 +25,7 @@ pub struct ArchiveSelection {
 }
 
 fn selected<R: References, K>(custody: &Custody<R>, role: Role, key: FieldKey<K>) -> Result<FieldKey<K>, Refusal> {
-	if custody.get(coordinate(role, key)).is_none() {
+	if custody.get(custody::Coordinate::new(role, key)).is_none() {
 		return Err(Refusal::Missing);
 	}
 	Ok(key)
@@ -93,7 +93,7 @@ pub(super) fn apply<R: References>(
 					departure::release(
 						intent,
 						custody,
-						accepted.map(|key| coordinate(Role::AcceptedAccess, key)),
+						accepted.map(|key| custody::Coordinate::new(Role::AcceptedAccess, key)),
 					);
 				}
 			}
@@ -111,8 +111,12 @@ pub(super) fn apply<R: References>(
 				}
 			}
 			let old = [
-				intent.archive.map(|key| coordinate(Role::ArchiveAccess, key)),
-				intent.archive_control.map(|key| coordinate(Role::ArchiveControl, key)),
+				intent
+					.archive
+					.map(|key| custody::Coordinate::new(Role::ArchiveAccess, key)),
+				intent
+					.archive_control
+					.map(|key| custody::Coordinate::new(Role::ArchiveControl, key)),
 			];
 			intent.archive = selection.map(|selection| selection.access);
 			intent.archive_control = selection.and_then(|selection| selection.control);
@@ -131,7 +135,9 @@ pub(super) fn apply<R: References>(
 			departure::release(
 				intent,
 				custody,
-				old.as_slice().iter().map(|&key| coordinate(Role::Operator, key)),
+				old.as_slice()
+					.iter()
+					.map(|&key| custody::Coordinate::new(Role::Operator, key)),
 			);
 		}
 		_ => return Err(Refusal::Arguments),

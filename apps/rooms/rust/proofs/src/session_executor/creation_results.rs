@@ -276,8 +276,7 @@ pub(super) async fn run() {
 				refuse.set(false);
 				platform.suspended.set(true);
 				mutate(&host, &root, "command", &args).await.unwrap();
-				workspace.directories.as_mut_slice()[0].access =
-					custody::FieldKey::new(replacement.key.slot(), replacement.key.generation());
+				workspace.directories.as_mut_slice()[0].access = replacement.key.retag();
 				owner.replace_workspace(&workspace).await.unwrap();
 				gate.block();
 				platform.deadline_ms.set(Some(100));

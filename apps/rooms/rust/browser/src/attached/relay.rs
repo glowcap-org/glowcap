@@ -1,6 +1,7 @@
 //! Sustained relay reachability for the page's existing Host. Idle seats and
 //! handshakes stay bounded. Established peers transfer to the Host owner.
-use super::{Result, retain};
+use super::{Result, cleanup};
+use crate::abort::stopped;
 use crate::platform::Platform;
 use glowcap::{Host, Locator, PendingWork, Session, browser::relay::Registration};
 use rooms_glowcap::client::Deadline;
@@ -126,11 +127,6 @@ impl Drop for Relay {
 		self.stop.send_replace(true);
 	}
 }
-async fn stopped(stop: &mut watch::Receiver<bool>) {
-	if !*stop.borrow() {
-		let _ = stop.changed().await;
-	}
-}
 type Accepted = (Session, OwnedSemaphorePermit);
 async fn run(
 	host: Host,
@@ -166,7 +162,7 @@ async fn run(
 		tokio::select! { biased;
 			() = stopped(&mut stop) => break,
 			ended = seats.join_next(), if !seats.is_empty() => {
-				outcome = retain(outcome, joined(ended));
+				cleanup::retain(&mut outcome, joined(ended));
 				// A seat returns only at shutdown or if physical retirement
 				// failed. Surface the loss instead of claiming a full pool.
 				break;
@@ -176,7 +172,7 @@ async fn run(
 					if let Err(refused) = admission.offer(session) {
 						let session = refused.session;
 						if refused.capacity { report(&status, "Rooms incoming connection capacity is exhausted".into()); }
-						outcome = retain(outcome, session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()));
+						cleanup::retain(&mut outcome, session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()));
 					}
 					drop(permit);
 				},
@@ -187,13 +183,13 @@ async fn run(
 	shutdown.send_replace(true);
 	accepted.close();
 	while let Some((session, _permit)) = accepted.recv().await {
-		outcome = retain(
-			outcome,
+		cleanup::retain(
+			&mut outcome,
 			session.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
 		);
 	}
 	while let Some(ended) = seats.join_next().await {
-		outcome = retain(outcome, joined(Some(ended)));
+		cleanup::retain(&mut outcome, joined(Some(ended)));
 	}
 	outcome
 }
@@ -230,7 +226,7 @@ impl Failure {
 async fn retire(registration: Registration, primary: Result<()>) -> std::result::Result<(), Failure> {
 	let cleanup = registration.close().await.map_err(|e| e.to_string());
 	let failed = cleanup.is_err();
-	retain(primary, cleanup).map_err(|error| {
+	cleanup::combine(primary, cleanup).map_err(|error| {
 		if failed {
 			Failure::Retirement(error)
 		} else {

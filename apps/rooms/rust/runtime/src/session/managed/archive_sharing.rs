@@ -34,14 +34,10 @@ struct Selection {
 	intent: Option<Intent>,
 	revoke: Option<String>,
 }
-fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
-	}
-}
 fn selection(request: &Request<'_, impl ArgumentView>, intent: &workspace::Intent) -> Result<Selection> {
-	let archive = intent.archive.map(|key| coordinate(custody::Role::ArchiveAccess, key));
+	let archive = intent
+		.archive
+		.map(|key| custody::Coordinate::new(custody::Role::ArchiveAccess, key));
 	let args: Vec<_> = request.args().collect();
 	if request.route() == Route::Effect(Effect::RevokeIssuedArchiveShare) {
 		let [id] = args.as_slice() else {
@@ -122,7 +118,7 @@ fn selection(request: &Request<'_, impl ArgumentView>, intent: &workspace::Inten
 		.map_err(|error| loam::refusal(error.to_string()))?;
 	Ok(Selection {
 		archive,
-		direct: Some(coordinate(custody::Role::DirectAccess, direct)),
+		direct: Some(custody::Coordinate::new(custody::Role::DirectAccess, direct)),
 		intent: Some(Intent {
 			filter,
 			directory,

@@ -28,7 +28,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 			.ok_or_else(|| loam::refusal("typing conversation has no initiating source"))?;
 		let source = custody::Coordinate {
 			role: custody::Role::SessionAccess,
-			key: custody::FieldKey::new(source.slot(), source.generation()),
+			key: source.retag(),
 		};
 		let reference = self
 			.reader(

@@ -5,16 +5,10 @@ use rooms_application::{content::session::results::Membership, room::membership}
 fn key<K>() -> FieldKey<K> {
 	FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN)
 }
-fn coordinate<K>(role: custody::Role, key: FieldKey<K>) -> Coordinate {
-	Coordinate {
-		role,
-		key: FieldKey::new(key.slot(), key.generation()),
-	}
-}
 fn coordinates(row: &Membership) -> Vec<Coordinate> {
-	core::iter::once(coordinate(custody::Role::RoomSeat, row.seat))
-		.chain(row.subject.map(|key| coordinate(custody::Role::RoomSubject, key)))
-		.chain(row.files.map(|key| coordinate(custody::Role::RoomFiles, key)))
+	core::iter::once(Coordinate::new(custody::Role::RoomSeat, row.seat))
+		.chain(row.subject.map(|key| Coordinate::new(custody::Role::RoomSubject, key)))
+		.chain(row.files.map(|key| Coordinate::new(custody::Role::RoomFiles, key)))
 		.collect()
 }
 pub(super) fn read(value: &Argument) -> Result<Settlement> {

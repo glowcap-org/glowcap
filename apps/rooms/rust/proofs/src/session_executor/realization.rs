@@ -16,7 +16,7 @@ pub(super) async fn directory(
 	let original_inbox = intent.directories.as_slice()[0].inbox.unwrap();
 	let original_coordinate = custody::Coordinate {
 		role: custody::Role::DirectoryInbox,
-		key: custody::FieldKey::new(original_inbox.slot(), original_inbox.generation()),
+		key: original_inbox.retag(),
 	};
 	let original_callback = owner.restore_custody(&[original_coordinate]).await.unwrap().remove(0);
 	assert!(owner.directory_source(&intent.directories.as_slice()[0]).await.is_err());
@@ -278,7 +278,7 @@ async fn supervised_directory(
 				selected.coordinate(),
 				custody::Coordinate {
 					role: custody::Role::DirectoryName,
-					key: custody::FieldKey::new(name.slot(), name.generation()),
+					key: name.retag(),
 				},
 			],
 			intent,

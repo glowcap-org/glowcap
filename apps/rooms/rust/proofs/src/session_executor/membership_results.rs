@@ -1,15 +1,9 @@
 //! The production executor retains subscription inputs and every returned facet.
-use super::*;
+use super::{requests::coordinate, *};
 use rooms_application::{content::permissions::Permission, content::session::results::Membership};
 
 mod upstream;
 pub(super) use upstream::{MEMBER, registration, registration_with_retirement};
-fn coordinate(role: custody::Role, slot: u64) -> custody::Coordinate {
-	custody::Coordinate {
-		role,
-		key: custody::FieldKey::new(NonZeroU64::new(slot).unwrap(), NonZeroU64::new(1).unwrap()),
-	}
-}
 pub(super) async fn command(host: &Host, source: &Ref, id: &str, callback: u64) -> (Vec<Argument>, String) {
 	let snapshot = host.send(source, "snapshot", &[]).await.unwrap();
 	let base = snapshot.as_list().unwrap()[0].as_i64().unwrap();

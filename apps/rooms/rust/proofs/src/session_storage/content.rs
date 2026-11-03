@@ -25,7 +25,7 @@ macro_rules! roles {
 		}
 		fn restored(coordinate: custody::Coordinate, reference: Ref) -> RetainedField<References> {
 			match coordinate.role { $(custody::Role::$role => RetainedField::$role(Held {
-				key: custody::FieldKey::new(coordinate.key.slot(), coordinate.key.generation()), reference
+				key: coordinate.key.retag(), reference
 			}),)* }
 		}
 	};

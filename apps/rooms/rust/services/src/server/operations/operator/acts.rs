@@ -9,7 +9,10 @@ use super::super::document::Store;
 use glowcap::PendingWork;
 use std::{future::Future, pin::Pin};
 pub(super) type Pending = Pin<Box<dyn Future<Output = Result<(), String>>>>;
-use rooms_application::{room::stewardship::Kind, server::operations::operator::inventory::Act};
+use rooms_application::{
+	room::stewardship::Kind,
+	server::operations::operator::{inventory::Act, verbs},
+};
 
 const MEMBERSHIP_ENDED: &str = "An operator ended this room membership.";
 const ROOM_REMOVED: &str = "room-retired: An operator removed this room.";
@@ -186,7 +189,7 @@ pub(super) fn factory_reset(state: &State) -> Pending {
 	}
 	observe(authority::request(
 		state,
-		"resetOperatorScope",
+		verbs::RESET_SCOPE,
 		move |state| Ok(Some(state.authority.factory_reset(secret))),
 		move |state| {
 			let retired: Vec<(Kind, String, String)> = [Kind::Room, Kind::Steward, Kind::Manager]

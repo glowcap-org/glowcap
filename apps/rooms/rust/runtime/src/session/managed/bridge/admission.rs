@@ -48,12 +48,6 @@ pub(in crate::session::managed) fn request(args: &[Argument]) -> Result<(Request
 	}
 	Ok((request, secrets))
 }
-fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> Coordinate {
-	Coordinate {
-		role,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
-	}
-}
 fn restore(location: records::Location) -> Result<ReferenceRequest> {
 	Ok(ReferenceRequest::RestorePage {
 		page: location
@@ -98,7 +92,7 @@ pub(in crate::session::managed) fn references(
 	if !request.selected(&record.intent) {
 		return Err(loam::refusal("original bridge seat or continuing access changed"));
 	}
-	let mut keys = vec![coordinate(custody::Role::RoomSeat, request.seat)];
+	let mut keys = vec![Coordinate::new(custody::Role::RoomSeat, request.seat)];
 	keys.extend(request.access);
 	if let Some(id) = request.reapply {
 		let witness = record
@@ -107,7 +101,7 @@ pub(in crate::session::managed) fn references(
 			.iter()
 			.find(|witness| witness.id == id)
 			.ok_or_else(|| loam::refusal("original bridge witness is absent"))?;
-		keys.push(coordinate(custody::Role::SessionAccess, witness.source));
+		keys.push(Coordinate::new(custody::Role::SessionAccess, witness.source));
 		keys.extend(witness.access);
 	}
 	keys.into_iter()
@@ -248,7 +242,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		.clone()
 		.ok_or_else(|| loam::refusal("bridge credential owner is not installed"))?;
 	let mut record = records::decode(input)?;
-	let coordinates: Vec<_> = std::iter::once(coordinate(custody::Role::RoomSeat, request.seat))
+	let coordinates: Vec<_> = std::iter::once(Coordinate::new(custody::Role::RoomSeat, request.seat))
 		.chain(request.access)
 		.collect();
 	let targets = coordinates

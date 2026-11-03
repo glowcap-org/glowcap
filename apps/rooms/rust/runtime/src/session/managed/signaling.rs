@@ -61,7 +61,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		let directory = self
 			.restore_custody(&[custody::Coordinate {
 				role: custody::Role::DirectoryAccess,
-				key: custody::FieldKey::new(row.access.slot(), row.access.generation()),
+				key: row.access.retag(),
 			}])
 			.await?
 			.remove(0);

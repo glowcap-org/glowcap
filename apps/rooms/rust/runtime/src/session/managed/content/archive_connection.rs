@@ -18,7 +18,7 @@ fn selected(record: &MetadataRecord) -> Result<Option<records::Location>> {
 				.custody
 				.get(custody::Coordinate {
 					role: custody::Role::ArchiveAccess,
-					key: custody::FieldKey::new(key.slot(), key.generation()),
+					key: key.retag(),
 				})
 				.map(|field| records::location(&field))
 				.ok_or_else(|| refuse("selected archive custody absent"))

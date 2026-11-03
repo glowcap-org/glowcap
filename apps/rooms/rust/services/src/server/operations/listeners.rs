@@ -8,7 +8,7 @@ use super::super::{
 	notice::Notice,
 	state::{Shared, State, Work},
 };
-use super::document::Store;
+use super::{document::Store, operator::Wire};
 use glowcap::{Argument, ListenerIdentity};
 use rooms_application::server::operations::listeners::{
 	self, Ask, Environment, Refusal, Seats, Transport, register_url,
@@ -484,25 +484,4 @@ fn rows(shared: &Shared) -> Argument {
 			.map(listeners::row::<Wire>)
 			.collect(),
 	)
-}
-
-/// The seat rows in the binding's arguments.
-struct Wire;
-impl listeners::Wire for Wire {
-	type Value = Argument;
-	fn text(value: &str) -> Argument {
-		Argument::String(value.into())
-	}
-	fn integer(value: u64) -> Argument {
-		Argument::Integer(i64::try_from(value).unwrap_or(i64::MAX))
-	}
-	fn boolean(value: bool) -> Argument {
-		Argument::Boolean(value)
-	}
-	fn null() -> Argument {
-		Argument::Void
-	}
-	fn list(values: Vec<Argument>) -> Argument {
-		Argument::List(values)
-	}
 }

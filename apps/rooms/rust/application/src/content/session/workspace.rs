@@ -24,7 +24,6 @@ mod nickname;
 mod references;
 pub use inbox::InboxSelection;
 pub use nickname::RoomNickname;
-pub(super) use references::coordinate;
 
 pub const MAX_ID_UNITS: usize = 1024;
 pub type Id = Text<MAX_ID_UNITS, true>;

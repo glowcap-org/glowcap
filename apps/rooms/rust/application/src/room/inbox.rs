@@ -160,12 +160,7 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 			if args.len() != 6 || !prefix() {
 				return Err(Refusal::Authority);
 			}
-			let kind = match text(3) {
-				Some("room") => Kind::Room,
-				Some("steward") => Kind::Steward,
-				Some("manager") => Kind::Manager,
-				_ => return Err(Refusal::Authority),
-			};
+			let kind = text(3).and_then(Kind::parse).ok_or(Refusal::Authority)?;
 			Ok(Notice::Authority {
 				kind,
 				token: text(4).filter(|s| !s.is_empty()).ok_or(Refusal::Authority)?,

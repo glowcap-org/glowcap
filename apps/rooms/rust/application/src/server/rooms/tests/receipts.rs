@@ -124,7 +124,7 @@ fn a_receipted_line_keeps_delegated_edit_and_withdraw_broadcasts() {
 		)
 		.unwrap();
 	for (verb, args, expected) in [
-		("edit", vec![Value::Text("changed")], ChangeKind::Edited),
+		("edit", vec![Value::Text("changed".into())], ChangeKind::Edited),
 		("withdraw", vec![], ChangeKind::Withdrawn),
 	] {
 		let mutation = world.rooms.line_verb(2, line, verb, &args, 0).unwrap();

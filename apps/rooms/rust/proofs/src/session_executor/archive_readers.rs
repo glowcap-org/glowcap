@@ -117,10 +117,10 @@ pub(super) async fn run() {
 			let (source, control) = owner.derive(terms, 1, powers).await.unwrap();
 			assert!(host.send(&source, "workspace-history-reader", &["selected".into(), false.into()]).await.is_err(), "an unconfigured device archive cannot substitute for saved authority");
 			let mut selected = Intent::empty();
-			selected.archive = Some(custody::FieldKey::new(coordinate.key.slot(), coordinate.key.generation()));
+			selected.archive = Some(coordinate.key.retag());
 			owner.replace_workspace(&selected).await.unwrap();
 			let selected_reader = Ref::try_from(&host.send(&source, "workspace-history-reader", &["selected".into(), false.into()]).await.unwrap()).unwrap();
-			selected.archive = Some(custody::FieldKey::new(replacement_coordinate.key.slot(), replacement_coordinate.key.generation()));
+			selected.archive = Some(replacement_coordinate.key.retag());
 			owner.replace_workspace(&selected).await.unwrap();
 			let changed_reader = Ref::try_from(&host.send(&source, "workspace-history-reader", &["selected".into(), false.into()]).await.unwrap()).unwrap();
 			assert!(matches!(host.send(&selected_reader, "read", &[0.into(), 5.into()]).await.unwrap(), Argument::Bytes(bytes) if bytes == b"chunk"), "selection changes cannot redirect a held reader");

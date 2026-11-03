@@ -285,6 +285,6 @@ impl Request {
 fn coordinate(key: custody::FieldKey<custody::SessionAccess>) -> custody::Coordinate {
 	custody::Coordinate {
 		role: custody::Role::SessionAccess,
-		key: custody::FieldKey::new(key.slot(), key.generation()),
+		key: key.retag(),
 	}
 }
