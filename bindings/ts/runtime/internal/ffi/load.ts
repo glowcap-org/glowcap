@@ -18,6 +18,7 @@
 import { injected_adapter_key } from "./runtime.ts";
 import { archiveListingViolation } from "./archive_hygiene.ts";
 import { libFile } from "./surface.ts";
+import { sha256File } from "./release_checksum.ts";
 import { curlTransportArgs, failArchiveSecurity, HardFailError, requireSecureReleaseUrl } from "./release_security.ts";
 
 // The host built-ins the cascade rides. Static imports (not top-level await)
@@ -29,7 +30,6 @@ import { curlTransportArgs, failArchiveSecurity, HardFailError, requireSecureRel
 // used. Under Deno and Bun they resolve to the real built-ins.
 import nodeProcess from "node:process";
 import * as nodeFs from "node:fs";
-import * as nodeCrypto from "node:crypto";
 import * as nodePath from "node:path";
 import * as nodeUrl from "node:url";
 import * as nodeChildProcess from "node:child_process";
@@ -41,7 +41,6 @@ import * as nodeChildProcess from "node:child_process";
 type HostModules = {
 	process: typeof import("node:process");
 	fs: typeof import("node:fs");
-	crypto: typeof import("node:crypto");
 	path: typeof import("node:path");
 	url: typeof import("node:url");
 	childProcess: typeof import("node:child_process");
@@ -54,7 +53,6 @@ type HostModules = {
 const host: HostModules | null = (globalThis as Record<symbol, unknown>)[injected_adapter_key] !== undefined ? null : {
 	process: nodeProcess,
 	fs: nodeFs,
-	crypto: nodeCrypto,
 	path: nodePath,
 	url: nodeUrl,
 	childProcess: nodeChildProcess,
@@ -81,7 +79,6 @@ const renameSync = host?.fs.renameSync ?? hostOnly;
 const rmdirSync = host?.fs.rmdirSync ?? hostOnly;
 const rmSync = host?.fs.rmSync ?? hostOnly;
 const statSync = host?.fs.statSync ?? hostOnly;
-const createHash = host?.crypto.createHash ?? hostOnly;
 const dirname = host?.path.dirname ?? hostOnly;
 const join = host?.path.join ?? hostOnly;
 const fileURLToPath = host?.url.fileURLToPath ?? hostOnly;
@@ -451,9 +448,7 @@ function fetchIntoCache(
 			if (expect === null) {
 				failArchiveSecurity(`SHA256SUMS has no entry for ${tarball}`);
 			}
-			const got = createHash("sha256")
-				.update(readFileSync(tarballPath))
-				.digest("hex");
+			const got = sha256File(tarballPath);
 			if (got !== expect) {
 				failArchiveSecurity(`SHA256 mismatch for ${tarball}`);
 			}

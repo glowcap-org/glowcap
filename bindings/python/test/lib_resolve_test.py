@@ -5,6 +5,7 @@ is replaced: urllib still decides whether to follow each redirect.
 """
 
 import email.message
+import hashlib
 import importlib.util
 import io
 import os
@@ -67,6 +68,27 @@ class ReleaseTransportTest(unittest.TestCase):
     def test_explicit_http_test_mirror_still_follows_http_redirects(self):
         self.download("http://mirror.invalid/asset", "http://mirror.invalid/payload", insecure=True)
         self.assertEqual(self.requests, ["http://mirror.invalid/asset", "http://mirror.invalid/payload"])
+
+
+class ReleaseChecksumTest(unittest.TestCase):
+    def test_staged_archive_is_verified_without_reading_it_all_into_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "archive.tar.gz"
+            for payload in (b"", b"archive", bytes(range(256)) * 4097):
+                with self.subTest(size=len(payload)):
+                    archive.write_bytes(payload)
+                    checksum = hashlib.sha256(payload).hexdigest()
+                    with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("whole archive read")):
+                        RESOLVE._verify_sha256(f"{checksum} *archive.tar.gz\n", "archive.tar.gz", archive)
+
+    def test_mismatch_and_missing_checksum_still_refuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "archive.tar.gz"
+            archive.write_bytes(b"archive")
+            with self.assertRaisesRegex(OSError, "SHA256 mismatch"):
+                RESOLVE._verify_sha256(f"{'0' * 64} archive.tar.gz", "archive.tar.gz", archive)
+            with self.assertRaisesRegex(OSError, "no entry"):
+                RESOLVE._verify_sha256("", "archive.tar.gz", archive)
 
 
 if __name__ == "__main__":
