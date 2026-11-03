@@ -22,26 +22,7 @@ const opts: driver.SessionOptions = .{
     .settle = .{ .ms = 10_000 },
 };
 
-const Echo = struct {
-    pub fn handle(_: *Echo, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
-        defer ht.releaseArguments(args);
-        const verb = selector orelse return error.NoSuchMethod;
-        if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
-        return .{ .string = "pong from the stack" };
-    }
-};
-
-fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    var session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("echo", Echo, .{});
-    while (!done.load(.acquire)) {
-        _ = session.stepReadable(20) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => break,
-            else => |e| return e,
-        };
-    }
-}
+const echo_server = @import("echo.zig").EchoServer("pong from the stack");
 
 fn listenOne(
     allocator: std.mem.Allocator,
@@ -80,8 +61,8 @@ test "one stream stack dials noise-tcp and inproc through one backend" {
     defer model.freePeerLocator(allocator, inproc_locator);
 
     var done = std.atomic.Value(bool).init(false);
-    var sealed_future = try io.concurrent(serve, .{ sealed_server, &done });
-    var inproc_future = try io.concurrent(serve, .{ inproc_server, &done });
+    var sealed_future = try io.concurrent(echo_server.serve, .{ sealed_server, &done });
+    var inproc_future = try io.concurrent(echo_server.serve, .{ inproc_server, &done });
     defer {
         done.store(true, .release);
         sealed_future.await(io) catch {};

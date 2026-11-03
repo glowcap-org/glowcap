@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init) !void {
     var failed = false;
     var docs: std.ArrayList([]const u8) = .empty;
     for (kinds.root_docs) |path| try docs.append(gpa, path);
-    for (kinds.doc_trees) |tree| try collect(io, gpa, cwd, tree, &docs);
+    for (kinds.doc_trees) |tree| try kinds.collectDocs(io, gpa, cwd, tree, &docs);
 
     for (docs.items) |path| {
         const text = cwd.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| switch (err) {
@@ -74,26 +74,6 @@ pub fn main(init: std.process.Init) !void {
 fn usage() void {
     std.debug.print("usage: gen-doc-values write|check\n", .{});
     std.process.exit(2);
-}
-
-fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, tree: []const u8, out: *std.ArrayList([]const u8)) !void {
-    var dir = cwd.openDir(io, tree, .{ .iterate = true }) catch |err| switch (err) {
-        // tolerant: a doc tree this checkout does not carry holds no markers.
-        error.FileNotFound => return,
-        else => return err,
-    };
-    defer dir.close(io);
-    var walker = try dir.walkSelectively(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind == .directory) {
-            if (!std.mem.eql(u8, entry.basename, "node_modules") and !std.mem.eql(u8, entry.basename, "target")) try walker.enter(io, entry);
-            continue;
-        }
-        if (entry.kind != .file) continue;
-        const path = try std.fs.path.join(gpa, &.{ tree, entry.path });
-        if (kinds.isDoc(path)) try out.append(gpa, path);
-    }
 }
 
 /// The doc with every marked value rewritten from its constant.

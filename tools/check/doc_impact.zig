@@ -31,7 +31,7 @@ pub fn main(init: std.process.Init) !void {
     const cwd = std.Io.Dir.cwd();
     var docs: std.ArrayList([]const u8) = .empty;
     for (kinds.root_docs) |path| try docs.append(gpa, path);
-    for (kinds.doc_trees) |tree| try collect(io, gpa, cwd, tree, &docs);
+    for (kinds.doc_trees) |tree| try kinds.collectDocs(io, gpa, cwd, tree, &docs);
 
     var out: std.ArrayList(u8) = .empty;
     var hits: usize = 0;
@@ -96,26 +96,6 @@ fn gitLines(io: std.Io, gpa: std.mem.Allocator, argv: []const []const u8, out: *
     }
     var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
     while (lines.next()) |line| try out.append(gpa, line);
-}
-
-fn collect(io: std.Io, gpa: std.mem.Allocator, cwd: std.Io.Dir, tree: []const u8, out: *std.ArrayList([]const u8)) !void {
-    var dir = cwd.openDir(io, tree, .{ .iterate = true }) catch |err| switch (err) {
-        // tolerant: a doc tree this checkout does not carry holds no docs.
-        error.FileNotFound => return,
-        else => return err,
-    };
-    defer dir.close(io);
-    var walker = try dir.walkSelectively(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind == .directory) {
-            if (!std.mem.eql(u8, entry.basename, "node_modules") and !std.mem.eql(u8, entry.basename, "target")) try walker.enter(io, entry);
-            continue;
-        }
-        if (entry.kind != .file) continue;
-        const path = try std.fs.path.join(gpa, &.{ tree, entry.path });
-        if (kinds.isDoc(path)) try out.append(gpa, path);
-    }
 }
 
 test "a doc explains its sources, and a bare README the files beside it" {

@@ -28,26 +28,7 @@ const dial_opts: driver.SessionOptions = .{
 
 const reply = "pong through the relay";
 
-const Echo = struct {
-    pub fn handle(_: *Echo, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
-        defer ht.releaseArguments(args);
-        const verb = selector orelse return error.NoSuchMethod;
-        if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
-        return .{ .string = reply };
-    }
-};
-
-fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    var session = try server.accept();
-    defer session.deinit();
-    _ = try session.publish("echo", Echo, .{});
-    while (!done.load(.acquire)) {
-        _ = session.stepReadable(20) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => break,
-            else => |e| return e,
-        };
-    }
-}
+const echo_server = @import("echo.zig").EchoServer(reply);
 
 /// `late_relay` starts the relay only after the listener's first
 /// registration attempt has failed, so only the runtime's own timer can
@@ -109,7 +90,7 @@ fn exercise(transport: model.transport.Known, late_relay: bool) !void {
     try std.testing.expectEqualStrings(relay_url, relay_hint);
 
     var done = std.atomic.Value(bool).init(false);
-    var server_future = try io.concurrent(serve, .{ server, &done });
+    var server_future = try io.concurrent(echo_server.serve, .{ server, &done });
     defer {
         done.store(true, .release);
         server_future.await(io) catch {};
