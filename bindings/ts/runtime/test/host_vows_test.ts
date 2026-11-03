@@ -2,7 +2,7 @@ import { CLOSED, INTERNAL } from "@glowcap/abi";
 import { GlowcapError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { type PromiseFactoryHandle, promiseFor } from "../promise.ts";
-import { SessionApplication } from "../session/application.ts";
+import { type LoopChannel, Session } from "../session.ts";
 import { refFromId } from "../value.ts";
 import { assert, assertRejects } from "../../test/assert.ts";
 
@@ -94,25 +94,24 @@ Deno.test("promise adoption parks FFI release at every post-mint failure", () =>
 Deno.test("send admission preserves the exact failure through every dependent handle", async () => {
 	const cause = new Error("scheduler refused progress");
 	for (const failure of [new Error("admission failed", { cause }), { cause }, null, undefined]) {
-		const session = {
-			guardOpen() {
+		const host = {
+			registerSession() {},
+			drainGc() {
 				throw failure;
 			},
-		} as unknown as SessionApplication;
+		} as unknown as Host;
+		const session = Session.adoptLoopSession(1n, host, {} as LoopChannel);
 		// Admission must return a handle even for a non-Error raised value. No
 		// argument projection or FFI effect can happen after this refusal.
-		const pending = SessionApplication.prototype.send.call(session, refFromId(1n), "get");
+		const pending = session.send(refFromId(1n), "get");
 		const dependent = pending.untag("row").index(0).get("value");
-		const pipelined = SessionApplication.prototype.send.call(
-			{
-				guardOpen() {},
-				hostOwner: { drainGc() {} },
-				hostedActors: new Map(),
-				makePromiseFactory: () => ({ hostOwner: {} }),
-			} as unknown as SessionApplication,
-			pending,
-			"get",
-		);
+		const nextHost = {
+			registerSession() {},
+			drainGc() {},
+			hosted: new Map(),
+		} as unknown as Host;
+		const next = Session.adoptLoopSession(2n, nextHost, {} as LoopChannel);
+		const pipelined = next.send(pending, "get");
 		for (const handle of [pending, dependent, pipelined]) {
 			const observed = await handle.then(
 				() => ({ ok: true as const }),

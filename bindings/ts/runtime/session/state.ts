@@ -1,5 +1,5 @@
-// Internal state and lifecycle owner for the public Session facade. Cross-file
-// `export` is module visibility; runtime/mod.ts does not expose this base.
+// One state owner for the public Session. The pump, writer, vow waits, and
+// hosting operations borrow this object directly; no per-operation adapters.
 
 import { CLOSED, HANDSHAKE_TIMEOUT_MS, HOST_OUTBOUND_PREFIX_CAP, INVALID_ARGUMENT, OK, TIMEOUT } from "@glowcap/abi";
 import { type AbortDetail, checkHost, GlowcapError, retainSecondaryFailure } from "../errors.ts";
@@ -9,7 +9,7 @@ import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { ab } from "../internal/seam.ts";
 import { L } from "../internal/layout.ts";
 import { type CloseOptions, encodeCloseOptions, lifecycleClosed, monotonicNowMs } from "../lifecycle.ts";
-import type { MintAwaitHandle, PromiseFactoryHandle } from "../promise.ts";
+import { type MintAwaitHandle, type PromiseFactoryHandle } from "../promise.ts";
 import {
 	flushOutbound as pumpFlushOutbound,
 	lastAbort as pumpLastAbort,
@@ -17,18 +17,23 @@ import {
 	runHandshake,
 	serveLoop,
 } from "../pump.ts";
-import type { Channel, LoopChannel } from "../session.ts";
+import type { Channel, LoopChannel } from "./channel.ts";
 import { traceDrainHost } from "../trace.ts";
-import { insideTurn } from "../trampoline.ts";
-import type { SessionProfile } from "../value.ts";
+import { type BehaviorEntry, type HostingHandle, insideTurn } from "../trampoline.ts";
+import type { Argument, SessionProfile } from "../value.ts";
 import { readSessionProfile, readSessionTransportName } from "./metadata.ts";
-import { Outbound } from "./writer.ts";
+import { Outbound, type WriterOwner } from "./writer.ts";
 
 function isLoopChannel(transport: Channel): transport is LoopChannel {
 	return (transport as { driverLoop?: unknown }).driverLoop != null;
 }
 
-export abstract class SessionLifecycle {
+// One object per Session replaces the pump and writer-owner objects. Consumers
+// call prototype methods on this owner, so vow/hosting operations allocate no
+// handle object or adapter closures. A pending vow retains this state until it
+// settles; the Host registry keeps the public Session identity for callbacks.
+export class SessionState implements PumpHandle, WriterOwner, MintAwaitHandle, PromiseFactoryHandle, HostingHandle {
+	readonly #session: object;
 	#ptr: Ptr;
 	readonly #host: Host;
 	readonly #transport: Channel;
@@ -61,158 +66,125 @@ export abstract class SessionLifecycle {
 		prefix: new Uint8Array(HOST_OUTBOUND_PREFIX_CAP),
 		prefixLen: new Uint8Array(8),
 	};
-	// Live accessors into the private fields above. `pump.ts` drives them.
-	readonly #pump: PumpHandle;
-	// Opaque Host capability id -> trampoline ctx id for objects this session
-	// hosts, so a `Forward` whose target this side hosts composes in process.
-	readonly #hosted: Map<bigint, bigint>;
 	// Distributed GC (ADR-0025), opt-in and off by default (see `gc.ts`).
-	#gcEnabled = false;
+	gcEnabled = false;
 
-	protected constructor(ptr: Ptr, host: Host, transport: Channel) {
+	constructor(ptr: Ptr, host: Host, transport: Channel, session: object) {
 		this.#ptr = ptr;
 		this.#host = host;
-		this.#hosted = host.hosted;
 		this.#transport = transport;
-		this.#outbound = new Outbound({
-			flushOutbound: () => this.flushOutbound(),
-			closeTransport: () => this.closeTransport(),
-			finishClose: (result) => this.finishClose(result),
-			scheduleKick: () => host.scheduleKick(),
-			trackWriter: (writer) => host.trackSessionWriter(writer),
-		});
-		this.#pump = this.#makePump();
-		// The host's registry join happens in the concrete `Session`
-		// constructor, once `this` can be typed as the class it stores.
+		this.#session = session;
+		this.#outbound = new Outbound(this);
 	}
 
-	/** Bind `#pump` getters/setters onto this Session's private fields. */
-	#makePump(): PumpHandle {
-		// deno-lint-ignore no-this-alias -- object-literal getters cannot see Session `#` fields without a closed-over instance
-		const s = this;
-		return {
-			deliverHost: s.#host,
-			get ptr() {
-				return s.#ptr;
-			},
-			get released() {
-				return s.#released;
-			},
-			get sessionOpen() {
-				return s.sessionOpen;
-			},
-			get closingFlag() {
-				return s.#closing;
-			},
-			set closingFlag(v: boolean) {
-				s.#closing = v;
-			},
-			get closing() {
-				return s.closing;
-			},
-			get wireFailure() {
-				return s.#wireFailure;
-			},
-			markTransportLost: () => s.markTransportLost(),
-			recordWireFailure: (error) => s.recordWireFailure(error),
-			recordOutboundFailure: (error) => s.recordOutboundFailure(error),
-			get closeDelivered() {
-				return s.#outbound.closeDelivered;
-			},
-			requestFlush: () => s.#outbound.request(),
-			written: (covering) => s.#outbound.written(covering),
-			get writerExited() {
-				return s.#outbound.exited;
-			},
-			outboundScratch: s.#outboundScratch,
-			read: () => s.#transport.read(),
-			write: (data) => s.#transport.write(data),
-			drainParkedReleases: () => s.#host.drainParkedReleases(),
-			kickActions: () => s.#host.kickActions(),
-			settleActions: () => s.#host.settleActions(),
-			signalCloseActivity: () => s.#host.signalCloseActivity(),
-			closeTransport: () => s.closeTransport(),
-		};
-	}
-
-	/** Bind the mint/await seam for `promise.fetchLike` without exporting
-	 * private Session fields. */
-	protected makeMintAwait(): MintAwaitHandle {
-		// deno-lint-ignore no-this-alias -- object-literal methods close over Session `#` fields
-		const s = this;
-		return {
-			guardOpen: () => s.guardOpen(),
-			drainGc: () => s.#host.drainGc(),
-			get ptr() {
-				return s.#ptr;
-			},
-			vowMinted: (vow, trackGc = false) => s.#host.vowMinted(vow, trackGc && s.#gcEnabled),
-			attend: () => s.#attendInbound(),
-			awaitVow: (vow) => s.#host.awaitVow(vow),
-			kickActions: () => s.#host.kickActions(),
-			parkVowRelease: (vow) => s.#host.parkVowRelease(vow),
-		};
-	}
-
-	/** Bind the far-send `promiseFor` factory without exporting private fields. */
-	protected makePromiseFactory(): PromiseFactoryHandle {
-		// deno-lint-ignore no-this-alias -- object-literal methods close over Session `#` fields
-		const s = this;
-		return {
-			attend: () => s.#attendInbound(),
-			awaitVow: (vow) => s.#host.awaitVow(vow),
-			kickActions: () => s.#host.kickActions(),
-			parkVowRelease: (vow) => s.#host.parkVowRelease(vow),
-			vowMinted: (vow, trackGc = false) => s.#host.vowMinted(vow, trackGc && s.#gcEnabled),
-			trackVow: (handle, vow) => s.#host.trackVow(handle, vow),
-			scheduleProgress: () => s.#host.scheduleKick(),
-			recordBackgroundFailure: (failure) => s.#host.recordBackgroundFailure(failure),
-			get hostRaw() {
-				return s.#host.raw;
-			},
-			get hostOwner() {
-				return s.#host;
-			},
-			get ptr() {
-				return s.#ptr;
-			},
-		};
-	}
-
-	/** The raw GlowcapHostSession handle. Binding-internal: the host's DIAL arm
-	 * reports it through `glowcap_host_dialed`. */
-	get raw(): Ptr {
+	get ptr(): Ptr {
 		return this.#ptr;
 	}
-
-	/** The session's shared host, its retained identity and handoff router.
-	 * Shared by every session of one host, so the gifter half of a handoff
-	 * can reach a sibling session's session keys. An application reads it to
-	 * publish host-publications (`Host.publish`), share one identity
-	 * across dials, or set the redeem posture. */
-	get host(): Host {
+	get hostOwner(): Host {
 		return this.#host;
 	}
+	get hostRaw(): Ptr {
+		return this.#host.raw;
+	}
+	get hosted(): Map<bigint, bigint> {
+		return this.#host.hosted;
+	}
+	get deliverHost(): Host {
+		return this.#host;
+	}
+	get released(): boolean {
+		return this.#released;
+	}
+	get closingFlag(): boolean {
+		return this.#closing;
+	}
+	set closingFlag(value: boolean) {
+		this.#closing = value;
+	}
+	get wireFailure(): { readonly error: unknown } | null {
+		return this.#wireFailure;
+	}
+	get closeDelivered(): boolean {
+		return this.#outbound.closeDelivered;
+	}
+	get writerExited(): Promise<void> {
+		return this.#outbound.exited;
+	}
+	get outboundScratch(): PumpHandle["outboundScratch"] {
+		return this.#outboundScratch;
+	}
+	written(covering: number): Promise<void> {
+		return this.#outbound.written(covering);
+	}
+	read(): Promise<Uint8Array | null> {
+		return this.#transport.read();
+	}
+	write(data: Uint8Array): Promise<void> {
+		return this.#transport.write(data);
+	}
+	drainParkedReleases(): void {
+		this.#host.drainParkedReleases();
+	}
+	kickActions(): Promise<void> {
+		return this.#host.kickActions();
+	}
+	settleActions(): Promise<void> {
+		return this.#host.settleActions();
+	}
+	signalCloseActivity(): void {
+		this.#host.signalCloseActivity();
+	}
+	drainGc(): void {
+		this.#host.drainGc();
+	}
+	attend(): void {
+		this.#attendInbound();
+	}
+	awaitVow(vow: bigint): Promise<Argument> {
+		return this.#host.awaitVow(vow);
+	}
+	parkVowRelease(vow: bigint): void {
+		this.#host.parkVowRelease(vow);
+	}
+	vowMinted(vow: bigint, trackGc = false): void {
+		this.#host.vowMinted(vow, trackGc && this.gcEnabled);
+	}
+	trackVow(handle: object, vow: bigint): void {
+		this.#host.trackVow(handle, vow);
+	}
+	scheduleProgress(): void {
+		this.#host.scheduleKick();
+	}
+	recordBackgroundFailure(failure: unknown): void {
+		this.#host.recordBackgroundFailure(failure);
+	}
+	registerBehavior(entry: BehaviorEntry): bigint {
+		return this.#host.registerHostedBehavior(entry);
+	}
+	unregisterBehavior(id: bigint): void {
+		this.#host.unregisterHostedBehavior(id);
+	}
+	scheduleKick(): void {
+		this.#host.scheduleKick();
+	}
+	trackWriter(writer: Promise<void>): void {
+		this.#host.trackSessionWriter(writer);
+	}
 
-	/** Whether local transport teardown has begun. Binding-internal pump seam. */
 	get closing(): boolean {
 		return this.#closing || this.#released;
 	}
 
-	/** Nonzero once the keyed handshake has completed and the session is open. */
 	get sessionOpen(): boolean {
 		return !this.#released &&
 			hostS.glowcap_host_session_is_open(this.#ptr) === 1;
 	}
 
-	/** The version, codec, and feature set this live session settled with its
-	 * partner. No Host preference is inferred at this layer. */
 	get profile(): SessionProfile {
 		this.guardOpen();
 		return readSessionProfile(this.#ptr);
 	}
 
-	/** The exact netlayer symbol this connection was opened through. */
 	get transportName(): string {
 		this.guardOpen();
 		return readSessionTransportName(this.#ptr);
@@ -230,10 +202,9 @@ export abstract class SessionLifecycle {
 	// that one client. An elapsed budget takes the same abandon path a failed
 	// handshake does, and closing the transport is what unparks the abandoned
 	// read.
-	protected async establish(handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS): Promise<this> {
+	async establish(handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS): Promise<void> {
 		try {
-			await runHandshake(this.#pump, handshakeTimeoutMs);
-			return this;
+			await runHandshake(this, handshakeTimeoutMs);
 		} catch (err) {
 			await this.closeTransport();
 			throw err;
@@ -242,15 +213,6 @@ export abstract class SessionLifecycle {
 
 	// ── The pump (choreography in pump.ts) ──────────────────────────────────────
 
-	/** Run the inbound loop: read transport packets, hand them to the Host
-	 * transport seam (behaviors run and vow completions queue inside the feed),
-	 * and drain the action queue. Resolves when the connection closes cleanly;
-	 * rejects on a transport or protocol error. Started once; calling again
-	 * returns the same promise.
-	 *
-	 * A loop-backed session (ADR-0024) has no byte pump of its own: the
-	 * driver loop reads, feeds, and drains. Its serve promise only awaits
-	 * the session's closure, keeping the resolves-on-close contract. */
 	#attendInbound(): void {
 		if (this.#serving === null) {
 			const transport = this.#transport;
@@ -261,7 +223,7 @@ export abstract class SessionLifecycle {
 				transport.driverLoop.serveSession(this.#ptr);
 				this.#serving = transport.waitClosed();
 			} else {
-				this.#serving = serveLoop(this.#pump);
+				this.#serving = serveLoop(this);
 			}
 		}
 	}
@@ -275,10 +237,6 @@ export abstract class SessionLifecycle {
 		return this.#serving!;
 	}
 
-	/** Run `listener` exactly once when this session's transport retires.
-	 * Registration after retirement runs it immediately. The callback is a
-	 * lifecycle signal only; `serve()` remains the typed failure channel.
-	 * The Host retains a failure from an asynchronous notification. */
 	onClose(listener: () => void): () => void {
 		if (this.#released || this.#transportClose !== null) {
 			listener();
@@ -299,30 +257,18 @@ export abstract class SessionLifecycle {
 		}
 	}
 
-	/** The typed cause of this CapTP session's most recent local dispatch failure,
-	 * or null when none has been recorded. The flat per-feed error code names
-	 * the failure family; this names the member. */
 	lastAbort(): AbortDetail | null {
-		return pumpLastAbort(this.#pump);
+		return pumpLastAbort(this);
 	}
 
-	/** Wake this session's writer, how a FLUSH action lands. Returns before
-	 * any byte is written. Binding-internal. */
 	requestFlush(): number {
 		return this.#outbound.request();
 	}
 
-	/** Have the writer drain what the core queued ahead of a CLOSE action, then
-	 * retire the session and settle an explicit close with `result`.
-	 * Binding-internal. */
 	closeAfterFlush(result: number): void {
 		this.#outbound.closeAfterFlush(result);
 	}
 
-	/** Drain every transport-ready packet on this CapTP session and write it to
-	 * the transport, resolving whether any frame left the core. The writer is
-	 * the one caller, so packets stay whole and in submission order. On a
-	 * loop-backed session one loop step is the flush. Binding-internal. */
 	async flushOutbound(): Promise<boolean> {
 		try {
 			const transport = this.#transport;
@@ -330,7 +276,7 @@ export abstract class SessionLifecycle {
 				transport.driverLoop.stepNow();
 				return false;
 			}
-			return await pumpFlushOutbound(this.#pump);
+			return await pumpFlushOutbound(this);
 		} catch (error) {
 			// The pump records before retiring a byte stream; this also owns a
 			// loop-step refusal, where no byte pump exists. First-cause retention
@@ -341,19 +287,14 @@ export abstract class SessionLifecycle {
 		}
 	}
 
-	/** Retain one terminal wire failure for `serve()` and `close()`.
-	 * Binding-internal pump seam. */
 	recordWireFailure(error: unknown): void {
 		if (this.#wireFailure === null) this.#wireFailure = { error };
 	}
 
-	/** Mark physical/protocol loss as the teardown owner. Binding-internal. */
 	markTransportLost(): void {
 		this.#transportLost = true;
 	}
 
-	/** Retain a write failure only while outbound I/O can still be the first
-	 * terminal fact. Binding-internal pump seam. */
 	recordOutboundFailure(error: unknown): void {
 		// A pump records before retiring a damaged stream. If the wrapper is
 		// already released here, local teardown caused this late write refusal;
@@ -364,7 +305,7 @@ export abstract class SessionLifecycle {
 		}
 	}
 
-	protected throwWireFailure(): void {
+	throwWireFailure(): void {
 		if (this.#wireFailure !== null) throw this.#wireFailure.error;
 	}
 
@@ -389,13 +330,6 @@ export abstract class SessionLifecycle {
 
 	// ── Teardown ────────────────────────────────────────────────────────────────
 
-	/** Close this session's connection and nothing else. A running `serve()`
-	 * resolves cleanly; pending vows settle with the typed CLOSED.
-	 *
-	 * It does not reach a sibling session, and it does not reach the
-	 * connections the host opened by itself to redeem a handoff: the `via`
-	 * from `sendRedeeming()` is one of those. `Runtime.close()` ends the
-	 * Runtime's Host and those sessions. */
 	async close(options: CloseOptions = {}): Promise<void> {
 		const encoded = encodeCloseOptions(options);
 		if (this.#closePromise !== null) {
@@ -514,8 +448,6 @@ export abstract class SessionLifecycle {
 		}
 	}
 
-	/** Complete an explicit byte-fed close after its CLOSE action has flushed
-	 * and released the transport. Natural transport loss has no waiter. */
 	finishClose(result: number): void {
 		const resolve = this.#closeResolve;
 		const reject = this.#closeReject;
@@ -527,8 +459,6 @@ export abstract class SessionLifecycle {
 		else resolve?.();
 	}
 
-	/** Commit wrapper retirement after the FFI owner released the whole Host
-	 * or loop. No per-session FFI call is valid beyond this boundary. */
 	ffiOwnerDidRelease(): Promise<void> {
 		if (this.#released) return this.#transportClose ?? Promise.resolve();
 		this.#closing = true;
@@ -537,7 +467,7 @@ export abstract class SessionLifecycle {
 		this.#releasePending = false;
 		const ptr = this.#ptr;
 		this.#ptr = NULL;
-		this.#host.unregisterSession(ptr, this);
+		this.#host.unregisterSession(ptr, this.#session);
 		if (this.#transportClose == null) {
 			try {
 				this.#transportClose = Promise.resolve(this.#transport.close());
@@ -550,9 +480,6 @@ export abstract class SessionLifecycle {
 		return this.#transportClose;
 	}
 
-	/** Project one FFI SESSION_CLOSED event onto this wrapper before release.
-	 * Binding-internal: the loop owns classification; Session owns only promise
-	 * and listener settlement. */
 	ffiTransportDidClose(error: GlowcapError | null): Promise<void> {
 		const transport = this.#transport;
 		if (!isLoopChannel(transport)) {
@@ -562,12 +489,6 @@ export abstract class SessionLifecycle {
 		return this.closeTransport();
 	}
 
-	/** Close just this session, without touching the host's other sessions:
-	 * stop the transport first, then retire the host's entry and
-	 * free the host handle (the core settles any still-parked far vows during
-	 * release), so no foreign call touches a freed session.
-	 * A release refused inside a behavior callback is parked for the next
-	 * drain, never dropped. Binding-internal. */
 	closeTransport(): Promise<void> {
 		this.#closing = true;
 		this.#outbound.stop();
@@ -595,7 +516,7 @@ export abstract class SessionLifecycle {
 			}
 			this.#released = true;
 			this.#releasePending = false;
-			this.#host.unregisterSession(ptr, this);
+			this.#host.unregisterSession(ptr, this.#session);
 			this.#ptr = NULL;
 			// The released session is retired close-relevant state; wake any
 			// parked close driver.
@@ -611,33 +532,9 @@ export abstract class SessionLifecycle {
 		return transportClose;
 	}
 
-	async [Symbol.asyncDispose](): Promise<void> {
-		await this.close();
-	}
-
-	protected guardOpen(): void {
+	guardOpen(): void {
 		if (this.#released) {
 			throw new GlowcapError(CLOSED, "connection closed");
 		}
-	}
-
-	protected get ffiPtr(): Ptr {
-		return this.#ptr;
-	}
-
-	protected get hostOwner(): Host {
-		return this.#host;
-	}
-
-	protected get hostedActors(): Map<bigint, bigint> {
-		return this.#hosted;
-	}
-
-	protected get distributedGcEnabled(): boolean {
-		return this.#gcEnabled;
-	}
-
-	protected set distributedGcEnabled(enabled: boolean) {
-		this.#gcEnabled = enabled;
 	}
 }

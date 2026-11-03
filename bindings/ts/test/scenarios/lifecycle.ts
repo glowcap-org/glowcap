@@ -210,10 +210,26 @@ export async function run(managed: Runtime): Promise<void> {
 				channel: await listener.accept(),
 				verifiedChannelKey: null,
 			}, HANDSHAKE_TIMEOUT_MS))();
+		let enteredFlush!: () => void;
+		const flushEntered = new Promise<void>((resolve) => enteredFlush = resolve);
+		let finishFlush!: () => void;
+		const flushGate = new Promise<void>((resolve) => finishFlush = resolve);
+		let pauseWrites = false;
+		const channel = await connectTcp("127.0.0.1", listener.port);
 		const dialing = Session.establishDialedLocator(
 			host,
 			bareLocator("tcp", designator),
-			await connectTcp("127.0.0.1", listener.port),
+			{
+				read: () => channel.read(),
+				async write(data) {
+					if (pauseWrites) {
+						enteredFlush();
+						await flushGate;
+					}
+					await channel.write(data);
+				},
+				close: () => channel.close(),
+			},
 			HANDSHAKE_TIMEOUT_MS,
 			null,
 		);
@@ -236,16 +252,7 @@ export async function run(managed: Runtime): Promise<void> {
 		const servingServer = serverSession.serve().catch(() => {});
 		const servingClient = session.serve().catch(() => {});
 		const svc = await session.fetch("svc");
-		let enteredFlush!: () => void;
-		const flushEntered = new Promise<void>((resolve) => enteredFlush = resolve);
-		let finishFlush!: () => void;
-		const flushGate = new Promise<void>((resolve) => finishFlush = resolve);
-		const flushOutbound = session.flushOutbound.bind(session);
-		session.flushOutbound = async () => {
-			enteredFlush();
-			await flushGate;
-			return await flushOutbound();
-		};
+		pauseWrites = true;
 		const reply = Promise.resolve(session.send(svc, "ping", [])).catch(() => null);
 		await within(flushEntered, 1_000, "the session writer's FLUSH");
 		let released = false;
