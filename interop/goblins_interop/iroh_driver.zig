@@ -129,8 +129,10 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
     );
     defer allocator.free(ready.block);
     var child = ready.child;
-    var reaped = false;
-    defer if (!reaped) child.kill(io);
+    // The vat outlives the client endpoint's teardown, which the defers below
+    // order: a vat killed first leaves our close unacknowledged and draining
+    // to its timeout, the peer's silence rather than a verdict on anything.
+    defer child.kill(io);
 
     const node_id = goblins_child.extractField(ready.block, "\"node-id\":\"") orelse return error.NoGoblinsNodeId;
     const direct_addrs = goblins_child.extractField(ready.block, "\"direct-addresses\":\"") orelse return error.NoGoblinsDirectAddrs;
@@ -164,8 +166,6 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
     }) catch |err| {
         std.debug.print("goblins-iroh: dialing the goblins vat failed: {s}\n", .{@errorName(err)});
         goblins_child.dumpChildStderr(io, "goblins-iroh", &child);
-        child.kill(io);
-        reaped = true;
         return err;
     };
 
@@ -199,8 +199,6 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
     }
 
     std.debug.print("goblins-iroh: OK (glowcap as client), keyed handshake + bootstrap fetch + echo call with a live Goblins vat over QUIC, and the vat proved the caller's endpoint id\n", .{});
-    child.kill(io);
-    reaped = true;
 }
 
 /// Dial the Goblins vat's `iroh` locator, fetch its echo cap, and call it.

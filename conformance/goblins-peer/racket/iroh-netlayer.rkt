@@ -41,7 +41,7 @@
          (only-in "../../../bindings/racket/glowcap-iroh.rkt"
                   open-iroh-endpoint make-iroh-config
                   iroh-endpoint-node-id iroh-endpoint-direct-addresses
-                  iroh-endpoint-accept iroh-endpoint-dial
+                  iroh-endpoint-accept iroh-endpoint-dial iroh-endpoint-close!
                   byte-channel byte-channel-read byte-channel-write
                   byte-channel-verified-remote)
          racket/async-channel
@@ -197,12 +197,14 @@
   ;; netlayer body through `sync/pr`, as in `tcp-netlayer.rkt`.
   (define new-conn-ch (make-async-channel))
 
+  (define accept-thread #f)
   (define (start-accept-thread)
-    (thread
+    (set! accept-thread
+     (thread
      (lambda ()
        (let loop ()
          (async-channel-put new-conn-ch (iroh-endpoint-accept endpoint))
-         (loop)))))
+         (loop))))))
 
   ;; The message procs one connection runs on, traced when a sink was given.
   (define (connection-procs ch)
@@ -229,7 +231,14 @@
     (define base-beh
       (methods
        [(netlayer-name) 'iroh]
-       [(our-location) (our-location)]))
+       [(our-location) (our-location)]
+       ;; Leave the wire politely: closing the endpoint sends every open
+       ;; connection its close frame, so a partner learns this vat is gone
+       ;; instead of waiting out an idle timeout. The accept thread stops
+       ;; first so it never sees the closed endpoint.
+       [(shutdown)
+        (when accept-thread (kill-thread accept-thread))
+        (iroh-endpoint-close! endpoint)]))
 
     ;; Pre-setup: waits for `setup` to start accepting and transition into the
     ;; ready behavior.
