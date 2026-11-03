@@ -86,9 +86,7 @@ pub fn register(
     // ReleaseFast on both sides, read from the bench's own key=number rows.
     const ab_mod = b.createModule(.{ .root_source_file = b.path("tools/ab/compare.zig"), .target = b.graph.host, .optimize = .Debug });
     const ab = b.addExecutable(.{ .name = "bench-ab", .root_module = ab_mod });
-    const run_ab = execution.addArtifact(b, .benchmark, ab);
-    run_ab.setCwd(b.path("."));
-    run_ab.has_side_effects = true;
+    const run_ab = execution.addLiveRun(b, .benchmark, ab);
     run_ab.addArg(b.graph.zig_exe);
     run_ab.addPassthruArgs();
     b.step("bench-ab", "Run one bench alternately on a base revision and this tree, ReleaseFast, and print each row's medians side by side: -- --base=<rev> [--pairs=N] <bench-step> [bench args]").dependOn(&run_ab.step);

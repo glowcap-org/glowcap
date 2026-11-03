@@ -15,7 +15,7 @@ pub fn registerRuntime(b: *std.Build, tasks_server: *std.Build.Step.Compile, run
     const typescript = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env", "test/interface/typescript/conversation.ts",
     });
-    typescript.setEnvironmentVariable("GLOWCAP_LIB_DIR", commands.rootPath(b, "zig-out/lib"));
+    commands.setLibDir(typescript, .host);
     typescript.has_side_effects = true;
     const conversation_step = b.step("interface-conversation-check", "Prove generated Tasks creation and Rust/TypeScript pending callback conversations (needs cargo + deno)");
     conversation_step.dependOn(&rust_proof.step);

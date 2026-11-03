@@ -3,6 +3,8 @@
 //! Chromium.
 
 const std = @import("std");
+const commands = @import("commands.zig");
+const Binary = @import("rooms/peers.zig").Binary;
 const execution = @import("execution.zig");
 
 pub fn register(
@@ -26,14 +28,12 @@ pub fn register(
     // production bundle are build-tool work: keeping them outside the suite's
     // deterministic deadline means that deadline measures tests rather than a
     // cold dependency and bundler cache.
-    const ocapnviz_build_check = execution.addSystemCommand(b, .build_tool, &.{ "bash", "tools/check/ocapnviz-build-check.sh" });
-    ocapnviz_build_check.setCwd(b.path("."));
+    const ocapnviz_build_check = commands.addRootedSystemCommand(b, .build_tool, &.{ "bash", "tools/check/ocapnviz-build-check.sh" });
     ocapnviz_build_check.has_side_effects = true;
     ocapnviz_build_check.step.dependOn(wasm_driver_install_step);
-    const ocapnviz_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-    ocapnviz_test.setCwd(b.path("."));
+    const ocapnviz_test = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
     ocapnviz_test.has_side_effects = true;
-    ocapnviz_test.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    Binary.server.addEnv(ocapnviz_test);
     ocapnviz_test.addArgs(&.{ "bash", "tools/check/ocapnviz-test.sh" });
     ocapnviz_test.step.dependOn(rooms_services_install);
     ocapnviz_test.step.dependOn(&ocapnviz_build_check.step);
@@ -66,7 +66,7 @@ pub fn register(
     const ocapnviz_live_browser = execution.addSystemCommand(b, .{ .browser_proof = 120 }, &.{"env"});
     ocapnviz_live_browser.setCwd(b.path("apps/ocapnviz"));
     ocapnviz_live_browser.has_side_effects = true;
-    ocapnviz_live_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    Binary.server.addEnv(ocapnviz_live_browser);
     ocapnviz_live_browser.addArgs(&.{ "deno", "task", "test:live-browser" });
     ocapnviz_live_browser.step.dependOn(rooms_services_install);
     ocapnviz_live_browser.step.dependOn(wasm_driver_install_step);

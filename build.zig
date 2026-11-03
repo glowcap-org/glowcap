@@ -16,7 +16,7 @@ const cargo = @import("tools/build/cargo.zig");
 const modules = @import("tools/build/modules.zig");
 const cli_build = @import("tools/build/cli.zig");
 const iroh_build = @import("tools/build/iroh.zig");
-const mbedtls_build = @import("tools/build/mbedtls.zig");
+const relay_tls_build = @import("tools/build/relay_tls.zig");
 const webrtc_build = @import("tools/build/webrtc.zig");
 const rooms_build = @import("tools/build/rooms.zig");
 const binding_families_build = @import("tools/build/binding_families.zig");
@@ -202,7 +202,7 @@ pub fn build(b: *std.Build) void {
     // The secure relay dependency is an explicit, networked sibling step. The
     // ordinary core library graph never fetches or links it; the secure relay
     // consumer makes this compile step part of its own graph.
-    const relay_tls = mbedtls_build.addFamily(b, target, optimize, host_mods[layerIndex("foundation")], host_mods[layerIndex("net")]);
+    const relay_tls = relay_tls_build.addFamily(b, target, optimize, host_mods[layerIndex("foundation")], host_mods[layerIndex("net")]);
 
     // ── Composable C ABI archives (ADR-0022) ─────────────────────────────────
     // Each family ships as its own archive linked à la carte, exporting only
@@ -222,7 +222,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "net", .module = host_mods[layerIndex("net")] },
         .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
     });
-    const relay_abi = mbedtls_build.relayAbiModules(
+    const relay_abi = relay_tls_build.relayAbiModules(
         b,
         target,
         optimize,
@@ -289,8 +289,8 @@ pub fn build(b: *std.Build) void {
     const ocapn_archive = installArchive(b, "glowcap_ocapn", host_mods[layerIndex("c_abi")], abi_version);
     const ocapn_static = ocapn_archive.static;
     const tcp_archive = installArchive(b, "glowcap_net_transport_tcp", tcp_abi_mod, abi_version);
-    const relay_archive = mbedtls_build.installArchive(b, target, relay_abi_mod, abi_version);
-    mbedtls_build.addArchiveChecks(b, target, optimize, relay_tls.secure_check, relay_archive.static, relay_archive.dynamic);
+    const relay_archive = relay_tls_build.installArchive(b, target, relay_abi_mod, abi_version);
+    relay_tls_build.addArchiveChecks(b, target, optimize, relay_tls.secure_check, relay_archive.static, relay_archive.dynamic);
     const inproc_archive = installArchive(b, "glowcap_net_transport_inproc", inproc_abi_mod, abi_version);
     const onion_archive = installArchive(b, "glowcap_net_transport_onion", onion_abi_mod, abi_version);
     const host_archive = installArchive(b, "glowcap_host", host_archive_mod, abi_version);
@@ -374,7 +374,7 @@ pub fn build(b: *std.Build) void {
         .pin_port = pin_port,
         .browser_preflight = browser_preflight,
     });
-    mbedtls_build.addSiteRelayExamples(
+    relay_tls_build.addSiteRelayExamples(
         b,
         target,
         optimize,

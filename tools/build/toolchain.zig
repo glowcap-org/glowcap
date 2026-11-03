@@ -134,11 +134,9 @@ pub fn register(
     // batch it happened to travel in.
     for (in_tree_capabilities) |capability| {
         if (!containsGate(capability.gates, .isolated)) continue;
-        const probe_run = execution.addArtifact(b, .{ .deterministic = 10 }, present);
+        const probe_run = execution.addLiveRun(b, .{ .deterministic = 10 }, present);
         probe_run.addArgs(&.{ "capability", capability.expected, capability.why, "--" });
         probe_run.addArgs(capability.probe);
-        probe_run.setCwd(b.path("."));
-        probe_run.has_side_effects = true;
         probe_run.step.dependOn(verdict.declaration);
         step.dependOn(&probe_run.step);
     }
@@ -174,11 +172,9 @@ pub fn register(
     runtime_preflight.step.dependOn(&runtime_present.step);
     for (in_tree_capabilities) |capability| {
         if (!containsGate(capability.gates, .runtime)) continue;
-        const probe_run = execution.addArtifact(b, .{ .deterministic = 10 }, present);
+        const probe_run = execution.addLiveRun(b, .{ .deterministic = 10 }, present);
         probe_run.addArgs(&.{ "capability", capability.expected, capability.why, "--" });
         probe_run.addArgs(capability.probe);
-        probe_run.setCwd(b.path("."));
-        probe_run.has_side_effects = true;
         probe_run.step.dependOn(runtime_verdict.declaration);
         runtime_preflight.step.dependOn(&probe_run.step);
     }

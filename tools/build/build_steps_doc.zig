@@ -15,6 +15,7 @@
 //! edit to it reruns the configure phase that reads it.
 const std = @import("std");
 const execution = @import("execution.zig");
+const listing = @import("listing.zig");
 const Step = std.Build.Step;
 
 pub const doc_path = "docs/build-steps.md";
@@ -91,7 +92,7 @@ fn inventoryOf(b: *std.Build) []const Entry {
             if (!immediate(contains, n, gi, si)) continue;
             part_of.append(gpa, g.step.name) catch @panic("OOM");
         }
-        std.mem.sort([]const u8, part_of.items, {}, lessThan);
+        std.mem.sort([]const u8, part_of.items, {}, listing.lessThan);
         entries.append(gpa, .{ .name = top.step.name, .description = top.description, .part_of = part_of.items }) catch @panic("OOM");
     }
     return entries.items;
@@ -100,10 +101,6 @@ fn inventoryOf(b: *std.Build) []const Entry {
 fn isBuiltin(name: []const u8) bool {
     for (builtin_steps) |builtin| if (std.mem.eql(u8, name, builtin)) return true;
     return false;
-}
-
-fn lessThan(_: void, a: []const u8, b: []const u8) bool {
-    return std.mem.lessThan(u8, a, b);
 }
 
 /// Every step reachable from `root` through dependencies, `root` included.

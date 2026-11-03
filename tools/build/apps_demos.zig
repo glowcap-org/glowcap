@@ -116,9 +116,7 @@ pub fn register(
     // lives under `apps/accountability-on-glowcap/`, beside
     // the other worked applications.
     const accountability_exe = glowcapExecutable(b, lib_mod, target, optimize, "accountability-on-glowcap", "apps/accountability-on-glowcap/zig/main.zig");
-    const run_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
-    run_accountability.setCwd(b.path("."));
-    run_accountability.has_side_effects = true;
+    const run_accountability = execution.addLiveRun(b, .{ .deterministic = 30 }, accountability_exe);
     const accountability_step = b.step("accountability", "Run the accountability application on glowcap's own runtime over real TCP");
     accountability_step.dependOn(&run_accountability.step);
     // A runnable application is a contract, and this one owns a real loopback
@@ -126,9 +124,7 @@ pub fn register(
     // cache instead of the public demo's `.data/` path. The separate
     // three-party attribution proof below remains a self-contained Zig test in
     // `check`.
-    const runtime_accountability = execution.addArtifact(b, .{ .deterministic = 30 }, accountability_exe);
-    runtime_accountability.setCwd(b.path("."));
-    runtime_accountability.has_side_effects = true;
+    const runtime_accountability = execution.addLiveRun(b, .{ .deterministic = 30 }, accountability_exe);
     runtime_accountability.setEnvironmentVariable("GLOWCAP_ACCOUNTABILITY_DATA_ROOT", ".zig-cache/glowcap-accountability/runtime-check");
     runtime_gate.add(&runtime_accountability.step);
 

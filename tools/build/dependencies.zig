@@ -15,17 +15,13 @@ pub fn register(b: *std.Build, source_check_step: *std.Build.Step) void {
             .optimize = .Debug,
         }),
     });
-    const dependencies_check = execution.addArtifact(b, .{ .deterministic = 30 }, dependencies_exe);
-    dependencies_check.setCwd(b.path("."));
+    const dependencies_check = execution.addLiveRun(b, .{ .deterministic = 30 }, dependencies_exe);
     dependencies_check.addArg("check");
-    dependencies_check.has_side_effects = true;
     const dependencies_check_step = b.step("gen-dependencies-check", "Verify docs/dependencies.md matches the dep comments in every manifest (fails if stale or a dependency has no comment)");
     dependencies_check_step.dependOn(&dependencies_check.step);
     source_check_step.dependOn(dependencies_check_step);
-    const dependencies_write = execution.addArtifact(b, .build_tool, dependencies_exe);
-    dependencies_write.setCwd(b.path("."));
+    const dependencies_write = execution.addLiveRun(b, .build_tool, dependencies_exe);
     dependencies_write.addArg("write");
-    dependencies_write.has_side_effects = true;
     b.step("gen-dependencies", "Regenerate docs/dependencies.md from the dep comments in every manifest").dependOn(&dependencies_write.step);
     const dependencies_tests = b.addTest(.{ .root_module = dependencies_exe.root_module });
     source_check_step.dependOn(&execution.addZigTest(b, dependencies_tests, .unit_test).step);

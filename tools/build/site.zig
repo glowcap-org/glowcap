@@ -13,6 +13,7 @@
 const std = @import("std");
 const commands = @import("commands.zig");
 const execution = @import("execution.zig");
+const listing = @import("listing.zig");
 
 /// What the pipeline draws from the root build graph.
 pub const Context = struct {
@@ -77,10 +78,8 @@ pub fn register(ctx: Context) Registered {
         .name = "gen-site-examples",
         .root_module = site_examples_mod,
     });
-    const site_examples_write = execution.addArtifact(b, .build_tool, site_examples_exe);
-    site_examples_write.setCwd(b.path("."));
+    const site_examples_write = execution.addLiveRun(b, .build_tool, site_examples_exe);
     site_examples_write.addArg("write");
-    site_examples_write.has_side_effects = true;
     const site_examples_write_step = b.step("gen-site-examples", "Assemble site/examples snippets into SuperMD code-tabs on binding, Start, and transport pages");
     site_examples_write_step.dependOn(&site_examples_write.step);
 
@@ -118,21 +117,15 @@ pub fn register(ctx: Context) Registered {
     }) |dir_path| {
         // Configure output is cached, so the entries read here are a
         // configure input: a snippet added or removed reruns this walk.
-        b.dependOnDirectoryContents(b.path(dir_path));
-        var dir = snippets_root.openDir(snippets_io, dir_path, .{ .iterate = true }) catch |err|
-            std.debug.panic("site snippets {s}: {s}", .{ dir_path, @errorName(err) });
-        defer dir.close(snippets_io);
-        var entries = dir.iterate();
-        while (entries.next(snippets_io) catch |err|
-            std.debug.panic("site snippets {s}: {s}", .{ dir_path, @errorName(err) })) |entry|
-        {
-            if (entry.kind != .file) continue;
-            const is_zig = std.mem.endsWith(u8, entry.name, ".zig");
-            if (!is_zig and !std.mem.endsWith(u8, entry.name, ".ts")) continue;
-            if (is_zig and (std.mem.eql(u8, entry.name, "iroh.zig") or
-                std.mem.eql(u8, entry.name, "webrtc.zig") or
-                std.mem.endsWith(u8, entry.name, "-relay.zig"))) continue;
-            const path = b.fmt("{s}/{s}", .{ dir_path, entry.name });
+        // The directories are listed in order and each listing is sorted,
+        // so the graph and the deno invocation stay byte-stable.
+        for (listing.sortedFiles(b, dir_path)) |name| {
+            const is_zig = std.mem.endsWith(u8, name, ".zig");
+            if (!is_zig and !std.mem.endsWith(u8, name, ".ts")) continue;
+            if (is_zig and (std.mem.eql(u8, name, "iroh.zig") or
+                std.mem.eql(u8, name, "webrtc.zig") or
+                std.mem.endsWith(u8, name, "-relay.zig"))) continue;
+            const path = b.fmt("{s}/{s}", .{ dir_path, name });
             b.dependOnFileContents(b.path(path));
             const body = snippets_root.readFileAlloc(snippets_io, path, b.allocator, .limited(1 << 20)) catch |err|
                 std.debug.panic("site snippet {s}: {s}", .{ path, @errorName(err) });
@@ -140,15 +133,6 @@ pub fn register(ctx: Context) Registered {
             const list = if (is_zig) &site_zig_snippets else &site_ts_snippets;
             list.append(b.allocator, path) catch @panic("OOM");
         }
-    }
-    // Directory iteration order is platform noise; sort so the graph and the
-    // deno invocation stay byte-stable across runs.
-    for ([_]*std.ArrayList([]const u8){ &site_zig_snippets, &site_ts_snippets }) |list| {
-        std.mem.sort([]const u8, list.items, {}, struct {
-            fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
-                return std.mem.lessThan(u8, lhs, rhs);
-            }
-        }.lessThan);
     }
 
     const site_zig_examples_check = b.step("site-zig-examples-check", "Compile the authoritative Zig transport site examples");
@@ -209,11 +193,9 @@ pub fn register(ctx: Context) Registered {
         .name = "site-brand-mark",
         .root_module = brand_mark_mod,
     });
-    const brand_mark_write = execution.addArtifact(b, .build_tool, brand_mark_exe);
-    brand_mark_write.setCwd(b.path("."));
+    const brand_mark_write = execution.addLiveRun(b, .build_tool, brand_mark_exe);
     brand_mark_write.addFileArg(brand_mark_bundled);
     brand_mark_write.addArg("site/assets/mark.js");
-    brand_mark_write.has_side_effects = true;
 
     const render_site = execution.addSystemCommand(b, .build_tool, &.{
         b.graph.zig_exe, "build",
@@ -293,10 +275,9 @@ pub fn register(ctx: Context) Registered {
     // module doc prose that could not wrap inside the autodoc reference, and
     // a last line stranding one word.
     // On-demand like every browser proof.
-    const site_render_check = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
+    const site_render_check = commands.addRootedSystemCommand(b, .{ .browser_proof = 240 }, &.{
         "deno", "run", "--allow-all", "tools/check/site_render.ts", commands.rootPath(b, "zig-out/site"),
     });
-    site_render_check.setCwd(b.path("."));
     site_render_check.has_side_effects = true;
     site_render_check.step.dependOn(&autodoc_access.step);
     site_render_check.step.dependOn(ctx.browser_preflight);
@@ -308,10 +289,9 @@ pub fn register(ctx: Context) Registered {
     // never clicks, so a broken tab `select()` would pass it. On-demand like
     // every browser proof, and a sibling rather than a member of
     // `site-render-check` because its authority is interaction, not layout.
-    const site_tabs_check = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
+    const site_tabs_check = commands.addRootedSystemCommand(b, .{ .browser_proof = 240 }, &.{
         "deno", "run", "--allow-all", "tools/check/site_tabs.ts", commands.rootPath(b, "zig-out/site"),
     });
-    site_tabs_check.setCwd(b.path("."));
     site_tabs_check.has_side_effects = true;
     site_tabs_check.step.dependOn(&autodoc_access.step);
     site_tabs_check.step.dependOn(ctx.browser_preflight);

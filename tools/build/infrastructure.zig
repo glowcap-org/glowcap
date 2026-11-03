@@ -8,6 +8,7 @@
 const std = @import("std");
 const archives = @import("archives.zig");
 const execution = @import("execution.zig");
+const listing = @import("listing.zig");
 
 pub fn register(b: *std.Build) void {
     const infrastructure_check_step = b.step("infrastructure-check", "Run devcontainer, worktree, and agent hook behavior checks (needs bash, git, python3, jq, rustfmt, and deno)");
@@ -90,23 +91,9 @@ pub fn register(b: *std.Build) void {
 /// walks the graph in registration order, so the order must not depend on
 /// the file system.
 fn pythonTests(b: *std.Build, directory: []const u8) []const []const u8 {
-    b.dependOnDirectoryContents(b.path(directory));
-    const io = b.graph.io;
-    var dir = b.root.root_dir.handle.openDir(io, directory, .{ .iterate = true }) catch |err|
-        std.debug.panic("{s}: {s}", .{ directory, @errorName(err) });
-    defer dir.close(io);
     var names: std.ArrayList([]const u8) = .empty;
-    var entries = dir.iterate();
-    while (entries.next(io) catch |err|
-        std.debug.panic("{s}: {s}", .{ directory, @errorName(err) })) |entry|
-    {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, "_test.py")) continue;
-        names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
+    for (listing.sortedFiles(b, directory)) |name| {
+        if (std.mem.endsWith(u8, name, "_test.py")) names.append(b.allocator, name) catch @panic("OOM");
     }
-    std.mem.sort([]const u8, names.items, {}, struct {
-        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
-            return std.mem.lessThan(u8, lhs, rhs);
-        }
-    }.lessThan);
     return names.items;
 }

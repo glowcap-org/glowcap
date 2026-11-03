@@ -16,22 +16,20 @@
 //! though the render is not available there.
 
 const std = @import("std");
-const execution = @import("execution.zig");
+const commands = @import("commands.zig");
 
 pub fn register(b: *std.Build, browser_preflight: *std.Build.Step) void {
-    const write = execution.addSystemCommand(b, .{ .browser_proof = 300 }, &.{
+    const write = commands.addRootedSystemCommand(b, .{ .browser_proof = 300 }, &.{
         "deno", "run", "--allow-all", "tools/gen/mark/main.ts", "write",
     });
-    write.setCwd(b.path("."));
     write.has_side_effects = true;
     write.step.dependOn(browser_preflight);
     const write_step = b.step("gen-mark", "Re-trace the still mark from the shader and rewrite the unlit and lit artwork under site/assets/ with their rasters, plus the mark's generated blocks in ui/ (needs deno + the image-baked browser)");
     write_step.dependOn(&write.step);
 
-    const check = execution.addSystemCommand(b, .{ .browser_proof = 300 }, &.{
+    const check = commands.addRootedSystemCommand(b, .{ .browser_proof = 300 }, &.{
         "deno", "run", "--allow-all", "tools/gen/mark/main.ts", "check",
     });
-    check.setCwd(b.path("."));
     check.has_side_effects = true;
     check.step.dependOn(browser_preflight);
     const check_step = b.step("gen-mark-check", "Verify the committed still mark still matches a fresh trace of the shader (fails if stale)");

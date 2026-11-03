@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 const cargo = @import("../cargo.zig");
 const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
+const Binary = @import("peers.zig").Binary;
 
 pub const Registered = struct {
     /// The generated browser module and its type declarations.
@@ -15,36 +16,34 @@ pub const Registered = struct {
 };
 
 pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execution.RuntimeGate, wasm_archives: *std.Build.Step, wasm_driver: *std.Build.Step, peers: *std.Build.Step, zig_archives: []const *std.Build.Step) Registered {
-    const layouts = execution.addSystemCommand(b, .build_tool, &.{
+    const layouts = commands.addRootedSystemCommand(b, .build_tool, &.{
         "deno", "run", "--allow-read", "--allow-write", "tools/wasm/rust_layouts.ts",
     });
-    layouts.setCwd(b.path("."));
     layouts.step.dependOn(wasm_driver);
     // The target descriptor and archive-owned field inventory are two inputs
     // of this projection. Regenerate names before reading them so a combined
     // generation command cannot race new Wasm layouts against an old inventory.
     layouts.step.dependOn(&b.top_level_steps.get("gen-binding-ffi-layouts").?.step);
     b.step("gen-rust-wasm-layouts", "Generate Rust layout constants and fingerprints from the compiled wasm32 C ABI").dependOn(&layouts.step);
-    const layout_check = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const layout_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-read", "tools/wasm/rust_layouts.ts", "--check",
     });
-    layout_check.setCwd(b.path("."));
     layout_check.step.dependOn(wasm_driver);
     layout_check.step.dependOn(&b.top_level_steps.get("gen-binding-ffi-layouts-check").?.step);
     b.step("gen-rust-wasm-layouts-check", "Verify Rust layout constants and fingerprints match the compiled wasm32 C ABI").dependOn(&layout_check.step);
     check_step.dependOn(&layout_check.step);
     const application = @import("browser.zig").register(b, wasm_archives, &layout_check.step);
-    const projection_cost = execution.addSystemCommand(b, .benchmark, &.{ "deno", "run", "--allow-all", "bench/rooms/projection_bench.ts" });
-    projection_cost.setCwd(b.path("."));
+    const projection_cost = commands.addRootedSystemCommand(b, .benchmark, &.{ "deno", "run", "--allow-all", "bench/rooms/projection_bench.ts" });
     projection_cost.step.dependOn(application.production);
     b.step("bench-rooms-projection", "Count conversation and line-custody visits in the production Rooms projection").dependOn(&projection_cost.step);
     application.startup.step.dependOn(peers);
-    const compile = execution.addSystemCommand(b, .build_tool, &.{
+    const compile = commands.addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "test", "--quiet", "--locked", "--no-run", "--manifest-path", "apps/rooms/rust/Cargo.toml",
     });
-    compile.setCwd(b.path("."));
     // Native proofs do not consume shared core libraries, headers or the CLI.
     // Keep archive freshness without rebuilding the full default installation.
+    // The runs below therefore stay on `execution.addSystemCommand`: the rooted
+    // form would add a `cargo test --no-run` prep that waits on the install.
     for (zig_archives) |archive| compile.step.dependOn(archive);
     const maximum_foreign_prefix = "session_foreign::maximum_session_foreign_";
     const maximum_step = b.step("rooms-session-foreign-test", "Run maximum foreign session admission, capacity refusal and cold-source replacement traces (needs cargo)");
@@ -91,16 +90,14 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // no transport and needs nothing; the same tests under the workspace run
     // need `libglowcap_net_transport_iroh`, and without this resolved they fail
     // to start rather than to assert, a loader error with no test name in it.
-    const rooms_lib_dir = commands.rootPath(b, "zig-out/lib");
     for ([_]*std.Build.Step.Run{ compile, workspace_tests, executor_tests }) |run| setLibraryEnvironment(run, b);
     const rust_test_step = b.step("rooms-rust-test", "Run portable Rooms application and Rust/Zig static linking contracts on the host (needs cargo)");
     rust_test_step.dependOn(&executor_tests.step);
     rust_test_step.dependOn(&cargo.rustFmtCheck(b, "apps/rooms/rust/Cargo.toml").step);
-    const admission_cost = execution.addSystemCommand(b, .benchmark, &.{
+    const admission_cost = commands.addRootedSystemCommand(b, .benchmark, &.{
         "cargo", "run",                   "--quiet",   "--locked",       "--release", "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "-p",    "rooms-contract-proofs", "--example", "admission_cost",
     });
-    admission_cost.setCwd(b.path("."));
     setLibraryEnvironment(admission_cost, b);
     admission_cost.step.dependOn(&compile.step);
     b.step("bench-rooms-admission", "Measure admission cost and enforce zero steady policy allocations").dependOn(&admission_cost.step);
@@ -114,48 +111,42 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // than here, so rust-analyzer and a hand-run `cargo clippy` reach the same
     // verdict this does. `-D warnings` stays for the rustc lints the table does
     // not name, and for the `--all-targets` compile.
-    const lint = execution.addSystemCommand(b, .build_tool, &.{
+    const lint = commands.addRootedSystemCommand(b, .build_tool, &.{
         "cargo",       "clippy",        "--quiet",    "--locked",                 "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "--workspace", "--all-targets", "--features", "rooms-services/processes", "--",              "-D",
         "warnings",
     });
-    lint.setCwd(b.path("."));
     // Metadata checking does not link the C archives. An explicit path avoids
     // download discovery without installing unrelated transport artifacts.
-    lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", rooms_lib_dir);
+    commands.setLibDir(lint, .host);
     const lint_step = b.step("rooms-rust-lint", "Lint the Rooms Rust workspace with clippy, warnings denied (needs cargo)");
     lint_step.dependOn(&lint.step);
     // The browser crates compile most of their bodies only under
     // `cfg(target_arch = "wasm32")`, which the pass above never reads, so the
     // same verdict is read again for the Wasm target. The binding's build
     // script asserts the Wasm archives exist, so this waits for them.
-    const wasm_lint = execution.addSystemCommand(b, .build_tool, &.{"env"});
-    wasm_lint.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "wasm/lib" } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
+    const wasm_lint = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
+    commands.addLibDirArg(wasm_lint, .wasm);
     wasm_lint.addArgs(&.{
         "cargo", "clippy",        "--quiet",  "--locked",              "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "-p",    "rooms-browser", "-p",       "rooms-contract-proofs", "--target",        "wasm32-unknown-unknown",
         "--",    "-D",            "warnings",
     });
-    wasm_lint.setCwd(b.path("."));
     wasm_lint.step.dependOn(wasm_archives);
     lint_step.dependOn(&wasm_lint.step);
     runtime_gate.add(lint_step);
 
-    const wasm = execution.addSystemCommand(b, .build_tool, &.{"env"});
-    wasm.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "wasm/lib" } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
+    const wasm = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
+    commands.addLibDirArg(wasm, .wasm);
     wasm.addArgs(&.{
         "cargo",        "rustc",                  "--quiet",   "--locked",      "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "--target",     "wasm32-unknown-unknown", "--profile", "browser-proof", "-p",              "rooms-contract-proofs",
         "--crate-type", "cdylib",
     });
-    wasm.setCwd(b.path("."));
     wasm.step.dependOn(wasm_archives);
     wasm.step.dependOn(&layout_check.step);
-    const browser = execution.addSystemCommand(b, .{ .browser_proof = 60 }, &.{ "deno", "run", "--allow-all", "check.mjs" });
-    browser.setCwd(b.path("apps/rooms/rust/proofs/browser"));
+    const browser = commands.addSystemCommandIn(b, .{ .browser_proof = 60 }, b.path("apps/rooms/rust/proofs/browser"), &.{ "deno", "run", "--allow-all", "check.mjs" });
     browser.step.dependOn(&wasm.step);
-    const browser_cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", "apps/rooms/rust/proofs/browser/check.mjs" });
-    browser.step.dependOn(&browser_cache.step);
     const contracts_step = b.step("rooms-rust-contract-browser-test", "Run portable Rooms Rust declarations and linked Host contracts in Deno and Chromium");
     contracts_step.dependOn(&browser.step);
     const browser_step = b.step("rooms-rust-browser-test", "Run the shared Rooms Rust contracts in Deno and Chromium (needs the Wasm Rust target)");
@@ -163,28 +154,26 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
 
     // Separate output keeps the import-free contract distinct from the async
     // embedding, whose generated imports execute browser entropy and timers.
-    const host_wasm = execution.addSystemCommand(b, .build_tool, &.{"env"});
-    host_wasm.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "wasm/lib" } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
+    const host_wasm = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
+    commands.addLibDirArg(host_wasm, .wasm);
     host_wasm.addArgs(&.{
         "cargo",      "rustc",                  "--quiet",      "--locked",                            "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "--target",   "wasm32-unknown-unknown", "--profile",    "browser-proof",                       "-p",              "rooms-contract-proofs",
         "--features", "async-host",             "--target-dir", "apps/rooms/rust/target/browser-host", "--crate-type",    "cdylib",
     });
-    host_wasm.setCwd(b.path("."));
     host_wasm.step.dependOn(wasm_archives);
     host_wasm.step.dependOn(&layout_check.step);
-    const glue = execution.addSystemCommand(b, .build_tool, &.{
+    const glue = commands.addRootedSystemCommand(b, .build_tool, &.{
         "wasm-bindgen", "apps/rooms/rust/target/browser-host/wasm32-unknown-unknown/browser-proof/rooms_contract_proofs.wasm",
         "--target",     "web",
         "--out-dir",    "apps/rooms/rust/target/browser-host/pkg",
     });
-    glue.setCwd(b.path("."));
     glue.step.dependOn(&host_wasm.step);
     // Executor scenarios run in their own bounded processes before this Host
     // journey. Deno, Chromium and web-server teardown retain this budget.
     const host_browser = execution.addSystemCommand(b, .{ .browser_proof = 90 }, &.{"env"});
-    host_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web-proof" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_TEST_BIN=", .make_absolute = true });
-    host_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server-proof" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_TEST_BIN=", .make_absolute = true });
+    Binary.web_proof.addTestEnv(host_browser);
+    Binary.server_proof.addTestEnv(host_browser);
     host_browser.addArgs(&.{ "deno", "run", "--allow-all", "check_host.mjs" });
     host_browser.setCwd(b.path("apps/rooms/rust/proofs/browser"));
     host_browser.step.dependOn(&glue.step);
@@ -203,8 +192,8 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     rooms_browser.step.dependOn(&host_browser_cache.step);
     rooms_browser.step.dependOn(peers);
     for ([_]*std.Build.Step.Run{ application.startup, sharing_browser, rooms_browser }) |run| {
-        run.setEnvironmentVariable("GLOWCAP_ROOMS_WEB_TEST_BIN", commands.rootPath(b, "zig-out/libexec/rooms-web-proof"));
-        run.setEnvironmentVariable("GLOWCAP_ROOMS_SERVER_TEST_BIN", commands.rootPath(b, "zig-out/libexec/rooms-server-proof"));
+        Binary.web_proof.setTestEnv(run);
+        Binary.server_proof.setTestEnv(run);
     }
     b.step("rooms-managed-rooms-browser-test", "Register, subscribe, chat and stream exact-source files through the production Rooms server").dependOn(&rooms_browser.step);
     const graph_browser = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-all", "check_host.mjs", "--session-graph" });
@@ -261,7 +250,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
 
 fn setLibraryEnvironment(run: *std.Build.Step.Run, b: *std.Build) void {
     const directory = commands.rootPath(b, "zig-out/lib");
-    run.setEnvironmentVariable("GLOWCAP_LIB_DIR", directory);
+    commands.setLibDir(run, .host);
     switch (builtin.os.tag) {
         .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", directory),
         .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", directory),

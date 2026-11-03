@@ -2,7 +2,6 @@
 //! checksummed archives. Product proofs run only extracted public commands.
 const std = @import("std");
 const commands = @import("commands.zig");
-const execution = @import("execution.zig");
 const staging = @import("release/stage.zig");
 const transaction = @import("release/transaction.zig");
 pub const Manifest = staging.Manifest;
@@ -26,11 +25,10 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         bump.has_side_effects = true;
         // The generated header and binding constants embed the version, so the
         // bump regenerates them in the same command, from the same cache.
-        const regenerate = execution.addSystemCommand(b, .build_tool, &.{ b.graph.zig_exe, "build" });
+        const regenerate = commands.addRootedSystemCommand(b, .build_tool, &.{ b.graph.zig_exe, "build" });
         regenerate.addArg("--cache-dir");
         regenerate.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
         regenerate.addArgs(&.{ "gen-header-ocapn", "gen-binding-constants", "gen-ts-abi", "gen-rust-wasm-layouts" });
-        regenerate.setCwd(b.path("."));
         regenerate.has_side_effects = true;
         regenerate.step.dependOn(&bump.step);
         set_version.dependOn(&regenerate.step);
@@ -72,14 +70,13 @@ fn productPreset(b: *std.Build, target: std.Build.ResolvedTarget) void {
     // Build options apply to the whole graph. Invoke the shared product graph
     // in its fixed configuration, preserving the caller's target, prefix, and
     // cache root. The environment front owns the lease across both builds.
-    const run = execution.addSystemCommand(b, .build_tool, &.{
+    const run = commands.addRootedSystemCommand(b, .build_tool, &.{
         b.graph.zig_exe, "build", "glowcap-install", "-Doptimize=ReleaseSafe", "-Dcpu=baseline", "--cache-dir",
     });
     run.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
     run.addArg("--prefix");
     run.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix } }, .{ .make_absolute = true });
     run.addArg(b.fmt("-Dtarget={s}", .{target.query.zigTriple(b.allocator) catch @panic("OOM")}));
-    run.setCwd(b.path("."));
     run.has_side_effects = true;
     step.dependOn(&run.step);
 }

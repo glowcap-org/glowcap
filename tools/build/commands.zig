@@ -68,7 +68,7 @@ fn addCompilePreps(b: *std.Build, cwd: std.Build.LazyPath, argv: []const []const
     var raco_make: ?*std.Build.Step.Run = null;
     for (argv) |arg| {
         if (arg.len == 0 or arg[0] == '-') continue;
-        const prep = if (!deno_test and std.mem.endsWith(u8, arg, ".ts"))
+        const prep = if (!deno_test and (std.mem.endsWith(u8, arg, ".ts") or std.mem.endsWith(u8, arg, ".mjs")))
             &deno_cache
         else if (std.mem.endsWith(u8, arg, ".rkt"))
             &raco_make
@@ -91,6 +91,31 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
     run.step.dependOn(b.getInstallStep());
     run.has_side_effects = true;
     return run;
+}
+
+/// Which installed C ABI archive set a command links or loads: the host set
+/// under `zig-out/lib`, or the Wasm set under `zig-out/wasm/lib`.
+pub const LibDir = enum { host, wasm };
+
+const lib_dir_variable = "GLOWCAP_LIB_DIR";
+
+/// Bind `GLOWCAP_LIB_DIR` to an archive set for a command started through
+/// `env`: appends the `GLOWCAP_LIB_DIR=<directory>` argument.
+pub fn addLibDirArg(run: *std.Build.Step.Run, which: LibDir) void {
+    run.addDirectoryArg2(switch (which) {
+        .host => .{ .relative = .{ .base = .install_lib } },
+        .wasm => .{ .relative = .{ .base = .install_prefix, .sub_path = "wasm/lib" } },
+    }, .{ .prefix = lib_dir_variable ++ "=", .make_absolute = true });
+}
+
+/// Bind `GLOWCAP_LIB_DIR` to an archive set in the command's environment. The
+/// build API gives configure no install path, so this names the default prefix.
+pub fn setLibDir(run: *std.Build.Step.Run, which: LibDir) void {
+    const b = run.step.owner;
+    run.setEnvironmentVariable(lib_dir_variable, switch (which) {
+        .host => rootPath(b, "zig-out/lib"),
+        .wasm => rootPath(b, "zig-out/wasm/lib"),
+    });
 }
 
 /// Absolute path under the repository root, for environment variables passed

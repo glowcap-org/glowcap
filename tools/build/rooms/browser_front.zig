@@ -6,6 +6,7 @@
 const std = @import("std");
 const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
+const Binary = @import("peers.zig").Binary;
 const web_tests = @import("web.zig");
 
 pub const Context = struct {
@@ -42,10 +43,9 @@ pub fn register(ctx: Context) *std.Build.Step {
 
     // One immutable production generation serves process and browser proofs
     // and deployment. Source-compilation tests keep their own isolated roots.
-    const prepare = execution.addSystemCommand(b, .build_tool, &.{"env"});
-    prepare.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .make_absolute = true });
+    const prepare = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
+    Binary.web.addAbsoluteArg(prepare);
     prepare.addArg("--prepare=zig-out/rooms-web");
-    prepare.setCwd(b.path("."));
     prepare.has_side_effects = true;
     prepare.step.dependOn(ctx.web_services);
     prepare.step.dependOn(ctx.browser_application);
@@ -123,7 +123,7 @@ fn addLaunch(ctx: Context, transport: Transport, launch: Launch) *std.Build.Step
     if (launch.hot_reload) run.addArgs(&.{
         "deno", "run", "-A", "--config=apps/rooms/web/deno.json", "apps/rooms/web/dev.ts",
     });
-    run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .make_absolute = true });
+    Binary.web.addAbsoluteArg(run);
     if (ctx.pin_port != null or launch.hot_reload) run.addArg(b.fmt("{d}", .{ctx.pin_port orelse 8080}));
     addOptions(run, b, transport, launch);
     addDependencies(run, ctx, transport);
@@ -131,7 +131,7 @@ fn addLaunch(ctx: Context, transport: Transport, launch: Launch) *std.Build.Step
 }
 
 fn addEnvironment(run: *std.Build.Step.Run, b: *std.Build, launch: Launch) void {
-    run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    Binary.server.addEnv(run);
     if (launch.state_dir) |dir| run.addArg(b.fmt("GLOWCAP_ROOMS_STATE={s}", .{dir}));
 }
 

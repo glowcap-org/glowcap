@@ -5,8 +5,8 @@
 
 const std = @import("std");
 const commands = @import("commands.zig");
+const Binary = @import("rooms/peers.zig").Binary;
 const goblins_build = @import("goblins.zig");
-const execution = @import("execution.zig");
 
 const addRootedSystemCommand = commands.addRootedSystemCommand;
 const addInstalledSystemRun = commands.addInstalledSystemRun;
@@ -208,11 +208,10 @@ pub fn register(
     // descriptor and RAM ceiling. A sibling step (needs deno), not folded into the
     // Zig-hermetic `check`; it writes a report under zig-out/bench-reports/. A host
     // with a small open-file limit should lower `--conns`.
-    const relay_scaling = execution.addSystemCommand(b, .benchmark, &.{
+    const relay_scaling = commands.addRootedSystemCommand(b, .benchmark, &.{
         "deno",                                    "run",      "--allow-net",  "--allow-run", "--allow-write",
         "bindings/ts/relay/test/scaling_bench.ts", "--report", "--conns=2000",
     });
-    relay_scaling.setCwd(b.path("."));
     relay_scaling.has_side_effects = true;
     const relay_scaling_step = b.step("relay-scaling", "Measure the reference relay's per-connection footprint, prove it holds thousands of connections at once, and extrapolate to a host's descriptor and RAM ceiling, the relay-tier sibling of bench-peer-scaling (needs deno)");
     relay_scaling_step.dependOn(&relay_scaling.step);
@@ -240,7 +239,7 @@ pub fn register(
     // (ADR-0001); the harness reads both profiles off the server's live trace
     // rather than taking either member's word for it.
     const goblins_rooms = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    Binary.server.addEnv(goblins_rooms);
     goblins_rooms.addArgs(&.{
         "deno",        "run",            "--allow-read",
         "--allow-net", "--allow-run",    "--allow-env",
@@ -269,7 +268,7 @@ pub fn register(
     // They are serialized so logs and resource ownership name one edge at a
     // time, and both fit the ordinary deterministic ceiling without a browser.
     const goblins_rooms_irc_bridge = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms_irc_bridge.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
+    Binary.irc_bridge.addEnv(goblins_rooms_irc_bridge);
     goblins_rooms_irc_bridge.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=bridge" });
     goblins_rooms_irc_bridge.step.dependOn(rooms_services_install);
     goblins_rooms_irc_bridge.step.dependOn(goblins_build.goblinsPeerModules(b));
@@ -277,8 +276,8 @@ pub fn register(
     goblins_rooms_irc_bridge_step.dependOn(&goblins_rooms_irc_bridge.step);
 
     const goblins_rooms_irc_server = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms_irc_server.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
-    goblins_rooms_irc_server.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-server" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_SERVER_BIN=", .make_absolute = true });
+    Binary.server.addEnv(goblins_rooms_irc_server);
+    Binary.irc_server.addEnv(goblins_rooms_irc_server);
     goblins_rooms_irc_server.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=server" });
     goblins_rooms_irc_server.step.dependOn(&goblins_rooms_irc_bridge.step);
     const goblins_rooms_irc_server_step = b.step("goblins-rooms-irc-server", "Live Goblins through the IRC server: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs deno + racket + goblins)");
@@ -293,7 +292,7 @@ pub fn register(
     // vat is refused without it, and reads the refusal as a decode error
     // because a refusal is framed in the room's own profile.
     const goblins_rooms_iroh = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    Binary.server.addEnv(goblins_rooms_iroh);
     goblins_rooms_iroh.addArgs(&.{
         "deno",        "run",            "--allow-read",
         "--allow-net", "--allow-run",    "--allow-env",
@@ -314,15 +313,14 @@ pub fn register(
     // Three peers across two implementations take the three handoff roles,
     // with nothing changed in Goblins to allow it and the whole conversation
     // drawn on the live timeline from both ends.
-    const goblins_rooms_dm = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
-    goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
-    goblins_rooms_dm.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    const goblins_rooms_dm = commands.addRootedSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
+    Binary.web.addEnv(goblins_rooms_dm);
+    Binary.server.addEnv(goblins_rooms_dm);
     goblins_rooms_dm.step.dependOn(rooms_services_install);
     goblins_rooms_dm.step.dependOn(goblins_build.goblinsPeerModules(b));
     goblins_rooms_dm.addArgs(&.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts",
     });
-    goblins_rooms_dm.setCwd(b.path("."));
     goblins_rooms_dm.has_side_effects = true;
     goblins_rooms_dm.step.dependOn(browser_preflight_step);
     goblins_rooms_dm.step.dependOn(wasm_driver_install_step);
@@ -334,15 +332,14 @@ pub fn register(
     // lines use iroh: the browser redeems the vat's introduction, then the vat
     // redeems the glowcap member's. Each accepting endpoint records the key
     // QUIC authenticated as its channel testimony.
-    const goblins_rooms_dm_iroh = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
-    goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
-    goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    const goblins_rooms_dm_iroh = commands.addRootedSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
+    Binary.web.addEnv(goblins_rooms_dm_iroh);
+    Binary.server.addEnv(goblins_rooms_dm_iroh);
     goblins_rooms_dm_iroh.step.dependOn(rooms_services_install);
     goblins_rooms_dm_iroh.step.dependOn(goblins_build.goblinsPeerModules(b));
     goblins_rooms_dm_iroh.addArgs(&.{
         "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts", "--iroh",
     });
-    goblins_rooms_dm_iroh.setCwd(b.path("."));
     goblins_rooms_dm_iroh.has_side_effects = true;
     goblins_rooms_dm_iroh.step.dependOn(browser_preflight_step);
     goblins_rooms_dm_iroh.step.dependOn(wasm_driver_install_step);
@@ -358,16 +355,15 @@ pub fn register(
     };
     var previous_goblins_rooms_matrix_phase: ?*std.Build.Step = null;
     for (goblins_rooms_matrix_phases) |phase| {
-        const run = execution.addSystemCommand(b, .{ .browser_proof = 630 }, &.{"env"});
-        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
-        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+        const run = commands.addRootedSystemCommand(b, .{ .browser_proof = 630 }, &.{"env"});
+        Binary.web.addEnv(run);
+        Binary.server.addEnv(run);
         run.step.dependOn(rooms_services_install);
         run.step.dependOn(goblins_build.goblinsPeerModules(b));
         run.addArgs(&.{
             "deno",                         "run", "--allow-all", "interop/goblins_rooms_matrix/harness.ts",
             b.fmt("--phase={s}", .{phase}),
         });
-        run.setCwd(b.path("."));
         run.has_side_effects = true;
         if (previous_goblins_rooms_matrix_phase) |previous| {
             run.step.dependOn(previous);
