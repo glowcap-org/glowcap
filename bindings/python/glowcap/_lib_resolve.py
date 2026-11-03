@@ -225,7 +225,8 @@ def _verify_sha256(sums_text: str, tarball: str, tarball_path: pathlib.Path) -> 
             break
     if expect is None:
         raise OSError(f"SHA256SUMS has no entry for {tarball}")
-    got = hashlib.sha256(tarball_path.read_bytes()).hexdigest()
+    with tarball_path.open("rb") as archive:
+        got = hashlib.file_digest(archive, "sha256").hexdigest()
     if got != expect:
         raise OSError(f"SHA256 mismatch for {tarball}: got {got}, want {expect}")
 

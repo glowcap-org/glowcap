@@ -470,6 +470,11 @@ pub fn registerChecks(
         "webrtc/test/listener_test.ts",
     });
     bindings_fmt_check_step.dependOn(&deno_stack_test.step);
+    // Release hashing owns only a staged file, with no FFI or network access.
+    const deno_checksum_test = commands.addSystemCommandIn(b, .{ .deterministic = 30 }, b.path("bindings/ts"), &.{
+        "deno", "test", "--allow-read", "--allow-write", "runtime/test/release_checksum_test.ts",
+    });
+    bindings_fmt_check_step.dependOn(&deno_checksum_test.step);
     // These tests touch FFI but open no sockets; keep that capability out
     // of the otherwise pure stack suite.
     const deno_ffi_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
