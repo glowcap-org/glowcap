@@ -21,6 +21,7 @@
 //! schema in this repository states its own.
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const source_tree = @import("source_tree.zig");
 const violation_log = @import("violation_log.zig");
 
@@ -46,14 +47,6 @@ const browser_database_versions = [_]struct {
     },
 };
 
-fn isSourcePath(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx");
-}
-
-fn isIdentifierByte(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '_' or c == '$';
-}
-
 /// The integer `name` is declared as in `body`, or null when this file does not
 /// declare it. Only a plain integer counts: a computed version is not something
 /// this rule can read, and saying so is better than guessing.
@@ -61,8 +54,8 @@ fn declaredInteger(body: []const u8, name: []const u8) ?i64 {
     var at: usize = 0;
     while (std.mem.indexOfPos(u8, body, at, name)) |found| {
         at = found + name.len;
-        const before_ok = found == 0 or !isIdentifierByte(body[found - 1]);
-        if (!before_ok or at >= body.len or isIdentifierByte(body[at])) continue;
+        const before_ok = found == 0 or !text_match.isJsIdentChar(body[found - 1]);
+        if (!before_ok or at >= body.len or text_match.isJsIdentChar(body[at])) continue;
         // Walk back over `const `/`export const ` to be sure this is the
         // declaration and not a use.
         const line_start = if (std.mem.lastIndexOfScalar(u8, body[0..found], '\n')) |nl| nl + 1 else 0;
@@ -125,7 +118,7 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (roots) |root_path| {
-        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
+        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, source_tree.isTypeScriptPath)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to open for the prerelease version check", .{root_path});
             continue;
         };

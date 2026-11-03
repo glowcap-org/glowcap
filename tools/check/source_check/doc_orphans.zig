@@ -27,10 +27,6 @@ const appendViolation = violation_log.appendViolation;
 /// same change that empties it.
 const roots = [_][]const u8{ "apps/rooms", "bindings/ts" };
 
-fn isSourcePath(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx");
-}
-
 fn checkFile(
     gpa: std.mem.Allocator,
     path: []const u8,
@@ -79,6 +75,15 @@ fn checkFile(
     }
 }
 
+const Sink = struct {
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+
+    fn visit(self: Sink, path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+        try checkFile(self.gpa, path, contents, self.violations);
+    }
+};
+
 pub fn check(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -86,21 +91,6 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (roots) |root_path| {
-        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
-            try appendViolation(gpa, violations, "{s}: failed to open for the doc-orphan check", .{root_path});
-            continue;
-        };
-        defer {
-            for (files) |path| gpa.free(path);
-            gpa.free(files);
-        }
-        for (files) |path| {
-            const body = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ path, @errorName(err) });
-                continue;
-            };
-            defer gpa.free(body);
-            try checkFile(gpa, path, body, violations);
-        }
+        try source_tree.visitSourceFiles(io, gpa, root, violations, "doc-orphan", root_path, &source_tree.isTypeScriptPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
     }
 }

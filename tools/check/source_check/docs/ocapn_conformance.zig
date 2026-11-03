@@ -8,6 +8,7 @@
 //! alongside test modules so a shared hello change always forces review.
 
 const std = @import("std");
+const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -307,7 +308,7 @@ fn parseRows(
             try appendViolation(gpa, violations, "ocapn conformance: malformed manifest row `{s}`, expected six cells", .{line});
             continue;
         };
-        if (!oneOf(&profiles, row.profile)) {
+        if (!text_match.inSet(&profiles, row.profile)) {
             try appendViolation(gpa, violations, "ocapn conformance: row `{s}` has profile `{s}`, expected 1.0, next, or both", .{ row.name, row.profile });
         }
         if (!isFingerprint(row.fingerprint) and !std.mem.eql(u8, row.fingerprint, "removed")) {
@@ -330,11 +331,6 @@ fn parseRow(arena: std.mem.Allocator, line: []const u8) ?Row {
     const name = stripMarkup(arena, parsed[0]) catch return null;
     if (name.len == 0) return null;
     return .{ .name = name, .profile = parsed[1], .state = parsed[2], .evidence = parsed[3], .decision = parsed[4], .fingerprint = parsed[5] };
-}
-
-fn oneOf(set: []const []const u8, value: []const u8) bool {
-    for (set) |item| if (std.mem.eql(u8, item, value)) return true;
-    return false;
 }
 
 fn isFingerprint(text: []const u8) bool {
@@ -442,7 +438,7 @@ fn scanDraft(arena: std.mem.Allocator, draft: []const u8) ![]const Section {
             }
             const text = try stripMarkup(arena, std.mem.trim(u8, line[if (first) 2 else 3..], "\r\n"));
             if (first) {
-                in_scope = !oneOf(&framing, text);
+                in_scope = !text_match.inSet(&framing, text);
             }
             if (in_scope) open = .{ .name = text, .start = offset };
         }

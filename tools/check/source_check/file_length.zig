@@ -8,6 +8,7 @@
 //! here.
 
 const std = @import("std");
+const source_tree = @import("source_tree.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -25,31 +26,6 @@ fn isSource(path: []const u8) bool {
     return false;
 }
 
-/// Directories that hold no first-party source: build output, installed
-/// packages, outside sources, and local machine state.
-fn ignored(path: []const u8) bool {
-    var parts = std.mem.splitScalar(u8, path, '/');
-    while (parts.next()) |part| {
-        for ([_][]const u8{
-            ".git",
-            ".local",
-            ".venv",
-            ".zig-cache",
-            "dist",
-            "node_modules",
-            "target",
-            "third_party",
-            "upstream",
-            "vendor",
-            "zig-out",
-            "zig-pkg",
-        }) |name| {
-            if (std.mem.eql(u8, part, name)) return true;
-        }
-    }
-    return false;
-}
-
 fn lineCount(contents: []const u8) usize {
     if (contents.len == 0) return 0;
     return std.mem.count(u8, contents, "\n") + @intFromBool(contents[contents.len - 1] != '\n');
@@ -62,7 +38,7 @@ fn checkFile(
     violations: *std.ArrayList([]const u8),
     path: []const u8,
 ) !void {
-    if (!isSource(path) or ignored(path)) return;
+    if (!isSource(path) or !source_tree.sourceTreeDirectory(path)) return;
     const contents = root.readFileAlloc(io, path, gpa, .limited(16 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for the file-length check with {s}", .{ path, @errorName(err) });
         return;
@@ -92,7 +68,7 @@ pub fn check(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind == .directory) {
-            if (!ignored(entry.path)) try walker.enter(io, entry);
+            if (source_tree.sourceTreeDirectory(entry.path)) try walker.enter(io, entry);
             continue;
         }
         if (entry.kind != .file) continue;

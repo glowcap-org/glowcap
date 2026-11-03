@@ -9,6 +9,7 @@
 
 const std = @import("std");
 const text_match = @import("text_match.zig");
+const source_tree = @import("source_tree.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -19,24 +20,14 @@ pub fn checkZigDeadPrivateFns(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src: cannot be opened for the dead-function check ({s})", .{@errorName(err)});
-        return;
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        violations: *std.ArrayList([]const u8),
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            try checkFile(self.gpa, self.violations, path, contents);
+        }
     };
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be read for the dead-function check ({s})", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        try checkFile(gpa, violations, path, contents);
-    }
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "dead-function", "src", &source_tree.isZigPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
 }
 
 fn checkFile(

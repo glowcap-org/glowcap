@@ -11,32 +11,20 @@ const appendViolation = violation_log.appendViolation;
 const expected = "Apache-2.0";
 const roots = [_][]const u8{ "apps", "bench", "bindings", "transports" };
 
-fn generatedOrVendored(path: []const u8) bool {
-    const skipped = [_][]const u8{
-        "node_modules/",
-        "/target/",
-        "/upstream/",
-        "/zig-out/",
-        "/.zig-cache/",
-    };
-    for (skipped) |part| if (std.mem.indexOf(u8, path, part) != null) return true;
-    return false;
-}
-
 fn cargoManifest(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, "Cargo.toml") and !generatedOrVendored(path);
+    return std.mem.endsWith(u8, path, "Cargo.toml");
 }
 
 fn denoManifest(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, "deno.json") and !generatedOrVendored(path);
+    return std.mem.endsWith(u8, path, "deno.json");
 }
 
 fn npmManifest(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, "package.json") and !generatedOrVendored(path);
+    return std.mem.endsWith(u8, path, "package.json");
 }
 
 fn racketManifest(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, "info.rkt") and !generatedOrVendored(path);
+    return std.mem.endsWith(u8, path, "info.rkt");
 }
 
 fn packageManifest(path: []const u8) bool {

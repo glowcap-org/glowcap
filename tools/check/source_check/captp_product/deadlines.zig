@@ -2,6 +2,7 @@
 //! example session names a positive budget.
 
 const std = @import("std");
+const source_tree = @import("../source_tree.zig");
 const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 
@@ -17,40 +18,30 @@ pub fn checkCliCaptpDeadlines(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, "cli", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "cli/: failed to open for CapTP-deadline check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "cli/{s}", .{entry.path});
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for CapTP-deadline check with {s}", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        var line_no: usize = 1;
-        var lines = std.mem.splitScalar(u8, contents, '\n');
-        while (lines.next()) |line| : (line_no += 1) {
-            const trimmed = std.mem.trimStart(u8, line, " \t");
-            if (std.mem.startsWith(u8, trimmed, "//")) continue;
-            // `SessionOptions` has no default budget, so the compiler already
-            // refuses an omitted one everywhere. What it cannot refuse is the
-            // budget that says forever out loud, which is right for an
-            // in-process pair and wrong on a product path and in an example a
-            // reader copies.
-            if (std.mem.indexOf(u8, line, ".handshake = .unbounded") != null or
-                std.mem.indexOf(u8, line, ".settle = .unbounded") != null)
-            {
-                try appendViolation(gpa, violations, "{s}:{d}: an unbounded CapTP budget parks forever on a silent peer; name a finite `.{{ .ms = N }}` (cli/ has `sessionOpts()`)", .{ path, line_no });
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        violations: *std.ArrayList([]const u8),
+
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            var line_no: usize = 1;
+            var lines = std.mem.splitScalar(u8, contents, '\n');
+            while (lines.next()) |line| : (line_no += 1) {
+                const trimmed = std.mem.trimStart(u8, line, " \t");
+                if (std.mem.startsWith(u8, trimmed, "//")) continue;
+                // `SessionOptions` has no default budget, so the compiler already
+                // refuses an omitted one everywhere. What it cannot refuse is the
+                // budget that says forever out loud, which is right for an
+                // in-process pair and wrong on a product path and in an example a
+                // reader copies.
+                if (std.mem.indexOf(u8, line, ".handshake = .unbounded") != null or
+                    std.mem.indexOf(u8, line, ".settle = .unbounded") != null)
+                {
+                    try appendViolation(self.gpa, self.violations, "{s}:{d}: an unbounded CapTP budget parks forever on a silent peer; name a finite `.{{ .ms = N }}` (cli/ has `sessionOpts()`)", .{ path, line_no });
+                }
             }
         }
-    }
+    };
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "CapTP-deadline", "cli", &source_tree.isZigPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
 }
 
 /// A teaching surface must not demonstrate the unbounded wait.
@@ -205,37 +196,27 @@ pub fn checkExampleCaptpDeadlines(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, "examples/zig", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "examples/zig: failed to open for CapTP-deadline check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "examples/zig/{s}", .{entry.path});
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for CapTP-deadline check with {s}", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        blankComments(contents);
-        // The compiler refuses an omitted budget everywhere, so what is
-        // left to hold here is the one that says forever out loud. An example
-        // is copied, so it must not be the place a reader learns that spelling.
-        {
-            var line_no: usize = 1;
-            var lines = std.mem.splitScalar(u8, contents, '\n');
-            while (lines.next()) |line| : (line_no += 1) {
-                if (std.mem.indexOf(u8, line, ".handshake = .unbounded") != null or
-                    std.mem.indexOf(u8, line, ".settle = .unbounded") != null)
-                {
-                    try appendViolation(gpa, violations, "{s}:{d}: an unbounded CapTP budget waits forever on a silent peer, and a reader copies this line; name a finite `.{{ .ms = N }}`", .{ path, line_no });
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        violations: *std.ArrayList([]const u8),
+
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            blankComments(contents);
+            // The compiler refuses an omitted budget everywhere, so what is
+            // left to hold here is the one that says forever out loud. An example
+            // is copied, so it must not be the place a reader learns that spelling.
+            {
+                var line_no: usize = 1;
+                var lines = std.mem.splitScalar(u8, contents, '\n');
+                while (lines.next()) |line| : (line_no += 1) {
+                    if (std.mem.indexOf(u8, line, ".handshake = .unbounded") != null or
+                        std.mem.indexOf(u8, line, ".settle = .unbounded") != null)
+                    {
+                        try appendViolation(self.gpa, self.violations, "{s}:{d}: an unbounded CapTP budget waits forever on a silent peer, and a reader copies this line; name a finite `.{{ .ms = N }}`", .{ path, line_no });
+                    }
                 }
             }
         }
-    }
+    };
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "CapTP-deadline", "examples/zig", &source_tree.isZigPath, Sink{ .gpa = gpa, .violations = violations }, Sink.visit);
 }

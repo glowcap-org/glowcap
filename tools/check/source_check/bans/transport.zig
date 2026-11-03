@@ -198,7 +198,6 @@ pub const transport_provider_architecture: []const Ban = &.{
         .where = .{ .tree = .{
             .dir = "bindings",
             .suffixes = &.{ ".py", ".rs", ".rkt", ".ts" },
-            .skip_dirs = &.{ "target/", "node_modules/" },
         } },
         .kind = .forbid,
         .needles = &.{

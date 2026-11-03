@@ -39,6 +39,7 @@
 //! recorded boundary, not a pass.
 
 const std = @import("std");
+const source_tree = @import("source_tree.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -514,45 +515,35 @@ pub fn checkBareKeyedTables(
         seen.deinit();
     }
 
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src: cannot be opened for the bare-key namespace check ({s})", .{@errorName(err)});
-        return;
-    };
-    defer dir.close(io);
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        violations: *std.ArrayList([]const u8),
+        seen: *std.StringHashMap(void),
 
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const rel = try gpa.dupe(u8, entry.path);
-        defer gpa.free(rel);
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{rel});
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be read for the bare-key namespace check ({s})", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            const rel = path["src/".len..];
+            var line_no: usize = 0;
+            var lines = std.mem.splitScalar(u8, contents, '\n');
+            while (lines.next()) |line| {
+                line_no += 1;
+                if (!bareKeyOn(line)) continue;
+                const name = declaredName(line) orelse continue;
 
-        var line_no: usize = 0;
-        var lines = std.mem.splitScalar(u8, contents, '\n');
-        while (lines.next()) |line| {
-            line_no += 1;
-            if (!bareKeyOn(line)) continue;
-            const name = declaredName(line) orelse continue;
+                const key = try std.fmt.allocPrint(self.gpa, "{s}|{s}", .{ rel, name });
+                if (self.seen.contains(key)) {
+                    self.gpa.free(key);
+                } else {
+                    try self.seen.put(key, {});
+                }
 
-            const key = try std.fmt.allocPrint(gpa, "{s}|{s}", .{ rel, name });
-            if (seen.contains(key)) {
-                gpa.free(key);
-            } else {
-                try seen.put(key, {});
-            }
-
-            if (!isRegistered(rel, name)) {
-                try appendViolation(gpa, violations, "src/{s}:{d}: `{s}` is keyed on a bare name (an integer or bytes), which carries no owner and no epoch. Add it to `registered` in tools/check/source_check/namespaces.zig with the two answers, or give the key a type that carries them.", .{ rel, line_no, name });
+                if (!isRegistered(rel, name)) {
+                    try appendViolation(self.gpa, self.violations, "src/{s}:{d}: `{s}` is keyed on a bare name (an integer or bytes), which carries no owner and no epoch. Add it to `registered` in tools/check/source_check/namespaces.zig with the two answers, or give the key a type that carries them.", .{ rel, line_no, name });
+                }
             }
         }
-    }
+    };
+    const sink: Sink = .{ .gpa = gpa, .violations = violations, .seen = &seen };
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "bare-key namespace", "src", &source_tree.isZigPath, sink, Sink.visit);
 
     for (registered) |t| {
         const key = try std.fmt.allocPrint(gpa, "{s}|{s}", .{ t.file, t.name });

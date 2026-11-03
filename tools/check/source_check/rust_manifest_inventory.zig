@@ -18,8 +18,7 @@ const list_marker = "const rust_manifests = [_][]const u8{";
 const roots = [_][]const u8{ "apps", "bindings", "bench", "transports", "test" };
 
 fn isManifest(path: []const u8) bool {
-    return std.mem.eql(u8, std.fs.path.basename(path), "Cargo.toml") and
-        std.mem.indexOf(u8, path, "/upstream/") == null;
+    return std.mem.eql(u8, std.fs.path.basename(path), "Cargo.toml");
 }
 
 /// The manifests in `manifests` that `list` must name: each one no workspace

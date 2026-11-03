@@ -3,6 +3,7 @@
 //! plain light-arm declaration outside it.
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const violation_log = @import("violation_log.zig");
 const ui = @import("ui.zig");
 
@@ -63,7 +64,7 @@ fn checkFile(
                 gpa,
                 violations,
                 "{s}:{d}: light-dark() guard block never closes",
-                .{ path, lineAt(bare, at) },
+                .{ path, text_match.lineNumberAt(bare, at) },
             );
             return;
         };
@@ -96,7 +97,7 @@ fn checkFile(
             gpa,
             violations,
             "{s}:{d}: light-dark() outside the @supports guard; move the pair into a guard block and leave the light arm as the plain declaration",
-            .{ path, lineAt(bare, at) },
+            .{ path, text_match.lineNumberAt(bare, at) },
         );
     }
 
@@ -114,7 +115,7 @@ fn checkFile(
                 gpa,
                 violations,
                 "{s}:{d}: `{s}` pairs light-dark() only inside the guard; declare its light arm plainly outside it",
-                .{ path, lineAt(bare, prop.start), prop.name },
+                .{ path, text_match.lineNumberAt(bare, prop.start), prop.name },
             );
         }
     }
@@ -189,12 +190,4 @@ fn declaredOutside(css: []const u8, name: []const u8, spans: []const Span) bool 
 
 fn isIdent(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '-';
-}
-
-fn lineAt(src: []const u8, at: usize) usize {
-    var n: usize = 1;
-    for (src[0..@min(at, src.len)]) |c| {
-        if (c == '\n') n += 1;
-    }
-    return n;
 }

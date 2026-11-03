@@ -17,6 +17,7 @@
 
 const std = @import("std");
 const text_match = @import("text_match.zig");
+const source_tree = @import("source_tree.zig");
 const violation_log = @import("violation_log.zig");
 
 const appendViolation = violation_log.appendViolation;
@@ -71,24 +72,14 @@ fn collectTree(
     bodies: *std.ArrayList(Body),
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, name, .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot be opened for the duplicate-body check ({s})", .{ name, @errorName(err) });
-        return;
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        bodies: *std.ArrayList(Body),
+        fn visit(self: @This(), path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            try collectBodies(self.gpa, self.bodies, path, contents);
+        }
     };
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ name, entry.path });
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot be read for the duplicate-body check ({s})", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        try collectBodies(gpa, bodies, path, contents);
-    }
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "duplicate-body", name, &source_tree.isZigPath, Sink{ .gpa = gpa, .bodies = bodies }, Sink.visit);
 }
 
 /// Append every function body of `contents` long enough to compare.

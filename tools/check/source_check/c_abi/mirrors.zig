@@ -6,6 +6,7 @@ const std = @import("std");
 const model = @import("model");
 const captp_vocabulary = @import("../captp_vocabulary.zig");
 const json_files = @import("../json_files.zig");
+const source_tree = @import("../source_tree.zig");
 const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 
@@ -134,44 +135,35 @@ pub fn checkBindingStructPins(
         abi_types.deinit(gpa);
     }
 
-    var c_abi_dir = root.openDir(io, "src/c_abi", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src/c_abi: failed to open canonical layout manifests with {s}", .{@errorName(err)});
-        return;
-    };
-    defer c_abi_dir.close(io);
-    var walker = try c_abi_dir.walk(gpa);
-    defer walker.deinit();
     const layout_needle = "archive_contract.layout(\"";
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/c_abi/{s}", .{entry.path});
-        defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read canonical layout manifest with {s}", .{ path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        var cursor: usize = 0;
-        while (std.mem.indexOfPos(u8, contents, cursor, layout_needle)) |row| {
-            const line_end = std.mem.indexOfScalarPos(u8, contents, row, '\n') orelse contents.len;
-            const line = contents[row..line_end];
-            cursor = line_end;
-            const comma = std.mem.indexOf(u8, line, ", ") orelse continue;
-            var type_name: []const u8 = line[comma + 2 ..];
-            if (std.mem.indexOfScalar(u8, type_name, ')')) |close| type_name = type_name[0..close];
-            type_name = std.mem.trim(u8, type_name, " \t\r");
-            if (std.mem.lastIndexOfScalar(u8, type_name, '.')) |dot| type_name = type_name[dot + 1 ..];
-            if (type_name.len == 0) continue;
-            var duplicate = false;
-            for (abi_types.items) |known| {
-                if (std.mem.eql(u8, known, type_name)) {
-                    duplicate = true;
-                    break;
+    const Sink = struct {
+        gpa: std.mem.Allocator,
+        abi_types: *std.ArrayList([]const u8),
+
+        fn visit(self: @This(), _: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+            var cursor: usize = 0;
+            while (std.mem.indexOfPos(u8, contents, cursor, layout_needle)) |row| {
+                const line_end = std.mem.indexOfScalarPos(u8, contents, row, '\n') orelse contents.len;
+                const line = contents[row..line_end];
+                cursor = line_end;
+                const comma = std.mem.indexOf(u8, line, ", ") orelse continue;
+                var type_name: []const u8 = line[comma + 2 ..];
+                if (std.mem.indexOfScalar(u8, type_name, ')')) |close| type_name = type_name[0..close];
+                type_name = std.mem.trim(u8, type_name, " \t\r");
+                if (std.mem.lastIndexOfScalar(u8, type_name, '.')) |dot| type_name = type_name[dot + 1 ..];
+                if (type_name.len == 0) continue;
+                var duplicate = false;
+                for (self.abi_types.items) |known| {
+                    if (std.mem.eql(u8, known, type_name)) {
+                        duplicate = true;
+                        break;
+                    }
                 }
+                if (!duplicate) try self.abi_types.append(self.gpa, try self.gpa.dupe(u8, type_name));
             }
-            if (!duplicate) try abi_types.append(gpa, try gpa.dupe(u8, type_name));
         }
-    }
+    };
+    try source_tree.visitSourceFiles(io, gpa, root, violations, "canonical layout manifest", "src/c_abi", &source_tree.isZigPath, Sink{ .gpa = gpa, .abi_types = &abi_types }, Sink.visit);
     if (abi_types.items.len == 0) {
         try appendViolation(gpa, violations, "src/c_abi: no binding-projected `archive_contract.layout` rows found; struct mirrors have no canonical inventory", .{});
         return;

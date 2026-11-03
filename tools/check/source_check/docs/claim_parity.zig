@@ -2,6 +2,7 @@
 //! `ci/groups.py` runs it on every push.
 
 const std = @import("std");
+const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 const inventories = @import("inventories.zig");
 
@@ -95,7 +96,7 @@ fn rejectRecurringNames(
         const close = std.mem.indexOfScalar(u8, after, '`') orelse break;
         const name = after[0..close];
         scan = after[close + 1 ..];
-        if (containsStep(listed, name)) {
+        if (text_match.inSet(listed, name)) {
             try appendViolation(gpa, violations, "{s}: " ++ fmt, .{ doc_path, name });
         }
     }
@@ -110,23 +111,10 @@ fn indexOfInsensitive(haystack: []const u8, needle: []const u8) ?usize {
     return null;
 }
 
-fn containsStep(steps: []const []const u8, needle: []const u8) bool {
-    for (steps) |step| {
-        if (std.mem.eql(u8, step, needle)) return true;
-    }
-    return false;
-}
-
 test "nthCell reads markdown table columns" {
     const line = "| `keyed-relay` | In-tree `check`. On-demand (`foo`) | still on demand. |";
     try std.testing.expectEqualStrings("`keyed-relay`", nthCell(line, 0).?);
     try std.testing.expectEqualStrings("In-tree `check`. On-demand (`foo`)", nthCell(line, 1).?);
     try std.testing.expectEqualStrings("still on demand.", nthCell(line, 2).?);
     try std.testing.expect(nthCell(line, 3) == null);
-}
-
-test "containsStep matches a listed gate name" {
-    const listed = [_][]const u8{ "check", "bindings-keyed-relay-rendezvous" };
-    try std.testing.expect(containsStep(&listed, "bindings-keyed-relay-rendezvous"));
-    try std.testing.expect(!containsStep(&listed, "zig-keyed-relay-register"));
 }

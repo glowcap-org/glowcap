@@ -38,18 +38,12 @@ const appendViolation = violation_log.appendViolation;
 /// `interesting` below.
 const roots = [_][]const u8{ "apps", "bindings", "bench", "transports" };
 
-fn vendored(path: []const u8) bool {
-    return std.mem.indexOf(u8, path, "node_modules") != null or
-        std.mem.indexOf(u8, path, "/target/") != null or
-        std.mem.indexOf(u8, path, "/upstream/") != null;
-}
-
 fn isManifest(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, "Cargo.toml") and !vendored(path);
+    return std.mem.endsWith(u8, path, "Cargo.toml");
 }
 
 fn isRust(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, ".rs") and !vendored(path);
+    return std.mem.endsWith(u8, path, ".rs");
 }
 
 /// The directory a manifest governs, as a repository-relative prefix ending in

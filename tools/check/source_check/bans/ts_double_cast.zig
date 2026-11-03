@@ -14,7 +14,7 @@ pub const rows: []const Ban = &.{
         .where = .{ .tree = .{
             .dir = "bindings/ts",
             .suffixes = &.{".ts"},
-            .skip_dirs = &.{ "node_modules/", "test/" },
+            .skip_dirs = &.{"test/"},
             .exclude = &.{
                 "bindings/ts/web/mod.ts",
                 "bindings/ts/runtime/internal/ffi/load.ts",
@@ -29,7 +29,7 @@ pub const rows: []const Ban = &.{
         .where = .{ .tree = .{
             .dir = "apps/rooms",
             .suffixes = &.{ ".ts", ".tsx" },
-            .skip_dirs = &.{ "node_modules/", "test/" },
+            .skip_dirs = &.{"test/"},
         } },
         .kind = .forbid,
         .needles = &.{"as unknown as"},

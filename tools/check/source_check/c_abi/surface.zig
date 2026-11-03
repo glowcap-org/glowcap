@@ -52,7 +52,7 @@ pub fn checkAbiFreeingVerb(
                 continue;
             }
             if (!std.mem.endsWith(u8, name, "_close")) continue;
-            const i = lineIndexOfOffset(contents, decl.offset);
+            const i = text_match.lineNumberAt(contents, decl.offset) - 1;
 
             if (i == 0 or !std.mem.endsWith(u8, std.mem.trimEnd(u8, lines.items[i - 1], " \t"), "*/")) {
                 try appendViolation(gpa, violations, "{s}: {s} has no doc comment; a *_close must state it closes \"without releasing\" the handle", .{ path, name });
@@ -213,7 +213,7 @@ pub fn checkCAbiHeaderCommentSeparation(
                 gpa,
                 violations,
                 "{s}:{d}: public C ABI header joins a declaration and doc comment as `;/*`; emit a newline before the comment",
-                .{ path, lineIndexOfOffset(contents, hit) + 1 },
+                .{ path, text_match.lineNumberAt(contents, hit) },
             );
             at = hit + 3;
         }
@@ -350,12 +350,6 @@ fn collectHeaderDeclarations(
         // Blanking preserves byte length, so offsets index the original.
         try out.append(gpa, .{ .name = contents[start..end], .offset = start });
     }
-}
-
-/// The 0-based line index of `offset` within `contents` (the newline count
-/// before it), so a declaration found by offset can be tied to its doc comment.
-fn lineIndexOfOffset(contents: []const u8, offset: usize) usize {
-    return std.mem.count(u8, contents[0..offset], "\n");
 }
 
 /// One exported function declaration found in a generated header: its name and

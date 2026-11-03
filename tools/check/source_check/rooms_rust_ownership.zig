@@ -51,13 +51,6 @@ const runtime_support_files = [_][]const u8{
     "wall_clock.rs",
 };
 
-fn containsName(names: []const []const u8, candidate: []const u8) bool {
-    for (names) |name| {
-        if (std.mem.eql(u8, name, candidate)) return true;
-    }
-    return false;
-}
-
 fn checkRuntimeLayout(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -98,12 +91,12 @@ fn checkRuntimeLayout(
     var entries = src.iterate();
     while (try entries.next(io)) |entry| {
         if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".rs") and
-            !containsName(&runtime_support_files, entry.name))
+            !text_match.inSet(&runtime_support_files, entry.name))
         {
             try appendViolation(gpa, violations, source_root ++ "/{s}: domain module must live below a grouped runtime root", .{entry.name});
         }
         if (entry.kind == .directory and !std.mem.eql(u8, entry.name, "documents") and
-            !containsName(&runtime_domain_roots, entry.name))
+            !text_match.inSet(&runtime_domain_roots, entry.name))
         {
             try appendViolation(gpa, violations, source_root ++ "/{s}: unexpected runtime root directory; place the module under its owning domain", .{entry.name});
         }

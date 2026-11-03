@@ -25,6 +25,7 @@
 //! as "this is unreachable", never as "the scenes are covered".
 
 const std = @import("std");
+const text_match = @import("text_match.zig");
 const source_tree = @import("source_tree.zig");
 const violation_log = @import("violation_log.zig");
 
@@ -53,10 +54,6 @@ fn isTypeScript(path: []const u8) bool {
     return std.mem.endsWith(u8, path, ".ts");
 }
 
-fn isIdentifierByte(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '_' or c == '$';
-}
-
 /// How many times `name` appears as a whole identifier. Substring matches would
 /// let `fail` answer for `failure`, which is the difference between a check and
 /// a coin toss.
@@ -65,9 +62,9 @@ fn identifierOccurrences(haystack: []const u8, name: []const u8) usize {
     var count: usize = 0;
     var at: usize = 0;
     while (std.mem.indexOfPos(u8, haystack, at, name)) |found| {
-        const before_ok = found == 0 or !isIdentifierByte(haystack[found - 1]);
+        const before_ok = found == 0 or !text_match.isJsIdentChar(haystack[found - 1]);
         const after = found + name.len;
-        const after_ok = after >= haystack.len or !isIdentifierByte(haystack[after]);
+        const after_ok = after >= haystack.len or !text_match.isJsIdentChar(haystack[after]);
         if (before_ok and after_ok) count += 1;
         at = found + name.len;
     }
@@ -81,7 +78,7 @@ fn declaredName(line: []const u8) ?[]const u8 {
         if (!std.mem.startsWith(u8, line, form)) continue;
         const rest = line[form.len..];
         var end: usize = 0;
-        while (end < rest.len and isIdentifierByte(rest[end])) end += 1;
+        while (end < rest.len and text_match.isJsIdentChar(rest[end])) end += 1;
         if (end == 0) return null;
         return rest[0..end];
     }

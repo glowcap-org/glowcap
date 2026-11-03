@@ -84,7 +84,7 @@ fn checkFile(
             const close = std.mem.indexOfScalar(u8, after, '`') orelse break;
             rest = after[close + 1 ..];
             const name = bareName(after[0..close]) orelse continue;
-            if (words.contains(name) or isForeign(name)) continue;
+            if (words.contains(name) or text_match.inSet(&foreign_names, name)) continue;
             try appendViolation(
                 gpa,
                 violations,
@@ -105,11 +105,6 @@ fn bareName(span: []const u8) ?[]const u8 {
         if (std.ascii.isUpper(c)) upper = true;
     }
     return if (upper) name else null;
-}
-
-fn isForeign(name: []const u8) bool {
-    for (foreign_names) |f| if (std.mem.eql(u8, name, f)) return true;
-    return false;
 }
 
 test "a bare doc name must be spelled in code, not only in comments" {

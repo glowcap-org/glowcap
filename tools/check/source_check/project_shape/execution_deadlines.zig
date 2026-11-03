@@ -6,6 +6,7 @@
 //! declaration-to-classification completeness for the standard gate suites.
 
 const std = @import("std");
+const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
 const syntax = @import("execution_deadlines/syntax.zig");
 const zig_tests = @import("execution_deadlines/zig_tests.zig");
@@ -116,17 +117,12 @@ fn checkBuildFile(
             if (std.mem.eql(u8, spec.marker, "execution.addArtifact(")) {
                 const artifact = syntax.nthTopLevelArg(code[open + 1 .. close], 2) orelse continue;
                 const trimmed = std.mem.trim(u8, artifact, " \t\r\n");
-                if (std.mem.indexOf(u8, trimmed, "b.addTest") != null or containsName(test_names.items, trimmed)) {
+                if (std.mem.indexOf(u8, trimmed, "b.addTest") != null or text_match.inSet(test_names.items, trimmed)) {
                     try appendViolation(gpa, violations, "{s}: Zig test artifact `{s}` must run through `execution.addZigTest`, preserving standard-runner filters, leak reporting, and subprocess deadlines", .{ path, trimmed });
                 }
             }
         }
     }
-}
-
-fn containsName(names: []const []const u8, candidate: []const u8) bool {
-    for (names) |name| if (std.mem.eql(u8, name, candidate)) return true;
-    return false;
 }
 
 fn precedingIdentifier(code: []const u8, dot_at: usize) []const u8 {

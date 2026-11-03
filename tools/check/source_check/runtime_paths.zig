@@ -36,10 +36,6 @@ const roots = [_][]const u8{ "apps/rooms", "bindings/ts" };
 /// demanding it would fail before the first build instead of on a real mistake.
 const generated = "zig-out/";
 
-fn isSourcePath(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, ".ts") or std.mem.endsWith(u8, path, ".tsx");
-}
-
 fn isSpace(c: u8) bool {
     return c == ' ' or c == '\t' or c == '\n' or c == '\r';
 }
@@ -128,6 +124,17 @@ fn checkFile(
     }
 }
 
+const Sink = struct {
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+
+    fn visit(self: Sink, path: []const u8, contents: []u8) std.mem.Allocator.Error!void {
+        try checkFile(self.io, self.gpa, self.root, path, contents, self.violations);
+    }
+};
+
 pub fn check(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -135,21 +142,6 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (roots) |root_path| {
-        const files = (try source_tree.collectSourceFiles(io, gpa, root, root_path, isSourcePath)) orelse {
-            try appendViolation(gpa, violations, "{s}: failed to open for the runtime-path check", .{root_path});
-            continue;
-        };
-        defer {
-            for (files) |path| gpa.free(path);
-            gpa.free(files);
-        }
-        for (files) |path| {
-            const body = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ path, @errorName(err) });
-                continue;
-            };
-            defer gpa.free(body);
-            try checkFile(io, gpa, root, path, body, violations);
-        }
+        try source_tree.visitSourceFiles(io, gpa, root, violations, "runtime-path", root_path, &source_tree.isTypeScriptPath, Sink{ .io = io, .gpa = gpa, .root = root, .violations = violations }, Sink.visit);
     }
 }

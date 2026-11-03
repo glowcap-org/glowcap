@@ -62,7 +62,7 @@ pub fn checkRawNuls(
 }
 
 fn keepTextSource(path: []const u8) bool {
-    return isTextSource(path) and !vendoredOrGenerated(path);
+    return isTextSource(path);
 }
 
 /// Every registered Rooms TypeScript test names the scenario its module owns
@@ -271,7 +271,7 @@ pub fn checkDiscardedErrors(
 }
 
 fn keepDiscardScanned(path: []const u8) bool {
-    return !vendoredOrGenerated(path) and (keepZig(path) or firstPartyTypeScript(path));
+    return keepZig(path) or firstPartyTypeScript(path);
 }
 
 /// A `.ts` or `.tsx` source that is product or tool code rather than a test,
@@ -284,18 +284,6 @@ fn firstPartyTypeScript(path: []const u8) bool {
     const base = std.fs.path.basename(path);
     return !std.mem.endsWith(u8, base, "_test.ts") and !std.mem.endsWith(u8, base, "-test.ts") and
         !std.mem.endsWith(u8, base, ".test.ts") and !std.mem.endsWith(u8, base, "_proof.ts");
-}
-
-/// Trees no first-party rule governs: extracted Zig packages, npm state,
-/// pinned upstream submodules, and build output that may sit under a scanned
-/// root.
-fn vendoredOrGenerated(path: []const u8) bool {
-    return std.mem.indexOf(u8, path, "zig-pkg/") != null or
-        std.mem.startsWith(u8, path, "upstream/") or
-        std.mem.indexOf(u8, path, "/upstream/") != null or
-        std.mem.indexOf(u8, path, "node_modules/") != null or
-        std.mem.indexOf(u8, path, ".zig-cache/") != null or
-        std.mem.indexOf(u8, path, "zig-out/") != null;
 }
 
 /// True when `line` is a code (non-comment) line carrying one of the discard

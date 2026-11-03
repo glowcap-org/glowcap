@@ -1,7 +1,7 @@
 //! Text matching over source contents: required-text and presence checks on a
 //! file, whitespace-insensitive and whole-symbol matching, brace-block
-//! extraction, leading-integer parsing, and the identifier scans over code
-//! lines.
+//! extraction, set membership, line numbers, leading-integer parsing, and the
+//! identifier scans over code lines.
 
 const std = @import("std");
 const violation_log = @import("violation_log.zig");
@@ -217,4 +217,41 @@ test "namesAfterPrefix collects each name, skips an empty one, and reads a trail
     try std.testing.expectEqual(@as(usize, 2), names.items.len);
     try std.testing.expectEqualStrings("ONE", names.items[0]);
     try std.testing.expectEqualStrings("TWO", names.items[1]);
+}
+
+/// Whether `byte` continues a JavaScript or TypeScript identifier, which adds
+/// `$` to the C identifier bytes.
+pub fn isJsIdentChar(byte: u8) bool {
+    return isIdentChar(byte) or byte == '$';
+}
+
+/// Whether `needle` equals one entry of `set`.
+pub fn inSet(set: []const []const u8, needle: []const u8) bool {
+    for (set) |entry| if (std.mem.eql(u8, entry, needle)) return true;
+    return false;
+}
+
+/// The 1-based line number of the byte at `offset`, counting every newline
+/// before it. An offset past the end reads as the last line.
+pub fn lineNumberAt(text: []const u8, offset: usize) usize {
+    return std.mem.count(u8, text[0..@min(offset, text.len)], "\n") + 1;
+}
+
+test "inSet matches whole entries" {
+    const set = [_][]const u8{ "alpha", "beta" };
+    try std.testing.expect(inSet(&set, "beta"));
+    try std.testing.expect(!inSet(&set, "bet"));
+    try std.testing.expect(!inSet(&.{}, "alpha"));
+}
+
+test "identifier bytes split C and JavaScript rules" {
+    try std.testing.expect(isIdentStart('_') and !isIdentStart('7'));
+    try std.testing.expect(isIdentChar('7') and !isIdentChar('$'));
+    try std.testing.expect(isJsIdentChar('$') and !isJsIdentChar('-'));
+}
+
+test "lineNumberAt counts newlines before the offset" {
+    try std.testing.expectEqual(@as(usize, 1), lineNumberAt("a\nb\nc", 0));
+    try std.testing.expectEqual(@as(usize, 2), lineNumberAt("a\nb\nc", 2));
+    try std.testing.expectEqual(@as(usize, 3), lineNumberAt("a\nb\nc", 99));
 }
