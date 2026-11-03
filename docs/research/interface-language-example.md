@@ -1,7 +1,7 @@
 # Interface language design and complete example
 
 The candidate language describes messages once so generators can remove manual
-encoding, decoding, and dispatch. It is not implemented or an OCapN proposal.
+encoding, decoding, and dispatch. A [comparison adapter](../../test/interface/authoring/README.md) implements a small subset. The complete language remains proposed.
 [ADR-0069](../decisions/adr/ADR-0069-proposed-interface-language.md) owns the
 architecture and alternatives. The rules below define the design to implement
 and test, rather than leaving the difficult semantics to each generator.

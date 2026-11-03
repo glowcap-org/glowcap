@@ -212,19 +212,32 @@ pub fn register(ctx: Context) void {
     const reflected_archives = ctx.reflected_archives;
     const support = ctx.support;
 
+    const interface_test = b.step("interface-test", "Test bounded interface descriptions and generation allocation failures");
     addHeaderGen(b, check_step, target, optimize, support, .{
         .check_step_name = "gen-interface-fixtures-check",
         .check_desc = "Verify interface qualification projections match the authored Syrup fixtures",
         .write_step_name = "gen-interface-fixtures",
         .write_desc = "Generate interface qualification projections from authored Syrup fixtures",
         .generator = "tools/interface/generate.zig",
-        .test_step = b.step("interface-test", "Test bounded interface descriptions and generation allocation failures"),
+        .test_step = interface_test,
         .extra_imports = &.{
             .{ .name = "syrup", .module = host_mods[layerIndex("codec")].import_table.get("syrup").? },
             .{ .name = "contract", .module = b.createModule(.{ .root_source_file = b.path("test/interface/contracts.syrup") }) },
             .{ .name = "messages", .module = b.createModule(.{ .root_source_file = b.path("test/interface/messages.syrup") }) },
+            .{ .name = "authoring_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/comparison.interface") }) },
+            .{ .name = "authoring_expected", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/comparison.syrup") }) },
         },
     });
+
+    const authoring_module = b.createModule(.{
+        .root_source_file = b.path("tools/interface/authoring_check.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    authoring_module.addImport("syrup", host_mods[layerIndex("codec")].import_table.get("syrup").?);
+    const authoring_exe = b.addExecutable(.{ .name = "interface-authoring", .root_module = authoring_module });
+    const authoring_install = b.addInstallArtifact(authoring_exe, .{});
+    interface_test.dependOn(&authoring_install.step);
 
     const interface_fixtures = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/check_fixtures.py" });
     const interface_step = b.step("interface-fixtures-check", "Verify authored interface contract and message fixtures");
