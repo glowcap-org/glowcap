@@ -45,7 +45,6 @@ const exporter_script = "conformance/goblins-peer/racket/gift-exporter-host.rkt"
 const recipient_script = "conformance/goblins-peer/racket/gift-recipient.rkt";
 const greeter_swiss = "glowcapGiftGreeterSwissnum000001";
 const introducer_swiss = "introducer";
-const deadline_ms: u64 = 60_000;
 
 const opts: driver.SessionOptions = .{
     .frame_cap = frame_cap,
@@ -89,50 +88,27 @@ fn serveGifter(
     published.store(true, .release);
     settled.store(true, .release);
 
-    var carol: ?*driver.Session = null;
-    defer if (carol) |session| session.deinit();
-    while (!done.load(.acquire)) {
-        if (carol == null and try gifter.waitAcceptable(20)) carol = try gifter.accept();
-        // Bob's session carries the recipient's withdraw; both must turn.
-        _ = bob.stepReadable(10) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => {},
-            else => |e| return e,
-        };
-        if (carol) |session| _ = session.stepReadable(10) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => {},
-            else => |e| return e,
-        };
-    }
+    try goblins_child.serveRecipient(gifter, bob, done, {});
 }
 
+/// What the scan of Carol's stdout saw besides the verdict line.
+const CarolLog = struct {
+    saw_hint: bool = false,
+};
+
 fn readCarolOk(io: std.Io, child: *std.process.Child, expect_hint: bool) !void {
-    const out = child.stdout orelse return error.NoChildStdout;
-    var rbuf: [8192]u8 = undefined;
-    var reader = out.readerStreaming(io, &rbuf);
-    const deadline = harness.deadlineAfter(io, deadline_ms);
-    var saw_ok = false;
-    var saw_hint = false;
-    while (!harness.expired(io, deadline)) {
-        const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => return err,
-        };
-        std.debug.print("goblins-gift: {s}", .{line});
-        if (std.mem.indexOf(u8, line, "HINT SEEN: " ++ route_hint_name) != null) {
-            saw_hint = true;
-        }
-        if (std.mem.indexOf(u8, line, "GIFT OK:") != null and std.mem.indexOf(u8, line, "goblins-carol") != null) {
-            saw_ok = true;
-            break;
-        }
-        if (std.mem.indexOf(u8, line, "GIFT ERR:") != null or std.mem.indexOf(u8, line, "GIFT TIMEOUT") != null) {
-            return error.GiftFailed;
-        }
-    }
-    if (!saw_ok) return error.GiftFailed;
+    var log: CarolLog = .{};
+    const confirmed = try goblins_child.followChildVerdict(io, child, "goblins-gift", goblins_child.deadline_ms, &log, judgeCarolLine);
+    if (!confirmed) return error.GiftFailed;
     // A hinted run that redeems without the trace marker means the hinted
     // locator never reached Carol's dial, vacuous, so it fails.
-    if (expect_hint and !saw_hint) return error.HintNotObserved;
+    if (expect_hint and !log.saw_hint) return error.HintNotObserved;
+}
+
+fn judgeCarolLine(log: *CarolLog, line: []const u8) !goblins_child.LineVerdict {
+    if (std.mem.indexOf(u8, line, "HINT SEEN: " ++ route_hint_name) != null) log.saw_hint = true;
+    const redeemed = std.mem.indexOf(u8, line, "GIFT OK:") != null and std.mem.indexOf(u8, line, "goblins-carol") != null;
+    return if (redeemed) .confirmed else .more;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -217,7 +193,7 @@ fn gifterStep(
         serving.await(io) catch {};
     };
 
-    try harness.untilFlag(io, deadline_ms, &settled);
+    try harness.untilFlag(io, goblins_child.deadline_ms, &settled);
     if (!published.load(.acquire)) {
         done.store(true, .release);
         serving_joined = true;
@@ -233,13 +209,7 @@ fn gifterStep(
         carol_port_str,
         route_hint_name,
     };
-    var carol_argv: [8][]const u8 = undefined;
-    var carol = try std.process.spawn(io, .{
-        .argv = goblins_child.racketArgv(&carol_argv, if (hinted_exporter) carol_script_argv[0..] else carol_script_argv[0..4]),
-        .environ_map = environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    var carol = try goblins_child.spawnScript(io, environ_map, if (hinted_exporter) carol_script_argv[0..] else carol_script_argv[0..4], .{});
     var carol_reaped = false;
     defer if (!carol_reaped) carol.kill(io);
 

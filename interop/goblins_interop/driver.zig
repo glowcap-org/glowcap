@@ -59,14 +59,6 @@ const host = "127.0.0.1";
 const default_port: u16 = 22099;
 const frame_cap: usize = 1 << 16;
 
-/// The wait each scenario allows its Goblins child, matching every sibling
-/// driver in this directory. Finite is the contract (an unbounded wait is a
-/// hang, not a slow test), 60s rather than 20s because these scenarios run
-/// inside `check-external` beside other Racket and uv steps, and a child
-/// starved of CPU by that concurrency was timing out the projection-asker
-/// scenario in the aggregate while passing standalone.
-const deadline_ms: u64 = 60_000;
-
 const host_script = "conformance/goblins-peer/racket/goblins-host.rkt";
 const dialer_script = "conformance/goblins-peer/racket/glowcap-actor-call.rkt";
 // The pipelining client: it enlivens and calls in one breath (`<-` to the
@@ -350,20 +342,14 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
         script_argv[3] = arg;
         script_len = 4;
     }
-    var argv_buf: [6][]const u8 = undefined;
-    var child = try std.process.spawn(io, .{
-        .argv = goblins_child.racketArgv(&argv_buf, script_argv[0..script_len]),
-        .environ_map = init.environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    var child = try goblins_child.spawnScript(io, init.environ_map, script_argv[0..script_len], .{});
     var reaped = false;
     defer if (!reaped) child.kill(io);
 
     // 4. Accept the inbound connection and weld it to our peer. The wait is
     //    deadline-guarded: a dialer that dies before dialing must fail loud
     //    with its stderr, not park the driver in a bare kernel accept.
-    harness.untilAcceptable(io, deadline_ms, &listener) catch |err| {
+    harness.untilAcceptable(io, goblins_child.deadline_ms, &listener) catch |err| {
         std.debug.print("goblins-interop: dialer never connected ({s} scenario): {s}\n", .{ scenario.kind, @errorName(err) });
         goblins_child.dumpChildStderr(io, "goblins-interop", &child);
         return err;
@@ -397,7 +383,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     // visible.
     var seen_ops = @as([8]bool, @splat(false));
     std.debug.assert(scenario.expect_inbound_ops.len <= seen_ops.len);
-    const pump_deadline = harness.deadlineAfter(io, deadline_ms);
+    const pump_deadline = harness.deadlineAfter(io, goblins_child.deadline_ms);
     while (true) {
         if (harness.expired(io, pump_deadline)) break;
         const progress = try goblins_child.pumpPoll(&conn);

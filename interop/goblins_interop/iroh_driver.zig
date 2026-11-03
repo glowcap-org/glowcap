@@ -53,11 +53,9 @@ const Registration = driver.HostRuntime.ProviderRegistration;
 
 const frame_cap: usize = 1 << 16;
 
-/// The wait the dialing bracket allows the Goblins vat's handshake. Finite is
-/// the contract: an unbounded wait is a hang, not a slow test. Sixty seconds
-/// matches the sibling Goblins drivers, which share a machine with other Racket
-/// and cargo steps.
-const handshake_budget_ms: i32 = 60_000;
+/// The wait the dialing bracket allows the Goblins vat's handshake, the
+/// siblings' phase cap in `SessionOptions` units.
+const handshake_budget_ms: i32 = @intCast(goblins_child.deadline_ms);
 
 /// How long the dialing bracket waits for the vat to print what its netlayer
 /// concluded about the session. The vat writes that line as it reads glowcap's
@@ -297,15 +295,9 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
     const server = try driver.listen(allocator, io, .{ .residents = &providers }, iroh.transport_name, .{ .designator = "" }, .{ .keyed = secret }, opts);
     defer server.deinit();
 
-    var serving = try io.concurrent(serveGreeter, .{ io, server, @as(u64, handshake_budget_ms) });
+    var serving = try io.concurrent(serveGreeter, .{ io, server, goblins_child.deadline_ms });
 
-    var child_argv: [8][]const u8 = undefined;
-    var child = try std.process.spawn(io, .{
-        .argv = goblins_child.racketArgv(&child_argv, &.{ caller_script, node_id, direct_addrs, actor_swiss, greeting_arg }),
-        .environ_map = environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    var child = try goblins_child.spawnScript(io, environ_map, &.{ caller_script, node_id, direct_addrs, actor_swiss, greeting_arg }, .{});
     var reaped = false;
     defer if (!reaped) child.kill(io);
 

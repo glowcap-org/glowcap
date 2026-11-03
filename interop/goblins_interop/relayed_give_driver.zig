@@ -50,7 +50,6 @@ const exporter_script = "conformance/goblins-peer/racket/deferred-exporter-host.
 const recipient_script = "conformance/goblins-peer/racket/relayed-give-recipient.rkt";
 const rendezvous_swiss = "glowcapDeferredRendezvousSwiss01";
 const introducer_swiss = "introducer";
-const deadline_ms: u64 = 60_000;
 
 const opts: driver.SessionOptions = .{
     .frame_cap = frame_cap,
@@ -121,62 +120,42 @@ fn serveIntroducer(
     // best-effort: the release runs as the serve loop ends, and a failed release leaves one handle to the session's own teardown.
     defer held_with.release() catch {};
 
-    var carol: ?*driver.Session = null;
-    defer if (carol) |session| session.deinit();
-    while (!done.load(.acquire)) {
-        if (carol == null and try introducer.waitAcceptable(20)) carol = try introducer.accept();
-        _ = bob.stepReadable(10) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => {},
-            else => |e| return e,
-        };
-        if (carol) |session| _ = session.stepReadable(10) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => {},
-            else => |e| return e,
-        };
-    }
+    try goblins_child.serveRecipient(introducer, bob, done, {});
 }
 
 /// Follow Carol's stdout. `LISTENING` means Goblins has subscribed to the
 /// promise, which is the driver's cue to have Bob settle it, so the settlement
 /// finds a subscriber rather than only the store.
 fn readCarolOk(io: std.Io, carol: *std.process.Child, bob: *std.process.Child) !void {
-    const out = carol.stdout orelse return error.NoChildStdout;
-    var rbuf: [8192]u8 = undefined;
-    var reader = out.readerStreaming(io, &rbuf);
-    const deadline = harness.deadlineAfter(io, deadline_ms);
-    var saw_ok = false;
+    var scan: CarolScan = .{ .io = io, .bob = bob };
+    const confirmed = try goblins_child.followChildVerdict(io, carol, "goblins-relayed-give: carol", goblins_child.deadline_ms, &scan, judgeCarolLine);
+    if (!confirmed) return error.RelayedGiveFailed;
+}
+
+const CarolScan = struct {
+    io: std.Io,
+    bob: *std.process.Child,
     // Carol's partial listener fires on every step of the promise chain, so
     // `LISTENING` can be printed more than once. Bob settles once by
     // construction; asking once keeps the transcript readable.
-    var asked_bob_to_settle = false;
-    while (!harness.expired(io, deadline)) {
-        const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => return err,
-        };
-        std.debug.print("goblins-relayed-give: carol: {s}", .{line});
-        if (std.mem.indexOf(u8, line, "LISTENING") != null) {
-            if (asked_bob_to_settle) continue;
-            asked_bob_to_settle = true;
-            const stdin = bob.stdin orelse return error.NoChildStdin;
-            try stdin.writeStreamingAll(io, "settle\n");
-            std.debug.print("goblins-relayed-give: asked goblins-bob to settle the promise\n", .{});
-            continue;
-        }
-        // `from goblins-bob` is the half of the greeting only Bob's greeter can
-        // write; Carol sent her own name in, so it proves nothing on its own.
-        if (std.mem.indexOf(u8, line, "GIFT OK:") != null and
-            std.mem.indexOf(u8, line, "goblins-carol") != null and
-            std.mem.indexOf(u8, line, "from goblins-bob") != null)
-        {
-            saw_ok = true;
-            break;
-        }
-        if (std.mem.indexOf(u8, line, "GIFT ERR") != null or std.mem.indexOf(u8, line, "GIFT TIMEOUT") != null) {
-            return error.RelayedGiveFailed;
-        }
+    asked_bob_to_settle: bool = false,
+};
+
+fn judgeCarolLine(scan: *CarolScan, line: []const u8) !goblins_child.LineVerdict {
+    if (std.mem.indexOf(u8, line, "LISTENING") != null) {
+        if (scan.asked_bob_to_settle) return .more;
+        scan.asked_bob_to_settle = true;
+        const stdin = scan.bob.stdin orelse return error.NoChildStdin;
+        try stdin.writeStreamingAll(scan.io, "settle\n");
+        std.debug.print("goblins-relayed-give: asked goblins-bob to settle the promise\n", .{});
+        return .more;
     }
-    if (!saw_ok) return error.RelayedGiveFailed;
+    // `from goblins-bob` is the half of the greeting only Bob's greeter can
+    // write; Carol sent her own name in, so it proves nothing on its own.
+    const redeemed = std.mem.indexOf(u8, line, "GIFT OK:") != null and
+        std.mem.indexOf(u8, line, "goblins-carol") != null and
+        std.mem.indexOf(u8, line, "from goblins-bob") != null;
+    return if (redeemed) .confirmed else .more;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -255,7 +234,7 @@ fn introducerStep(
 
     // Bob has to have handed the promise over before Carol can be introduced to
     // it; the introducer answers `NotReady` until then.
-    try harness.untilFlag(io, deadline_ms, &held_flag);
+    try harness.untilFlag(io, goblins_child.deadline_ms, &held_flag);
     if (held.promise == null) {
         done.store(true, .release);
         serving_joined = true;
@@ -267,19 +246,12 @@ fn introducerStep(
         .{ introducer_swiss, introducer_designator },
     );
 
-    var carol_argv: [8][]const u8 = undefined;
-
-    var carol = try std.process.spawn(io, .{
-        .argv = goblins_child.racketArgv(&carol_argv, &.{
-            recipient_script,
-            introducer_designator,
-            introducer_swiss,
-            carol_port_str,
-        }),
-        .environ_map = environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    var carol = try goblins_child.spawnScript(io, environ_map, &.{
+        recipient_script,
+        introducer_designator,
+        introducer_swiss,
+        carol_port_str,
+    }, .{});
     var carol_reaped = false;
     defer if (!carol_reaped) carol.kill(io);
 

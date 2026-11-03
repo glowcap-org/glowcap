@@ -1,15 +1,18 @@
 //! The spawned Racket child of a Goblins interop driver: its
 //! NDJSON readiness protocol (the spawn-and-await bracket, field extraction,
-//! the readiness-block wait, the stdout drain, the best-effort stderr dump),
+//! the readiness-block wait, the stdout drain, the recipient's verdict scan,
+//! the best-effort stderr dump),
 //! the keyed `op:start-session` bracket, and the bootstrap-fetch pump loop.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
+const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const net = glowcap.net;
 const crypto = glowcap.foundation.crypto;
+const driver = glowcap.driver;
 
 /// Resolved through PATH so the live interop runs on any host with a working
 /// Racket, not only the devcontainer's install location. The spawned child
@@ -21,12 +24,39 @@ const racket_path = "racket";
 /// Racket inlines constants across modules, so without it a script can load
 /// a binding module compiled against an older generated constant and refuse
 /// the archive it was just built beside.
-pub fn racketArgv(buf: [][]const u8, script_argv: []const []const u8) []const []const u8 {
+fn racketArgv(buf: [][]const u8, script_argv: []const []const u8) []const []const u8 {
     std.debug.assert(buf.len >= script_argv.len + 2);
     buf[0] = racket_path;
     buf[1] = "-y";
     for (script_argv, 0..) |arg, i| buf[i + 2] = arg;
     return buf[0 .. script_argv.len + 2];
+}
+
+/// How a spawned Racket script is wired to the driver. A driver reads the
+/// script's stdout and, on failure, its stderr, so both are pipes unless the
+/// script's output is its own to print.
+pub const ScriptStdio = struct {
+    stdin: std.process.SpawnOptions.StdIo = .inherit,
+    stdout: std.process.SpawnOptions.StdIo = .pipe,
+    stderr: std.process.SpawnOptions.StdIo = .pipe,
+};
+
+/// Spawn one Racket script (`script_argv` is the script path and its
+/// arguments). The caller owns the child and kills it, which reaps it.
+pub fn spawnScript(
+    io: std.Io,
+    environ_map: *std.process.Environ.Map,
+    script_argv: []const []const u8,
+    stdio: ScriptStdio,
+) !std.process.Child {
+    var argv_buf: [10][]const u8 = undefined;
+    return std.process.spawn(io, .{
+        .argv = racketArgv(&argv_buf, script_argv),
+        .environ_map = environ_map,
+        .stdin = stdio.stdin,
+        .stdout = stdio.stdout,
+        .stderr = stdio.stderr,
+    });
 }
 
 /// True once the peer's session has completed the handshake, the `runUntil`
@@ -95,6 +125,40 @@ pub fn openKeyedSessionWith(
         .hints = model.Hints.emptyFalse(),
     }, secret);
     _ = try conn.runUntil(isOpen, wait_ms);
+}
+
+/// Serve a glowcap host's one recipient session until `done` is set, the loop
+/// behind the gift drivers' serving threads. It accepts the recipient's dial
+/// when it comes, and turns that session and `partner` (the host's session to
+/// the live Goblins vat, which carries the recipient's withdraw) so both
+/// progress. A session that closes or aborts ends its own turn and not the
+/// serve: the recipient exits the moment it has its verdict. Any other error
+/// ends the serve and is the caller's to settle. `hooks.accepted(session)`
+/// runs once on the recipient's session when `hooks` declares it, and a driver
+/// with nothing to observe passes `{}`.
+pub fn serveRecipient(
+    server: *driver.Server,
+    partner: *driver.Session,
+    done: *const std.atomic.Value(bool),
+    hooks: anytype,
+) !void {
+    var recipient: ?*driver.Session = null;
+    defer if (recipient) |session| session.deinit();
+    while (!done.load(.acquire)) {
+        if (recipient == null and try server.waitAcceptable(20)) {
+            recipient = try server.accept();
+            if (@TypeOf(hooks) != void) hooks.accepted(recipient.?);
+        }
+        try stepTolerant(partner);
+        if (recipient) |session| try stepTolerant(session);
+    }
+}
+
+fn stepTolerant(session: *driver.Session) !void {
+    _ = session.stepReadable(10) catch |err| switch (err) {
+        error.ConnectionClosed, error.ProtocolAbort => {},
+        else => |e| return e,
+    };
 }
 
 /// Bootstrap-fetch a cap by its swiss-num over the live connection, pumping
@@ -311,14 +375,7 @@ pub fn spawnHostAwaitReadiness(
     argv_tail: []const []const u8,
     stdin: std.process.SpawnOptions.StdIo,
 ) !SpawnedHostReadiness {
-    var argv_buf: [10][]const u8 = undefined;
-    var child = try std.process.spawn(io, .{
-        .argv = racketArgv(&argv_buf, argv_tail),
-        .environ_map = environ_map,
-        .stdin = stdin,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    var child = try spawnScript(io, environ_map, argv_tail, .{ .stdin = stdin });
     const block = readReadinessBlock(io, allocator, &child, needle) catch |err| {
         std.debug.print("{s}: never saw the {s} readiness line: {s}\n", .{ prefix, ready_what, @errorName(err) });
         dumpChildStderr(io, prefix, &child);
@@ -342,6 +399,57 @@ pub fn drainChildStdout(io: std.Io, child: *std.process.Child, scratch: []u8) us
         seen += n;
     }
     return seen;
+}
+
+/// Wall-clock cap on one live phase against a Goblins vat: a scenario's wait
+/// for its Goblins child, a driver's wait for its serving thread, its pump
+/// loop, or a recipient child's verdict. Finite is the contract (an unbounded
+/// wait is a hang, not a slow test), 60s rather than 20s because these
+/// scenarios run inside `check-external` beside other Racket and uv steps, and
+/// a child starved of CPU by that concurrency was timing out the
+/// projection-asker scenario in the aggregate while passing standalone.
+pub const deadline_ms: u64 = 60_000;
+
+/// What a driver's judge makes of one line of the child's stdout.
+pub const LineVerdict = enum {
+    /// The line settles nothing, so the scan reads on.
+    more,
+    /// The line is the success the driver waits for, so the scan ends.
+    confirmed,
+};
+
+/// Follow a recipient child's stdout line by line under `budget_ms`, printing
+/// each line under `prefix`, until `judge(ctx, line)` answers `.confirmed`.
+/// The Racket gift recipients end a failed run with a `GIFT ERR` or
+/// `GIFT TIMEOUT` line, which this scan owns: it answers false for either, for
+/// the child closing its stdout, and for the budget expiring, and the driver
+/// names that failure. A line the judge refuses on its own terms (the wrong
+/// object, a missing hint) is the judge's own error and propagates unchanged.
+/// A judge that must act mid-run, such as telling a sibling child when to
+/// settle, does so from `.more` through its `ctx`.
+pub fn followChildVerdict(
+    io: std.Io,
+    child: *std.process.Child,
+    prefix: []const u8,
+    budget_ms: u64,
+    ctx: anytype,
+    comptime judge: anytype,
+) !bool {
+    const out = child.stdout orelse return error.NoChildStdout;
+    var rbuf: [8192]u8 = undefined;
+    var reader = out.readerStreaming(io, &rbuf);
+    const deadline = harness.deadlineAfter(io, budget_ms);
+    while (!harness.expired(io, deadline)) {
+        const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return false,
+            else => return err,
+        };
+        std.debug.print("{s}: {s}", .{ prefix, line });
+        if (try judge(ctx, line) == .confirmed) return true;
+        if (std.mem.indexOf(u8, line, "GIFT ERR") != null or
+            std.mem.indexOf(u8, line, "GIFT TIMEOUT") != null) return false;
+    }
+    return false;
 }
 
 /// Wait for a line on the child's stdout carrying `needle`, and answer it

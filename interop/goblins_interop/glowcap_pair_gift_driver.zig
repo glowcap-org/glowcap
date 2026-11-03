@@ -47,7 +47,6 @@ const exporter_peer = @import("glowcap_pair_exporter.zig");
 const greeter_swiss = exporter_peer.greeter_swiss;
 const exporter_exe_path = "zig-out/bin/glowcap-pair-exporter";
 const introducer_swiss = "introducer";
-const deadline_ms: u64 = 60_000;
 
 /// The profile both glowcap hosts ask for. Neither gets it on every session,
 /// and that mismatch is what the run is about.
@@ -97,6 +96,16 @@ const Introducer = struct {
     }
 };
 
+/// Carol's session to the gifter is half the run's evidence, so the serve notes
+/// its profile the moment it is accepted.
+const AcceptedHook = struct {
+    log: *ProfileLog,
+
+    pub fn accepted(self: AcceptedHook, session: *driver.Session) void {
+        self.log.noteSession("gifter", session);
+    }
+};
+
 /// Dial the exporter, fetch its greeter, publish the introducer that hands it
 /// out, then serve Carol until the run ends. Owns `log` until joined.
 fn serveGifter(
@@ -122,27 +131,12 @@ fn serveGifter(
     published.store(true, .release);
     settled.store(true, .release);
 
-    var carol: ?*driver.Session = null;
-    defer if (carol) |session| session.deinit();
-    while (!done.load(.acquire)) {
-        if (carol == null and try gifter.waitAcceptable(20)) {
-            carol = try gifter.accept();
-            log.noteSession("gifter", carol.?);
-        }
-        _ = exporter.stepReadable(10) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => {},
-            else => |e| return e,
-        };
-        if (carol) |session| _ = session.stepReadable(10) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => {},
-            else => |e| return e,
-        };
-    }
+    try goblins_child.serveRecipient(gifter, exporter, done, AcceptedHook{ .log = log });
 }
 
 /// The exporter child's bound address, from its announce line.
 fn readExporterAddress(io: std.Io, reader: anytype, out: *[128]u8) ![]const u8 {
-    const deadline = harness.deadlineAfter(io, deadline_ms);
+    const deadline = harness.deadlineAfter(io, goblins_child.deadline_ms);
     while (!harness.expired(io, deadline)) {
         const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => return error.ExporterNeverListened,
@@ -161,7 +155,7 @@ fn readExporterAddress(io: std.Io, reader: anytype, out: *[128]u8) ![]const u8 {
 
 /// The profiles the exporter child reports, one line per session it opened.
 fn readExporterProfiles(io: std.Io, reader: anytype, log: *ProfileLog) !void {
-    const deadline = harness.deadlineAfter(io, deadline_ms);
+    const deadline = harness.deadlineAfter(io, goblins_child.deadline_ms);
     while (log.glowcap_sessions + log.baseline_sessions + log.other_sessions < 2) {
         if (harness.expired(io, deadline)) return error.ExporterProfilesMissing;
         const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
@@ -177,24 +171,13 @@ fn readExporterProfiles(io: std.Io, reader: anytype, log: *ProfileLog) !void {
 }
 
 fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
-    const out = child.stdout orelse return error.NoChildStdout;
-    var rbuf: [8192]u8 = undefined;
-    var reader = out.readerStreaming(io, &rbuf);
-    const deadline = harness.deadlineAfter(io, deadline_ms);
-    while (!harness.expired(io, deadline)) {
-        const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => return err,
-        };
-        std.debug.print("goblins-glowcap-pair-gift: {s}", .{line});
-        if (std.mem.indexOf(u8, line, "GIFT OK:") != null and std.mem.indexOf(u8, line, "goblins-carol") != null) {
-            return;
-        }
-        if (std.mem.indexOf(u8, line, "GIFT ERR:") != null or std.mem.indexOf(u8, line, "GIFT TIMEOUT") != null) {
-            return error.GiftFailed;
-        }
-    }
-    return error.GiftFailed;
+    const confirmed = try goblins_child.followChildVerdict(io, child, "goblins-glowcap-pair-gift", goblins_child.deadline_ms, {}, judgeCarolLine);
+    if (!confirmed) return error.GiftFailed;
+}
+
+fn judgeCarolLine(_: void, line: []const u8) !goblins_child.LineVerdict {
+    const redeemed = std.mem.indexOf(u8, line, "GIFT OK:") != null and std.mem.indexOf(u8, line, "goblins-carol") != null;
+    return if (redeemed) .confirmed else .more;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -260,7 +243,7 @@ fn run(
         serving.await(io) catch {};
     };
 
-    harness.untilFlag(io, deadline_ms, &settled) catch |err| {
+    harness.untilFlag(io, goblins_child.deadline_ms, &settled) catch |err| {
         goblins_child.dumpChildStderr(io, "goblins-glowcap-pair-gift exporter", &exporter);
         return err;
     };
@@ -276,18 +259,12 @@ fn run(
         "goblins-glowcap-pair-gift: glowcap gifter publishing introducer swiss={s} on {s}\n",
         .{ introducer_swiss, gifter_bound },
     );
-    var carol_argv: [8][]const u8 = undefined;
-    var carol = try std.process.spawn(io, .{
-        .argv = goblins_child.racketArgv(&carol_argv, &.{
-            recipient_script,
-            gifter_bound,
-            introducer_swiss,
-            carol_port_str,
-        }),
-        .environ_map = environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    var carol = try goblins_child.spawnScript(io, environ_map, &.{
+        recipient_script,
+        gifter_bound,
+        introducer_swiss,
+        carol_port_str,
+    }, .{});
     var carol_reaped = false;
     defer if (!carol_reaped) carol.kill(io);
 
