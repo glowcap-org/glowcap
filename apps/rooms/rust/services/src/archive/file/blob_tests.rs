@@ -1,4 +1,4 @@
-use super::{tests::Temp, *};
+use super::{tests::file, *};
 use rooms_application::{
 	archive::{
 		Access, Attachment, Body, ConversationKind, Coordinates, Facet, LineState,
@@ -6,6 +6,7 @@ use rooms_application::{
 	},
 	files::{CHUNK_BYTES, FileDescription},
 };
+use rooms_testing::scratch::Scratch;
 use std::{cell::RefCell, fs, time::Duration};
 pub(super) struct Bytes {
 	description: FileDescription,
@@ -80,8 +81,8 @@ async fn latest(archive: &mut FileArchive) -> Arc<Record> {
 }
 #[tokio::test]
 async fn blobs_stream_restart_and_check_content_without_materializing_files() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let sources = [
 		Bytes::new((0..CHUNK_BYTES + 7).map(|n| (n % 251) as u8).collect()),
 		Bytes::new(vec![]),
@@ -110,15 +111,15 @@ async fn blobs_stream_restart_and_check_content_without_materializing_files() {
 	assert_eq!(archive.blob_usage().await.unwrap().retained_bytes, CHUNK_BYTES + 7);
 	let digest = policy::files(&record).unwrap()[0].blob().unwrap().to_string();
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let found = archive.reader_for_digest(facet(), digest.clone()).await.unwrap();
 	assert_eq!(
 		archive.read_blob(found, CHUNK_BYTES as u64, 7).await.unwrap(),
 		sources[0].bytes[CHUNK_BYTES..]
 	);
 	drop(archive);
-	fs::write(temp.0.join("blobs").join(&digest), vec![0; CHUNK_BYTES + 7]).unwrap();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	fs::write(temp.join("blobs").join(&digest), vec![0; CHUNK_BYTES + 7]).unwrap();
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	// Bytes that no longer match their digest are the archive failing, not the status-allow: lifecycle transition
 	// read being wrong, so no amount of re-asking changes the answer.
 	let corrupted = archive.read_blob(reader, 0, 1).await.unwrap_err();
@@ -130,12 +131,12 @@ async fn blobs_stream_restart_and_check_content_without_materializing_files() {
 }
 #[tokio::test]
 async fn reference_accounting_deduplicates_and_reclaims_only_after_commit() {
-	let temp = Temp::new();
+	let temp = Scratch::create("archive-rust");
 	let options = Options {
 		max_blob_bytes: 7,
 		..Default::default()
 	};
-	let mut archive = FileArchive::open(&temp.0, options).await.unwrap();
+	let mut archive = FileArchive::open(&temp, options).await.unwrap();
 	let sources = [Bytes::new(b"content".to_vec()), Bytes::new(b"content".to_vec())];
 	archive.put_with_files(line("one", &sources), &sources).await.unwrap();
 	let old = latest(&mut archive).await;
@@ -151,20 +152,20 @@ async fn reference_accounting_deduplicates_and_reclaims_only_after_commit() {
 	let now = latest(&mut archive).await;
 	let reader = Reader::attachment(&facet(), &now, 0).unwrap();
 	assert_eq!(archive.read_blob(reader, 0, 7).await.unwrap(), b"changed");
-	assert_eq!(fs::read_dir(temp.0.join("blobs")).unwrap().count(), 1);
+	assert_eq!(fs::read_dir(temp.join("blobs")).unwrap().count(), 1);
 	let empty: [Bytes; 0] = [];
 	archive.put(line("one", &empty)).await.unwrap();
 	assert_eq!(archive.blob_usage().await.unwrap(), BlobUsage::default());
 	drop(archive);
-	fs::write(temp.0.join("blobs").join("orphan"), b"lost").unwrap();
-	let mut archive = FileArchive::open(&temp.0, options).await.unwrap();
+	fs::write(temp.join("blobs").join("orphan"), b"lost").unwrap();
+	let mut archive = FileArchive::open(&temp, options).await.unwrap();
 	assert_eq!(archive.blob_usage().await.unwrap(), BlobUsage::default());
-	assert_eq!(fs::read_dir(temp.0.join("blobs")).unwrap().count(), 0);
+	assert_eq!(fs::read_dir(temp.join("blobs")).unwrap().count(), 0);
 }
 #[tokio::test]
 async fn cancelled_source_and_unchanged_journal_failure_cleanup_staging() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let mut source = Bytes::new(vec![1; CHUNK_BYTES + 1]);
 	source.stall = true;
 	let sources = [source];
@@ -179,14 +180,14 @@ async fn cancelled_source_and_unchanged_journal_failure_cleanup_staging() {
 	assert!(archive.finish_pending().await.is_err());
 	assert_eq!(archive.read(&Filter::default(), 0, 128).await.unwrap().next, 0);
 	assert_eq!(archive.blob_usage().await.unwrap(), BlobUsage::default());
-	let backup = temp.0.join("journal-backup");
-	fs::rename(temp.file(), &backup).unwrap();
-	fs::create_dir(temp.file()).unwrap();
+	let backup = temp.join("journal-backup");
+	fs::rename(file(&temp), &backup).unwrap();
+	fs::create_dir(file(&temp)).unwrap();
 	let sources = [Bytes::new(b"content".to_vec())];
 	assert!(archive.put_with_files(line("one", &sources), &sources).await.is_err());
 	assert_eq!(archive.blob_usage().await.unwrap(), BlobUsage::default());
-	fs::remove_dir(temp.file()).unwrap();
-	fs::rename(backup, temp.file()).unwrap();
+	fs::remove_dir(file(&temp)).unwrap();
+	fs::rename(backup, file(&temp)).unwrap();
 	assert_eq!(
 		archive.put_with_files(line("one", &sources), &sources).await.unwrap(),
 		1
@@ -195,8 +196,8 @@ async fn cancelled_source_and_unchanged_journal_failure_cleanup_staging() {
 
 #[tokio::test]
 async fn uncertain_journal_keeps_staged_bytes_for_recovery() {
-	let temp = Temp::new();
-	let path = temp.0.clone();
+	let temp = Scratch::create("archive-rust");
+	let path = temp.to_path_buf();
 	tokio::task::spawn_blocking(move || {
 		let mut store = Store::open(path, Options::default()).unwrap();
 		let sources = [Bytes::new(b"content".to_vec())];
@@ -224,7 +225,7 @@ async fn uncertain_journal_keeps_staged_bytes_for_recovery() {
 	})
 	.await
 	.unwrap();
-	let mut restored = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut restored = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let record = latest(&mut restored).await;
 	let reader = Reader::attachment(&facet(), &record, 0).unwrap();
 	assert_eq!(restored.read_blob(reader, 0, 7).await.unwrap(), b"content");
@@ -241,8 +242,8 @@ async fn disk_refusal_ends_a_source_that_never_answers() {
 			std::future::pending().await
 		}
 	}
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	archive.store.lock().unwrap().ready = false;
 	let bytes = [Bytes::new(vec![1])];
 	let sources = [Stalled(bytes[0].description.clone())];
@@ -258,12 +259,12 @@ async fn disk_refusal_ends_a_source_that_never_answers() {
 
 #[tokio::test]
 async fn metadata_never_invents_bytes_and_record_eviction_reclaims_attachments() {
-	let temp = Temp::new();
+	let temp = Scratch::create("archive-rust");
 	let options = Options {
 		capacity: 1,
 		..Default::default()
 	};
-	let mut archive = FileArchive::open(&temp.0, options).await.unwrap();
+	let mut archive = FileArchive::open(&temp, options).await.unwrap();
 	let sources = [Bytes::new(b"content".to_vec())];
 	archive.put(line("metadata", &sources)).await.unwrap();
 	let record = latest(&mut archive).await;
@@ -271,7 +272,7 @@ async fn metadata_never_invents_bytes_and_record_eviction_reclaims_attachments()
 	assert!(Reader::attachment(&facet(), &record, 0).is_err());
 	assert_eq!(archive.blob_usage().await.unwrap(), BlobUsage::default());
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, options).await.unwrap();
+	let mut archive = FileArchive::open(&temp, options).await.unwrap();
 	assert!(Reader::attachment(&facet(), latest(&mut archive).await.as_ref(), 0).is_err());
 	archive.put_with_files(line("first", &sources), &sources).await.unwrap();
 	let old = Reader::attachment(&facet(), latest(&mut archive).await.as_ref(), 0).unwrap();
@@ -282,9 +283,9 @@ async fn metadata_never_invents_bytes_and_record_eviction_reclaims_attachments()
 		.unwrap();
 	assert!(archive.read_blob(old, 0, 7).await.is_err());
 	assert_eq!(archive.blob_usage().await.unwrap().retained_bytes, 4);
-	assert_eq!(fs::read_dir(temp.0.join("blobs")).unwrap().count(), 1);
+	assert_eq!(fs::read_dir(temp.join("blobs")).unwrap().count(), 1);
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, options).await.unwrap();
+	let mut archive = FileArchive::open(&temp, options).await.unwrap();
 	let current = Reader::attachment(&facet(), latest(&mut archive).await.as_ref(), 0).unwrap();
 	assert_eq!(archive.read_blob(current, 0, 4).await.unwrap(), b"next");
 	assert_eq!(archive.read(&Filter::default(), 0, 128).await.unwrap().next, 3);

@@ -38,13 +38,7 @@ async fn subscribe(
 }
 #[tokio::test]
 async fn memberships_own_callbacks_arrival_and_goodbye_on_a_shared_connection() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(std::time::Duration::from_secs(10), membership_scenario())
-				.await
-				.expect("membership scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(std::time::Duration::from_secs(10), membership_scenario()).await;
 }
 async fn membership_scenario() {
 	let host = Host::from_seed([83; 32]).unwrap();

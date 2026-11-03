@@ -10,11 +10,7 @@ use std::{cell::RefCell, rc::Rc, time::Duration};
 
 #[tokio::test]
 async fn direct_sibling_calls_and_deferred_effects_observe_the_receiver() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario()).await.unwrap();
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let server = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();

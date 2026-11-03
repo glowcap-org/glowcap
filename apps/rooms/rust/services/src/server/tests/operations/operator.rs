@@ -3,16 +3,11 @@
 //! manager issue, exact room removal, disconnection, resets, and the watch
 //! that hears every change.
 use super::*;
+use rooms_testing::scratch::Scratch;
 
 #[tokio::test]
 async fn rooms_server_operator_reads_inventories_and_acts_on_exact_rows() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(60), operator())
-				.await
-				.expect("operator scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(60), operator()).await;
 }
 
 async fn operator() {
@@ -22,9 +17,9 @@ async fn operator() {
 		room::{Room, SubscribeOptions},
 	};
 	use std::{cell::RefCell, rc::Rc};
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	let running = start_with(
-		temp.0.clone(),
+		temp.to_path_buf(),
 		tcp(),
 		Asked {
 			operator: true,

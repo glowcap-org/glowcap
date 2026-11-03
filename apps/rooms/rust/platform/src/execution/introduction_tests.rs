@@ -50,13 +50,7 @@ fn notice(id: &str) -> [Argument; 4] {
 }
 #[tokio::test]
 async fn introduction_waits_match_registration_and_remain_bounded() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), waiting())
-				.await
-				.expect("introduction deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), waiting()).await;
 }
 async fn waiting() {
 	let server = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();
@@ -243,13 +237,7 @@ async fn waiting() {
 
 #[tokio::test]
 async fn introductions_keep_the_actual_exporter_and_reciprocal_inbox_route() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(15), handoff())
-				.await
-				.expect("three-party introduction deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(15), handoff()).await;
 }
 async fn handoff() {
 	let exporter = Rc::new(tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap());

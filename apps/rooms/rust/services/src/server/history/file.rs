@@ -215,26 +215,7 @@ impl Backend {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::sync::atomic::{AtomicU64, Ordering};
-
-	static NEXT: AtomicU64 = AtomicU64::new(0);
-	struct Temp(PathBuf);
-	impl Temp {
-		fn new() -> Self {
-			let path = std::env::temp_dir().join(format!(
-				"rooms-history-{}-{}",
-				std::process::id(),
-				NEXT.fetch_add(1, Ordering::Relaxed)
-			));
-			fs::create_dir_all(&path).unwrap();
-			Self(path)
-		}
-	}
-	impl Drop for Temp {
-		fn drop(&mut self) {
-			let _ = fs::remove_dir_all(&self.0); // tolerant: a leftover temp dir is not a failure
-		}
-	}
+	use rooms_testing::scratch::Scratch;
 
 	fn kept(text: &str) -> KeptLine {
 		let row = format!(
@@ -246,21 +227,21 @@ mod tests {
 
 	#[test]
 	fn a_crashed_compaction_is_swept_and_the_room_still_restores() {
-		let temp = Temp::new();
-		let room = temp.0.join(file_name("general"));
+		let temp = Scratch::create("history");
+		let room = temp.join(file_name("general"));
 		fs::write(&room, format!("{}\n", encode_line(&kept("kept")))).unwrap();
-		let debris = temp.0.join(".general.jsonl.tmp-1-1");
+		let debris = temp.join(".general.jsonl.tmp-1-1");
 		fs::write(&debris, b"half a compaction").unwrap();
-		let (_backend, index) = restore_blocking(temp.0.clone()).expect("restores past the debris");
+		let (_backend, index) = restore_blocking(temp.to_path_buf()).expect("restores past the debris");
 		assert!(!debris.exists(), "the staging file is gone");
 		assert_eq!(index.read("general", 10).count(), 1);
 	}
 
 	#[test]
 	fn a_second_server_on_the_same_history_directory_is_refused() {
-		let temp = Temp::new();
-		let (_held, _index) = restore_blocking(temp.0.clone()).unwrap();
-		let refused = restore_blocking(temp.0.clone()).err().expect("the lease is held");
+		let temp = Scratch::create("history");
+		let (_held, _index) = restore_blocking(temp.to_path_buf()).unwrap();
+		let refused = restore_blocking(temp.to_path_buf()).err().expect("the lease is held");
 		assert!(
 			refused.to_string().contains("already held by another server"),
 			"names the holder: {refused}"
@@ -269,11 +250,11 @@ mod tests {
 
 	#[test]
 	fn a_new_room_file_is_created_and_appended_to() {
-		let temp = Temp::new();
-		let (mut backend, _index) = restore_blocking(temp.0.clone()).unwrap();
+		let temp = Scratch::create("history");
+		let (mut backend, _index) = restore_blocking(temp.to_path_buf()).unwrap();
 		backend.append("general", &kept("first"), None).unwrap();
 		backend.append("general", &kept("second"), None).unwrap();
-		let text = fs::read_to_string(temp.0.join(file_name("general"))).unwrap();
+		let text = fs::read_to_string(temp.join(file_name("general"))).unwrap();
 		assert_eq!(text.lines().count(), 2);
 		assert_eq!(backend.grown["general"], 2);
 	}

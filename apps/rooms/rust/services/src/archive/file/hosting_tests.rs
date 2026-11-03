@@ -1,24 +1,19 @@
-use super::tests::{Temp, record};
+use super::tests::{file, record};
 use super::*;
 use crate::archive::Archive;
 use glowcap::{Argument, PendingWork};
 use rooms_application::archive::{Access, Facet};
 use rooms_glowcap::{archive as wire, client::archive::Archive as ClientArchive};
 use rooms_platform::loopback::{Loopback, keyed_loopback};
+use rooms_testing::scratch::Scratch;
 use std::time::Duration;
 #[tokio::test]
 async fn hosted_journal_acknowledges_disk_and_keeps_the_executor_available() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(15), scenario())
-				.await
-				.expect("hosted disk deadline")
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(15), scenario()).await;
 }
 async fn scenario() {
-	let temp = Temp::new();
-	let backend = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let backend = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let stored = backend.store.clone();
 	let clear_store = stored.clone();
 	let (locked, ready) = std::sync::mpsc::channel();
@@ -73,7 +68,7 @@ async fn scenario() {
 	release.send(()).unwrap();
 	disk.join().unwrap();
 	assert!(matches!(pending.await.unwrap(), Argument::Integer(1)));
-	let on_disk = disk::recover(&std::fs::read(temp.file()).unwrap(), 5000, 512, disk::MAX_FILE_BYTES).unwrap();
+	let on_disk = disk::recover(&std::fs::read(file(&temp)).unwrap(), 5000, 512, disk::MAX_FILE_BYTES).unwrap();
 	assert_eq!(on_disk.index.revision(), 1);
 	assert_eq!(archive.read_all(&Filter::default()).await.unwrap().len(), 1);
 	let final_revision = super::hosted_blob_tests::run(&archive, &client).await;
@@ -122,7 +117,7 @@ async fn scenario() {
 	server.close().await.unwrap();
 	host.close(PendingWork::Cancel).await.unwrap();
 	serving.await.unwrap().unwrap();
-	let mut restored = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut restored = FileArchive::open(&temp, Options::default()).await.unwrap();
 	assert!(
 		restored
 			.read(&Filter::default(), 0, 128)

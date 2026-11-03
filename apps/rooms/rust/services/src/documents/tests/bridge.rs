@@ -2,6 +2,7 @@
 use super::*;
 use rooms_application::bridge::Answers;
 use rooms_runtime::session::bridge_secrets::BridgeSecrets;
+use rooms_testing::scratch::Scratch;
 
 #[tokio::test]
 async fn bridge_credentials_recover_and_forget_across_processes() {
@@ -77,11 +78,11 @@ async fn bridge_credentials_recover_and_forget_across_processes() {
 		}
 		return;
 	}
-	let temp = Temp::new();
+	let temp = Scratch::create("documents-test");
 	for phase in ["stage", "recover", "forgotten"] {
 		let mut child = std::process::Command::new(std::env::current_exe().unwrap())
 			.args(["bridge_credentials_recover_and_forget_across_processes", "--nocapture"])
-			.env("GLOWCAP_BRIDGE_CREDENTIAL_PROOF_PATH", temp.state())
+			.env("GLOWCAP_BRIDGE_CREDENTIAL_PROOF_PATH", temp.join("state"))
 			.env("GLOWCAP_BRIDGE_CREDENTIAL_PROOF_PHASE", phase)
 			.spawn()
 			.unwrap();

@@ -46,13 +46,7 @@ fn event() -> [Argument; 4] {
 }
 #[tokio::test]
 async fn registration_binds_identity_to_custody_and_retains_cancelled_observation() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("registration scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let fixture: Value =

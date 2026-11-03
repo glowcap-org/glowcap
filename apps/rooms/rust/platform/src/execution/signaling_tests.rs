@@ -30,13 +30,7 @@ impl Tasks for Platform {
 }
 #[tokio::test]
 async fn signaling_owns_both_milestones_and_bounds_callback_lifetimes() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("signaling scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let server = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();

@@ -11,13 +11,7 @@ use std::{cell::RefCell, rc::Rc};
 
 #[tokio::test]
 async fn channels_share_one_feed_and_retire_without_ending_their_sibling() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("host IRC feed deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

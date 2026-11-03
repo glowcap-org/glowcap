@@ -168,8 +168,7 @@ impl Web {
 #[tokio::test(flavor = "current_thread")]
 async fn web_shared_session_announces_independent_links_and_releases_custody() {
 	tokio::time::timeout(Duration::from_secs(20), async {
-		let state = std::env::temp_dir().join(format!("rooms-web-session-{}", std::process::id()));
-		std::fs::create_dir(&state).unwrap();
+		let state = rooms_testing::scratch::Scratch::create("web-session");
 		let mut previous = None;
 		for _ in 0..2 {
 			let mut command = Web::endpoint_command(0);
@@ -198,7 +197,6 @@ async fn web_shared_session_announces_independent_links_and_releases_custody() {
 			assert!(!state.join("workspace.sturdyref").exists());
 			assert!(!state.join("control.sturdyref").exists());
 		}
-		std::fs::remove_dir_all(state).unwrap();
 	})
 	.await
 	.expect("shared session lifecycle deadline");

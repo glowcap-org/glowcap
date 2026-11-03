@@ -1,7 +1,8 @@
 [workspace]
-members = ["application", "glowcap", "runtime", "platform", "services", "product", "browser", "proofs"]
+members = ["application", "glowcap", "runtime", "platform", "services", "product", "browser", "proofs", "testing"]
 # Process tests need prepared executables/assets and run through their own
 # build gates. Plain workspace tests retain the portable application surface.
+# The testing crate is a dev-dependency of the crates that test with it.
 default-members = ["application", "glowcap", "runtime", "platform", "services", "browser", "proofs"]
 resolver = "3"
 

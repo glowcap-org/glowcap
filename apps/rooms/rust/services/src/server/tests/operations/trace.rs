@@ -4,28 +4,17 @@
 //! records, the room's own trace, a producer leaving, and a quiet viewer
 //! hearing a long timeline to its end.
 use super::*;
+use rooms_testing::scratch::Scratch;
 use std::sync::{Arc, Mutex};
 
 #[tokio::test]
 async fn rooms_server_serves_the_live_timeline_to_admitted_sockets_only() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(60), trace())
-				.await
-				.expect("trace scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(60), trace()).await;
 }
 
 #[tokio::test]
 async fn rooms_server_delivers_a_long_timeline_to_a_quiet_viewer() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(60), long_timeline())
-				.await
-				.expect("long timeline scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(60), long_timeline()).await;
 }
 
 /// A running endpoint: the server, its capability swiss, the announced
@@ -37,9 +26,9 @@ struct Endpoint {
 	port: u16,
 }
 
-async fn endpoint(temp: &Temp) -> Endpoint {
+async fn endpoint(temp: &Scratch) -> Endpoint {
 	let running = start_with(
-		temp.0.clone(),
+		temp.to_path_buf(),
 		tcp(),
 		Asked {
 			trace: true,
@@ -91,8 +80,7 @@ impl Viewer {
 				.enable_all()
 				.build()
 				.unwrap();
-			let local = tokio::task::LocalSet::new();
-			local.block_on(&runtime, async move {
+			runtime.block_on(rooms_testing::local_set::run(async move {
 				let opened = async {
 					let (ws, _) = connect_async(&url).await.map_err(|e| e.to_string())?;
 					let host = glowcap::Host::from_seed([7u8; 32]).map_err(|e| e.to_string())?;
@@ -140,7 +128,7 @@ impl Viewer {
 				}
 				let _ = session.close(PendingWork::Cancel).await;
 				let _ = host.close(PendingWork::Cancel).await;
-			});
+			}));
 		});
 		tokio::time::timeout(Duration::from_secs(20), async {
 			loop {
@@ -200,10 +188,10 @@ fn opened_line(id: usize) -> String {
 async fn trace() {
 	use futures_util::{SinkExt, StreamExt};
 	use tokio_tungstenite::{connect_async, tungstenite::Message};
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	let endpoint = endpoint(&temp).await;
 	let (port, swiss) = (endpoint.port, endpoint.swiss.clone());
-	assert_eq!(std::fs::read_to_string(temp.0.join("trace")).unwrap().trim(), swiss);
+	assert_eq!(std::fs::read_to_string(temp.join("trace")).unwrap().trim(), swiss);
 
 	// A plain request is told where the doors are.
 	{
@@ -322,7 +310,7 @@ async fn trace() {
 async fn long_timeline() {
 	use futures_util::{SinkExt, StreamExt};
 	use tokio_tungstenite::{connect_async, tungstenite::Message};
-	let temp = Temp::new();
+	let temp = Scratch::create("server");
 	let endpoint = endpoint(&temp).await;
 	let viewer = Viewer::subscribe(&endpoint.sturdyref).await;
 	viewer.heard("trace.replay-end", Duration::from_secs(5)).await;

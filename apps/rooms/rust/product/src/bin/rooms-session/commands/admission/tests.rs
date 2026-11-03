@@ -8,12 +8,11 @@ use tokio::{
 #[tokio::test]
 async fn admission_refusal_releases_local_observation_but_uncertainty_keeps_it() {
 	for uncertain in [false, true] {
-		let state = std::env::temp_dir().join(format!("rooms-refused-{}", operation().unwrap()));
-		tokio::fs::create_dir(&state).await.unwrap();
+		let state = rooms_testing::scratch::Scratch::create("refused");
 		let listener = UnixListener::bind(state.join("control.sock")).unwrap();
 		let options = Options {
 			verb: "reply".into(),
-			state: state.clone(),
+			state: state.to_path_buf(),
 			named: Default::default(),
 			arguments: Vec::new(),
 		};
@@ -64,19 +63,17 @@ async fn admission_refusal_releases_local_observation_but_uncertainty_keeps_it()
 			.await
 			.unwrap()
 			.unwrap();
-		tokio::fs::remove_dir_all(state).await.unwrap();
 	}
 }
 
 #[tokio::test]
 async fn unsent_command_preserves_refusal_and_retains_uncertain_observation() {
 	for uncertain in [false, true] {
-		let state = std::env::temp_dir().join(format!("rooms-unsent-{}", operation().unwrap()));
-		tokio::fs::create_dir(&state).await.unwrap();
+		let state = rooms_testing::scratch::Scratch::create("unsent");
 		let listener = UnixListener::bind(state.join("control.sock")).unwrap();
 		let options = Options {
 			verb: "reply".into(),
-			state: state.clone(),
+			state: state.to_path_buf(),
 			named: Default::default(),
 			arguments: Vec::new(),
 		};
@@ -131,7 +128,6 @@ async fn unsent_command_preserves_refusal_and_retains_uncertain_observation() {
 			.await
 			.unwrap()
 			.unwrap();
-		tokio::fs::remove_dir_all(state).await.unwrap();
 	}
 }
 
@@ -154,16 +150,11 @@ fn direct_contact_retry_fences_registration_and_allows_standing_updates() {
 async fn automatic_conflict_reprepares_only_unchanged_selection() {
 	for change in ["none", "unrelated", "replacement", "membership", "source", "removed"] {
 		let changed = !matches!(change, "none" | "unrelated");
-		let state = std::env::temp_dir().join(format!(
-			"rooms-admission-{}-{}",
-			std::process::id(),
-			operation().unwrap()
-		));
-		tokio::fs::create_dir(&state).await.unwrap();
+		let state = rooms_testing::scratch::Scratch::create("admission");
 		let listener = UnixListener::bind(state.join("control.sock")).unwrap();
 		let options = Options {
 			verb: "reply".into(),
-			state: state.clone(),
+			state: state.to_path_buf(),
 			named: Default::default(),
 			arguments: Vec::new(),
 		};
@@ -250,6 +241,5 @@ async fn automatic_conflict_reprepares_only_unchanged_selection() {
 			assert_eq!(requests[1]["args"], requests[4]["args"]);
 			assert_eq!(requests[4]["id"], requests[5]["id"]);
 		}
-		tokio::fs::remove_dir_all(state).await.unwrap();
 	}
 }

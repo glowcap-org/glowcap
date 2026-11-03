@@ -30,22 +30,14 @@ fn limits(capacity: usize) -> Limits {
 }
 struct Database {
 	#[cfg(not(target_arch = "wasm32"))]
-	path: std::path::PathBuf,
+	path: rooms_testing::scratch::Scratch,
 	#[cfg(not(target_arch = "wasm32"))]
 	disk: crate::disk::Disk,
 }
 impl Database {
 	#[cfg(not(target_arch = "wasm32"))]
 	fn new(disk: crate::disk::Disk) -> Self {
-		let nonce = std::time::SystemTime::now()
-			.duration_since(std::time::UNIX_EPOCH)
-			.unwrap()
-			.as_nanos();
-		let path = std::env::temp_dir().join(format!(
-			"rooms-session-foreign-{disk:?}-{}-{nonce:x}",
-			std::process::id()
-		));
-		std::fs::create_dir(&path).unwrap();
+		let path = rooms_testing::scratch::Scratch::create(&format!("session-foreign-{disk:?}"));
 		Self { path, disk }
 	}
 	#[cfg(target_arch = "wasm32")]
@@ -58,7 +50,7 @@ impl Database {
 			let mode = if create { OpenMode::Create } else { OpenMode::Open };
 			self.disk
 				.open(
-					self.path.clone(),
+					self.path.to_path_buf(),
 					[92; 16],
 					mode,
 					&session_storage::schemas(),
@@ -80,8 +72,9 @@ impl Database {
 		}
 	}
 	fn remove(self) {
+		// Dropping removes the directory on the hosts that have one.
 		#[cfg(not(target_arch = "wasm32"))]
-		std::fs::remove_dir_all(self.path).unwrap();
+		drop(self);
 	}
 }
 async fn close(store: &mut Store) {
@@ -259,45 +252,37 @@ async fn run(database: Database, phases: &[usize], inspect_baseline: bool) {
 #[tokio::test]
 async fn maximum_session_foreign_admission_preserves_every_exact_identity_on_sqlite() {
 	let database = Database::new(crate::disk::Disk::Sqlite);
-	tokio::task::LocalSet::new().run_until(run(database, &[0], true)).await;
+	rooms_testing::local_set::run(run(database, &[0], true)).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
 async fn maximum_session_foreign_admission_preserves_every_exact_identity_on_lmdb() {
 	let database = Database::new(crate::disk::Disk::Lmdb);
-	tokio::task::LocalSet::new().run_until(run(database, &[0], true)).await;
+	rooms_testing::local_set::run(run(database, &[0], true)).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
 async fn maximum_session_foreign_capacity_refusal_preserves_the_cold_graph_on_sqlite() {
 	let database = Database::new(crate::disk::Disk::Sqlite);
-	tokio::task::LocalSet::new()
-		.run_until(run(database, &[0, 1], false))
-		.await;
+	rooms_testing::local_set::run(run(database, &[0, 1], false)).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
 async fn maximum_session_foreign_capacity_refusal_preserves_the_cold_graph_on_lmdb() {
 	let database = Database::new(crate::disk::Disk::Lmdb);
-	tokio::task::LocalSet::new()
-		.run_until(run(database, &[0, 1], false))
-		.await;
+	rooms_testing::local_set::run(run(database, &[0, 1], false)).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
 async fn maximum_session_foreign_replacement_and_cold_copy_preserve_receipt_replay_on_sqlite() {
 	let database = Database::new(crate::disk::Disk::Sqlite);
-	tokio::task::LocalSet::new()
-		.run_until(run(database, &[0, 2, 3], false))
-		.await;
+	rooms_testing::local_set::run(run(database, &[0, 2, 3], false)).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
 async fn maximum_session_foreign_replacement_and_cold_copy_preserve_receipt_replay_on_lmdb() {
 	let database = Database::new(crate::disk::Disk::Lmdb);
-	tokio::task::LocalSet::new()
-		.run_until(run(database, &[0, 2, 3], false))
-		.await;
+	rooms_testing::local_set::run(run(database, &[0, 2, 3], false)).await;
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]

@@ -71,43 +71,42 @@ impl Socket for Probe {
 
 #[tokio::test]
 async fn publisher_joins_close_and_preserves_failure_after_open_or_setup_failure() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			for setup in [Ok(()), Err(Error::closed("setup refused"))] {
-				let (opened, mut opening) = watch::channel(false);
-				let (closing, mut retirement) = watch::channel(false);
-				let (release, released) = watch::channel(None);
-				let publisher = Publisher::start(
-					Probe {
-						setup,
-						opened,
-						closing,
-						released,
-					},
-					"ws://localhost/trace".into(),
-					"synthetic".into(),
-					Rc::new(|_| {}),
-					Rc::new(|_| {}),
-				);
-				opening.wait_for(|opened| *opened).await.unwrap();
-				let closing = publisher.clone();
-				let close = tokio::task::spawn_local(async move { closing.close().await });
-				retirement.wait_for(|closing| *closing).await.unwrap();
-				assert!(!close.is_finished(), "close returned before socket retirement");
-				release.send_replace(Some(Err(Error::storage_message("physical close failed"))));
-				let failure = close.await.unwrap().expect_err("close must report socket retirement");
-				assert!(
-					matches!(failure, Error::Storage(_)),
-					"the adapter's own I/O failure reaches the caller as one, not as a refusal"
-				);
-				assert_eq!(failure.to_string(), "physical close failed");
-				release.send_replace(None);
-				let close = tokio::task::spawn_local(async move { publisher.close().await });
-				tokio::task::yield_now().await;
-				assert!(!close.is_finished(), "retry must retain the original socket barrier");
-				release.send_replace(Some(Ok(())));
-				close.await.unwrap().unwrap();
-			}
-		})
-		.await;
+	rooms_testing::local_set::run(async {
+		for setup in [Ok(()), Err(Error::closed("setup refused"))] {
+			let (opened, mut opening) = watch::channel(false);
+			let (closing, mut retirement) = watch::channel(false);
+			let (release, released) = watch::channel(None);
+			let publisher = Publisher::start(
+				Probe {
+					setup,
+					opened,
+					closing,
+					released,
+				},
+				"ws://localhost/trace".into(),
+				"synthetic".into(),
+				Rc::new(|_| {}),
+				Rc::new(|_| {}),
+			);
+			opening.wait_for(|opened| *opened).await.unwrap();
+			let closing = publisher.clone();
+			let close = tokio::task::spawn_local(async move { closing.close().await });
+			retirement.wait_for(|closing| *closing).await.unwrap();
+			assert!(!close.is_finished(), "close returned before socket retirement");
+			release.send_replace(Some(Err(Error::storage_message("physical close failed"))));
+			let failure = close.await.unwrap().expect_err("close must report socket retirement");
+			assert!(
+				matches!(failure, Error::Storage(_)),
+				"the adapter's own I/O failure reaches the caller as one, not as a refusal"
+			);
+			assert_eq!(failure.to_string(), "physical close failed");
+			release.send_replace(None);
+			let close = tokio::task::spawn_local(async move { publisher.close().await });
+			tokio::task::yield_now().await;
+			assert!(!close.is_finished(), "retry must retain the original socket barrier");
+			release.send_replace(Some(Ok(())));
+			close.await.unwrap().unwrap();
+		}
+	})
+	.await;
 }

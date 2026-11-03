@@ -75,13 +75,7 @@ fn record() -> Record {
 }
 #[tokio::test]
 async fn hosting_drains_admitted_storage_and_bounds_facet_issuance() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(15), scenario())
-				.await
-				.expect("archive hosting deadline")
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(15), scenario()).await;
 }
 async fn scenario() {
 	let Loopback {

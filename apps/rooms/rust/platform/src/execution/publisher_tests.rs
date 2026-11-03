@@ -35,11 +35,7 @@ fn id(n: u32) -> Id {
 }
 #[tokio::test]
 async fn inbox_aliases_share_host_capacity_and_survive_reconnect_without_retargeting() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario()).await.unwrap();
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let server = tcp::listen("127.0.0.1", 0, Default::default()).await.unwrap();
@@ -214,55 +210,54 @@ async fn scenario() {
 
 #[tokio::test]
 async fn inbox_retirement_yields_and_survives_cancellation_or_overlapping_cleanup() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			for overlapping in [false, true] {
-				let host = glowcap::Host::from_seed([72; 32]).unwrap();
-				let publisher = Publisher::with_limit(host.clone(), HostPlatform, 65).unwrap();
-				let ledger = host
-					.application_state(|| RefCell::new(policy::Ledger::new(65).unwrap()))
+	rooms_testing::local_set::run(async {
+		for overlapping in [false, true] {
+			let host = glowcap::Host::from_seed([72; 32]).unwrap();
+			let publisher = Publisher::with_limit(host.clone(), HostPlatform, 65).unwrap();
+			let ledger = host
+				.application_state(|| RefCell::new(policy::Ledger::new(65).unwrap()))
+				.unwrap();
+			let scope = ledger.borrow_mut().scope().unwrap();
+			for index in 0..65 {
+				let row = ledger
+					.borrow_mut()
+					.reserve(&scope, "alice", &id(index), [index as u8; 32])
 					.unwrap();
-				let scope = ledger.borrow_mut().scope().unwrap();
-				for index in 0..65 {
-					let row = ledger
-						.borrow_mut()
-						.reserve(&scope, "alice", &id(index), [index as u8; 32])
-						.unwrap();
-					host.publish(row.alias(), || Box::new(|_, _| Ok(Argument::Void)))
-						.unwrap();
-					ledger.borrow_mut().published(&row).unwrap();
-				}
-				scope.close();
-				let mut pending = Box::pin(publisher.reconcile());
-				let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-				assert!(pending.as_mut().poll(&mut cx).is_pending());
-				assert_eq!(publisher.held(), 65);
-				assert!(pending.as_mut().poll(&mut cx).is_pending());
-				assert_eq!(publisher.held(), 1);
-				if overlapping {
-					publisher.reconcile().await.unwrap();
-					let successor_scope = ledger.borrow_mut().scope().unwrap();
-					let successor = ledger
-						.borrow_mut()
-						.reserve(&successor_scope, "alice", &id(128), [64; 32])
-						.unwrap();
-					host.publish(successor.alias(), || Box::new(|_, _| Ok("successor".into())))
-						.unwrap();
-					ledger.borrow_mut().published(&successor).unwrap();
-					pending.await.unwrap();
-					assert!(
-						host.unpublish(successor.alias()).unwrap(),
-						"an old batch must not unpublish a reused alias"
-					);
-					successor_scope.close();
-					publisher.reconcile().await.unwrap();
-				} else {
-					drop(pending);
-					publisher.reconcile().await.unwrap();
-				}
-				assert_eq!(publisher.held(), 0);
-				host.close(PendingWork::Cancel).await.unwrap();
+				host.publish(row.alias(), || Box::new(|_, _| Ok(Argument::Void)))
+					.unwrap();
+				ledger.borrow_mut().published(&row).unwrap();
 			}
-		})
-		.await;
+			scope.close();
+			let mut pending = Box::pin(publisher.reconcile());
+			let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+			assert!(pending.as_mut().poll(&mut cx).is_pending());
+			assert_eq!(publisher.held(), 65);
+			assert!(pending.as_mut().poll(&mut cx).is_pending());
+			assert_eq!(publisher.held(), 1);
+			if overlapping {
+				publisher.reconcile().await.unwrap();
+				let successor_scope = ledger.borrow_mut().scope().unwrap();
+				let successor = ledger
+					.borrow_mut()
+					.reserve(&successor_scope, "alice", &id(128), [64; 32])
+					.unwrap();
+				host.publish(successor.alias(), || Box::new(|_, _| Ok("successor".into())))
+					.unwrap();
+				ledger.borrow_mut().published(&successor).unwrap();
+				pending.await.unwrap();
+				assert!(
+					host.unpublish(successor.alias()).unwrap(),
+					"an old batch must not unpublish a reused alias"
+				);
+				successor_scope.close();
+				publisher.reconcile().await.unwrap();
+			} else {
+				drop(pending);
+				publisher.reconcile().await.unwrap();
+			}
+			assert_eq!(publisher.held(), 0);
+			host.close(PendingWork::Cancel).await.unwrap();
+		}
+	})
+	.await;
 }

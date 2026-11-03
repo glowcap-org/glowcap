@@ -107,7 +107,7 @@ impl FakeListener {
 /// Run a scenario whose clock the test advances. The scenario deadline in
 /// `run` would read that clock too.
 async fn paused(scenario: impl Future<Output = ()>) {
-	tokio::task::LocalSet::new().run_until(scenario).await
+	rooms_testing::local_set::run(scenario).await
 }
 
 fn wired(signaling: &Adapter) -> Rc<FakeListener> {

@@ -1,15 +1,15 @@
 //! Adversarial child processes make acquisition cancellation observable. They
 //! implement no Rooms or CapTP behavior. They only wait at process boundaries.
 use super::*;
+use rooms_testing::scratch::Scratch;
 use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
-pub(super) struct Fixture(pub(super) PathBuf);
+/// The scratch directory a startup scenario fills with fake executables and
+/// repository assets. It removes the directory after printing any Tor output
+/// a failed scenario left behind.
+pub(super) struct Fixture(pub(super) Scratch);
 impl Fixture {
 	pub(super) fn new() -> Self {
-		let mut random = [0u8; 16];
-		rooms_platform::entropy::fill(&mut random).unwrap();
-		let name: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
-		let root = std::env::temp_dir().join(format!("rooms-web-startup-{name}"));
-		fs::create_dir(&root).unwrap();
+		let root = Scratch::create("web-startup");
 		fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
 		Self(root)
 	}
@@ -61,8 +61,8 @@ impl Fixture {
 		}
 	}
 	pub(super) fn env(&self, command: &mut Command) {
-		command.env("GLOWCAP_ROOMS_TEST_FIXTURE", &self.0);
-		let mut paths = vec![self.0.clone()];
+		command.env("GLOWCAP_ROOMS_TEST_FIXTURE", self.0.as_os_str());
+		let mut paths = vec![self.0.to_path_buf()];
 		paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
 		command.env("PATH", std::env::join_paths(paths).unwrap());
 	}
@@ -74,7 +74,6 @@ impl Drop for Fixture {
 		{
 			eprintln!("Tor startup output: {log}");
 		}
-		fs::remove_dir_all(&self.0).unwrap();
 	}
 }
 fn retired(value: &serde_json::Value) {

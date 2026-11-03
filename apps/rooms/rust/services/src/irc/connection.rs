@@ -227,27 +227,25 @@ mod tests {
 
 	#[tokio::test(start_paused = true)]
 	async fn registration_deadlines_retire_both_roles_and_close_the_socket() {
-		tokio::task::LocalSet::new()
-			.run_until(async {
-				for role in [Role::Feed, Role::Member] {
-					let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-					let endpoint = Endpoint::new("127.0.0.1", listener.local_addr().unwrap().port(), false).unwrap();
-					let (connection, worker, mut events) =
-						Connection::open(endpoint, None, role, "waiting", "test identity", None, Duration::ZERO)
-							.unwrap();
-					let deadline = worker.registration_timeout;
-					let task = tokio::task::spawn_local(worker.run());
-					let (mut socket, _) = listener.accept().await.unwrap();
-					let mut bytes = [0; 4096];
-					assert!(socket.read(&mut bytes).await.unwrap() > 0);
-					tokio::time::advance(deadline).await;
-					assert_eq!(connection.finished().await.unwrap_err(), "IRC registration timed out");
-					assert_eq!(task.await.unwrap().unwrap_err(), "IRC registration timed out");
-					assert!(!connection.registered());
-					assert!(events.next().await.is_none());
-					while socket.read(&mut bytes).await.unwrap() != 0 {}
-				}
-			})
-			.await;
+		rooms_testing::local_set::run(async {
+			for role in [Role::Feed, Role::Member] {
+				let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+				let endpoint = Endpoint::new("127.0.0.1", listener.local_addr().unwrap().port(), false).unwrap();
+				let (connection, worker, mut events) =
+					Connection::open(endpoint, None, role, "waiting", "test identity", None, Duration::ZERO).unwrap();
+				let deadline = worker.registration_timeout;
+				let task = tokio::task::spawn_local(worker.run());
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut bytes = [0; 4096];
+				assert!(socket.read(&mut bytes).await.unwrap() > 0);
+				tokio::time::advance(deadline).await;
+				assert_eq!(connection.finished().await.unwrap_err(), "IRC registration timed out");
+				assert_eq!(task.await.unwrap().unwrap_err(), "IRC registration timed out");
+				assert!(!connection.registered());
+				assert!(events.next().await.is_none());
+				while socket.read(&mut bytes).await.unwrap() != 0 {}
+			}
+		})
+		.await;
 	}
 }

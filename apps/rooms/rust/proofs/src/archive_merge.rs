@@ -10,7 +10,7 @@ use std::sync::Arc;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
 async fn combined_archive_client_keeps_the_exact_winning_reader() {
-	tokio::task::LocalSet::new().run_until(combined_reader()).await;
+	rooms_testing::local_set::run(combined_reader()).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 async fn combined_reader() {

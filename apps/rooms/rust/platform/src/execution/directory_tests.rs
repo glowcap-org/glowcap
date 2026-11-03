@@ -27,13 +27,7 @@ fn argument(value: &Value) -> Argument {
 }
 #[tokio::test]
 async fn directory_bootstrap_and_watch_custody_follow_the_shared_connection() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("directory scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 async fn scenario() {
 	let fixture: Value = serde_json::from_str(include_str!("../../../proofs/fixtures/directory-client.json")).unwrap();

@@ -6,13 +6,7 @@ use rooms_application::server::document::{Document, FILE};
 
 #[tokio::test]
 async fn rooms_server_service_operator_reset_exceeds_writer_capacity() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(30), scenario())
-				.await
-				.expect("operator process scenario deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(30), scenario()).await;
 }
 
 async fn runtime() -> Runtime {
@@ -30,21 +24,21 @@ fn top(answer: Argument) -> Vec<Argument> {
 
 async fn scenario() {
 	const LINKS: usize = 300;
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-operator-pressure-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
+	let temp = Scratch::create("operator-pressure");
 	let mut fixture = serde_json::to_value(Document::fresh([31; 32], [32; 32])).unwrap();
 	fixture["linkedRooms"] = serde_json::json!((0..LINKS).map(|i| format!("garden-{i:03}")).collect::<Vec<_>>());
 	let document = Document::decode(&fixture.to_string()).unwrap();
-	std::fs::write(temp.0.join(FILE), document.encode().unwrap()).unwrap();
+	std::fs::write(temp.join(FILE), document.encode().unwrap()).unwrap();
 	let start = || {
-		let mut process = Process(
+		let mut process = Process::new(
 			command()
-				.arg(format!("--state={}", temp.0.display()))
+				.arg(format!("--state={}", temp.display()))
 				.args(["--transport=tcp", "--operator"])
 				.stdout(Stdio::piped())
 				.stderr(Stdio::piped())
 				.spawn()
 				.unwrap(),
+			"directory",
 		);
 		let block = stderr_until(&mut process, "rooms: ready");
 		let locator = block
@@ -74,7 +68,7 @@ async fn scenario() {
 		.unwrap();
 	let after = top(session.send(&operator, "operatorSnapshot", &args).await.unwrap());
 	assert_eq!(after.last().unwrap().as_i64(), Some(0));
-	let kept = Document::decode(&std::fs::read_to_string(temp.0.join(FILE)).unwrap()).unwrap();
+	let kept = Document::decode(&std::fs::read_to_string(temp.join(FILE)).unwrap()).unwrap();
 	assert!(kept.linked_rooms.as_slice().is_empty());
 	assert_eq!(kept.revoked_rooms.as_slice().len(), LINKS);
 

@@ -47,7 +47,7 @@ fn intent() -> workspace::Intent {
 
 #[tokio::test]
 async fn unchanged_standing_and_admission_retries_preserve_selection_and_cancellation() {
-	tokio::task::LocalSet::new().run_until(inspect()).await;
+	rooms_testing::local_set::run(inspect()).await;
 }
 async fn inspect() {
 	let host = glowcap::Host::from_seed([221; 32]).unwrap();

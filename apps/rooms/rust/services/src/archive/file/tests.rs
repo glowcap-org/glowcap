@@ -3,31 +3,10 @@ use rooms_application::{
 	archive::{Body, ConversationKind, Coordinates, LineState},
 	text::DocumentText,
 };
-use std::{
-	fs, io,
-	sync::atomic::{AtomicU64, Ordering},
-	time::Duration,
-};
-static NEXT: AtomicU64 = AtomicU64::new(0);
-pub(super) struct Temp(pub(super) PathBuf);
-impl Temp {
-	pub(super) fn new() -> Self {
-		let path = std::env::temp_dir().join(format!(
-			"rooms-archive-rust-{}-{}",
-			std::process::id(),
-			NEXT.fetch_add(1, Ordering::Relaxed)
-		));
-		fs::create_dir(&path).unwrap();
-		Self(path)
-	}
-	pub(super) fn file(&self) -> PathBuf {
-		self.0.join(disk::FILE)
-	}
-}
-impl Drop for Temp {
-	fn drop(&mut self) {
-		fs::remove_dir_all(&self.0).unwrap();
-	}
+use rooms_testing::scratch::Scratch;
+use std::{fs, io, time::Duration};
+pub(super) fn file(directory: &Path) -> PathBuf {
+	directory.join(disk::FILE)
 }
 pub(super) fn record(id: &str, text: DocumentText, at: u64) -> Record {
 	Record::new(
@@ -57,16 +36,16 @@ async fn journal_preserves_captured_state_and_repairs_only_the_torn_tail() {
 	let fixture: serde_json::Value =
 		serde_json::from_str(include_str!("../../../../proofs/fixtures/archive-disk.json")).unwrap();
 	for case in fixture["cases"].as_array().unwrap() {
-		let temp = Temp::new();
+		let temp = Scratch::create("archive-rust");
 		let original = case["input"].as_str().unwrap().as_bytes();
-		fs::write(temp.file(), original).unwrap();
+		fs::write(file(&temp), original).unwrap();
 		#[cfg(unix)]
 		{
 			use std::os::unix::fs::PermissionsExt;
-			fs::set_permissions(&temp.0, fs::Permissions::from_mode(0o755)).unwrap();
+			fs::set_permissions(&temp, fs::Permissions::from_mode(0o755)).unwrap();
 		}
 		let opened = FileArchive::open(
-			&temp.0,
+			&temp,
 			Options {
 				capacity: 3,
 				compact_delta: 2,
@@ -79,27 +58,27 @@ async fn journal_preserves_captured_state_and_repairs_only_the_torn_tail() {
 			#[cfg(unix)]
 			{
 				use std::os::unix::fs::PermissionsExt;
-				assert_eq!(fs::metadata(&temp.0).unwrap().permissions().mode() & 0o777, 0o700);
+				assert_eq!(fs::metadata(&temp).unwrap().permissions().mode() & 0o777, 0o700);
 			}
-			assert!(FileArchive::open(&temp.0, Options::default()).await.is_err());
+			assert!(FileArchive::open(&temp, Options::default()).await.is_err());
 			let page = archive.read(&Filter::default(), 0, 128).await.unwrap();
 			assert_eq!(page.next, case["next"].as_u64().unwrap());
-			let repaired = fs::read(temp.file()).unwrap();
+			let repaired = fs::read(file(&temp)).unwrap();
 			assert_eq!(repaired != original, case["repaired"].as_bool().unwrap());
 			drop(archive);
-			let mut reopened = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+			let mut reopened = FileArchive::open(&temp, Options::default()).await.unwrap();
 			assert_eq!(reopened.read(&Filter::default(), 0, 128).await.unwrap().next, page.next);
 		} else {
-			assert_eq!(fs::read(temp.file()).unwrap(), original);
+			assert_eq!(fs::read(file(&temp)).unwrap(), original);
 		}
 	}
-	let temp = Temp::new();
+	let temp = Scratch::create("archive-rust");
 	let options = Options {
 		capacity: 2,
 		compact_delta: 1,
 		..Default::default()
 	};
-	let mut archive = FileArchive::open(&temp.0, options).await.unwrap();
+	let mut archive = FileArchive::open(&temp, options).await.unwrap();
 	assert_eq!(archive.put(record("one", "original".into(), 10)).await.unwrap(), 1);
 	assert_eq!(archive.put(record("two", "second".into(), 20)).await.unwrap(), 2);
 	let held = archive.read(&Filter::default(), 0, 128).await.unwrap();
@@ -115,7 +94,7 @@ async fn journal_preserves_captured_state_and_repairs_only_the_torn_tail() {
 		3
 	);
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, options).await.unwrap();
+	let mut archive = FileArchive::open(&temp, options).await.unwrap();
 	let page = archive.read(&Filter::default(), 2, 128).await.unwrap();
 	assert!(
 		matches!(page.records[0].record.body(),Body::Line {at:10,order:10,text,..} if text.utf16().collect::<Vec<_>>()==[b'x' as u16,0xd800])
@@ -125,7 +104,7 @@ async fn journal_preserves_captured_state_and_repairs_only_the_torn_tail() {
 }
 #[tokio::test]
 async fn replacement_can_fit_without_room_for_an_append() {
-	let temp = Temp::new();
+	let temp = Scratch::create("archive-rust");
 	let one = record("one", "same".into(), 1);
 	let two = record("two", "same".into(), 1);
 	let mut index = Index::new(1).unwrap();
@@ -136,27 +115,27 @@ async fn replacement_can_fit_without_room_for_an_append() {
 		max_file_bytes: bytes,
 		..Default::default()
 	};
-	let mut archive = FileArchive::open(&temp.0, options).await.unwrap();
+	let mut archive = FileArchive::open(&temp, options).await.unwrap();
 	archive.put(one).await.unwrap();
 	archive.put(two.clone()).await.unwrap();
-	assert!(fs::metadata(temp.file()).unwrap().len() <= bytes as u64);
+	assert!(fs::metadata(file(&temp)).unwrap().len() <= bytes as u64);
 	assert_eq!(
 		archive.read(&Filter::default(), 0, 128).await.unwrap().records[0]
 			.record
 			.as_ref(),
 		&two
 	);
-	let prior = fs::read(temp.file()).unwrap();
+	let prior = fs::read(file(&temp)).unwrap();
 	assert!(archive.put(record("big", "x".repeat(8192).into(), 1)).await.is_err());
-	assert_eq!(fs::read(temp.file()).unwrap(), prior);
+	assert_eq!(fs::read(file(&temp)).unwrap(), prior);
 	drop(archive);
-	let mut restored = FileArchive::open(&temp.0, options).await.unwrap();
+	let mut restored = FileArchive::open(&temp, options).await.unwrap();
 	assert_eq!(restored.read(&Filter::default(), 0, 128).await.unwrap().next, 2);
 }
 #[tokio::test]
 async fn cancellation_observes_the_owned_job_and_uncertain_replacement_requires_reload() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let shared = archive.store.clone();
 	let (held, ready) = std::sync::mpsc::channel();
 	let (release, wait) = std::sync::mpsc::channel();
@@ -175,7 +154,7 @@ async fn cancellation_observes_the_owned_job_and_uncertain_replacement_requires_
 		.is_err()
 	);
 	assert!(archive.pending.is_some());
-	assert!(FileArchive::open(&temp.0, Options::default()).await.is_err());
+	assert!(FileArchive::open(&temp, Options::default()).await.is_err());
 	release.send(()).unwrap();
 	lock.join().unwrap();
 	archive.finish_pending().await.unwrap();
@@ -195,7 +174,7 @@ async fn cancellation_observes_the_owned_job_and_uncertain_replacement_requires_
 	assert!(archive.read(&Filter::default(), 0, 128).await.is_err());
 	assert!(archive.put(record("three", "refused".into(), 3)).await.is_err());
 	drop(archive);
-	let mut restored = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut restored = FileArchive::open(&temp, Options::default()).await.unwrap();
 	assert_eq!(
 		restored.read(&Filter::default(), 0, 128).await.unwrap().records[0]
 			.record
@@ -209,13 +188,13 @@ async fn cancellation_observes_the_owned_job_and_uncertain_replacement_requires_
 #[tokio::test]
 async fn unsupported_header_names_both_schemas_without_modifying_the_archive() {
 	for (format, version) in [(disk::FORMAT, 2), ("renamed-rooms-member-archive", 1)] {
-		let temp = Temp::new();
+		let temp = Scratch::create("archive-rust");
 		let bytes = format!(
 			"{}\n",
 			serde_json::json!({"archive":format,"version":version,"revision":0})
 		);
-		fs::write(temp.file(), &bytes).unwrap();
-		let error = FileArchive::open(&temp.0, Options::default()).await.err().unwrap();
+		fs::write(file(&temp), &bytes).unwrap();
+		let error = FileArchive::open(&temp, Options::default()).await.err().unwrap();
 		assert!(
 			matches!(error, rooms_runtime::Error::Storage(_)),
 			"a journal this build cannot read is the archive failing, not the request"
@@ -224,21 +203,21 @@ async fn unsupported_header_names_both_schemas_without_modifying_the_archive() {
 		assert!(error.contains(&format!("written as {format} version {version}")));
 		assert!(error.contains(&format!("this build reads {} version 1", disk::FORMAT)));
 		assert!(error.contains("remove its state directory"));
-		assert_eq!(fs::read(temp.file()).unwrap(), bytes.as_bytes());
+		assert_eq!(fs::read(file(&temp)).unwrap(), bytes.as_bytes());
 	}
-	let temp = Temp::new();
+	let temp = Scratch::create("archive-rust");
 	let bytes = format!(
 		"{}\n",
 		serde_json::json!({"archive":disk::FORMAT,"version":1,"revision":-1})
 	);
-	fs::write(temp.file(), &bytes).unwrap();
+	fs::write(file(&temp), &bytes).unwrap();
 	assert!(
-		FileArchive::open(&temp.0, Options::default())
+		FileArchive::open(&temp, Options::default())
 			.await
 			.err()
 			.unwrap()
 			.to_string()
 			.contains("invalid archive header")
 	);
-	assert_eq!(fs::read(temp.file()).unwrap(), bytes.as_bytes());
+	assert_eq!(fs::read(file(&temp)).unwrap(), bytes.as_bytes());
 }

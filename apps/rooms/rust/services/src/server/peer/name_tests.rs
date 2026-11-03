@@ -3,14 +3,7 @@
 use super::*;
 use glowcap::Argument;
 use rooms_application::{room::policy::RoomPolicy, server::links::Registration};
-use std::{path::PathBuf, time::Duration};
-
-struct Temp(PathBuf);
-impl Drop for Temp {
-	fn drop(&mut self) {
-		let _ = std::fs::remove_dir_all(&self.0);
-	}
-}
+use std::time::Duration;
 
 #[test]
 fn pending_room_names_survive_the_write_wait_and_uncertain_replacement() {
@@ -19,18 +12,18 @@ fn pending_room_names_survive_the_write_wait_and_uncertain_replacement() {
 		.max_blocking_threads(1)
 		.build()
 		.unwrap();
-	tokio::task::LocalSet::new().block_on(&runtime, async {
-		tokio::time::timeout(Duration::from_secs(30), scenario()).await.unwrap();
-	});
+	runtime.block_on(rooms_testing::local_set::run_within(
+		Duration::from_secs(30),
+		scenario(),
+	));
 }
 
 const ID: &str = "~1234567890abcdef1234567890abcdef";
 
 async fn scenario() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-pending-names-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
+	let temp = rooms_testing::scratch::Scratch::create("pending-names");
 	let config = Config::parse(
-		[format!("--state={}", temp.0.display()), "--transport=tcp".into()],
+		[format!("--state={}", temp.display()), "--transport=tcp".into()],
 		|_| None,
 	)
 	.unwrap()
@@ -94,8 +87,8 @@ async fn scenario() {
 	assert!(shared.borrow().rooms_name_taken("net/#renamed"));
 	assert!(!shared.borrow().authority_writer.holds_name("net/#renamed"));
 
-	let file = temp.0.join(rooms_application::server::document::FILE);
-	let saved = temp.0.join("rooms.saved");
+	let file = temp.join(rooms_application::server::document::FILE);
+	let saved = temp.join("rooms.saved");
 	std::fs::rename(&file, &saved).unwrap();
 	std::fs::create_dir(&file).unwrap();
 	let uncertain = authority::queue::request(

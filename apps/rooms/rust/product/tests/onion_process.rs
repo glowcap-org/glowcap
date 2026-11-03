@@ -1,52 +1,20 @@
 //! Host executable startup against a real Tor control service. Networking
 //! is disabled: this proves key custody and local forwarding, not circuits.
 #![cfg(test)]
+use rooms_testing::{child_process::Process, scratch::Scratch};
 use std::{
 	io::{BufRead, BufReader},
-	path::{Path, PathBuf},
+	path::Path,
 	process::{Child, Command, Stdio},
 	sync::mpsc,
 	time::{Duration, Instant},
 };
 
-struct Process(Child);
-impl Process {
-	fn wait(&mut self) -> std::process::ExitStatus {
-		let deadline = Instant::now() + Duration::from_secs(10);
-		loop {
-			if let Some(status) = self.0.try_wait().unwrap() {
-				return status;
-			}
-			assert!(Instant::now() < deadline, "onion process did not finish");
-			std::thread::sleep(Duration::from_millis(10));
-		}
-	}
-	fn stop(&mut self) {
-		assert!(
-			Command::new("/bin/kill")
-				.args(["-TERM", &self.0.id().to_string()])
-				.status()
-				.unwrap()
-				.success()
-		);
-		assert!(self.wait().success());
-	}
+fn onion(child: Child) -> Process {
+	Process::new(child, "onion").within(Duration::from_secs(10))
 }
-impl Drop for Process {
-	fn drop(&mut self) {
-		let _ = self.0.kill();
-		let _ = self.0.wait();
-	}
-}
-struct Temp(PathBuf);
-impl Drop for Temp {
-	fn drop(&mut self) {
-		let _ = std::fs::remove_dir_all(&self.0);
-	}
-}
-
 fn first_line(child: &mut Process) -> String {
-	let output = child.0.stdout.take().unwrap();
+	let output = child.child.stdout.take().unwrap();
 	let (sender, receiver) = mpsc::channel();
 	std::thread::spawn(move || {
 		let mut line = String::new();
@@ -86,23 +54,21 @@ fn session_peers_restore_onion_keys_before_readiness() {
 		.enable_all()
 		.build()
 		.unwrap();
-	tokio::task::LocalSet::new().block_on(&runtime, async {
-		tokio::time::timeout(Duration::from_secs(60), scenario())
-			.await
-			.expect("onion process scenario deadline");
-	});
+	runtime.block_on(rooms_testing::local_set::run_within(
+		Duration::from_secs(60),
+		scenario(),
+	));
 }
 async fn scenario() {
-	let temp = Temp(std::env::temp_dir().join(format!("rooms-onion-{}", std::process::id())));
-	std::fs::create_dir(&temp.0).unwrap();
+	let temp = Scratch::create("onion");
 	#[cfg(unix)]
 	{
 		use std::os::unix::fs::PermissionsExt;
-		std::fs::set_permissions(&temp.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+		std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o700)).unwrap();
 	}
-	let control = temp.0.join("control");
-	let socks = temp.0.join("socks");
-	let mut tor = Process(
+	let control = temp.join("control");
+	let socks = temp.join("socks");
+	let mut tor = onion(
 		Command::new("tor")
 			.args([
 				"--RunAsDaemon",
@@ -113,13 +79,13 @@ async fn scenario() {
 				"0",
 				"--DataDirectory",
 			])
-			.arg(temp.0.join("tor"))
+			.arg(temp.join("tor"))
 			.arg("--ControlSocket")
 			.arg(&control)
 			.arg("--SocksPort")
 			.arg(format!("unix:{}", socks.display()))
 			.arg("--Log")
-			.arg(format!("notice file {}", temp.0.join("tor.log").display()))
+			.arg(format!("notice file {}", temp.join("tor.log").display()))
 			.stdout(Stdio::null())
 			.stderr(Stdio::null())
 			.spawn()
@@ -128,9 +94,9 @@ async fn scenario() {
 	let deadline = Instant::now() + Duration::from_secs(10);
 	while !control.exists() {
 		assert!(
-			tor.0.try_wait().unwrap().is_none(),
+			tor.child.try_wait().unwrap().is_none(),
 			"Tor startup failed: {}",
-			std::fs::read_to_string(temp.0.join("tor.log")).unwrap_or_default()
+			std::fs::read_to_string(temp.join("tor.log")).unwrap_or_default()
 		);
 		assert!(Instant::now() < deadline, "Tor control startup deadline");
 		tokio::time::sleep(Duration::from_millis(20)).await;
@@ -140,13 +106,13 @@ async fn scenario() {
 		("archive", env!("CARGO_BIN_EXE_rooms-archive")),
 		("session", env!("CARGO_BIN_EXE_rooms-session")),
 	] {
-		let state = temp.0.join(name);
+		let state = temp.join(name);
 		let port = std::net::TcpListener::bind("127.0.0.1:0")
 			.unwrap()
 			.local_addr()
 			.unwrap()
 			.port();
-		let mut first = Process(command(binary, &state, &control, &socks, port).spawn().unwrap());
+		let mut first = onion(command(binary, &state, &control, &socks, port).spawn().unwrap());
 		let announced = first_line(&mut first);
 		assert!(
 			announced.starts_with(&format!("ROOMS-{}-LISTENING ocapn://", name.to_uppercase())),
@@ -168,13 +134,13 @@ async fn scenario() {
 		if name == "server" {
 			directory_over_forward(port).await;
 		}
-		first.stop();
+		first.signal("-TERM");
 		assert!(
 			!std::fs::read_to_string(state.with_extension("stderr"))
 				.unwrap()
 				.contains(std::str::from_utf8(&key).unwrap())
 		);
-		let mut again = Process(command(binary, &state, &control, &socks, port).spawn().unwrap());
+		let mut again = onion(command(binary, &state, &control, &socks, port).spawn().unwrap());
 		assert_eq!(
 			first_line(&mut again),
 			announced,
@@ -182,10 +148,10 @@ async fn scenario() {
 			std::fs::read_to_string(state.with_extension("stderr")).unwrap()
 		);
 		assert_eq!(std::fs::read(&key_file).unwrap(), key);
-		again.stop();
+		again.signal("-TERM");
 		for malformed in [b"".as_slice(), b"not-a-service-key".as_slice()] {
 			std::fs::write(&key_file, malformed).unwrap();
-			let mut refused = Process(command(binary, &state, &control, &socks, port).spawn().unwrap());
+			let mut refused = onion(command(binary, &state, &control, &socks, port).spawn().unwrap());
 			assert!(
 				first_line(&mut refused).is_empty(),
 				"{name} announced after a malformed key"
@@ -198,7 +164,7 @@ async fn scenario() {
 			);
 		}
 	}
-	tor.stop();
+	tor.signal("-TERM");
 }
 
 async fn directory_over_forward(port: u16) {

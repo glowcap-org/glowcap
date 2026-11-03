@@ -1,28 +1,11 @@
 //! Attachment borrows a running directory. Takeover acquires its kept state.
 use super::*;
-use std::path::PathBuf;
-
-struct State(PathBuf);
-impl State {
-	fn new() -> Self {
-		let mut entropy = [0u8; 16];
-		rooms_platform::entropy::fill(&mut entropy).unwrap();
-		let name: String = entropy.iter().map(|byte| format!("{byte:02x}")).collect();
-		let path = std::env::temp_dir().join(format!("rooms-web-supervision-{name}"));
-		std::fs::create_dir(&path).unwrap();
-		Self(path)
-	}
-}
-impl Drop for State {
-	fn drop(&mut self) {
-		std::fs::remove_dir_all(&self.0).unwrap();
-	}
-}
+use rooms_testing::scratch::Scratch;
 
 #[tokio::test(flavor = "current_thread")]
 async fn web_attaches_by_local_address_and_takes_over_the_same_kept_directory() {
 	tokio::time::timeout(Duration::from_secs(20), async {
-		let state = State::new();
+		let state = Scratch::create("web-supervision");
 		let server = std::env::var_os("GLOWCAP_ROOMS_SERVER_TEST_BIN")
 			.unwrap_or_else(|| env!("CARGO_BIN_EXE_rooms-server").into());
 		let mut command = Command::new(server);
@@ -37,7 +20,7 @@ async fn web_attaches_by_local_address_and_takes_over_the_same_kept_directory() 
 		command.as_std_mut().process_group(0);
 		command
 			.args(["--transport=tcp", "--port=0", "--announce-host=127.0.0.2", "--operator"])
-			.arg(format!("--state={}", state.0.display()))
+			.arg(format!("--state={}", state.display()))
 			.env("GLOWCAP_ROOMS_READY_FORMAT", "json")
 			.stdout(Stdio::piped())
 			.stderr(Stdio::inherit())
@@ -49,14 +32,14 @@ async fn web_attaches_by_local_address_and_takes_over_the_same_kept_directory() 
 			serde_json::from_str(ready.strip_prefix("ROOMS-SERVER-READY ").unwrap()).unwrap();
 		let locator = ready["location"].as_str().unwrap();
 		let port = ready["local_endpoint"]["port"].as_u64().unwrap() as u16;
-		let operator = std::fs::read(state.0.join("operator")).unwrap();
-		let identity = std::fs::read(state.0.join("rooms.json")).unwrap();
+		let operator = std::fs::read(state.join("operator")).unwrap();
+		let identity = std::fs::read(state.join("rooms.json")).unwrap();
 		let web_command = || {
 			let mut command = Web::command(0);
 			command
 				.args(["--trace=0", "--operator", "--announce-host=127.0.0.2"])
 				.arg(format!("--port={port}"))
-				.arg(format!("--state={}", state.0.display()));
+				.arg(format!("--state={}", state.display()));
 			command
 		};
 		let mut web = Web::spawn(web_command());
@@ -86,8 +69,8 @@ async fn web_attaches_by_local_address_and_takes_over_the_same_kept_directory() 
 		}
 		assert_same_endpoint(&web.status("locator").await, locator);
 		web.reach().await;
-		assert_eq!(std::fs::read(state.0.join("operator")).unwrap(), operator);
-		assert_eq!(std::fs::read(state.0.join("rooms.json")).unwrap(), identity);
+		assert_eq!(std::fs::read(state.join("operator")).unwrap(), operator);
+		assert_eq!(std::fs::read(state.join("rooms.json")).unwrap(), identity);
 		web.stop().await;
 	})
 	.await

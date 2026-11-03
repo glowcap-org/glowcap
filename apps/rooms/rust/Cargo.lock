@@ -829,6 +829,7 @@ dependencies = [
  "rooms-platform",
  "rooms-runtime",
  "rooms-services",
+ "rooms-testing",
  "serde_json",
  "tokio",
  "wasm-bindgen",
@@ -857,6 +858,7 @@ dependencies = [
  "rooms-application",
  "rooms-glowcap",
  "rooms-runtime",
+ "rooms-testing",
  "rustls-native-certs",
  "serde",
  "serde_json",
@@ -881,6 +883,7 @@ dependencies = [
  "rooms-platform",
  "rooms-runtime",
  "rooms-services",
+ "rooms-testing",
  "serde",
  "serde_json",
  "sha2",
@@ -897,6 +900,7 @@ dependencies = [
  "glowcap",
  "rooms-application",
  "rooms-glowcap",
+ "rooms-testing",
  "serde",
  "serde_json",
  "sha2",
@@ -921,6 +925,7 @@ dependencies = [
  "rooms-glowcap",
  "rooms-platform",
  "rooms-runtime",
+ "rooms-testing",
  "serde",
  "serde_json",
  "sha2",
@@ -928,6 +933,13 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "url",
+]
+
+[[package]]
+name = "rooms-testing"
+version = "0.1.2"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]

@@ -94,13 +94,7 @@ async fn runtime() -> Rc<Runtime> {
 }
 #[tokio::test]
 async fn ordered_selection_merge_erasure_and_source_retirement() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(20), scenario())
-				.await
-				.expect("session archive deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(20), scenario()).await;
 }
 async fn scenario() {
 	let runtime = runtime().await;
@@ -269,33 +263,32 @@ async fn scenario() {
 }
 #[tokio::test]
 async fn admission_counts_abandoned_observations_and_close_drains_the_queue() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			let runtime = runtime().await;
-			let (owner, worker) = SessionArchive::new(rooms_platform::HostPlatform, runtime.clone(), Memory::new());
-			let mut replies = Vec::new();
-			for _ in 0..MAX_PENDING {
-				replies.push(owner.put(line(LineState::Present), vec![]).unwrap());
-			}
-			drop(replies.pop());
-			assert!(owner.put(line(LineState::Present), vec![]).is_err());
-			let mut closing = Box::pin(owner.close());
-			assert!(
-				core::future::Future::poll(
-					closing.as_mut(),
-					&mut std::task::Context::from_waker(std::task::Waker::noop())
-				)
-				.is_pending()
-			);
-			let worker = tokio::task::spawn_local(worker.run());
-			for reply in replies {
-				reply.wait().await.unwrap();
-			}
-			let report = owner.close().await.unwrap();
-			assert_eq!(report.completed, MAX_PENDING as u64);
-			assert_eq!(report.lost_replies, 1);
-			assert_eq!(worker.await.unwrap(), report);
-			runtime.close(PendingWork::Cancel).await.unwrap();
-		})
-		.await;
+	rooms_testing::local_set::run(async {
+		let runtime = runtime().await;
+		let (owner, worker) = SessionArchive::new(rooms_platform::HostPlatform, runtime.clone(), Memory::new());
+		let mut replies = Vec::new();
+		for _ in 0..MAX_PENDING {
+			replies.push(owner.put(line(LineState::Present), vec![]).unwrap());
+		}
+		drop(replies.pop());
+		assert!(owner.put(line(LineState::Present), vec![]).is_err());
+		let mut closing = Box::pin(owner.close());
+		assert!(
+			core::future::Future::poll(
+				closing.as_mut(),
+				&mut std::task::Context::from_waker(std::task::Waker::noop())
+			)
+			.is_pending()
+		);
+		let worker = tokio::task::spawn_local(worker.run());
+		for reply in replies {
+			reply.wait().await.unwrap();
+		}
+		let report = owner.close().await.unwrap();
+		assert_eq!(report.completed, MAX_PENDING as u64);
+		assert_eq!(report.lost_replies, 1);
+		assert_eq!(worker.await.unwrap(), report);
+		runtime.close(PendingWork::Cancel).await.unwrap();
+	})
+	.await;
 }

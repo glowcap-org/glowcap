@@ -8,7 +8,7 @@ use rooms_application::{
 };
 use rooms_glowcap::values;
 use std::{cell::RefCell, future::poll_fn, rc::Rc, time::Duration};
-use tokio::{sync::mpsc, task::LocalSet};
+use tokio::sync::mpsc;
 
 type Store = Rc<RefCell<FileStore>>;
 type Waiting = (Resolver, ReadTicket);
@@ -121,13 +121,7 @@ async fn settle(store: &Store, (mut resolver, ticket): Waiting) {
 
 #[tokio::test(flavor = "current_thread")]
 async fn files_cross_real_host_sessions_and_retire_together() {
-	LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(10), scenario())
-				.await
-				.expect("file protocol progress");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(10), scenario()).await;
 }
 
 async fn scenario() {

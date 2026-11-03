@@ -9,20 +9,15 @@ use rooms_glowcap::{
 	client::{Client, directory::Directory},
 	routes::CheckpointRoutes,
 };
+use rooms_testing::scratch::Scratch;
 
 #[tokio::test]
 async fn manager_refuses_sibling_tokens_without_changing_persisted_authority() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(15), scenario())
-				.await
-				.expect("scoped manager deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(15), scenario()).await;
 }
 async fn scenario() {
-	let temp = Temp::new();
-	let running = super::super::start(temp.0.clone(), tcp()).await;
+	let temp = Scratch::create("server");
+	let running = super::super::start(temp.to_path_buf(), tcp()).await;
 	let runtime = runtime().await;
 	let session = runtime
 		.connect(
@@ -51,7 +46,7 @@ async fn scenario() {
 		CheckpointRoutes.authority_token(steward_uri).unwrap(),
 		CheckpointRoutes.authority_token(&right.manager_link).unwrap(),
 	];
-	let document = temp.0.join(rooms_application::server::document::FILE);
+	let document = temp.join(rooms_application::server::document::FILE);
 	let original = std::fs::read(&document).unwrap();
 	for (verb, args) in [
 		(authority::REVOKE_ROOM_LINK, vec![tokens[0].clone().into()]),

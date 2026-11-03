@@ -2,7 +2,7 @@
 //! presence, lines and their edits, history, subjects, files, invitations,
 //! managed rooms with their managers and stewards, durable links redeemed
 //! from a fresh connection, and the same links and history after a restart.
-use super::{Temp, closing_tolerated, runtime, start, tcp};
+use super::{closing_tolerated, runtime, start, tcp};
 use glowcap::{ConnectOptions, PendingWork};
 use rooms_application::{
 	directory::creation::RecoveryKey,
@@ -22,6 +22,7 @@ use rooms_glowcap::client::{
 	room::{Event, Messages, Room, SubscribeOptions},
 };
 use rooms_platform::HostPlatform;
+use rooms_testing::scratch::Scratch;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 type Line = Message<String, glowcap::Ref>;
@@ -93,18 +94,12 @@ async fn join(
 
 #[tokio::test]
 async fn rooms_server_hosts_rooms_lines_files_invitations_and_links_over_tcp() {
-	tokio::task::LocalSet::new()
-		.run_until(async {
-			tokio::time::timeout(Duration::from_secs(60), rooms())
-				.await
-				.expect("host Rooms server deadline");
-		})
-		.await;
+	rooms_testing::local_set::run_within(Duration::from_secs(60), rooms()).await;
 }
 
 async fn rooms() {
-	let temp = Temp::new();
-	let running = start(temp.0.clone(), tcp()).await;
+	let temp = Scratch::create("server");
+	let running = start(temp.to_path_buf(), tcp()).await;
 	let dial = glowcap::parse_locator(&running.location).unwrap();
 	let alice_runtime = runtime().await;
 	let bob_runtime = runtime().await;
@@ -390,7 +385,7 @@ async fn rooms() {
 
 	// After a restart the link still answers, and the kept line is still
 	// there for whoever enters the room next.
-	let running = start(temp.0.clone(), tcp()).await;
+	let running = start(temp.to_path_buf(), tcp()).await;
 	let dial = glowcap::parse_locator(&running.location).unwrap();
 	let runtime = runtime().await;
 	let client = Client::new(
@@ -410,7 +405,7 @@ async fn rooms() {
 	// History is kept under the room's key, encoded into the file name the
 	// way `file_name` writes it.
 	assert!(
-		std::fs::read_to_string(temp.0.join("history").join("%23garden.jsonl"))
+		std::fs::read_to_string(temp.join("history").join("%23garden.jsonl"))
 			.unwrap()
 			.contains("\"hi there\"")
 	);

@@ -1,6 +1,6 @@
 use super::{
 	blob_tests::{Bytes, line},
-	tests::Temp,
+	tests::file,
 	*,
 };
 use rooms_application::archive::{
@@ -8,11 +8,12 @@ use rooms_application::archive::{
 	blobs::Reader,
 	shares::{Command, Share},
 };
+use rooms_testing::scratch::Scratch;
 use std::{fs, io};
 #[tokio::test]
 async fn scoped_erasure_preserves_other_owner_and_shared_bytes_across_restart() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let sources = [Bytes::new(b"shared bytes".to_vec())];
 	let first = line("one", &sources);
 	let mut coordinates = first.coordinates().clone();
@@ -33,7 +34,7 @@ async fn scoped_erasure_preserves_other_owner_and_shared_bytes_across_restart() 
 	assert_eq!(archive.blob_usage().await.unwrap().retained_bytes, 12);
 	archive.clear_source(&"source".into()).await.unwrap();
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let retained = archive.read(&Filter::default(), 0, 128).await.unwrap();
 	assert_eq!(retained.next, page.next);
 	assert_eq!(retained.records.len(), 1);
@@ -47,8 +48,8 @@ async fn scoped_erasure_preserves_other_owner_and_shared_bytes_across_restart() 
 }
 #[tokio::test]
 async fn erase_keeps_cursors_and_shares_while_retiring_bytes_and_readers() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let sources = [Bytes::new(b"private".to_vec())];
 	archive.put_with_files(line("one", &sources), &sources).await.unwrap();
 	let spec = Share::new(
@@ -69,12 +70,12 @@ async fn erase_keeps_cursors_and_shares_while_retiring_bytes_and_readers() {
 	assert!(archive.read_blob(reader, 0, 7).await.is_err());
 	assert_eq!(archive.blob_usage().await.unwrap(), BlobUsage::default());
 	assert_eq!(archive.active_shares().await.unwrap(), vec![spec.clone()]);
-	assert_eq!(fs::read_dir(temp.0.join("blobs")).unwrap().count(), 0);
+	assert_eq!(fs::read_dir(temp.join("blobs")).unwrap().count(), 0);
 	let empty = archive.read(&Filter::default(), page.next, 128).await.unwrap();
 	assert_eq!(empty.next, page.next);
 	assert!(empty.records.is_empty());
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	assert_eq!(archive.active_shares().await.unwrap(), vec![spec]);
 	assert_eq!(archive.put(tests::record("later", "new".into(), 2)).await.unwrap(), 2);
 	assert_eq!(
@@ -89,12 +90,12 @@ async fn erase_keeps_cursors_and_shares_while_retiring_bytes_and_readers() {
 }
 #[tokio::test]
 async fn failed_byte_cleanup_does_not_restore_erased_records_and_clear_retries_it() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let sources = [Bytes::new(b"private".to_vec())];
 	archive.put_with_files(line("one", &sources), &sources).await.unwrap();
-	let path = temp.0.join("blobs");
-	let moved = temp.0.join("held-blobs");
+	let path = temp.join("blobs");
+	let moved = temp.join("held-blobs");
 	fs::rename(&path, &moved).unwrap();
 	fs::write(&path, b"make child access fail").unwrap();
 	assert!(
@@ -112,34 +113,34 @@ async fn failed_byte_cleanup_does_not_restore_erased_records_and_clear_retries_i
 	assert_eq!(usage.retained_bytes, 0);
 	assert_eq!(usage.orphan_bytes, 7);
 	assert_eq!(usage.pending_files, 1);
-	let committed = fs::read(temp.file()).unwrap();
+	let committed = fs::read(file(&temp)).unwrap();
 	fs::remove_file(&path).unwrap();
 	fs::rename(&moved, &path).unwrap();
 	archive.clear().await.unwrap();
-	assert_eq!(fs::read(temp.file()).unwrap(), committed);
+	assert_eq!(fs::read(file(&temp)).unwrap(), committed);
 	assert_eq!(archive.blob_usage().await.unwrap(), BlobUsage::default());
 }
 #[tokio::test]
 async fn uncertain_erase_keeps_bytes_until_the_committed_journal_is_recovered() {
-	let temp = Temp::new();
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let temp = Scratch::create("archive-rust");
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let sources = [Bytes::new(b"private".to_vec())];
 	archive.put_with_files(line("one", &sources), &sources).await.unwrap();
-	let backup = temp.0.join("saved-journal");
-	fs::rename(temp.file(), &backup).unwrap();
-	fs::create_dir(temp.file()).unwrap();
+	let backup = temp.join("saved-journal");
+	fs::rename(file(&temp), &backup).unwrap();
+	fs::create_dir(file(&temp)).unwrap();
 	// The journal write's outcome was never observed, so the caller is told the
 	// state is unknown rather than that the erase failed.
 	assert!(matches!(
 		archive.clear().await.unwrap_err(),
 		rooms_runtime::Error::Uncertain(_)
 	));
-	assert_eq!(fs::read_dir(temp.0.join("blobs")).unwrap().count(), 1);
+	assert_eq!(fs::read_dir(temp.join("blobs")).unwrap().count(), 1);
 	assert!(archive.read(&Filter::default(), 0, 128).await.is_err());
-	fs::remove_dir(temp.file()).unwrap();
-	fs::rename(&backup, temp.file()).unwrap();
+	fs::remove_dir(file(&temp)).unwrap();
+	fs::rename(&backup, file(&temp)).unwrap();
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	assert_eq!(archive.read(&Filter::default(), 0, 128).await.unwrap().records.len(), 1);
 	// The other uncertain outcome: rename really committed an empty journal,
 	// but its final directory sync failed. Old memory and blobs stay untouched.
@@ -156,7 +157,7 @@ async fn uncertain_erase_keeps_bytes_until_the_committed_journal_is_recovered() 
 		assert_eq!(store.blobs.as_ref().unwrap().usage().retained_bytes, 7);
 	}
 	drop(archive);
-	let mut archive = FileArchive::open(&temp.0, Options::default()).await.unwrap();
+	let mut archive = FileArchive::open(&temp, Options::default()).await.unwrap();
 	let empty = archive.read(&Filter::default(), 0, 128).await.unwrap();
 	assert_eq!(empty.next, 1);
 	assert!(empty.records.is_empty());
