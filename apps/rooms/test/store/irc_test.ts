@@ -1,17 +1,9 @@
 // IRC store projection carries bridge facets, seat progress, and network-scoped identity into room state.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import "../support/browser_application.ts";
 import { assert } from "../assert.ts";
 // IRC identity and presence projections in the Rooms UI store.
-
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({
-		matches: false,
-		addEventListener() {},
-		removeEventListener() {},
-	}),
-});
 
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();

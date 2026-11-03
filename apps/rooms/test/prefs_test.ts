@@ -1,11 +1,7 @@
 // Hermetic goldens for page settings. The URL wins when it names a value.
 // Storage fills in when it does not.
+import "./support/match_media.ts";
 import { assertEquals } from "./assert.ts";
-
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 
 const { dmFrom, writeSearch } = await import("../web/ui/prefs.ts");
 const { roomAddress, directoryAddress } = await import("../web/ui/route_address.ts");

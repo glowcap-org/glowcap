@@ -1,15 +1,12 @@
 // Late server admission remains owned, but cannot turn cancellation into a join.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import { assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { initializeApplication } from "../support/application.ts";
 import { OPEN_ROOM_POLICY } from "../../lib/room/policy.ts";
 import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 await initializeApplication();
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { ManagedProjection } = await import("../../web/ui/session/managed/projection.ts");

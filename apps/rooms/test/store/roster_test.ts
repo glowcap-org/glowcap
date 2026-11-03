@@ -1,20 +1,11 @@
 // Roster projection updates membership and bridge attribution without replacing its conversation object.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import "../support/browser_application.ts";
 import { assert } from "../assert.ts";
 
-// Type-only, so it is erased rather than evaluated: every value import here is
-// dynamic and below, because the store reads `matchMedia` as it loads.
+// Type-only, so it is erased rather than evaluated.
 import type { RoomMemberState } from "../../lib/room/presence.ts";
-
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({
-		matches: false,
-		addEventListener() {},
-		removeEventListener() {},
-	}),
-});
 
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();

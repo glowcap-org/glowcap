@@ -45,6 +45,7 @@ import { awaitBubble, openDmTo, say } from "../page/harness.ts";
 import { reapOwned } from "../support/children.ts";
 import { freePort } from "../support/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
+import { until } from "../support/wait.ts";
 /** One record off the endpoint, as the converter takes it, and the shape of
  * one event it produces. Both are open records here: this file states no
  * structure of its own for either, and reads a converted event only through
@@ -327,15 +328,10 @@ async function settles(
 	want: (p: Picture) => boolean,
 	timeoutMs = 30_000,
 ): Promise<void> {
-	const until = Date.now() + timeoutMs;
-	while (Date.now() < until) {
-		if (want(picture)) {
-			console.log(`  ok: ${what} — ${picture.describe()}`);
-			return;
-		}
-		await new Promise((r) => setTimeout(r, 100));
-	}
-	fail(`${what}; the picture held ${picture.describe()}`);
+	await until(() => want(picture), what, timeoutMs).catch(() =>
+		fail(`${what}; the picture held ${picture.describe()}`)
+	);
+	console.log(`  ok: ${what} — ${picture.describe()}`);
 }
 
 /** Give a step that should change NOTHING a moment to prove it. */

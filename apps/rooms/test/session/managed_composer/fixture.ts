@@ -1,13 +1,10 @@
 // One controlled composer viewer: submitted work and editable input have
 // separate owners, so tests can settle either side in any order.
+import "../../support/match_media.ts";
 import type { ManagedRoomsSession } from "../../../web/ui/session/managed/session.ts";
 import type { ManagedOperation } from "../../../web/ui/session/managed/operation.ts";
 import type { CommandPowers } from "../../../web/ui/commands.ts";
 import { CompletedLine, type LineResult } from "../../../web/ui/session/managed/completed_line.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 export const store = await import("../../../web/ui/store.ts");
 const { RoomsPage } = await import("../../../web/ui/page.ts");
 const { dirId } = await import("../../../web/ui/types.ts");

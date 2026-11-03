@@ -1,11 +1,7 @@
 // Attached archive projection preserves record identity, file custody, and bounded hydration across rereads.
 /// <reference lib="dom" />
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
-
+import "../support/match_media.ts";
 const {
 	AttachedSessionFiles,
 } = await import("../../web/ui/session/attached_files.ts");

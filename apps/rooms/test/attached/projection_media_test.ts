@@ -1,11 +1,7 @@
 // Attached media projection starts only the bounded automatic fetches its policy permits.
 /// <reference lib="dom" />
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
-
+import "../support/match_media.ts";
 const { AttachedLineProjection } = await import("../../web/ui/session/line_projection.ts");
 const store = await import("../../web/ui/store.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");

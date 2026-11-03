@@ -28,6 +28,7 @@ import { type Browser, type BrowserContext, chromium, type Page } from "playwrig
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
 import { freePort } from "../support/ports.ts";
+import { roomLocator } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, openDmTo, reachDirectoryOnCard } from "../page/harness.ts";
 
@@ -52,22 +53,6 @@ function serveRooms(httpPort: number, roomPort: number, reaches?: number): Deno.
 		stdout: "null",
 		stderr: "inherit",
 	});
-}
-
-// The directory locator a page is serving, once it has one, which is also how
-// the page proves both halves are up.
-async function roomLocator(port: number, who: string): Promise<string> {
-	for (let i = 0; i < 400; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			const said = (await res.text()).trim();
-			if (res.status === 200 && said.length > 0) return said;
-		} catch {
-			// not up / room not ready yet status-allow: pending state or quoted runtime label
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail(`${who} did not answer with a room locator`);
 }
 
 // Join `ROOM` as `nick` in a fresh, isolated tab. `directory` is the locator to

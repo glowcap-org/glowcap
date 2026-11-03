@@ -1,13 +1,10 @@
 // History feedback and late replies follow the exact managed conversation.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import { assertEquals } from "../assert.ts";
 import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
 import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const { ManagedHistory } = await import("../../web/ui/session/managed/history.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const store = await import("../../web/ui/store.ts");
@@ -353,10 +350,6 @@ import { snapshot, viewer } from "../support/managed_viewer.ts";
 Deno.test("managed history hydrates only changed exact conversations and archive selections", async () => {
 	const { initializeApplication } = await import("../support/application.ts");
 	await initializeApplication();
-	Object.defineProperty(globalThis, "matchMedia", {
-		configurable: true,
-		value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-	});
 	const [{ ManagedHistory }, { RoomsPage }, store, { dirId }] = await Promise.all([
 		import("../../web/ui/session/managed/history.ts"),
 		import("../../web/ui/page.ts"),

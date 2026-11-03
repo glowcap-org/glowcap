@@ -1,5 +1,6 @@
 // Exercise the production presentation owner with managed workspace intent and activity.
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import { assert, assertEquals } from "../assert.ts";
 import type { ActivityPage } from "../../web/ui/session/managed/model.ts";
 import type { RoomInfo } from "../../lib/directory_publications.ts";
@@ -7,10 +8,6 @@ import type { Presence } from "../../lib/room/presence.ts";
 import { initializeApplication } from "../support/application.ts";
 import { ROOM_SENDER } from "../../lib/protocol_data.ts";
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const store = await import("../../web/ui/store.ts");
 const { dirId } = await import("../../web/ui/types.ts");
 await initializeApplication();

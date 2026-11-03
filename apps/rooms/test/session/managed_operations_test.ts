@@ -1,14 +1,11 @@
 // Loaded inventories must follow exact custody and the latest requested query.
+import "../support/match_media.ts";
 import { ManagedReads } from "../../web/ui/session/managed/reads.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { RoomsPageContext } from "../../web/ui/page.ts";
 
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { managedOperations } = await import("../../web/ui/session/managed/operations.ts");
 const { ManagedProjection } = await import("../../web/ui/session/managed/projection.ts");

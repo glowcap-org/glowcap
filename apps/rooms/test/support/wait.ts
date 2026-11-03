@@ -14,10 +14,12 @@ export const delay = (ms: number): Promise<void> => new Promise((resolve) => set
  * test should depend on passes here. */
 export const settled = (): Promise<void> => delay(0);
 
-/** Poll `ready` until it holds, or fail after `ms` naming `what`. */
-export async function until(ready: () => boolean, what: string, ms = 30_000): Promise<void> {
+/** Poll `ready` until it holds, or fail after `ms` naming `what`. `ready` may
+ * look something up, so it may answer late: each answer is awaited before the
+ * deadline is read again. */
+export async function until(ready: () => boolean | Promise<boolean>, what: string, ms = 30_000): Promise<void> {
 	const deadline = Date.now() + ms;
-	while (!ready()) {
+	while (!(await ready())) {
 		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
 		await delay(50);
 	}

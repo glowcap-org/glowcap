@@ -2,11 +2,8 @@
 // and regrow when one comes back. The delay is the test's to run out, so
 // nothing here waits on a clock.
 /// <reference lib="dom" />
+import "./support/match_media.ts";
 import { assertEquals } from "./assert.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const { PageProjection } = await import("../web/ui/store/projection.ts");
 const { forgetDir, openDir, setDirSession } = await import("../web/ui/store/dirs.ts");
 const { bindGroundToConnections } = await import("../web/ui/mycelium/link.ts");

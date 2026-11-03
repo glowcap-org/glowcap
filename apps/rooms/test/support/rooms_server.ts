@@ -167,21 +167,27 @@ export async function withPeeringServer(
 	}
 }
 
-/** Wait until `rooms-web` answers `/locator` on `port`, or throw. The front
- * answers only once the room it supervises has announced, so this is the one
- * probe that means "serving and useful". */
-export async function waitForHttp(port: number): Promise<void> {
+/** Wait until the Rooms front on `port` answers `/locator` with a locator, and
+ * return it trimmed. The front answers only once the room it supervises has
+ * announced, so this is the one probe that means "serving and useful". `who`
+ * names the front in the sentence a timeout reports. */
+export async function roomLocator(port: number, who = "rooms-web"): Promise<string> {
 	for (let i = 0; i < 400; i++) {
 		try {
 			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			await res.body?.cancel();
-			if (res.status === 200) return;
+			const said = (await res.text()).trim();
+			if (res.status === 200 && said.length > 0) return said;
 		} catch {
 			// not up / room not ready yet status-allow: pending state or quoted runtime label
 		}
 		await delay(50);
 	}
-	throw new Error("rooms-web did not answer with a room locator");
+	throw new Error(`${who} did not answer with a room locator`);
+}
+
+/** Wait until `rooms-web` answers `/locator` on `port`, or throw. */
+export async function waitForHttp(port: number): Promise<void> {
+	await roomLocator(port);
 }
 
 /** Restart a stateful server on the port it held before. The number comes from

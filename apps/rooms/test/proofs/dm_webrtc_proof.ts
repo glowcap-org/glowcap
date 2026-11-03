@@ -28,6 +28,7 @@ import { reapOwned } from "../support/children.ts";
 import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
 import { freePort } from "../support/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
+import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, openDmTo } from "../page/harness.ts";
 
@@ -134,11 +135,7 @@ try {
 	// carries the same application message. The live product timeline must have
 	// observed the actual browser-to-browser WebRTC session, and no keyed-relay
 	// session may have stood in for it.
-	const until = Date.now() + 5_000;
-	while (!sawWebrtc && Date.now() < until) {
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	if (!sawWebrtc) fail("the messages arrived but the live timeline observed no webrtc session");
+	await until(() => sawWebrtc, "the live timeline to observe a webrtc session after the messages arrived", 5_000);
 	if (sawRelay) fail("the WebRTC proof opened a keyed-relay session");
 
 	console.log(

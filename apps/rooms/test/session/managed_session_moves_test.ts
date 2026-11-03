@@ -4,13 +4,10 @@
 // stopped session behind the button, and every retry would meet "This
 // workspace is closed".
 /// <reference lib="dom" />
+import "../support/match_media.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { snapshot } from "../support/managed_viewer.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { createRoomsBrowserController } = await import("../../web/ui/controller/create_browser.ts");
 const { managedWorkspaceActions } = await import("../../web/ui/session/managed/workspace.ts");
