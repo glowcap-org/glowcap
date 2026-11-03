@@ -254,6 +254,74 @@ pub fn AcceptServeOne(
     };
 }
 
+/// Accept, attend, and serve up to `capacity` sessions from one thread until
+/// `done`: take a pending connection when one is waiting, otherwise step the
+/// server's runtime, which serves every attended session. A connection past
+/// `capacity` is `error.TooManySessions`, so a driver that expects an exact
+/// count passes it as the capacity and compares the returned count for the
+/// missing side. The sessions close on return.
+pub fn serveAccepted(server: *driver.Server, done: *std.atomic.Value(bool), comptime capacity: usize) anyerror!usize {
+    var sessions: [capacity]*driver.Session = undefined;
+    var accepted: usize = 0;
+    defer for (sessions[0..accepted]) |session| session.deinit();
+    while (!done.load(.acquire)) {
+        if (try server.waitAcceptable(0)) {
+            if (accepted == capacity) return error.TooManySessions;
+            sessions[accepted] = try server.accept();
+            accepted += 1;
+            // An accepted session dispatches nothing until its owner attends.
+            try sessions[accepted - 1].attend();
+            continue;
+        }
+        _ = try server.runtime.stepAny(10);
+    }
+    return accepted;
+}
+
+/// How many sessions a party of the three-party redeem drivers serves: the
+/// introducing party takes the recipient, and the exporter takes the gifter and
+/// the recipient's redeem.
+const redeem_sessions = 4;
+
+/// Accept and serve every session of a three-party redeem party until `done`.
+pub fn serveAll(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+    _ = try serveAccepted(server, done, redeem_sessions);
+}
+
+/// The gifter's published `introducer`: answers `introduce` with the widget
+/// it fetched from the exporter.
+pub const Introducer = struct {
+    widget: driver.Capability,
+
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
+        defer ht.releaseArguments(args);
+        const verb = selector orelse return error.NoSuchMethod;
+        if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
+        return .{ .capability = self.widget };
+    }
+};
+
+/// G: fetch E's widget over G's own runtime, publish the introducer, serve.
+/// `ready` is set once setup finished or failed and `published` only on
+/// success, so the driver waits on `ready` and then checks `published`.
+pub fn serveGifter(
+    gifter: *driver.Server,
+    exporter_locator: model.PeerLocator,
+    ready: *std.atomic.Value(bool),
+    published: *std.atomic.Value(bool),
+    done: *std.atomic.Value(bool),
+) anyerror!void {
+    defer ready.store(true, .release);
+    const to_exporter = try gifter.runtime.connectLocator(exporter_locator, .inherit);
+    const exporter = try driver.Session.adopt(gifter.runtime, to_exporter);
+    defer exporter.deinit();
+    const widget = try exporter.fetch("widget");
+    try gifter.publish("introducer", Introducer, .{ .widget = widget });
+    published.store(true, .release);
+    ready.store(true, .release);
+    try serveAll(gifter, done);
+}
+
 /// A Tor daemon a driver starts and owns, for the live onion checks. It lives in
 /// its own file because it is a process bracket rather than a CapTP helper.
 pub const Tor = @import("tor.zig").Tor;

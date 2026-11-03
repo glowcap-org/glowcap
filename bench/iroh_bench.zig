@@ -281,14 +281,10 @@ fn callOnce(session: *driver.Session, greeter: driver.Capability, call: Call, ar
     };
 }
 
-fn lessThan(_: void, a: u64, b: u64) bool {
-    return a < b;
-}
-
 /// Sort `samples` in place and print one structured `roundtrip` line: the median
 /// and 99th-percentile latency, the mean, and the reciprocal-of-mean throughput.
 fn report(transport: []const u8, call: []const u8, warmup: usize, samples: []u64) void {
-    std.mem.sort(u64, samples, {}, lessThan);
+    std.mem.sort(u64, samples, {}, std.sort.asc(u64));
     const n = samples.len;
     var sum: u128 = 0;
     for (samples) |s| sum += s;

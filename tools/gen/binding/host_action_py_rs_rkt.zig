@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const ha = @import("host_action.zig");
+const render = @import("racket_ffi_render.zig");
 
 pub fn generatePython(gpa: std.mem.Allocator) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
@@ -396,7 +397,7 @@ pub fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
     );
     inline for (ha.arms) |arm| {
         try out.appendSlice(gpa, "         HOST-ACTION-");
-        try ha.writeUpperKebab(&out, gpa, arm.name);
+        try render.writeRacketized(gpa, &out, arm.name);
         try out.appendSlice(gpa, "\n");
     }
     try out.appendSlice(gpa,
@@ -408,7 +409,7 @@ pub fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
     );
     inline for (ha.arms) |arm| {
         try out.appendSlice(gpa, "(define HOST-ACTION-");
-        try ha.writeUpperKebab(&out, gpa, arm.name);
+        try render.writeRacketized(gpa, &out, arm.name);
         try out.print(gpa, " {d})\n", .{arm.value});
     }
     try out.appendSlice(gpa,
@@ -447,7 +448,7 @@ pub fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
 
 fn emitRacketDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Arm) !void {
     try out.appendSlice(gpa, "    [(= kind HOST-ACTION-");
-    try ha.writeUpperKebab(out, gpa, arm.name);
+    try render.writeRacketized(gpa, out, arm.name);
     try out.appendSlice(gpa, ")\n");
     switch (arm.shape) {
         .none => try out.print(gpa,

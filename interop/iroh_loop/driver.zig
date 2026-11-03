@@ -70,20 +70,7 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) a
 /// Accept every client and serve them all from this one thread until the
 /// main thread has joined the clients.
 fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    var sessions: [num_conns]*driver.Session = undefined;
-    var accepted: usize = 0;
-    defer for (sessions[0..accepted]) |session| session.deinit();
-    while (!done.load(.acquire)) {
-        if (accepted < num_conns and try server.waitAcceptable(0)) {
-            sessions[accepted] = try server.accept();
-            accepted += 1;
-            // An accepted session dispatches nothing until its owner attends.
-            try sessions[accepted - 1].attend();
-            continue;
-        }
-        _ = try server.runtime.stepAny(10);
-    }
-    if (accepted != num_conns) return error.MissingAccepts;
+    if (try harness.serveAccepted(server, done, num_conns) != num_conns) return error.MissingAccepts;
 }
 
 pub fn main(init: std.process.Init) !void {

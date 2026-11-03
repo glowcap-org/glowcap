@@ -455,12 +455,8 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
         times[i] = @as(f64, @floatFromInt(clock.nowNs(ctx.io) - t0)) / 1_000_000.0;
         child.kill(ctx.io);
     }
-    std.sort.pdq(f64, times, {}, lessThanF64);
+    std.sort.pdq(f64, times, {}, std.sort.asc(f64));
     return std.fmt.allocPrint(ctx.arena, "{d:.2}", .{percentile(times, 0.50)});
-}
-
-fn lessThanF64(_: void, a: f64, b: f64) bool {
-    return a < b;
 }
 
 /// Nearest-rank percentile (1-indexed ceil) over an ascending-sorted slice.

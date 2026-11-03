@@ -88,3 +88,24 @@ pub fn interopHarnessModule(
     mod.addImport("support_wait", wait_mod);
     return mod;
 }
+
+/// The C ABI glue the two driver-provider seam proofs share
+/// (`interop/_common/zig/driver_provider.zig`), imported as
+/// `interop_driver_provider`. It reads the `c_abi_shared` and `c_abi_driver`
+/// instances the proof itself imports, so every export lands once.
+pub fn interopDriverProviderModule(
+    b: *std.Build,
+    t: std.Build.ResolvedTarget,
+    o: std.builtin.OptimizeMode,
+    c_abi_shared: *std.Build.Module,
+    c_abi_driver: *std.Build.Module,
+) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path("interop/_common/zig/driver_provider.zig"),
+        .target = t,
+        .optimize = o,
+    });
+    mod.addImport("c_abi_shared", c_abi_shared);
+    mod.addImport("c_abi_driver", c_abi_driver);
+    return mod;
+}

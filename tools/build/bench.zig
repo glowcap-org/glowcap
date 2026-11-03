@@ -99,6 +99,7 @@ pub fn register(
 
     for (benches) |bench| {
         const exe = glowcapExecutable(b, lib_mod, target, optimize, bench.name, bench.path);
+        addTestSupport(b, exe.root_module, lib_mod, target, optimize);
         if (bench.needs_persistent) {
             exe.root_module.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
         }
@@ -112,12 +113,14 @@ pub fn register(
         if (bench.profile_step) |step_name| {
             const module = b.createModule(profiles.moduleOptions(b, bench.path));
             module.addImport("glowcap", profiles.module("glowcap"));
+            addTestSupport(b, module, profiles.module("glowcap"), profiles.target, profile_build.Profiles.optimize);
             const profiled = b.addExecutable(.{ .name = b.fmt("{s}-profile", .{bench.name}), .root_module = module });
             b.step(step_name, b.fmt("Profile {s} under callgrind: self cost per file and function for each marked phase (needs valgrind)", .{bench.step_name})).dependOn(profile_build.addRun(b, profiles, profiled));
         }
 
         if (bench.gate_on_check) {
             const gate_exe = glowcapExecutable(b, fast_lib_mod, target, .ReleaseFast, b.fmt("{s}-gate", .{bench.name}), bench.path);
+            addTestSupport(b, gate_exe.root_module, fast_lib_mod, target, .ReleaseFast);
             const gate = execution.addArtifact(b, .{ .deterministic = 30 }, gate_exe);
             gate.addArg("--gate");
             perf_check_step.dependOn(&gate.step);
@@ -132,4 +135,20 @@ pub fn register(
             }
         }
     }
+}
+
+/// The allocation meters and the warm inbound turn the budget tests drive,
+/// imported by the benches that quote the same figures. Each import is built in
+/// the importing module's optimize mode over the `glowcap` module it measures.
+fn addTestSupport(
+    b: *std.Build,
+    module: *std.Build.Module,
+    glowcap: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    module.addImport("alloc_metrics", b.createModule(.{ .root_source_file = b.path("test/support/alloc_metrics.zig"), .target = target, .optimize = optimize }));
+    const warm_turn = b.createModule(.{ .root_source_file = b.path("test/support/warm_turn.zig"), .target = target, .optimize = optimize });
+    warm_turn.addImport("glowcap", glowcap);
+    module.addImport("warm_turn", warm_turn);
 }

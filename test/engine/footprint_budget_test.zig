@@ -32,14 +32,8 @@ const glowcap = @import("glowcap");
 const engine = glowcap.ocapn.engine;
 const foundation = glowcap.foundation;
 const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllocator;
+const driveOneTurn = @import("../support/warm_turn.zig").driveOneTurn;
 const copyFromBorrowed = @import("../support/frame.zig").copyFromBorrowed;
-
-/// One inbound no-answer (`#f` answer position) `op:deliver` to live local
-/// export 7 carrying one inline bytes argument. Driving it once grows a peer's
-/// event/queue and table backing arrays to their warmed size, so the measured
-/// footprint reflects a connection that has carried traffic, not a bare
-/// `init`. Same warmed turn the steady-state allocation budget pins.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// The committed per-connection core-state ceiling. The inline struct budget is
 /// the compiler-held half (`engine.peer_session_struct_budget_bytes`). This is
@@ -48,13 +42,13 @@ const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 /// nudge up.
 const warmed_total_budget_bytes: u64 = 2048;
 
+/// Register export 7 and drive the warm turn the steady-state allocation budget
+/// pins once, which grows the peer's event/queue and table backing arrays to
+/// their warmed size, so the measured footprint reflects a connection that has
+/// carried traffic, not a bare `init`.
 fn warmPeer(peer: *engine.Peer) !void {
     try peer.session_state.registerExport(.from(7));
-    try peer.recvBorrowed(.{ .bytes = deliver_to_live_export, .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
+    try driveOneTurn(peer);
 }
 
 test "a warmed session holds its per-connection footprint budget" {

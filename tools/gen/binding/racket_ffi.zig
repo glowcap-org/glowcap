@@ -238,7 +238,9 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
     );
     inline for (ci.symbols.symbols) |row| {
         if (row.racket_omit == null) {
-            const key = comptime irohKey(row.name);
+            var key: std.ArrayList(u8) = .empty;
+            defer key.deinit(gpa);
+            try render.writeRacketized(gpa, &key, row.name["glowcap_iroh_".len..]);
             const sig = comptime render.funSig(ci, row, &.{});
             const slots = comptime render.slotIndexes(ci, row);
             if (comptime std.mem.eql(u8, row.name, "glowcap_iroh_netlayer_new")) {
@@ -253,7 +255,7 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
                     \\       (call/out _pointer #f
                     \\         (lambda (out)
                     \\           (call/without-diagnostic raw seed seed-len config out)))))
-                , .{ key, sig });
+                , .{ key.items, sig });
             } else if (comptime std.mem.eql(u8, row.name, "glowcap_iroh_netlayer_release")) {
                 try out.print(gpa,
                     \\
@@ -261,31 +263,21 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
                     \\   (let ([raw (get-ffi-obj 'glowcap_iroh_netlayer_release L {s})])
                     \\     (lambda (netlayer)
                     \\       (call/without-diagnostic raw netlayer)))
-                , .{ key, sig });
+                , .{ key.items, sig });
             } else if (slots.len == 0) {
-                try out.print(gpa, "\n   '{s}\n   (get-ffi-obj '{s} L {s})", .{ key, row.name, sig });
+                try out.print(gpa, "\n   '{s}\n   (get-ffi-obj '{s} L {s})", .{ key.items, row.name, sig });
             } else {
                 // Every out-bearing iroh row has exactly one trailing cell.
                 comptime std.debug.assert(slots.len == 1);
                 const info = @typeInfo(@TypeOf(@field(ci, row.name))).@"fn";
                 comptime std.debug.assert(slots[0] == info.param_types.len - 1);
                 const cell = comptime render.slotCell(info.param_types[slots[0]].?).?;
-                try out.print(gpa, "\n   '{s}\n   (wrap-out1 (get-ffi-obj '{s} L {s})\n              {s} {s})", .{ key, row.name, sig, cell.ctype, cell.init });
+                try out.print(gpa, "\n   '{s}\n   (wrap-out1 (get-ffi-obj '{s} L {s})\n              {s} {s})", .{ key.items, row.name, sig, cell.ctype, cell.init });
             }
         }
     }
     try out.appendSlice(gpa, "))\n");
     return out.toOwnedSlice(gpa);
-}
-
-/// `glowcap_iroh_netlayer_drain_ready` → `netlayer-drain-ready`.
-fn irohKey(comptime name: []const u8) []const u8 {
-    const stripped = name["glowcap_iroh_".len..];
-    comptime var s: []const u8 = "";
-    inline for (stripped) |ch| {
-        s = s ++ &[_]u8{if (ch == '_') '-' else ch};
-    }
-    return s;
 }
 
 fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
@@ -313,32 +305,25 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
     );
     inline for (cw.symbols.symbols) |row| {
         if (row.racket_omit == null) {
-            const key = comptime webrtcKey(row.name);
+            var key: std.ArrayList(u8) = .empty;
+            defer key.deinit(gpa);
+            try render.writeRacketized(gpa, &key, row.name["glowcap_webrtc_".len..]);
             const sig = comptime render.funSig(cw, row, &.{});
             const slots = comptime render.slotIndexes(cw, row);
             if (slots.len == 0) {
-                try out.print(gpa, "\n   '{s}\n   (get-ffi-obj '{s} L {s})", .{ key, row.name, sig });
+                try out.print(gpa, "\n   '{s}\n   (get-ffi-obj '{s} L {s})", .{ key.items, row.name, sig });
             } else {
                 // Every out-bearing webrtc row has exactly one trailing cell.
                 comptime std.debug.assert(slots.len == 1);
                 const info = @typeInfo(@TypeOf(@field(cw, row.name))).@"fn";
                 comptime std.debug.assert(slots[0] == info.param_types.len - 1);
                 const cell = comptime render.slotCell(info.param_types[slots[0]].?).?;
-                try out.print(gpa, "\n   '{s}\n   (wrap-out1 (get-ffi-obj '{s} L {s})\n              {s} {s})", .{ key, row.name, sig, cell.ctype, cell.init });
+                try out.print(gpa, "\n   '{s}\n   (wrap-out1 (get-ffi-obj '{s} L {s})\n              {s} {s})", .{ key.items, row.name, sig, cell.ctype, cell.init });
             }
         }
     }
     try out.appendSlice(gpa, "))\n");
     return out.toOwnedSlice(gpa);
-}
-
-fn webrtcKey(comptime name: []const u8) []const u8 {
-    const stripped = name["glowcap_webrtc_".len..];
-    comptime var s: []const u8 = "";
-    inline for (stripped) |ch| {
-        s = s ++ &[_]u8{if (ch == '_') '-' else ch};
-    }
-    return s;
 }
 
 fn generateRelay(gpa: std.mem.Allocator) ![]u8 {

@@ -42,6 +42,7 @@ const cw = @import("c_abi_net_transport_webrtc");
 const co = @import("c_abi_net_transport_onion");
 
 const Output = @import("output").Output;
+const render = @import("racket_ffi_render.zig");
 
 pub const step_name = "gen-binding-ffi-layouts";
 
@@ -279,7 +280,7 @@ fn writeConstName(
     stem: []const u8,
     suffix: []const u8,
 ) !void {
-    for (stem) |ch| try out.append(gpa, if (ch == '_') '-' else ch);
+    try render.writeRacketized(gpa, out, stem);
     try out.appendSlice(gpa, suffix);
 }
 

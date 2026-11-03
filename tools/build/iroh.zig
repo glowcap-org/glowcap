@@ -308,6 +308,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
             .{ .name = "c_abi_driver", .module = driver_abi_mod },
         };
 
+        const driver_provider_mod = modules.interopDriverProviderModule(b, target, optimize, host_mods[layerIndex("c_abi_shared")], driver_abi_mod);
+
         // Hermetic compile-only object (no sidecar), rides `check`.
         const seam_compile_mod = b.createModule(.{
             .root_source_file = b.path(seam_source),
@@ -316,6 +318,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         });
         for (seam_imports) |imp| seam_compile_mod.addImport(imp.name, imp.module);
         seam_compile_mod.addImport("interop_harness", interop_harness_mod);
+        seam_compile_mod.addImport("interop_driver_provider", driver_provider_mod);
         seam_compile_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
         const seam_compile = b.addObject(.{ .name = "glowcap-iroh-driver-provider-compile", .root_module = seam_compile_mod });
         check_step.dependOn(&seam_compile.step);
@@ -328,6 +331,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         });
         for (seam_imports) |imp| seam_run_mod.addImport(imp.name, imp.module);
         seam_run_mod.addImport("interop_harness", interop_harness_mod);
+        seam_run_mod.addImport("interop_driver_provider", driver_provider_mod);
         seam_run_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
         linkIrohSidecar(b, seam_run_mod, target, sidecar_archive);
         const seam_exe = b.addExecutable(.{ .name = "glowcap-iroh-driver-provider", .root_module = seam_run_mod });

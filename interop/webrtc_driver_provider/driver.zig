@@ -13,6 +13,7 @@
 
 const std = @import("std");
 
+const driver_provider = @import("interop_driver_provider");
 const cs = @import("c_abi_shared");
 const ch = @import("c_abi_host");
 const cd = @import("c_abi_driver");
@@ -49,39 +50,12 @@ fn expectOk(rc: i32) !void {
     return error.CAbiCallFailed;
 }
 
-fn reportCleanup(label: []const u8, rc: i32) void {
-    expectOk(rc) catch |err| std.log.err("{s}: {s}", .{ label, @errorName(err) });
-}
-
-fn reportDriverFailure(label: []const u8, rc: i32, failure: cd.GlowcapDriverFailure) void {
-    if (rc == cs.GLOWCAP_OK) return;
-    const primary = if (failure.primary_name) |name| name[0..failure.primary_name_len] else "missing failure";
-    std.log.err("{s}: {s} ({d})", .{ label, primary, rc });
-    if (failure.secondary_name) |name| {
-        std.log.err("{s}: cleanup: {s} ({d} consequences)", .{
-            label,
-            name[0..failure.secondary_name_len],
-            failure.secondary_count,
-        });
-    }
-}
+const glue = driver_provider.Glue(expectOk);
 
 fn addDriverProvider(loop: ?*cd.GlowcapDriverLoop, provider: *const cs.GlowcapTransportProvider) !void {
     var failure = cd.GlowcapDriverFailure.init();
     const rc = cd.glowcap_driver_add_provider(loop, provider, &failure);
-    reportDriverFailure("WebRTC driver provider installation failed", rc, failure);
-    try expectOk(rc);
-}
-
-fn releaseDriver(label: []const u8, loop: ?*cd.GlowcapDriverLoop) void {
-    var failure = cd.GlowcapDriverFailure.init();
-    const rc = cd.glowcap_driver_release(loop, &failure);
-    reportDriverFailure(label, rc, failure);
-    reportCleanup(label, rc);
-}
-
-fn expectStep(rc: i32) !void {
-    if (rc == cs.GLOWCAP_OK or rc == cs.GLOWCAP_ERR_WOULD_BLOCK) return;
+    driver_provider.reportDriverFailure("WebRTC driver provider installation failed", rc, failure);
     try expectOk(rc);
 }
 
@@ -99,7 +73,7 @@ fn newHostLoop(seed: *const [64]u8, advertise: bool) !?*cd.GlowcapDriverLoop {
         1,
         &host,
     ));
-    errdefer reportCleanup("WebRTC host rollback failed", ch.glowcap_host_release(host));
+    errdefer glue.reportCleanup("WebRTC host rollback failed", ch.glowcap_host_release(host));
 
     if (advertise) {
         try expectOk(ch.glowcap_host_ensure_advertised_locator(host, transport, transport.len));
@@ -265,16 +239,16 @@ pub fn main(init: std.process.Init) !void {
 
     var carrier = signaling.Carrier{ .answerer_designator = &answerer_designator };
     const offerer_netlayer = try newNetlayer(carrier.signaling());
-    defer reportCleanup("WebRTC offerer netlayer teardown failed", cw.glowcap_webrtc_netlayer_release(offerer_netlayer));
+    defer glue.reportCleanup("WebRTC offerer netlayer teardown failed", cw.glowcap_webrtc_netlayer_release(offerer_netlayer));
     var acceptor = signaling.Acceptor{ .offerer_designator = &offerer_designator };
     const answerer_netlayer = try newNetlayer(acceptor.signaling());
-    defer reportCleanup("WebRTC answerer netlayer teardown failed", cw.glowcap_webrtc_netlayer_release(answerer_netlayer));
+    defer glue.reportCleanup("WebRTC answerer netlayer teardown failed", cw.glowcap_webrtc_netlayer_release(answerer_netlayer));
 
     const offerer_loop = try newHostLoop(&offerer_seed, false);
     var offerer_loop_released = false;
-    defer if (!offerer_loop_released) releaseDriver("WebRTC offerer driver teardown failed", offerer_loop);
+    defer if (!offerer_loop_released) glue.releaseDriver("WebRTC offerer driver teardown failed", offerer_loop);
     const answerer_loop = try newHostLoop(&answerer_seed, true);
-    defer releaseDriver("WebRTC answerer driver teardown failed", answerer_loop);
+    defer glue.releaseDriver("WebRTC answerer driver teardown failed", answerer_loop);
 
     var offerer_provider: cs.GlowcapTransportProvider = undefined;
     try expectOk(cw.glowcap_webrtc_transport_provider(offerer_netlayer, &offerer_provider));
@@ -302,7 +276,7 @@ pub fn main(init: std.process.Init) !void {
     var sessions_served = false;
     var rounds: usize = 0;
     while (!offerer.fetch_settled and rounds < 4_000) : (rounds += 1) {
-        try expectStep(cd.glowcap_driver_step(answerer_loop, 1));
+        try glue.expectStep(cd.glowcap_driver_step(answerer_loop, 1));
         try drainEvents(&answerer);
         // The offer waits until the listener is ready to take it.
         if (answerer.listener_ready) try signaling.carry(&carrier, &acceptor, offerer_netlayer, answerer_netlayer);
@@ -323,7 +297,7 @@ pub fn main(init: std.process.Init) !void {
             }
         }
 
-        try expectStep(cd.glowcap_driver_step(offerer_loop, 1));
+        try glue.expectStep(cd.glowcap_driver_step(offerer_loop, 1));
         try drainEvents(&offerer);
         if (offerer.failed) return error.OffererDialFailed;
         if (offerer.session) |session| {
@@ -360,7 +334,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Releasing the loop cancels the dial in flight, and the provider says so.
     offerer_loop_released = true;
-    releaseDriver("WebRTC offerer driver teardown failed", offerer_loop);
+    glue.releaseDriver("WebRTC offerer driver teardown failed", offerer_loop);
     if (carrier.done_count != 2 or carrier.done_exchanges[1] != carrier.absent_exchange.?) return error.PendingDialNotCancelled;
     std.debug.print("webrtc-driver-provider: OK - the generic driver dials and listens through the WebRTC provider, owns both byte paths and authenticated fetch provenance, and cancels a dial it releases\n", .{});
 }

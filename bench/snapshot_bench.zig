@@ -369,12 +369,6 @@ const ReportData = struct {
     diverge: []const DivRow,
 };
 
-fn appendFmt(b: *std.ArrayList(u8), gpa: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
-    const s = try std.fmt.allocPrint(gpa, fmt, args);
-    defer gpa.free(s);
-    try b.appendSlice(gpa, s);
-}
-
 fn writeReport(gpa: std.mem.Allocator, io: std.Io, data: ReportData) !void {
     var b: std.ArrayList(u8) = .empty;
     defer b.deinit(gpa);
@@ -397,7 +391,7 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, data: ReportData) !void {
         \\
     );
     for (data.by_objects) |s| {
-        try appendFmt(&b, gpa, "| {d} | {d} | {d} | {d:.1} | {d} |\n", .{ s.k, s.m, s.snapshot_ns, nsPerObject(s.snapshot_ns, s.k), s.restore_ns });
+        try b.print(gpa, "| {d} | {d} | {d} | {d:.1} | {d} |\n", .{ s.k, s.m, s.snapshot_ns, nsPerObject(s.snapshot_ns, s.k), s.restore_ns });
     }
 
     try b.appendSlice(gpa,
@@ -410,7 +404,7 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, data: ReportData) !void {
         \\
     );
     for (data.by_bytes) |s| {
-        try appendFmt(&b, gpa, "| {d} | {d} | {d} | {d:.1} |\n", .{ s.k, s.m, s.snapshot_ns, nsPerObject(s.snapshot_ns, s.k) });
+        try b.print(gpa, "| {d} | {d} | {d} | {d:.1} |\n", .{ s.k, s.m, s.snapshot_ns, nsPerObject(s.snapshot_ns, s.k) });
     }
 
     try b.appendSlice(gpa,
@@ -427,7 +421,7 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, data: ReportData) !void {
         \\
     );
     for (data.diverge) |d| {
-        try appendFmt(&b, gpa, "| {d} | {d} | {d} |\n", .{ d.n, d.mutable_ns, d.persistent_ns });
+        try b.print(gpa, "| {d} | {d} | {d} |\n", .{ d.n, d.mutable_ns, d.persistent_ns });
     }
 
     try b.appendSlice(gpa, "\n");

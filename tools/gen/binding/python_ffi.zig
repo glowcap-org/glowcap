@@ -34,6 +34,7 @@ pub const outputs = [_]Output{
 
 /// `module.GlowcapIrohConfig` → `GlowcapIrohConfig`.
 const baseName = @import("reflect").baseName;
+const isIdent = @import("header_names.zig").isIdent;
 
 /// `GlowcapDialPlan` -> `_DialPlan`, the hand mirrors' naming rule.
 fn mirrorName(comptime T: type) []const u8 {
@@ -120,10 +121,6 @@ fn containsToken(hay: []const u8, token: []const u8) bool {
         return true;
     }
     return false;
-}
-
-fn isIdent(ch: u8) bool {
-    return (ch >= 'a' and ch <= 'z') or (ch >= 'A' and ch <= 'Z') or (ch >= '0' and ch <= '9') or ch == '_';
 }
 
 /// One local alias a generated function may open with. `also`: a derived

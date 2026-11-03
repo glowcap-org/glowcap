@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const p = @import("../rooms_protocol.zig");
+const render = @import("../binding/racket_ffi_render.zig");
 
 const Out = std.ArrayList(u8);
 
@@ -61,12 +62,12 @@ fn writeProvide(out: *Out, gpa: std.mem.Allocator) !void {
     try out.appendSlice(gpa, "\n  MEMBERSHIP-VERBS\n");
     for (std.enums.values(p.Enumeration)) |enumeration| {
         try out.appendSlice(gpa, "  ");
-        try p.writeKebab(out, gpa, enumeration.stem());
+        try render.writeRacketized(gpa, out, enumeration.stem());
         try out.append(gpa, '\n');
     }
     for (std.enums.values(p.Fields)) |list| {
         try out.appendSlice(gpa, "  ");
-        try p.writeKebab(out, gpa, list.stem());
+        try render.writeRacketized(gpa, out, list.stem());
         try out.append(gpa, '\n');
     }
     try out.appendSlice(gpa, "  WATCH-KINDS\n  ROOM-TAILS\n  REGISTRATION-ID-RX)\n\n");
@@ -91,7 +92,7 @@ fn writeVocabulary(out: *Out, gpa: std.mem.Allocator) !void {
     try out.append(gpa, '\n');
     for (std.enums.values(p.Enumeration)) |enumeration| {
         try out.appendSlice(gpa, "(define ");
-        try p.writeKebab(out, gpa, enumeration.stem());
+        try render.writeRacketized(gpa, out, enumeration.stem());
         try out.append(gpa, ' ');
         try writeStrings(out, gpa, enumeration.values());
         try out.appendSlice(gpa, ")\n");
@@ -102,12 +103,12 @@ fn writeVocabulary(out: *Out, gpa: std.mem.Allocator) !void {
 fn writeFieldLists(out: *Out, gpa: std.mem.Allocator) !void {
     for (std.enums.values(p.Fields)) |list| {
         try out.print(gpa, ";; {s}\n(define ", .{list.doc()});
-        try p.writeKebab(out, gpa, list.stem());
+        try render.writeRacketized(gpa, out, list.stem());
         try out.appendSlice(gpa, "\n  (list\n");
         const fields = list.fields();
         for (fields, 0..) |field, i| {
             try out.print(gpa, "   (field \"{s}\" '{s} {s} ", .{ field.name, field.ty.wireName(), rkt(field.nullable) });
-            if (field.values) |enumeration| try p.writeKebab(out, gpa, enumeration.stem()) else try out.appendSlice(gpa, "'()");
+            if (field.values) |enumeration| try render.writeRacketized(gpa, out, enumeration.stem()) else try out.appendSlice(gpa, "'()");
             try out.print(gpa, "){s}\n", .{if (i + 1 == fields.len) "))" else ""});
         }
         try out.append(gpa, '\n');
@@ -118,7 +119,7 @@ fn writeWatchKinds(out: *Out, gpa: std.mem.Allocator) !void {
     try out.appendSlice(gpa, ";; The directory watch notifications.\n(define WATCH-KINDS\n  (list\n");
     for (p.watch_kinds, 0..) |kind, i| {
         try out.print(gpa, "   (watch-kind \"{s}\" ", .{kind.tag});
-        try p.writeKebab(out, gpa, kind.args.stem());
+        try render.writeRacketized(gpa, out, kind.args.stem());
         try out.print(gpa, " {s}){s}\n", .{ rkt(kind.room()), if (i + 1 == p.watch_kinds.len) "))" else "" });
     }
     try out.append(gpa, '\n');
@@ -128,7 +129,7 @@ fn writeRoomTails(out: *Out, gpa: std.mem.Allocator) !void {
     try out.appendSlice(gpa, ";; What rides after a room line's display text.\n(define ROOM-TAILS\n  (list\n");
     for (p.room_tails, 0..) |tail, i| {
         try out.print(gpa, "   (room-tail \"{s}\" ", .{tail.tag});
-        if (tail.trailing) |trailing| try p.writeKebab(out, gpa, trailing.stem()) else try out.appendSlice(gpa, "'()");
+        if (tail.trailing) |trailing| try render.writeRacketized(gpa, out, trailing.stem()) else try out.appendSlice(gpa, "'()");
         if (tail.rest) |ty| try out.print(gpa, " '{s}", .{ty.wireName()}) else try out.appendSlice(gpa, " #f");
         try out.print(gpa, " '{s} '{s}", .{ @tagName(tail.sender), @tagName(tail.text) });
         if (tail.effect) |effect| try out.print(gpa, " '{s}", .{@tagName(effect)}) else try out.appendSlice(gpa, " #f");

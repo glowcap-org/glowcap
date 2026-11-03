@@ -2,6 +2,7 @@
 //! borrowed set validation. Frame construction stays outside the measured
 //! window. The collision case uses distinct nested values with equal hashes.
 const std = @import("std");
+const nowNs = @import("support/clock.zig").nowNs;
 const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const codec = glowcap.ocapn.codec;
@@ -26,9 +27,9 @@ fn measure(io: std.Io, encoding: model.CodecId, name: []const u8, elements: []co
     const requested = traffic.allocated_bytes - cold_bytes;
     const allocations = traffic.alloc_index - cold_allocations;
     const turns = 64;
-    const start = std.Io.Clock.awake.now(io).nanoseconds;
+    const start = nowNs(io);
     for (0..turns) |_| try state.recordRecvView(body);
-    const elapsed = std.Io.Clock.awake.now(io).nanoseconds - start;
+    const elapsed = nowNs(io) - start;
     std.debug.print("set_uniqueness codec={s} case={s} members={d} frame_bytes={d} ns_per_turn={d} cold_allocations={d} cold_requested_bytes={d}\n", .{
         @tagName(encoding), name, elements.len, frame.bytes().len, @divTrunc(elapsed, turns), allocations, requested,
     });

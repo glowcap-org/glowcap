@@ -71,10 +71,6 @@ fn percentileMs(sorted_ns: []const u64, p: f64) f64 {
     return percentileNs(sorted_ns, p) / 1_000_000.0;
 }
 
-fn lessThanU64(_: void, a: u64, b: u64) bool {
-    return a < b;
-}
-
 fn connectOne(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !*driver.Session {
     return driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locator(designator), .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
 }
@@ -96,7 +92,7 @@ fn runLatency(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, 
         samples[i] = sinceNs(io, start);
         _ = arena_state.reset(.retain_capacity);
     }
-    std.sort.pdq(u64, samples, {}, lessThanU64);
+    std.sort.pdq(u64, samples, {}, std.sort.asc(u64));
 
     var total: u128 = 0;
     for (samples) |s| total += s;
@@ -221,7 +217,7 @@ fn measureHits(io: std.Io, conn: *driver.Session, target: driver.Capability, n: 
         _ = arena_state.reset(.retain_capacity);
     }
     if (final != @as(i64, @intCast(n))) return error.BadFinalCount;
-    std.sort.pdq(u64, samples, {}, lessThanU64);
+    std.sort.pdq(u64, samples, {}, std.sort.asc(u64));
 }
 
 fn meanNs(samples: []const u64) f64 {

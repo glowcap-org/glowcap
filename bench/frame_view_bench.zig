@@ -4,52 +4,13 @@ const glowcap = @import("glowcap");
 const foundation = glowcap.foundation;
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
-
-/// Counts fresh `alloc` and growing `remap` traffic for the wire-path budget.
-const TotalCountingAllocator = struct {
-    backing: std.mem.Allocator,
-    allocs: usize = 0,
-
-    fn allocator(self: *TotalCountingAllocator) std.mem.Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free },
-        };
-    }
-
-    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
-        const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
-        const result = self.backing.rawAlloc(len, alignment, ret_addr);
-        if (result != null) self.allocs += 1;
-        return result;
-    }
-
-    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
-        const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
-        return self.backing.rawResize(memory, alignment, new_len, ret_addr);
-    }
-
-    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
-        const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
-        const result = self.backing.rawRemap(memory, alignment, new_len, ret_addr);
-        if (result != null and new_len > memory.len) self.allocs += 1;
-        return result;
-    }
-
-    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
-        const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
-        self.backing.rawFree(memory, alignment, ret_addr);
-    }
-};
-
-// No-answer (`#f` answer position) deliver: re-applied to one peer across the
-// measured turns, so a live-answer position would be refused on the second apply.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
+const CountingAllocator = @import("alloc_metrics").CountingAllocator;
+const driveOneTurn = @import("warm_turn").driveOneTurn;
 
 /// Steady-state heap traffic for one inbound `op:deliver` to a live local export.
 /// Mirrors `test/engine/alloc_budget_test.zig`.
 fn reportWirePathBudget(backing: std.mem.Allocator) !void {
-    var counter = TotalCountingAllocator{ .backing = backing };
+    var counter = CountingAllocator{ .backing = backing };
     var peer = engine.Peer.init(counter.allocator());
     defer peer.deinit();
     try peer.exportObject(7);
@@ -84,14 +45,6 @@ fn reportModelLayout() void {
             @sizeOf(model.view.Handoff),
         },
     );
-}
-
-fn driveOneTurn(peer: *engine.Peer) !void {
-    try peer.recvBorrowed(.{ .bytes = deliver_to_live_export, .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
 }
 
 pub fn main() !void {

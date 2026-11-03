@@ -10,6 +10,7 @@
 const std = @import("std");
 
 const glowcap = @import("glowcap");
+const driver_provider = @import("interop_driver_provider");
 const cs = @import("c_abi_shared");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
@@ -33,40 +34,13 @@ fn expectOk(rc: i32) !void {
     return error.CAbiCallFailed;
 }
 
-fn reportCleanup(label: []const u8, rc: i32) void {
-    expectOk(rc) catch |err| std.log.err("{s}: {s}", .{ label, @errorName(err) });
-}
-
-fn reportDriverFailure(label: []const u8, rc: i32, failure: cdrv.GlowcapDriverFailure) void {
-    if (rc == cs.GLOWCAP_OK) return;
-    const primary = if (failure.primary_name) |name| name[0..failure.primary_name_len] else "missing failure";
-    std.log.err("{s}: {s} ({d})", .{ label, primary, rc });
-    if (failure.secondary_name) |name| {
-        std.log.err("{s}: cleanup: {s} ({d} consequences)", .{
-            label,
-            name[0..failure.secondary_name_len],
-            failure.secondary_count,
-        });
-    }
-}
+const glue = driver_provider.Glue(expectOk);
 
 fn addDriverProvider(loop: ?*cdrv.GlowcapDriverLoop, provider: *const cs.GlowcapTransportProvider) !void {
     var failure = cdrv.GlowcapDriverFailure.init();
     const rc = cdrv.glowcap_driver_add_provider(loop, provider, &failure);
-    reportDriverFailure("iroh driver provider installation failed", rc, failure);
+    driver_provider.reportDriverFailure("iroh driver provider installation failed", rc, failure);
     try expectOk(rc);
-}
-
-fn releaseDriver(label: []const u8, loop: ?*cdrv.GlowcapDriverLoop) void {
-    var failure = cdrv.GlowcapDriverFailure.init();
-    const rc = cdrv.glowcap_driver_release(loop, &failure);
-    reportDriverFailure(label, rc, failure);
-    reportCleanup(label, rc);
-}
-
-fn expectStep(rc: i32) !void {
-    if (rc == cs.GLOWCAP_OK or rc == cs.GLOWCAP_ERR_WOULD_BLOCK) return;
-    return expectOk(rc);
 }
 
 /// What the loop's drained events amounted to, scalar facts only, because a
@@ -171,7 +145,7 @@ fn newLoop(seed_byte: u8) !?*cdrv.GlowcapDriverLoop {
         1,
         &host,
     ));
-    errdefer reportCleanup("iroh driver-provider host rollback failed", cd.glowcap_host_release(host));
+    errdefer glue.reportCleanup("iroh driver-provider host rollback failed", cd.glowcap_host_release(host));
     var loop: ?*cdrv.GlowcapDriverLoop = null;
     const options: cdrv.GlowcapDriverOptions = .{
         .abi_version = cdrv.GLOWCAP_DRIVER_OPTIONS_ABI_VERSION,
@@ -196,14 +170,14 @@ pub fn main(init: std.process.Init) !void {
     const server_seed: [32]u8 = @splat(0x51);
     const client_seed: [32]u8 = @splat(0x52);
     const server_netlayer = try newNetlayer(&server_seed);
-    defer reportCleanup("iroh server netlayer teardown failed", ci.glowcap_iroh_netlayer_release(server_netlayer, null, 0, null));
+    defer glue.reportCleanup("iroh server netlayer teardown failed", ci.glowcap_iroh_netlayer_release(server_netlayer, null, 0, null));
     const client_netlayer = try newNetlayer(&client_seed);
-    defer reportCleanup("iroh client netlayer teardown failed", ci.glowcap_iroh_netlayer_release(client_netlayer, null, 0, null));
+    defer glue.reportCleanup("iroh client netlayer teardown failed", ci.glowcap_iroh_netlayer_release(client_netlayer, null, 0, null));
 
     const server_loop = try newLoop(0x51);
-    defer releaseDriver("iroh server driver teardown failed", server_loop);
+    defer glue.releaseDriver("iroh server driver teardown failed", server_loop);
     const client_loop = try newLoop(0x52);
-    defer releaseDriver("iroh client driver teardown failed", client_loop);
+    defer glue.releaseDriver("iroh client driver teardown failed", client_loop);
 
     var server_provider: cs.GlowcapTransportProvider = undefined;
     try expectOk(ci.glowcap_iroh_transport_provider(server_netlayer, &server_provider));
@@ -217,7 +191,7 @@ pub fn main(init: std.process.Init) !void {
     var server_seen = Drained{};
     var listener_rounds: usize = 0;
     while (!server_seen.listener_ready and listener_rounds < 4000) : (listener_rounds += 1) {
-        try expectStep(cdrv.glowcap_driver_step(server_loop, 1));
+        try glue.expectStep(cdrv.glowcap_driver_step(server_loop, 1));
         try drainEvents(server_loop, &server_seen);
     }
     if (!server_seen.listener_ready or server_seen.ready_listener != listener)
@@ -239,7 +213,7 @@ pub fn main(init: std.process.Init) !void {
     var fetch_vow: u64 = 0;
     var rounds: usize = 0;
     while (client_seen.settle_ticket == 0 and rounds < 4000) : (rounds += 1) {
-        try expectStep(cdrv.glowcap_driver_step(server_loop, 1));
+        try glue.expectStep(cdrv.glowcap_driver_step(server_loop, 1));
         try drainEvents(server_loop, &server_seen);
         if (server_seen.accepted_session != null and server_seen.accepted_listener != listener)
             return error.ListenerMismatch;
@@ -251,7 +225,7 @@ pub fn main(init: std.process.Init) !void {
             }
         }
 
-        try expectStep(cdrv.glowcap_driver_step(client_loop, 1));
+        try glue.expectStep(cdrv.glowcap_driver_step(client_loop, 1));
         try drainEvents(client_loop, &client_seen);
         if (client_seen.dial_failed) return error.DialFailed;
         if (client_seen.fail_ticket != 0) return error.FetchFailed;
