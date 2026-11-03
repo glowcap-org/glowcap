@@ -148,9 +148,7 @@ fn addLiveDriver(
     const run_mod = driverModule(ctx, resident_mod, webrtc_common_mod, drv);
     linkSidecar(b, run_mod, ctx.target, sidecar_archive);
     const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
-    const run = execution.addArtifact(b, drv.posture, exe);
-    run.setCwd(b.path("."));
-    run.has_side_effects = true;
+    const run = execution.addLiveRun(b, drv.posture, exe);
     b.step(drv.step_name, drv.description).dependOn(&run.step);
 }
 
@@ -159,10 +157,7 @@ fn addBrowserProof(
     proof: BrowserProof,
     answerer_install: *std.Build.Step,
 ) void {
-    const run = execution.addSystemCommand(ctx.b, .{ .browser_proof = 120 }, &.{ "deno", "run", "--allow-all", proof.script });
-    const cache = execution.addSystemCommand(ctx.b, .build_tool, &.{ "deno", "cache", proof.script });
-    run.step.dependOn(&cache.step);
-    run.setCwd(ctx.b.path("."));
+    const run = commands.addRootedSystemCommand(ctx.b, .{ .browser_proof = 120 }, &.{ "deno", "run", "--allow-all", proof.script });
     run.has_side_effects = true;
     run.step.dependOn(ctx.browser_preflight);
     run.step.dependOn(ctx.wasm_driver_install);
@@ -216,15 +211,10 @@ pub fn register(ctx: Context) Registered {
     const webrtc_lib_step = b.step("webrtc-sidecar-build", "Build the WebRTC DataChannel netlayer sidecar staticlib and probe binary (ADR-0035, needs cargo)");
     webrtc_lib_step.dependOn(&webrtc_probe_build.step);
 
-    const webrtc_datachannel_test = execution.addSystemCommand(b, .{ .browser_proof = 90 }, &.{
+    const webrtc_datachannel_test = commands.addRootedSystemCommand(b, .{ .browser_proof = 90 }, &.{
         "deno", "run", "--allow-all", "transports/webrtc/test/datachannel_roundtrip_test.ts",
     });
     webrtc_datachannel_test.addFileArg(sidecar_target_dir.path(b, "release/glowcap-webrtc-datachannel-probe"));
-    const webrtc_datachannel_cache = execution.addSystemCommand(b, .build_tool, &.{
-        "deno", "cache", "transports/webrtc/test/datachannel_roundtrip_test.ts",
-    });
-    webrtc_datachannel_test.step.dependOn(&webrtc_datachannel_cache.step);
-    webrtc_datachannel_test.setCwd(b.path("."));
     webrtc_datachannel_test.has_side_effects = true;
     webrtc_datachannel_test.step.dependOn(ctx.browser_preflight);
     const webrtc_datachannel_test_step = b.step("webrtc-datachannel-test", "Prove a headless Chromium RTCDataChannel carries bytes both directions to a Rust webrtc-crate peer on loopback (ADR-0035, needs cargo + deno + a Playwright Chromium)");
@@ -393,9 +383,7 @@ pub fn register(ctx: Context) Registered {
         seam_run_mod.addImport("c_abi_net_transport_webrtc", abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod));
         linkSidecar(b, seam_run_mod, target, sidecar_archive);
         const seam_exe = b.addExecutable(.{ .name = "glowcap-webrtc-driver-provider", .root_module = seam_run_mod });
-        const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
-        seam_run.setCwd(b.path("."));
-        seam_run.has_side_effects = true;
+        const seam_run = execution.addLiveRun(b, .{ .deterministic = 30 }, seam_exe);
         b.step("webrtc-driver-provider", "Live WebRTC C-provider proof: the generic C driver dials and listens through the WebRTC provider's signaling callbacks, the offer is handed in with provide_offer, and releasing the loop cancels a dial still in flight (needs cargo)").dependOn(&seam_run.step);
     }
 

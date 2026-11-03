@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const modules = @import("modules.zig");
+const commands = @import("commands.zig");
 const execution = @import("execution.zig");
 const goblins_build = @import("goblins.zig");
 
@@ -29,9 +30,7 @@ pub fn register(
             .optimize = .Debug,
         }),
     });
-    const adoption = execution.addArtifact(b, .{ .deterministic = 30 }, adoption_exe);
-    adoption.setCwd(b.path("."));
-    adoption.has_side_effects = true;
+    const adoption = execution.addLiveRun(b, .{ .deterministic = 30 }, adoption_exe);
     const adoption_step = b.step("ocapn-adoption-check", "Validate adopted, deferred, and pending draft and upstream suite accounting without claiming behavioral conformance");
     adoption_step.dependOn(&adoption.step);
 
@@ -54,9 +53,8 @@ pub fn register(
     // The wrapper derives its module inventory from the pinned upstream tree.
     // Its readiness probe and every module own separate deadlines, so adding a
     // module increases coverage without competing for one aggregate budget.
-    const ocapn_conformance = execution.addSystemCommand(b, .child_bounded, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--peer" });
+    const ocapn_conformance = commands.addRootedSystemCommand(b, .child_bounded, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--peer" });
     ocapn_conformance.addArtifactArg(ocapn_peer_exe);
-    ocapn_conformance.setCwd(b.path("."));
     ocapn_conformance.has_side_effects = true;
     ocapn_conformance.step.dependOn(adoption_step);
     // The run above takes the peer's path directly, so it needs no install.
@@ -70,19 +68,17 @@ pub fn register(
     const ocapn_conformance_step = b.step("ocapn-conformance", "Run portable upstream OCapN modules plus the strict abort probe against glowcap (needs uv + the ocapn-conformance submodule)");
     ocapn_conformance_step.dependOn(&ocapn_conformance.step);
 
-    const next_conformance = execution.addSystemCommand(b, .child_bounded, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--profile=next", "--peer" });
+    const next_conformance = commands.addRootedSystemCommand(b, .child_bounded, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--profile=next", "--peer" });
     next_conformance.addArtifactArg(ocapn_peer_exe);
     next_conformance.addArg("--adoption-tool");
     next_conformance.addArtifactArg(adoption_exe);
-    next_conformance.setCwd(b.path("."));
     next_conformance.has_side_effects = true;
     next_conformance.step.dependOn(adoption_step);
-    const next_fixtures = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const next_fixtures = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "uv",                   "run",      "--project", "conformance/ocapn-conformance", "--locked",                      "python",
         "-m",                   "unittest", "discover",  "-s",                            "conformance/ocapn-conformance", "-p",
         "next_fixture_test.py",
     });
-    next_fixtures.setCwd(b.path("."));
     next_fixtures.has_side_effects = true;
     next_conformance.step.dependOn(&next_fixtures.step);
     if (pin_port) |p| next_conformance.addArg(b.fmt("--port={d}", .{p}));
@@ -98,9 +94,8 @@ pub fn register(
     const ocapn_onion_peer_options = b.addOptions();
     ocapn_onion_peer_options.addOption(bool, "use_onion", true);
     ocapn_onion_peer_exe.root_module.addOptions("ocapn_peer_options", ocapn_onion_peer_options);
-    const ocapn_conformance_onion = execution.addSystemCommand(b, .real_internet, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap-onion.sh", "--peer" });
+    const ocapn_conformance_onion = commands.addRootedSystemCommand(b, .real_internet, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap-onion.sh", "--peer" });
     ocapn_conformance_onion.addArtifactArg(ocapn_onion_peer_exe);
-    ocapn_conformance_onion.setCwd(b.path("."));
     ocapn_conformance_onion.step.dependOn(adoption_step);
     ocapn_conformance_onion.has_side_effects = true;
     const ocapn_conformance_onion_step = b.step("ocapn-conformance-onion", "Run the upstream OCapN suite against glowcap over an operator-supplied Tor (needs uv + external Tor + network)");
@@ -109,8 +104,7 @@ pub fn register(
     // Reproduce neutral discrepancies across the exact OCapN spec, suite, and
     // Goblins revisions pinned here. Unlike a prose watch item, the comparison
     // fails on a pin bump until the observation is re-evaluated.
-    const ocapn_findings = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "sh", "conformance/ocapn-findings/check.sh" });
-    ocapn_findings.setCwd(b.path("."));
+    const ocapn_findings = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "sh", "conformance/ocapn-findings/check.sh" });
     const ocapn_findings_step = b.step("ocapn-findings-check", "Reproduce neutral protocol discrepancies across the pinned OCapN spec, suite, and Goblins sources");
     ocapn_findings_step.dependOn(&ocapn_findings.step);
 
@@ -164,8 +158,7 @@ pub fn register(
     // required; optional language runtimes exercise their production
     // validators when present and name each skipped port. It remains in
     // `check` because a soft-green extract is a footgun.
-    const c_abi_extract = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/c-abi/c-abi-extract-matrix.sh" });
-    c_abi_extract.setCwd(b.path("."));
+    const c_abi_extract = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/c-abi/c-abi-extract-matrix.sh" });
     const c_abi_extract_check_step = b.step("c-abi-extract-check", "In-tree C-ABI extract hygiene matrix: refuse archive path escape/symlink, accept clean lib/ (ADR-0023)");
     c_abi_extract_check_step.dependOn(&c_abi_extract.step);
     check_step.dependOn(c_abi_extract_check_step);

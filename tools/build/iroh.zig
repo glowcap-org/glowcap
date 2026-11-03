@@ -267,9 +267,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
         const live_step = b.step(drv.step_name, drv.description);
         if (std.mem.eql(u8, drv.step_name, "iroh-managed")) managed_step = live_step;
-        const run = execution.addArtifact(b, drv.posture, exe);
-        run.setCwd(b.path("."));
-        run.has_side_effects = true;
+        const run = execution.addLiveRun(b, drv.posture, exe);
         // The Racket netlayer loads the public companion and, through the
         // Racket binding, the installed host archives, as well as the Zig
         // driver's private sidecar; none may rely on a previous build.
@@ -333,9 +331,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         seam_run_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
         linkIrohSidecar(b, seam_run_mod, target, sidecar_archive);
         const seam_exe = b.addExecutable(.{ .name = "glowcap-iroh-driver-provider", .root_module = seam_run_mod });
-        const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
-        seam_run.setCwd(b.path("."));
-        seam_run.has_side_effects = true;
+        const seam_run = execution.addLiveRun(b, .{ .deterministic = 30 }, seam_exe);
         const provider_step = b.step("iroh-driver-provider", "Live proof (ADR-0024) that the driver archive dials a real iroh endpoint through the C multiplexed-transport table (needs cargo)");
         provider_step.dependOn(&seam_run.step);
         provider_step.dependOn(managed_step.?);
@@ -424,10 +420,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     });
     iroh_constructor_diagnostic.step.dependOn(iroh_abi_install);
     iroh_constructor_diagnostic.step.dependOn(b.getInstallStep());
-    iroh_constructor_diagnostic.setEnvironmentVariable(
-        "GLOWCAP_LIB_DIR",
-        commands.rootPath(b, "zig-out/lib"),
-    );
+    commands.setLibDir(iroh_constructor_diagnostic, .host);
 
     const iroh_driver_listener = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno",                                          "test", "--allow-ffi", "--allow-read", "--allow-env", "--allow-net", "--unstable-ffi",
@@ -435,10 +428,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     });
     iroh_driver_listener.step.dependOn(iroh_abi_install);
     iroh_driver_listener.step.dependOn(b.getInstallStep());
-    iroh_driver_listener.setEnvironmentVariable(
-        "GLOWCAP_LIB_DIR",
-        commands.rootPath(b, "zig-out/lib"),
-    );
+    commands.setLibDir(iroh_driver_listener, .host);
 
     const iroh_abi_test_step = b.step("iroh-abi-test", "Test the iroh C ABI and generic-driver listener adoption (needs cargo + deno)");
     iroh_abi_test_step.dependOn(&iroh_constructor_diagnostic.step);

@@ -87,7 +87,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     rust.step.dependOn(&lint.step);
     rust.step.dependOn(&standalone.step);
     for ([_]*std.Build.Step.Run{ compile, standalone, lint, rust }) |command| {
-        command.setEnvironmentVariable("GLOWCAP_LIB_DIR", commands.rootPath(b, "zig-out/lib"));
+        commands.setLibDir(command, .host);
     }
     const rust_step = b.step("loam-rust-test", "Prove Loam create/share/edit/restart/reopen and ownership through Rust (needs cargo)");
     rust_step.dependOn(&rust.step);

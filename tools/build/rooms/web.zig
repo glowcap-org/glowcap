@@ -1,7 +1,9 @@
 //! Installed HTTP front proofs, including acquisition and retirement. Browser
 //! compilation is a build-tool dependency. No Deno service runs in these tests.
 const std = @import("std");
+const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
+const Binary = @import("peers.zig").Binary;
 
 pub fn register(
     b: *std.Build,
@@ -13,11 +15,10 @@ pub fn register(
         "cargo", "test",          "--quiet", "--locked",    "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "-p",    "rooms-product", "--test",  "web_process", "--bin",           "rooms-web",
     };
-    const compile = execution.addSystemCommand(b, .build_tool, &.{"env"});
-    compile.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
+    const compile = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
+    commands.addLibDirArg(compile, .host);
     compile.addArgs(args);
     compile.addArg("--no-run");
-    compile.setCwd(b.path("."));
     compile.step.dependOn(peers);
 
     const web_test_step = b.step("rooms-web-test", "Prove the installed web front's HTTP, relay admission and startup/shutdown custody (needs cargo + deno + python3)");
@@ -25,14 +26,13 @@ pub fn register(
     runtime_gate.add(web_test_step);
 
     inline for (.{ false, true }) |tor| {
-        const run = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
+        const run = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
         run.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
-        run.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
-        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_TEST_BIN=", .make_absolute = true });
-        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_TEST_BIN=", .make_absolute = true });
+        commands.addLibDirArg(run, .host);
+        Binary.web.addTestEnv(run);
+        Binary.server.addTestEnv(run);
         run.addArgs(args);
         if (tor) run.addArgs(&.{ "--", "--ignored" });
-        run.setCwd(b.path("."));
         run.step.dependOn(&compile.step);
         run.step.dependOn(browser_prepare);
         const step = if (tor) tor_step else web_test_step;

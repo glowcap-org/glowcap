@@ -120,8 +120,8 @@ pub fn register(
     const lib_dir = commands.rootPath(b, "zig-out/lib");
     // Pin every runtime to these installed archives. Otherwise a language's
     // ordinary cold-cache resolver may select an older versioned package first.
-    for (suite_runs) |run| run.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
-    rust_binding_lint.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
+    for (suite_runs) |run| commands.setLibDir(run, .host);
+    commands.setLibDir(rust_binding_lint, .host);
     switch (builtin.os.tag) {
         .macos => {
             rust_suite.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
@@ -147,7 +147,7 @@ pub fn register(
         });
         run.step.dependOn(b.getInstallStep());
         run.setEnvironmentVariable("PYTHONPATH", commands.rootPath(b, "bindings/python"));
-        run.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
+        commands.setLibDir(run, .host);
         switch (builtin.os.tag) {
             .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir),
             .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir),

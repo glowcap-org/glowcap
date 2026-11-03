@@ -169,6 +169,20 @@ pub fn addArtifact(
     };
 }
 
+/// Emit one compiled executable under `addArtifact`, run from the repository
+/// root and never served from the cache: a check or generator that reads or
+/// writes the working tree sees it as it is on every invocation.
+pub fn addLiveRun(
+    b: *std.Build,
+    posture: Posture,
+    compile: *std.Build.Step.Compile,
+) *std.Build.Step.Run {
+    const run = addArtifact(b, posture, compile);
+    run.setCwd(b.path("."));
+    run.has_side_effects = true;
+    return run;
+}
+
 /// Where benchmarks and profiles write, relative to the build root.
 pub const report_dir = "zig-out/bench-reports";
 

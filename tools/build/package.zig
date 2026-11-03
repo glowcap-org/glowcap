@@ -13,7 +13,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         if (iroh) @import("iroh.zig").addModule(b, target, optimize, mods, sidecar.archive);
         if (webrtc) @import("webrtc.zig").addModule(b, target, optimize, mods[root.layerIndex("foundation")], mods[root.layerIndex("model")], mods[root.layerIndex("engine")], mods[root.layerIndex("net")], sidecar.archive);
     }
-    _ = @import("mbedtls.zig").addModule(b, target, optimize, mods[root.layerIndex("foundation")], mods[root.layerIndex("net")]);
+    _ = @import("relay_tls.zig").addModule(b, target, optimize, mods[root.layerIndex("foundation")], mods[root.layerIndex("net")]);
     const custody = @import("loam/custody.zig").create(b, target, optimize);
     const core = mods[root.layerIndex("loam_core")];
     _ = @import("loam/lmdb.zig").create(b, target, optimize, core, custody, true);

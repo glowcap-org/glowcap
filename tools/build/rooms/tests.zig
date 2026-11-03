@@ -5,6 +5,7 @@
 const std = @import("std");
 const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
+const Binary = @import("peers.zig").Binary;
 
 pub const Context = struct {
     b: *std.Build,
@@ -175,7 +176,6 @@ fn dependOnRuntimeArchives(step: *std.Build.Step, ctx: Context, relay: bool) voi
 
 pub fn register(ctx: Context) *std.Build.Step {
     const b = ctx.b;
-    const lib_dir = commands.rootPath(ctx.b, "zig-out/lib");
     // Check the complete inventory here. Timed batches use --no-check so
     // their smaller module graphs never type-check again inside the deadline.
     const cache = commands.addRootedSystemCommand(ctx.b, .build_tool, &.{ "deno", "test", "--no-run" });
@@ -199,11 +199,11 @@ pub fn register(ctx: Context) *std.Build.Step {
     web_tooling.has_side_effects = true;
     server_step.dependOn(&web_tooling.step);
     const archive = commands.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
-    archive.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_BIN=", .make_absolute = true });
+    Binary.archive.addEnv(archive);
     archive.addArgs(command);
     archive.addArg("--no-check");
     archive.step.dependOn(ctx.archive_install);
-    archive.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
+    commands.setLibDir(archive, .host);
     archive.addArgs(archive_files);
     archive.step.dependOn(&cache.step);
     dependOnRuntimeArchives(&archive.step, ctx, false);
@@ -215,18 +215,18 @@ pub fn register(ctx: Context) *std.Build.Step {
     var previous: ?*std.Build.Step = &web_tooling.step;
     for (batches) |files| {
         const batch = commands.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
-        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
-        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
-        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-server" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_SERVER_BIN=", .make_absolute = true });
+        Binary.server.addEnv(batch);
+        Binary.irc_bridge.addEnv(batch);
+        Binary.irc_server.addEnv(batch);
         batch.step.dependOn(ctx.archive_install);
-        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+        Binary.web.addEnv(batch);
         for (files) |file| {
             if (std.mem.eql(u8, file, "apps/rooms/test/browser_bundle_test.ts")) batch.step.dependOn(ctx.wasm_install);
             if (std.mem.eql(u8, file, "apps/rooms/test/web/serve_test.ts")) batch.step.dependOn(ctx.browser_assets);
         }
         batch.addArgs(command);
         batch.addArg("--no-check");
-        batch.setEnvironmentVariable("GLOWCAP_LIB_DIR", lib_dir);
+        commands.setLibDir(batch, .host);
         batch.addArgs(files);
         batch.step.dependOn(&cache.step);
         if (previous) |prior| batch.step.dependOn(prior);

@@ -14,6 +14,7 @@ const std = @import("std");
 const commands = @import("commands.zig");
 const modules = @import("modules.zig");
 const execution = @import("execution.zig");
+const listing = @import("listing.zig");
 
 /// What the family draws from the root build graph. `interop_harness_mod`
 /// stays root-minted because the iroh and WebRTC drivers import the same
@@ -67,9 +68,7 @@ fn liveDriver(ctx: Context, row: LiveDriver) Driven {
     const b = ctx.b;
     const exe = modules.glowcapExecutable(b, ctx.lib_mod, ctx.target, ctx.optimize, row.exe_name, row.source);
     exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
-    const run = execution.addArtifact(b, row.posture, exe);
-    run.setCwd(b.path("."));
-    run.has_side_effects = true;
+    const run = execution.addLiveRun(b, row.posture, exe);
     // Running the live conversations needs the external runtime, but
     // *compiling* their drivers is hermetic: the check gate compiles them so
     // an engine or model API change cannot silently rot a driver nothing ran.
@@ -133,18 +132,14 @@ pub fn register(ctx: Context) Registered {
     const goblins_glowcap_pair_gift_exe = modules.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-goblins-pair-gift", "interop/goblins_interop/glowcap_pair_gift_driver.zig");
     goblins_glowcap_pair_gift_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
     check_step.dependOn(&goblins_glowcap_pair_gift_exe.step);
-    const run_goblins_glowcap_pair_gift = execution.addArtifact(b, .{ .deterministic = 30 }, goblins_glowcap_pair_gift_exe);
+    const run_goblins_glowcap_pair_gift = execution.addLiveRun(b, .{ .deterministic = 30 }, goblins_glowcap_pair_gift_exe);
     run_goblins_glowcap_pair_gift.step.dependOn(b.getInstallStep());
-    run_goblins_glowcap_pair_gift.setCwd(b.path("."));
-    run_goblins_glowcap_pair_gift.has_side_effects = true;
     const goblins_glowcap_pair_gift_step = b.step("goblins-glowcap-pair-gift", "Live three-party handoff with two glowcap vats and one Goblins vat: the glowcap pair holds a glowcap-next Cap'n Proto session while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)");
     goblins_glowcap_pair_gift_step.dependOn(&run_goblins_glowcap_pair_gift.step);
 
     // The same topology with an opaque route hint. Both live Goblins peers
     // must decode and re-encode the mapping-shaped locator byte-exactly.
-    const run_goblins_gift_hints = execution.addArtifact(b, .{ .deterministic = 30 }, goblins_gift.exe);
-    run_goblins_gift_hints.setCwd(b.path("."));
-    run_goblins_gift_hints.has_side_effects = true;
+    const run_goblins_gift_hints = execution.addLiveRun(b, .{ .deterministic = 30 }, goblins_gift.exe);
     run_goblins_gift_hints.addArg("--hinted-exporter");
     // Its own fixed default so the plain and hinted runs can share an
     // aggregate without racing one Bob port; `--port` is last-one-wins, so a
@@ -226,9 +221,7 @@ pub fn register(ctx: Context) Registered {
     const clock_path = b.path("bench/support/clock.zig");
     langs_orchestrator.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = ctx.optimize }));
     langs_zig_client_exe.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = .ReleaseFast }));
-    const run_bench_langs = execution.addArtifact(b, .benchmark, langs_orchestrator);
-    run_bench_langs.setCwd(b.path("."));
-    run_bench_langs.has_side_effects = true;
+    const run_bench_langs = execution.addLiveRun(b, .benchmark, langs_orchestrator);
     // The Deno, Python, and Rust rows link the installed C ABI archives, so the
     // run needs the install step the way the binding suites do.
     run_bench_langs.step.dependOn(b.getInstallStep());
@@ -323,26 +316,10 @@ pub fn goblinsPeerModules(b: *std.Build) *std.Build.Step {
     const run = commands.addRootedSystemCommand(b, .build_tool, &.{ "raco", "make" });
     run.setName(b.fmt("raco make {s}", .{dir_path}));
     run.has_side_effects = true;
-    b.dependOnDirectoryContents(b.path(dir_path));
-    const io = b.graph.io;
-    var dir = b.root.root_dir.handle.openDir(io, dir_path, .{ .iterate = true }) catch |err|
-        std.debug.panic("Goblins peer modules: {s}", .{@errorName(err)});
-    defer dir.close(io);
-    var paths: std.ArrayList([]const u8) = .empty;
-    var entries = dir.iterate();
-    while (entries.next(io) catch |err|
-        std.debug.panic("Goblins peer module discovery: {s}", .{@errorName(err)})) |entry|
-    {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".rkt")) continue;
-        paths.append(b.allocator, b.fmt("{s}/{s}", .{ dir_path, entry.name })) catch @panic("OOM");
+    // Sorted, so the step's argv reads the same on every host.
+    for (listing.sortedFiles(b, dir_path)) |name| {
+        if (std.mem.endsWith(u8, name, ".rkt")) run.addArg(b.fmt("{s}/{s}", .{ dir_path, name }));
     }
-    // Directory order is unspecified, and the step's argv should read the same on every host.
-    std.mem.sort([]const u8, paths.items, {}, struct {
-        fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
-            return std.mem.lessThan(u8, lhs, rhs);
-        }
-    }.lessThan);
-    for (paths.items) |path| run.addArg(path);
     goblins_peer_modules = run;
     return &run.step;
 }
