@@ -19,7 +19,7 @@ const extractBraceBlock = text_match.extractBraceBlock;
 /// (`tools/gen/stub/iroh_sidecar.zig`), and the hermetic gate never links the
 /// real sidecar, so a
 /// drifted spelling would surface only as a crash in the cargo-equipped
-/// `iroh-interop` run, or not at all for a silent width change. The coarse
+/// `iroh-session` run, or not at all for a silent width change. The coarse
 /// shape below is the strongest contract three syntaxes share.
 const CoarseAbiType = enum {
     ptr,

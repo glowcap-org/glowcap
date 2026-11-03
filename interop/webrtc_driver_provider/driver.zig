@@ -13,7 +13,7 @@
 
 const std = @import("std");
 
-const driver_provider = @import("interop_driver_provider");
+const driver_provider = @import("driver_provider");
 const cs = @import("c_abi_shared");
 const ch = @import("c_abi_host");
 const cd = @import("c_abi_driver");

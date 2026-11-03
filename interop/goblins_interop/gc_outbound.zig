@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const harness = @import("interop_harness");
+const harness = @import("conversation_harness");
 const driver = glowcap.driver;
 const tcp = glowcap.net.tcp;
 

@@ -18,7 +18,7 @@ import gc
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "test" / "support" / "transport" / "python"))
 from client_gate import fail, insert_bindings_path, parse_port, read_sturdyref_path
 
 insert_bindings_path()

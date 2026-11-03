@@ -20,7 +20,7 @@
 //! against.
 //!
 //! The loopback checks drive fake SOCKS and control daemons on loopback. The
-//! opt-in `onion-interop` and `goblins-onion` steps cross real Tor circuits,
+//! opt-in `onion-session` and `goblins-onion` steps cross real Tor circuits,
 //! including both directions against Goblins' own onion netlayer.
 //! `src/c_abi/net_transport/onion/` carries this transport to C, and all four
 //! language bindings wrap that archive. The blocking `driver.listen`/`Server`

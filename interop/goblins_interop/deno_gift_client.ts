@@ -23,7 +23,7 @@
 
 import { Ref, Runtime } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
-import { acceptLoop, awaitGreeterReady, fail, parsePort } from "../_common/deno/client_gate.ts";
+import { acceptLoop, awaitGreeterReady, fail, parsePort } from "../../test/support/transport/deno/client_gate.ts";
 
 const HOST = "127.0.0.1";
 // Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on PORT+1.

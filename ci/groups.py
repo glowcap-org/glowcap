@@ -224,7 +224,7 @@ GROUPS = (
         phases={
             "transports": [
                 build("zig build build iroh-sidecar-build iroh-abi"),
-                gate("zig build iroh-interop"),
+                gate("zig build iroh-session"),
                 gate("zig build iroh-driver-provider"),
                 gate("zig build python-iroh-driver-provider"),
                 gate("zig build rust-iroh-driver-provider"),

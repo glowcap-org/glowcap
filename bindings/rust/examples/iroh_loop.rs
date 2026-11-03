@@ -65,6 +65,8 @@ async fn run() -> Result<(), Fail> {
 			if session.publish("greeter", greeter).is_err() {
 				continue;
 			}
+			// Start delivery now; the retained handle owns this session until close.
+			drop(session.serve());
 			served.push(session);
 		}
 		served // hold the connections (and their drivers) until the loop ends

@@ -50,7 +50,7 @@ const Binding = struct {
 /// ones CI runs on every push (`ci/groups.py`) and they carry every proven verb,
 /// the demo apps and benchmark clients are run on demand and count the same,
 /// because what makes a call site proof is that a build step runs it.
-const proof_roots = [_][]const u8{ "bindings/proofs", "interop", "apps", "bench" };
+const proof_roots = [_][]const u8{ "bindings/proofs", "interop", "test/driver/transports", "test/support/transport", "apps", "bench" };
 
 const bindings = [_]Binding{
     .{

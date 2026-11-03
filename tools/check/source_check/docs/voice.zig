@@ -260,7 +260,7 @@ const justification_tic_scopes = [_]bans.Where{
     .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
     .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } },
     .{ .tree = .{ .dir = "tools", .suffixes = &.{".zig"} } },
-    .{ .tree = .{ .dir = "test", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "test", .suffixes = &.{ ".zig", ".rs", ".ts", ".py", ".rkt" } } },
     .{ .tree = .{ .dir = "examples", .suffixes = &.{ ".zig", ".c", ".md" } } },
     .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
     .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },

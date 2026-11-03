@@ -254,7 +254,7 @@ pub fn checkDiscardedErrors(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    for ([_][]const u8{ "src", "cli", "apps", "examples", "tools", "interop", "bench", "conformance" }) |tree| {
+    for ([_][]const u8{ "src", "cli", "apps", "examples", "tools", "interop", "test/driver/transports", "test/support/transport", "bench", "conformance" }) |tree| {
         const files = (try source_tree.collectSourceFiles(io, gpa, root, tree, keepDiscardScanned)) orelse {
             try appendViolation(gpa, violations, "{s}: failed to open for discarded-error check", .{tree});
             continue;
@@ -279,7 +279,10 @@ fn keepDiscardScanned(path: []const u8) bool {
 fn firstPartyTypeScript(path: []const u8) bool {
     if (!std.mem.endsWith(u8, path, ".ts") and !std.mem.endsWith(u8, path, ".tsx")) return false;
     if (std.mem.endsWith(u8, path, ".d.ts")) return false;
-    if (std.mem.indexOf(u8, path, "/test/") != null or std.mem.startsWith(u8, path, "test/")) return false;
+    if (std.mem.indexOf(u8, path, "/test/") != null) return false;
+    if (std.mem.startsWith(u8, path, "test/") and
+        !std.mem.startsWith(u8, path, "test/driver/transports/") and
+        !std.mem.startsWith(u8, path, "test/support/transport/")) return false;
     if (std.mem.indexOf(u8, path, "/tests/") != null or std.mem.startsWith(u8, path, "tests/")) return false;
     const base = std.fs.path.basename(path);
     return !std.mem.endsWith(u8, base, "_test.ts") and !std.mem.endsWith(u8, base, "-test.ts") and

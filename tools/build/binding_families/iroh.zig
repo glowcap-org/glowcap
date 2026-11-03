@@ -8,13 +8,13 @@ pub const iroh_loop_clients = [_]BindingClientRow{
     .{
         .step_name = "deno-iroh-loop",
         .description = "Live iroh scale: the Deno binding serves many connections from one readiness loop (ADR-0019, needs cargo + deno)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_loop/deno_client.ts" },
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "test/driver/transports/iroh_loop/deno_client.ts" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "python-iroh-loop",
         .description = "Live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0019, needs cargo + python3)",
-        .argv = &.{ "python3", "interop/iroh_loop/python_client.py" },
+        .argv = &.{ "python3", "test/driver/transports/iroh_loop/python_client.py" },
         .posture = .{ .deterministic = 30 },
     },
     .{
@@ -26,7 +26,7 @@ pub const iroh_loop_clients = [_]BindingClientRow{
     .{
         .step_name = "python-iroh-driver-provider",
         .description = "Live ADR-0024 Python parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the C multiplexed-transport table (needs cargo + python3)",
-        .argv = &.{ "python3", "interop/iroh_driver_provider/python_client.py" },
+        .argv = &.{ "python3", "test/driver/transports/iroh_driver_provider/python_client.py" },
         .posture = .{ .deterministic = 30 },
     },
     .{
@@ -39,7 +39,7 @@ pub const iroh_loop_clients = [_]BindingClientRow{
     .{
         .step_name = "racket-iroh-loop",
         .description = "Live iroh scale: the Racket binding serves many connections from one readiness loop (ADR-0019, needs cargo + racket)",
-        .argv = &.{ "racket", "-y", "interop/iroh_loop/racket_client.rkt" },
+        .argv = &.{ "racket", "-y", "test/driver/transports/iroh_loop/racket_client.rkt" },
         .posture = .{ .deterministic = 30 },
     },
 };
@@ -50,13 +50,13 @@ pub const iroh_handoff_clients = [_]BindingClientRow{
     .{
         .step_name = "deno-iroh-handoff",
         .description = "Three-party handoff over iroh: the Deno binding mints and redeems an iroh handoff give in one process (needs cargo + deno)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_handoff/deno_client.ts" },
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "test/driver/transports/iroh_handoff/deno_client.ts" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "python-iroh-handoff",
         .description = "Three-party handoff over iroh: the Python binding mints and redeems an iroh handoff give in one process (needs cargo + python3)",
-        .argv = &.{ "python3", "interop/iroh_handoff/python_client.py" },
+        .argv = &.{ "python3", "test/driver/transports/iroh_handoff/python_client.py" },
         .posture = .{ .deterministic = 30 },
     },
     .{
@@ -69,7 +69,7 @@ pub const iroh_handoff_clients = [_]BindingClientRow{
     .{
         .step_name = "racket-iroh-handoff",
         .description = "Three-party handoff over iroh: the Racket binding mints and redeems an iroh handoff give in one process (needs cargo + racket)",
-        .argv = &.{ "racket", "-y", "interop/iroh_handoff/racket_client.rkt" },
+        .argv = &.{ "racket", "-y", "test/driver/transports/iroh_handoff/racket_client.rkt" },
         .posture = .{ .deterministic = 30 },
     },
 };
@@ -110,13 +110,13 @@ pub const iroh_reach_clients = [_]BindingClientRow{
     .{
         .step_name = "deno-iroh-reachability",
         .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Deno binding (opt-in; needs cargo + deno + internet)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_reachability/deno_client.ts" },
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "test/driver/transports/iroh_reachability/deno_client.ts" },
         .posture = .real_internet,
     },
     .{
         .step_name = "python-iroh-reachability",
         .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Python binding (opt-in; needs cargo + python3 + internet)",
-        .argv = &.{ "python3", "interop/iroh_reachability/python_client.py" },
+        .argv = &.{ "python3", "test/driver/transports/iroh_reachability/python_client.py" },
         .posture = .real_internet,
     },
     .{
@@ -129,7 +129,7 @@ pub const iroh_reach_clients = [_]BindingClientRow{
     .{
         .step_name = "racket-iroh-reachability",
         .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Racket binding (opt-in; needs cargo + racket + internet)",
-        .argv = &.{ "racket", "-y", "interop/iroh_reachability/racket_client.rkt" },
+        .argv = &.{ "racket", "-y", "test/driver/transports/iroh_reachability/racket_client.rkt" },
         .posture = .real_internet,
     },
 };

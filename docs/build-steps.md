@@ -374,7 +374,7 @@ zig build sidecar-runtime-test # Run the Rust unit tests of the runtime plumbing
 ```sh
 zig build iroh-sidecar-build              # Build the iroh netlayer sidecar staticlib (needs cargo)
 zig build iroh-sidecar-test               # Run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof (needs cargo)
-zig build iroh-interop                    # Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)
+zig build iroh-session                    # Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)
 zig build iroh-loop                       # Live iroh scale: many concurrent connections served from one Server thread (ADR-0019, needs cargo)
 zig build iroh-redeem                     # Live three-party redeem over iroh: a recipient Session dials the exporter by node id inside the introducing call (needs cargo)
 zig build tcp-loop                        # Live TCP scale: many concurrent connections served from one Server thread
@@ -438,7 +438,7 @@ and SOCKS endpoints and the pinned upstream netlayer starts a separate Tor.
 zig build onion-loop-test           # Run the focused Zig OnionLoop completion tests
 zig build onion-pending-listen-test # Run the onion pending-listen resident tests over the fake daemon; part of runtime-check
 zig build bindings-onion            # Run the onion provider proof in every language binding (needs cargo + deno + python3 + racket)
-zig build onion-interop             # Live Tor: two glowcap peers hold an OCapN conversation over a real onion service (needs tor + network)
+zig build onion-session             # Live Tor: two glowcap peers hold an OCapN conversation over a real onion service (needs tor + network)
 zig build goblins-onion             # Live Goblins over Tor: a real Goblins vat and a glowcap peer hold OCapN sessions over hidden service circuits, both directions (needs tor + network + racket + goblins)
 zig build ocapn-conformance-onion   # Run the upstream OCapN suite against glowcap over an operator-supplied Tor (needs uv + external Tor + network)
 zig build demo-rooms-onion          # Run the Rooms application over real Tor with one onion service and two independent peers (needs deno + tor + network)

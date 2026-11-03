@@ -20,7 +20,7 @@ import * as tcp from "@glowcap/tcp";
 // sibling build step `zig build deno-goblins-handoff`.
 
 import { Ref, Runtime } from "@glowcap/runtime";
-import { fail, readSwiss } from "../_common/deno/client_gate.ts";
+import { fail, readSwiss } from "../../test/support/transport/deno/client_gate.ts";
 
 const HOST = "127.0.0.1";
 // Alice's port; Bob (the exporter) listens on PORT+1. `--port=N` (from

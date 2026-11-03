@@ -63,12 +63,12 @@ pub fn transportAbiModule(
     return m;
 }
 
-/// The shared Zig interop-driver harness (`interop/_common/zig/harness.zig`),
-/// imported as `interop_harness` by every Zig interop executable. Scaffolding
-/// like `test/support`, so it sits outside the `src/` layer DAG. The wait
+/// The shared Zig conversation harness (`test/support/transport/zig/harness.zig`),
+/// imported as `conversation_harness` by the live driver executables. Scaffolding
+/// under `test/support`, outside the `src/` layer DAG. The wait
 /// vocabulary is `test/support/wait.zig` itself, handed in as `support_wait`
 /// so the two scaffolding trees share one owner instead of hand-synced copies.
-pub fn interopHarnessModule(
+pub fn conversationHarnessModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
     o: std.builtin.OptimizeMode,
@@ -80,7 +80,7 @@ pub fn interopHarnessModule(
         .optimize = o,
     });
     const mod = b.createModule(.{
-        .root_source_file = b.path("interop/_common/zig/harness.zig"),
+        .root_source_file = b.path("test/support/transport/zig/harness.zig"),
         .target = t,
         .optimize = o,
     });
@@ -90,10 +90,10 @@ pub fn interopHarnessModule(
 }
 
 /// The C ABI glue the two driver-provider seam proofs share
-/// (`interop/_common/zig/driver_provider.zig`), imported as
-/// `interop_driver_provider`. It reads the `c_abi_shared` and `c_abi_driver`
+/// (`test/support/transport/zig/driver_provider.zig`), imported as
+/// `driver_provider`. It reads the `c_abi_shared` and `c_abi_driver`
 /// instances the proof itself imports, so every export lands once.
-pub fn interopDriverProviderModule(
+pub fn driverProviderModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
     o: std.builtin.OptimizeMode,
@@ -101,7 +101,7 @@ pub fn interopDriverProviderModule(
     c_abi_driver: *std.Build.Module,
 ) *std.Build.Module {
     const mod = b.createModule(.{
-        .root_source_file = b.path("interop/_common/zig/driver_provider.zig"),
+        .root_source_file = b.path("test/support/transport/zig/driver_provider.zig"),
         .target = t,
         .optimize = o,
     });

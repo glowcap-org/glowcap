@@ -10,7 +10,7 @@ whole API once. Cross-implementation tests belong in
 
 Rust clients live in `../rust/examples/`, where Cargo expects them. Deno,
 Python, and Racket clients live with their scenario. Shared language helpers
-are in [`interop/_common/`](../../interop/_common/).
+are in [`test/support/transport/`](../../test/support/transport/).
 
 | Family | What it proves | Run |
 | --- | --- | --- |

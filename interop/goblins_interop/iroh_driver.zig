@@ -9,7 +9,7 @@
 //! binding's byte-channel surface. The other netlayer this repository writes
 //! for Goblins is a cleartext socket.
 //!
-//! That makes iroh's first outside CapTP peer. `iroh-interop` is glowcap on both
+//! That makes iroh's first outside CapTP peer. `iroh-session` is glowcap on both
 //! ends by construction. Here the partner is a foreign implementation of the
 //! protocol, reached over the same QUIC transport.
 //!
@@ -43,7 +43,7 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 const goblins_child = @import("goblins_child.zig");
-const harness = @import("interop_harness");
+const harness = @import("conversation_harness");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;

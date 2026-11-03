@@ -28,7 +28,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "test" / "support" / "transport" / "python"))
 from client_gate import await_greeter_ready, fail, insert_bindings_path, parse_port
 
 insert_bindings_path()

@@ -22,7 +22,7 @@
          racket/runtime-path
          "../../bindings/racket/glowcap.rkt"
          "../../bindings/racket/glowcap-webrtc.rkt"
-         "../_common/racket/client_gate.rkt")
+         "../../test/support/transport/racket/client_gate.rkt")
 
 (define-runtime-path bin-dir "../../zig-out/bin")
 
