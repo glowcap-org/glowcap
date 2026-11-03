@@ -308,13 +308,7 @@ async fn run_case(invalid: bool) {
 					.derive(
 						terms,
 						1,
-						ControlPowers {
-							policy_ceiling: Some(terms),
-							pause: true,
-							resume: true,
-							revoke: true,
-							..Default::default()
-						},
+						full_control(terms),
 					)
 					.await
 					.unwrap();

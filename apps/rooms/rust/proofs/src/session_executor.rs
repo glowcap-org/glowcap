@@ -65,7 +65,7 @@ mod upload_interruption;
 mod uploads;
 mod workspace_supervision;
 use cases::Case;
-use environment::{Database, Platform};
+use environment::{Database, Platform, full_control};
 use failure::AbortAfterAdmission;
 use glowcap::{
 	Argument, Host, PendingWork, Ref, Result,

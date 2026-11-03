@@ -202,20 +202,7 @@ async fn run_case(options: u8) {
 						&[],
 					)
 					.unwrap();
-				let (source, control) = owner
-					.derive(
-						terms,
-						1,
-						ControlPowers {
-							policy_ceiling: Some(terms),
-							pause: true,
-							resume: true,
-							revoke: true,
-							..Default::default()
-						},
-					)
-					.await
-					.unwrap();
+				let (source, control) = owner.derive(terms, 1, full_control(terms)).await.unwrap();
 				let (missing, _) = command(&host, &source, "missing", 2).await;
 				assert!(mutate(&host, &source, "command", &missing).await.is_err());
 				assert_eq!(joins.get(), 0);

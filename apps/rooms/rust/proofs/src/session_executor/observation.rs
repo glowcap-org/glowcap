@@ -63,9 +63,7 @@ pub(super) async fn run() {
 			owner.initialize().await.unwrap();
 			let (client, accepted) = management::connect(&host, &viewer, &root_control).await;
 			let management = management::bootstrap(&client).await;
-			let issuance = Issuance::new(observe.with_ceiling(observe), management.derivation_sequence().await.unwrap(), management::revision(&management).await, 1, ControlPowers {
-				policy_ceiling: Some(observe), pause: true, resume: true, revoke: true, ..Default::default()
-			}, "workspace", false);
+			let issuance = Issuance::new(observe.with_ceiling(observe), management.derivation_sequence().await.unwrap(), management::revision(&management).await, 1, full_control(observe), "workspace", false);
 			let issued = management.issue(&issuance).await.unwrap();
 			let registration = request(&client, &issued.access).await;
 			let observation = Observation::register(client.clone(), &issued.access, &registration).await.unwrap();

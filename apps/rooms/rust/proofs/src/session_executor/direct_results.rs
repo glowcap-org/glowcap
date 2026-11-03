@@ -271,20 +271,7 @@ pub(super) async fn run() {
 							&[],
 						)
 						.unwrap();
-					let (source, control) = owner
-						.derive(
-							terms,
-							1,
-							ControlPowers {
-								policy_ceiling: Some(terms),
-								pause: true,
-								resume: true,
-								revoke: true,
-								..Default::default()
-							},
-						)
-						.await
-						.unwrap();
+					let (source, control) = owner.derive(terms, 1, full_control(terms)).await.unwrap();
 					let (other, _) = owner.derive(terms, 1, ControlPowers::default()).await.unwrap();
 					let (args, canonical) = command(
 						&host,

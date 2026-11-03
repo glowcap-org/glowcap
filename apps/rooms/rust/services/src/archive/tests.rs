@@ -1,6 +1,6 @@
 use super::*;
 use glowcap::{Argument, Session};
-use glowcap::{ConnectOptions, Host, ListenerIdentity, PendingWork, Runtime, RuntimeConfig, tcp};
+use glowcap::{ConnectOptions, PendingWork, Runtime, RuntimeConfig, tcp};
 use rooms_application::archive::{Access, Body, ConversationKind, Coordinates, LineState, index::Index};
 use rooms_application::archive::{Facet, Filter, Record, index::Page};
 use rooms_application::room::ArgumentView;
@@ -8,6 +8,7 @@ use rooms_glowcap::Value;
 use rooms_glowcap::archive as wire;
 use rooms_glowcap::client::{Client, archive::Archive as ClientArchive};
 use rooms_platform::HostPlatform;
+use rooms_platform::loopback::{Loopback, keyed_loopback};
 use std::time::Duration;
 use std::{
 	cell::{Cell, RefCell},
@@ -83,26 +84,15 @@ async fn hosting_drains_admitted_storage_and_bounds_facet_issuance() {
 		.await;
 }
 async fn scenario() {
-	let host = Host::from_seed([198; 32]).unwrap();
-	let server = tcp::listen(
-		"127.0.0.1",
-		0,
-		tcp::ListenOptions {
-			identity: ListenerIdentity::Host(host.clone()),
-			..Default::default()
-		},
-	)
-	.await
-	.unwrap();
-	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
-		.await
-		.unwrap();
-	let locator = server.locator().unwrap();
-	let (connected, accepted) = tokio::join!(runtime.connect(&locator, ConnectOptions::default()), server.accept());
-	let accepted = Rc::new(accepted.unwrap());
-	let service = accepted.clone();
-	let serving = tokio::task::spawn_local(async move { service.serve().await });
-	let client = Client::new(connected.unwrap(), HostPlatform);
+	let Loopback {
+		host,
+		server,
+		locator,
+		runtime,
+		accepted,
+		client,
+		serving,
+	} = keyed_loopback([198; 32]).await.unwrap();
 	let index = Rc::new(RefCell::new(Index::new(5000).unwrap()));
 	let gate = Rc::new(tokio::sync::Notify::new());
 	let blocked = Rc::new(Cell::new(false));

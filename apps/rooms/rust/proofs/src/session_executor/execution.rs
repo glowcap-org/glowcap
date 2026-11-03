@@ -128,13 +128,7 @@ pub(super) async fn run(case: Case) {
 				owner.replace_workspace(&intent).await.unwrap();
 				let permissions: Vec<_> = session::SUPPORTED.iter().map(|p| p.key()).collect();
 				let terms = policy.value_for_kind(session::KIND, &permissions, &[]).unwrap();
-				let powers = ControlPowers {
-					policy_ceiling: Some(terms),
-					pause: true,
-					resume: true,
-					revoke: true,
-					..Default::default()
-				};
+				let powers = full_control(terms);
 				let (source, control) = owner.derive(terms, 1, powers).await.unwrap();
 				let (other, _other_control) = owner.derive(terms, 1, powers).await.unwrap();
 				let snapshot = host.send(&source, "snapshot", &[]).await.unwrap();
