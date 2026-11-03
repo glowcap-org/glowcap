@@ -35,17 +35,6 @@ export const LISTENER_TRANSPORTS = [
 ] as const;
 export const ListenerTransportSchema = z.enum(LISTENER_TRANSPORTS);
 export type ListenerTransport = z.infer<typeof ListenerTransportSchema>;
-export type ListenerOptionName = "bind" | "port" | "advertise" | "relay";
-export const LISTENER_OPTION_NAMES: Record<ListenerTransport, readonly ListenerOptionName[]> = {
-	[TRANSPORT_TCP]: ["bind", "port", "advertise"],
-	[TRANSPORT_KEYED_TCP]: ["bind", "port", "advertise"],
-	[TRANSPORT_NOISE_TCP]: ["bind", "port", "advertise"],
-	[TRANSPORT_IROH]: [],
-	[TRANSPORT_KEYED_RELAY]: ["relay"],
-	[TRANSPORT_NOISE_RELAY]: ["relay"],
-	[TRANSPORT_ONION]: [],
-};
-
 const listenerText = boundedText(64 * 1024);
 const listenerOptionKind = z.enum(["host", "port", "url"]);
 const listenerTakes = z.array(z.tuple([listenerText, listenerOptionKind, listenerText])).check(z.maxLength(32));
