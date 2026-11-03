@@ -50,7 +50,7 @@ use webrtc::peer_connection::{
 	RTCPeerConnectionState, RTCSessionDescription,
 };
 
-use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier};
+use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier, teardown_status};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
 type Readiness = glowcap_sidecar_runtime::Readiness<GlowcapWebrtcReadyEvent>;
@@ -76,13 +76,6 @@ const PEER_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1
 /// Negatives name the failure family the resident maps to a Zig error.
 const OK: i32 = 0;
 const ERR: i32 = -1;
-
-fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
-	match catch_unwind(AssertUnwindSafe(f)) {
-		Ok(Ok(())) => OK,
-		Ok(Err(_)) | Err(_) => ERR,
-	}
-}
 
 /// Borrow a caller's handle for the length of one ABI call, answering `refused`
 /// both for a null pointer and for a panic, which may never cross the C frame.

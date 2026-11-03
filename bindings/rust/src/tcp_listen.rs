@@ -238,18 +238,11 @@ pub(crate) async fn listen(
 #[cfg(all(test, feature = "tcp"))]
 mod tests {
 	use super::*;
+	use crate::session::tests::support::connect;
 	use crate::{Argument, Host};
 	use std::time::Duration;
 	use tokio::sync::oneshot;
 	use tokio::task::LocalSet;
-
-	async fn connect(locator: &crate::Locator, options: ConnectOptions<'_>) -> Result<Session> {
-		let runtime = crate::Runtime::open(crate::RuntimeConfig::providers([crate::tcp::provider(
-			Default::default(),
-		)]))
-		.await?;
-		runtime.connect(locator, options).await
-	}
 
 	async fn listen(address: &str) -> Result<Server> {
 		let (host, port) = crate::designator_host_port(address)?;

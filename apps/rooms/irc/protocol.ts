@@ -162,21 +162,3 @@ export function nickFromPrefix(prefix: string | null): string | null {
 	const end = prefix.search(/[!@]/);
 	return end < 0 ? prefix : prefix.slice(0, end);
 }
-
-/** Strip the status prefixes a NAMES row puts in front of a nick. */
-export function bareNamesNick(value: string): string {
-	return value.replace(/^[~&@%+]+/, "");
-}
-
-/** The CTCP ACTION wrapping for a `/me`: one authority for the byte form,
- * so the outbound writer and the inbound translator cannot drift. */
-export function ctcpAction(text: string): string {
-	return `\u0001ACTION ${text}\u0001`;
-}
-
-/** The text inside a CTCP ACTION, or null when the line is ordinary. A
- * missing trailing delimiter is tolerated: some clients omit it. */
-export function ctcpActionText(raw: string): string | null {
-	if (!raw.startsWith("\u0001ACTION ")) return null;
-	return raw.endsWith("\u0001") ? raw.slice(8, -1) : raw.slice(8);
-}

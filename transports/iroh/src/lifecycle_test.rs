@@ -1,7 +1,7 @@
 //! Endpoint-barrier scenarios that cross the private runtime and the C seam.
 
+use crate::GlowcapIrohEndpoint;
 use crate::tests::{direct_endpoint, free_endpoint};
-use crate::{GlowcapIrohEndpoint, teardown_status};
 
 fn set_nonblocking(endpoint: *mut GlowcapIrohEndpoint, conn: *mut crate::GlowcapIrohConn) -> i32 {
 	// SAFETY: the wrapper forwards its arguments unchanged; its callers pass the live endpoint from `direct_endpoint`
@@ -32,15 +32,6 @@ fn assert_departure_left_to_reader(endpoint: *mut GlowcapIrohEndpoint, conn: *mu
 	for event in &ready[..drained as usize] {
 		assert!(event.events & crate::EV_CLOSED == 0 || event.events & crate::EV_READABLE != 0);
 	}
-}
-
-#[test]
-fn teardown_panics_become_failures() {
-	assert_eq!(teardown_status(|| Ok::<(), ()>(())), 0);
-	assert_eq!(
-		teardown_status(|| -> Result<(), ()> { panic!("forced teardown panic") }),
-		-1
-	);
 }
 
 #[test]

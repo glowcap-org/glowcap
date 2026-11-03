@@ -567,12 +567,3 @@ fn peer_release_joins_its_close_at_endpoint_release() {
 		assert_eq!(glowcap_webrtc_sidecar_endpoint_free(endpoint), OK);
 	}
 }
-
-#[test]
-fn teardown_panics_become_failures() {
-	assert_eq!(teardown_status(|| Ok::<(), ()>(())), OK);
-	assert_eq!(
-		teardown_status(|| -> Result<(), ()> { panic!("forced teardown panic") }),
-		ERR
-	);
-}

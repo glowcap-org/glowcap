@@ -25,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import threading
-import weakref
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -43,7 +42,7 @@ from ._constants import (
 )
 from ._constants import OK as _OK
 from ._errors import GlowcapError
-from ._ffi import FfiHandle, _FfiHandleOwner
+from ._ffi import FfiHandle, _ChildRetiringNetlayer, _FfiHandleOwner
 from ._ffi_ocapn import _borrowed_byte_frame, _copy_managed_frame, _ManagedFrame, _read_last_error, _str_buf
 from ._ffi_tcp import _tcp_lib, _TcpConfig, _TcpStreamOptions
 from ._locator import Locator, designator_host_port
@@ -300,7 +299,7 @@ class TcpListener(_FfiHandleOwner):
             return TcpConnection(out, self._netlayer)
 
 
-class TcpNetlayer(_FfiHandleOwner):
+class TcpNetlayer(_ChildRetiringNetlayer[TcpConnection | TcpListener]):
     """Owns the blocking-TCP I/O backend. Outlives the connections made from it.
     Released on :meth:`release` / context exit."""
 
@@ -312,39 +311,7 @@ class TcpNetlayer(_FfiHandleOwner):
         # Children borrow this netlayer's pinned std.Io backend. A weak set
         # lets each child retain the owner without forming an ownership cycle;
         # explicit release still retires every child before the backend.
-        self._children: weakref.WeakSet[TcpConnection | TcpListener] = weakref.WeakSet()
-        self._children_lock = threading.Lock()
-        self._release_lock = threading.Lock()
-        self._release_requested = False
-
-    def __enter__(self) -> TcpNetlayer:
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.release()
-
-    def release(self) -> None:
-        with self._release_lock:
-            with self._children_lock:
-                if self._release_requested:
-                    children = []
-                else:
-                    self._release_requested = True
-                    children = list(self._children)
-            for child in children:
-                child.close()
-            self._ffi.close()
-
-    def _adopt(self, child: TcpConnection | TcpListener) -> bool:
-        with self._children_lock:
-            if self._release_requested:
-                return False
-            self._children.add(child)
-            return True
-
-    def _forget(self, child: TcpConnection | TcpListener) -> None:
-        with self._children_lock:
-            self._children.discard(child)
+        self._init_children()
 
     def _transport_provider(self):
         """Borrow this runtime's complete tcp/keyed-tcp/noise-tcp package."""
@@ -354,15 +321,6 @@ class TcpNetlayer(_FfiHandleOwner):
         with self._ffi.lease() as raw:
             _check_tcp(_tcp_lib.glowcap_tcp_transport_provider(raw, ctypes.byref(package)))
         return package
-
-    def _relinquish_provider_reference(self) -> None:
-        """Transfer runtime lifetime to an already-retained provider lease."""
-        with self._release_lock:
-            with self._children_lock:
-                if self._release_requested or self._children:
-                    raise RuntimeError("TCP netlayer is not transferable")
-                self._release_requested = True
-            self._ffi.drop_reference()
 
     def listen(self, host: str, port: int = 0) -> TcpListener:
         buf, n = _str_buf(host)

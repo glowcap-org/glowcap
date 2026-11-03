@@ -50,17 +50,10 @@ use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
-use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier};
+use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier, teardown_status};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
 type Readiness = glowcap_sidecar_runtime::Readiness<GlowcapIrohReadyEvent>;
-
-fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
-	match catch_unwind(AssertUnwindSafe(f)) {
-		Ok(Ok(())) => 0,
-		Ok(Err(_)) | Err(_) => -1,
-	}
-}
 
 /// The ALPN both glowcap peers negotiate (ADR-0021).
 const ALPN: &[u8] = b"ocapn/glowcap/1";

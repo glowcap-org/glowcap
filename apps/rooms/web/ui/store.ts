@@ -316,11 +316,6 @@ export function setEarlierHistory(
 	put(projection, { ...conv, earlierHistory });
 }
 
-/** Whether this room has said `name` is one of its members. */
-export function hasMember(projection: PageProjection, key: string, name: string): boolean {
-	return getConv(projection, key)?.type === "room" && membersOf(projection, key).has(name);
-}
-
 export function membersOf(
 	projection: PageProjection,
 	key: string | null,

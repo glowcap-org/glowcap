@@ -30,13 +30,12 @@ from __future__ import annotations
 
 import ctypes
 import threading
-import weakref
 
 from ._abi_value import _DEFAULT_CODEC, _codec_id
 from ._constants import OK as _OK
 from ._constants import RAW_TRANSPORT_DEFAULT_FRAME_CAP, TRANSPORT_INPROC
 from ._errors import GlowcapError
-from ._ffi import FfiHandle, _FfiHandleOwner
+from ._ffi import FfiHandle, _ChildRetiringNetlayer, _FfiHandleOwner
 from ._ffi_inproc import _inproc_lib
 from ._ffi_ocapn import _borrowed_byte_frame, _copy_managed_frame, _ManagedFrame, _read_last_error, _str_buf
 from ._locator import Locator
@@ -170,7 +169,7 @@ class InprocListener(_FfiHandleOwner):
         return out.value
 
 
-class InprocNetlayer(_FfiHandleOwner):
+class InprocNetlayer(_ChildRetiringNetlayer[InprocConnection | InprocListener]):
     """Owns the in-process switchboard and its one I/O backend. Outlives the
     connections and listeners made from it. Released on :meth:`release` / context
     exit."""
@@ -179,39 +178,7 @@ class InprocNetlayer(_FfiHandleOwner):
         out = ctypes.c_void_p()
         _check_inproc(_inproc_lib.glowcap_inproc_netlayer_new(ctypes.byref(out)))
         self._ffi = FfiHandle(out, _release_netlayer, label="inproc netlayer")
-        self._children: weakref.WeakSet[InprocConnection | InprocListener] = weakref.WeakSet()
-        self._children_lock = threading.Lock()
-        self._release_lock = threading.Lock()
-        self._release_requested = False
-
-    def __enter__(self) -> InprocNetlayer:
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.release()
-
-    def release(self) -> None:
-        with self._release_lock:
-            with self._children_lock:
-                if self._release_requested:
-                    children = []
-                else:
-                    self._release_requested = True
-                    children = list(self._children)
-            for child in children:
-                child.close()
-            self._ffi.close()
-
-    def _adopt(self, child: InprocConnection | InprocListener) -> bool:
-        with self._children_lock:
-            if self._release_requested:
-                return False
-            self._children.add(child)
-            return True
-
-    def _forget(self, child: InprocConnection | InprocListener) -> None:
-        with self._children_lock:
-            self._children.discard(child)
+        self._init_children()
 
     def listen(self, designator: str) -> InprocListener:
         """Bind a listener on ``designator``, any opaque token a dialer names."""

@@ -14,6 +14,7 @@ import weakref
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import partial
+from typing import Generic, Protocol, Self, TypeVar
 
 from ._failure import FailureLayer, _record_runtime_failure
 
@@ -143,6 +144,13 @@ class FfiHandle:
             raise failures[0]
 
 
+class _Closable(Protocol):
+    def close(self) -> None: ...
+
+
+_Child = TypeVar("_Child", bound=_Closable)
+
+
 class _FfiHandleOwner:
     """Shared diagnostics projection for wrappers owning ``self._ffi``."""
 
@@ -151,3 +159,63 @@ class _FfiHandleOwner:
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
         return self._ffi.terminal_failures
+
+
+class _ChildRetiringNetlayer(_FfiHandleOwner, Generic[_Child]):
+    """A netlayer whose connections and listeners borrow its backend.
+
+    A child registers through :meth:`_adopt` and leaves through :meth:`_forget`.
+    A weak set lets each child retain the owner without an ownership cycle, and
+    :meth:`release` retires every live child before the backend. Once release is
+    requested no child is adopted, so a dial that races the release fails closed
+    instead of outliving its backend. The subclass calls :meth:`_init_children`
+    once ``self._ffi`` is set."""
+
+    _children: weakref.WeakSet[_Child]
+    _children_lock: threading.Lock
+    _release_lock: threading.Lock
+    _release_requested: bool
+
+    def _init_children(self) -> None:
+        self._children = weakref.WeakSet()
+        self._children_lock = threading.Lock()
+        self._release_lock = threading.Lock()
+        self._release_requested = False
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
+
+    def release(self) -> None:
+        with self._release_lock:
+            with self._children_lock:
+                if self._release_requested:
+                    children = []
+                else:
+                    self._release_requested = True
+                    children = list(self._children)
+            for child in children:
+                child.close()
+            self._ffi.close()
+
+    def _adopt(self, child: _Child) -> bool:
+        with self._children_lock:
+            if self._release_requested:
+                return False
+            self._children.add(child)
+            return True
+
+    def _forget(self, child: _Child) -> None:
+        with self._children_lock:
+            self._children.discard(child)
+
+    def _relinquish_provider_reference(self) -> None:
+        """Transfer runtime lifetime to an already-retained provider lease."""
+        with self._release_lock:
+            with self._children_lock:
+                if self._release_requested or self._children:
+                    raise RuntimeError(f"{self._ffi._label} is not transferable")
+                self._release_requested = True
+            self._ffi.drop_reference()

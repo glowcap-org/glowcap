@@ -1,12 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { fileURLToPath } from "node:url";
-
-function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
+import { freePort } from "../test/support/ports.ts";
 
 function terminate(child: Deno.ChildProcess): void {
 	try {

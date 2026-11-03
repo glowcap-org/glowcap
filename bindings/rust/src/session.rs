@@ -471,4 +471,4 @@ impl Session {
 
 #[cfg(all(test, feature = "tcp"))]
 #[path = "session_tests.rs"]
-mod tests;
+pub(crate) mod tests;
