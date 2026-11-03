@@ -5,6 +5,9 @@ import type { Ptr } from "../internal/ffi/runtime.ts";
 import { L } from "../internal/layout.ts";
 import { ab, outPointer, outU32, outUsize, readBytes } from "../internal/seam.ts";
 import { type SessionProfile, sessionProfileFromAbi } from "../value.ts";
+import { type PartnerIdentity, provenanceFromAbi } from "./identity.ts";
+
+const utf8Decoder = new TextDecoder();
 
 /** Project the negotiated wire profile from the FFI session boundary. */
 export function readSessionProfile(ptr: Ptr): SessionProfile {
@@ -34,4 +37,32 @@ export function readSessionTransportName(ptr: Ptr): string {
 			`glowcap ABI returned a non-UTF-8 session transport name: ${String(error)}`,
 		);
 	}
+}
+
+/** Copy the verified partner claim before a later FFI call can invalidate it. */
+export function readPartnerIdentity(ptr: Ptr): PartnerIdentity {
+	const buf = new Uint8Array(L.PARTNER_IDENTITY_SIZE);
+	checkHost(hostS.glowcap_host_session_partner_identity(ptr, ab(buf)));
+	// The views the call filled in are session-owned and a later call can
+	// invalidate them, so every field is copied here (`readBytes` owns its
+	// result) before this returns.
+	const dv = new DataView(buf.buffer);
+	const view = (off: number, lenOff: number): Uint8Array => readBytes(L.getPtr(dv, off), L.getUsize(dv, lenOff));
+	return {
+		sessionKey: view(
+			L.PARTNER_IDENTITY_SESSION_KEY_OFF,
+			L.PARTNER_IDENTITY_SESSION_KEY_LEN_OFF,
+		),
+		designator: utf8Decoder.decode(view(
+			L.PARTNER_IDENTITY_DESIGNATOR_OFF,
+			L.PARTNER_IDENTITY_DESIGNATOR_LEN_OFF,
+		)),
+		locatorRecord: view(
+			L.PARTNER_IDENTITY_LOCATOR_RECORD_OFF,
+			L.PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF,
+		),
+		provenance: provenanceFromAbi(
+			dv.getUint32(L.PARTNER_IDENTITY_PROVENANCE_OFF, true),
+		),
+	};
 }
