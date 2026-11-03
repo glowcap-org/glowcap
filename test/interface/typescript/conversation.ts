@@ -2,6 +2,7 @@
 import { type Argument, Host, Ref, Runtime } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
 import * as generated from "../generated/callbacks.ts";
+import { invocation } from "./invocation.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
@@ -94,6 +95,7 @@ async function scenario(wrong: boolean): Promise<void> {
 	if (failures.length) throw new AggregateError(failures, "interface conversation failed");
 }
 
+await invocation();
 await scenario(false);
 await scenario(true);
 console.log(

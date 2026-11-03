@@ -73,12 +73,12 @@ pub const Model = struct {
         while (i < methods.children.len) : (i += 2) {
             const name = methods.children[i];
             if (name.kind != .string and !(name.kind == .boolean and !name.boolean)) return error.InvalidDescription;
-            const method = try methods.children[i + 1].fields("method", 3);
-            const params = method[0];
+            const signature = try methods.children[i + 1].fields("method", 3);
+            const params = signature[0];
             if (params.kind != .list or params.children.len > max_parameters) return error.InvalidDescription;
-            if (!method[2].is("call") and !method[2].is("tell") and !method[2].is("loam.receipt")) return error.InvalidDescription;
-            if (method[2].is("loam.receipt") and name.kind != .string) return error.InvalidDescription;
-            if (method[2].is("tell") and !method[1].is("undefined")) return error.InvalidDescription;
+            if (!signature[2].is("call") and !signature[2].is("tell") and !signature[2].is("loam.receipt")) return error.InvalidDescription;
+            if (signature[2].is("loam.receipt") and name.kind != .string) return error.InvalidDescription;
+            if (signature[2].is("tell") and !signature[1].is("undefined")) return error.InvalidDescription;
             var optional = false;
             for (params.children, 0..) |param, at| {
                 if (param.kind != .record) return error.InvalidDescription;
@@ -96,7 +96,7 @@ pub const Model = struct {
                 }
                 try self.checkType(fields[1], 0);
             }
-            try self.checkType(method[1], 0);
+            try self.checkType(signature[1], 0);
         }
     }
 
@@ -150,11 +150,27 @@ pub const Model = struct {
         } else return error.UnsupportedProjection;
     }
 
-    pub fn creation(self: *Model, interface_name: []const u8, method_name: []const u8) Error!Creation {
+    /// Select a checked method while preserving positional versus symbolic invocation.
+    pub fn method(self: *Model, interface_name: []const u8, selector: ?[]const u8) Error![]const Node {
         const interface = try (try self.definition(interface_name)).fields("interface", 1);
-        const method = try (try interface[0].get(method_name)).fields("method", 3);
-        if (!method[2].is("loam.receipt") or method[0].children.len != 1) return error.UnsupportedProjection;
-        const param = try method[0].children[0].fields("parameter", 3);
+        const methods = interface[0].children;
+        try self.spend(methods.len / 2);
+        var i: usize = 0;
+        while (i < methods.len) : (i += 2) {
+            const key = methods[i];
+            const matches = if (selector) |name|
+                key.kind == .string and std.mem.eql(u8, key.bytes, name)
+            else
+                key.kind == .boolean and !key.boolean;
+            if (matches) return methods[i + 1].fields("method", 3);
+        }
+        return error.InvalidDescription;
+    }
+
+    pub fn creation(self: *Model, interface_name: []const u8, method_name: []const u8) Error!Creation {
+        const selected = try self.method(interface_name, method_name);
+        if (!selected[2].is("loam.receipt") or selected[0].children.len != 1) return error.UnsupportedProjection;
+        const param = try selected[0].children[0].fields("parameter", 3);
         if (param[2].boolean) return error.UnsupportedProjection;
         const input = try self.resolve(param[1]);
         if (input.kind != .record or !std.mem.eql(u8, input.bytes, "bounded")) return error.UnsupportedProjection;
@@ -163,7 +179,7 @@ pub const Model = struct {
         const min = try (try bounded[1].get("min_bytes")).number();
         const max = try (try bounded[1].get("max_bytes")).number();
         if (min < 0 or max < min) return error.InvalidDescription;
-        const result = try self.resolve(method[1]);
+        const result = try self.resolve(selected[1]);
         if (result.kind != .record or !std.mem.eql(u8, result.bytes, "interface")) return error.UnsupportedProjection;
         return .{ .wire_name = method_name, .minimum = std.math.cast(usize, min) orelse return error.UnsupportedProjection, .maximum = std.math.cast(usize, max) orelse return error.UnsupportedProjection };
     }

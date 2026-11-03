@@ -24,6 +24,10 @@ and broken outcomes on both profiles. Binding tests check retained-reference
 retirement while the session stays usable. Actor teardown follows the Port's
 separate export root.
 
+Generated Rust and TypeScript callers distinguish positional invocation, empty-symbol
+methods, and named methods on both profiles. Rust checks that the positional
+tell carries no answer authority.
+
 Expected message constants come from `messages.syrup`, never from the interface
 definitions under test. A `fixture:ref` value is a substitution slot for a
 Host-owned reference, never a transmitted value.

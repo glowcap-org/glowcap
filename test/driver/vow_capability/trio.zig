@@ -149,6 +149,10 @@ pub const Trio = struct {
     arena: std.heap.ArenaAllocator,
 
     pub fn init(self: *Trio) !void {
+        return self.initWithPreference(model.Preference.default_offer);
+    }
+
+    pub fn initWithPreference(self: *Trio, preference: model.Preference) !void {
         ReaderA.reset();
         ReaderB.reset();
         ReaderC.reset();
@@ -157,9 +161,13 @@ pub const Trio = struct {
         Target.ran = 0;
         const gpa = std.testing.allocator;
         self.arena = std.heap.ArenaAllocator.init(gpa);
-        self.a = test_host.init(gpa, @as([32]u8, @splat(0x44)), Host.Options.withFrameCap(harness.frame_cap));
-        self.b = test_host.init(gpa, @as([32]u8, @splat(0x55)), Host.Options.withFrameCap(harness.frame_cap));
-        self.c = test_host.init(gpa, @as([32]u8, @splat(0x66)), Host.Options.withFrameCap(harness.frame_cap));
+        var options = Host.Options.withFrameCap(harness.frame_cap);
+        options.codec = preference.codec;
+        options.captp_version = preference.captp_version;
+        options.features = preference.features;
+        self.a = test_host.init(gpa, @as([32]u8, @splat(0x44)), options);
+        self.b = test_host.init(gpa, @as([32]u8, @splat(0x55)), options);
+        self.c = test_host.init(gpa, @as([32]u8, @splat(0x66)), options);
         self.hosts = .{ &self.a, &self.b, &self.c };
         self.dials = .empty;
         self.ab = try harness.openPair(gpa, &self.a, &self.b, b_designator, &self.dials);
@@ -167,6 +175,10 @@ pub const Trio = struct {
         self.pair_buf[0] = self.ab;
         self.pair_buf[1] = self.ac;
         self.pair_len = 2;
+        for (self.pairs()) |pair| {
+            try std.testing.expectEqual(preference.codec, pair.a.served.port.peer.session_state.codec);
+            try std.testing.expectEqual(preference.captp_version, pair.a.served.port.peer.session_state.captp_version);
+        }
         _ = try self.ab.b.served.publish(&self.b.vat, "greeter", driver.core.Hosting(GreeterB), .{ .inner = .{} });
         _ = try self.ab.a.served.publish(&self.a.vat, "greeter", driver.core.Hosting(GreeterA), .{ .inner = .{} });
         _ = try self.ab.b.served.publish(&self.b.vat, "reader", driver.core.Hosting(ReaderB), .{ .inner = .{} });

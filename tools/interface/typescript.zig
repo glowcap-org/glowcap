@@ -21,7 +21,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
         } else {
             try out.print(a, "): Pending<{s}> {{\n\tconst raw = session.send(target, ", .{typeName(call.result)});
         }
-        try literal(&out, a, call.wire_name);
+        if (call.wire_name) |name| try literal(&out, a, name) else try out.appendSlice(a, "null");
         try out.appendSlice(a, ", [");
         for (call.parameters, 0..) |_, i| {
             if (i != 0) try out.appendSlice(a, ", ");

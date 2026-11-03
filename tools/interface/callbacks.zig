@@ -31,7 +31,7 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
     } else {
         try out.print(a, ") -> Pending<{s}> {{\n\tlet raw = session.send(target, ", .{resultType(call.result)});
     }
-    try literal(out, a, call.wire_name);
+    if (call.wire_name) |name| try literal(out, a, name) else try out.appendSlice(a, "None::<&str>");
     try out.appendSlice(a, ", &[");
     for (call.parameters, 0..) |parameter, i| {
         if (i != 0) try out.appendSlice(a, ", ");
@@ -61,7 +61,7 @@ fn emitPrepared(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call,
     if (call.parameters.len != 1 or call.parameters[0] != .pending_value or call.result != .nothing) return error.UnsupportedProjection;
     try out.print(a, "\npub fn {s}(\n\tsession: Rc<Session>,\n\ttarget: Ref,\n\tpending: &RemotePromise,\n) -> Result<impl Future<Output = Result<PreparedMutation<()>, Error>> + use<>, Error> {{\n", .{api});
     try out.appendSlice(a, "\tlet owned = pending.retain_for(&session.host())?;\n\tOk(prepare_mutation(\n\t\tsession,\n\t\ttarget,\n\t\tmove |number| vec![number.into(), ");
-    try literal(out, a, call.wire_name);
+    try literal(out, a, call.wire_name orelse return error.UnsupportedProjection);
     try out.appendSlice(a, ".into(), owned.into()],\n\t\tnothing,\n\t))\n}\n");
 }
 

@@ -170,8 +170,9 @@ It does not multicast that listener to multiple local observers.
 
 The callback fixture opens a Reader through Factory, calls Sink.push with it,
 and passes a still-pending Reader to Factory.accept. Reader has a wire method
-named `then`. Direct and send-only interfaces check selector-free invocation
-and absence of a result channel. Qualification must hold the factory reply
+named `then`. Generated Rust and TypeScript callers check positional,
+empty-symbol, and named invocation on both profiles. The raw Rust notification
+behavior verifies that a tell has no result channel. Qualification must hold the factory reply
 pending while admitting the dependent calls. A pre-resolved answer is not proof.
 
 The runtime owns promise, settlement, and listener behavior. The generator

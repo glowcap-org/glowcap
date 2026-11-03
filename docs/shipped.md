@@ -251,7 +251,8 @@ so a peer with no listening socket can still reply and take part in a handoff.
   an MCP interface, and join a Rooms session ([CLI guide](cli.md)).
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
   Tasks creation uses Zig argument checks and a Rust retained-request client generated from a Syrup contract.
-  Rust prepared pending arguments also run through acquisition and replay on both wire profiles.
+  Rust prepared pending arguments run through acquisition and replay on both wire profiles.
+  Generated Rust and TypeScript callers preserve positional, empty-symbol, and named invocation.
   This is the first [interface generation slice](planning/interface-definitions.md), not a general interface compiler.
 - The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions. Members hold rooms
   and direct messages with files over WebRTC, the Noise-sealed relay, iroh, and TCP. A session process started with
