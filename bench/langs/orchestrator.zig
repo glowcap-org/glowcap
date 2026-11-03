@@ -27,6 +27,8 @@ const Io = std.Io;
 const report_mod = @import("report.zig");
 const affinity = @import("affinity");
 const clock = @import("clock");
+const percentile = @import("percentile");
+const rss = @import("rss");
 const availability_mod = @import("availability.zig");
 
 const host_addr = "127.0.0.1";
@@ -456,51 +458,23 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
         child.kill(ctx.io);
     }
     std.sort.pdq(f64, times, {}, std.sort.asc(f64));
-    return std.fmt.allocPrint(ctx.arena, "{d:.2}", .{percentile(times, 0.50)});
-}
-
-/// Nearest-rank percentile (1-indexed ceil) over an ascending-sorted slice.
-fn percentile(sorted: []const f64, p: f64) f64 {
-    if (sorted.len == 0) return 0;
-    const rank: usize = @intFromFloat(@ceil(p * @as(f64, @floatFromInt(sorted.len))));
-    const idx = if (rank == 0) 0 else @min(sorted.len - 1, rank - 1);
-    return sorted[idx];
+    return std.fmt.allocPrint(ctx.arena, "{d:.2}", .{percentile.of(f64, times, 0.50)});
 }
 
 /// Sample a pid's VmRSS `samples` times `dt_ms` apart, keeping the minimum (the
 /// live-set floor, not a process caught mid-collection). A sample that cannot
 /// be read is skipped, and a run with no readable sample fails.
-fn sampleMinRss(ctx: *Ctx, pid: std.posix.pid_t, samples: usize, dt_ms: i64) !u64 {
+fn sampleMinRss(ctx: *Ctx, pid: std.process.Child.Id, samples: usize, dt_ms: i64) !u64 {
     var best: ?u64 = null;
     for (0..samples) |_| {
-        if (readVmRssKb(ctx, pid)) |s| best = if (best) |b| @min(b, s) else s;
+        if (rss.kb(ctx.io, pid)) |s| {
+            best = if (best) |b| @min(b, s) else s;
+        } else |_| {
+            // tolerant: a sample that cannot be read is skipped, and a run with no readable sample fails below.
+        }
         try ctx.io.sleep(std.Io.Duration.fromMilliseconds(dt_ms), .awake);
     }
     return best orelse error.RssUnreadable;
-}
-
-/// Read VmRSS (kB) for a live pid from /proc, or null if unreadable.
-fn readVmRssKb(ctx: *Ctx, pid: std.posix.pid_t) ?u64 {
-    var path_buf: [64]u8 = undefined;
-    const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/status", .{pid}) catch return null;
-    var file = std.Io.Dir.cwd().openFile(ctx.io, path, .{}) catch return null;
-    defer file.close(ctx.io);
-    var rbuf: [4096]u8 = undefined;
-    var reader = file.readerStreaming(ctx.io, &rbuf);
-    var scratch: [8192]u8 = undefined;
-    var len: usize = 0;
-    while (len < scratch.len) {
-        const nread = reader.interface.readSliceShort(scratch[len..]) catch return null;
-        if (nread == 0) break;
-        len += nread;
-    }
-    const text = scratch[0..len];
-    const at = std.mem.indexOf(u8, text, "VmRSS:") orelse return null;
-    var i = at + "VmRSS:".len;
-    while (i < text.len and (text[i] == ' ' or text[i] == '\t')) i += 1;
-    const start = i;
-    while (i < text.len and text[i] >= '0' and text[i] <= '9') i += 1;
-    return std.fmt.parseInt(u64, text[start..i], 10) catch null;
 }
 
 /// `jf`, with a JSON `null` (or a missing key) rendered as `-`: the

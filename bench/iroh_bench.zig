@@ -30,6 +30,7 @@
 
 const std = @import("std");
 const nowNs = @import("support/clock.zig").nowNs;
+const percentile = @import("support/percentile.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const iroh = @import("iroh");
@@ -289,8 +290,8 @@ fn report(transport: []const u8, call: []const u8, warmup: usize, samples: []u64
     var sum: u128 = 0;
     for (samples) |s| sum += s;
     const mean_ns: f64 = @as(f64, @floatFromInt(sum)) / @as(f64, @floatFromInt(n));
-    const p50 = samples[n / 2];
-    const p99 = samples[(n * 99) / 100];
+    const p50 = percentile.of(u64, samples, 0.50);
+    const p99 = percentile.of(u64, samples, 0.99);
     const rps: f64 = if (mean_ns > 0) 1_000_000_000.0 / mean_ns else 0;
     std.debug.print(
         "roundtrip transport={s} codec={s} call={s} calls={d} warmup={d} p50_ns={d} p99_ns={d} mean_ns={d:.0} rps={d:.0} mode={s} busy_poll_us={d} pin={s} readings={d} frame_cap={d}\n",

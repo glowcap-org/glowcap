@@ -13,6 +13,7 @@
 
 const std = @import("std");
 const clock = @import("clock");
+const percentile = @import("percentile");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
@@ -65,10 +66,9 @@ fn sinceNs(io: std.Io, start: i128) u64 {
     return @intCast(clock.nowNs(io) - start);
 }
 
-/// Nearest-rank percentile over latencies already sorted ascending, `p` in
-/// [0,1], in milliseconds: `percentileNs` at the same rank.
+/// The percentile `p` of latencies sorted ascending, in milliseconds.
 fn percentileMs(sorted_ns: []const u64, p: f64) f64 {
-    return percentileNs(sorted_ns, p) / 1_000_000.0;
+    return @as(f64, @floatFromInt(percentile.of(u64, sorted_ns, p))) / 1_000_000.0;
 }
 
 fn connectOne(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !*driver.Session {
@@ -94,9 +94,7 @@ fn runLatency(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, 
     }
     std.sort.pdq(u64, samples, {}, std.sort.asc(u64));
 
-    var total: u128 = 0;
-    for (samples) |s| total += s;
-    const mean_ms = @as(f64, @floatFromInt(total)) / @as(f64, @floatFromInt(n)) / 1_000_000.0;
+    const mean_ms = meanNs(samples) / 1_000_000.0;
 
     try printLine(
         io,
@@ -227,13 +225,10 @@ fn meanNs(samples: []const u64) f64 {
     return @as(f64, @floatFromInt(total)) / @as(f64, @floatFromInt(samples.len));
 }
 
-/// Nearest-rank percentile over latencies already sorted ascending, `p` in
-/// [0,1], in nanoseconds: the sample itself, with no unit conversion to round.
+/// The percentile `p` of latencies sorted ascending, in nanoseconds (the
+/// `local` mode's unit).
 fn percentileNs(sorted_ns: []const u64, p: f64) f64 {
-    if (sorted_ns.len == 0) return 0;
-    const rank: usize = @intFromFloat(@ceil(p * @as(f64, @floatFromInt(sorted_ns.len))));
-    const idx = if (rank == 0) 0 else @min(sorted_ns.len - 1, rank - 1);
-    return @as(f64, @floatFromInt(sorted_ns[idx]));
+    return @floatFromInt(percentile.of(u64, sorted_ns, p));
 }
 
 /// The `local` mode (see contract.md): (a) in_lang, a counter spawned on this

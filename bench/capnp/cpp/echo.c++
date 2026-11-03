@@ -53,8 +53,9 @@ void printLine(const char* call, std::vector<int64_t>& samples, size_t calls, si
   std::sort(samples.begin(), samples.end());
   int64_t total = 0;
   for (auto s : samples) total += s;
-  const int64_t p50 = samples[samples.size() / 2];
-  const int64_t p99 = samples[samples.size() * 99 / 100];
+  // Nearest rank, as bench/support/percentile.zig: index ceil(p * size) - 1.
+  const int64_t p50 = samples[(samples.size() * 50 + 99) / 100 - 1];
+  const int64_t p99 = samples[(samples.size() * 99 + 99) / 100 - 1];
   const int64_t mean = total / static_cast<int64_t>(samples.size());
   const int64_t rps = static_cast<int64_t>(1000000000.0 * samples.size() / total);
   std::printf(

@@ -29,6 +29,7 @@
 
 const std = @import("std");
 const nowNs = @import("support/clock.zig").nowNs;
+const percentile = @import("support/percentile.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const profile = @import("support/profile.zig");
@@ -143,8 +144,8 @@ fn runOrder(
 
     return .{
         .mean_ns = batch_elapsed / @as(f64, @floatFromInt(turns)),
-        .p50_ns = taken[taken.len / 2],
-        .p99_ns = taken[(taken.len * 99) / 100],
+        .p50_ns = percentile.of(u64, taken, 0.50),
+        .p99_ns = percentile.of(u64, taken, 0.99),
     };
 }
 
