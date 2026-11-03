@@ -269,11 +269,14 @@ pub fn completeFulfilled(self: *Host, id: capability.PromiseId, lifted: Host.Cap
 }
 
 /// The newest projection still owed to a live recipient. A projection whose
-/// recipient has already left is dropped on the way.
+/// recipient has already closed or left is dropped on the way. The shell may
+/// remain indexed until its transport retires; only a live wire can receive a resolution.
 pub fn nextOwedProjection(self: *Host, row: *Row) ?struct { projection: Row.Projection, recipient: *HostSession } {
     while (row.projections.items.len != 0) {
         const projection = row.projections.items[row.projections.items.len - 1];
-        if (self.sessions.get(projection.peer_handle)) |recipient| return .{ .projection = projection, .recipient = recipient };
+        if (self.sessions.get(projection.peer_handle)) |recipient| {
+            if (recipient.wireLive()) return .{ .projection = projection, .recipient = recipient };
+        }
         _ = row.projections.pop();
     }
     return null;

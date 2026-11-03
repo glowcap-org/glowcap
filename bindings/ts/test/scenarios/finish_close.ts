@@ -1,7 +1,16 @@
 import * as tcp from "@glowcap/tcp";
 import { CLOSED, DESIGNATOR_SCHEME_ADDRESS, TIMEOUT } from "@glowcap/abi";
 import { connectTcp, listenTcp } from "../../runtime/internal/seam.ts";
-import { bareLocator, GlowcapError, HANDSHAKE_TIMEOUT_MS, Host, Runtime, Session, Sym } from "../../runtime/mod.ts";
+import {
+	bareLocator,
+	GlowcapError,
+	HANDSHAKE_TIMEOUT_MS,
+	Host,
+	Ref,
+	Runtime,
+	Session,
+	Sym,
+} from "../../runtime/mod.ts";
 import { assert, ok, within } from "./support.ts";
 
 /** Prove cancel observation, finish settlement, and finite-grace escalation. */
@@ -16,7 +25,13 @@ export async function runFinishClosePolicy(): Promise<void> {
 		const callEntered = new Promise<void>((resolve) => entered = resolve);
 		let releaseAnswer!: (value: null) => void;
 		const answer = new Promise<null>((resolve) => releaseAnswer = resolve);
-		serverHost.publish("pending", () => {
+		let returned: Ref | undefined;
+		serverHost.publish("pending", (verb, args) => {
+			if (verb === "accept") {
+				assert(args[0] instanceof Ref, "pending argument lifted to a capability");
+				returned = args[0];
+				return undefined;
+			}
 			entered();
 			return answer;
 		});
@@ -29,6 +44,17 @@ export async function runFinishClosePolicy(): Promise<void> {
 			const service = await client.fetch("pending");
 			const pending = client.send(service, "open");
 			await within(callEntered, 2_000, "the pending call reaching its partner");
+			await client.send(service, "accept", [pending]);
+			assert(returned instanceof Ref, "partner retained the unresolved capability");
+			let received: Ref | undefined;
+			client.publish("callback", (_verb, args) => {
+				assert(args[0] instanceof Ref, "returned pending capability lifted");
+				received = args[0];
+			});
+			// Send the same unresolved answer back through an ordinary callback.
+			const callback = await incoming.value.fetch("callback");
+			await incoming.value.send(callback, "push", [returned]);
+			assert(received instanceof Ref, "original client retained the returned capability");
 			const pipeline = client.send(pending, "read");
 			const observed = Promise.allSettled([pending, pending.then((value) => value), pipeline]);
 			await within(client.close({ pending: "cancel" }), 5_000, "cancel with active observations");

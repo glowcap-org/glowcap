@@ -612,3 +612,24 @@ test "a vow whose send moves sessions takes its promise to the session it settle
     try t.pump();
     try t.expectClean();
 }
+
+test "cancel close retires a vow projection on its own session and breaks a live third peer" {
+    for ([_]Preference{ Preference.default_offer, Preference.glowcap }) |preference| {
+        var t: Trio = undefined;
+        try t.initWithPreference(preference);
+        defer t.deinit();
+        const vow = try t.ask();
+        const cap = try t.a.vowCapability(vow);
+        try t.passToB(cap);
+        try t.passToC(cap);
+        var c_listened: capture.CapturedString = .{};
+        try listenOn(&t.c, ReaderC.listen_vow, &c_listened);
+        try t.a.beginSessionClose(t.ab.a, .cancel, 0);
+        try t.pump();
+        try std.testing.expect(c_listened.broken);
+        try t.expectState(cap, .broken);
+        try std.testing.expectEqual(@as(usize, 0), t.a.node.actions.promise_settlements);
+        try t.a.releaseCapability(cap, 1);
+        try std.testing.expectEqual(@as(usize, 0), t.a.capability_promises.count());
+    }
+}
