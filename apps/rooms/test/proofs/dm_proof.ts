@@ -26,7 +26,7 @@ import { enterOrOpen } from "../../lib/enter_room.ts";
 import { dial, roomsHost } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { roomLocator } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { until } from "../support/wait.ts";

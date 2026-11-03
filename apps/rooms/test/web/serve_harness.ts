@@ -6,7 +6,7 @@ import { roomsHost } from "../../lib/locator.ts";
 import { DIRECTORY, LIST } from "../../lib/protocol.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { ROOT, WEB } from "../support/paths.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { delay, within } from "../support/wait.ts";
 
 function remaining(deadline: number, what: string): number {

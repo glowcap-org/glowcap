@@ -47,7 +47,7 @@ import { Buffer } from "node:buffer";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { acquireTraceCapability, connectTraceViewer, scrapeTraceSturdyref } from "../trace/viewer.ts";
 import { reapOwned } from "../support/children.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";

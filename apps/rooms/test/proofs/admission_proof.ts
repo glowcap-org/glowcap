@@ -8,7 +8,7 @@ import { establishLocalSession } from "../support/session_setup.ts";
 import { waitForFiniteAnimations } from "../support/animations.ts";
 import { fail } from "../support/fail.ts";
 import { ROOT } from "../support/paths.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { awaitBubble, confirmTitleLeave, reachDirectoryOnCard, say } from "../page/harness.ts";
 

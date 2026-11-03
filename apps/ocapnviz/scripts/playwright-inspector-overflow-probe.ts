@@ -28,7 +28,7 @@
  * Run against a dev server: `deno task dev`, then
  * `deno run -A scripts/playwright-inspector-overflow-probe.ts http://127.0.0.1:5173/`.
  */
-import { chromium } from "playwright";
+import { openBuildStage } from "./support/headless.ts";
 
 const url = Deno.args[0] ?? "http://127.0.0.1:5199/";
 
@@ -40,54 +40,7 @@ const KEY_B = "c41171f326941a7123aae1687f5d02b93c8ea6410d92bb75f0c31e8a4d6721ab"
  *  9px badge plus the row's own padding clears this. One line does not. */
 const MAX_ROW_HEIGHT = 34;
 
-const browser = await chromium.launch({
-	headless: true,
-	args: ["--no-sandbox", "--disable-gpu"],
-});
-const ctx = await browser.newContext({
-	viewport: { width: 1600, height: 1000 },
-});
-const page = await ctx.newPage();
-const failures: string[] = [];
-page.on("pageerror", (e) => failures.push(`pageerror: ${e.message}`));
-await page.addInitScript(() => {
-	try {
-		localStorage.removeItem("ocapnviz:app-state");
-	} catch { /* ignore */ }
-});
-await page.goto(url, { waitUntil: "networkidle" });
-await page.waitForSelector("canvas#ocv-pixi");
-await page.waitForTimeout(500);
-await page.getByRole("radio", { name: "Build" }).click();
-await page.waitForTimeout(300);
-
-/** Click the peer the stage draws first, which is what puts the peer
- *  panel in the Inspector. */
-const peers = await page.evaluate(() => {
-	type Peer = { peer: { id: string }; position?: { x: number; y: number } };
-	type VP = { toScreen: (x: number, y: number) => { x: number; y: number } };
-	const g = globalThis as unknown as {
-		__ocv?: { engine?: { queries?: { peers?: Iterable<Peer> } } };
-		__ocvViewport?: VP;
-	};
-	const list = g.__ocv?.engine?.queries?.peers;
-	const vp = g.__ocvViewport;
-	if (!list || !vp) return [];
-	const out: { id: string; sx: number; sy: number }[] = [];
-	for (const p of list) {
-		if (!p.position) continue;
-		const s = vp.toScreen(p.position.x, p.position.y);
-		out.push({ id: p.peer.id, sx: s.x, sy: s.y });
-	}
-	return out;
-});
-if (peers.length === 0) {
-	console.log("FAIL — no peers on stage");
-	await browser.close();
-	Deno.exit(1);
-}
-await page.mouse.click(peers[0]!.sx, peers[0]!.sy);
-await page.waitForTimeout(300);
+const { browser, page, failures } = await openBuildStage(url);
 
 /** Type `text` into a field, replacing whatever it held. */
 async function fill(label: string, text: string) {

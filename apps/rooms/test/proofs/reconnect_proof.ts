@@ -65,7 +65,7 @@ import { chromium } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { reapOwned } from "../support/children.ts";
 import { makeRoom, openRailRoom, roomLink } from "../support/private_room_page.ts";
-import { freePort } from "../support/ports.ts";
+import { freePort } from "../../../../bindings/ts/test/ports.ts";
 import { roomLocator } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 

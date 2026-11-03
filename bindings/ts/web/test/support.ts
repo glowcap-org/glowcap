@@ -1,19 +1,12 @@
 // What a browser proof of the web binding needs before it opens a page: a
-// loud failure, a free loopback port, and the probe script bundled for the
-// browser through this package's browser-bundle config, which stubs the
-// runtime's non-browser FFI adapters (node:net, bun:ffi) so the single-file
-// bundle resolves without a runtime the browser lacks.
+// loud failure and the probe script bundled for the browser through this
+// package's browser-bundle config, which stubs the runtime's non-browser FFI
+// adapters (node:net, bun:ffi) so the single-file bundle resolves without a
+// runtime the browser lacks.
 
 import { fail } from "../../test/assert.ts";
 
 export const BROWSER_BUNDLE_CONFIG = new URL("../browser-bundle.json", import.meta.url).pathname;
-
-export function freePort(): number {
-	const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-	const port = (listener.addr as Deno.NetAddr).port;
-	listener.close();
-	return port;
-}
 
 /** Bundle `probe` for the browser and return the single-file source. */
 export async function bundleProbe(probe: string): Promise<string> {

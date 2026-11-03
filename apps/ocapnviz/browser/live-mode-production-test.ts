@@ -4,7 +4,9 @@
  * The Vite build happens in the owning task. This process serves only `dist/`,
  * starts the real native trace endpoint, and drives an actual Chromium tab. */
 
-import { chromium, type Page } from "playwright";
+import type { Browser, Page } from "playwright";
+
+import { launchHeadless } from "../scripts/support/headless.ts";
 
 const TEST_TIMEOUT_MS = 45_000;
 const UI_TIMEOUT_MS = 10_000;
@@ -296,7 +298,7 @@ const staticServer = Deno.serve(
 );
 
 let traceHost: Deno.ChildProcess | null = null;
-let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+let browser: Browser | null = null;
 let publisher: WebSocket | null = null;
 
 try {
@@ -313,10 +315,7 @@ try {
 	const { sturdyref } = trace;
 	publisher = await openPublisher(trace.publish);
 
-	browser = await chromium.launch({
-		headless: true,
-		args: ["--no-sandbox", "--disable-gpu"],
-	});
+	browser = await launchHeadless();
 	const context = await browser.newContext({
 		viewport: { width: 1440, height: 900 },
 		colorScheme: "dark",

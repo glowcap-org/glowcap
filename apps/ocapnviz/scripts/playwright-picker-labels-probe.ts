@@ -21,7 +21,8 @@
  * Usage: playwright-picker-labels-probe.ts <out-dir> [url]
  * Setup: a dev server on the url (default :5173).
  */
-import { chromium, type Locator, type Page } from "playwright";
+import type { Locator, Page } from "playwright";
+import { launchHeadless, openFreshPage } from "./support/headless.ts";
 
 const outDir = Deno.args[0] ?? "/tmp/ocv-picker-labels";
 const url = Deno.args[1] ?? "http://127.0.0.1:5173/";
@@ -175,23 +176,12 @@ async function shootPicker(page: Page, select: Locator, name: string) {
 	});
 }
 
-const browser = await chromium.launch({
-	headless: true,
-	args: ["--no-sandbox", "--disable-gpu"],
-});
-const ctx = await browser.newContext({
+const browser = await launchHeadless();
+const page = await openFreshPage(browser, {
 	viewport: { width: 1600, height: 1000 },
 	deviceScaleFactor: 2,
 });
-const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
-await page.addInitScript(() => {
-	try {
-		localStorage.removeItem("ocapnviz:app-state");
-	} catch {
-		// first run has nothing to clear
-	}
-});
 await page.goto(url, { waitUntil: "networkidle" });
 await page.waitForSelector("canvas#ocv-pixi");
 await page.getByRole("radio", { name: "Build" }).click();
@@ -308,6 +298,6 @@ await page.screenshot({
 	clip: { x: 1230, y: 40, width: 370, height: 900 },
 });
 
-await ctx.close();
+await page.context().close();
 await browser.close();
 console.log(`shots in ${outDir}`);
