@@ -42,7 +42,7 @@ from .._abi_value import (
     _codec_id,
     _feature_mask,
 )
-from .._errors import GlowcapError, _check_host, _retain_cleanup_failure
+from .._errors import GlowcapError, TerminalFailures, _check_host, _retain_cleanup_failure
 from .finalizer import (
     _drain_deferred_finalizer_states,
     _HostFinalizerState,
@@ -183,8 +183,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         self._behavior_tasks: set[asyncio.Task] = set()
         # Exact terminal occurrences in observation order. The shared helper
         # bounds retained objects while preserving the total count.
-        self._terminal_failures: list[BaseException] = []
-        self._terminal_failure_count = 0
+        self._failure_ledger = TerminalFailures()
         # Every admitted action drain, including directly awaited drains. Host
         # release joins this barrier before invalidating FFI storage.
         self._action_drains: set[asyncio.Task] = set()

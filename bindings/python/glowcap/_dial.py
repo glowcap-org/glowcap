@@ -14,7 +14,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, TypedDict
 
 from . import _constants as _abi
-from ._errors import GlowcapError, _check_host, _retain_terminal_failure
+from ._errors import GlowcapError, TerminalFailures, _check_host
 from ._ffi_host import _host
 from ._ffi_ocapn import _LocatorHintView, _LocatorView
 from ._host import Host
@@ -101,27 +101,23 @@ class Runtime:
         self._opened = False
         self._opening: asyncio.Task[None] | None = None
         self._closed = False
-        self._terminal_failures: list[BaseException] = []
-        self._terminal_failure_count = 0
+        self._failure_ledger = TerminalFailures()
 
     def _record_terminal_failure(self, error: BaseException) -> None:
-        self._terminal_failure_count = _retain_terminal_failure(
-            self._terminal_failures, self._terminal_failure_count, error
-        )
+        self._failure_ledger.record(error)
 
     def _raise_terminal_failure(self) -> None:
-        if self._terminal_failures:
-            raise self._terminal_failures[0]
+        self._failure_ledger.raise_first()
 
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
         """Runtime-owned failures in observation order."""
-        return tuple(self._terminal_failures)
+        return self._failure_ledger.snapshot()
 
     @property
     def terminal_failure_count(self) -> int:
         """Observed terminal failures, including unretained overflow."""
-        return self._terminal_failure_count
+        return self._failure_ledger.count
 
     @classmethod
     def open(

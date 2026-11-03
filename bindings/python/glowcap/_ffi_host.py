@@ -22,13 +22,12 @@ from __future__ import annotations
 
 import ctypes
 
-from ._archive_contract import require_archive_fingerprint
+from ._archive_contract import load_archive
 
 # The trace record's digest is a fixed-width array, so its width is the
 # reflected constant rather than a number retyped here.
 from ._constants_gen import HOST_ARCHIVE_FINGERPRINT, TRACE_DIGEST_BYTES
-from ._ffi_ocapn import _Argument, _bind, _LastAbort, _Lib, _LocatorHintView, _LocatorView, _ManagedFrame, _Reference
-from ._lib_resolve import _lib_path
+from ._ffi_ocapn import _Argument, _LastAbort, _LocatorHintView, _LocatorView, _ManagedFrame, _Reference
 from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
@@ -181,8 +180,11 @@ class _HostPumpHooks(ctypes.Structure):
 pin_struct(_HostPumpHooks, "GLOWCAP_HOST_PUMP_HOOKS")
 
 
-def _load():
-    sigs = driver_sigs(
+_host = load_archive(
+    "glowcap_host",
+    lambda lib: lib.glowcap_host_archive_fingerprint,
+    HOST_ARCHIVE_FINGERPRINT,
+    driver_sigs(
         _Argument,
         _Reference,
         _ManagedFrame,
@@ -195,15 +197,8 @@ def _load():
         _TraceCallback,
         _CloseOptions,
         _SessionLimitOptions,
-    )
-    lib = ctypes.CDLL(str(_lib_path("glowcap_host")))
-    require_archive_fingerprint(lambda: lib.glowcap_host_archive_fingerprint, "host", HOST_ARCHIVE_FINGERPRINT)
-    facade = _Lib(lib)
-    _bind(facade, lib, sigs)
-    return facade
-
-
-_host = _load()
+    ),
+)
 
 
 def _selector_buf(verb: str | None):

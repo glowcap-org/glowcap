@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from .. import _constants as _abi
 from .. import _trace
 from .._abi_value import _arg_to_c
-from .._errors import GlowcapError, _check_host, _host_last_error, _retain_terminal_failure
+from .._errors import GlowcapError, _check_host, _host_last_error
 from .._failure import FailureLayer, _record_runtime_failure
 from .._ffi_host import _host
 from .._ffi_ocapn import _byte_buf
@@ -125,28 +125,20 @@ class _LifecycleMixin(HostMixinBase):
                 mark_failed(error)
 
     def _record_terminal_failure(self, error: BaseException) -> None:
-        failures = getattr(self, "_terminal_failures", None)
-        if failures is None:
-            failures = []
-            self._terminal_failures = failures
-        self._terminal_failure_count = _retain_terminal_failure(
-            failures, getattr(self, "_terminal_failure_count", 0), error
-        )
+        self._failure_ledger.record(error)
 
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
         """Owned terminal failures in observation order."""
-        return tuple(getattr(self, "_terminal_failures", ()))
+        return self._failure_ledger.snapshot()
 
     @property
     def terminal_failure_count(self) -> int:
         """Observed terminal failures, including unretained overflow."""
-        return getattr(self, "_terminal_failure_count", 0)
+        return self._failure_ledger.count
 
     def _raise_terminal_failure(self) -> None:
-        failures = self.terminal_failures
-        if failures:
-            raise failures[0]
+        self._failure_ledger.raise_first()
 
     def _settle_resolver(self, resolver: int, value: Any) -> None:
         self._assert_owner()

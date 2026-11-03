@@ -13,7 +13,7 @@ import ctypes
 
 from .. import _constants as _abi
 from .. import _pump
-from .._errors import GlowcapError, _check_host
+from .._errors import GlowcapError, TerminalFailures, _check_host
 from .._ffi_host import _host
 from .._ffi_ocapn import _byte_buf, _ManagedFrame
 from .._host import Host
@@ -59,8 +59,7 @@ class Session(_LifecycleMixin, _VerbsMixin):
         self._release_pending = False
         self._close_future: asyncio.Future[None] | None = None
         self._wire_failure: BaseException | None = None
-        self._terminal_failures: list[BaseException] = []
-        self._terminal_failure_count = 0
+        self._failure_ledger = TerminalFailures()
         # Every close caller shields this one effect owner. It remains strongly
         # held after completion so repeated close observes the exact outcome.
         self._terminal_task: asyncio.Task[None] | None = None

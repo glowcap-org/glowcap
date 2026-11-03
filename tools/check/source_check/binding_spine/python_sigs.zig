@@ -48,8 +48,9 @@ pub fn checkPythonSigsFactoryArity(
         const declared = parenArgList(gen, open) orelse continue;
         factories += 1;
 
-        // The one hand-written caller: `_bind(facade, lib, <name>(…))` or a
-        // `sigs = <name>(…)` binding, in this package's loader for that archive.
+        // The one hand-written caller: the `load_archive(…, <name>(…))` call
+        // or a `sigs = <name>(…)` binding, in this package's loader for that
+        // archive.
         var walker = try dir.walkSelectively(gpa);
         defer walker.deinit();
         var found = false;

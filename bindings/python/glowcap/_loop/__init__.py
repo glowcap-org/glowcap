@@ -21,7 +21,7 @@ from .._abi_value import _DEFAULT_CODEC, _codec_id
 from .._driver.release import _DriverReleaseOwner
 from .._driver_event import LoopEvent as LoopEvent
 from .._driver_failure import _add_provider
-from .._errors import GlowcapError, _check_host, _retain_cleanup_failure
+from .._errors import GlowcapError, TerminalFailures, _check_host, _retain_cleanup_failure
 from .._ffi_driver import _driver, _TransportProvider
 from .._ffi_host import _host
 from .._listener import ListenerOwner
@@ -70,9 +70,8 @@ class DriverLoop(_LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin,
         self._released = False
         self._release_attempted = False
         self._terminal_failure: GlowcapError | None = None
-        self._terminal_failures: list[BaseException] = []
         self._retained: list[object] = []
-        self._terminal_failure_count = 0
+        self._failure_ledger = TerminalFailures()
         self._closing = False
         self._close_task: asyncio.Task[None] | None = None
         self._close_error: BaseException | None = None

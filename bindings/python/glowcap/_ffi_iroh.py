@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import ctypes
 
-from ._archive_contract import require_archive_fingerprint
+from ._archive_contract import load_archive
 from ._constants import IROH_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
-from ._lib_resolve import _lib_file, _lib_path
+from ._lib_resolve import _lib_file
 from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
@@ -27,8 +27,8 @@ from ._pin import pin_struct
 # rather than the core ``glowcap_last_error``.
 from ._sigs_gen import iroh_sigs
 
-_IROH_LIB_PATH = _lib_path("glowcap_net_transport_iroh")
-_IROH_LIB_FILE = _lib_file("glowcap_net_transport_iroh")
+_IROH_LIB_STEM = "glowcap_net_transport_iroh"
+_IROH_LIB_FILE = _lib_file(_IROH_LIB_STEM)
 
 
 class _IrohReadyEvent(ctypes.Structure):
@@ -60,16 +60,6 @@ pin_struct(_IrohReadyEvent, "GLOWCAP_IROH_READY_EVENT")
 pin_struct(_IrohConfig, "GLOWCAP_IROH_CONFIG")
 
 
-def _load_iroh():
-    lib = ctypes.CDLL(str(_IROH_LIB_PATH))
-    require_archive_fingerprint(lambda: lib.glowcap_iroh_archive_fingerprint, "iroh", IROH_ARCHIVE_FINGERPRINT)
-    for name, (argtypes, restype) in iroh_sigs(_IrohReadyEvent, _IrohConfig, _TransportProvider).items():
-        fn = getattr(lib, name)
-        fn.argtypes = argtypes
-        fn.restype = restype
-    return lib
-
-
 _iroh_lib_cache = None
 
 
@@ -80,7 +70,12 @@ def _iroh():
     global _iroh_lib_cache
     if _iroh_lib_cache is None:
         try:
-            _iroh_lib_cache = _load_iroh()
+            _iroh_lib_cache = load_archive(
+                _IROH_LIB_STEM,
+                lambda lib: lib.glowcap_iroh_archive_fingerprint,
+                IROH_ARCHIVE_FINGERPRINT,
+                iroh_sigs(_IrohReadyEvent, _IrohConfig, _TransportProvider),
+            )
         except OSError as exc:
             raise RuntimeError(
                 f"iroh transport unavailable: could not load {_IROH_LIB_FILE} from "

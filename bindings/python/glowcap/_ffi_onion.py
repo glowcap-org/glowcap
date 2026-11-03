@@ -13,11 +13,10 @@ from __future__ import annotations
 
 import ctypes
 
-from ._archive_contract import require_archive_fingerprint
+from ._archive_contract import load_archive
 from ._constants import ONION_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
-from ._ffi_ocapn import _bind, _Frame, _Lib, _ManagedFrame
-from ._lib_resolve import _lib_path
+from ._ffi_ocapn import _Frame, _ManagedFrame
 from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
@@ -53,13 +52,10 @@ class _OnionConfig(ctypes.Structure):
 pin_struct(_OnionConfig, "GLOWCAP_ONION_CONFIG")
 
 
-def _load():
-    onion = ctypes.CDLL(str(_lib_path("glowcap_net_transport_onion")))
-    require_archive_fingerprint(lambda: onion.glowcap_onion_archive_fingerprint, "onion", ONION_ARCHIVE_FINGERPRINT)
-    facade = _Lib(onion)
-    _bind(facade, onion, onion_sigs(_Frame, _ManagedFrame, _OnionConfig, _TransportProvider))
-    return facade
-
-
 # Loaded when :mod:`glowcap.onion` is imported, not when the core package is.
-_onion_lib = _load()
+_onion_lib = load_archive(
+    "glowcap_net_transport_onion",
+    lambda lib: lib.glowcap_onion_archive_fingerprint,
+    ONION_ARCHIVE_FINGERPRINT,
+    onion_sigs(_Frame, _ManagedFrame, _OnionConfig, _TransportProvider),
+)
