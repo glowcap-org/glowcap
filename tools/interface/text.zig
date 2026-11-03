@@ -39,6 +39,7 @@ const Parser = struct {
     start: usize = 0,
     remaining: usize = description.max_nodes,
     prefix: []const u8 = "",
+    expanded_name_bytes: usize = 0,
 
     fn note(self: *Parser, message: []const u8) void {
         self.diagnostic.* = .{ .offset = self.start, .message = message };
@@ -165,7 +166,13 @@ const Parser = struct {
     }
 
     fn qualified(self: *Parser, name: []const u8) Error![]const u8 {
-        if (std.mem.indexOfScalar(u8, name, '.') != null) return name;
+        const qualified_name = std.mem.indexOfScalar(u8, name, '.') != null;
+        const length = if (qualified_name) name.len else self.prefix.len + 1 + name.len;
+        // Each occurrence enters the output once. Refuse impossible expansion
+        // before formatting a repeated module prefix or encoding its string.
+        if (length > description.max_input_bytes - self.expanded_name_bytes) return error.ResourceLimit;
+        self.expanded_name_bytes += length;
+        if (qualified_name) return name;
         return std.fmt.allocPrint(self.a, "{s}.{s}", .{ self.prefix, name });
     }
 

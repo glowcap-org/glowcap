@@ -109,3 +109,41 @@ fn allocationCase(a: std.mem.Allocator) !void {
 test "text adapter allocation failures release compilation scratch" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, allocationCase, .{});
 }
+
+fn expandedNames(a: std.mem.Allocator, references: usize) ![]u8 {
+    var input: std.ArrayList(u8) = .empty;
+    errdefer input.deinit(a);
+    try input.appendSlice(a, "module ");
+    try input.appendNTimes(a, 'm', 4096);
+    try input.appendSlice(a, "\ninterface Reader { read() -> string }\ninterface Factory {\n");
+    for (0..references) |i| try input.print(a, "f{d}(value: Reader) -> undefined\n", .{i});
+    try input.appendSlice(a, "}\n");
+    return input.toOwnedSlice(a);
+}
+
+test "expanded qualified names refuse before allocation grows with impossible output" {
+    const valid = try expandedNames(std.testing.allocator, 1);
+    defer std.testing.allocator.free(valid);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var valid_diagnostic: text.Diagnostic = .{};
+    const bytes = try text.translate(a, valid, &valid_diagnostic);
+    var model = try Model.init(try description.read(a, bytes));
+    const factory = try std.fmt.allocPrint(a, "{s}.Factory", .{valid[7..][0..4096]});
+    _ = try model.method(factory, "f0");
+    var allocated: [2]usize = undefined;
+    for ([_]usize{ 512, 2048 }, 0..) |references, i| {
+        const input = try expandedNames(std.testing.allocator, references);
+        defer std.testing.allocator.free(input);
+        try std.testing.expect(input.len < description.max_input_bytes);
+        // Hold backing allocation growth policy constant across the two inputs.
+        var meter = std.testing.FailingAllocator.init(std.testing.allocator, .{ .resize_fail_index = 0 });
+        var diagnostic: text.Diagnostic = .{};
+        try std.testing.expectError(error.ResourceLimit, text.translate(meter.allocator(), input, &diagnostic));
+        try std.testing.expectEqual(meter.allocated_bytes, meter.freed_bytes);
+        allocated[i] = meter.allocated_bytes;
+    }
+    // Extra input after the existing output budget is exhausted acquires no scratch.
+    try std.testing.expectEqual(allocated[0], allocated[1]);
+}
