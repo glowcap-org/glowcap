@@ -18,7 +18,9 @@ import {
 import { PROFILE_FALLBACK_COLOR, type ThemedColors } from "../palette.ts";
 import { FONT } from "../../ui/tokens.ts";
 import { endpointLabelText, NODE_LABEL, NODE_LABEL_GAP_PX } from "../stage-labels.ts";
-import { type HaloTier, type PeerActivity, selectModeFromModifiers, type StageHover } from "../types.ts";
+import type { HaloTier, StageHover } from "../stage-selection.ts";
+import type { PeerActivity } from "../node-activity.ts";
+import { selectModeFromModifiers } from "../../interactions/select-mode.ts";
 import { marked } from "./mark.ts";
 import type { EndpointSprite, StartNodeDrag } from "./types.ts";
 

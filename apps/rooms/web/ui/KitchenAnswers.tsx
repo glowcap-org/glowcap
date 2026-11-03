@@ -21,7 +21,7 @@ import { useRoomsBrowser } from "./controller/browser.ts";
 import { Said } from "./Said.tsx";
 import { PHASE_SAID } from "./text.ts";
 import { ToastCard } from "./Toast.tsx";
-import type { SessionPhase } from "./types.ts";
+import type { SessionPhase } from "./directory.ts";
 import { Row, Sample } from "./KitchenSample.tsx";
 import { useState } from "react";
 import { Input } from "./Input.tsx";

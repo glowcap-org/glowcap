@@ -15,7 +15,7 @@
 // sentence.
 
 import { useRoomsSession } from "../controller/session.ts";
-import type { DiagnosticRow } from "../types.ts";
+import type { DiagnosticRow } from "../../../lib/room/client.ts";
 import { OpsHead } from "./Head.tsx";
 import { SectionTitle } from "./Section.tsx";
 import {

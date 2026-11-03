@@ -6,7 +6,11 @@ import type { OperatorReferenceKind, OperatorResetScope } from "../../../lib/ope
 import type { BridgeForm } from "../../../lib/bridge/form.ts";
 import type { RoomAuthorityKind } from "../../../lib/room/authority.ts";
 import type { RoomPolicy } from "../room_policy.ts";
-import type { DirId, DmConv, OperatorCategory, OpsCap, RoomDestination, ViewerDirection } from "../types.ts";
+import type { DirId } from "../directory.ts";
+import type { DmConv, ViewerDirection } from "../conversation.ts";
+import type { OperatorCategory } from "../../../lib/room/client.ts";
+import type { OperationsCapability } from "../application_data.ts";
+import type { RoomDestination } from "../joining.ts";
 import type { RoomsError, RoomsErrorCode } from "../../../lib/error_codes.ts";
 
 export type JoinOutcome =
@@ -134,9 +138,9 @@ export interface RoomsOperationsController {
 	readOpsBundle(): Promise<string>;
 	replaceOpsBundle(pasted: string): Promise<{
 		bundle: string;
-		failures: readonly { capability: OpsCap | null; reason: string }[];
+		failures: readonly { capability: OperationsCapability | null; reason: string }[];
 	}>;
-	refreshOpsCap(cap: OpsCap): Promise<void>;
+	refreshOpsCap(cap: OperationsCapability): Promise<void>;
 	listenerUp(transport: string, options?: Record<string, string | number>): Promise<string>;
 	listenerDown(id: number): Promise<string>;
 	giveRoomStewardship(name: string): Promise<string>;

@@ -7,7 +7,7 @@
  * can inspect off-stage messages too.
  */
 
-import type { StageSelection } from "../../render/types.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findMessageInDoc } from "../../engine/event-helpers.ts";
 import { messageEffective } from "../../engine/temporal/doc-resolver.ts";
@@ -33,7 +33,7 @@ import { pickerLabelFor } from "./picker-labels.ts";
 import { elideIdentifier, Identifier } from "../identifier.tsx";
 import { isInSelection, messageInfo, peerInfo, sessionInfo } from "./entity-info.ts";
 import { sessionPairName } from "../session-name.ts";
-import type { EntityRefKey } from "../../interactions/types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 import type { Codec } from "../../schema/topology.ts";
 import { UNNAMED_PROFILE } from "../../schema/topology.ts";
 import type { Observation } from "../../engine/temporal/recording.ts";

@@ -2,7 +2,7 @@
 // transfer. The bubble asks this how to draw them.
 
 import { useEffect, useState } from "react";
-import type { AttachmentView } from "../types.ts";
+import type { AttachmentView } from "../conversation.ts";
 import { AUTO_IMAGE_BYTES } from "../limits.ts";
 import { fileSize, kindOf } from "../media.ts";
 import { saveAs } from "../download.ts";

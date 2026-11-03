@@ -18,8 +18,7 @@ import type { Engine } from "../../engine/engine.ts";
 import type { TimelineEvent } from "../../engine/timeline.ts";
 import { observationsOf } from "../../engine/temporal/recording-access.ts";
 import { parseEndpointStageId } from "../../schema/session-end.ts";
-import type { EntityKind, EntityRefKey } from "../../interactions/types.ts";
-import { parseEntityKey } from "../../interactions/types.ts";
+import { type EntityKind, type EntityRefKey, parseEntityKey } from "../../interactions/entity-ref.ts";
 import { sessionInfo } from "./entity-info.ts";
 
 // ───────────────────────── words ───────────────────────────────────────

@@ -21,7 +21,8 @@ import {
 	messageSendingLong,
 	messageWithdrawn,
 } from "../../../lib/text/conversation.ts";
-import { type BridgeFacts, canRetry, type ChatItem, isUnsent, type SendControlPolicy } from "../types.ts";
+import { type BridgeFacts, canRetry, type ChatItem, isUnsent } from "../conversation.ts";
+import type { SendControlPolicy } from "../send_controls.ts";
 import type { Group } from "../log_blocks.ts";
 import { Avatar } from "../Avatar.tsx";
 import { foreignName } from "../member_identity.ts";

@@ -12,7 +12,8 @@
 // capability, so it stands under whichever half drew.
 
 import { lazy, Suspense, useEffect } from "react";
-import type { DiagnosticRow, RoomsOperatorState, TroubleRow } from "../types.ts";
+import type { DiagnosticRow } from "../../../lib/room/client.ts";
+import type { RoomsOperatorState, TroubleRow } from "./capabilities.ts";
 import { loadDiagnosticsPane, loadOperatorPane, prefetch } from "../chunks.ts";
 import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { OpsLoading } from "./Loading.tsx";

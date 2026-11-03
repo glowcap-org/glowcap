@@ -8,8 +8,8 @@
  */
 
 import type { PointerEvent } from "react";
-import { entityKey } from "../../../interactions/types.ts";
-import { type SelectMode, selectModeFromModifiers } from "../../../render/types.ts";
+import { entityKey } from "../../../interactions/entity-ref.ts";
+import { type SelectMode, selectModeFromModifiers } from "../../../interactions/select-mode.ts";
 import { clampRectToBounds, rectFromCorners } from "../../../render/geometry.ts";
 import { LANE_GAP, scrubberPlotBounds } from "../row-layout.ts";
 import { gutterWidthOf } from "../state.ts";

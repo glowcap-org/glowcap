@@ -5,7 +5,8 @@
 // see a banner is decided here.
 
 import { memo, type ReactNode, type Ref, useMemo } from "react";
-import type { BridgeFacts, ChatItem, Conv, Item, SendControlPolicy, Unread } from "../types.ts";
+import type { BridgeFacts, ChatItem, Conv, Item, Unread } from "../conversation.ts";
+import type { SendControlPolicy } from "../send_controls.ts";
 import { MessageGroup } from "./Message.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";

@@ -12,22 +12,18 @@
  * kind's sync. Sprite shapes are an implementation detail of those
  * syncs, `Stage` allocates the Maps but never reaches into a sprite's
  * internals. `PeerActivity` is the one type external panels (Sidebar,
- * EntityChips) also need, and it lives in `./types.ts` where they read it.
+ * EntityChips) also need, and it lives in `./node-activity.ts` where they read it.
  */
 
 import type { Container } from "pixi.js";
-import { entityKey, type EntityRefKey } from "../interactions/types.ts";
+import { entityKey, type EntityRefKey } from "../interactions/entity-ref.ts";
 import type { Engine } from "../engine/engine.ts";
 import { type SessionCurve } from "../engine/session-geometry.ts";
 import type { EdgeStrokeBatch } from "./edge-stroke-batch.ts";
 import type { ThemedColors } from "./palette.ts";
-import {
-	foldActivityByNode,
-	type PeerActivity,
-	type SelectMode,
-	type StageHover,
-	type StageSelection,
-} from "./types.ts";
+import { foldActivityByNode, type PeerActivity } from "./node-activity.ts";
+import type { SelectMode } from "../interactions/select-mode.ts";
+import type { StageHover, StageSelection } from "./stage-selection.ts";
 import { syncEdgeSprite } from "./sprites/edge.ts";
 import { syncEndpointSprite } from "./sprites/endpoint.ts";
 import { haloTierFor } from "./sprites/mark.ts";

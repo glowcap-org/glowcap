@@ -4,10 +4,13 @@ import type { MutableRefObject, RefObject } from "react";
 import type { Container, Graphics } from "pixi.js";
 import type { Viewport } from "pixi-viewport";
 import type { Engine } from "../engine/engine.ts";
-import type { EntityRefKey, SurfaceGestureCtx } from "../interactions/types.ts";
+import type { EntityRefKey } from "../interactions/entity-ref.ts";
+import type { SurfaceGestureCtx } from "../interactions/gesture-resolver.ts";
 import type { PointerMachineRef } from "../interactions/use-surface-pointer.ts";
 import type { Theme } from "../ui/tokens.ts";
-import type { SelectMode, StageHover, StageSelection, StageVisibility } from "./types.ts";
+import type { SelectMode } from "../interactions/select-mode.ts";
+import type { StageHover, StageSelection } from "./stage-selection.ts";
+import type { StageVisibility } from "./stage-visibility.ts";
 import type { UnifiedCanvasContextValue } from "./UnifiedCanvas.tsx";
 
 export type StageSceneRefs = {

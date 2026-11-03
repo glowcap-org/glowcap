@@ -18,13 +18,8 @@ import type { EdgeStrokeBatch } from "../edge-stroke-batch.ts";
 import { CAPTP_VERSION_COLORS, lineStyleForCodec, SESSION_STATE_WIDTH, type ThemedColors } from "../palette.ts";
 import { FONT } from "../../ui/tokens.ts";
 import { EDGE_CHIP_LABEL } from "../stage-labels.ts";
-import {
-	type HaloTier,
-	type SelectMode,
-	selectModeFromModifiers,
-	type StageHover,
-	type StageSelection,
-} from "../types.ts";
+import type { HaloTier, StageHover, StageSelection } from "../stage-selection.ts";
+import { type SelectMode, selectModeFromModifiers } from "../../interactions/select-mode.ts";
 import { marked } from "./mark.ts";
 import type { EdgeSprite } from "./types.ts";
 

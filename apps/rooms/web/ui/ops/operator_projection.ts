@@ -5,7 +5,7 @@ import type {
 	snapshotOperator,
 	StewardshipRow,
 } from "../../../lib/room/client.ts";
-import type { RoomsOperatorState } from "../types.ts";
+import type { RoomsOperatorState } from "./capabilities.ts";
 
 function viewOf(row: StewardshipRow) {
 	return {

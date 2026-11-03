@@ -13,7 +13,7 @@ import { useRoomsSession } from "../controller/session.ts";
 import { Said } from "../Said.tsx";
 import { BridgeFormView } from "./BridgeFormView.tsx";
 import type { BridgeForm } from "../../../lib/bridge/form.ts";
-import type { RoomConv } from "../types.ts";
+import type { RoomConv } from "../conversation.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 
 export function BridgeIdentityForm(

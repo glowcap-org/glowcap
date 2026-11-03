@@ -54,16 +54,16 @@ Play, or Build. `toolsForMode` decides which tools the current product state off
 
 ## 2. Data model
 
-`src/interactions/types.ts` is the source of truth for the types below.
+Each type below lives in the module that owns its subject, listed in § 3.
 
-| Label | What it names                                                   |
-| ----- | --------------------------------------------------------------- |
-| § 2.1 | `SelectionState`: `anchor` and `selection`.                     |
-| § 2.2 | `ModifierSet` and `PointerSnapshot`.                            |
-| § 2.3 | `Hit`, the tagged hit-test result, and its derived `SurfaceId`. |
-| § 2.4 | `GestureContext`, `SurfaceGestureCtx`, tools, and `ToolState`.  |
-| § 2.5 | `ResolvedGesture`, `DefaultVerb`, and `ToolCreateVerb`.         |
-| § 2.6 | `PointerMachineState` and its drag threshold.                   |
+| Label | What it names                                                   | Module                                                     |
+| ----- | --------------------------------------------------------------- | ---------------------------------------------------------- |
+| § 2.1 | `SelectionState`: `anchor` and `selection`.                     | `selection-store.ts`, `entity-ref.ts`                      |
+| § 2.2 | `ModifierSet` and `PointerSnapshot`.                            | `pointer-input.ts`                                         |
+| § 2.3 | `Hit`, the tagged hit-test result, and its derived `SurfaceId`. | `surface-hit.ts`                                           |
+| § 2.4 | `GestureContext`, `SurfaceGestureCtx`, tools, and `ToolState`.  | `gesture-resolver.ts`, `builder-tool.ts`, `select-mode.ts` |
+| § 2.5 | `ResolvedGesture`, `DefaultVerb`, and `ToolCreateVerb`.         | `gesture-resolver.ts`                                      |
+| § 2.6 | `PointerMachineState` and its drag threshold.                   | `pointer-machine.ts`                                       |
 
 ### 2.1 Selection
 
@@ -86,10 +86,15 @@ edge.
 
 ```text
 src/interactions/
-├── types.ts                  # § 2 vocabulary and SelectMode
-├── gesture-resolver.ts       # § 4 precedence and surface defaults
-├── pointer-machine.ts        # § 5 pure Stage-empty FSM
-├── selection-store.ts        # § 6 reducer and selectionActionFor
+├── entity-ref.ts             # § 2.1 EntityRef and its Set key
+├── pointer-input.ts          # § 2.2 modifiers and pointer snapshot
+├── surface-hit.ts            # § 2.3 Hit, SurfaceId, the Stage's surfaces
+├── builder-tool.ts           # § 2.4 tools and ToolState
+├── select-mode.ts            # § 2.4 SelectMode and its modifier grammar
+├── assert-never.ts           # exhaustiveness helper for closed unions
+├── gesture-resolver.ts       # §§ 2.4-2.5 gesture types, § 4 precedence and surface defaults
+├── pointer-machine.ts        # §§ 2.6, 5 FSM state and pure Stage-empty reducer
+├── selection-store.ts        # §§ 2.1, 6 SelectionState, reducer, selectionActionFor
 ├── layer-interactivity.ts    # § 7 Pixi event ownership
 ├── cursor.ts                 # the one cursor authority
 ├── gesture-router.ts         # cross-surface gesture lease

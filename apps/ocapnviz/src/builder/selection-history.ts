@@ -13,7 +13,8 @@ import type { Engine } from "../engine/engine.ts";
 import { findNode } from "../engine/world.ts";
 import { authoredPins } from "../engine/event-helpers.ts";
 import { selectionPhrase, tallyByKind } from "../ui/inspector/selection-summary.ts";
-import { type EntityRefKey, parseEntityKey, type SelectionAction } from "../interactions/types.ts";
+import { type EntityRefKey, parseEntityKey } from "../interactions/entity-ref.ts";
+import type { SelectionAction } from "../interactions/selection-store.ts";
 import { nodeKindOf } from "../schema/session-end.ts";
 import { asOneEdit } from "./as-one-edit.ts";
 

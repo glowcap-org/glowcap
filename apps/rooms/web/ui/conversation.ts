@@ -6,7 +6,7 @@ import type { RoomFeature } from "../../lib/protocol.ts";
 import type { WorkspaceRoomBridgeIntent } from "../../lib/rooms_state.ts";
 import type { RoomMembershipKind } from "../../lib/room/membership.ts";
 import type { RoomPolicy } from "./room_policy.ts";
-import type { DirId } from "./types.ts";
+import type { DirId } from "./directory.ts";
 import type { ArchiveCoordinates } from "../../lib/archive/protocol.ts";
 import type { Subject } from "../../lib/room/subject.ts";
 
@@ -264,7 +264,6 @@ export interface Invitation {
 
 /** The bridge half of a room's standing facts. */
 export type BridgeFacts = NonNullable<RoomFacts["bridge"]>;
-export type { RoomCarries };
 
 /** Whether this conversation keeps or relays one part of a message that no
  * capability stands for: the link previews a line names, or the typing

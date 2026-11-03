@@ -15,7 +15,8 @@ import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { iterateRows, type RowDescriptor, RULER_HEIGHT } from "./row-layout.ts";
 import { type LaneKind, type TimelineView } from "./state.ts";
 import { overviewHitAt, scrubberHoverAt, timelineCursor } from "./timeline-cursor.ts";
-import type { BuilderTool, SurfaceGestureCtx } from "../../interactions/types.ts";
+import type { BuilderTool } from "../../interactions/builder-tool.ts";
+import type { SurfaceGestureCtx } from "../../interactions/gesture-resolver.ts";
 
 // Same geometry the Scrubber's own hit-test tests use: a 232 px host whose
 // 104 px gutter and two 4 px pads leave a 120 px plot over t = [0, 1000].

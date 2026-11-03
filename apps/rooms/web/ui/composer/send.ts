@@ -5,7 +5,7 @@ import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
 import type { CommandPowers } from "../commands.ts";
 import { applyCommandPlan, type Effect, EffectSchema } from "../commands/execute.ts";
-import { type Conv, conversationTakesFiles } from "../types.ts";
+import { type Conv, conversationTakesFiles } from "../conversation.ts";
 import type { DraftPreview } from "../link_preview.ts";
 
 export interface ComposerDraft {

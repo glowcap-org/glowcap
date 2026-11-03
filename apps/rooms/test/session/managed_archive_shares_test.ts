@@ -10,7 +10,7 @@ const { managedArchiveReading } = await import("../../web/ui/session/managed/arc
 const { presentationFiles } = await import("../../web/ui/session/managed/files.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const store = await import("../../web/ui/store.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 await initializeApplication();
 type ArchivePage = { next: string; more: boolean; records: { record: ArchiveLine }[] };
 function deferred<T>() {

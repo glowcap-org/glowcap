@@ -8,7 +8,7 @@
 // parses: what a line carries besides words was read once when it entered
 // the store and rides on the line as a field.
 
-import { type ChatItem, type Item, silencedByIgnore } from "./types.ts";
+import { type ChatItem, type Item, silencedByIgnore } from "./conversation.ts";
 import { dayKey, dayLabel, fmtTime, GROUP_WINDOW_MS } from "./text.ts";
 import { onlyYou } from "../../lib/text/conversation.ts";
 import { logActionLine, logNoticeLine } from "../../lib/text/log.ts";

@@ -2,8 +2,12 @@
 
 import type { Dispatch } from "react";
 import type { Engine } from "./engine/engine.ts";
-import type { EntityRefKey, ModifierSet, SelectionAction } from "./interactions/types.ts";
-import type { SelectMode, StageSelection, StageVisibility } from "./render/types.ts";
+import type { EntityRefKey } from "./interactions/entity-ref.ts";
+import type { ModifierSet } from "./interactions/pointer-input.ts";
+import type { SelectionAction } from "./interactions/selection-store.ts";
+import type { SelectMode } from "./interactions/select-mode.ts";
+import type { StageSelection } from "./render/stage-selection.ts";
+import type { StageVisibility } from "./render/stage-visibility.ts";
 import type { Theme } from "./ui/tokens.ts";
 import type { AppAction, AppMode, AppState, BufferSourceInfo, LayoutSizes } from "./state/app-state.ts";
 import type { ShortcutSink } from "./state/hooks.ts";

@@ -11,14 +11,11 @@
 import { type Container, Culler, type Graphics, type Rectangle } from "pixi.js";
 import type { Viewport } from "pixi-viewport";
 import { cursorFor, type ToolWillPick, verbArmsForTool, verbIsPan, verbSelectsEntity } from "../interactions/cursor.ts";
-import { resolveGesture } from "../interactions/gesture-resolver.ts";
-import {
-	type EntityRefKey,
-	type Hit,
-	NO_MODIFIERS,
-	type PointerMachineState,
-	type SurfaceGestureCtx,
-} from "../interactions/types.ts";
+import { resolveGesture, type SurfaceGestureCtx } from "../interactions/gesture-resolver.ts";
+import type { EntityRefKey } from "../interactions/entity-ref.ts";
+import type { Hit } from "../interactions/surface-hit.ts";
+import { NO_MODIFIERS } from "../interactions/pointer-input.ts";
+import type { PointerMachineState } from "../interactions/pointer-machine.ts";
 import type { Engine } from "../engine/engine.ts";
 import { findNode } from "../engine/world.ts";
 import { twoClickAccepts } from "../builder/two-click.ts";
@@ -28,7 +25,8 @@ import { PROFILE_FALLBACK_COLOR, themedColors } from "./palette.ts";
 import { renderFrame, type RenderFrameArgs } from "./render-frame.ts";
 import { stageCamera } from "./stage-camera.ts";
 import { endpointBodyRadius } from "./sprites/endpoint.ts";
-import { type StageHover, type StageVisibility } from "./types.ts";
+import type { StageHover } from "./stage-selection.ts";
+import type { StageVisibility } from "./stage-visibility.ts";
 
 export type StageArmedNode = {
 	nodeId: string;

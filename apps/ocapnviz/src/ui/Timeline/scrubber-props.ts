@@ -4,8 +4,10 @@ import type { RefObject } from "react";
 import type { ClockSnapshot } from "../../engine/clock.ts";
 import type { MoveIntent, MoveSpanIntent } from "../../engine/authoring/moves.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
-import type { SelectMode, StageSelection } from "../../render/types.ts";
-import type { EntityRefKey, SurfaceGestureCtx } from "../../interactions/types.ts";
+import type { SelectMode } from "../../interactions/select-mode.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
+import type { SurfaceGestureCtx } from "../../interactions/gesture-resolver.ts";
 import type { LaneKind, TimelineView } from "./state.ts";
 
 export type ScrubberProps = {

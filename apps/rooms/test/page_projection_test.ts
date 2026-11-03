@@ -9,7 +9,7 @@ import { assert } from "./assert.ts";
 
 const store = await import("../web/ui/store.ts");
 const { RoomsPage } = await import("../web/ui/page.ts");
-const { dirId } = await import("../web/ui/types.ts");
+const { dirId } = await import("../web/ui/directory.ts");
 
 Deno.test("two pages do not share drafts, conversations, members, typers, histories, or unreads", () => {
 	const first = new RoomsPage();

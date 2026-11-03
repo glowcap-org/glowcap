@@ -21,7 +21,7 @@ import {
 } from "../../engine/temporal/doc-resolver.ts";
 import { momentOf } from "../../engine/event-helpers.ts";
 import type { MomentLane } from "../../engine/trajectory.ts";
-import { entityKey, type EntityRefKey } from "../../interactions/types.ts";
+import { entityKey, type EntityRefKey } from "../../interactions/entity-ref.ts";
 import { HEADER_EYEBALL_X, ROW_EYEBALL_X } from "./gutter-paint.ts";
 import { type RowDescriptor } from "./row-layout.ts";
 import { LANE_LABEL_WIDTH, type LaneKind, plotStartXOf, plotWidthOf, type TimelineView, tToCanvasPx } from "./state.ts";

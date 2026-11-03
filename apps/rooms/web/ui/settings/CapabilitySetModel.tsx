@@ -23,7 +23,7 @@ import { useHeldModal, useModalDialog } from "../modal.ts";
 import { OPS_CATALOG } from "../ops/catalog.ts";
 import { formatOpsBundle, type OpsBundleDraft, opsBundleReady, parseOpsBundleDraft } from "../ops/bundle.ts";
 import { type RoomsSessionController, useRoomsSession } from "../controller/session.ts";
-import type { OpsCap } from "../types.ts";
+import type { OperationsCapability } from "../application_data.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { Input } from "../Input.tsx";
 import { ModalForm } from "../ModalCard.tsx";
@@ -47,12 +47,12 @@ interface CapabilitySetModel {
 	readonly retryPending: boolean;
 	/** The capability whose URI is being entered, held here so the
 	 * value card survives a tab change; `CapabilityValueEditor` draws it. */
-	readonly editing: OpsCap | null;
+	readonly editing: OperationsCapability | null;
 	setDraft(draft: OpsBundleDraft): void;
 	setError(error: string): void;
-	edit(capability: OpsCap): void;
+	edit(capability: OperationsCapability): void;
 	stopEditing(): void;
-	saveValue(capability: OpsCap, uri: string): void;
+	saveValue(capability: OperationsCapability, uri: string): void;
 	setMode(mode: "controls" | "text"): void;
 	setText(text: string): void;
 	discard(): void;
@@ -78,7 +78,7 @@ type CapabilitySetState = {
 	errors: readonly string[];
 	notice: string;
 	retryPending: boolean;
-	editing: OpsCap | null;
+	editing: OperationsCapability | null;
 	mode: "controls" | "text";
 	text: string;
 };
@@ -92,9 +92,9 @@ type CapabilitySetAction =
 	| { kind: "text"; text: string }
 	| { kind: "draft"; draft: OpsBundleDraft }
 	| { kind: "error"; message: string }
-	| { kind: "edit"; capability: OpsCap | null }
+	| { kind: "edit"; capability: OperationsCapability | null }
 	| { kind: "stopEditing" }
-	| { kind: "saveValue"; capability: OpsCap; uri: string }
+	| { kind: "saveValue"; capability: OperationsCapability; uri: string }
 	| { kind: "discard" }
 	| { kind: "commitStarted" }
 	| {
@@ -371,15 +371,15 @@ export function CapabilityValueEditor() {
 
 function CapabilityValueModal(
 	{ capability, draft, onClose, onSave }: {
-		capability: OpsCap | null;
+		capability: OperationsCapability | null;
 		draft: OpsBundleDraft;
 		onClose(): void;
-		onSave(capability: OpsCap, uri: string): void;
+		onSave(capability: OperationsCapability, uri: string): void;
 	},
 ) {
 	const commitments = useCommitments();
 	const open = capability != null;
-	const [showing, setShowing] = useState<OpsCap>(capability ?? "listeners");
+	const [showing, setShowing] = useState<OperationsCapability>(capability ?? "listeners");
 	const [uri, setUri] = useState("");
 	const [why, setWhy] = useState("");
 	const dialog = useRef<HTMLDialogElement>(null);

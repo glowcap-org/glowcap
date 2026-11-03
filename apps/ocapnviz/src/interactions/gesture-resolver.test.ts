@@ -1,7 +1,14 @@
 import { assert, assertEquals } from "@std/assert";
-import { type NodeKind, resolveGesture, surfaceDefault, toolAcceptsNode } from "./gesture-resolver.ts";
+import {
+	type GestureContext,
+	type NodeKind,
+	resolveGesture,
+	surfaceDefault,
+	toolAcceptsNode,
+} from "./gesture-resolver.ts";
 import { ALL_SURFACES, ALL_TOOLS, dummyHit } from "./gesture-resolver-test/harness.ts";
-import { type GestureContext, type Hit, NO_MODIFIERS } from "./types.ts";
+import type { Hit } from "./surface-hit.ts";
+import { NO_MODIFIERS } from "./pointer-input.ts";
 
 function ctx(opts: Partial<GestureContext> & { hit: Hit }): GestureContext {
 	return {

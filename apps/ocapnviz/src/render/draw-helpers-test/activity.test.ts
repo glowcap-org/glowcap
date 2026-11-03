@@ -3,7 +3,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import type { PeerActivity } from "../types.ts";
+import type { PeerActivity } from "../node-activity.ts";
 import { themedColors } from "../palette.ts";
 import {
 	type ActivityCanvas,

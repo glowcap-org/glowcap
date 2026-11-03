@@ -11,14 +11,10 @@
 import { type MutableRefObject, type RefObject, useRef } from "react";
 import { type Container, type Graphics, Point } from "pixi.js";
 import type { Viewport } from "pixi-viewport";
-import {
-	type Effect,
-	entityKey,
-	type EntityRefKey,
-	type Hit,
-	type ResolvedGesture,
-	type SurfaceGestureCtx,
-} from "../interactions/types.ts";
+import type { Effect } from "../interactions/pointer-machine.ts";
+import { entityKey, type EntityRefKey } from "../interactions/entity-ref.ts";
+import type { Hit } from "../interactions/surface-hit.ts";
+import type { ResolvedGesture, SurfaceGestureCtx } from "../interactions/gesture-resolver.ts";
 import { type PointerMachineRef, useSurfacePointer } from "../interactions/use-surface-pointer.ts";
 import { nodeKindOf } from "../schema/session-end.ts";
 import type { Engine } from "../engine/engine.ts";
@@ -33,7 +29,8 @@ import {
 	rectFromCorners,
 	rectSegmentOverlap,
 } from "./geometry.ts";
-import { type SelectMode, selectModeFromModifiers, type StageSelection } from "./types.ts";
+import { type SelectMode, selectModeFromModifiers } from "../interactions/select-mode.ts";
+import type { StageSelection } from "./stage-selection.ts";
 import type { UnifiedCanvasContextValue } from "./UnifiedCanvas.tsx";
 
 /** Shared empty-set sentinel so a cleared preview does not churn set identity. */

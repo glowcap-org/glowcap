@@ -1,7 +1,7 @@
 // Count visits through the real projection. Setup and teardown are unmeasured.
 import { fixture, room } from "../session/managed_projection/fixture.ts";
 import * as store from "../../web/ui/store.ts";
-import type { Conv } from "../../web/ui/types.ts";
+import type { Conv } from "../../web/ui/conversation.ts";
 
 export function projectionCost(conversations: number, displayedLines: number) {
 	let conversationVisits = 0;

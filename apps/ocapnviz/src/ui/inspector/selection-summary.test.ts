@@ -11,7 +11,7 @@
 import { assertEquals } from "@std/assert";
 import { Engine } from "../../engine/engine.ts";
 import { TimelineDocument } from "../../engine/timeline.ts";
-import type { EntityRefKey } from "../../interactions/types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 import {
 	bulkShiftPlan,
 	countPhrase,

@@ -2,7 +2,7 @@
 // Text formatting reads projections. It cannot manufacture live authority.
 import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
-import type { Conv } from "../types.ts";
+import type { Conv } from "../conversation.ts";
 import type { CommandOutcome, CommandPowers, CommandResult, HeldDirectory } from "./types.ts";
 import { CommandRefused } from "./types.ts";
 import { held, hereOf } from "./catalog.ts";

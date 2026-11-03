@@ -6,7 +6,7 @@
 // directory to several, reporting these without saying which directory is
 // what made holding two of them unspellable.
 
-import type { DirId, DirView, SessionPhase } from "../types.ts";
+import type { DirId, DirView, SessionPhase } from "../directory.ts";
 import type { DirectoryMember, RoomInfo } from "../../../lib/directory_publications.ts";
 import { MAX_DIRECTORY_DISCOVERY_ROWS } from "../limits.ts";
 import type { PageProjection } from "./projection.ts";

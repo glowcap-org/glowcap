@@ -1,7 +1,7 @@
 // Live registration and entrance lifetimes do not replace a conversation.
 import { assert, assertEquals } from "../../assert.ts";
 import * as store from "../../../web/ui/store.ts";
-import { dirId } from "../../../web/ui/types.ts";
+import { dirId } from "../../../web/ui/directory.ts";
 import { direct, fixture, room } from "./fixture.ts";
 
 for (const target of [room, direct]) {
@@ -241,11 +241,14 @@ Deno.test("room traffic cannot enable the composer before the accepted seat, and
 				notice: { kind: "line", from: "bo", text: "already here" },
 			},
 		});
-		assertEquals((f.selected() as import("../../../web/ui/types.ts").RoomConv).membership === "joined", false);
+		assertEquals(
+			(f.selected() as import("../../../web/ui/conversation.ts").RoomConv).membership === "joined",
+			false,
+		);
 		f.apply();
 		row.seat = "accepted-seat";
 		f.apply();
-		assertEquals((f.selected() as import("../../../web/ui/types.ts").RoomConv).membership, "joined");
+		assertEquals((f.selected() as import("../../../web/ui/conversation.ts").RoomConv).membership, "joined");
 		f.projection.activity({
 			cursor: "ended",
 			event: {
@@ -254,11 +257,11 @@ Deno.test("room traffic cannot enable the composer before the accepted seat, and
 			},
 		});
 		f.apply();
-		assertEquals((f.selected() as import("../../../web/ui/types.ts").RoomConv).membership, "unavailable");
+		assertEquals((f.selected() as import("../../../web/ui/conversation.ts").RoomConv).membership, "unavailable");
 		row.inbox = "replacement-inbox";
 		row.seat = "replacement-seat";
 		f.apply();
-		assertEquals((f.selected() as import("../../../web/ui/types.ts").RoomConv).membership, "joined");
+		assertEquals((f.selected() as import("../../../web/ui/conversation.ts").RoomConv).membership, "joined");
 	} finally {
 		f.close();
 	}

@@ -5,7 +5,7 @@ import "../support/match_media.ts";
 import { assertEquals } from "../assert.ts";
 import type { Attachment } from "../../lib/attachment.ts";
 const store = await import("../../web/ui/store.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { AttachedLineProjection } = await import("../../web/ui/session/line_projection.ts");
 const { AttachedSessionFiles } = await import("../../web/ui/session/attached_files.ts");

@@ -37,14 +37,8 @@ import { useRoomsBrowser } from "../controller/browser.ts";
 import { composerReducer, initialComposerState } from "./composer_state.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { actionRefusal } from "../error_text.ts";
-import {
-	type AttachmentView,
-	type Conv,
-	conversationCarries,
-	conversationTakesFiles,
-	type LiveRooms,
-	type SessionPhase,
-} from "../types.ts";
+import { type AttachmentView, type Conv, conversationCarries, conversationTakesFiles } from "../conversation.ts";
+import type { LiveRooms, SessionPhase } from "../directory.ts";
 import { acceptCompletion, type Candidate, commandArgTrigger, composerCandidates, triggerAt } from "../complete.ts";
 import { lineCapSaid, PHASE_SAID, roomCalled } from "../text.ts";
 import { CompletionList, EmojiTray } from "../composer/pops.tsx";

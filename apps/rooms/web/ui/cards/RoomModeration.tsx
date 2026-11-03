@@ -30,7 +30,8 @@ import { Confirm } from "../Confirm.tsx";
 import { useRoomsSession } from "../controller/session.ts";
 import { useConversationMembers } from "../hooks.ts";
 import { Said } from "../Said.tsx";
-import type { AdministeredBridge, RoomConv, Standing } from "../types.ts";
+import type { AdministeredBridge } from "../ops/capabilities.ts";
+import type { RoomConv, Standing } from "../conversation.ts";
 import { actionRefusal } from "../error_text.ts";
 
 function membersToModerate(members: ReadonlyMap<string, Standing>, you: string): string[] {

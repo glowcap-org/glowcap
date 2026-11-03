@@ -59,7 +59,7 @@ Deno.test("Operations acquisition keeps every refusal and commits no partial bun
 
 Deno.test("membership snapshots preserve journal history and report changed or recurring failures", async () => {
 	const { membershipStatus } = await import("../../web/ui/session/managed/membership_status.ts");
-	const { dirId } = await import("../../web/ui/types.ts");
+	const { dirId } = await import("../../web/ui/directory.ts");
 	const page = new RoomsPage();
 	store.openDir(page.projection, dirId("same"), "ocapn://peer.tcp");
 	store.noteTrouble(page.projection, "Inspect this server", "original import refusal");

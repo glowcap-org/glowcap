@@ -93,7 +93,7 @@ import { identifierField } from "../field.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Said } from "../Said.tsx";
-import type { RoomConv } from "../types.ts";
+import type { RoomConv } from "../conversation.ts";
 import { RoomRecovery } from "./RoomRecovery.tsx";
 import { roomIsListed } from "../room_policy.ts";
 import { RoomAccessControl } from "./RoomAccess.tsx";

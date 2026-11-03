@@ -21,7 +21,7 @@ import { useRoomsSession } from "../controller/session.ts";
 import { actionRefusal, locatorRefusal } from "../error_text.ts";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
-import type { RoomConv } from "../types.ts";
+import type { RoomConv } from "../conversation.ts";
 import { useChangeGroup, useCommitSettling } from "../commitment.tsx";
 import { Said } from "../Said.tsx";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";

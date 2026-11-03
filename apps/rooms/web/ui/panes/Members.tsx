@@ -7,7 +7,7 @@
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { memo, useMemo } from "react";
-import { type BridgeFacts, membersHere, type RoomConv, type Standing } from "../types.ts";
+import { type BridgeFacts, membersHere, type RoomConv, type Standing } from "../conversation.ts";
 import { useConversationMembers, useRoomsState, useSessionPaused } from "../hooks.ts";
 import { openingDirect } from "../../../lib/text/managed_session.ts";
 import { memberDetail, memberIdentity } from "../member_identity.ts";

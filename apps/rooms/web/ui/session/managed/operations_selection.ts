@@ -1,14 +1,15 @@
 // Custody intent owns possession. Loaded inventory is only a pane's last answer.
-import type { OpsCap, OpsHeld } from "../../types.ts";
+import type { OpsHeld } from "../../ops/capabilities.ts";
+import type { OperationsCapability } from "../../application_data.ts";
 import type { Coordinate, WorkspaceIntent } from "./model.ts";
 
-export const operationKind = (cap: OpsCap): string => cap === "irc" ? "ircGateway" : cap;
+export const operationKind = (cap: OperationsCapability): string => cap === "irc" ? "ircGateway" : cap;
 
 /** The command a capability's actions run through, and the coordinate
  * encoding that command expects: `operator` takes the bare coordinate key,
  * while the shared `operations` command takes the full coordinate. */
 export function operationCommand(
-	cap: OpsCap,
+	cap: OperationsCapability,
 	row: { coordinate: Coordinate },
 ): { name: "operator" | "operations"; coordinate: string } {
 	return cap === "operator"
@@ -16,14 +17,14 @@ export function operationCommand(
 		: { name: "operations", coordinate: JSON.stringify(row.coordinate) };
 }
 
-export function operationSelection(intent: WorkspaceIntent | undefined, cap: OpsCap): string | null {
+export function operationSelection(intent: WorkspaceIntent | undefined, cap: OperationsCapability): string | null {
 	const held = operationHolding(intent, cap);
 	return held == null ? null : JSON.stringify([held.coordinate.role, held.coordinate.key, held.kind]);
 }
 
 export function operationHolding(
 	intent: WorkspaceIntent | undefined,
-	cap: OpsCap,
+	cap: OperationsCapability,
 ): { coordinate: Coordinate; kind?: string } | null {
 	if (cap === "operator") {
 		const key = intent?.operators[0];

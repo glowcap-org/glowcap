@@ -11,7 +11,9 @@ import { drawNodeActivity, drawNodeHalo, layoutPillBackground, NODE_RADIUS } fro
 import { colorForProfile, type ThemedColors } from "../palette.ts";
 import { FONT } from "../../ui/tokens.ts";
 import { NODE_LABEL, NODE_LABEL_GAP_PX, peerLabelText } from "../stage-labels.ts";
-import { type HaloTier, type PeerActivity, selectModeFromModifiers, type StageHover } from "../types.ts";
+import type { HaloTier, StageHover } from "../stage-selection.ts";
+import type { PeerActivity } from "../node-activity.ts";
+import { selectModeFromModifiers } from "../../interactions/select-mode.ts";
 import { marked } from "./mark.ts";
 import type { PeerSprite, StartNodeDrag } from "./types.ts";
 

@@ -13,7 +13,7 @@ import {
 import { useRoomsController } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { Said } from "../Said.tsx";
-import type { TracePublishState } from "../types.ts";
+import type { TracePublishState } from "./capabilities.ts";
 import { OpsHead } from "./Head.tsx";
 import { SectionTitle } from "./Section.tsx";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";

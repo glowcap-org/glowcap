@@ -1,6 +1,13 @@
 import { assert, assertEquals } from "@std/assert";
-import { allEntityKeys, documentHolds, selectionActionFor, selectionReducer } from "./selection-store.ts";
-import { EMPTY_SELECTION, entityKey, type EntityRef, type EntityRefKey, type SelectionState } from "./types.ts";
+import {
+	allEntityKeys,
+	documentHolds,
+	EMPTY_SELECTION,
+	selectionActionFor,
+	selectionReducer,
+	type SelectionState,
+} from "./selection-store.ts";
+import { entityKey, type EntityRef, type EntityRefKey } from "./entity-ref.ts";
 
 const peerA: EntityRef = { kind: "peer", id: "a" };
 const peerB: EntityRef = { kind: "peer", id: "b" };

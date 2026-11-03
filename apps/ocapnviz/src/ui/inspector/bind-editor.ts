@@ -8,7 +8,7 @@
  */
 
 import type { Engine } from "../../engine/engine.ts";
-import type { StageSelection } from "../../render/types.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
 import type { EditorBindings } from "./bindings.ts";
 
 export function bindBuilderEditor(

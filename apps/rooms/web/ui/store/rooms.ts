@@ -7,7 +7,7 @@
 // the projection rewrites a conversation object only when something actually
 // moved and a needless rewrite re-renders a roster.
 
-import type { RoomConv } from "../types.ts";
+import type { RoomConv } from "../conversation.ts";
 import type { PageProjection, State } from "./projection.ts";
 import { getConv, put } from "./convs.ts";
 import { retireRoomLineIds } from "./items.ts";

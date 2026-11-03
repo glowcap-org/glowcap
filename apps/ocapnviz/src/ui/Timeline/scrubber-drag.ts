@@ -13,8 +13,8 @@ import type { MoveIntent, MoveSpanIntent } from "../../engine/authoring/moves.ts
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { momentOf } from "../../engine/event-helpers.ts";
 import { momentEffective } from "../../engine/temporal/doc-resolver.ts";
-import { type SelectMode } from "../../render/types.ts";
-import { entityKey, type EntityRefKey } from "../../interactions/types.ts";
+import type { SelectMode } from "../../interactions/select-mode.ts";
+import { entityKey, type EntityRefKey } from "../../interactions/entity-ref.ts";
 import { clampRectToBounds, rectFromCorners } from "../../render/geometry.ts";
 import { eventEntityRef } from "./event-entity-ref.ts";
 import { scrubberPlotBounds } from "./row-layout.ts";

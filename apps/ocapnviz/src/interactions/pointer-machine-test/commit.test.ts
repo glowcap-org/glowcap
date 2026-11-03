@@ -6,8 +6,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { dummyHit } from "../gesture-resolver-test/harness.ts";
-import { hasSomethingToCommit } from "../pointer-machine.ts";
-import { IDLE_MACHINE } from "../types.ts";
+import { hasSomethingToCommit, IDLE_MACHINE } from "../pointer-machine.ts";
 import { dispatch, gctx, snap } from "./harness.ts";
 
 // ───────────────── Interruptions the reader actually finished ─────────

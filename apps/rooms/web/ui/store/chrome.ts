@@ -6,19 +6,13 @@
 // the verbs here answer for the layout in force rather than making every
 // control know which one it is on.
 
-import type {
-	AttachmentView,
-	DiagnosticRow,
-	DirId,
-	ListenerRow,
-	OpsCap,
-	PeeringState,
-	RoomsOperatorState,
-	ToastKind,
-	TracePublishState,
-	ViewerDirection,
-} from "../types.ts";
-import { conversationCarries, type IrcGatewayState, type MemberRef } from "../types.ts";
+import { type AttachmentView, conversationCarries, type ViewerDirection } from "../conversation.ts";
+import type { DiagnosticRow, ListenerRow } from "../../../lib/room/client.ts";
+import type { DirId } from "../directory.ts";
+import type { IrcGatewayState, PeeringState, RoomsOperatorState, TracePublishState } from "../ops/capabilities.ts";
+import type { OperationsCapability } from "../application_data.ts";
+import type { ToastKind } from "../toast.ts";
+import type { MemberRef } from "../member_ref.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { kindOf } from "../media.ts";
 import { type DraftPreview, reconcileDraftPreviews } from "../link_preview.ts";
@@ -408,7 +402,7 @@ export function closeHelp(projection: PageProjection): void {
 
 /** Which operations pane the reader stood on last, remembered on this
  * device so /ops lands where they were. */
-export function setOpsPane(projection: PageProjection, opsPane: OpsCap): void {
+export function setOpsPane(projection: PageProjection, opsPane: OperationsCapability): void {
 	projection.set({ opsPane });
 }
 

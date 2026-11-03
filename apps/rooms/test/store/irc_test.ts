@@ -7,7 +7,7 @@ import { assert } from "../assert.ts";
 
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 
 // Unknown-seat admission and roster reset are exercised by the host/Wasm
 // contract in rust/proofs/src/room_view.rs. This seam receives complete views.

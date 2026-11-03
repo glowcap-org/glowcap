@@ -7,7 +7,7 @@
 // every flag carries its own expiry.
 
 import * as store from "./store.ts";
-import { silencedFrom } from "./types.ts";
+import { silencedFrom } from "./conversation.ts";
 import { TYPING_CLEAR_MS } from "./limits.ts";
 import type { RoomsPageContext } from "./page.ts";
 

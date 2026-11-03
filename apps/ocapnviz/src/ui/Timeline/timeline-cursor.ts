@@ -18,15 +18,11 @@
 
 import { allVisModeOnDoc, categoryVisModeOnDoc, rowVisModeOnDoc } from "../../engine/visibility.ts";
 import { type CSSCursor, cursorFor } from "../../interactions/cursor.ts";
-import {
-	type DefaultVerb,
-	type EntityRef,
-	type Hit,
-	type PointerMachineState,
-	type PointerSnapshot,
-	type SurfaceGestureCtx,
-	type SurfaceId,
-} from "../../interactions/types.ts";
+import type { DefaultVerb, SurfaceGestureCtx } from "../../interactions/gesture-resolver.ts";
+import type { EntityRef } from "../../interactions/entity-ref.ts";
+import type { Hit, SurfaceId } from "../../interactions/surface-hit.ts";
+import type { PointerMachineState } from "../../interactions/pointer-machine.ts";
+import type { PointerSnapshot } from "../../interactions/pointer-input.ts";
 import { timelineCursorContext } from "./timeline-gesture.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { GUTTER_DRAG_GRAB_PX, hitTestGutter, OVERVIEW_EDGE_GRAB_PX } from "./hit-test.ts";

@@ -5,8 +5,18 @@
 // page projection, not fields on the conversation: a line is not identity.
 
 import { MAX_SCROLLBACK } from "../limits.ts";
-import { CAUGHT_UP, NO_HISTORY, silencedByIgnore } from "../types.ts";
-import type { AttachmentView, ChatItem, HistoryCoordinate, Item, SendState, SysAudience, Unread } from "../types.ts";
+import {
+	type AttachmentView,
+	CAUGHT_UP,
+	type ChatItem,
+	type HistoryCoordinate,
+	type Item,
+	NO_HISTORY,
+	type SendState,
+	silencedByIgnore,
+	type SysAudience,
+	type Unread,
+} from "../conversation.ts";
 import type { PageProjection, State } from "./projection.ts";
 import { getConv } from "./convs.ts";
 import { lineCarried } from "../commands.ts";

@@ -11,16 +11,9 @@ import type React from "react";
 import { jumpToLatest, subjectChange, subjectClear, subjectCopyLink } from "../../../lib/text/controls.ts";
 import { dropToAttach, latestMessages } from "../../../lib/text/page.ts";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import {
-	type Conv,
-	conversationTakesFiles,
-	type DirId,
-	type DirView,
-	type LiveRooms,
-	type SendControlPolicy,
-	type SessionPhase,
-} from "../types.ts";
-import { CAUGHT_UP, NO_HISTORY } from "../types.ts";
+import { CAUGHT_UP, type Conv, conversationTakesFiles, NO_HISTORY } from "../conversation.ts";
+import type { DirId, DirView, LiveRooms, SessionPhase } from "../directory.ts";
+import type { SendControlPolicy } from "../send_controls.ts";
 import type { DirectoryDestinationContext, JoinAnswers, JoinResolution } from "../joining.ts";
 import { Log } from "./Log.tsx";
 import { Composer } from "./Composer.tsx";

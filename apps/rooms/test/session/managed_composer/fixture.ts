@@ -7,7 +7,7 @@ import type { CommandPowers } from "../../../web/ui/commands.ts";
 import { CompletedLine, type LineResult } from "../../../web/ui/session/managed/completed_line.ts";
 export const store = await import("../../../web/ui/store.ts");
 const { RoomsPage } = await import("../../../web/ui/page.ts");
-const { dirId } = await import("../../../web/ui/types.ts");
+const { dirId } = await import("../../../web/ui/directory.ts");
 const { managedComposer } = await import("../../../web/ui/session/managed/composer.ts");
 export const tick = async () => {
 	for (let i = 0; i < 12; i++) await Promise.resolve();

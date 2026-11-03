@@ -23,7 +23,8 @@
  */
 
 import type { Engine } from "../engine/engine.ts";
-import type { AppMode, BuilderTool } from "./app-state.ts";
+import type { AppMode } from "./app-state.ts";
+import type { BuilderTool } from "../interactions/builder-tool.ts";
 
 /** Host callbacks a shortcut can invoke, plus the one context fact
  * guards read (`mode`). One object so the React view can publish

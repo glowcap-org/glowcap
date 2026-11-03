@@ -13,16 +13,105 @@
  * one transition. Asserted by the F3 property test.
  */
 
-import { resolveGesture } from "./gesture-resolver.ts";
-import {
-	assertNever,
-	DRAG_THRESHOLD_PX,
-	type Effect,
-	type FsmForeground,
-	type PointerEvent_,
-	type PointerMachineState,
-	type ResolvedGesture,
-} from "./types.ts";
+import { assertNever } from "./assert-never.ts";
+import { type GestureContext, type ResolvedGesture, resolveGesture } from "./gesture-resolver.ts";
+import type { PointerSnapshot } from "./pointer-input.ts";
+import type { Hit, SurfaceId } from "./surface-hit.ts";
+
+// ─────────────────────── State, events, effects (§ 2.6, § 5) ───────────
+
+export type FsmForeground =
+	| { kind: "idle" }
+	| {
+		kind: "pressed";
+		surface: SurfaceId;
+		resolved: ResolvedGesture;
+		start: PointerSnapshot;
+		ctxAtDown: GestureContext;
+	}
+	| {
+		kind: "dragging";
+		surface: SurfaceId;
+		resolved: ResolvedGesture;
+		start: PointerSnapshot;
+		current: PointerSnapshot;
+	}
+	| {
+		kind: "paused-pan";
+		/** Drag we'll resume when Space is released (if button is
+		 *  still down at that time). */
+		resume: {
+			surface: SurfaceId;
+			resolved: ResolvedGesture;
+			start: PointerSnapshot;
+		};
+		panOrigin: PointerSnapshot;
+		current: PointerSnapshot;
+	};
+
+export type PointerMachineState = {
+	fsm: FsmForeground;
+	/** Hover tracking, updated on every pointer-move regardless of
+	 *  fsm. Read by cursor / status-hint derivations. */
+	hover: { surface: SurfaceId; hit: Hit } | null;
+};
+
+export const IDLE_MACHINE: PointerMachineState = {
+	fsm: { kind: "idle" },
+	hover: null,
+};
+
+export type PointerEvent_ =
+	| {
+		kind: "pointer-down";
+		surface: SurfaceId;
+		snapshot: PointerSnapshot;
+		ctx: GestureContext;
+	}
+	| {
+		kind: "pointer-move";
+		snapshot: PointerSnapshot;
+		hit: Hit | null;
+	}
+	| {
+		kind: "pointer-up";
+		snapshot: PointerSnapshot;
+		/** Up-time context. Used to re-resolve the click verb if no status-allow: purpose clause
+		 *  drag occurred (D, modifier-at-up wins for click). */
+		ctxAtUp: GestureContext;
+	}
+	| { kind: "space-down" }
+	| { kind: "space-up"; pointerHeld: boolean }
+	| { kind: "cancel" };
+
+export type Effect =
+	| {
+		kind: "click";
+		verb: ResolvedGesture;
+		hit: Hit;
+		at: PointerSnapshot;
+	}
+	| { kind: "drag-start"; verb: ResolvedGesture; at: PointerSnapshot }
+	| { kind: "drag-move"; verb: ResolvedGesture; at: PointerSnapshot }
+	| { kind: "drag-end"; verb: ResolvedGesture; at: PointerSnapshot }
+	| { kind: "drag-pause"; verb: ResolvedGesture; at: PointerSnapshot }
+	| {
+		kind: "drag-resume";
+		verb: ResolvedGesture;
+		carriedOrigin: PointerSnapshot;
+	}
+	| { kind: "drag-cancel"; verb: ResolvedGesture }
+	| {
+		kind: "pan-step";
+		surface: SurfaceId;
+		delta: { dx: number; dy: number };
+	};
+
+// ─────────────────────── FSM threshold (§ 2.6, § 5.3) ──────────────────
+
+/** Manhattan-distance threshold for click-vs-drag. 4 px is the
+ *  Figma / Adobe default. */
+export const DRAG_THRESHOLD_PX = 4;
 
 // ─────────────────────── Reducer entrypoint ──────────────────────────
 

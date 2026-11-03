@@ -9,14 +9,10 @@ import {
 	verbSelectsEntity,
 } from "./cursor.ts";
 import { ALL_SURFACES, dummyHit } from "./gesture-resolver-test/harness.ts";
-import {
-	type Hit,
-	IDLE_MACHINE,
-	NO_MODIFIERS,
-	type PointerMachineState,
-	type ResolvedGesture,
-	type SurfaceId,
-} from "./types.ts";
+import type { Hit, SurfaceId } from "./surface-hit.ts";
+import { IDLE_MACHINE, type PointerMachineState } from "./pointer-machine.ts";
+import { NO_MODIFIERS } from "./pointer-input.ts";
+import type { ResolvedGesture } from "./gesture-resolver.ts";
 
 function ctx(over: Partial<CursorContext> = {}): CursorContext {
 	return {

@@ -31,8 +31,7 @@ const joinNick = await import("../web/ui/join_nick.ts");
 // these prove is which lead the card reaches for, and a needle copied out of
 // the copy turns every wording change into a red test that has caught nothing.
 const text = await import("../lib/text/join.ts");
-const types = await import("../web/ui/types.ts");
-const { dirId } = types;
+const { dirId } = await import("../web/ui/directory.ts");
 const { implied, named, settle } = intent;
 
 const HOME = dirId("ocapn://home.iroh");
@@ -128,7 +127,7 @@ Deno.test("paired room fields follow the draft destination across multiple direc
 		({
 			id,
 			liveRooms: new Map([[name, { name }]]),
-		}) as unknown as import("../web/ui/types.ts").DirView;
+		}) as unknown as import("../web/ui/directory.ts").DirView;
 	const dirs = new Map([[HOME, directory(HOME, "deadnet/#nowhere")], [away, directory(away, "elsewhere")]]);
 	const resolve = (locator: string) => locator === AWAY ? away : null;
 	assert(
@@ -153,10 +152,10 @@ Deno.test("paired room fields follow the draft destination across multiple direc
 Deno.test("an empty nickname means the granted name on the aimed connected directory", () => {
 	const away = dirId(AWAY);
 	const directory = (
-		id: import("../web/ui/types.ts").DirId,
+		id: import("../web/ui/directory.ts").DirId,
 		nick: string,
-		session: import("../web/ui/types.ts").SessionPhase,
-	) => ({ id, nick, session }) as import("../web/ui/types.ts").DirView;
+		session: import("../web/ui/directory.ts").SessionPhase,
+	) => ({ id, nick, session }) as import("../web/ui/directory.ts").DirView;
 	const dirs = new Map([
 		[HOME, directory(HOME, "home-name", "connected")],
 		[away, directory(away, "away-name", "connected")],
@@ -199,9 +198,9 @@ Deno.test("room nickname availability uses only live registration or exact roste
 		dir: HOME,
 		membership: "joined",
 		held: false,
-	} as import("../web/ui/types.ts").RoomConv;
+	} as import("../web/ui/conversation.ts").RoomConv;
 	const conversations = new Map([[room.key, room]]);
-	const standing: import("../web/ui/types.ts").Standing = { online: true, away: "" };
+	const standing: import("../web/ui/conversation.ts").Standing = { online: true, away: "" };
 	const members = new Map([[
 		room.key,
 		new Map([
@@ -441,10 +440,10 @@ Deno.test("where a locator field is aimed is one answer, whoever is drawing it",
 		[HOME, { id: HOME, slot: null }],
 		[away, { id: away, slot: 2 }],
 	]) as unknown as ReadonlyMap<
-		import("../web/ui/types.ts").DirId,
-		import("../web/ui/types.ts").DirView
+		import("../web/ui/directory.ts").DirId,
+		import("../web/ui/directory.ts").DirView
 	>;
-	const aimed = (locator: string, typedAs: import("../web/ui/types.ts").DirId | null) =>
+	const aimed = (locator: string, typedAs: import("../web/ui/directory.ts").DirId | null) =>
 		joining.destination(locator, typedAs, held, HOME_CONTEXT, "this directory");
 
 	// The empty field is this page's own directory, and so is an address that
@@ -481,8 +480,8 @@ Deno.test("where a locator field is aimed is one answer, whoever is drawing it",
 
 Deno.test("a named directory this tab has not reached is a connect", () => {
 	const none = new Map() as ReadonlyMap<
-		import("../web/ui/types.ts").DirId,
-		import("../web/ui/types.ts").DirView
+		import("../web/ui/directory.ts").DirId,
+		import("../web/ui/directory.ts").DirView
 	>;
 	const away = card({ source: "press" }, {}, { seq: 1, locator: AWAY });
 	assert(
@@ -506,8 +505,8 @@ Deno.test("past the ramp the join card stops claiming a color the rail is not sh
 			return [id, { id, slot }];
 		}),
 	) as unknown as ReadonlyMap<
-		import("../web/ui/types.ts").DirId,
-		import("../web/ui/types.ts").DirView
+		import("../web/ui/directory.ts").DirId,
+		import("../web/ui/directory.ts").DirView
 	>;
 	const crowded = dirId("ocapn://dir-3.iroh");
 	const aimed = joining.destination("ocapn://dir-3.iroh", crowded, ramp, HOME_CONTEXT, "this directory");

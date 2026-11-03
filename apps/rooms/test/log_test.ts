@@ -4,7 +4,7 @@
 
 import { blocksOf, ONLY_YOU } from "../web/ui/log_blocks.ts";
 import { lineCarried } from "../web/ui/commands.ts";
-import type { Item } from "../web/ui/types.ts";
+import type { Item } from "../web/ui/conversation.ts";
 import { assertEquals } from "./assert.ts";
 
 const none = new Set<string>();

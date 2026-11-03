@@ -31,19 +31,12 @@
  * rung that means nothing on the asking surface was the defect.
  */
 
-import { resolveGesture } from "./gesture-resolver.ts";
-import { inFlightGesture } from "./pointer-machine.ts";
-import {
-	assertNever,
-	type BuilderTool,
-	isStageSurface,
-	type PointerMachineState,
-	type ResolvedGesture,
-	selectModeFromModifiers,
-	type SurfaceGestureCtx,
-	type SurfaceId,
-	type ToolState,
-} from "./types.ts";
+import { type ResolvedGesture, resolveGesture, type SurfaceGestureCtx } from "./gesture-resolver.ts";
+import { inFlightGesture, type PointerMachineState } from "./pointer-machine.ts";
+import { assertNever } from "./assert-never.ts";
+import type { BuilderTool, ToolState } from "./builder-tool.ts";
+import { isStageSurface, type SurfaceId } from "./surface-hit.ts";
+import { selectModeFromModifiers } from "./select-mode.ts";
 
 /** Subset of valid `cursor` CSS values we actually emit. */
 export type CSSCursor =

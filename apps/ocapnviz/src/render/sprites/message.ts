@@ -12,13 +12,8 @@ import { layoutPillBackground } from "../draw-helpers.ts";
 import type { ThemedColors } from "../palette.ts";
 import { FONT } from "../../ui/tokens.ts";
 import { MESSAGE_LABEL, MESSAGE_LABEL_GAP_PX } from "../stage-labels.ts";
-import {
-	type HaloTier,
-	type SelectMode,
-	selectModeFromModifiers,
-	type StageHover,
-	type StageSelection,
-} from "../types.ts";
+import type { HaloTier, StageHover, StageSelection } from "../stage-selection.ts";
+import { type SelectMode, selectModeFromModifiers } from "../../interactions/select-mode.ts";
 import { marked } from "./mark.ts";
 import type { MessageSprite } from "./types.ts";
 

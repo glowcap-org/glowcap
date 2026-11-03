@@ -32,11 +32,11 @@ import {
 	type AttachmentView,
 	type ChatItem,
 	type Conv,
-	type DirId,
 	type Item,
 	silencedFrom,
 	type SysAudience,
-} from "../types.ts";
+} from "../conversation.ts";
+import type { DirId } from "../directory.ts";
 import { type AttachedSessionFiles, EARLIER_CONNECTION_BYTES_UNAVAILABLE } from "./attached_files.ts";
 import type { RoomsPageContext } from "../page.ts";
 

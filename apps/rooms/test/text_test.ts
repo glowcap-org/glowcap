@@ -15,7 +15,8 @@ import {
 import { composerLineRefusal } from "../web/ui/composer/send.ts";
 import { reachDirect, reachPublicRoom, reachRoomHeld, reachRoomLink } from "../lib/text/conversation.ts";
 import { lineCost, MAX_LINE } from "../lib/limits.ts";
-import { type Conv, type DirId, dirId, type DirView } from "../web/ui/types.ts";
+import type { Conv } from "../web/ui/conversation.ts";
+import { type DirId, dirId, type DirView } from "../web/ui/directory.ts";
 
 // The rail foot's state row says how the reader stands, and the connection
 // only when standing cannot be the answer. It was written the other way once:

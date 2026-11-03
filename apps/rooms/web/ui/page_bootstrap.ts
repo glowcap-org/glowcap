@@ -1,7 +1,7 @@
 // Page-address presentation. Rust owns directory connections and their lifetime.
 import { directoryId } from "./application.ts";
 import type { RoomsPageContext } from "./page.ts";
-import type { DirId } from "./types.ts";
+import type { DirId } from "./directory.ts";
 import type { Given } from "./intent.ts";
 export { directoryId } from "./application.ts";
 

@@ -6,7 +6,12 @@ import type { RoomsControllerSelection } from "../../../lib/rooms_state.ts";
 import type { RoomPreset } from "../room_policy.ts";
 import type { Reach } from "../intent.ts";
 import type { HelpTab } from "../store/projection.ts";
-import type { AttachmentView, DirId, MemberRef, OpsCap, SettingsTab, ToastKind } from "../types.ts";
+import type { AttachmentView } from "../conversation.ts";
+import type { DirId } from "../directory.ts";
+import type { MemberRef } from "../member_ref.ts";
+import type { OperationsCapability } from "../application_data.ts";
+import type { RoomsSettingsTab } from "../../../lib/view_state.ts";
+import type { ToastKind } from "../toast.ts";
 import type { DraftPreview, OpenGraphMetadata, PreviewFailure } from "../link_preview.ts";
 
 /** Keeping these outside the session controller prevents an attached view from
@@ -28,7 +33,7 @@ export interface RoomsBrowserController {
 	toggleNotify(): Promise<string | null>;
 	openSettings(): void;
 	closeSettings(): void;
-	setSettingsTab(tab: SettingsTab): void;
+	setSettingsTab(tab: RoomsSettingsTab): void;
 	setTheme(theme: "light" | "dark"): void;
 	/** Open Help, on the tab a control asked for when it names one. */
 	openHelp(tab?: HelpTab): void;
@@ -39,7 +44,7 @@ export interface RoomsBrowserController {
 	showActiveConversation(selection: Promise<void>): Promise<void>;
 	/** Stop waiting for the current acquisition and prevent its late navigation. */
 	cancelConversationOpening(): void;
-	setOpsPane(pane: OpsCap): void;
+	setOpsPane(pane: OperationsCapability): void;
 	changeLine(id: number, text: string): void;
 	changeFiles(id: number, caption: string, keeping: readonly AttachmentView[]): void;
 	dropKeptFile(index: number): void;

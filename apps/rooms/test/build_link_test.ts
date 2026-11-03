@@ -8,7 +8,7 @@ import { assertEquals } from "./assert.ts";
 const { PageProjection } = await import("../web/ui/store/projection.ts");
 const { openDir, setDirSession } = await import("../web/ui/store/dirs.ts");
 const { bindReloadToBuild, firstReloadFor } = await import("../web/ui/build_link.ts");
-const { dirId } = await import("../web/ui/types.ts");
+const { dirId } = await import("../web/ui/directory.ts");
 const a = dirId("ocapn://a");
 const b = dirId("ocapn://b");
 

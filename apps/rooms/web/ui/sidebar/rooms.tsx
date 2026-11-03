@@ -6,16 +6,8 @@
 // dms.tsx holds the same for the direct lines, and the rail itself only decides
 // which sections there are.
 
-import {
-	CAUGHT_UP,
-	type Conv,
-	type DirId,
-	dirMarkIn,
-	type DirView,
-	type Invitation,
-	type RoomConv,
-	type Unread,
-} from "../types.ts";
+import { CAUGHT_UP, type Conv, type Invitation, type RoomConv, type Unread } from "../conversation.ts";
+import { type DirId, dirMarkIn, type DirView } from "../directory.ts";
 import { dirWhere, nothingWhilePaused } from "../text.ts";
 import { useRoomsState, useSessionPaused } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";

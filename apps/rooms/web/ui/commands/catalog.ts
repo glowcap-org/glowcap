@@ -1,7 +1,7 @@
 // Read-only command affordances from the shared Rust catalog.
 import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
-import type { Conv } from "../types.ts";
+import type { Conv } from "../conversation.ts";
 import type { Command, CommandHere } from "./types.ts";
 import { runCommand } from "./execute.ts";
 

@@ -8,7 +8,8 @@ import type { ManagedRoomsSession } from "./session.ts";
 import type { AttachedSessionFiles } from "../attached_files.ts";
 import type { PresentedFile } from "./files.ts";
 import { directoryId } from "../../application.ts";
-import { type DirId, dirId, type RoomDestination } from "../../types.ts";
+import { type DirId, dirId } from "../../directory.ts";
+import { planJoinDestination, type RoomDestination } from "../../joining.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 import { roomsErrorInMessage } from "../../../../lib/error_codes.ts";
 import {
@@ -24,7 +25,6 @@ import { managedRoomActions } from "./rooms.ts";
 import { managedWorkspaceActions } from "./workspace.ts";
 import { managedOperations } from "./operations.ts";
 import { managedCommandPowers } from "./commands.ts";
-import { planJoinDestination } from "../../joining.ts";
 import { coordinate } from "./model.ts";
 import type { ManagedHistory } from "./history.ts";
 import { managedArchiveReading } from "./archive_shares.ts";

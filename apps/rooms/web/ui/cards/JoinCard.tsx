@@ -78,7 +78,7 @@ import {
 } from "../../../lib/text/join.ts";
 import { MenuLayer, useMenu } from "../Menu.tsx";
 import { Said } from "../Said.tsx";
-import { type DirId, type DirView } from "../types.ts";
+import type { DirId, DirView } from "../directory.ts";
 import { WorkingAction } from "../WorkingAction.tsx";
 import { suggestedNickname } from "../application.ts";
 

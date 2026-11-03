@@ -14,7 +14,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { opsSweepKeep, sweepDone, sweepRefused, sweepStopped } from "../../../lib/text/ops.ts";
-import type { OperatorCategory } from "../types.ts";
+import type { OperatorCategory } from "../../../lib/room/client.ts";
 import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Said } from "../Said.tsx";

@@ -18,7 +18,8 @@
 // per kind of answer rather than one per question, and `criterionShows` is the
 // only place a single question is decided.
 
-import type { DirId, DirView, DmConv, Invitation, RoomConv, Unread } from "../types.ts";
+import type { DirId, DirView } from "../directory.ts";
+import type { DmConv, Invitation, RoomConv, Unread } from "../conversation.ts";
 import { directoryName } from "../text.ts";
 import {
 	filterAccessLabel,

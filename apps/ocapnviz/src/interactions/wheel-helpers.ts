@@ -3,7 +3,7 @@
  * without transitively pulling in React.
  */
 
-import type { SurfaceId } from "./types.ts";
+import type { SurfaceId } from "./surface-hit.ts";
 
 export type WheelEffect =
 	| {

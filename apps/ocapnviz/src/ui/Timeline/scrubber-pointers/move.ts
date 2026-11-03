@@ -7,7 +7,7 @@
 
 import type { PointerEvent } from "react";
 import type { TimelineDocument, TimelineEvent } from "../../../engine/timeline.ts";
-import type { SurfaceGestureCtx } from "../../../interactions/types.ts";
+import type { SurfaceGestureCtx } from "../../../interactions/gesture-resolver.ts";
 import type { RowDescriptor } from "../row-layout.ts";
 import { canvasPxToT, GUTTER_MAX_PX, GUTTER_MIN_PX, pan as panView, plotWidthOf, type TimelineView } from "../state.ts";
 import { applyEventDragMove, updateRowDrag, updateRubberBand } from "../scrubber-drag.ts";

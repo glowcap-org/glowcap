@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
-import type { Hit, SurfaceGestureCtx } from "../../interactions/types.ts";
+import type { Hit } from "../../interactions/surface-hit.ts";
+import type { SurfaceGestureCtx } from "../../interactions/gesture-resolver.ts";
 import { resolveTimelineGesture } from "./timeline-gesture.ts";
 
 const SELECT: SurfaceGestureCtx = {

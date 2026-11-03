@@ -7,7 +7,8 @@
  * relative to the peer's join/leave window.
  */
 
-import { nodeActivityIn, type PeerActivity, type StageSelection } from "../../render/types.ts";
+import { nodeActivityIn, type PeerActivity } from "../../render/node-activity.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findPeer } from "../../engine/world.ts";
 import {
@@ -37,7 +38,7 @@ import {
 import { elideIdentifier, Identifier } from "../identifier.tsx";
 import { useEngineVersion } from "../useEngineVersion.ts";
 import { isInSelection, peerInfo, sessionInfo, sessionsTouchingPeer } from "./entity-info.ts";
-import type { EntityRefKey } from "../../interactions/types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 
 /** Position row that follows mid-drag world coords. The PeerFields shell
  *  stays on doc+clock so label/id/profile groups do not re-reconcile every

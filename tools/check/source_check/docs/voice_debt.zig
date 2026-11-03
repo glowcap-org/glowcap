@@ -43,7 +43,6 @@ pub const justification_tic = [_][]const u8{
     "apps/ocapnviz/src/render/sprites/endpoint.ts",
     "apps/ocapnviz/src/render/stage-node-drag.ts",
     "apps/ocapnviz/src/render/stage-view.ts",
-    "apps/ocapnviz/src/render/types.test.ts",
     "apps/ocapnviz/src/render/use-stage-empty-gestures.ts",
     "apps/ocapnviz/src/state/app-state.ts",
     "apps/ocapnviz/src/state/hooks.ts",

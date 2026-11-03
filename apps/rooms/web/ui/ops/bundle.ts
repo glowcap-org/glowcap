@@ -2,21 +2,21 @@
 import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
 import { ALL_BOOT_CAPS } from "../application_data.ts";
-import type { OpsCap } from "../types.ts";
+import type { OperationsCapability } from "../application_data.ts";
 
 export const OPS_BUNDLE_CAPABILITIES = ALL_BOOT_CAPS.map((definition) => ({
-	capability: definition.id as OpsCap,
+	capability: definition.id as OperationsCapability,
 	token: definition.token,
 }));
 const BUNDLE_CAPABILITY_IDS: ReadonlySet<string> = new Set(ALL_BOOT_CAPS.map((definition) => definition.id));
-export type OpsBundleDraft = ReadonlyMap<OpsCap, string>;
-type Projection = { entries: [OpsCap, string][]; ready: boolean; formatted: string };
+export type OpsBundleDraft = ReadonlyMap<OperationsCapability, string>;
+type Projection = { entries: [OperationsCapability, string][]; ready: boolean; formatted: string };
 
 /** The bundle grammar is Rust's. An answer outside it is a defect in the
  * shared build, never a draft. */
 const ProjectionSchema: z.ZodMiniType<Projection> = z.object({
 	entries: z.array(z.tuple([
-		z.custom<OpsCap>((value) => typeof value === "string" && BUNDLE_CAPABILITY_IDS.has(value)),
+		z.custom<OperationsCapability>((value) => typeof value === "string" && BUNDLE_CAPABILITY_IDS.has(value)),
 		z.string(),
 	])),
 	ready: z.boolean(),
@@ -51,6 +51,6 @@ export function opsBundleReady(draft: OpsBundleDraft): boolean {
 		return false;
 	}
 }
-export function parseOpsBundle(raw: string): Map<OpsCap, string> {
+export function parseOpsBundle(raw: string): Map<OperationsCapability, string> {
 	return new Map(parse(raw, true).entries);
 }

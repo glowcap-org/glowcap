@@ -7,7 +7,7 @@ import * as store from "../store.ts";
 import type { ArchiveLine, ArchiveRecord } from "../../../lib/archive/protocol.ts";
 import { adoptableArchiveDigests, archivedAttachmentsMatch, archivedAttachmentViews } from "../archive_attachments.ts";
 import { fetchesOnArrival } from "../media.ts";
-import { type Item, silencedFrom } from "../types.ts";
+import { type Item, silencedFrom } from "../conversation.ts";
 import type { RoomsPageContext } from "../page.ts";
 import type { AttachedSessionFiles, FileDescription, HeldFile } from "./attached_files.ts";
 

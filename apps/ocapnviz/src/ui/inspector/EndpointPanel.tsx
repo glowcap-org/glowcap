@@ -23,7 +23,8 @@
  * it, which is the act a reader who wants it gone actually means.
  */
 
-import { nodeActivityIn, type StageSelection } from "../../render/types.ts";
+import { nodeActivityIn } from "../../render/node-activity.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findEndpoint, findSession } from "../../engine/world.ts";
 import { captpVersionLabel } from "../../schema/topology.ts";
@@ -39,7 +40,7 @@ import { SessionMoments } from "./SessionTrajectory.tsx";
 import { Identifier } from "../identifier.tsx";
 import { useEngineVersion } from "../useEngineVersion.ts";
 import { isInSelection, peerInfo, sessionInfo } from "./entity-info.ts";
-import type { EntityRefKey } from "../../interactions/types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
 
 /** What the document and the world know about one loose end. Null when the
  *  id does not name an end of a declared session, which is what an

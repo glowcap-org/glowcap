@@ -2,7 +2,7 @@
 //
 // The catalog and the parser both need these. Neither owns them.
 
-import type { Conv } from "../types.ts";
+import type { Conv } from "../conversation.ts";
 
 /** Where a command's authority comes from. See the header. */
 export type CommandKind = "tab" | "line" | "granted";

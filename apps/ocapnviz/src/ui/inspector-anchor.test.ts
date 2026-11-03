@@ -31,7 +31,7 @@ import { assert, assertEquals } from "@std/assert";
 import { connectionsSectionTitle, inspectorView } from "./Sidebar.tsx";
 import { Engine } from "../engine/engine.ts";
 import { TimelineDocument } from "../engine/timeline.ts";
-import { entityKey, type EntityRefKey } from "../interactions/types.ts";
+import { entityKey, type EntityRefKey } from "../interactions/entity-ref.ts";
 
 /** Two peers and one session between them, so a peer anchor has an edge to
  *  count and the count is a number the title has to get right. */

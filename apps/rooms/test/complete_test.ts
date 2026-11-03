@@ -9,7 +9,7 @@ import "./support/browser_application.ts";
 import { PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
 import { messageMentions } from "../web/ui/markdown.ts";
 import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
-import type { Conv } from "../web/ui/types.ts";
+import type { Conv } from "../web/ui/conversation.ts";
 import { assert, assertEquals } from "./assert.ts";
 import { fail } from "./support/fail.ts";
 

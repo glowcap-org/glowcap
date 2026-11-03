@@ -6,7 +6,7 @@
 // Scrubber highlights both ends together.
 
 import type { TimelineEvent } from "../../engine/timeline.ts";
-import type { EntityRef } from "../../interactions/types.ts";
+import type { EntityRef } from "../../interactions/entity-ref.ts";
 
 export function eventEntityRef(ev: TimelineEvent): EntityRef {
 	switch (ev.kind) {

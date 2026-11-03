@@ -8,7 +8,7 @@ import "../support/match_media.ts";
 import { assert } from "../assert.ts";
 
 const store = await import("../../web/ui/store.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 const { previewSelection } = await import("../../web/ui/link_preview.ts");
 
 function setup(name: string) {

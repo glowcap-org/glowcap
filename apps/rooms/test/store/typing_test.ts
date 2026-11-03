@@ -6,7 +6,7 @@ import { assert } from "../assert.ts";
 
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 const { assertEquals } = await import("../assert.ts");
 
 Deno.test("a typing flag does not replace the conversation", () => {

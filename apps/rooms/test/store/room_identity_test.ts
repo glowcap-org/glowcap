@@ -12,7 +12,7 @@ import { assertEquals } from "../assert.ts";
 
 const store = await import("../../web/ui/store.ts");
 const projection = new store.PageProjection();
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 
 Deno.test("a publication backfill adopts the room row instead of minting a sibling", () => {
 	const dir = dirId("backfill-dir");

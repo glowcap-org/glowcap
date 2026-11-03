@@ -1,9 +1,7 @@
-// Presentation types that belong to directories and page chrome.
+// A directory the page is connected to: its identity, its live view, and the
+// marks that tell several of them apart.
 
 import type { DirectoryMember, RoomInfo } from "../../lib/directory_publications.ts";
-import type { RoomPolicy } from "./room_policy.ts";
-
-export * from "./conversation.ts";
 
 export type DirId = string & { readonly __dir: unique symbol };
 
@@ -48,21 +46,6 @@ export function dirMarkIn(
 	return dirsWearMarks(dirs) ? dirMark(dir, home, dirs.get(dir)?.slot) : undefined;
 }
 
-export interface RoomDestination {
-	room: string;
-	locator: string;
-	hidden?: boolean;
-	policy?: RoomPolicy;
-}
-
-export type ToastKind = "success" | "failure" | "warning";
-
-export interface ToastNotice {
-	id: number;
-	kind: ToastKind;
-	text: string;
-}
-
 export interface DirView {
 	id: DirId;
 	locator: string;
@@ -83,36 +66,4 @@ export interface DirView {
 	standing: string | null;
 }
 
-/** Which person a member card is about.
- *
- * `conv` is the room whose roster the reading came from. It is null when the
- * reader opened their own card from the rail's foot, which is about them on the
- * page rather than in any one room, and the card says so rather than naming a
- * room that was never asked about. */
-export interface MemberRef {
-	readonly conv: string | null;
-	readonly name: string;
-}
-
 export type SessionPhase = "connecting" | "connected" | "disconnected" | "reconnecting";
-
-/** Actions the message log may offer for sends this controller owns. */
-export interface SendControlPolicy {
-	retry: boolean;
-}
-
-export const LOCAL_SEND_CONTROLS = { retry: true } as const;
-export const SHARED_SEND_CONTROLS = { retry: false } as const;
-
-export function sendControlsFor(kind: "local" | "attached" | "hosted"): SendControlPolicy {
-	return kind === "local" ? LOCAL_SEND_CONTROLS : SHARED_SEND_CONTROLS;
-}
-
-export interface TroubleRow {
-	readonly source: string;
-	readonly reason: string;
-	readonly count: number;
-}
-
-export * from "./ops/capabilities.ts";
-export type { RoomsSettingsTab as SettingsTab } from "../../lib/view_state.ts";

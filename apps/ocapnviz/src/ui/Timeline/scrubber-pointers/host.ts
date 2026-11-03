@@ -6,9 +6,11 @@
 import type { MutableRefObject, RefObject } from "react";
 import type { MoveIntent, MoveSpanIntent } from "../../../engine/authoring/moves.ts";
 import type { TimelineDocument, TimelineEvent } from "../../../engine/timeline.ts";
-import type { EntityRefKey, SurfaceGestureCtx } from "../../../interactions/types.ts";
+import type { EntityRefKey } from "../../../interactions/entity-ref.ts";
+import type { SurfaceGestureCtx } from "../../../interactions/gesture-resolver.ts";
 import type { SurfaceLease } from "../../../interactions/gesture-router.ts";
-import type { SelectMode, StageSelection } from "../../../render/types.ts";
+import type { SelectMode } from "../../../interactions/select-mode.ts";
+import type { StageSelection } from "../../../render/stage-selection.ts";
 import type { DragMode } from "../scrubber-drag.ts";
 import type { EventHitIndex } from "../event-hit-index.ts";
 import type { RowDescriptor } from "../row-layout.ts";

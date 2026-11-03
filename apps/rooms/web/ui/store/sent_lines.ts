@@ -1,7 +1,7 @@
 // A line this reader sent, named by its commit receipt and settled by result
 // acquisition, with the room's echo of it folded into the one bubble.
 
-import type { HistoryCoordinate } from "../types.ts";
+import type { HistoryCoordinate } from "../conversation.ts";
 import type { PageProjection } from "./projection.ts";
 import { foldLine, historyOf, lineByCoordinate, lineByLineId, updateItem } from "./items.ts";
 

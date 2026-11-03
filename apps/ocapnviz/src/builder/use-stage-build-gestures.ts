@@ -11,9 +11,12 @@
 import { type Dispatch, useCallback } from "react";
 import type { Engine } from "../engine/engine.ts";
 import { asNodeRef } from "../interactions/gesture-resolver.ts";
-import { isTwoClickTool, type SelectionAction } from "../interactions/types.ts";
-import type { SelectMode, StageSelection } from "../render/types.ts";
-import type { AppAction, AppMode, BuilderTool } from "../state/app-state.ts";
+import { isTwoClickTool } from "../interactions/builder-tool.ts";
+import type { SelectionAction } from "../interactions/selection-store.ts";
+import type { SelectMode } from "../interactions/select-mode.ts";
+import type { StageSelection } from "../render/stage-selection.ts";
+import type { AppAction, AppMode } from "../state/app-state.ts";
+import type { BuilderTool } from "../interactions/builder-tool.ts";
 import type { ToolDraftStore } from "../ui/ToolOptionsBar.tsx";
 import { advanceTwoClick, openSessionToNewEnd, twoClickAccepts } from "./two-click.ts";
 

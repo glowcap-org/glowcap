@@ -7,8 +7,9 @@
  */
 
 import type { Engine } from "../engine/engine.ts";
-import type { SelectionAction } from "../interactions/types.ts";
-import type { AppMode, BufferSourceInfo, BuilderTool, LayoutSizes } from "../state/app-state.ts";
+import type { SelectionAction } from "../interactions/selection-store.ts";
+import type { AppMode, BufferSourceInfo, LayoutSizes } from "../state/app-state.ts";
+import type { BuilderTool } from "../interactions/builder-tool.ts";
 import { leftPane, toolsPanel } from "./app-shell.ts";
 import type { EditorBindings } from "./inspector/bindings.ts";
 import { LegendBody, LegendReferenceButton } from "./Legend.tsx";

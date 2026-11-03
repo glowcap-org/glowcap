@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { StageVisibility } from "../render/types.ts";
+import type { StageVisibility } from "../render/stage-visibility.ts";
 import { CANVAS_ELEMENT_ID } from "../render/UnifiedCanvas.tsx";
 import { isTextInputTarget } from "../interactions/text-input-target.ts";
 import type { KeyboardShortcutBindings } from "./keyboard-shortcuts.ts";

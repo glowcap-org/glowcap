@@ -14,8 +14,8 @@
  * mark away would be skipped and the mark would stay on screen.
  */
 
-import type { EntityRefKey } from "../../interactions/types.ts";
-import type { HaloTier } from "../types.ts";
+import type { EntityRefKey } from "../../interactions/entity-ref.ts";
+import type { HaloTier } from "../stage-selection.ts";
 
 /** Resolve an entity's halo tier from the selection set + anchor
  *  in one shot. Anchor wins over selected (it implies selected

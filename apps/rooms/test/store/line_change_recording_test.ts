@@ -9,7 +9,7 @@ import "../support/match_media.ts";
 import { assertEquals } from "../assert.ts";
 
 const store = await import("../../web/ui/store.ts");
-const { dirId } = await import("../../web/ui/types.ts");
+const { dirId } = await import("../../web/ui/directory.ts");
 
 Deno.test("a room's edit and withdrawal reach the line recorder", () => {
 	const projection = new store.PageProjection();

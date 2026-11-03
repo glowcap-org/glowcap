@@ -1,7 +1,7 @@
 // Supervisor reports are snapshots. Only a new failure is a journal event.
 import * as store from "../../store.ts";
 import type { PageProjection } from "../../store/projection.ts";
-import { dirId } from "../../types.ts";
+import { dirId } from "../../directory.ts";
 import { managedSessionText as text } from "../../../../lib/text/managed_session.ts";
 import {
 	type ActionRefusal,

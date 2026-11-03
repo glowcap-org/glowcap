@@ -9,10 +9,14 @@
 
 import type { Engine } from "../engine/engine.ts";
 import { armedNodeLabel } from "../builder/two-click.ts";
-import type { EntityRefKey, SurfaceGestureCtx } from "../interactions/types.ts";
+import type { EntityRefKey } from "../interactions/entity-ref.ts";
+import type { SurfaceGestureCtx } from "../interactions/gesture-resolver.ts";
 import { Stage } from "../render/Stage.tsx";
-import type { SelectMode, StageSelection, StageVisibility } from "../render/types.ts";
-import type { AppMode, BuilderTool } from "../state/app-state.ts";
+import type { SelectMode } from "../interactions/select-mode.ts";
+import type { StageSelection } from "../render/stage-selection.ts";
+import type { StageVisibility } from "../render/stage-visibility.ts";
+import type { AppMode } from "../state/app-state.ts";
+import type { BuilderTool } from "../interactions/builder-tool.ts";
 import { centerPane, stageSlot } from "./app-shell.ts";
 import { StageControls } from "./StageControls.tsx";
 import { ToolHint } from "./ToolHint.tsx";

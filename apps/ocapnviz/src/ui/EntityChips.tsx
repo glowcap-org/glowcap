@@ -14,7 +14,7 @@ import {
 	UNATTRIBUTED_WORD,
 } from "../schema/session-end.ts";
 import { CAPTP_VERSION_COLORS, colorForProfile, lineStyleForCodec, PROFILE_FALLBACK_COLOR } from "../render/palette.ts";
-import type { PeerActivity } from "../render/types.ts";
+import type { PeerActivity } from "../render/node-activity.ts";
 import { c, FONT, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
 const chip = {

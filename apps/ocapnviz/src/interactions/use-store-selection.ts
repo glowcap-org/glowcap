@@ -9,9 +9,16 @@
  */
 
 import { type Dispatch, useCallback, useReducer } from "react";
-import type { SelectMode, StageSelection } from "../render/types.ts";
-import { selectionActionFor, selectionReducer } from "./selection-store.ts";
-import { EMPTY_SELECTION, entityKey, type EntityRefKey, type SelectionAction, type SelectionState } from "./types.ts";
+import type { SelectMode } from "./select-mode.ts";
+import type { StageSelection } from "../render/stage-selection.ts";
+import {
+	EMPTY_SELECTION,
+	type SelectionAction,
+	selectionActionFor,
+	selectionReducer,
+	type SelectionState,
+} from "./selection-store.ts";
+import { entityKey, type EntityRefKey } from "./entity-ref.ts";
 
 export type StoreSelectionHost = {
 	storeSelection: SelectionState;

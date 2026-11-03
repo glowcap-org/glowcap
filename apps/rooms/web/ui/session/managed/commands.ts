@@ -8,7 +8,7 @@ import type { RoomsBrowserController } from "../../controller/browser.ts";
 import type { RoomsRoomController } from "../../controller/session.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { CommandPowers } from "../../commands.ts";
-import { type DirId, liveRoomCounts } from "../../types.ts";
+import { type DirId, liveRoomCounts } from "../../directory.ts";
 import { directoryName, roomCalled } from "../../text.ts";
 import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY } from "../../commands/targets.ts";
 import { JOIN_DEFAULT_NICK, roomLinkDestination } from "../../joining.ts";

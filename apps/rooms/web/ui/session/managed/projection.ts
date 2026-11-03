@@ -4,16 +4,9 @@ import { ROOM_SENDER } from "../../../../lib/protocol_data.ts";
 // Neither projection constructs capabilities or a bearer checkpoint.
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
-import {
-	type DirId,
-	dirId,
-	type DirView,
-	isSessionConv,
-	OPS_CAPS,
-	type OpsCap,
-	type RoomConv,
-	type SessionConv,
-} from "../../types.ts";
+import { type DirId, dirId, type DirView } from "../../directory.ts";
+import { isSessionConv, type RoomConv, type SessionConv } from "../../conversation.ts";
+import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "../../application_data.ts";
 import type { ArchiveShareView } from "../../archive_model.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { ManagedOperation } from "./operation.ts";
@@ -57,7 +50,7 @@ export class ManagedProjection {
 		{ conversation: string; inbox?: string; seat?: string; endedSeat?: string }
 	>();
 	readonly #announcedShares = new Set<string>();
-	readonly #operationSelections = new Map<OpsCap, string | null>();
+	readonly #operationSelections = new Map<OperationsCapability, string | null>();
 	readonly #presentedCommits = new WeakSet<ManagedOperation>();
 	constructor(
 		page: RoomsPageContext,
@@ -131,7 +124,7 @@ export class ManagedProjection {
 			(committed ??= new Set()).add(operation.id);
 		}
 		if (committed != null) store.confirmSentOperations(projection, committed);
-		for (const cap of OPS_CAPS) {
+		for (const cap of OPERATIONS_CAPABILITIES) {
 			const selection = operationSelection(current?.intent, cap);
 			if (this.#operationSelections.get(cap) !== selection) {
 				this.#operationSelections.set(cap, selection);
@@ -299,7 +292,7 @@ export class ManagedProjection {
 		}
 		const state = projection.get();
 		const opsHeld = operationsHeld(intent);
-		if (OPS_CAPS.some((cap) => state.opsHeld[cap] !== opsHeld[cap])) projection.set({ opsHeld });
+		if (OPERATIONS_CAPABILITIES.some((cap) => state.opsHeld[cap] !== opsHeld[cap])) projection.set({ opsHeld });
 		if (state.keepHistory !== intent.keepHistory) projection.set({ keepHistory: intent.keepHistory });
 		const standing = this.#session.effects.standing("setStanding", null, intent.standing) ?? "";
 		if (state.standing !== standing) projection.set({ standing });

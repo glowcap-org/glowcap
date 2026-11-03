@@ -5,7 +5,7 @@ import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { RoomsOperationsController } from "../../controller/session.ts";
-import type { OpsCap } from "../../types.ts";
+import type { OperationsCapability } from "../../application_data.ts";
 import type { OperatorReferenceKind, OperatorSnapshot } from "../../../../lib/operator.ts";
 import { parseOperatorSnapshotJson } from "../../../../lib/operator_snapshot.ts";
 import { appendOperatorPage, operatorStateOf } from "../../ops/operator_projection.ts";
@@ -14,7 +14,7 @@ import { refusalText } from "../../../../lib/text/failure.ts";
 import { formatOpsBundle, parseOpsBundleDraft } from "../../ops/bundle.ts";
 import type { RoomsManagedOperationsReader } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { operationCommand, operationHolding, operationKind, operationSelection } from "./operations_selection.ts";
-import { OperationsAcquisitionRefused } from "./actions.ts";
+import { OperationsAcquisitionRefused } from "./acquisition.ts";
 import { OPS_CATALOG } from "../../ops/catalog.ts";
 import { privateReadKey, revisionReadKey } from "./reads.ts";
 
@@ -29,11 +29,11 @@ const READER_SNAPSHOT_SETTERS = {
 
 export function managedOperations(page: RoomsPageContext, session: ManagedRoomsSession): RoomsOperationsController {
 	const projection = page.projection;
-	const refreshes = new Map<OpsCap, number>();
-	function holding(cap: OpsCap): { coordinate: Coordinate; kind?: string } | null {
+	const refreshes = new Map<OperationsCapability, number>();
+	function holding(cap: OperationsCapability): { coordinate: Coordinate; kind?: string } | null {
 		return operationHolding(session.current?.intent, cap);
 	}
-	function selected(cap: OpsCap): { coordinate: Coordinate; kind?: string } {
+	function selected(cap: OperationsCapability): { coordinate: Coordinate; kind?: string } {
 		const row = holding(cap);
 		if (row == null) throw new Error(`This workspace holds no ${cap} capability`);
 		return row;
@@ -49,12 +49,12 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 	/** An answer applies only while its request is the newest for its
 	 * capability and the held selection has not moved while the read was in
 	 * flight. */
-	function refreshApplies(cap: OpsCap, request: number, selection: string | null): boolean {
+	function refreshApplies(cap: OperationsCapability, request: number, selection: string | null): boolean {
 		return refreshes.get(cap) === request &&
 			operationSelection(session.current?.intent, cap) === selection;
 	}
 	async function read<T>(
-		cap: OpsCap,
+		cap: OperationsCapability,
 		work: (reader: RoomsManagedOperationsReader) => Promise<T>,
 		row = selected(cap),
 	): Promise<T> {
@@ -70,7 +70,11 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			}
 		});
 	}
-	async function refresh(cap: OpsCap, query = "", kind: OperatorReferenceKind | null = null): Promise<void> {
+	async function refresh(
+		cap: OperationsCapability,
+		query = "",
+		kind: OperatorReferenceKind | null = null,
+	): Promise<void> {
 		const row = selected(cap);
 		const selection = operationSelection(session.current?.intent, cap);
 		const request = (refreshes.get(cap) ?? 0) + 1;
@@ -103,7 +107,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		if (!current()) return;
 		READER_SNAPSHOT_SETTERS[cap](projection, snapshot);
 	}
-	async function operation(cap: OpsCap, action: string, args: string[] = []): Promise<unknown> {
+	async function operation(cap: OperationsCapability, action: string, args: string[] = []): Promise<unknown> {
 		const row = selected(cap);
 		const command = operationCommand(cap, row);
 		const result = await session.actions.run(command.name, [
@@ -147,7 +151,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		await refresh("irc");
 	}
 	async function readBundle(intent = session.current?.intent): Promise<string> {
-		const entries = new Map<OpsCap, string>();
+		const entries = new Map<OperationsCapability, string>();
 		for (const cap of ["operator", "listeners", "diagnostics", "irc", "trace", "peering"] as const) {
 			const row = operationHolding(intent, cap);
 			if (row != null) {

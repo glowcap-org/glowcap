@@ -4,7 +4,7 @@
  * collapses to one undo step.
  */
 
-import type { StageSelection } from "../../render/types.ts";
+import type { StageSelection } from "../../render/stage-selection.ts";
 import type { MoveIntent, MoveSpanIntent } from "../../engine/authoring/moves.ts";
 import type { EngineResult } from "../../engine/errors.ts";
 import type { CaptpVersion, Codec, PeerProfile, SessionState, Transport } from "../../schema/topology.ts";
