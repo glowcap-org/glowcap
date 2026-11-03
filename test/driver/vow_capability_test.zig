@@ -8,6 +8,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const driver = glowcap.driver;
+const Preference = glowcap.ocapn.model.Preference;
 const capture = @import("../support/capture.zig");
 const harness = @import("core_host/harness.zig");
 const trio = @import("vow_capability/trio.zig");
@@ -363,44 +364,46 @@ test "closing the vow's session breaks its promise toward a third peer" {
 }
 
 test "a projected promise passed back is the promise it stands for" {
-    var t: Trio = undefined;
-    try t.init();
-    defer t.deinit();
-    const echo = try t.fetchHeldOn(&t.c, t.ac.b, "echo");
+    for ([_]Preference{ Preference.default_offer, Preference.glowcap }) |preference| {
+        var t: Trio = undefined;
+        try t.initWithPreference(preference);
+        defer t.deinit();
+        const echo = try t.fetchHeldOn(&t.c, t.ac.b, "echo");
 
-    const vow = try t.ask();
-    const cap = try t.a.vowCapability(vow);
-    const promise_id = @backingInt(t.a.capabilities.resolve(cap).?.deferred);
-    ReaderC.keep = true;
-    try t.passToC(cap);
-    const kept = ReaderC.kept orelse return error.NothingKept;
+        const vow = try t.ask();
+        const cap = try t.a.vowCapability(vow);
+        const promise_id = @backingInt(t.a.capabilities.resolve(cap).?.deferred);
+        ReaderC.keep = true;
+        try t.passToC(cap);
+        const kept = ReaderC.kept orelse return error.NothingKept;
 
-    // Before the settlement the projection coming back is the same promise.
-    const echo_call = try t.c.sendValues(t.ac.b, echo, "read", &.{.{ .capability = kept }}, t.arena.allocator());
-    var echo_heard: capture.CapturedRef = .{};
-    try t.c.vowOn(echo_call, .{ .ctx = &echo_heard, .func = capture.CapturedRef.record });
-    try t.pump();
-    try std.testing.expect(!echo_heard.broken);
-    try std.testing.expectEqual(@as(usize, 1), ReaderA.ran);
-    try std.testing.expectEqual(promise_id, ReaderA.promise_id orelse return error.NoPromise);
-    var a_listened: capture.CapturedString = .{};
-    try listenOn(&t.a, ReaderA.listen_vow, &a_listened);
+        // Before the settlement the projection coming back is the same promise.
+        const echo_call = try t.c.sendValues(t.ac.b, echo, "read", &.{.{ .capability = kept }}, t.arena.allocator());
+        var echo_heard: capture.CapturedRef = .{};
+        try t.c.vowOn(echo_call, .{ .ctx = &echo_heard, .func = capture.CapturedRef.record });
+        try t.pump();
+        try std.testing.expect(!echo_heard.broken);
+        try std.testing.expectEqual(@as(usize, 1), ReaderA.ran);
+        try std.testing.expectEqual(promise_id, ReaderA.promise_id orelse return error.NoPromise);
+        var a_listened: capture.CapturedString = .{};
+        try listenOn(&t.a, ReaderA.listen_vow, &a_listened);
 
-    try t.fulfill("hello");
-    try std.testing.expectEqualStrings("hello", a_listened.text());
+        try t.fulfill("hello");
+        try std.testing.expectEqualStrings("hello", a_listened.text());
 
-    // After it, the projection coming back is what the answer settled to.
-    _ = try t.c.sendValues(t.ac.b, echo, "read", &.{.{ .capability = kept }}, t.arena.allocator());
-    try t.pump();
-    try std.testing.expectEqual(@as(usize, 2), ReaderA.ran);
-    try std.testing.expect(ReaderA.promise_id != promise_id);
-    try std.testing.expectEqual(@as(anyerror, error.UncallableTarget), ReaderA.send_refusal orelse return error.SendAccepted);
+        // After it, the projection coming back is what the answer settled to.
+        _ = try t.c.sendValues(t.ac.b, echo, "read", &.{.{ .capability = kept }}, t.arena.allocator());
+        try t.pump();
+        try std.testing.expectEqual(@as(usize, 2), ReaderA.ran);
+        try std.testing.expect(ReaderA.promise_id != promise_id);
+        try std.testing.expectEqual(@as(anyerror, error.UncallableTarget), ReaderA.send_refusal orelse return error.SendAccepted);
 
-    try t.c.releaseCapability(kept, 1);
-    try t.c.releaseCapability(echo, 1);
-    try t.a.releaseCapability(cap, 1);
-    try t.pump();
-    try t.expectClean();
+        try t.c.releaseCapability(kept, 1);
+        try t.c.releaseCapability(echo, 1);
+        try t.a.releaseCapability(cap, 1);
+        try t.pump();
+        try t.expectClean();
+    }
 }
 
 test "releasing a watched vow twice is one release" {

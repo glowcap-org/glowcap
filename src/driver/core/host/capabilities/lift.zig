@@ -184,10 +184,14 @@ pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, ar
 pub fn liftReference(self: *Host, session: *HostSession, reference: model.view.Reference) LiftError!Host.CapabilityLift {
     return switch (reference) {
         .promise => |promise| capability_promise.liftAnswer(self, session, promise.answer_position),
-        .near => |near| identity.liftCapabilityTracked(self, session, .{ .near = near }) catch |err| switch (err) {
-            error.NoSuchActor => capability_promise.liftNearPromise(self, session, near.export_position),
-            else => err,
-        },
+        .near => |near| if (near.kind == .promise)
+            capability_promise.liftNearPromise(self, session, near.export_position)
+        else
+            identity.liftCapabilityTracked(self, session, .{ .near = near }) catch |err| switch (err) {
+                // V1.0 near references carry no promise kind on the wire.
+                error.NoSuchActor => capability_promise.liftNearPromise(self, session, near.export_position),
+                else => err,
+            },
         else => identity.liftCapabilityTracked(self, session, try identity.callableReference(reference)),
     };
 }
