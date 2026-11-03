@@ -17,7 +17,7 @@
 ;;   ocapn://<swiss-base64>.tcp-testing-only?host=127.0.0.1&port=22045
 ;;
 ;; Suite invocation (separate terminal):
-;;   bash reference/tests/ocapn-conformance/run.sh test '<that-url>'
+;;   bash conformance/ocapn-conformance/run.sh test '<that-url>'
 ;;
 ;; The `JadQ0++R...` swiss-num below is the canonical Car Factory
 ;; builder swiss-num the suite expects; the URL printed at startup

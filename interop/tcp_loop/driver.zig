@@ -131,26 +131,8 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, address: std.Io.net.IpAd
 
 /// Accept every connection and serve them all from this one thread until the
 /// main thread has joined both waves.
-fn serve(server: *driver.Server, allocator: std.mem.Allocator, done: *std.atomic.Value(bool)) anyerror!void {
-    var sessions: std.ArrayListUnmanaged(*driver.Session) = .empty;
-    defer {
-        for (sessions.items) |session| session.deinit();
-        sessions.deinit(allocator);
-    }
-    while (!done.load(.acquire)) {
-        if (try server.waitAcceptable(0)) {
-            const session = try server.accept();
-            sessions.append(allocator, session) catch |err| {
-                session.deinit();
-                return err;
-            };
-            // An accepted session dispatches nothing until its owner attends.
-            try session.attend();
-            continue;
-        }
-        _ = try server.runtime.stepAny(10);
-    }
-    if (sessions.items.len != conns_per_wave * waves) return error.MissingAccepts;
+fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+    if (try harness.serveAccepted(server, done, conns_per_wave * waves) != conns_per_wave * waves) return error.MissingAccepts;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -174,7 +156,7 @@ pub fn main(init: std.process.Init) !void {
     const address = try tcp.parseDesignator(try server.localDesignator(&designator_buf));
 
     var done = std.atomic.Value(bool).init(false);
-    var serving = try io.concurrent(serve, .{ server, server_alloc, &done });
+    var serving = try io.concurrent(serve, .{ server, &done });
     var serving_joined = false;
     defer if (!serving_joined) {
         done.store(true, .release);

@@ -29,19 +29,16 @@
 
 const std = @import("std");
 const nowNs = @import("support/clock.zig").nowNs;
+const percentile = @import("support/percentile.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const profile = @import("support/profile.zig");
 
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
-
-/// One inbound `op:deliver` to live local export 7, the steady-state turn the
-/// alloc-budget test pins and `bench-codec`'s dispatch drives, so the N=1 row
-/// is directly comparable.
-// No-answer (`#f` answer position) deliver: re-applied to one peer across the
-// measured turns, so a live-answer position would be refused on the second apply.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
+// The steady-state turn the alloc-budget test pins and `bench-codec`'s dispatch
+// drives, so the N=1 row is directly comparable.
+const driveOneTurn = @import("warm_turn").driveOneTurn;
 
 /// The enforced ceiling for one warm inbound dispatch turn under `--gate`
 /// (ReleaseFast). This constant owns the number. It is a tripwire at
@@ -84,14 +81,6 @@ fn runGate(io: std.Io, backing: std.mem.Allocator) !void {
         "perf_gate warm_dispatch min_ns={d:.1} ceiling_ns={d:.1} ok\n",
         .{ min_ns, gate_warm_dispatch_ceiling_ns },
     );
-}
-
-fn driveOneTurn(peer: *engine.Peer) !void {
-    try peer.recvBorrowed(.{ .bytes = deliver_to_live_export, .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
 }
 
 /// Mean and percentiles for one visiting order over one peer population.
@@ -155,8 +144,8 @@ fn runOrder(
 
     return .{
         .mean_ns = batch_elapsed / @as(f64, @floatFromInt(turns)),
-        .p50_ns = taken[taken.len / 2],
-        .p99_ns = taken[(taken.len * 99) / 100],
+        .p50_ns = percentile.of(u64, taken, 0.50),
+        .p99_ns = percentile.of(u64, taken, 0.99),
     };
 }
 
@@ -265,12 +254,6 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("dispatch_scaling report written to zig-out/bench-reports/dispatch-scaling.md\n", .{});
 }
 
-fn appendFmt(b: *std.ArrayList(u8), gpa: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
-    const s = try std.fmt.allocPrint(gpa, fmt, args);
-    defer gpa.free(s);
-    try b.appendSlice(gpa, s);
-}
-
 fn writeReport(gpa: std.mem.Allocator, io: std.Io, results: []const Measurement, overhead_ns: u64) !void {
     var b: std.ArrayList(u8) = .empty;
     defer b.deinit(gpa);
@@ -300,12 +283,12 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, results: []const Measurement,
         \\
     );
     for (results) |m| {
-        try appendFmt(&b, gpa, "| {d} | {d} | {d:.1} | {d} | {d} | {d:.1} | {d} | {d} |\n", .{
+        try b.print(gpa, "| {d} | {d} | {d:.1} | {d} | {d} | {d:.1} | {d} | {d} |\n", .{
             m.peers,             m.turns,            m.sequential.mean_ns, m.sequential.p50_ns,
             m.sequential.p99_ns, m.shuffled.mean_ns, m.shuffled.p50_ns,    m.shuffled.p99_ns,
         });
     }
-    try appendFmt(&b, gpa,
+    try b.print(gpa,
         \\
         \\Timer-read overhead per percentile sample: about {d} ns. Mode: {s}.
         \\

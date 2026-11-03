@@ -17,6 +17,7 @@ const codec = glowcap.ocapn.codec;
 const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const foundation = glowcap.foundation;
+const driveOneTurn = @import("warm_turn").driveOneTurn;
 
 /// A representative outbound call: a method invocation on an imported object
 /// carrying a small mixed-type argument list and an answer position. This is the
@@ -159,31 +160,20 @@ fn benchDecodeInto(
 /// Steady-state inbound dispatch: feed a borrowed `op:deliver` to a live export
 /// and drain the surfaced event. Complements `test/engine/alloc_budget_test.zig`.
 fn benchDispatch(io: std.Io, allocator: std.mem.Allocator, turns: usize) !void {
-    // No-answer (`#f` answer) deliver: driven repeatedly to one peer below, so a
-    // live-answer position would be refused on the second apply.
-    const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
     try peer.exportObject(7);
 
-    for (0..8) |_| try driveOneTurn(&peer, deliver_to_live_export);
+    for (0..8) |_| try driveOneTurn(&peer);
 
     const start = clock.nowNs(io);
-    for (0..turns) |_| try driveOneTurn(&peer, deliver_to_live_export);
+    for (0..turns) |_| try driveOneTurn(&peer);
     const ns_per = sinceNs(io, start) / @as(f64, @floatFromInt(turns));
 
     std.debug.print(
         "dispatch turns={d} ns_per_turn={d:.1} turns_per_sec={d:.0}\n",
         .{ turns, ns_per, 1_000_000_000.0 / ns_per },
     );
-}
-
-fn driveOneTurn(peer: *engine.Peer, frame_bytes: []const u8) !void {
-    try peer.recvBorrowed(.{ .bytes = frame_bytes, .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
-    }
 }
 
 /// Populate the import table with `count` *sparse* positions (stride well above

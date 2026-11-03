@@ -221,6 +221,11 @@ pub fn register(ctx: Context) Registered {
     const clock_path = b.path("bench/support/clock.zig");
     langs_orchestrator.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = ctx.optimize }));
     langs_zig_client_exe.root_module.addImport("clock", b.createModule(.{ .root_source_file = clock_path, .target = ctx.target, .optimize = .ReleaseFast }));
+    // The nearest-rank percentile both ends report latencies through.
+    const percentile_path = b.path("bench/support/percentile.zig");
+    langs_orchestrator.root_module.addImport("percentile", b.createModule(.{ .root_source_file = percentile_path, .target = ctx.target, .optimize = ctx.optimize }));
+    langs_zig_client_exe.root_module.addImport("percentile", b.createModule(.{ .root_source_file = percentile_path, .target = ctx.target, .optimize = .ReleaseFast }));
+    langs_orchestrator.root_module.addImport("rss", b.createModule(.{ .root_source_file = b.path("bench/support/rss.zig"), .target = ctx.target, .optimize = ctx.optimize }));
     const run_bench_langs = execution.addLiveRun(b, .benchmark, langs_orchestrator);
     // The Deno, Python, and Rust rows link the installed C ABI archives, so the
     // run needs the install step the way the binding suites do.

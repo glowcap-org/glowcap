@@ -167,7 +167,9 @@ pub fn funSig(comptime M: type, comptime row: anytype, comptime specials: []cons
     return s ++ "-> " ++ comptime rktReturnType(info.return_type.?) ++ ")";
 }
 
-fn writeRacketized(gpa: std.mem.Allocator, out: *std.ArrayList(u8), name: []const u8) !void {
+/// `LIST_PUBLICATIONS` as `LIST-PUBLICATIONS`: the Racket spelling of a C or
+/// protocol name.
+pub fn writeRacketized(gpa: std.mem.Allocator, out: *std.ArrayList(u8), name: []const u8) !void {
     for (name) |ch| try out.append(gpa, if (ch == '_') '-' else ch);
 }
 

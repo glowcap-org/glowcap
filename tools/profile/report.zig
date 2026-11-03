@@ -83,12 +83,12 @@ fn ranked(gpa: std.mem.Allocator, map: *const std.StringHashMapUnmanaged(u64)) !
 }
 
 fn render(gpa: std.mem.Allocator, out: *std.ArrayList(u8), name: []const u8, parts: []const Part) !void {
-    try print(gpa, out, "# {s} profile\n\nEach marked phase is one callgrind part. Ir is the instructions the phase executed, which a run of the same build repeats exactly. Self cost is ranked because inclusive cost follows inlining.\n\n| Part | Phase | Ir |\n| ---: | --- | ---: |\n", .{name});
-    for (parts) |part| try print(gpa, out, "| {d} | {s} | {f} |\n", .{ part.number, part.trigger, grouped(part.total) });
+    try out.print(gpa, "# {s} profile\n\nEach marked phase is one callgrind part. Ir is the instructions the phase executed, which a run of the same build repeats exactly. Self cost is ranked because inclusive cost follows inlining.\n\n| Part | Phase | Ir |\n| ---: | --- | ---: |\n", .{name});
+    for (parts) |part| try out.print(gpa, "| {d} | {s} | {f} |\n", .{ part.number, part.trigger, grouped(part.total) });
     for (parts) |*part| {
-        try print(gpa, out, "\n## {s} (part {d})\n\nSelf cost by file:\n\n| Ir | Share | File |\n| ---: | ---: | --- |\n", .{ part.trigger, part.number });
+        try out.print(gpa, "\n## {s} (part {d})\n\nSelf cost by file:\n\n| Ir | Share | File |\n| ---: | ---: | --- |\n", .{ part.trigger, part.number });
         try ranking(gpa, out, &part.files, part.total, top_files);
-        try print(gpa, out, "\nSelf cost by function:\n\n| Ir | Share | Function |\n| ---: | ---: | --- |\n", .{});
+        try out.print(gpa, "\nSelf cost by function:\n\n| Ir | Share | Function |\n| ---: | ---: | --- |\n", .{});
         const functions = try ranked(gpa, &part.functions);
         defer gpa.free(functions);
         for (functions[0..@min(functions.len, top_functions)]) |entry| try row(gpa, out, entry, part.total);
@@ -105,14 +105,14 @@ fn leafCallers(gpa: std.mem.Allocator, out: *std.ArrayList(u8), part: *const Par
         if (!part.isLeaf(leaf.name)) continue;
         const sites = part.call_sites.getPtr(leaf.name) orelse continue;
         shown += 1;
-        try print(gpa, out, "\nCallers of `{s}`:\n\n| Ir | Calls | Caller |\n| ---: | ---: | --- |\n", .{leaf.name});
+        try out.print(gpa, "\nCallers of `{s}`:\n\n| Ir | Calls | Caller |\n| ---: | ---: | --- |\n", .{leaf.name});
         var entries: std.ArrayList(Entry) = .empty;
         defer entries.deinit(gpa);
         var items = sites.iterator();
         while (items.next()) |item| try entries.append(gpa, .{ .name = item.key_ptr.*, .cost = item.value_ptr.cost });
         std.mem.sort(Entry, entries.items, {}, Entry.costlier);
         for (entries.items[0..@min(entries.items.len, top_callers)]) |entry| {
-            try print(gpa, out, "| {f} | {f} | {s} |\n", .{ grouped(entry.cost), grouped(sites.get(entry.name).?.calls), entry.name });
+            try out.print(gpa, "| {f} | {f} | {s} |\n", .{ grouped(entry.cost), grouped(sites.get(entry.name).?.calls), entry.name });
         }
     }
 }
@@ -125,13 +125,7 @@ fn ranking(gpa: std.mem.Allocator, out: *std.ArrayList(u8), map: *const std.Stri
 
 fn row(gpa: std.mem.Allocator, out: *std.ArrayList(u8), entry: Entry, total: u64) !void {
     const share = @as(f64, @floatFromInt(entry.cost)) * 100 / @as(f64, @floatFromInt(@max(total, 1)));
-    try print(gpa, out, "| {f} | {d:.1}% | {s} |\n", .{ grouped(entry.cost), share, entry.name });
-}
-
-fn print(gpa: std.mem.Allocator, out: *std.ArrayList(u8), comptime fmt: []const u8, args: anytype) !void {
-    const text = try std.fmt.allocPrint(gpa, fmt, args);
-    defer gpa.free(text);
-    try out.appendSlice(gpa, text);
+    try out.print(gpa, "| {f} | {d:.1}% | {s} |\n", .{ grouped(entry.cost), share, entry.name });
 }
 
 const Grouped = struct {

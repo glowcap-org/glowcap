@@ -69,12 +69,6 @@ comptime {
     if (arms[7].value != cd.GLOWCAP_HOST_ACTION_CANCEL_DIAL) @compileError("arms CANCEL_DIAL value drift");
 }
 
-pub fn writeUpperKebab(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const u8) !void {
-    for (name) |c| {
-        try out.append(gpa, if (c == '_') '-' else c);
-    }
-}
-
 pub fn tline(out: *std.ArrayList(u8), gpa: std.mem.Allocator, indent: usize, text: []const u8) !void {
     var i: usize = 0;
     while (i < indent) : (i += 1) try out.append(gpa, '\t');

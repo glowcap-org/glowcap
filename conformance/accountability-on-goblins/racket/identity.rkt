@@ -9,8 +9,8 @@
 ;; per spec.
 ;;
 ;; Conformance is verified externally by the keripy oracle at
-;; reference/tests/keri-conformance/oracle/verify.py, driven via
-;; reference/tests/keri-conformance/run.sh.
+;; conformance/keri-conformance/oracle/verify.py, driven via
+;; conformance/keri-conformance/run.sh.
 
 (require racket/string
          racket/file

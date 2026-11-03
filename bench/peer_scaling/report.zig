@@ -33,12 +33,6 @@ pub fn writeReport(gpa: std.mem.Allocator, io: std.Io, results: []const Measurem
     try dir.writeFile(io, .{ .sub_path = "zig-out/bench-reports/peer-scaling.md", .data = md });
 }
 
-fn appendFmt(b: *std.ArrayList(u8), gpa: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
-    const s = try std.fmt.allocPrint(gpa, fmt, args);
-    defer gpa.free(s);
-    try b.appendSlice(gpa, s);
-}
-
 fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
     var b: std.ArrayList(u8) = .empty;
     errdefer b.deinit(gpa);
@@ -66,7 +60,7 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\
     );
 
-    try appendFmt(&b, gpa, "`Peer` struct (inline, includes session table headers): **{d} bytes**\n\n", .{@sizeOf(engine.Peer)});
+    try b.print(gpa, "`Peer` struct (inline, includes session table headers): **{d} bytes**\n\n", .{@sizeOf(engine.Peer)});
 
     try b.appendSlice(gpa,
         \\## Results
@@ -82,7 +76,7 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         const fit16 = (16.0 * 1024.0 * 1024.0 * 1024.0) / per;
         const fit32 = (32.0 * 1024.0 * 1024.0 * 1024.0) / per;
         const fit64 = (64.0 * 1024.0 * 1024.0 * 1024.0) / per;
-        try appendFmt(&b, gpa, "| {s} | {d} | {d:.0} | {d:.0} | {d:.3} | {d:.2}M | {d:.2}M | {d:.2}M |\n", .{
+        try b.print(gpa, "| {s} | {d} | {d:.0} | {d:.0} | {d:.3} | {d:.2}M | {d:.2}M | {d:.2}M |\n", .{
             scenarioLabel(m.scenario), m.sample,            m.heap_per_peer,     per, at500k,
             fit16 / 1_000_000.0,       fit32 / 1_000_000.0, fit64 / 1_000_000.0,
         });
@@ -180,7 +174,7 @@ fn renderSvg(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
 
     const colors = [_][]const u8{ "#2563eb", "#16a34a", "#dc2626", "#9333ea" };
 
-    try appendFmt(&b, gpa,
+    try b.print(gpa,
         \\<svg xmlns="http://www.w3.org/2000/svg" width="{d:.0}" height="{d:.0}" font-family="sans-serif" font-size="13">
         \\<rect width="{d:.0}" height="{d:.0}" fill="white"/>
         \\<text x="{d:.0}" y="26" font-size="16" font-weight="bold">glowcap: per-connection memory to 500k (protocol core only)</text>
@@ -188,7 +182,7 @@ fn renderSvg(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
     , .{ svg_w, svg_h, svg_w, svg_h, plot_l });
 
     // Axes.
-    try appendFmt(&b, gpa,
+    try b.print(gpa,
         \\<line x1="{d:.1}" y1="{d:.1}" x2="{d:.1}" y2="{d:.1}" stroke="#333" stroke-width="1.5"/>
         \\<line x1="{d:.1}" y1="{d:.1}" x2="{d:.1}" y2="{d:.1}" stroke="#333" stroke-width="1.5"/>
         \\
@@ -199,7 +193,7 @@ fn renderSvg(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
     while (g <= 4) : (g += 1) {
         const val = y_max * @as(f64, @floatFromInt(g)) / 4.0;
         const y = yCoord(val, y_max);
-        try appendFmt(&b, gpa,
+        try b.print(gpa,
             \\<line x1="{d:.1}" y1="{d:.1}" x2="{d:.1}" y2="{d:.1}" stroke="#eee"/>
             \\<text x="{d:.1}" y="{d:.1}" text-anchor="end" fill="#555">{d:.2} GiB</text>
             \\
@@ -211,19 +205,19 @@ fn renderSvg(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
     while (x <= 6) : (x += 1) {
         const conns = @as(f64, @floatFromInt(x)) * 100_000.0;
         const px = xCoord(conns);
-        try appendFmt(&b, gpa,
+        try b.print(gpa,
             \\<text x="{d:.1}" y="{d:.1}" text-anchor="middle" fill="#555">{d:.0}k</text>
             \\
         , .{ px, plot_b + 18, conns / 1000.0 });
     }
-    try appendFmt(&b, gpa,
+    try b.print(gpa,
         \\<text x="{d:.1}" y="{d:.1}" text-anchor="middle" fill="#333">connections</text>
         \\
     , .{ (plot_l + plot_r) / 2.0, plot_b + 38 });
 
     // 500k marker.
     const x500 = xCoord(@floatFromInt(target_connections));
-    try appendFmt(&b, gpa,
+    try b.print(gpa,
         \\<line x1="{d:.1}" y1="{d:.1}" x2="{d:.1}" y2="{d:.1}" stroke="#999" stroke-width="1" stroke-dasharray="4 3"/>
         \\<text x="{d:.1}" y="{d:.1}" text-anchor="middle" fill="#666">500k</text>
         \\
@@ -235,20 +229,20 @@ fn renderSvg(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         const color = colors[idx % colors.len];
         const y0 = yCoord(0, y_max);
         const yEnd = yCoord(gib(m.bytes_per_conn * x_max), y_max);
-        try appendFmt(&b, gpa,
+        try b.print(gpa,
             \\<line x1="{d:.1}" y1="{d:.1}" x2="{d:.1}" y2="{d:.1}" stroke="{s}" stroke-width="2.5"/>
             \\
         , .{ xCoord(0), y0, xCoord(x_max), yEnd, color });
 
         const y500 = yCoord(gib(m.bytes_per_conn * @as(f64, @floatFromInt(target_connections))), y_max);
-        try appendFmt(&b, gpa,
+        try b.print(gpa,
             \\<circle cx="{d:.1}" cy="{d:.1}" r="3.5" fill="{s}"/>
             \\
         , .{ x500, y500, color });
 
         // Legend entry.
         const ly = plot_t + 6 + @as(f64, @floatFromInt(idx)) * 22.0;
-        try appendFmt(&b, gpa,
+        try b.print(gpa,
             \\<rect x="{d:.1}" y="{d:.1}" width="14" height="14" fill="{s}"/>
             \\<text x="{d:.1}" y="{d:.1}" fill="#222">{s}, {d:.2} GiB @ 500k</text>
             \\

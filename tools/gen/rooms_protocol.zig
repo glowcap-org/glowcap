@@ -583,11 +583,6 @@ pub fn writeSnake(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const
     }
 }
 
-/// `LIST_PUBLICATIONS` as `LIST-PUBLICATIONS`.
-pub fn writeKebab(out: *std.ArrayList(u8), gpa: std.mem.Allocator, stem: []const u8) !void {
-    for (stem) |ch| try out.append(gpa, if (ch == '_') '-' else ch);
-}
-
 /// The verbs on one target, for the tables that list a target's verbs.
 pub fn verbsOn(comptime target: Verb.Target) []const Verb {
     // A container constant, one per target, so the slice returned outlives

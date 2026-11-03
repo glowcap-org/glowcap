@@ -20,6 +20,7 @@ const model = @import("model");
 const binding_policy = @import("binding_policy");
 
 const Output = @import("output").Output;
+const render = @import("racket_ffi_render.zig");
 
 pub const step_name = "gen-binding-constants";
 
@@ -298,10 +299,6 @@ const constants = [_]Const{
     con("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", binding_policy.websocket_inbound_high_water_bytes, .usize, null),
 };
 
-fn writeKebab(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const u8) !void {
-    for (name) |ch| try out.append(gpa, if (ch == '_') '-' else ch);
-}
-
 fn isReturnCode(k: Const) bool {
     return std.mem.eql(u8, k.stem, "OK") or
         std.mem.eql(u8, k.stem, "WOULD_BLOCK") or
@@ -410,7 +407,7 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         if (k.rkt) |name| {
             try out.appendSlice(gpa, name);
         } else {
-            try writeKebab(&out, gpa, k.stem);
+            try render.writeRacketized(gpa, &out, k.stem);
         }
         try out.append(gpa, '\n');
     }
@@ -423,16 +420,16 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, ")\n\n");
     for (constants) |k| {
         try out.appendSlice(gpa, "(define ");
-        if (k.rkt) |name| try out.appendSlice(gpa, name) else try writeKebab(&out, gpa, k.stem);
+        if (k.rkt) |name| try out.appendSlice(gpa, name) else try render.writeRacketized(gpa, &out, k.stem);
         try out.print(gpa, " {d})\n", .{k.value});
     }
     try out.appendSlice(gpa, "(define ABI-RETURN-CODES\n  (list\n");
     for (constants) |k| {
         if (!isReturnCode(k)) continue;
         try out.appendSlice(gpa, "   (cons '");
-        if (k.rkt) |name| try out.appendSlice(gpa, name) else try writeKebab(&out, gpa, k.stem);
+        if (k.rkt) |name| try out.appendSlice(gpa, name) else try render.writeRacketized(gpa, &out, k.stem);
         try out.appendSlice(gpa, " ");
-        if (k.rkt) |name| try out.appendSlice(gpa, name) else try writeKebab(&out, gpa, k.stem);
+        if (k.rkt) |name| try out.appendSlice(gpa, name) else try render.writeRacketized(gpa, &out, k.stem);
         try out.appendSlice(gpa, ")\n");
     }
     try out.appendSlice(gpa, "  ))\n");

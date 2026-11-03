@@ -364,12 +364,15 @@ pub fn register(ctx: Context) Registered {
             .{ .name = "c_abi_driver", .module = ctx.driver_abi_mod },
         };
 
+        const driver_provider_mod = modules.interopDriverProviderModule(b, target, optimize, ctx.c_abi_shared_mod, ctx.driver_abi_mod);
+
         const seam_compile_mod = b.createModule(.{
             .root_source_file = b.path(seam_source),
             .target = target,
             .optimize = optimize,
         });
         for (seam_imports) |imp| seam_compile_mod.addImport(imp.name, imp.module);
+        seam_compile_mod.addImport("interop_driver_provider", driver_provider_mod);
         seam_compile_mod.addImport("c_abi_net_transport_webrtc", abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod));
         const seam_compile = b.addObject(.{ .name = "glowcap-webrtc-driver-provider-compile", .root_module = seam_compile_mod });
         check_step.dependOn(&seam_compile.step);
@@ -380,6 +383,7 @@ pub fn register(ctx: Context) Registered {
             .optimize = optimize,
         });
         for (seam_imports) |imp| seam_run_mod.addImport(imp.name, imp.module);
+        seam_run_mod.addImport("interop_driver_provider", driver_provider_mod);
         seam_run_mod.addImport("c_abi_net_transport_webrtc", abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod));
         linkSidecar(b, seam_run_mod, target, sidecar_archive);
         const seam_exe = b.addExecutable(.{ .name = "glowcap-webrtc-driver-provider", .root_module = seam_run_mod });

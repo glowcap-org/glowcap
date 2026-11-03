@@ -1,5 +1,6 @@
 //! Shared latency samples and report rendering for the Loam workloads.
 const std = @import("std");
+const percentile = @import("../support/percentile.zig");
 
 pub const Samples = struct {
     values: [4096]u64 = undefined,
@@ -9,8 +10,9 @@ pub const Samples = struct {
         self.count += 1;
     }
     pub fn summarize(self: *Samples) Distribution {
-        std.mem.sort(u64, self.values[0..self.count], {}, std.sort.asc(u64));
-        return .{ .p50_ns = self.values[self.count / 2], .p95_ns = self.values[@min(self.count - 1, self.count * 95 / 100)], .p99_ns = self.values[@min(self.count - 1, self.count * 99 / 100)] };
+        const sorted = self.values[0..self.count];
+        std.mem.sort(u64, sorted, {}, std.sort.asc(u64));
+        return .{ .p50_ns = percentile.of(u64, sorted, 0.50), .p95_ns = percentile.of(u64, sorted, 0.95), .p99_ns = percentile.of(u64, sorted, 0.99) };
     }
 };
 pub const Distribution = struct { p50_ns: u64, p95_ns: u64, p99_ns: u64 };

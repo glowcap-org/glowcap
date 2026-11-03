@@ -34,6 +34,8 @@ const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const driver = glowcap.driver;
 const model = glowcap.ocapn.model;
+const LiveBytesAllocator = @import("alloc_metrics").LiveBytesAllocator;
+const driveOneTurn = @import("warm_turn").driveOneTurn;
 
 /// A trivial published capability, so the `served` scenario's vat holds one live
 /// actor cell, the per-connection state a loop-driven host (ADR-0019) carries
@@ -48,13 +50,6 @@ const BenchGreeter = struct {
 };
 
 pub const target_connections: u64 = 500_000;
-
-/// One inbound no-answer (`#f` answer position) `op:deliver` to live local
-/// export 7, the steady-state turn the alloc-budget test pins. Driving it once
-/// grows a peer's event-queue and table backing arrays to their warmed size, so
-/// the measured footprint reflects a connection that has carried
-/// traffic rather than a bare `init`.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 pub const Scenario = enum {
     /// Freshly constructed peer: a connection accepted but not yet active. status-allow: pending state or quoted runtime label
@@ -80,6 +75,10 @@ fn scenarioHoldsVat(s: Scenario) bool {
     return s == .served;
 }
 
+/// Register the scenario's exports and drive one warm turn, which grows a peer's
+/// event-queue and table backing arrays to their warmed size, so the measured
+/// footprint reflects a connection that has carried traffic rather than a bare
+/// `init`.
 fn warmPeer(peer: *engine.Peer, scenario: Scenario) !void {
     switch (scenario) {
         .idle => {},
@@ -93,14 +92,6 @@ fn warmPeer(peer: *engine.Peer, scenario: Scenario) !void {
             // Export 7 is among the sixteen, so the fixed deliver lands on a live target.
             try driveOneTurn(peer);
         },
-    }
-}
-
-fn driveOneTurn(peer: *engine.Peer) !void {
-    try peer.recvBorrowed(.{ .bytes = deliver_to_live_export, .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
     }
 }
 

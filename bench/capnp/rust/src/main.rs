@@ -64,8 +64,9 @@ const EXPECTED_SUM: i64 = 22_364_704;
 
 fn print_line(call: &str, samples: &mut [u128], calls: usize, warmup: usize, pinned: bool) {
 	samples.sort_unstable();
-	let p50 = samples[samples.len() / 2];
-	let p99 = samples[samples.len() * 99 / 100];
+	// Nearest rank, as bench/support/percentile.zig: index ceil(p * len) - 1.
+	let p50 = samples[(samples.len() * 50).div_ceil(100) - 1];
+	let p99 = samples[(samples.len() * 99).div_ceil(100) - 1];
 	let total: u128 = samples.iter().sum();
 	let mean = total / samples.len() as u128;
 	let rps = 1_000_000_000u128 * samples.len() as u128 / total;

@@ -2,6 +2,7 @@
 //! Each case reports time separately from allocation traffic. The instrumented
 //! pass refuses in-place growth so allocator luck cannot hide output copies.
 const std = @import("std");
+const nowNs = @import("support/clock.zig").nowNs;
 const model = @import("glowcap").ocapn.model;
 
 const Operation = enum { peer, baseline_sturdyref, next_sturdyref };
@@ -18,14 +19,14 @@ fn render(allocator: std.mem.Allocator, operation: Operation, locator: model.Pee
 fn measure(io: std.Io, operation: Operation, locator: model.PeerLocator) !void {
     const allocator = std.heap.smp_allocator;
     var checksum: usize = 0;
-    const start = std.Io.Clock.awake.now(io);
+    const start = nowNs(io);
     for (0..turns) |_| {
         const bytes = try render(allocator, operation, locator);
         checksum +%= bytes.len;
         std.mem.doNotOptimizeAway(bytes);
         allocator.free(bytes);
     }
-    const elapsed = std.Io.Clock.awake.now(io).nanoseconds - start.nanoseconds;
+    const elapsed = nowNs(io) - start;
     var traffic = std.testing.FailingAllocator.init(allocator, .{ .resize_fail_index = 0 });
     for (0..turns) |_| {
         const bytes = try render(traffic.allocator(), operation, locator);

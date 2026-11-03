@@ -36,17 +36,6 @@ const gifter_seed: [32]u8 = @splat(0x26);
 
 const Widget = harness.StaticReplyBehavior("poke", poked);
 
-const Introducer = struct {
-    widget: driver.Capability,
-
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
-        defer ht.releaseArguments(args);
-        const verb = selector orelse return error.NoSuchMethod;
-        if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
-        return .{ .capability = self.widget };
-    }
-};
-
 /// One party's iroh endpoint and the resident its runtime polls.
 const Endpoint = struct {
     endpoint: iroh.Resident,
@@ -83,42 +72,6 @@ const Endpoint = struct {
     }
 };
 
-/// Accept and serve every session `server` receives until `done`.
-fn serveAll(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
-    var sessions: [4]*driver.Session = undefined;
-    var accepted: usize = 0;
-    defer for (sessions[0..accepted]) |session| session.deinit();
-    while (!done.load(.acquire)) {
-        if (accepted < sessions.len and try server.waitAcceptable(0)) {
-            sessions[accepted] = try server.accept();
-            accepted += 1;
-            // An accepted session dispatches nothing until its owner attends.
-            try sessions[accepted - 1].attend();
-            continue;
-        }
-        _ = try server.runtime.stepAny(10);
-    }
-}
-
-/// G: fetch E's widget over G's own runtime, publish the introducer, serve.
-fn serveGifter(
-    gifter: *driver.Server,
-    exporter_locator: model.PeerLocator,
-    ready: *std.atomic.Value(bool),
-    published: *std.atomic.Value(bool),
-    done: *std.atomic.Value(bool),
-) anyerror!void {
-    defer ready.store(true, .release);
-    const to_exporter = try gifter.runtime.connectLocator(exporter_locator, .inherit);
-    const exporter = try driver.Session.adopt(gifter.runtime, to_exporter);
-    defer exporter.deinit();
-    const widget = try exporter.fetch("widget");
-    try gifter.publish("introducer", Introducer, .{ .widget = widget });
-    published.store(true, .release);
-    ready.store(true, .release);
-    try serveAll(gifter, done);
-}
-
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -146,8 +99,8 @@ pub fn main(init: std.process.Init) !void {
     var done = std.atomic.Value(bool).init(false);
     var gifter_ready = std.atomic.Value(bool).init(false);
     var gifter_published = std.atomic.Value(bool).init(false);
-    var exporter_future = try io.concurrent(serveAll, .{ exporter, &done });
-    var gifter_future = try io.concurrent(serveGifter, .{ gifter, exporter_endpoint.locator(), &gifter_ready, &gifter_published, &done });
+    var exporter_future = try io.concurrent(harness.serveAll, .{ exporter, &done });
+    var gifter_future = try io.concurrent(harness.serveGifter, .{ gifter, exporter_endpoint.locator(), &gifter_ready, &gifter_published, &done });
     var joined = false;
     defer if (!joined) {
         done.store(true, .release);

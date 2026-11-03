@@ -5,7 +5,7 @@
 ;; Episode's signature chain end-to-end, and prints a human-readable trace
 ;; in the form: "<aid> invoked <affordance> at <valid-time> under <policy-grant>".
 ;;
-;; Drive externally via reference/tests/episode-audit/run.sh, which sets
+;; Drive externally via conformance/episode-audit/run.sh, which sets
 ;; GOBLINS_DATA_DIR to the sibling accountability-on-goblins/.data/ tree
 ;; the kernel populated, then invokes `racket audit.rkt`.
 
