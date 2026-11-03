@@ -30,7 +30,7 @@ pub fn translate(a: std.mem.Allocator, source: []const u8, diagnostic: *Diagnost
 }
 
 const Entry = struct { key: []const u8, value: []const u8 };
-const Token = struct { kind: enum { word, string, number, punctuation, end }, text: []const u8, at: usize };
+const Token = struct { kind: enum { word, string, number, punctuation, end }, text: []const u8 };
 const Parser = struct {
     a: std.mem.Allocator,
     source: []const u8,
@@ -71,7 +71,7 @@ const Parser = struct {
         self.start = self.at;
         if (self.remaining == 0) return error.ResourceLimit;
         self.remaining -= 1;
-        if (self.at == self.source.len) return .{ .kind = .end, .text = "", .at = self.at };
+        if (self.at == self.source.len) return .{ .kind = .end, .text = "" };
         const c = self.source[self.at];
         self.at += 1;
         if (c == '"') {
@@ -84,7 +84,7 @@ const Parser = struct {
                         error.OutOfMemory => return error.OutOfMemory,
                         else => return self.fail("invalid quoted wire name"),
                     };
-                    return .{ .kind = .string, .text = parsed.value, .at = self.start };
+                    return .{ .kind = .string, .text = parsed.value };
                 }
                 escaped = byte == '\\' and !escaped;
             }
@@ -98,7 +98,7 @@ const Parser = struct {
                 if (if (is_word) std.ascii.isAlphanumeric(byte) or byte == '_' or byte == '.' else std.ascii.isDigit(byte) or byte == '_') self.at += 1 else break;
             }
         } else if (c == '-' and self.at < self.source.len and self.source[self.at] == '>') self.at += 1;
-        return .{ .kind = if (is_word) .word else if (number) .number else .punctuation, .text = self.source[self.start..self.at], .at = self.start };
+        return .{ .kind = if (is_word) .word else if (number) .number else .punctuation, .text = self.source[self.start..self.at] };
     }
 
     fn peek(self: *Parser) Error!Token {

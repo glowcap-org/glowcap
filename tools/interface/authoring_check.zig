@@ -25,6 +25,7 @@ pub fn main(init: std.process.Init) !void {
     const receiver = args.next() orelse return error.InvalidArguments;
     const selector_arg = args.next() orelse return error.InvalidArguments;
     const api = args.next() orelse return error.InvalidArguments;
+    try identifier(api);
     const output = args.next() orelse return error.InvalidArguments;
     if (args.next() != null) return error.InvalidArguments;
     const selector: ?[]const u8 = if (std.mem.eql(u8, selector_arg, "--direct")) null else selector_arg;
@@ -36,4 +37,19 @@ pub fn main(init: std.process.Init) !void {
         return error.InvalidArguments;
     };
     try cwd.writeFile(init.io, .{ .sub_path = output, .data = generated });
+}
+
+// Dynamic names enter source declarations only through this comparison command.
+// Accept the shared ASCII identifier subset and refuse either target's keywords.
+fn identifier(name: []const u8) error{InvalidIdentifier}!void {
+    if (name.len == 0 or std.mem.eql(u8, name, "_")) return error.InvalidIdentifier;
+    for (name, 0..) |c, i| {
+        if (!(std.ascii.isAlphabetic(c) or c == '_' or (i != 0 and std.ascii.isDigit(c)))) return error.InvalidIdentifier;
+    }
+    var keywords = std.mem.tokenizeScalar(
+        u8,
+        "abstract as async await become bool box break case catch char class const continue crate debugger default defer delete do double dyn else enum export extends extern false final finally float fn for function gen goto if impl implements import in instanceof int interface let long loop macro macro_rules match mod move mut namespace native new null override package priv private protected pub public ref return safe self Self short sizeof static struct super switch synchronized this throw throws trait transient true try type typeof union unsafe unsized use var virtual void volatile where while with yield",
+        ' ',
+    );
+    while (keywords.next()) |keyword| if (std.mem.eql(u8, name, keyword)) return error.InvalidIdentifier;
 }

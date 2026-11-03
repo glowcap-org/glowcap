@@ -238,6 +238,9 @@ pub fn register(ctx: Context) void {
     const authoring_exe = b.addExecutable(.{ .name = "interface-authoring", .root_module = authoring_module });
     const authoring_install = b.addInstallArtifact(authoring_exe, .{});
     interface_test.dependOn(&authoring_install.step);
+    const authoring_cli_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/authoring/check_cli.py" });
+    authoring_cli_check.addArtifactArg(authoring_exe);
+    interface_test.dependOn(&authoring_cli_check.step);
 
     const interface_fixtures = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/check_fixtures.py" });
     const interface_step = b.step("interface-fixtures-check", "Verify authored interface contract and message fixtures");
