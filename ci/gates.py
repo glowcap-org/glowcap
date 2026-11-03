@@ -80,7 +80,11 @@ def with_defaults(argv):
 def execute(argv, timeout):
     """Run one command under the deadline wrapper and return its status."""
     wrapper = ["python3", "tools/run-with-timeout.py", "--kill-after", "30s", "--heartbeat", "60s", timeout]
-    return subprocess.run(wrapper + argv, cwd=ROOT).returncode
+    # A Rust tool that panics under a gate (Deno, cargo, a sidecar) prints its
+    # backtrace only when asked, and a hosted runner is gone before anyone can
+    # ask again.
+    env = {**os.environ, "RUST_BACKTRACE": "1"}
+    return subprocess.run(wrapper + argv, cwd=ROOT, env=env).returncode
 
 
 class Run:
