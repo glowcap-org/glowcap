@@ -22,8 +22,9 @@ zig-out/evidence/<phase> for one phase, or attached to HEAD as a git note for
 a full run on a clean checkout. A green run whose record fails exits 70. A
 compile writes no record. A malformed call exits 2 with the usage.
 
-`fetch` makes three bounded attempts, pausing ZIG_FETCH_RETRY_DELAY seconds
-(default 5) between them, and stops at once on an interrupt or termination.
+`fetch` first compiles Zig's package/build tool with the build allowance.
+It then makes three bounded download attempts, pausing ZIG_FETCH_RETRY_DELAY
+seconds (default 5) between them, and stops on an interrupt or termination.
 """
 
 import argparse
@@ -187,6 +188,13 @@ def fetch():
     if not delay.isdigit():
         say("ZIG_FETCH_RETRY_DELAY must be whole seconds")
         return 2
+    # Zig 0.17 compiles maker on its first use. Help builds the same tool
+    # without fetching a package, so cold compilation cannot consume a download
+    # attempt's allowance and be killed again on every retry.
+    say("preparing Zig's package/build tool")
+    status = execute(["zig", "fetch", "--help"], deadline("build"))
+    if status != 0:
+        return status
     for attempt in range(1, FETCH_ATTEMPTS + 1):
         say(f"dependency acquisition attempt {attempt}/{FETCH_ATTEMPTS}")
         status = subprocess.run(

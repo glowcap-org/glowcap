@@ -167,6 +167,14 @@ From [`test/interface/rust/Cargo.toml`](../test/interface/rust/Cargo.toml):
 
 - **tokio**: The async runtime for the Rust interface proof.
 
+From [`tools/interface/authoring/capnp/Cargo.toml`](../tools/interface/authoring/capnp/Cargo.toml):
+
+- **capnp**: Reads the compiler's CodeGeneratorRequest through its schema types.
+
+From [`tools/interface/authoring/capnp/e2e/Cargo.toml`](../tools/interface/authoring/capnp/e2e/Cargo.toml):
+
+- **tokio**: Runs the one authored Reader call against the existing raw proof peer.
+
 From [`transports/iroh/Cargo.toml`](../transports/iroh/Cargo.toml):
 
 - **iroh**: QUIC connections with relay fallback behind the `iroh` transport.

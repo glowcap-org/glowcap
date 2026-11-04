@@ -352,6 +352,8 @@ pub fn registerChecks(
         "apps/rooms/clients/rust/Cargo.toml",
         "transports/Cargo.toml",
         "test/interface/rust/Cargo.toml",
+        "tools/interface/authoring/capnp/Cargo.toml",
+        "tools/interface/authoring/capnp/e2e/Cargo.toml",
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
     const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust and TypeScript formatting, the lint and type-check for every TypeScript scope, and mypy over the Python binding (needs cargo + deno + mypy)");
@@ -360,6 +362,7 @@ pub fn registerChecks(
     bindings_fmt_check_step.dependOn(rust_lint_step);
     rust_lint_step.dependOn(rooms_rust_lint);
     rust_lint_step.dependOn(&b.top_level_steps.get("interface-bench-lint").?.step);
+    rust_lint_step.dependOn(&b.top_level_steps.get("interface-authoring-lint").?.step);
     // `--all` because a virtual workspace manifest declares no bin or lib target
     // of its own: without it `cargo fmt` there reports "Failed to find targets"
     // and formats nothing, which is the quietest way for a whole workspace to
@@ -379,6 +382,7 @@ pub fn registerChecks(
         if (!std.mem.eql(u8, manifest, "apps/rooms/rust/Cargo.toml") and
             !std.mem.eql(u8, manifest, "bindings/rust/Cargo.toml") and
             !std.mem.eql(u8, manifest, "bench/interface/Cargo.toml") and
+            !std.mem.startsWith(u8, manifest, "tools/interface/authoring/capnp/") and
             !std.mem.eql(u8, manifest, "bindings/proofs/loam_browser/rust/Cargo.toml"))
         {
             const lint = addRootedSystemCommand(b, .build_tool, &.{

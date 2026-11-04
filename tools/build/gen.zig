@@ -191,6 +191,7 @@ pub const Context = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     check_step: *std.Build.Step,
+    runtime_gate: *execution.RuntimeGate,
     host_mods: []*std.Build.Module,
     host_abi_mod: *std.Build.Module,
     driver_abi_mod: *std.Build.Module,
@@ -241,6 +242,7 @@ pub fn register(ctx: Context) void {
     const authoring_cli_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/authoring/check_cli.py" });
     authoring_cli_check.addArtifactArg(authoring_exe);
     interface_test.dependOn(&authoring_cli_check.step);
+    @import("interface_authoring.zig").register(b, authoring_exe, interface_test, ctx.runtime_gate);
 
     const interface_fixtures = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/check_fixtures.py" });
     const interface_step = b.step("interface-fixtures-check", "Verify authored interface contract and message fixtures");
