@@ -222,7 +222,25 @@ try {
 	}
 	await say(first, "After managed process restart");
 	await bubble(second, "After managed process restart");
-	await proveSharedRoomAuthorityRotation(first);
+	await proveSharedRoomAuthorityRotation(first, async () => {
+		const status = await control("status", {});
+		console.error("ROOM-AUTHORITY-STATE", JSON.stringify(status));
+		const runtime = await openRoomsRuntime();
+		try {
+			const session = await dial(`127.0.0.1:${sessionPort}`, runtime);
+			const workspace = await session.enliven(link);
+			const inventory = await ask(session, workspace, "effect-inventory", [], "effect inventory did not answer");
+			if (typeof inventory !== "string") throw new Error("effect inventory was not text");
+			const effects: { operation: string; status: string; resumable: boolean }[] = JSON.parse(inventory);
+			const retained = await Promise.all(effects.slice(-8).map(async (effect) => ({
+				...effect,
+				intent: await ask(session, workspace, "effect-intent", [effect.operation], "effect intent did not answer"),
+			})));
+			return { status, effectCount: effects.length, lastRetainedEffects: retained };
+		} finally {
+			await runtime.close();
+		}
+	});
 	await namedRoomRow(first, "mirror-two").click();
 	// The host process has no browser cookie. Public ingress must refuse its
 	// upgrade, while the configured alias reaches the same registry internally.
