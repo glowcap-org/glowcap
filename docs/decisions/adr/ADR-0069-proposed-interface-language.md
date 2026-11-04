@@ -69,7 +69,31 @@ Loam owns receipts and transaction outcomes. Applications own authorization,
 effects, and recovery decisions. Extract runtime helpers only at those owners
 when actual generated consumers demonstrate the need.
 
-Copied-value checks occur before a typed handler consumes the value.
+Generated checks enforce the method's declared value shape before a typed
+handler consumes it. They trust guarantees already established by the runtime
+and binding. A valid wire value can still violate a method's contract, such as
+a string returned where a bounded integer was declared.
+
+Repeat a check only when it adds a constraint, crosses another trust boundary,
+or bounds work introduced by that layer. Trust a prior guarantee only while
+the value's representation and ownership preserve it. The binding owns
+conversion to valid host-language values. Generated code owns declared
+categories, tags, field counts, and bounds. It does not recheck a tagged
+value's backing array or walk opaque values to establish passability again.
+
+The client and server each check the contract at their own peer boundary.
+A server cannot rely on a caller having used a generated client. These checks
+protect typed consumers from malformed application data. Authorization remains
+an application decision, and a valid reply does not prove that its contents
+are true or that the sender behaved correctly.
+
+Resource checks bound the generated code's additional work. A limit on wire
+decoding does not necessarily bound a later schema traversal. Conversely,
+returning an opaque list without visiting its elements does not justify
+charging work for each element. For projections whose compiler rejects cycles
+and bounds schema depth, the schema already bounds decoder recursion.
+Supporting recursive projections would require revisiting that guarantee.
+
 References carry expectations, not certified behavior. Object and promise
 references can share an opaque representation, so generated views do not infer
 remote kind from a handle or perform inspection calls.
