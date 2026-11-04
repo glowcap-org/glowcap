@@ -121,7 +121,7 @@ pub const Projection = struct {
             try out.appendSlice(self.a, ";\n");
         };
         for (self.bounded.items) |kind| try bounds.reply(out, self.a, kind);
-        try out.print(self.a, "const MAX_REPLY_DEPTH: usize = {d};\nconst MAX_REPLY_WORK: usize = {d};\n", .{ graph.max_reply_depth, graph.max_reply_work });
+        try out.print(self.a, "const MAX_REPLY_WORK: usize = {d};\n", .{graph.max_reply_work});
         try out.appendSlice(self.a, @embedFile("templates/compound.rs"));
         for (self.graph.nodes.items, 0..) |node, i| {
             const kind = node.kind;
@@ -132,14 +132,19 @@ pub const Projection = struct {
             if (root) {
                 try out.print(self.a, "fn compound_{d}(value: Argument) -> Result<", .{i});
                 try self.typeName(out, kind);
-                try out.print(self.a, ", Error> {{\n\tcompound_{d}_at(\n\t\tvalue,\n\t\t&mut DecodeBudget {{\n\t\t\tremaining: MAX_REPLY_WORK,\n\t\t}},\n\t\t0,\n\t)\n}}\n", .{i});
+                try out.print(self.a, ", Error> {{\n\tcompound_{d}_at(\n\t\tvalue,\n\t\t&mut DecodeBudget {{\n\t\t\tremaining: MAX_REPLY_WORK,\n\t\t}},\n\t)\n}}\n", .{i});
             }
-            try out.print(self.a, "fn compound_{d}_at(value: Argument, budget: &mut DecodeBudget, depth: usize) -> Result<", .{i});
+            try out.print(self.a, "fn compound_{d}_at(value: Argument, budget: &mut DecodeBudget) -> Result<", .{i});
             try self.typeName(out, kind);
-            try out.appendSlice(self.a, ", Error> {\n\tbudget.step(depth)?;\n");
+            try out.appendSlice(self.a, ", Error> {\n\tbudget.step()?;\n");
             if (kind == .list) {
                 try out.appendSlice(self.a, "\tlet Argument::List(values) = value else {\n\t\treturn Err(Error::InvalidReply);\n\t};\n");
                 if (kind.list.max_items) |max| try out.print(self.a, "\tif values.len() as u128 > {d}u128 {{\n\t\treturn Err(Error::InvalidReply);\n\t}}\n", .{max});
+                // Opaque lists already have their projected Vec<Argument> layout.
+                if (kind.list.element == .value) {
+                    try out.appendSlice(self.a, "\tOk(values)\n}\n");
+                    continue;
+                }
                 // Typed lists cannot reuse Vec<Argument>'s layout. Reserve once,
                 // after schema/work checks, and move each owned child into it.
                 const work = try self.graph.minimumWork(kind.list.element);
@@ -172,10 +177,10 @@ pub const Projection = struct {
 
     fn child(self: *Projection, out: *std.ArrayList(u8), kind: calls.Type, value: []const u8) !void {
         if (try self.graph.index(kind)) |i| {
-            try out.print(self.a, "compound_{d}_at({s}, budget, depth + 1)", .{ i, value });
+            try out.print(self.a, "compound_{d}_at({s}, budget)", .{ i, value });
         } else {
             // value is opaque: charge one leaf without traversing its contents.
-            try out.appendSlice(self.a, "{\n\t\t\tbudget.step(depth + 1)?;\n\t\t\t");
+            try out.appendSlice(self.a, "{\n\t\t\tbudget.step()?;\n\t\t\t");
             if (kind == .value) try out.appendSlice(self.a, "Ok::<_, Error>") else try bounds.decoder(out, self.a, kind);
             try out.print(self.a, "({s})\n\t\t}}", .{value});
         }

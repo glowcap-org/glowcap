@@ -329,13 +329,15 @@ Different reference expectations need explicit application tags when the caller
 must distinguish them. `promise<string | integer>` checks its data union when
 observed rather than trying to classify a pending promise.
 
-Validation has three different responsibilities:
+The runtime and binding establish passability and the host-language value
+representation. Generated code adds the method's declared constraints, as
+specified in [validation ownership](../decisions/adr/ADR-0069-proposed-interface-language.md#scope-and-ownership).
 
 | Value received | What generated code can establish |
 | --- | --- |
-| Copied data | Shape, bounds, tags, and supported value representation |
-| Capability | Host admission, with an expected interface that is not remotely certified |
-| Promise | Host admission of a passable reference now, with fulfillment validation when observed |
+| Copied data | Declared shape, bounds, and tags over the binding's value representation |
+| Capability | A reference view with an expected interface that is not remotely certified |
+| Promise | A reference view now, with declared fulfillment checks when observed |
 
 No schema check calls an object to ask whether it implements an interface.
 Typed references do not prove behavior. A received promise is not awaited while

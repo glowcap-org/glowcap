@@ -16,6 +16,9 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+from check_bounds import check_bounds
+from check_packed import check_packed
+
 ROOT = Path(__file__).resolve().parents[3]
 PROOF = ROOT / "test/interface/rust"
 CASES = [
@@ -175,7 +178,7 @@ def main():
         #[test]
         fn element_work_precedes_child_decoding() {
             let value = Argument::List(vec![Argument::List(vec![Argument::Void; 3])]);
-            assert!(matches!(compound_0_at(value, &mut DecodeBudget { remaining: 4 }, 0), Err(Error::ResourceLimit)));
+            assert!(matches!(compound_0_at(value, &mut DecodeBudget { remaining: 4 }), Err(Error::ResourceLimit)));
         }
     }
 """
@@ -199,8 +202,7 @@ def main():
             let pointer = text.as_ptr();
             let result = compound_0(Argument::List(vec![Argument::Symbol(text)])).unwrap();
             assert_eq!(result[0].as_ptr(), pointer);
-            assert!(matches!(compound_0_at(Argument::List(vec![Argument::Symbol(String::from("x"))]), &mut DecodeBudget { remaining: 1 }, 0), Err(Error::ResourceLimit)));
-            assert!(matches!(compound_0_at(Argument::List(vec![]), &mut DecodeBudget { remaining: MAX_REPLY_WORK }, MAX_REPLY_DEPTH + 1), Err(Error::ResourceLimit)));
+            assert!(matches!(compound_0_at(Argument::List(vec![Argument::Symbol(String::from("x"))]), &mut DecodeBudget { remaining: 1 }), Err(Error::ResourceLimit)));
         }
     }
 """
@@ -238,7 +240,7 @@ def main():
             let pointer = cursor.as_ptr();
             let opaque = Argument::List(vec![Argument::Void; MAX_REPLY_WORK + 1]);
             let value = Argument::Tagged { tag: String::from("access:observation"), value: vec![Argument::Bytes(cursor), opaque, Argument::Boolean(false), Argument::Boolean(true), Argument::List(vec![])] };
-            let result = compound_0_at(value, &mut DecodeBudget { remaining: 6 }, 0).unwrap();
+            let result = compound_0_at(value, &mut DecodeBudget { remaining: 6 }).unwrap();
             assert_eq!(result.0.as_ptr(), pointer);
             assert_eq!(result.1.as_list().unwrap().len(), MAX_REPLY_WORK + 1);
         }
@@ -247,12 +249,53 @@ def main():
             + source[cut:]
         )
         observation.write_text(source)
+        opaque = directory / "compound_opaque.rs"
+        subprocess.run(
+            [
+                checker,
+                "syrup",
+                str(ROOT / "test/interface/scalar_bounds.syrup"),
+                "rust",
+                "bounds.Mixed",
+                "--named",
+                "values",
+                "invoke",
+                str(opaque),
+            ],
+            cwd=ROOT,
+            check=True,
+            timeout=30,
+        )
+        source = opaque.read_text()
+        cut = source.rfind("\n}")
+        source = (
+            source[:cut]
+            + r"""
+    #[cfg(test)]
+    mod opaque_list_tests {
+        use super::*;
+        #[test]
+        fn opaque_list_reuses_its_buffer_without_element_work() {
+            let values = vec![Argument::Void; MAX_REPLY_WORK + 1];
+            let pointer = values.as_ptr();
+            let mut budget = DecodeBudget { remaining: 1 };
+            let result = compound_0_at(Argument::List(values), &mut budget).unwrap();
+            assert_eq!(result.as_ptr(), pointer);
+            assert_eq!(result.len(), MAX_REPLY_WORK + 1);
+            assert_eq!(budget.remaining, 0);
+        }
+    }
+"""
+            + source[cut:]
+        )
+        opaque.write_text(source)
         (directory / "lib.rs").write_text(
             "#![deny(warnings)]\n"
             + "".join(f"pub mod {module};\n" for module, _, _ in IMPORTED + AUTHORED)
             + "".join(f"pub mod {case[0]};\n" for case in CASES + SCALARS)
             + "".join(
-                f"pub mod compound_{name};\n" for name in ("list", "limited", "tuple", "zero", "nested", "observation")
+                f"pub mod compound_{name};\n"
+                for name in ("list", "limited", "tuple", "zero", "nested", "observation", "opaque")
             )
             + f'#[path = "{ROOT}/test/interface/generated/names.rs"]\npub mod names;\n'
             + "pub use names::{text, capability, nothing, Session, Ref, call_0, __glowcap, __glowcap_1, text_1_4096, integer_p0_p256};\n"
@@ -343,11 +386,174 @@ def main():
                 timeout=30,
             )
             imports.append(f'import {{ invoke as {module} }} from "./{module}.ts";\nvoid {module};\n')
+        compound_ts = []
+        for selector in ("list", "limited", "tuple", "zero", "nested", "observation"):
+            output = directory / f"compound_{selector}.ts"
+            subprocess.run(
+                [
+                    checker,
+                    "syrup",
+                    str(
+                        ROOT
+                        / "test/interface"
+                        / ("contracts.syrup" if selector == "observation" else "compounds.syrup")
+                    ),
+                    "ts",
+                    "loam.Receiver" if selector == "observation" else "compound.Source",
+                    "--named",
+                    "poll" if selector == "observation" else selector,
+                    "invoke",
+                    str(output),
+                ],
+                cwd=ROOT,
+                check=True,
+                timeout=30,
+            )
+            imports.append(
+                f'import {{ invoke as compound_{selector} }} from "./compound_{selector}.ts";\nvoid compound_{selector};\n'
+            )
+            compound_ts.append(output)
+        primitive_source = directory / "primitive_compound.syrup"
+        primitive_source.write_text(
+            "<17'glowcap:interface1+{14\"glowcap.values1+}{1\"R<9'interface{1\"m<6'method[]"
+            "<5'tuple[9'undefined6'string4'bool5'bytes6'symbol7'float645'error5'value]>4'call>}>}>"
+        )
+        primitive_output = directory / "primitive_compound.ts"
+        subprocess.run(
+            [checker, "syrup", str(primitive_source), "ts", "R", "--named", "m", "invoke", str(primitive_output)],
+            cwd=ROOT,
+            check=True,
+            timeout=30,
+        )
+        primitive_output.write_text(
+            primitive_output.read_text()
+            + r"""
+const values: Argument[] = [null, "text", true, new Uint8Array(), new Sym("symbol"), 1.5, new Error("data"), [new Sym("opaque")]];
+if (compound_0(values) !== values) throw new Error("primitive tuple copied");
+for (const [field, wrong] of [[0, false], [1, new Sym("text")], [2, 1n], [3, []], [4, "symbol"], [5, 1n], [6, "data"]] satisfies [number, Argument][]) {
+    const malformed = values.slice();
+    malformed[field] = wrong;
+    let refused = false;
+    try { compound_0(malformed); }
+    catch (error) { refused = error instanceof TypeError; }
+    if (!refused) throw new Error("primitive field category accepted");
+}
+"""
+        )
+        compound_ts.append(primitive_output)
+        imports.append(
+            'import { invoke as primitive_compound } from "./primitive_compound.ts";\nvoid primitive_compound;\n'
+        )
+        # Exercise the actual private helpers with small budgets. These hooks
+        # exist only in scratch copies, never in production-generated exports.
+        (directory / "compound_list.ts").write_text(
+            (directory / "compound_list.ts").read_text()
+            + r"""
+const symbol = new Sym("same object");
+const values = [symbol];
+if (compound_0(values) !== values || compound_0(values)[0] !== symbol) throw new Error("list copied");
+for (const budget of [0, 1]) {
+    let refused = false;
+    try { compound_0_at(values, { remaining: budget }); }
+    catch (error) { refused = error instanceof ResourceLimit && !(error instanceof TypeError); }
+    if (!refused) throw new Error("decoder resource bound accepted");
+}
+let refused = false;
+try { compound_0(new Array(MAX_REPLY_WORK).fill(symbol)); }
+catch (error) { refused = error instanceof ResourceLimit; }
+if (!refused) throw new Error("full work limit accepted");
+"""
+        )
+        (directory / "compound_nested.ts").write_text(
+            (directory / "compound_nested.ts").read_text()
+            + r"""
+let refused = false;
+try { compound_0_at([[null, null, null]], { remaining: 2 }); }
+catch (error) { refused = error instanceof ResourceLimit; }
+if (!refused) throw new Error("actual schema visits exceeded the work budget");
+"""
+        )
+        (directory / "compound_observation.ts").write_text(
+            (directory / "compound_observation.ts").read_text()
+            + r"""
+const cursor = new Uint8Array(56);
+const opaque = new Array(MAX_REPLY_WORK + 1).fill(null);
+const notices = [new Sym("future"), new Sym("future")];
+const original = new Tagged("access:observation", [cursor, opaque, false, true, notices]);
+const result = compound_0_at(original, { remaining: 8 });
+if (result !== original || result.value[0] !== cursor || result.value[1] !== opaque || result.value[4] !== notices)
+    throw new Error("record projection copied or traversed opaque data");
+"""
+        )
+        for index, name in enumerate(("compound_0", "Compound0", "DecodeBudget", "step", "Tagged", "Sym")):
+            output = directory / f"compound_collision{index}.ts"
+            subprocess.run(
+                [
+                    checker,
+                    "syrup",
+                    str(ROOT / "test/interface/compounds.syrup"),
+                    "ts",
+                    "compound.Source",
+                    "--named",
+                    "nested",
+                    name,
+                    str(output),
+                ],
+                cwd=ROOT,
+                check=True,
+                timeout=30,
+            )
+            imports.append(
+                f'import {{ {name} as compound_collision{index} }} from "./compound_collision{index}.ts";\nvoid compound_collision{index};\n'
+            )
+        collision = directory / "refused_collision.ts"
+        result = subprocess.run(
+            [
+                checker,
+                "syrup",
+                str(ROOT / "test/interface/compounds.syrup"),
+                "ts",
+                "compound.Source",
+                "--named",
+                "list",
+                "ResourceLimit",
+                str(collision),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            timeout=30,
+        )
+        assert result.returncode != 0 and b"ExportCollision" in result.stderr, "support export collision accepted"
+        assert not collision.exists(), "refused generation wrote output"
+        compound_ts.extend(check_bounds(checker, directory, imports))
+        compound_ts.extend(check_packed(checker, directory, imports))
         consumer = directory / "consumer.ts"
         consumer.write_text("".join(imports))
         subprocess.run(
             ["deno", "check", "--config", str(ROOT / "deno.json"), str(consumer)], cwd=ROOT, check=True, timeout=30
         )
+        # Prove the runtime checks detect a real emitted category regression,
+        # then restore exactly before the successful decoder runs.
+        mutant = directory / "compound_list.ts"
+        original = mutant.read_bytes()
+        changed = original.replace(b"if (!(value instanceof Sym))", b'if (typeof value !== "string")')
+        assert changed != original, "mutation did not change the symbol guard"
+        mutant.write_bytes(changed)
+        try:
+            result = subprocess.run(
+                ["deno", "run", "--config", str(ROOT / "deno.json"), str(mutant)],
+                cwd=ROOT,
+                capture_output=True,
+                timeout=30,
+            )
+            assert result.returncode != 0 and b"wrong scalar value" in result.stderr, "category mutation survived"
+        finally:
+            mutant.write_bytes(original)
+        assert mutant.read_bytes() == original, "mutation restore was not exact"
+        for module in compound_ts:
+            subprocess.run(
+                ["deno", "run", "--config", str(ROOT / "deno.json"), str(module)], cwd=ROOT, check=True, timeout=30
+            )
 
 
 if __name__ == "__main__":

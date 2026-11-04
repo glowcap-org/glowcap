@@ -11,10 +11,11 @@ format, target mappings, and acceptance cases.
 | --- | --- |
 | `contracts.syrup` | Authored Tasks, shared Loam, and callback definitions |
 | `compounds.syrup` | Independently authored list and tuple reply shapes |
+| `scalar_bounds.syrup` | Integer and UTF-8 limits, empty bounds, alias intersections, and mixed replies |
 | `messages.syrup` | Independently authored expected messages |
 | `check_fixtures.py` | Canonical encoding and fixture integrity using the pinned upstream Syrup reader |
 | `rust/` | Standalone consumer crate with Tasks, refusal, and callback scenarios |
-| `typescript/` | Callback and promise-assimilation scenarios |
+| `typescript/` | Scalar, compound, callback, and promise-assimilation scenarios |
 | `generated/` | Emitted clients, the fixed direct receiver, and independent message constants |
 | `run.ts` | Starts the Tasks server and runs the Rust proof with bounded lifetime and cleanup |
 
@@ -33,6 +34,8 @@ The presence fixture distinguishes no arguments from one void argument on the wi
 on both profiles. It checks required and optional undefined inputs, optional
 text and references, invalid holes, wrong inputs and replies, and remote breaks.
 Expected arguments come from the independent message fixture in both languages.
+A supplied optional opaque value rejects `undefined` before local or far effects.
+Omission, opaque null, and source-undefined-to-void mapping remain distinct.
 
 The scalar source in `authoring/scalars.interface` generates Rust and TypeScript
 callers. Independent raw peers check exact scalar categories and values on both
@@ -41,6 +44,14 @@ bytes, symbols, float64, and fulfilled errors. Wrong replies, unchanged remote
 breaks, float edge cases, and local byte-limit refusal are exercised too.
 The existing strict consumer check compiles each method on its own, so unused
 helpers cannot hide behind another selected method.
+
+The TypeScript scalar-bound corpus exercises required and optional calls and
+tells with bigint values beyond i64, exact endpoints, empty and partial bounds,
+alias intersections, multibyte text, and surrogate replacement on both profiles.
+Raw peers check wrong categories, local refusal without effects, remote breaks,
+and independent raw settlement. Nested tuples and tagged records use the same guards.
+Scratch tests compare every UTF-16 code unit and surrogate boundary cases with
+`TextEncoder`, check early scan termination, and mutate an actual integer bound.
 
 The generated Zig direct receiver accepts exactly two passable values and an
 undefined result. Raw callers on both profiles send whole lists, including
@@ -71,10 +82,26 @@ and a cancellation failure retains the primary poll error.
 Generated observation results preserve
 unknown and duplicate notices and opaque descriptions containing references.
 
-Isolated strict Rust consumers compile each compound method independently.
+TypeScript raw peers on both profiles exercise the same compound schemas and
+Loam observation reply. They check category, tag, arity, byte/list bounds,
+unknown duplicate notices, opaque capabilities, raw observer independence, and
+original object identity. Malformed cursor inputs refuse before sending.
+
+Isolated strict Rust and TypeScript consumers compile each compound method independently.
 Harness-only child tests call the actual emitted private decoders with small
-work/depth budgets and check moved cursor and symbol buffer identity.
+work budgets and check moved cursor and symbol buffer identity.
+TypeScript scratch modules check actual schema visits, without constructing
+giant transport replies. Opaque list proofs preserve the original array or Rust
+vector buffer with no per-element work, including lengths above the work budget.
+The compiler owns depth and productive-recursion refusal before emission.
 An opaque value exceeding the decoder work budget still passes without traversal.
+
+Local TypeScript peers preserve packed integer lists through list, fixed-tuple,
+and nested record projections. Empty packed runs satisfy arbitrary list schemas.
+The wire control proves received lists normalize to arrays on both profiles.
+Strict consumers prove readonly indexing, iteration, precise tuple positions,
+and passability to raw calls, opaque parameters, and Tagged fields without copies.
+They refuse Array-only APIs, primitive strings, and unpassable sequence-shaped objects.
 
 The callback matrix holds the factory reply open through admission and checks
 wrong fulfillment, remote break messages, and independent raw observation.

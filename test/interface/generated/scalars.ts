@@ -11,28 +11,28 @@ class Pending<T> {
 }
 
 function boolean_value(value: Argument): boolean {
-	if (typeof value !== "boolean") throw new TypeError("wrong scalar reply");
+	if (typeof value !== "boolean") throw new TypeError("wrong scalar value");
 	return value;
 }
 function bytes_0_unbounded(value: Argument): Uint8Array {
-	if (!(value instanceof Uint8Array)) throw new TypeError("wrong scalar reply");
+	if (!(value instanceof Uint8Array)) throw new TypeError("wrong scalar value");
 	return value;
 }
 function bytes_1_4(value: Argument): Uint8Array {
-	if (!(value instanceof Uint8Array)) throw new TypeError("wrong scalar reply");
+	if (!(value instanceof Uint8Array)) throw new TypeError("wrong scalar value");
 	if (value.byteLength < 1n || value.byteLength > 4n) throw new TypeError("byte reply outside bounds");
 	return value;
 }
 function symbol_value(value: Argument): Sym {
-	if (!(value instanceof Sym)) throw new TypeError("wrong scalar reply");
+	if (!(value instanceof Sym)) throw new TypeError("wrong scalar value");
 	return value;
 }
 function float64_value(value: Argument): number {
-	if (typeof value !== "number") throw new TypeError("wrong scalar reply");
+	if (typeof value !== "number") throw new TypeError("wrong scalar value");
 	return value;
 }
 function error_value(value: Argument): Error {
-	if (!(value instanceof Error)) throw new TypeError("wrong scalar reply");
+	if (!(value instanceof Error)) throw new TypeError("wrong scalar value");
 	return value;
 }
 

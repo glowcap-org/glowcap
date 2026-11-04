@@ -5,6 +5,13 @@ custody costs.
 
 ## The ledger
 
+- **Generated TypeScript reply work counter**: `emit` in
+  `tools/interface/typescript_compounds.zig` emits one temporary DecodeBudget
+  object per compound observation. Recursive helpers share it until return or
+  refusal. The budget prevents unbounded decoding without cloning arrays,
+  Tagged records, payloads, or capability wrappers. The template declaration
+  owns its lifetime derivation, and direct emitted tests preserve identity.
+
 - **Borrowed callback capabilities**: `HostTurn.retainArguments` keeps incoming
   identities live through reply consumption. A capability-bearing input adds one
   five-word turn-arena node (`ArgumentLease` plus `ResourceCleanup`), with no

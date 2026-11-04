@@ -22,7 +22,7 @@ test "Observation graph preserves positional tag and schema bounds" {
     try std.testing.expect(record.fields[1] == .value and record.fields[2] == .boolean and record.fields[3] == .boolean);
     try std.testing.expect(record.fields[4].list.element == .symbol);
     try std.testing.expectEqual(@as(?u64, null), record.fields[4].list.max_items);
-    try std.testing.expectError(error.UnsupportedProjection, ts.emit(a, &.{.{ .api = "poll", .call = call }}));
+    _ = try ts.emit(a, &.{.{ .api = "poll", .call = call }});
     for ([_][]const u8{ "Session", "Ref", "Argument", "DecodeBudget" }) |name| {
         const code = try rust.emit(a, &.{.{ .api = "poll", .call = call }}, &.{.{ .api = name, .kind = call.result }});
         try std.testing.expect(std.mem.indexOf(u8, code, "pub struct ProjectedType0(") != null);
@@ -85,6 +85,7 @@ test "Rust refuses compact aliases with excessive inline structure before emissi
     const kind = try model.callType(try description.read(a, "<3'ref3\"T30>"));
     const call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = kind, .effect = .call };
     try std.testing.expectError(error.ResourceLimit, rust.emit(a, &.{.{ .api = "read", .call = call }}, &.{}));
+    try std.testing.expectError(error.ResourceLimit, ts.emit(a, &.{.{ .api = "read", .call = call }}));
 }
 
 test "Rust inline structure admission includes the container and every emitted list element" {
@@ -111,4 +112,52 @@ test "Rust inline structure admission includes the container and every emitted l
             }
         }
     }
+}
+
+test "TypeScript nested leaves preserve target refusals and compile only selected dependencies" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const types = @import("call_type.zig");
+    for ([_]calls.Type{ .pending_target, .pending_value }) |leaf| {
+        const tuple: types.Tuple = .{ .fields = &.{leaf} };
+        const list: types.List = .{ .element = .{ .tuple = &tuple } };
+        const call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .list = &list }, .effect = .call };
+        try std.testing.expectError(error.UnsupportedProjection, ts.emit(a, &.{.{ .api = "read", .call = call }}));
+    }
+    const tuple: types.Tuple = .{ .fields = &.{ .nothing, .{ .text = .{} }, .float64, .error_value, .value } };
+    var call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .tuple = &tuple }, .effect = .call };
+    const code = try ts.emit(a, &.{.{ .api = "read", .call = call }});
+    try std.testing.expect(std.mem.indexOf(u8, code, "Sequence<null | string | number | Error | Argument>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, code, "import { Sym }") == null);
+    try std.testing.expect(std.mem.indexOf(u8, code, "import { Tagged }") == null);
+    call.parameters = &.{.{ .tuple = &tuple }};
+    call.required_parameters = 1;
+    try std.testing.expectError(error.UnsupportedProjection, ts.emit(a, &.{.{ .api = "read", .call = call }}));
+}
+
+test "TypeScript shares aliases and decoder helpers across selected methods" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var model = try doublingModel(a, 7);
+    const kind = try model.callType(try description.read(a, "<3'ref2\"T6>"));
+    const call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = kind, .effect = .call };
+    const code = try ts.emit(a, &.{ .{ .api = "read", .call = call }, .{ .api = "again", .call = call } });
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, code, "function compound_0(value:"));
+    try std.testing.expectEqual(@as(usize, 6), std.mem.count(u8, code, "type Compound"));
+    try std.testing.expect(code.len < 10000);
+    for ([_][]const u8{ "Pending", "ResourceLimit" }) |name| {
+        try std.testing.expectError(error.ExportCollision, ts.emit(a, &.{.{ .api = name, .call = call }}));
+    }
+}
+
+test "compound inline admission counts owned opaque slots" {
+    const types = @import("call_type.zig");
+    const tuple: types.Tuple = .{ .fields = &.{ .value, .value, .boolean } };
+    const list: types.List = .{ .element = .{ .tuple = &tuple } };
+    const call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .list = &list }, .effect = .call };
+    var graph = try @import("compound_graph.zig").Graph.init(std.testing.allocator, &.{.{ .api = "read", .call = call }});
+    defer graph.deinit();
+    try std.testing.expectEqual(@as(usize, 4), try graph.minimumWork(list.element));
 }

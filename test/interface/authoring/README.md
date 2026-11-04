@@ -88,7 +88,9 @@ The scratch library reuses the conversation crate's
 dependencies, lockfile, and Cargo caches. Deno checks TypeScript consumers.
 Both compilers check exports matching private helpers and imports, plus multiple
 selected functions in one module. Rust also checks bounded decoder names and
-private module name allocation. These checks add no runtime calls.
+private module name allocation. Scratch modules exercise the emitted private TypeScript bound helpers against
+UTF-16 and bigint cases, including a bound mutation that must fail before its
+exact source bytes are restored. These checks add no network calls.
 
 The adapter has no new production dependency. A compilation arena owns tokens,
 description nodes, cached sources and canonical bytes. The pure single-source

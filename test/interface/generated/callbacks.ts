@@ -88,7 +88,6 @@ function call_4(
 	if (supplied < 1 || supplied > 1) throw new TypeError("wrong argument count");
 	// One array is allocated at supplied arity; packing adds no payload snapshot.
 	const args = new Array<Argument>(supplied);
-	if (arg0 === undefined) throw new TypeError("invalid argument 0");
 	args[0] = arg0;
 	return session.tell(target, "changed", args);
 }
@@ -141,7 +140,6 @@ function call_8(
 	if (supplied < 1 || supplied > 1) throw new TypeError("wrong argument count");
 	// One array is allocated at supplied arity; packing adds no payload snapshot.
 	const args = new Array<Argument>(supplied);
-	if (arg0 === undefined) throw new TypeError("invalid argument 0");
 	args[0] = arg0;
 	return session.tell(target, null, args);
 }
@@ -276,7 +274,7 @@ function call_16(
 	// One array is allocated at supplied arity; packing adds no payload snapshot.
 	const args = new Array<Argument>(supplied);
 	if (supplied > 0) {
-		if (arg0 === undefined) throw new TypeError("invalid argument 0");
+		if (arg0 === undefined) throw new TypeError("present value cannot be undefined");
 		args[0] = arg0;
 	}
 	const raw = session.send(target, "value", args);
