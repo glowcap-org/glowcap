@@ -5,8 +5,9 @@ alwaysApply: true
 
 # glowcap — Prerelease Posture
 
-Nothing in glowcap is released. Break unreleased APIs, ABIs, and storage
-formats cleanly and update their consumers and evidence together. Add no
+The [alpha release policy](../../docs/maintaining.md#release-status) promises no
+API, ABI, or storage compatibility. Change prerelease contracts cleanly and
+update their consumers and evidence together. Add no
 migration, compatibility shim, or held-back dependency to preserve an
 unreleased contract. External protocol interop still answers to its outside
 authority. A replaced prerelease contract keeps version `1`. Increment only to
