@@ -40,6 +40,10 @@ Completion requires:
   output and living documentation, and complete release checks and promotion
   through the existing prerelease process.
 
+Before promotion, integrate the review fixes for checked TypeScript awaits,
+CLI output safety, per-client mutation ordering and failed watcher setup.
+These repairs preserve raw pipelining, independent reads and primary failures.
+
 The release can claim qualified build-time generation for this Rust client and
 the independently tested TypeScript projections. General compiler coverage,
 language adoption and the remaining migrations still require their milestone
