@@ -32,6 +32,7 @@ apps/rooms/clients/rust/target/
 apps/rooms/rust/proofs/browser/node_modules/
 bench/langs/clients/rust_bench/Cargo.lock
 bench/langs/clients/rust_bench/target/
+bench/interface/target/
 bench/capnp/rust/target/
 # The transport workspace commits Cargo.lock and keeps build outputs local.
 transports/**/target/

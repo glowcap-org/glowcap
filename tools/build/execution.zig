@@ -205,20 +205,12 @@ pub const RuntimeGate = struct {
     step: *std.Build.Step,
     build: *std.Build.Step,
     members: std.ArrayListUnmanaged(*std.Build.Step) = .empty,
-    prerequisite: ?*std.Build.Step = null,
     finalized: bool = false,
 
     pub fn add(self: *RuntimeGate, member: *std.Build.Step) void {
         if (self.finalized) @panic("cannot add a member to a finalized runtime gate");
         self.members.append(member.owner.allocator, member) catch @panic("OOM");
         self.step.dependOn(member);
-    }
-
-    pub fn addPrerequisite(self: *RuntimeGate, prerequisite: *std.Build.Step) void {
-        if (self.finalized) @panic("cannot add a prerequisite to a finalized runtime gate");
-        if (self.prerequisite != null) @panic("runtime gate already has a prerequisite");
-        self.prerequisite = prerequisite;
-        self.step.dependOn(prerequisite);
     }
 
     /// Mark side-effecting runtime commands as exclusive after every registrar

@@ -1,0 +1,31 @@
+[package]
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
+name = "interface-bench"
+version = "0.1.2"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[features]
+default = ["raw-client", "generated-client"]
+raw-client = []
+generated-client = []
+allocation-metrics = []
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+debug = 1
+
+[dependencies]
+glowcap = { path = "../../bindings/rust", default-features = false, features = ["async", "tcp"] }
+# dep tokio: One current-thread runtime drives both TCP endpoints of the benchmark.
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

@@ -345,6 +345,7 @@ pub fn registerChecks(
         "bindings/rust/relay/Cargo.toml",
         "bench/langs/clients/rust_bench/Cargo.toml",
         "bench/capnp/rust/Cargo.toml",
+        "bench/interface/Cargo.toml",
         "apps/tools/rust/Cargo.toml",
         "apps/tasks/rust/Cargo.toml",
         "apps/rooms/rust/Cargo.toml",
@@ -358,6 +359,7 @@ pub fn registerChecks(
     rust_lint_step.dependOn(reg.rust_binding_lint_step);
     bindings_fmt_check_step.dependOn(rust_lint_step);
     rust_lint_step.dependOn(rooms_rust_lint);
+    rust_lint_step.dependOn(&b.top_level_steps.get("interface-bench-lint").?.step);
     // `--all` because a virtual workspace manifest declares no bin or lib target
     // of its own: without it `cargo fmt` there reports "Failed to find targets"
     // and formats nothing, which is the quietest way for a whole workspace to
@@ -371,10 +373,12 @@ pub fn registerChecks(
         // Rooms has its own feature-complete workspace lint step, the binding
         // has the async whole-target leg registered above, and the Loam browser
         // proof compiles only for wasm32, so `loam-browser-build` lints it for
-        // that target. Every other standalone crate is fully represented by its
-        // default target set.
+        // that target. The interface benchmark supplies its phase archive and
+        // diagnostic feature in its own lint step. Other standalone crates use
+        // their default target set.
         if (!std.mem.eql(u8, manifest, "apps/rooms/rust/Cargo.toml") and
             !std.mem.eql(u8, manifest, "bindings/rust/Cargo.toml") and
+            !std.mem.eql(u8, manifest, "bench/interface/Cargo.toml") and
             !std.mem.eql(u8, manifest, "bindings/proofs/loam_browser/rust/Cargo.toml"))
         {
             const lint = addRootedSystemCommand(b, .build_tool, &.{

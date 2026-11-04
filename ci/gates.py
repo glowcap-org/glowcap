@@ -12,9 +12,10 @@ Each gate runs under tools/run-with-timeout.py with the deadline its class
 sets: GATE_TIMEOUT (20m), LONG_TIMEOUT (40m), BUILD_TIMEOUT (60m), each an
 environment override, and GATE_TIMEOUT alone overrides all three. A failed
 gate is reported and the phase goes on, so one run names every failure, and
-the first failure's status is the exit status. A build that runs out of time
-stops the phase, because every later gate needs it. Exit 124 or 137 from a
-gate means the deadline killed it (`wedged`).
+the first failure's status is the exit status. A prerequisite runs unchanged
+in both compile and test jobs. A failed prerequisite stops the phase. A build
+that runs out of time also stops the phase, because every later gate needs it.
+Exit 124 or 137 from a gate means the deadline killed it (`wedged`).
 
 A run writes an evidence record (ci/evidence.py): under
 zig-out/evidence/<phase> for one phase, or attached to HEAD as a git note for
@@ -58,8 +59,8 @@ def wedged(status):
 def deadline(kind):
     """The deadline for a gate class, from the environment or the default."""
     general = os.environ.get("GATE_TIMEOUT")
-    if kind == "gate":
-        return general or TIMEOUT_DEFAULTS[kind]
+    if kind in ("gate", "prerequisite"):
+        return general or TIMEOUT_DEFAULTS["gate"]
     return os.environ.get(f"{kind.upper()}_TIMEOUT") or general or TIMEOUT_DEFAULTS[kind]
 
 
@@ -118,6 +119,9 @@ class Run:
             say("  The command could not be run at all (not found, or not executable).")
         else:
             say("  This is the gate's own failure, not the deadline's. Run it alone to see its output.")
+        if kind == "prerequisite":
+            say("  Later commands need this prerequisite, so the phase stops here.")
+            return status
         self.first_failure = self.first_failure or status
         return None
 
@@ -135,13 +139,16 @@ class Run:
         for name in phases:
             for kind, command in groups.PHASES[name]:
                 argv = shlex.split(command)
-                if argv[:2] != ["zig", "build"]:
+                if kind == "prerequisite":
+                    argv = with_defaults(argv)
+                elif argv[:2] != ["zig", "build"]:
                     continue
-                argv = ["zig", "build", "-Dcompile-only", f"-Dcompile-shard={shard}", "--summary", "new", *argv[2:]]
+                else:
+                    argv = ["zig", "build", "-Dcompile-only", f"-Dcompile-shard={shard}", "--summary", "new", *argv[2:]]
                 if tuple(argv) in seen:
                     continue
                 seen.add(tuple(argv))
-                stop = self.gate(kind, argv, deadline("build"))
+                stop = self.gate(kind, argv, deadline(kind if kind == "prerequisite" else "build"))
                 if stop is not None:
                     return stop
         return self.first_failure

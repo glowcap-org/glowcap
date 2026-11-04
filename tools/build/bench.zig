@@ -24,6 +24,7 @@ pub fn register(
     runtime_gate: *execution.RuntimeGate,
     profiles: profile_build.Profiles,
 ) void {
+    @import("interface_bench.zig").register(b, optimize, runtime_gate, profiles);
     // ── Benchmarks ───────────────────────────────────────────────────────────
     // Table-driven like the examples: each row builds one executable over
     // `glowcap` and registers its public step, whose run forwards

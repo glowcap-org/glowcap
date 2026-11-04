@@ -10,8 +10,10 @@ Each row names its deadline class, which ci/gates.py sizes for a hosted
 runner that compiles cold:
 
 - `gate`: an ordinary check.
-- `build`: a gate whose time is mostly a cold compile. A phase opens with the
-  build its proofs share, so each proof's deadline times the proof. When it
+- `prerequisite`: a check that runs before compilation and stops the phase
+  on any failure, because the later commands depend on it.
+- `build`: a gate whose time is mostly a cold compile. A phase compiles the
+  build its proofs share first, so each proof's deadline times the proof. When it
   runs out of time the phase stops, because every later gate needs it.
 - `long`: a gate that serializes many process proofs, each under its own
   deadline, so its healthy duration is itself tens of minutes.
@@ -35,6 +37,10 @@ class Group(NamedTuple):
 
 def gate(command):
     return ("gate", command)
+
+
+def prerequisite(command):
+    return ("prerequisite", command)
 
 
 def build(command):
@@ -85,6 +91,7 @@ GROUPS = (
         shards=2,
         phases={
             "runtime": [
+                prerequisite("zig build runtime-toolchain-check -Doptimize=ReleaseSafe"),
                 build("zig build runtime-check-build -Doptimize=ReleaseSafe"),
                 long("zig build runtime-check -Doptimize=ReleaseSafe"),
             ]
