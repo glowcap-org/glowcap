@@ -73,18 +73,22 @@ def duration(value: str) -> float:
     return seconds
 
 
-def signal_group(process: subprocess.Popen[bytes], sig: int) -> None:
+def signal_group(process: subprocess.Popen[bytes], sig: int) -> PermissionError | None:
     try:
         os.killpg(process.pid, sig)
     except ProcessLookupError:
         pass
+    except PermissionError as error:
+        return error
+    return None
 
 
-def escalate(process: subprocess.Popen[bytes], kill_after: float | None) -> None:
+def escalate(process: subprocess.Popen[bytes], kill_after: float | None) -> PermissionError | None:
     """Wait for the already-signalled group, escalating to SIGKILL only when a
     grace period was asked for. Without one this waits, exactly as GNU timeout
     does. A caller wanting a bound on the whole group passes `--kill-after`.
-    Either way the immediate child is reaped before the caller returns."""
+    Signal denial returns to the retirement owner; otherwise the immediate
+    child is reaped before returning."""
     if kill_after is None:
         process.wait()
         return
@@ -99,10 +103,14 @@ def escalate(process: subprocess.Popen[bytes], kill_after: float | None) -> None
         try:
             os.killpg(process.pid, 0)
         except ProcessLookupError:
-            return
+            return None
+        except PermissionError as error:
+            return error
         time.sleep(min(0.05, max(0, deadline - time.monotonic())))
-    signal_group(process, signal.SIGKILL)
-    process.wait()
+    denied = signal_group(process, signal.SIGKILL)
+    if denied is None:
+        process.wait()
+    return denied
 
 
 def shell_code(returncode: int) -> int:
@@ -162,18 +170,37 @@ def main() -> int:
     interrupted: int | None = None
     denied: PermissionError | None = None
 
+    def forward(sig: int) -> None:
+        nonlocal denied
+        if process is not None:
+            denied = signal_group(process, sig) or denied
+
+    def retire() -> None:
+        """Check current signal failures after escalation before accepting retirement."""
+        assert process is not None
+        if denied is not None and process.poll() is None:
+            raise denied
+        escalation_denied = escalate(process, args.kill_after)
+        failure = denied or escalation_denied
+        if failure is not None:
+            if process.poll() is None:
+                raise failure
+            # Darwin can refuse a signal to an unreaped zombie group.
+            # Reaping must prove the entire group gone before ignoring it.
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                return
+            raise failure
+
     # Forward immediately, then unwind any Popen wait lock before the owner
     # reaps. Later signals still reach the child but cannot re-enter cleanup.
     def relay(sig: int, _frame: object) -> None:
-        nonlocal denied, interrupted
+        nonlocal interrupted
         first = interrupted is None
         if first:
             interrupted = sig
-        if process is not None:
-            try:
-                signal_group(process, sig)
-            except PermissionError as error:
-                denied = error
+        forward(sig)
         if first:
             raise Cancelled
 
@@ -222,8 +249,8 @@ def main() -> int:
                         flush=True,
                     )
         except subprocess.TimeoutExpired:
-            signal_group(process, signal.SIGTERM)
-            escalate(process, args.kill_after)
+            forward(signal.SIGTERM)
+            retire()
             signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
             process = None
             code = finish(124)
@@ -247,18 +274,7 @@ def main() -> int:
         return execute()
     except Cancelled:
         if process is not None:
-            if denied is not None and process.poll() is None:
-                raise denied
-            escalate(process, args.kill_after)
-            if denied is not None:
-                # Darwin can refuse a signal to an unreaped zombie group.
-                # Reaping must prove the entire group gone before ignoring it.
-                try:
-                    os.killpg(process.pid, 0)
-                except ProcessLookupError:
-                    pass
-                else:
-                    raise denied
+            retire()
         assert interrupted is not None
         return finish(128 + interrupted)
 

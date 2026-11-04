@@ -214,12 +214,24 @@ class RunWithTimeoutTest(unittest.TestCase):
     # Signals and survivors.
 
     def test_cancellation_unwinds_wait_lock_and_spawn_unmask_before_reaping(self) -> None:
+        self.retirement_probe(("wait", "wait-repeat", "unmask", "dead-denied", "live-denied"))
+
+    def test_deadline_reaps_exited_children_without_hiding_live_signal_denial(self) -> None:
+        self.retirement_probe(("deadline-dead-denied", "deadline-live-denied"))
+
+    def test_final_kill_reaps_exited_children_without_hiding_live_signal_denial(self) -> None:
+        self.retirement_probe(("kill-dead-denied", "kill-live-denied"))
+
+    def test_late_signal_denial_remains_owned_until_group_retirement(self) -> None:
+        self.retirement_probe(("late-denied",))
+
+    def retirement_probe(self, modes: tuple[str, ...]) -> None:
         # CPython can run a signal handler inside Popen.wait's non-reentrant
         # waitpid lock. Inject that interleaving without depending on timing.
         probe = self.scratch / "wait_lock.py"
         pidfile = self.scratch / "child.pid"
         probe.write_text(
-            "import os, pathlib, runpy, signal, subprocess, sys\n"
+            "import os, pathlib, runpy, signal, subprocess, sys, time\n"
             "wrapper, marker, mode = sys.argv[1:]\n"
             "original = subprocess.Popen.wait\n"
             "original_init = subprocess.Popen.__init__\n"
@@ -240,48 +252,87 @@ class RunWithTimeoutTest(unittest.TestCase):
             "def interrupted_wait(self, *args, **kwargs):\n"
             "    global calls\n"
             "    calls += 1\n"
+            "    if mode.startswith('kill-') and calls <= 2:\n"
+            "        if calls == 2 and mode == 'kill-dead-denied':\n"
+            "            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGCHLD})\n"
+            "            original_killpg(self.pid, signal.SIGTERM)\n"
+            "            signal.sigwait({signal.SIGCHLD})\n"
+            "        raise subprocess.TimeoutExpired(self.args, 0)\n"
+            "    if calls == 1 and mode.startswith('deadline-'):\n"
+            "        if mode == 'deadline-dead-denied':\n"
+            # Observe exit without reaping, leaving the deadline owner a zombie.
+            "            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGCHLD})\n"
+            "            original_killpg(self.pid, signal.SIGTERM)\n"
+            "            signal.sigwait({signal.SIGCHLD})\n"
+            "        raise subprocess.TimeoutExpired(self.args, 0)\n"
             "    if calls == 1 and mode != 'unmask':\n"
+            "        if mode == 'late-denied':\n"
+            "            while not pathlib.Path(marker + '.descendant').exists():\n"
+            "                time.sleep(0.001)\n"
             "        with self._waitpid_lock:\n"
             "            os.kill(os.getpid(), signal.SIGTERM)\n"
-            "    elif calls == 2 and mode in ('wait-repeat', 'dead-denied'):\n"
+            "    elif calls == 2 and mode in ('wait-repeat', 'dead-denied', 'late-denied'):\n"
             "        if mode == 'dead-denied':\n"
             "            original(self, timeout=1)\n"
             "        os.kill(os.getpid(), signal.SIGINT)\n"
             "    return original(self, *args, **kwargs)\n"
             "def killpg(pid, sig):\n"
-            "    if (mode == 'dead-denied' and sig == signal.SIGINT) or mode == 'live-denied':\n"
+            # Model a child that survives TERM, then a denied final KILL.
+            "    if mode.startswith('kill-') and sig == signal.SIGTERM:\n"
+            "        return\n"
+            "    if mode.startswith('kill-') and sig == signal.SIGKILL:\n"
+            "        raise PermissionError('injected final signal denial')\n"
+            "    if (mode in ('dead-denied', 'late-denied') and sig == signal.SIGINT) or mode == 'live-denied' or (mode.startswith('deadline-') and sig == signal.SIGTERM):\n"
             "        raise PermissionError('injected signal denial')\n"
             "    return original_killpg(pid, sig)\n"
             "subprocess.Popen.wait = interrupted_wait\n"
             "subprocess.Popen.__init__ = started\n"
             "signal.pthread_sigmask = unmask\n"
             "os.killpg = killpg\n"
-            "sys.argv = [wrapper, '--kill-after', '0.1s', '10s', sys.executable, '-c', 'import time; time.sleep(10)']\n"
+            "timeout = '0s' if mode.startswith(('deadline-', 'kill-')) else '10s'\n"
+            "grace = '0s' if mode.startswith('kill-') else '0.1s'\n"
+            "victim = 'import time; time.sleep(10)'\n"
+            "if mode == 'late-denied':\n"
+            "    descendant = 'import os, pathlib, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(10)'\n"
+            "    victim = 'import subprocess, sys, time; subprocess.Popen([sys.executable, \"-c\", sys.argv[1], sys.argv[2]]); time.sleep(10)'\n"
+            "    sys.argv = [wrapper, timeout, sys.executable, '-c', victim, descendant, marker + '.descendant']\n"
+            "else:\n"
+            "    sys.argv = [wrapper, '--kill-after', grace, timeout, sys.executable, '-c', victim]\n"
             "runpy.run_path(wrapper, run_name='__main__')\n"
         )
-        for mode in ("wait", "wait-repeat", "unmask", "dead-denied", "live-denied"):
+        for mode in modes:
             logfile = self.scratch / f"{mode}.log"
-            with self.subTest(cancellation=mode), logfile.open("w") as output:
+            with self.subTest(retirement=mode), logfile.open("w") as output:
                 wrapper = subprocess.Popen(
                     [sys.executable, str(probe), str(WRAPPER), str(pidfile), mode],
                     stdout=output,
                     stderr=subprocess.STDOUT,
                 )
                 try:
-                    expected = 1 if mode == "live-denied" else 128 + signal.SIGTERM
+                    if mode.endswith("live-denied") or mode == "late-denied":
+                        expected = 1
+                    elif mode.startswith(("deadline-", "kill-")):
+                        expected = 124
+                    else:
+                        expected = 128 + signal.SIGTERM
                     self.assertEqual(wrapper.wait(timeout=2), expected, logfile.read_text())
-                    if mode == "live-denied":
+                    if mode.endswith("live-denied") or mode == "late-denied":
                         self.assertIn("PermissionError", logfile.read_text())
                     else:
-                        self.assertFalse(process_exists(int(pidfile.read_text())), "cancelled child survived")
+                        self.assertFalse(process_exists(int(pidfile.read_text())), "retired child survived")
+                    if mode == "late-denied":
+                        descendant = int(pathlib.Path(str(pidfile) + ".descendant").read_text())
+                        self.assertTrue(process_exists(descendant), "late denial did not leave a surviving group")
                 finally:
                     if wrapper.poll() is None:
                         wrapper.kill()
                         wrapper.wait()
                     if pidfile.exists():
                         pid = int(pidfile.read_text())
-                        if process_exists(pid):
+                        try:
                             os.killpg(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
                         pidfile.unlink()
 
     def test_the_child_receives_the_signal_that_arrived_not_a_substitute(self) -> None:
