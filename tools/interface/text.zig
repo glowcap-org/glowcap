@@ -1,280 +1,118 @@
-//! Build-time comparison adapter for the retained proposed-text subset.
-//! The arena owns token decoding and encoded fragments. Only the final canonical
-//! description is copied to the caller. No parser is linked into generated calls.
+//! Pure translation of preloaded text modules into one checked description.
+//! Caller-owned sources outlive translation. Paths occur only in diagnostics.
 const std = @import("std");
 const description = @import("description.zig");
+const syntax = @import("text_parser.zig");
+const Encoder = @import("text_encode.zig").Encoder;
 const Model = @import("model.zig").Model;
+pub const Diagnostic = syntax.Diagnostic;
+pub const Error = syntax.Error;
+pub const Source = syntax.Source;
+pub const max_files: usize = 64;
+pub const max_import_depth: usize = 32;
+pub const Module = struct { source: Source, header: syntax.Header };
+/// The caller's compilation arena and input sources last through emission.
+pub const Compiled = struct { bytes: []u8, model: Model };
 
-pub const Diagnostic = struct {
-    offset: usize = 0,
-    line: usize = 1,
-    column: usize = 1,
-    message: []const u8 = "",
-};
-pub const Error = description.Error || error{ InvalidText, UnsupportedSyntax };
-
-pub fn translate(a: std.mem.Allocator, source: []const u8, diagnostic: *Diagnostic) Error![]u8 {
-    diagnostic.* = .{};
-    if (source.len > description.max_input_bytes) return error.ResourceLimit;
-    if (!std.unicode.utf8ValidateSlice(source)) return error.InvalidText;
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    var parser: Parser = .{ .a = arena.allocator(), .source = source, .diagnostic = diagnostic };
-    const encoded = try parser.module();
-    // Serialization is never a route around the checked description boundary.
-    _ = Model.init(arena.allocator(), try description.read(arena.allocator(), encoded)) catch |err| {
-        parser.note("description rejected by checked model");
-        return err;
-    };
-    return a.dupe(u8, encoded);
-}
-
-const Entry = struct { key: []const u8, value: []const u8 };
-const Token = struct { kind: enum { word, string, number, punctuation, end }, text: []const u8 };
-const Parser = struct {
+pub const Bundle = struct {
     a: std.mem.Allocator,
-    source: []const u8,
     diagnostic: *Diagnostic,
-    at: usize = 0,
-    start: usize = 0,
-    remaining: usize = description.max_nodes,
-    prefix: []const u8 = "",
-    expanded_name_bytes: usize = 0,
-    receipt_convention: bool = false,
+    modules: std.ArrayList(Module) = .empty,
+    budget: syntax.Budget = .{},
+    input_bytes: usize = 0,
 
-    fn note(self: *Parser, message: []const u8) void {
-        self.diagnostic.* = .{ .offset = self.start, .message = message };
-        for (self.source[0..self.start]) |c| {
-            if (c == '\n') {
-                self.diagnostic.line += 1;
-                self.diagnostic.column = 1;
-            } else self.diagnostic.column += 1;
-        }
-    }
-
-    fn fail(self: *Parser, message: []const u8) Error {
-        self.note(message);
-        return error.InvalidText;
-    }
-
-    fn unsupported(self: *Parser) Error {
-        self.note("construct outside the authoring comparison subset");
-        return error.UnsupportedSyntax;
-    }
-
-    fn next(self: *Parser) Error!Token {
-        while (self.at < self.source.len) {
-            if (std.ascii.isWhitespace(self.source[self.at])) {
-                self.at += 1;
-            } else if (std.mem.startsWith(u8, self.source[self.at..], "//")) {
-                while (self.at < self.source.len and self.source[self.at] != '\n') self.at += 1;
-            } else break;
-        }
-        self.start = self.at;
-        if (self.remaining == 0) return error.ResourceLimit;
-        self.remaining -= 1;
-        if (self.at == self.source.len) return .{ .kind = .end, .text = "" };
-        const c = self.source[self.at];
-        self.at += 1;
-        if (c == '"') {
-            var escaped = false;
-            while (self.at < self.source.len) {
-                const byte = self.source[self.at];
-                self.at += 1;
-                if (byte == '"' and !escaped) {
-                    const parsed = std.json.parseFromSlice([]const u8, self.a, self.source[self.start..self.at], .{ .allocate = .alloc_always }) catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        else => return self.fail("invalid quoted wire name"),
-                    };
-                    return .{ .kind = .string, .text = parsed.value };
-                }
-                escaped = byte == '\\' and !escaped;
+    fn noteOrigin(self: Bundle, origin: []const u8, message: []const u8) void {
+        for (self.modules.items) |module| {
+            const begin = @intFromPtr(module.source.bytes.ptr);
+            const location = @intFromPtr(origin.ptr);
+            if (origin.len > 0 and location >= begin and location - begin < module.source.bytes.len) {
+                self.diagnostic.set(module.source, location - begin, message);
+                return;
             }
-            return self.fail("unterminated quoted wire name");
         }
-        const is_word = std.ascii.isAlphabetic(c) or c == '_';
-        const number = std.ascii.isDigit(c) or (c == '-' and self.at < self.source.len and std.ascii.isDigit(self.source[self.at]));
-        if (is_word or number) {
-            while (self.at < self.source.len) {
-                const byte = self.source[self.at];
-                if (if (is_word) std.ascii.isAlphanumeric(byte) or byte == '_' or byte == '.' else std.ascii.isDigit(byte) or byte == '_') self.at += 1 else break;
-            }
-        } else if (c == '-' and self.at < self.source.len and self.source[self.at] == '>') self.at += 1;
-        return .{ .kind = if (is_word) .word else if (number) .number else .punctuation, .text = self.source[self.start..self.at] };
+        self.diagnostic.message = message;
     }
 
-    fn peek(self: *Parser) Error!Token {
-        const saved = self.at;
-        const token = try self.next();
-        self.at = saved;
-        return token;
+    /// Cache a header once. Callers bind each import to a preloaded module index.
+    pub fn add(self: *Bundle, source: Source) Error!usize {
+        if (self.modules.items.len == max_files or source.bytes.len > description.max_input_bytes - self.input_bytes) return error.ResourceLimit;
+        if (!std.unicode.utf8ValidateSlice(source.bytes)) return error.InvalidText;
+        self.input_bytes += source.bytes.len;
+        var parser: syntax.Parser = .{ .a = self.a, .source = source, .diagnostic = self.diagnostic, .budget = &self.budget };
+        const header = try parser.header();
+        for (self.modules.items) |previous| if (std.mem.eql(u8, previous.header.name, header.name)) {
+            self.diagnostic.set(source, 0, "duplicate module declaration");
+            return error.InvalidText;
+        };
+        const index = self.modules.items.len;
+        try self.modules.append(self.a, .{ .source = source, .header = header });
+        return index;
     }
 
-    fn accept(self: *Parser, text: []const u8) Error!bool {
-        const token = try self.peek();
-        if (token.kind == .string or !std.mem.eql(u8, token.text, text)) return false;
-        _ = try self.next();
-        return true;
+    pub fn translate(self: *Bundle) Error![]u8 {
+        return (try self.compile()).bytes;
     }
 
-    fn expect(self: *Parser, text: []const u8) Error!void {
-        if (!try self.accept(text)) return self.fail("unexpected token");
-    }
-
-    fn word(self: *Parser) Error![]const u8 {
-        const token = try self.next();
-        if (token.kind != .word) return self.fail("expected identifier");
-        return token.text;
-    }
-
-    fn atom(self: *Parser, value: []const u8, marker: u8) Error![]const u8 {
-        return std.fmt.allocPrint(self.a, "{d}{c}{s}", .{ value.len, marker, value });
-    }
-
-    fn record(self: *Parser, label: []const u8, fields: []const []const u8) Error![]const u8 {
-        var out: std.ArrayList(u8) = .empty;
-        try out.append(self.a, '<');
-        try out.appendSlice(self.a, try self.atom(label, '\''));
-        for (fields) |field| try out.appendSlice(self.a, field);
-        try out.append(self.a, '>');
-        return out.toOwnedSlice(self.a);
-    }
-
-    fn list(self: *Parser, items: []const []const u8) Error![]const u8 {
-        var out: std.ArrayList(u8) = .empty;
-        try out.append(self.a, '[');
-        for (items) |item| try out.appendSlice(self.a, item);
-        try out.append(self.a, ']');
-        return out.toOwnedSlice(self.a);
-    }
-
-    fn dictionary(self: *Parser, entries: []Entry) Error![]const u8 {
-        std.mem.sort(Entry, entries, {}, struct {
-            fn less(_: void, left: Entry, right: Entry) bool {
-                return std.mem.order(u8, left.key, right.key) == .lt;
+    pub fn compile(self: *Bundle) Error!Compiled {
+        var entries: std.ArrayList(syntax.Entry) = .empty;
+        var receipt = false;
+        const order = try self.a.alloc(usize, self.modules.items.len);
+        for (order, 0..) |*index, i| index.* = i;
+        std.mem.sort(usize, order, self.modules.items, struct {
+            fn less(modules: []const Module, left: usize, right: usize) bool {
+                return std.mem.order(u8, modules[left].source.path, modules[right].source.path) == .lt;
             }
         }.less);
-        var out: std.ArrayList(u8) = .empty;
-        try out.append(self.a, '{');
-        for (entries, 0..) |entry, i| {
-            if (i != 0 and std.mem.eql(u8, entries[i - 1].key, entry.key)) return self.fail("duplicate declaration, method, or bound");
-            try out.appendSlice(self.a, entry.key);
-            try out.appendSlice(self.a, entry.value);
-        }
-        try out.append(self.a, '}');
-        if (out.items.len > description.max_input_bytes) return error.ResourceLimit;
-        return out.toOwnedSlice(self.a);
-    }
-
-    fn qualified(self: *Parser, name: []const u8) Error![]const u8 {
-        const qualified_name = std.mem.indexOfScalar(u8, name, '.') != null;
-        const length = if (qualified_name) name.len else self.prefix.len + 1 + name.len;
-        // Each occurrence enters the output once. Refuse impossible expansion
-        // before formatting a repeated module prefix or encoding its string.
-        if (length > description.max_input_bytes - self.expanded_name_bytes) return error.ResourceLimit;
-        self.expanded_name_bytes += length;
-        if (qualified_name) return name;
-        return std.fmt.allocPrint(self.a, "{s}.{s}", .{ self.prefix, name });
-    }
-
-    fn module(self: *Parser) Error![]const u8 {
-        try self.expect("module");
-        self.prefix = try self.word();
-        var entries: std.ArrayList(Entry) = .empty;
-        while ((try self.peek()).kind != .end) {
-            const declaration = try self.next();
-            const is_type = std.mem.eql(u8, declaration.text, "type");
-            if (!is_type and !std.mem.eql(u8, declaration.text, "interface")) return self.unsupported();
-            const name = try self.word();
-            const body = if (is_type) body: {
-                try self.expect("=");
-                break :body try self.typeExpression(0);
-            } else try self.interface();
-            try entries.append(self.a, .{
-                .key = try self.atom(try self.qualified(name), '"'),
-                .value = try self.record(if (is_type) "type" else "interface", &.{body}),
-            });
-            if (entries.items.len > @import("model.zig").max_definitions) return error.ResourceLimit;
-        }
-        const profiles = if (self.receipt_convention) "{12\"loam.receipt1+14\"glowcap.values1+}" else "{14\"glowcap.values1+}";
-        return self.record("glowcap:interface", &.{ "1+", profiles, try self.dictionary(entries.items) });
-    }
-
-    fn typeExpression(self: *Parser, depth: usize) Error![]const u8 {
-        if (depth > description.max_depth) return error.ResourceLimit;
-        const name = try self.word();
-        var value: []const u8 = undefined;
-        if (std.mem.eql(u8, name, "promise")) {
-            try self.expect("<");
-            const element = try self.typeExpression(depth + 1);
-            try self.expect(">");
-            return self.record("promise", &.{element});
-        }
-        const primitive = for ([_][]const u8{ "undefined", "null", "bool", "integer", "float64", "string", "bytes", "symbol", "target", "value", "error" }) |atom_name| {
-            if (std.mem.eql(u8, name, atom_name)) break true;
-        } else false;
-        value = if (primitive) try self.atom(name, '\'') else try self.record("ref", &.{try self.atom(try self.qualified(name), '"')});
-        if (try self.accept("(")) {
-            var bounds: std.ArrayList(Entry) = .empty;
-            while (true) {
-                const key = try self.word();
-                try self.expect(":");
-                const number = try self.next();
-                if (number.kind != .number) return self.fail("expected integer bound");
-                var clean: std.ArrayList(u8) = .empty;
-                for (number.text) |c| if (c != '_') {
-                    try clean.append(self.a, c);
+        for (order) |index| {
+            const module = self.modules.items[index];
+            const aliases = try self.a.alloc(syntax.Alias, module.header.imports.len);
+            for (module.header.imports, aliases) |import, *alias| {
+                const target = import.target orelse {
+                    self.diagnostic.set(module.source, import.offset, "import source was not preloaded");
+                    return error.MissingImport;
                 };
-                const integer = std.fmt.parseInt(i64, clean.items, 10) catch return self.fail("bound exceeds signed 64-bit comparison range");
-                const encoded = if (integer < 0) try std.fmt.allocPrint(self.a, "{d}-", .{@abs(integer)}) else try std.fmt.allocPrint(self.a, "{d}+", .{integer});
-                try bounds.append(self.a, .{ .key = try self.atom(key, '"'), .value = encoded });
-                if (try self.accept(")")) break;
-                try self.expect(",");
+                if (target >= self.modules.items.len) return error.MissingImport;
+                alias.* = .{ .name = import.alias, .module = self.modules.items[target].header.name };
             }
-            value = try self.record("bounded", &.{ value, try self.dictionary(bounds.items) });
+            var parser: syntax.Parser = .{ .a = self.a, .source = module.source, .diagnostic = self.diagnostic, .budget = &self.budget, .at = module.header.body, .prefix = module.header.name, .aliases = aliases };
+            try parser.declarations(&entries);
+            receipt = receipt or parser.receipt;
         }
-        return value;
-    }
-
-    fn interface(self: *Parser) Error![]const u8 {
-        try self.expect("{");
-        var methods: std.ArrayList(Entry) = .empty;
-        while (!try self.accept("}")) {
-            if ((try self.peek()).kind == .end) return self.fail("unterminated interface");
-            var effect: []const u8 = "call";
-            if (try self.accept("@")) {
-                if (!std.mem.eql(u8, try self.word(), "loam.receipt")) return self.unsupported();
-                effect = "loam.receipt";
-                self.receipt_convention = true;
-            } else if (try self.accept("tell")) effect = "tell";
-            const token = try self.peek();
-            const selector = if (token.kind == .punctuation and std.mem.eql(u8, token.text, "(")) selector: {
-                break :selector "f";
-            } else selector: {
-                const name = try self.next();
-                if (name.kind != .word and name.kind != .string) return self.fail("expected method selector");
-                break :selector try self.atom(name.text, '"');
-            };
-            try self.expect("(");
-            var parameters: std.ArrayList([]const u8) = .empty;
-            if (!try self.accept(")")) while (true) {
-                const name = try self.word();
-                const optional = try self.accept("?");
-                try self.expect(":");
-                const kind = try self.typeExpression(0);
-                try parameters.append(self.a, try self.record("parameter", &.{ try self.atom(name, '"'), kind, if (optional) "t" else "f" }));
-                if (parameters.items.len > @import("model.zig").max_parameters) return error.ResourceLimit;
-                if (try self.accept(")")) break;
-                try self.expect(",");
-            };
-            const result = if (std.mem.eql(u8, effect, "tell")) try self.atom("undefined", '\'') else result: {
-                try self.expect("->");
-                break :result try self.typeExpression(0);
-            };
-            const following = try self.peek();
-            if (following.kind == .word and std.mem.eql(u8, following.text, "throws")) return self.unsupported();
-            try methods.append(self.a, .{ .key = selector, .value = try self.record("method", &.{ try self.list(parameters.items), result, try self.atom(effect, '\'') }) });
-        }
-        return self.dictionary(methods.items);
+        const Node = description.Node;
+        var profiles: [4]Node = .{ .{ .kind = .string, .bytes = "glowcap.values" }, .{ .kind = .integer, .integer = 1 }, .{ .kind = .string, .bytes = "loam.receipt" }, .{ .kind = .integer, .integer = 1 } };
+        var parser: syntax.Parser = .{ .a = self.a, .source = .{ .path = "", .bytes = "" }, .diagnostic = self.diagnostic, .budget = &self.budget };
+        const definitions = try parser.dictionary(entries.items);
+        const root: Node = .{ .kind = .record, .bytes = "glowcap:interface", .children = &.{ .{ .kind = .integer, .integer = 1 }, .{ .kind = .dictionary, .children = profiles[0..if (receipt) 4 else 2] }, definitions } };
+        var encoder: Encoder = .{ .a = self.a };
+        encoder.node(root, 0) catch |err| {
+            if (err == error.InvalidText) self.noteOrigin(encoder.failed_source, "duplicate declaration, method, or bound");
+            return err;
+        };
+        // The encoder has established duplicate-key, node, depth and output
+        // limits. Validate this parser-owned graph without rereading our bytes.
+        var failed: ?Node = null;
+        const model = Model.initDiagnostic(self.a, root, &failed) catch |err| {
+            self.noteOrigin((failed orelse root).source, "description rejected by checked model");
+            return err;
+        };
+        return .{ .bytes = try encoder.bytes.toOwnedSlice(self.a), .model = model };
     }
 };
+
+/// A single preloaded source uses the same bundle parser and checked model.
+pub fn translate(a: std.mem.Allocator, source: []const u8, diagnostic: *Diagnostic) Error![]u8 {
+    diagnostic.* = .{};
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const compiled = try compile(arena.allocator(), source, diagnostic);
+    return a.dupe(u8, compiled.bytes);
+}
+
+/// Compile one source using the caller's arena. The returned Model borrows it
+/// and the source bytes through method selection and emission.
+pub fn compile(a: std.mem.Allocator, source: []const u8, diagnostic: *Diagnostic) Error!Compiled {
+    diagnostic.* = .{};
+    var bundle: Bundle = .{ .a = a, .diagnostic = diagnostic };
+    _ = try bundle.add(.{ .path = "", .bytes = source });
+    return bundle.compile();
+}

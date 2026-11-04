@@ -50,6 +50,22 @@ SCALARS = [
     for kind in ("bool", "bytes", "bounded", "symbol", "float", "error")
     for shape in ("call", "optional", "tell", "optional_tell")
 ] + [("scalar_wide", "Wide", "bytes")]
+IMPORTED = [
+    ("imported_list", "tasks.imported.Board", "list"),
+    ("imported_poll", "shared.control.Receiver", "poll"),
+    ("imported_receive", "shared.control.Receiver", "receive"),
+    *[
+        (f"imported_{method}", "shared.control.Containers", method)
+        for method in ("notices", "nested", "empty_record", "empty_tuple", "positional")
+    ],
+]
+AUTHORED = [
+    ("authored_list", "tasks.Board", "list"),
+    ("authored_text", "tasks.Task", "text"),
+    ("authored_poll", "loam.Receiver", "poll"),
+    ("authored_receive", "loam.Receiver", "receive"),
+    ("authored_cancel", "loam.Canceller", "cancel"),
+]
 
 
 def main():
@@ -106,6 +122,30 @@ def main():
                 check=True,
                 timeout=30,
             )
+        for folder, entry, cases in (
+            ("imports", "board.interface", IMPORTED),
+            ("contracts", "contracts.interface", AUTHORED),
+        ):
+            for module, receiver, selector in cases:
+                source_root = Path(__file__).with_name(folder)
+                subprocess.run(
+                    [
+                        checker,
+                        "--root",
+                        str(source_root),
+                        "text",
+                        str(source_root / entry),
+                        "rust",
+                        receiver,
+                        "--named",
+                        selector,
+                        "invoke",
+                        str(directory / f"{module}.rs"),
+                    ],
+                    cwd=ROOT,
+                    check=True,
+                    timeout=30,
+                )
         for selector in ("list", "limited", "tuple", "zero", "nested"):
             subprocess.run(
                 [
@@ -209,6 +249,7 @@ def main():
         observation.write_text(source)
         (directory / "lib.rs").write_text(
             "#![deny(warnings)]\n"
+            + "".join(f"pub mod {module};\n" for module, _, _ in IMPORTED + AUTHORED)
             + "".join(f"pub mod {case[0]};\n" for case in CASES + SCALARS)
             + "".join(
                 f"pub mod compound_{name};\n" for name in ("list", "limited", "tuple", "zero", "nested", "observation")

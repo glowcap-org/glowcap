@@ -98,7 +98,6 @@ test "text diagnostics refuse unsupported constructs and invalid checked contrac
     try std.testing.expect(diagnostic.column > 1);
     try std.testing.expectEqualStrings("throws", "module comparison\ninterface Reader { read() -> string throws Failure }"[diagnostic.offset..][0..6]);
     for ([_][]const u8{
-        "module comparison\nimport \"other\" as other",
         "module comparison\nrecord Data { name: string }",
     }) |unsupported| try std.testing.expectError(error.UnsupportedSyntax, text.translate(a, unsupported, &diagnostic));
     for ([_][]const u8{

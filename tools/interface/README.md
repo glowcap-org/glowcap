@@ -1,6 +1,7 @@
 # Interface generation
 
-Build-time generation from the authored Syrup fixtures. The
+Tasks and callback generation use the complete authored text bundle, checked
+against independent Syrup fixtures. The
 [roadmap](../../docs/roadmap.md) item on interface definitions owns scope and
 progress. The [proof suite](../../test/interface/README.md)
 owns executable qualification.
@@ -20,6 +21,9 @@ owns executable qualification.
 | `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
 | `exports.zig` | Public export validation and isolation from private implementation names |
 | `literal.zig` | Source string escaping |
+| `text.zig`, `text_parser.zig`, `text_encode.zig` | Pure module compilation, cached headers and bounded canonical encoding |
+| `text_loader.zig` | CLI-owned rooted file loading and compilation cache |
+| `authored.zig` | Pinned complete Tasks, Loam and qualification source bundle |
 | `expectations.zig` | Test constants from independent message fixtures |
 | `generate.zig` | Fixture selection, output paths, and compiler tests |
 
@@ -28,6 +32,10 @@ authored contract. The generation driver selects each projection's method and
 uses the repository's emit/verify harness. The creation projection's names
 and Loam receipt verbs are written for Tasks' `add`, so its emitters refuse
 any other method.
+
+Text compilation returns canonical bytes and the checked Model over the original
+source nodes. Consumers reuse that Model through emission. The compilation arena
+and source bytes outlive it. Untrusted Syrup input is read and validated once.
 
 Rust also projects a receipt with one `promise<value>`
 argument and a void result. Its preparation retains through the binding before
@@ -52,7 +60,10 @@ TypeScript preserves the JavaScript objects and checks their categories before
 sending. Its byte-length checks add no payload copy. Neither target filters
 float64 values. A fulfilled error remains data, distinct from a broken call.
 
-Rust reply projections also support lists, tuples, and tagged positional records.
+Text source describes lists, tuples, positional records and single-payload tagged
+values through the same checked model as Syrup input. A tagged tuple stays one
+payload. String-keyed structs, maps and unions remain unsupported.
+Rust reply projections support these containers, including empty tuples and records.
 `Model.init` requires a caller-owned arena that lasts through emission.
 Named aliases share immutable normalized nodes.
 

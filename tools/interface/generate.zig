@@ -1,4 +1,4 @@
-//! First interface generation slice: one checked Syrup description feeds the
+//! First interface generation slice: one checked authored bundle feeds the
 //! Tasks creation projections (the Zig server check and the Rust
 //! retained-request client), the fixture callbacks in Rust and TypeScript, and
 //! the Rust message expectations.
@@ -10,6 +10,8 @@ const creation_method = @import("model.zig").creation_method;
 const rust = @import("rust.zig");
 const zig = @import("zig.zig");
 const calls = @import("calls.zig");
+const authored = @import("authored.zig");
+const text = @import("text.zig");
 const selected = .{
     .{ "fixture.Introducer", "get-greeter", "introducer_get_greeter" },
     .{ "fixture.Factory", "open", "factory_open" },
@@ -59,7 +61,8 @@ pub const outputs = [_]Output{
 fn generateZig(a: std.mem.Allocator) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    var model = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("contract")));
+    var diagnostic: text.Diagnostic = .{};
+    var model = (try authored.compile(arena.allocator(), &diagnostic, authored.sources)).model;
     const method = try model.creation("tasks.TaskList", creation_method);
     const reads = try serverReads(&model);
     return zig.emitServer(a, method, &reads);
@@ -77,7 +80,8 @@ fn serverReads(model: *Model) ![6]calls.Named {
 fn generateCalls(a: std.mem.Allocator, comptime emitter: type, comptime selections: anytype) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    var model = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("contract")));
+    var diagnostic: text.Diagnostic = .{};
+    var model = (try authored.compile(arena.allocator(), &diagnostic, authored.sources)).model;
     var methods: [selections.len]calls.Named = undefined;
     inline for (selections, 0..) |method, i| {
         methods[i] = .{ .api = method[2], .call = try calls.read(&model, method[0], method[1]) };
@@ -104,14 +108,15 @@ fn generateRust(a: std.mem.Allocator) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const scratch = arena.allocator();
-    var model = try Model.init(scratch, try description.read(scratch, @embedFile("contract")));
+    var diagnostic: text.Diagnostic = .{};
+    var model = (try authored.compile(scratch, &diagnostic, authored.sources)).model;
     const creation = try model.creation("tasks.TaskList", creation_method);
     const selections = task_reads ++ .{.{ "loam.Receiver", "poll", "receiver_poll" }};
     var reads: [selections.len]calls.Named = undefined;
     inline for (selections, 0..) |method, i| {
         reads[i] = .{ .api = method[2], .call = try calls.read(&model, method[0], method[1]) };
     }
-    const observation = try model.callType(try description.read(scratch, "<3'ref16\"loam.Observation>"));
+    const observation = try model.callType(.{ .kind = .record, .bytes = "ref", .children = &.{.{ .kind = .string, .bytes = "loam.Observation" }} });
     return rust.emit(a, creation, &reads, &.{.{ .api = "LoamObservation", .kind = observation }});
 }
 
@@ -288,6 +293,9 @@ test "call presence keeps the Models trailing optional rule" {
 
 test {
     _ = @import("authoring_test.zig");
+    _ = @import("text_bundle_test.zig");
+    _ = @import("text_container_test.zig");
+    _ = @import("authored_test.zig");
     _ = @import("profiles_test.zig");
     _ = @import("read_test.zig");
     _ = @import("names_test.zig");
@@ -298,18 +306,19 @@ fn generateAuthoringText(a: std.mem.Allocator) ![]u8 {
     defer arena.deinit();
     const scratch = arena.allocator();
     var diagnostic: @import("text.zig").Diagnostic = .{};
-    const bytes = try @import("text.zig").translate(scratch, @embedFile("authoring_text"), &diagnostic);
-    var model = try Model.init(scratch, try description.read(scratch, bytes));
+    var compiled = try text.compile(scratch, @embedFile("authoring_text"), &diagnostic);
+    const model = &compiled.model;
     return @import("typescript.zig").emit(a, &.{
-        .{ .api = "invoke_text", .call = try calls.read(&model, "comparison.Direct", null) },
-        .{ .api = "accept_text", .call = try calls.read(&model, "comparison.Factory", "accept") },
+        .{ .api = "invoke_text", .call = try calls.read(model, "comparison.Direct", null) },
+        .{ .api = "accept_text", .call = try calls.read(model, "comparison.Factory", "accept") },
     });
 }
 
 fn generateDirectReceiver(a: std.mem.Allocator) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    var checked = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("contract")));
+    var diagnostic: text.Diagnostic = .{};
+    var checked = (try authored.compile(arena.allocator(), &diagnostic, authored.sources)).model;
     return zig.emitDirect(a, try calls.read(&checked, "fixture.DirectPair", null));
 }
 
@@ -392,9 +401,8 @@ fn scalarSource(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
     defer arena.deinit();
     const scratch = arena.allocator();
     var diagnostic: @import("text.zig").Diagnostic = .{};
-    const bytes = try @import("text.zig").translate(scratch, @embedFile("scalar_text"), &diagnostic);
-    var model = try Model.init(scratch, try description.read(scratch, bytes));
-    const methods = try scalarMethods(&model);
+    var compiled = try text.compile(scratch, @embedFile("scalar_text"), &diagnostic);
+    const methods = try scalarMethods(&compiled.model);
     return if (emitter == @import("typescript.zig")) emitter.emit(a, &methods) else emitter.emit(a, &methods, &.{});
 }
 fn generateScalarRust(a: std.mem.Allocator) ![]u8 {
