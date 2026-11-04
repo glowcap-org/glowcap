@@ -190,25 +190,9 @@ export class SessionState implements PumpHandle, WriterOwner, MintAwaitHandle, P
 		return readSessionTransportName(this.#ptr);
 	}
 
-	// Drive the freshly opened connection's keyed handshake to an open session,
-	// abandoning the connection on any failure (release + transport close) so a
-	// rude partner costs one dial or one accept, never the caller. The read/feed
-	// loop lives in `pump.runHandshake`.
-	//
-	// The one place both halves bound that handshake. A peer that opens the byte
-	// channel and then says nothing is the case no failure check can catch:
-	// nothing fails, the handshake waits, so unbounded it parks the
-	// dialer forever, and on the accepting side every later connection behind
-	// that one client. An elapsed budget takes the same abandon path a failed
-	// handshake does, and closing the transport is what unparks the abandoned
-	// read.
-	async establish(handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS): Promise<void> {
-		try {
-			await runHandshake(this, handshakeTimeoutMs);
-		} catch (err) {
-			await this.closeTransport();
-			throw err;
-		}
+	// The construction boundary in Session retires the connection on failure.
+	establish(handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS): Promise<void> {
+		return runHandshake(this, handshakeTimeoutMs);
 	}
 
 	// ── The pump (choreography in pump.ts) ──────────────────────────────────────

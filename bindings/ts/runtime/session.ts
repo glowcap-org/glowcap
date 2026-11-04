@@ -5,7 +5,7 @@
 // routing, redemption, gift origination, and far vows.
 
 import { HANDSHAKE_TIMEOUT_MS, NOT_FOUND } from "@glowcap/abi";
-import { checkHost, GlowcapError } from "./errors.ts";
+import { checkHost, GlowcapError, retainCleanupFailures } from "./errors.ts";
 import { Host } from "./host.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
@@ -223,8 +223,7 @@ export class Session {
 			await session.#state.establish(handshakeTimeoutMs);
 			return session;
 		} catch (error) {
-			if (session == null) await transport.close();
-			else await session.closeTransport();
+			await retainCleanupFailures(error, [() => session == null ? transport.close() : session.closeTransport()]);
 			throw error;
 		}
 	}
@@ -254,8 +253,7 @@ export class Session {
 			await session.#state.establish(handshakeTimeoutMs);
 			return session;
 		} catch (error) {
-			if (session == null) await transport.close();
-			else await session.closeTransport();
+			await retainCleanupFailures(error, [() => session == null ? transport.close() : session.closeTransport()]);
 			throw error;
 		}
 	}
