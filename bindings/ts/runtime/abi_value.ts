@@ -60,7 +60,9 @@ export function encodeArgs(args: Argument[], keep: Uint8Array[], lower?: Promise
 	if (args.length === 0) return EMPTY_ARGS;
 	const buf = new Uint8Array(L.ARG_SIZE * args.length);
 	const dv = new DataView(buf.buffer);
-	args.forEach((arg, i) => encodeArg(dv, i * L.ARG_SIZE, arg, keep, lower));
+	// Visit every slot so a sparse hole reaches the unsupported-value refusal.
+	let i = 0;
+	for (const arg of args) encodeArg(dv, i++ * L.ARG_SIZE, arg, keep, lower);
 	keep.push(buf);
 	return buf;
 }
@@ -156,13 +158,16 @@ function encodeStructEntries(
 	if (entries.length === 0) return EMPTY_ARGS;
 	const buf = new Uint8Array(L.ARG_SIZE * entries.length * 2);
 	const dv = new DataView(buf.buffer);
-	entries.forEach(([key, value], i) => {
-		if (typeof key !== "string") {
+	let i = 0;
+	for (const entry of entries) {
+		if (typeof entry?.[0] !== "string") {
 			throw new GlowcapError(UNSUPPORTED_VALUE, "Struct entries must be String/value pairs");
 		}
+		const [key, value] = entry;
 		encodeArg(dv, i * 2 * L.ARG_SIZE, key, keep, undefined);
 		encodeArg(dv, (i * 2 + 1) * L.ARG_SIZE, value, keep, lower);
-	});
+		i++;
+	}
 	keep.push(buf);
 	return buf;
 }
