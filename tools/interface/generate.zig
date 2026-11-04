@@ -249,6 +249,7 @@ test "call presence keeps the Models trailing optional rule" {
 
 test {
     _ = @import("authoring_test.zig");
+    _ = @import("profiles_test.zig");
 }
 
 fn generateAuthoringText(a: std.mem.Allocator) ![]u8 {
