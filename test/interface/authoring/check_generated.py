@@ -16,6 +16,9 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+from check_bounds import check_bounds
+from check_packed import check_packed
+
 ROOT = Path(__file__).resolve().parents[3]
 PROOF = ROOT / "test/interface/rust"
 CASES = [
@@ -175,7 +178,7 @@ def main():
         #[test]
         fn element_work_precedes_child_decoding() {
             let value = Argument::List(vec![Argument::List(vec![Argument::Void; 3])]);
-            assert!(matches!(compound_0_at(value, &mut DecodeBudget { remaining: 4 }, 0), Err(Error::ResourceLimit)));
+            assert!(matches!(compound_0_at(value, &mut DecodeBudget { remaining: 4 }), Err(Error::ResourceLimit)));
         }
     }
 """
@@ -199,8 +202,7 @@ def main():
             let pointer = text.as_ptr();
             let result = compound_0(Argument::List(vec![Argument::Symbol(text)])).unwrap();
             assert_eq!(result[0].as_ptr(), pointer);
-            assert!(matches!(compound_0_at(Argument::List(vec![Argument::Symbol(String::from("x"))]), &mut DecodeBudget { remaining: 1 }, 0), Err(Error::ResourceLimit)));
-            assert!(matches!(compound_0_at(Argument::List(vec![]), &mut DecodeBudget { remaining: MAX_REPLY_WORK }, MAX_REPLY_DEPTH + 1), Err(Error::ResourceLimit)));
+            assert!(matches!(compound_0_at(Argument::List(vec![Argument::Symbol(String::from("x"))]), &mut DecodeBudget { remaining: 1 }), Err(Error::ResourceLimit)));
         }
     }
 """
@@ -238,7 +240,7 @@ def main():
             let pointer = cursor.as_ptr();
             let opaque = Argument::List(vec![Argument::Void; MAX_REPLY_WORK + 1]);
             let value = Argument::Tagged { tag: String::from("access:observation"), value: vec![Argument::Bytes(cursor), opaque, Argument::Boolean(false), Argument::Boolean(true), Argument::List(vec![])] };
-            let result = compound_0_at(value, &mut DecodeBudget { remaining: 6 }, 0).unwrap();
+            let result = compound_0_at(value, &mut DecodeBudget { remaining: 6 }).unwrap();
             assert_eq!(result.0.as_ptr(), pointer);
             assert_eq!(result.1.as_list().unwrap().len(), MAX_REPLY_WORK + 1);
         }
@@ -247,12 +249,53 @@ def main():
             + source[cut:]
         )
         observation.write_text(source)
+        opaque = directory / "compound_opaque.rs"
+        subprocess.run(
+            [
+                checker,
+                "syrup",
+                str(ROOT / "test/interface/scalar_bounds.syrup"),
+                "rust",
+                "bounds.Mixed",
+                "--named",
+                "values",
+                "invoke",
+                str(opaque),
+            ],
+            cwd=ROOT,
+            check=True,
+            timeout=30,
+        )
+        source = opaque.read_text()
+        cut = source.rfind("\n}")
+        source = (
+            source[:cut]
+            + r"""
+    #[cfg(test)]
+    mod opaque_list_tests {
+        use super::*;
+        #[test]
+        fn opaque_list_reuses_its_buffer_without_element_work() {
+            let values = vec![Argument::Void; MAX_REPLY_WORK + 1];
+            let pointer = values.as_ptr();
+            let mut budget = DecodeBudget { remaining: 1 };
+            let result = compound_0_at(Argument::List(values), &mut budget).unwrap();
+            assert_eq!(result.as_ptr(), pointer);
+            assert_eq!(result.len(), MAX_REPLY_WORK + 1);
+            assert_eq!(budget.remaining, 0);
+        }
+    }
+"""
+            + source[cut:]
+        )
+        opaque.write_text(source)
         (directory / "lib.rs").write_text(
             "#![deny(warnings)]\n"
             + "".join(f"pub mod {module};\n" for module, _, _ in IMPORTED + AUTHORED)
             + "".join(f"pub mod {case[0]};\n" for case in CASES + SCALARS)
             + "".join(
-                f"pub mod compound_{name};\n" for name in ("list", "limited", "tuple", "zero", "nested", "observation")
+                f"pub mod compound_{name};\n"
+                for name in ("list", "limited", "tuple", "zero", "nested", "observation", "opaque")
             )
             + f'#[path = "{ROOT}/test/interface/generated/names.rs"]\npub mod names;\n'
             + "pub use names::{text, capability, nothing, Session, Ref, call_0, __glowcap, __glowcap_1, text_1_4096, integer_p0_p256};\n"
@@ -409,9 +452,9 @@ for (const [field, wrong] of [[0, false], [1, new Sym("text")], [2, 1n], [3, []]
 const symbol = new Sym("same object");
 const values = [symbol];
 if (compound_0(values) !== values || compound_0(values)[0] !== symbol) throw new Error("list copied");
-for (const [budget, depth] of [[0, 0], [1, 0], [MAX_REPLY_WORK, MAX_REPLY_DEPTH + 1]]) {
+for (const budget of [0, 1]) {
     let refused = false;
-    try { compound_0_at(values, { remaining: budget }, depth); }
+    try { compound_0_at(values, { remaining: budget }); }
     catch (error) { refused = error instanceof ResourceLimit && !(error instanceof TypeError); }
     if (!refused) throw new Error("decoder resource bound accepted");
 }
@@ -425,9 +468,9 @@ if (!refused) throw new Error("full work limit accepted");
             (directory / "compound_nested.ts").read_text()
             + r"""
 let refused = false;
-try { compound_0_at([[null, null, null]], { remaining: 4 }, 0); }
+try { compound_0_at([[null, null, null]], { remaining: 2 }); }
 catch (error) { refused = error instanceof ResourceLimit; }
-if (!refused) throw new Error("list minimum work did not precede child decoding");
+if (!refused) throw new Error("actual schema visits exceeded the work budget");
 """
         )
         (directory / "compound_observation.ts").write_text(
@@ -437,7 +480,7 @@ const cursor = new Uint8Array(56);
 const opaque = new Array(MAX_REPLY_WORK + 1).fill(null);
 const notices = [new Sym("future"), new Sym("future")];
 const original = new Tagged("access:observation", [cursor, opaque, false, true, notices]);
-const result = compound_0_at(original, { remaining: 8 }, 0);
+const result = compound_0_at(original, { remaining: 8 });
 if (result !== original || result.value[0] !== cursor || result.value[1] !== opaque || result.value[4] !== notices)
     throw new Error("record projection copied or traversed opaque data");
 """
@@ -482,6 +525,8 @@ if (result !== original || result.value[0] !== cursor || result.value[1] !== opa
         )
         assert result.returncode != 0 and b"ExportCollision" in result.stderr, "support export collision accepted"
         assert not collision.exists(), "refused generation wrote output"
+        compound_ts.extend(check_bounds(checker, directory, imports))
+        compound_ts.extend(check_packed(checker, directory, imports))
         consumer = directory / "consumer.ts"
         consumer.write_text("".join(imports))
         subprocess.run(
@@ -501,7 +546,7 @@ if (result !== original || result.value[0] !== cursor || result.value[1] !== opa
                 capture_output=True,
                 timeout=30,
             )
-            assert result.returncode != 0 and b"wrong scalar reply" in result.stderr, "category mutation survived"
+            assert result.returncode != 0 and b"wrong scalar value" in result.stderr, "category mutation survived"
         finally:
             mutant.write_bytes(original)
         assert mutant.read_bytes() == original, "mutation restore was not exact"

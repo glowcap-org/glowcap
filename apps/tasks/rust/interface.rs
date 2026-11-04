@@ -239,17 +239,16 @@ mod __glowcap {
 			Ok(value)
 		}
 	}
-	const MAX_REPLY_DEPTH: usize = 64;
 	const MAX_REPLY_WORK: usize = 65536;
 	// This is a decoder work limit, not a schema collection bound. Opaque value
-	// fields move intact. A typed list needs one Vec allocation because its element
-	// layout differs from Argument, and owns it until result drop or refusal.
+	// fields move intact. Lists whose element layout differs from Argument need
+	// one result Vec allocation, owned until result drop or refusal.
 	struct DecodeBudget {
 		remaining: usize,
 	}
 	impl DecodeBudget {
-		fn step(&mut self, depth: usize) -> Result<(), Error> {
-			if depth > MAX_REPLY_DEPTH || self.remaining == 0 {
+		fn step(&mut self) -> Result<(), Error> {
+			if self.remaining == 0 {
 				return Err(Error::ResourceLimit);
 			}
 			self.remaining -= 1;
@@ -262,11 +261,10 @@ mod __glowcap {
 			&mut DecodeBudget {
 				remaining: MAX_REPLY_WORK,
 			},
-			0,
 		)
 	}
-	fn compound_0_at(value: Argument, budget: &mut DecodeBudget, depth: usize) -> Result<ProjectedType0, Error> {
-		budget.step(depth)?;
+	fn compound_0_at(value: Argument, budget: &mut DecodeBudget) -> Result<ProjectedType0, Error> {
+		budget.step()?;
 		let Argument::Tagged { tag, value: values } = value else {
 			return Err(Error::InvalidReply);
 		};
@@ -279,26 +277,26 @@ mod __glowcap {
 		let mut fields = values.into_iter();
 		Ok(ProjectedType0(
 			{
-				budget.step(depth + 1)?;
+				budget.step()?;
 				bytes_56_56(fields.next().ok_or(Error::InvalidReply)?)
 			}?,
 			{
-				budget.step(depth + 1)?;
+				budget.step()?;
 				Ok::<_, Error>(fields.next().ok_or(Error::InvalidReply)?)
 			}?,
 			{
-				budget.step(depth + 1)?;
+				budget.step()?;
 				boolean(fields.next().ok_or(Error::InvalidReply)?)
 			}?,
 			{
-				budget.step(depth + 1)?;
+				budget.step()?;
 				boolean(fields.next().ok_or(Error::InvalidReply)?)
 			}?,
-			compound_1_at(fields.next().ok_or(Error::InvalidReply)?, budget, depth + 1)?,
+			compound_1_at(fields.next().ok_or(Error::InvalidReply)?, budget)?,
 		))
 	}
-	fn compound_1_at(value: Argument, budget: &mut DecodeBudget, depth: usize) -> Result<Compound1, Error> {
-		budget.step(depth)?;
+	fn compound_1_at(value: Argument, budget: &mut DecodeBudget) -> Result<Compound1, Error> {
+		budget.step()?;
 		let Argument::List(values) = value else {
 			return Err(Error::InvalidReply);
 		};
@@ -308,7 +306,7 @@ mod __glowcap {
 		let mut result = Vec::with_capacity(values.len());
 		for value in values {
 			result.push({
-				budget.step(depth + 1)?;
+				budget.step()?;
 				symbol(value)
 			}?);
 		}

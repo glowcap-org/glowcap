@@ -4,7 +4,7 @@ type DecodeBudget = { remaining: number };
 // One scratch object per observation keeps the work counter shared across
 // recursion. It dies on return/refusal. Arrays, Tagged objects, payloads and
 // capability wrappers remain the runtime's originals, with no extra retains.
-function step(budget: DecodeBudget, depth: number): void {
-	if (depth > MAX_REPLY_DEPTH || budget.remaining === 0) throw new ResourceLimit("reply decoder limit");
+function step(budget: DecodeBudget): void {
+	if (budget.remaining === 0) throw new ResourceLimit("reply decoder limit");
 	budget.remaining--;
 }

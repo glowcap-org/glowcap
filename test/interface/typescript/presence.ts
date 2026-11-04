@@ -110,7 +110,6 @@ async function scenario(profile: HostProfile): Promise<void> {
 				[generated.presence_references, [undefined, reader]],
 				[generated.presence_references, ["not a reference"]],
 				[generated.presence_references, [reader, Promise.resolve(reader)]],
-				[generated.presence_value, [undefined]],
 				[generated.presence_notify, [null]],
 			] satisfies [(...args: never[]) => unknown, unknown[]][]
 		) {
@@ -122,6 +121,29 @@ async function scenario(profile: HostProfile): Promise<void> {
 			}
 			assert(refused, "invalid arguments were not refused before sending");
 		}
+		const localCalls: Argument[][] = [];
+		const local = client.spawn((_verb, args) => {
+			localCalls.push(args);
+			return null;
+		});
+		for (const receiver of [target, local]) {
+			let refused = false;
+			try {
+				generated.presence_value(client, receiver, undefined);
+			} catch (error) {
+				refused = error instanceof TypeError;
+			}
+			assert(refused, "supplied optional opaque undefined was not narrowed");
+		}
+		assert(Number(localCalls.length) === 0, "invalid optional opaque value reached local handler");
+		await generated.presence_value(client, local).observe();
+		await generated.presence_value(client, local, null).observe();
+		await generated.presence_required(client, local, undefined).observe();
+		assert(
+			localCalls.length === 3 && localCalls[0].length === 0 && localCalls[1][0] === null &&
+				localCalls[2][0] === null,
+			"local omission/opaque null/explicit void controls",
+		);
 		await required();
 		assert(calls.length === before + 1, "invalid arguments admitted a call");
 		outcome = "wrong";

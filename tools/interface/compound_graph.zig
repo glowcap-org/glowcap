@@ -10,7 +10,6 @@ pub fn compound(kind: calls.Type) bool {
 /// Scalar and list slots count once. This is not a byte or schema cardinality limit.
 pub const max_inline_structure: usize = 256;
 pub const max_reply_work: usize = 65536;
-pub const max_reply_depth: usize = 64;
 const Node = struct { kind: calls.Type, minimum_work: usize = 0 };
 
 pub const Graph = struct {
@@ -72,9 +71,9 @@ pub const Graph = struct {
         }
     }
 
-    // This shared score counts inline structure and mandatory decoding work.
-    // Admission refuses saturation before output, so admitted scores stay exact
-    // when reused to bound typed-list reservation against the runtime budget.
+    // Inline admission and owned projection count opaque Argument moves.
+    // Borrowed views charge actual checks because local list representations
+    // can establish categories without reading their elements.
     pub fn minimumWork(self: *Graph, kind: calls.Type) !usize {
         try self.spend();
         const index_value = try self.index(kind) orelse return 1;

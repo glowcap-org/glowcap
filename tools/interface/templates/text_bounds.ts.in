@@ -1,0 +1,27 @@
+// Count TextEncoder's UTF-8 length without an encoded-byte allocation. Paired
+// surrogates use four bytes, and each unpaired surrogate becomes U+FFFD (three).
+// A maximum refuses on the first excess. A minimum alone stops once satisfied.
+function text_bytes(value: string, minimum: bigint, maximum: bigint | null): void {
+	// Every UTF-16 unit contributes at most three bytes. Check the counter's
+	// exact range once, before scanning, rather than on each character.
+	if (value.length > Number.MAX_SAFE_INTEGER / 3) throw new TypeError("text byte length exceeds exact counter");
+	let bytes = 0;
+	for (let index = 0; index < value.length; index++) {
+		const unit = value.charCodeAt(index);
+		if (unit < 0x80) bytes++;
+		else if (unit < 0x800) bytes += 2;
+		else {
+			bytes += 3;
+			if (unit >= 0xd800 && unit <= 0xdbff) {
+				const next = value.charCodeAt(index + 1);
+				if (next >= 0xdc00 && next <= 0xdfff) {
+					bytes++;
+					index++;
+				}
+			}
+		}
+		if (maximum !== null && bytes > maximum) throw new TypeError("text outside byte bounds");
+		if (maximum === null && bytes >= minimum) return;
+	}
+	if (bytes < minimum) throw new TypeError("text outside byte bounds");
+}

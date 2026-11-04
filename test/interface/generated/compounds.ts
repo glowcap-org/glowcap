@@ -11,29 +11,41 @@ class Pending<T> {
 }
 
 function symbol_value(value: Argument): Sym {
-	if (!(value instanceof Sym)) throw new TypeError("wrong scalar reply");
+	if (!(value instanceof Sym)) throw new TypeError("wrong scalar value");
 	return value;
 }
 function bytes_2_2(value: Argument): Uint8Array {
-	if (!(value instanceof Uint8Array)) throw new TypeError("wrong scalar reply");
+	if (!(value instanceof Uint8Array)) throw new TypeError("wrong scalar value");
 	if (value.byteLength < 2n || value.byteLength > 2n) throw new TypeError("byte reply outside bounds");
 	return value;
 }
 function boolean_value(value: Argument): boolean {
-	if (typeof value !== "boolean") throw new TypeError("wrong scalar reply");
+	if (typeof value !== "boolean") throw new TypeError("wrong scalar value");
 	return value;
 }
 function capability(value: Argument): Ref {
 	if (!(value instanceof Ref)) throw new TypeError("expected capability reply");
 	return value;
 }
-type Compound0 = Array<Sym>;
-type Compound1 = Array<Sym>;
-type Compound2 = [Uint8Array, Ref, boolean];
-type Compound3 = [];
-type Compound4 = Array<Compound5>;
-type Compound5 = [Sym, Ref, Argument];
-const MAX_REPLY_DEPTH = 64;
+type Sequence<T> = Argument & object & ArrayLike<T> & Iterable<T>;
+type Compound0 = Sequence<Sym>;
+type Compound1 = Sequence<Sym>;
+type Compound2 = Sequence<Uint8Array | Ref | boolean> & {
+	readonly length: 3;
+	readonly 0: Uint8Array;
+	readonly 1: Ref;
+	readonly 2: boolean;
+};
+type Compound3 = Sequence<never> & {
+	readonly length: 0;
+};
+type Compound4 = Sequence<Compound5>;
+type Compound5 = Sequence<Sym | Ref | Argument> & {
+	readonly length: 3;
+	readonly 0: Sym;
+	readonly 1: Ref;
+	readonly 2: Argument;
+};
 const MAX_REPLY_WORK = 65536;
 /** A local decoder limit, independent of schema shape and collection bounds. */
 class ResourceLimit extends Error {}
@@ -41,89 +53,104 @@ type DecodeBudget = { remaining: number };
 // One scratch object per observation keeps the work counter shared across
 // recursion. It dies on return/refusal. Arrays, Tagged objects, payloads and
 // capability wrappers remain the runtime's originals, with no extra retains.
-function step(budget: DecodeBudget, depth: number): void {
-	if (depth > MAX_REPLY_DEPTH || budget.remaining === 0) throw new ResourceLimit("reply decoder limit");
+function step(budget: DecodeBudget): void {
+	if (budget.remaining === 0) throw new ResourceLimit("reply decoder limit");
 	budget.remaining--;
 }
 function compound_0(value: Argument): Compound0 {
-	return compound_0_at(value, { remaining: MAX_REPLY_WORK }, 0);
+	return compound_0_at(value, { remaining: MAX_REPLY_WORK });
 }
-function compound_0_at(value: Argument, budget: DecodeBudget, depth: number): Compound0 {
-	step(budget, depth);
+function compound_0_at(value: Argument, budget: DecodeBudget): Compound0 {
+	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
-	if (values.length > budget.remaining / 1) throw new ResourceLimit("reply work limit");
-	for (let index = 0; index < values.length; index++) {
-		step(budget, depth + 1);
-		symbol_value(values[index]);
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
+	if (values instanceof BigInt64Array) {
+		if (values.length !== 0) throw new TypeError("integer list has incompatible elements");
+	} else {
+		for (let index = 0; index < values.length; index++) {
+			step(budget);
+			symbol_value(values[index]);
+		}
 	}
 	return value as Compound0;
 }
 function compound_1(value: Argument): Compound1 {
-	return compound_1_at(value, { remaining: MAX_REPLY_WORK }, 0);
+	return compound_1_at(value, { remaining: MAX_REPLY_WORK });
 }
-function compound_1_at(value: Argument, budget: DecodeBudget, depth: number): Compound1 {
-	step(budget, depth);
+function compound_1_at(value: Argument, budget: DecodeBudget): Compound1 {
+	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
 	if (values.length > 2n) throw new TypeError("list reply outside bounds");
-	if (values.length > budget.remaining / 1) throw new ResourceLimit("reply work limit");
-	for (let index = 0; index < values.length; index++) {
-		step(budget, depth + 1);
-		symbol_value(values[index]);
+	if (values instanceof BigInt64Array) {
+		if (values.length !== 0) throw new TypeError("integer list has incompatible elements");
+	} else {
+		for (let index = 0; index < values.length; index++) {
+			step(budget);
+			symbol_value(values[index]);
+		}
 	}
 	return value as Compound1;
 }
 function compound_2(value: Argument): Compound2 {
-	return compound_2_at(value, { remaining: MAX_REPLY_WORK }, 0);
+	return compound_2_at(value, { remaining: MAX_REPLY_WORK });
 }
-function compound_2_at(value: Argument, budget: DecodeBudget, depth: number): Compound2 {
-	step(budget, depth);
+function compound_2_at(value: Argument, budget: DecodeBudget): Compound2 {
+	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
 	if (values.length !== 3) throw new TypeError("wrong reply arity");
-	step(budget, depth + 1);
-	bytes_2_2(values[0]);
-	step(budget, depth + 1);
-	capability(values[1]);
-	step(budget, depth + 1);
-	boolean_value(values[2]);
+	if (values instanceof BigInt64Array) {
+		throw new TypeError("integer tuple has incompatible fields");
+	} else {
+		step(budget);
+		bytes_2_2(values[0]);
+		step(budget);
+		capability(values[1]);
+		step(budget);
+		boolean_value(values[2]);
+	}
 	return value as Compound2;
 }
 function compound_3(value: Argument): Compound3 {
-	return compound_3_at(value, { remaining: MAX_REPLY_WORK }, 0);
+	return compound_3_at(value, { remaining: MAX_REPLY_WORK });
 }
-function compound_3_at(value: Argument, budget: DecodeBudget, depth: number): Compound3 {
-	step(budget, depth);
+function compound_3_at(value: Argument, budget: DecodeBudget): Compound3 {
+	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
 	if (values.length !== 0) throw new TypeError("wrong reply arity");
 	return value as Compound3;
 }
 function compound_4(value: Argument): Compound4 {
-	return compound_4_at(value, { remaining: MAX_REPLY_WORK }, 0);
+	return compound_4_at(value, { remaining: MAX_REPLY_WORK });
 }
-function compound_4_at(value: Argument, budget: DecodeBudget, depth: number): Compound4 {
-	step(budget, depth);
+function compound_4_at(value: Argument, budget: DecodeBudget): Compound4 {
+	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
-	if (values.length > budget.remaining / 4) throw new ResourceLimit("reply work limit");
-	for (let index = 0; index < values.length; index++) {
-		compound_5_at(values[index], budget, depth + 1);
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
+	if (values instanceof BigInt64Array) {
+		if (values.length !== 0) throw new TypeError("integer list has incompatible elements");
+	} else {
+		for (let index = 0; index < values.length; index++) {
+			compound_5_at(values[index], budget);
+		}
 	}
 	return value as Compound4;
 }
-function compound_5_at(value: Argument, budget: DecodeBudget, depth: number): Compound5 {
-	step(budget, depth);
+function compound_5_at(value: Argument, budget: DecodeBudget): Compound5 {
+	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
 	if (values.length !== 3) throw new TypeError("wrong reply arity");
-	step(budget, depth + 1);
-	symbol_value(values[0]);
-	step(budget, depth + 1);
-	capability(values[1]);
-	step(budget, depth + 1);
-	if (values[2] === undefined) throw new TypeError("expected opaque value reply");
+	if (values instanceof BigInt64Array) {
+		throw new TypeError("integer tuple has incompatible fields");
+	} else {
+		step(budget);
+		symbol_value(values[0]);
+		step(budget);
+		capability(values[1]);
+	}
 	return value as Compound5;
 }
 

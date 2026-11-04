@@ -37,9 +37,13 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
         if (records) try out.appendSlice(a, "import { Tagged } from \"@glowcap/runtime\";\n");
     }
     if (pending) try out.appendSlice(a, @embedFile("templates/pending.ts.in") ++ "\n");
-    try scalars.replies(&out, a, projection.scalar_types.items);
+    try scalars.replies(&out, a, projection.scalar_types.items, methods);
     const replies = projection.leaves;
-    for ([_]calls.Kind{ .target, .text, .nothing }) |kind| if (replies.contains(kind)) {
+    var plain_text = false;
+    for (projection.scalar_types.items) |kind| {
+        plain_text = plain_text or (kind == .text and !scalars.bounded(kind.text));
+    }
+    for ([_]calls.Kind{ .target, .text, .nothing }) |kind| if (if (kind == .text) plain_text else replies.contains(kind)) {
         try out.appendSlice(a, switch (kind) {
             .target => "function capability(value: Argument): Ref {\n" ++
                 "\tif (!(value instanceof Ref)) throw new TypeError(\"expected capability reply\");\n" ++
@@ -81,12 +85,27 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
             const optional = i >= call.required_parameters;
             if (optional) try out.print(a, "\tif (supplied > {d}) {{\n", .{i});
             const indent = if (optional) "\t\t" else "\t";
+            if (kind == .value) {
+                // Optional syntax widens Argument to include undefined. A
+                // supplied value must narrow back before local or far dispatch.
+                if (optional) try out.print(a, "{s}if (arg{d} === undefined) throw new TypeError(\"present value cannot be undefined\");\n", .{ indent, i });
+                try out.print(a, "{s}args[{d}] = arg{d};\n", .{ indent, i, i });
+                if (optional) try out.appendSlice(a, "\t}\n");
+                continue;
+            }
+            if (scalars.checked(kind)) {
+                try out.print(a, "{s}args[{d}] = ", .{ indent, i });
+                try scalars.decoder(&out, a, kind);
+                try out.print(a, "(arg{d});\n", .{i});
+                if (optional) try out.appendSlice(a, "\t}\n");
+                continue;
+            }
             try out.print(a, "{s}if (", .{indent});
             switch (kind) {
                 .nothing => try out.print(a, "arg{d} !== undefined", .{i}),
                 .text => try out.print(a, "typeof arg{d} !== \"string\"", .{i}),
                 .target, .pending_target => try out.print(a, "!(arg{d} instanceof Ref) && !(arg{d} instanceof RemotePromise)", .{ i, i }),
-                .value => try out.print(a, "arg{d} === undefined", .{i}),
+                .value => unreachable,
                 .pending_value, .list, .tuple, .record => return error.UnsupportedProjection,
                 .boolean, .bytes, .symbol, .float64, .error_value => {
                     var name: [32]u8 = undefined;
@@ -112,7 +131,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
             try out.appendSlice(a, "\treturn new Pending(raw, ");
             switch (call.result) {
                 .target => try out.appendSlice(a, "capability"),
-                .text => try out.appendSlice(a, "text"),
+                .text, .integer => try scalars.decoder(&out, a, call.result),
                 .nothing => try out.appendSlice(a, "nothing"),
                 .boolean, .bytes, .symbol, .float64, .error_value => try scalars.decoder(&out, a, call.result),
                 .list, .tuple, .record => try compounds.decoder(&out, a, &projection, call.result),

@@ -57,10 +57,12 @@ export type PromiseLowering = (promise: Promise<unknown>) => Ref;
 // Encodes args into one contiguous Uint8Array of ARG_SIZE structs, pushing any
 // backing byte/child buffers onto `keep` so they outlive the FFI call.
 export function encodeArgs(args: Argument[], keep: Uint8Array[], lower?: PromiseLowering): Uint8Array {
-	if (args.length === 0) return EMPTY_ARGS;
-	const buf = new Uint8Array(L.ARG_SIZE * args.length);
+	const count = args.length;
+	if (count === 0) return EMPTY_ARGS;
+	const buf = new Uint8Array(L.ARG_SIZE * count);
 	const dv = new DataView(buf.buffer);
-	args.forEach((arg, i) => encodeArg(dv, i * L.ARG_SIZE, arg, keep, lower));
+	// Visit every slot so a sparse hole reaches the unsupported-value refusal.
+	for (let i = 0; i < count; i++) encodeArg(dv, i * L.ARG_SIZE, args[i], keep, lower);
 	keep.push(buf);
 	return buf;
 }
@@ -68,7 +70,7 @@ export function encodeArgs(args: Argument[], keep: Uint8Array[], lower?: Promise
 function encodeArg(
 	dv: DataView,
 	off: number,
-	arg: Argument,
+	arg: unknown,
 	keep: Uint8Array[],
 	lower: PromiseLowering | undefined,
 ): void {
@@ -153,16 +155,19 @@ function encodeStructEntries(
 	keep: Uint8Array[],
 	lower: PromiseLowering | undefined,
 ): Uint8Array {
-	if (entries.length === 0) return EMPTY_ARGS;
-	const buf = new Uint8Array(L.ARG_SIZE * entries.length * 2);
+	const count = entries.length;
+	if (count === 0) return EMPTY_ARGS;
+	const buf = new Uint8Array(L.ARG_SIZE * count * 2);
 	const dv = new DataView(buf.buffer);
-	entries.forEach(([key, value], i) => {
-		if (typeof key !== "string") {
+	for (let i = 0; i < count; i++) {
+		const entry = entries[i];
+		if (typeof entry?.[0] !== "string") {
 			throw new GlowcapError(UNSUPPORTED_VALUE, "Struct entries must be String/value pairs");
 		}
+		const [key, value] = entry;
 		encodeArg(dv, i * 2 * L.ARG_SIZE, key, keep, undefined);
 		encodeArg(dv, (i * 2 + 1) * L.ARG_SIZE, value, keep, lower);
-	});
+	}
 	keep.push(buf);
 	return buf;
 }

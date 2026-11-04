@@ -63,6 +63,22 @@ class Fixtures(unittest.TestCase):
         self.assertEqual(limits, {"max_items": 2})
         self.assertEqual(record(record(methods["zero"], "method")[1], "tuple"), [[]])
 
+    def test_scalar_bound_facts(self):
+        version, profiles, definitions = record(
+            read_canonical((ROOT / "test/interface/scalar_bounds.syrup").read_bytes()), "glowcap:interface"
+        )
+        self.assertEqual((version, profiles), (1, {"glowcap.values": 1}))
+        for category in ("Integer", "Text"):
+            empty = record(record(definitions[f"bounds.{category}Empty"], "type")[0], "bounded")
+            self.assertEqual(empty[1], {})
+            methods = record(definitions[f"bounds.{category}"], "interface")[0]
+            self.assertEqual(len(methods), 28)
+        integer, limits = record(record(definitions["bounds.IntegerSigned"], "type")[0], "bounded")
+        self.assertEqual((integer.name, limits), ("integer", {"min": -(2**63), "max": 2**63 - 1}))
+        text, limits = record(record(definitions["bounds.TextAlias"], "type")[0], "bounded")
+        self.assertEqual(record(text, "ref"), ["bounds.TextBounded"])
+        self.assertEqual(limits, {"min_bytes": 0, "max_bytes": 100})
+
     def methods(self, name):
         return record(self.defs[name], "interface")[0]
 
