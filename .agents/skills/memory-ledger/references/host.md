@@ -32,6 +32,11 @@ custody costs.
   Tagged records, payloads, or capability wrappers. The template declaration
   owns its lifetime derivation, and direct emitted tests preserve identity.
 
+- **Generated TypeScript observation**: `Pending` in
+  `tools/interface/templates/pending.ts.in` observes through the original raw
+  promise. Its `then` method adds a chained promise so decoder failures reach
+  the awaiter's rejection callback. No reply or capability wrapper is copied.
+
 - **Borrowed callback capabilities**: `HostTurn.retainArguments` keeps incoming
   identities live through reply consumption. A capability-bearing input adds one
   five-word turn-arena node (`ArgumentLease` plus `ResourceCleanup`), with no

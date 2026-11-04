@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix="glowcap-authoring-cli-") as directory:
         )
         assert output.is_file(), "valid identifier did not produce output"
 
-        for name in ("Error", "Pending", "Observation") if target == "rust" else ("Pending",):
+        for name in ("Error", "Pending", "Observation") if target == "rust" else ("Pending", "then"):
             refused = Path(directory) / f"refused-{name}.{target}"
             result = subprocess.run(
                 [checker, "syrup", fixture, target, "comparison.Reader", "--named", "read", name, refused],

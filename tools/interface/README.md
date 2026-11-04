@@ -72,6 +72,17 @@ float64 values. A fulfilled error remains data, distinct from a broken call.
 TypeScript handles select `RemotePromise.withGc` before observation, preserving
 the [shared raw views and borrowed local results](../../test/interface/contract.md#typescript-compound-replies).
 
+Await a TypeScript call to receive its checked result, for example
+`const text = await reader_read(session, reader)`.
+Keep the returned handle before awaiting when another call needs its `raw`
+pending target. The handle also provides `observe()` for APIs that require a
+`Promise`. Awaiting, `then`, and promise composition use that same observation.
+Each `then` call adds a chained promise, without copying the reply.
+
+TypeScript reserves the export name `then`, because dynamic import would invoke
+that function as promise resolution. A wire method named `then` uses a different
+API name, such as `reader_then`.
+
 Text source describes lists, tuples, positional records and single-payload tagged
 values through the same checked model as Syrup input. A tagged tuple stays one
 payload. String-keyed structs, maps and unions remain unsupported.

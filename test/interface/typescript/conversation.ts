@@ -9,6 +9,7 @@ import { bounds } from "./bounds.ts";
 import { compounds } from "./compounds.ts";
 import { scalars } from "./scalars.ts";
 import { outcomeGc } from "./outcome_gc.ts";
+import { awaiting } from "./awaiting.ts";
 import { assert, withPair } from "./pair.ts";
 
 type Outcome = "reader" | "wrong" | "broken" | "cancel";
@@ -58,8 +59,7 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 			} else throw new Error("unknown sink method");
 		});
 		const opened = generated.factory_open(client, root, callback);
-		assert(!("then" in opened), "pending wrapper must not be assimilated");
-		assert(await Promise.resolve(opened) === opened, "Promise.resolve preserves wrapper");
+		const assimilated = Promise.resolve(opened);
 		await generated.factory_accept(client, root, opened.raw).observe();
 		assert(pending && argument && sink && settle, "unobserved open sent immediately");
 		await generated.sink_changed(accepted, sink, "notice");
@@ -68,7 +68,7 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 
 		const raw = opened.raw.then((value) => value);
 		const pipelined = generated.reader_read(client, opened.raw);
-		const observed = Promise.allSettled([opened.observe(), raw, pipelined.observe()]);
+		const observed = Promise.allSettled([assimilated, raw, pipelined]);
 		pending = false;
 		if (outcome === "cancel") {
 			await client.close({ pending: "cancel" });
@@ -116,6 +116,7 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 	});
 }
 
+await awaiting();
 await invocation();
 await presence();
 await scalars();

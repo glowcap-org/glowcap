@@ -3,12 +3,19 @@ import { type Argument, Ref, RemotePromise } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
 import { Sym } from "@glowcap/runtime";
 /** Observation checks a reply without replacing the runtime's pending target. */
-class Pending<T> {
+class Pending<T> implements PromiseLike<T> {
 	constructor(readonly raw: RemotePromise, private readonly decode: (value: Argument) => T) {
 		raw.withGc();
 	}
 	observe(): Promise<T> {
 		return this.raw.then(this.decode);
+	}
+	then<Fulfilled = T, Rejected = never>(
+		onFulfilled?: ((value: T) => Fulfilled | PromiseLike<Fulfilled>) | null,
+		onRejected?: ((reason: unknown) => Rejected | PromiseLike<Rejected>) | null,
+	): Promise<Fulfilled | Rejected> {
+		// The chained Promise carries decoder failures into await's rejection callback.
+		return this.observe().then(onFulfilled, onRejected);
 	}
 }
 
