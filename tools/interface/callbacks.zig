@@ -75,7 +75,7 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
         try emitArguments(out, a, call);
         try out.appendSlice(a, "\t];\n");
     }
-    try out.appendSlice(a, if (call.effect == .tell) (if (optional) "\tsession\n\t\t.tell(target, " else "\tsession.tell(target, ") else "\tlet raw = session.send(target, ");
+    try out.appendSlice(a, if (call.effect == .tell) "\tlet result = session.tell(target, " else "\tlet raw = session.send(target, ");
     if (call.wire_name) |name| try literal(out, a, name) else try out.appendSlice(a, "None::<&str>");
     if (optional) {
         try out.appendSlice(a, ", &arguments[..count]");
@@ -85,7 +85,7 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
         try out.appendSlice(a, "]");
     }
     if (call.effect == .tell) {
-        try out.appendSlice(a, if (optional) ")\n\t\t.map_err(Error::Runtime)\n}\n" else ").map_err(Error::Runtime)\n}\n");
+        try out.appendSlice(a, ");\n\tresult.map_err(Error::Runtime)\n}\n");
     } else {
         try out.print(a, ");\n\t{s}Pending::new(raw, ", .{if (fallible) "Ok(" else ""});
         try bounds.decoder(out, a, call.result);

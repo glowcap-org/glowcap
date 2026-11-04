@@ -212,7 +212,8 @@ mod __glowcap {
 	}
 
 	pub fn call_4(session: &Session, target: impl AsSendTarget, arg0: Argument) -> Result<(), Error> {
-		session.tell(target, "changed", &[arg0]).map_err(Error::Runtime)
+		let result = session.tell(target, "changed", &[arg0]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_5(session: &Session, target: impl AsSendTarget) -> Pending<String> {
@@ -231,7 +232,8 @@ mod __glowcap {
 	}
 
 	pub fn call_8(session: &Session, target: impl AsSendTarget, arg0: Argument) -> Result<(), Error> {
-		session.tell(target, None::<&str>, &[arg0]).map_err(Error::Runtime)
+		let result = session.tell(target, None::<&str>, &[arg0]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_9(session: &Session, target: impl AsSendTarget) -> Pending<String> {
@@ -341,9 +343,8 @@ mod __glowcap {
 			// Fixed stack scratch; omitted slots are outside the sent prefix.
 			arg0.map(Argument::from).unwrap_or(Argument::Void),
 		];
-		session
-			.tell(target, "notify", &arguments[..count])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "notify", &arguments[..count]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_18(

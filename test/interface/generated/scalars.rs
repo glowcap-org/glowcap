@@ -177,9 +177,8 @@ mod __glowcap {
 	}
 
 	pub fn call_2(session: &Session, target: impl AsSendTarget, arg0: bool) -> Result<(), Error> {
-		session
-			.tell(target, "bool_tell", &[arg0.into()])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "bool_tell", &[arg0.into()]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_3(
@@ -193,9 +192,8 @@ mod __glowcap {
 			// Fixed stack scratch; omitted slots are outside the sent prefix.
 			arg0.map(Argument::from).unwrap_or(Argument::Void),
 		];
-		session
-			.tell(target, "bool_optional_tell", &arguments[..count])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "bool_optional_tell", &arguments[..count]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_4(session: &Session, target: impl AsSendTarget, arg0: Vec<u8>) -> Pending<Vec<u8>> {
@@ -219,9 +217,8 @@ mod __glowcap {
 	}
 
 	pub fn call_6(session: &Session, target: impl AsSendTarget, arg0: Vec<u8>) -> Result<(), Error> {
-		session
-			.tell(target, "bytes_tell", &[arg0.into()])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "bytes_tell", &[arg0.into()]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_7(
@@ -235,9 +232,8 @@ mod __glowcap {
 			// Fixed stack scratch; omitted slots are outside the sent prefix.
 			arg0.map(Argument::Bytes).unwrap_or(Argument::Void),
 		];
-		session
-			.tell(target, "bytes_optional_tell", &arguments[..count])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "bytes_optional_tell", &arguments[..count]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_8(session: &Session, target: impl AsSendTarget, arg0: Vec<u8>) -> Result<Pending<Vec<u8>>, Error> {
@@ -272,9 +268,8 @@ mod __glowcap {
 		if !(1u128..=4u128).contains(&(arg0.len() as u128)) {
 			return Err(Error::InvalidArgument);
 		}
-		session
-			.tell(target, "bounded_tell", &[arg0.into()])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "bounded_tell", &[arg0.into()]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_11(
@@ -293,9 +288,8 @@ mod __glowcap {
 			// Fixed stack scratch; omitted slots are outside the sent prefix.
 			arg0.map(Argument::Bytes).unwrap_or(Argument::Void),
 		];
-		session
-			.tell(target, "bounded_optional_tell", &arguments[..count])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "bounded_optional_tell", &arguments[..count]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_12(session: &Session, target: impl AsSendTarget, arg0: String) -> Pending<String> {
@@ -319,9 +313,8 @@ mod __glowcap {
 	}
 
 	pub fn call_14(session: &Session, target: impl AsSendTarget, arg0: String) -> Result<(), Error> {
-		session
-			.tell(target, "symbol_tell", &[Argument::Symbol(arg0)])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "symbol_tell", &[Argument::Symbol(arg0)]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_15(
@@ -335,9 +328,8 @@ mod __glowcap {
 			// Fixed stack scratch; omitted slots are outside the sent prefix.
 			arg0.map(Argument::Symbol).unwrap_or(Argument::Void),
 		];
-		session
-			.tell(target, "symbol_optional_tell", &arguments[..count])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "symbol_optional_tell", &arguments[..count]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_16(session: &Session, target: impl AsSendTarget, arg0: f64) -> Pending<f64> {
@@ -361,9 +353,8 @@ mod __glowcap {
 	}
 
 	pub fn call_18(session: &Session, target: impl AsSendTarget, arg0: f64) -> Result<(), Error> {
-		session
-			.tell(target, "float_tell", &[arg0.into()])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "float_tell", &[arg0.into()]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_19(
@@ -377,9 +368,8 @@ mod __glowcap {
 			// Fixed stack scratch; omitted slots are outside the sent prefix.
 			arg0.map(Argument::from).unwrap_or(Argument::Void),
 		];
-		session
-			.tell(target, "float_optional_tell", &arguments[..count])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "float_optional_tell", &arguments[..count]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_20(session: &Session, target: impl AsSendTarget, arg0: String) -> Pending<String> {
@@ -403,9 +393,8 @@ mod __glowcap {
 	}
 
 	pub fn call_22(session: &Session, target: impl AsSendTarget, arg0: String) -> Result<(), Error> {
-		session
-			.tell(target, "error_tell", &[Argument::Error(arg0)])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "error_tell", &[Argument::Error(arg0)]);
+		result.map_err(Error::Runtime)
 	}
 
 	pub fn call_23(
@@ -419,8 +408,7 @@ mod __glowcap {
 			// Fixed stack scratch; omitted slots are outside the sent prefix.
 			arg0.map(Argument::Error).unwrap_or(Argument::Void),
 		];
-		session
-			.tell(target, "error_optional_tell", &arguments[..count])
-			.map_err(Error::Runtime)
+		let result = session.tell(target, "error_optional_tell", &arguments[..count]);
+		result.map_err(Error::Runtime)
 	}
 }
