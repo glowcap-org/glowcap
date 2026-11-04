@@ -14,10 +14,10 @@ pub const Needs = struct {
         const pending = self.receipt or self.replies.count() != 0;
         const imports = .{
             .{ "Argument", self.arguments or self.references or self.optional or pending },
+            .{ "AsSendTarget", self.ordinary },
             .{ "Ref", self.references or self.receipt or self.replies.contains(.target) },
             .{ "RemotePromise", self.references or pending },
             .{ "Session", self.ordinary or self.receipt },
-            .{ "AsSendTarget", self.ordinary },
         };
         inline for (imports) |item| if (item[1]) {
             try out.print(a, "use glowcap::{s};\n", .{item[0]});
