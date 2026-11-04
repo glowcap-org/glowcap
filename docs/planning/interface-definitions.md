@@ -346,11 +346,9 @@ arity, bounds, and sequence handling.
 | Zig content selector/argument projection, generated shape and bounds checks | Storage schemas, authorization, transactions, child materialization, participant admission, membership, capacity policy |
 | Client copies of method names and return shapes | Session ownership, persistence, retry decisions, cancellation policy |
 
-Move `max_name_bytes`, `max_text_bytes`, `max_lists`, and `max_tasks` to the
-shared generated owner when their consumers migrate. The generated creation
-projection owns `max_text_bytes`, and `board.zig` keeps the other three until
-their consumers migrate. Fixture
-limits remain independently checked expectations.
+Tasks creation and read projections own `max_name_bytes`, `max_text_bytes`,
+`max_lists`, and `max_tasks`. The board converts them to its storage types.
+Fixture limits remain independently checked expectations.
 Do not introduce a second production constants table during this leg.
 
 Initial ceilings, fixed before compiler implementation:
