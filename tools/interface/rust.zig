@@ -13,8 +13,8 @@ pub fn emit(a: std.mem.Allocator, method: Creation) ![]u8 {
     try out.print(a, "const MIN_TEXT_BYTES: usize = {d};\nconst MAX_TEXT_BYTES: usize = {d};\nconst ADD_VERB: &str = ", .{ method.minimum, method.maximum });
     try literal(&out, a, method.wire_name);
     try out.appendSlice(a, ";\n");
-    try out.appendSlice(a, @embedFile("templates/support.rs"));
-    try out.appendSlice(a, @embedFile("templates/receipt.rs"));
+    const needs: @import("rust_support.zig").Needs = .{ .receipt = true, .replies = .initOne(.target) };
+    try needs.emit(&out, a);
     try out.appendSlice(a, @embedFile("templates/creation.rs"));
     return out.toOwnedSlice(a);
 }

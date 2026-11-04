@@ -23,6 +23,7 @@ pub fn register(
     attach: bool,
     demo_usage_mod: *std.Build.Module,
     demo_tools_check_mod: *std.Build.Module,
+    interface_checker: *std.Build.Step.Compile,
 ) void {
     // The tasks cross-language application demo: a capability-secure shared task
     // board with CRUD operations and live change notifications through capability
@@ -67,7 +68,7 @@ pub fn register(
     tasks_app_test_step.dependOn(&run_tasks_board.step);
     check_step.dependOn(tasks_app_test_step);
 
-    @import("interface.zig").registerRuntime(b, tasks_server_exe, runtime_gate, check_step);
+    @import("interface.zig").registerRuntime(b, tasks_server_exe, runtime_gate, check_step, interface_checker);
 
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
     // coordinator hands an agent capabilities to tools, attenuated to read-only,

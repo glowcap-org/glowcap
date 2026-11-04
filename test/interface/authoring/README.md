@@ -63,6 +63,14 @@ passable pending input before settlement, and an unknown remote break.
 The shared runtime corpus remains the evidence for the other emitter paths.
 A description match alone does not establish runtime support for a type.
 
+`interface-conversation-check` also compiles isolated Rust projections
+from [rust_helpers.interface](rust_helpers.interface). Each is a public library
+module checked with `cargo clippy --lib -- -D warnings`, without lint allowances.
+The cases cover text, capability and value replies, reference inputs, optional
+arguments, receipt preparation, and tells with zero, string, undefined, value,
+or optional arguments. The scratch library reuses the conversation crate's
+dependencies, lockfile, and Cargo caches. It adds no runtime calls.
+
 The adapter has no new production dependency. An arena owns decoded tokens and
 encoded fragments for one compilation, and the caller owns the final canonical
 byte copy. The shared reader's input, node, and depth limits also bound this

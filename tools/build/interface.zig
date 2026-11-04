@@ -4,7 +4,7 @@ const commands = @import("commands.zig");
 const execution = @import("execution.zig");
 const addInstalledSystemRun = commands.addInstalledSystemRun;
 
-pub fn registerRuntime(b: *std.Build, tasks_server: *std.Build.Step.Compile, runtime_gate: *execution.RuntimeGate, check_step: *std.Build.Step) void {
+pub fn registerRuntime(b: *std.Build, tasks_server: *std.Build.Step.Compile, runtime_gate: *execution.RuntimeGate, check_step: *std.Build.Step, checker: *std.Build.Step.Compile) void {
     const rust_build = addInstalledSystemRun(b, .build_tool, &.{ "cargo", "build", "--manifest-path", "test/interface/rust/Cargo.toml", "--bin", "interface-conversation-proof" });
     const rust_proof = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "run", "--allow-read", "--allow-write", "--allow-run", "--allow-env", "test/interface/run.ts",
@@ -17,8 +17,13 @@ pub fn registerRuntime(b: *std.Build, tasks_server: *std.Build.Step.Compile, run
     });
     commands.setLibDir(typescript, .host);
     typescript.has_side_effects = true;
-    const conversation_step = b.step("interface-conversation-check", "Prove generated Tasks creation and Rust/TypeScript pending callback conversations (needs cargo + deno)");
+    const minimal_rust = addInstalledSystemRun(b, .build_tool, &.{ "python3", "test/interface/authoring/check_rust.py" });
+    minimal_rust.addArtifactArg(checker);
+    minimal_rust.step.dependOn(&rust_build.step);
+    commands.setLibDir(minimal_rust, .host);
+    const conversation_step = b.step("interface-conversation-check", "Prove generated Tasks creation and Rust/TypeScript pending callback conversations (needs cargo + deno + python3)");
     conversation_step.dependOn(&rust_proof.step);
+    conversation_step.dependOn(&minimal_rust.step);
     conversation_step.dependOn(&typescript.step);
     runtime_gate.add(conversation_step);
     registerGoblins(b, tasks_server, check_step);

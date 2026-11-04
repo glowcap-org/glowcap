@@ -2,12 +2,10 @@
 const MIN_TEXT_BYTES: usize = 1;
 const MAX_TEXT_BYTES: usize = 4096;
 const ADD_VERB: &str = "add";
-use glowcap::{Argument, Ref, RemotePromise, Session};
-use std::{
-	future::{Future, IntoFuture},
-	pin::Pin,
-	task::{Context, Poll},
-};
+use glowcap::Argument;
+use glowcap::Ref;
+use glowcap::RemotePromise;
+use glowcap::Session;
 #[derive(Debug)]
 pub enum Error {
 	InvalidArgument,
@@ -38,6 +36,11 @@ impl From<glowcap::Error> for Error {
 		Self::Runtime(error)
 	}
 }
+use std::{
+	future::{Future, IntoFuture},
+	pin::Pin,
+	task::{Context, Poll},
+};
 pub struct Pending<T> {
 	raw: RemotePromise,
 	decode: fn(Argument) -> Result<T, Error>,
@@ -73,9 +76,6 @@ impl<T> IntoFuture for Pending<T> {
 			decode: self.decode,
 		}
 	}
-}
-fn capability(value: Argument) -> Result<Ref, Error> {
-	Ref::try_from(&value).map_err(|_| Error::InvalidReply)
 }
 use std::rc::Rc;
 
@@ -115,6 +115,9 @@ where
 			decode,
 		})
 	}
+}
+fn capability(value: Argument) -> Result<Ref, Error> {
+	Ref::try_from(&value).map_err(|_| Error::InvalidReply)
 }
 /// Copies text before acquiring a sequence. The prepared request owns that
 /// snapshot until it is dropped, so caller edits cannot change submission or replay.
