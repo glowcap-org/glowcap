@@ -169,6 +169,8 @@ def copy_sources():
         "tools/interface/templates/pending.rs",
         "tools/interface/templates/optional.rs",
         "tools/interface/rust_support.zig",
+        "tools/interface/rust_bounds.zig",
+        "tools/interface/zig_reads.zig",
         "tools/interface/callbacks.zig",
         "apps/tasks/rust/interface.rs",
         "test/interface/generated/callbacks.rs",

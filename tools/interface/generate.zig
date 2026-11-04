@@ -56,7 +56,17 @@ fn generateZig(a: std.mem.Allocator) ![]u8 {
     defer arena.deinit();
     var model = try Model.init(try description.read(arena.allocator(), @embedFile("contract")));
     const method = try model.creation("tasks.TaskList", creation_method);
-    return zig.emit(a, method);
+    const reads = try serverReads(arena.allocator(), &model);
+    return zig.emitServer(a, method, &reads);
+}
+
+fn serverReads(a: std.mem.Allocator, model: *Model) ![6]calls.Named {
+    const selections = task_reads ++ .{.{ "tasks.Board", "lists", "board_lists" }};
+    var reads: [selections.len]calls.Named = undefined;
+    inline for (selections, 0..) |selected_method, i| {
+        reads[i] = .{ .api = selected_method[2], .call = try calls.read(a, model, selected_method[0], selected_method[1]) };
+    }
+    return reads;
 }
 
 fn generateCalls(a: std.mem.Allocator, comptime emitter: type, comptime selections: anytype) ![]u8 {
@@ -304,4 +314,46 @@ test "direct receiver projection refuses unqualified call shapes" {
     call.result = .nothing;
     call.effect = .tell;
     try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
+}
+
+test "server read emitter keeps edited constraints and rejects unsupported shapes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var model = try Model.init(try description.read(a, @embedFile("contract")));
+    const creation = try model.creation("tasks.TaskList", creation_method);
+    const original = try serverReads(a, &model);
+    var edited = original;
+    edited[1].call.result = .{ .text = .{ .min = 2, .max = 32 } };
+    edited[2].call.result = .{ .integer = .{ .min = 1, .max = 12 } };
+    edited[5].call.result = .{ .integer = .{ .min = 0, .max = 8 } };
+    edited[0].call.wire_name = "renamed-list";
+    const source = try zig.emitServer(a, creation, &edited);
+    for ([_][]const u8{
+        "pub const max_name_bytes: u64 = 32;",
+        "pub const max_tasks: u64 = 12;",
+        "pub const max_lists: u64 = 8;",
+        "@as(u128, bytes.len) < 2 or @as(u128, bytes.len) > 32",
+        "@as(u128, count) < 1 or @as(u128, count) > 12",
+        "pub const board_list_verb = \"renamed-list\";",
+    }) |needle| try std.testing.expect(std.mem.indexOf(u8, source, needle) != null);
+    // Full-width schema maxima stay u64. Storage owns its separate usize cast.
+    edited = original;
+    edited[1].call.result = .{ .text = .{ .max = std.math.maxInt(u64) } };
+    const wide = try zig.emitServer(a, creation, &edited);
+    try std.testing.expect(std.mem.indexOf(u8, wide, "pub const max_name_bytes: u64 = 18446744073709551615;") != null);
+    for (0..7) |case| {
+        edited = original;
+        switch (case) {
+            0 => edited[1].call.result = .{ .text = .{} },
+            1 => edited[2].call.result = .{ .integer = .{ .min = -1, .max = 12 } },
+            2 => edited[2].call.result = .{ .integer = .{ .min = 0 } },
+            3 => edited[3].call.parameters = &.{.{ .integer = .{ .min = 0, .max = 16 } }},
+            4 => edited[0].call.parameters = &.{.{ .integer = .{ .min = 0 } }},
+            5 => edited[1].call.parameters = &.{.{ .text = .{} }},
+            6 => edited[1].call.result = .value,
+            else => unreachable,
+        }
+        try std.testing.expectError(error.UnsupportedProjection, zig.emitServer(a, creation, &edited));
+    }
 }

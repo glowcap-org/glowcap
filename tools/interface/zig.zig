@@ -1,5 +1,5 @@
-//! Zig argument projection for the public creation request. Loam still owns
-//! creation and its public capability reply.
+//! Zig checks for Tasks creation and reads. Loam still owns creation,
+//! disclosure, and public capability materialization.
 const std = @import("std");
 const model = @import("model.zig");
 const Creation = model.Creation;
@@ -51,4 +51,12 @@ pub fn emitDirect(a: std.mem.Allocator, call: @import("calls.zig").Call) ![]u8 {
         \\}
         \\
     );
+}
+
+/// Creation and read checks share one generated module without a runtime schema.
+pub fn emitServer(a: std.mem.Allocator, method: Creation, reads: []const @import("calls.zig").Named) ![]u8 {
+    var out = std.ArrayList(u8).fromOwnedSlice(try emit(a, method));
+    errdefer out.deinit(a);
+    try @import("zig_reads.zig").emit(&out, a, reads);
+    return out.toOwnedSlice(a);
 }

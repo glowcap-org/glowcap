@@ -251,7 +251,7 @@ so a peer with no listening socket can still reply and take part in a handoff.
 - `zig build` installs the `glowcap` command. It can listen, dial, call, fetch, run an interactive CapTP lab, serve
   an MCP interface, and join a Rooms session ([CLI guide](cli.md)).
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
-  Tasks uses generated Zig creation checks and a Rust retained-request client from a Syrup contract, plus five bounded Rust read calls.
+  Tasks uses generated Zig creation and six server read checks from a Syrup contract, plus a Rust retained-request client and five bounded read calls.
   Rust prepared pending arguments run through acquisition and replay on both wire profiles.
   Generated Rust and TypeScript callers preserve positional, empty-symbol, and named invocation,
   and distinguish omitted arguments from explicit undefined values on both profiles.

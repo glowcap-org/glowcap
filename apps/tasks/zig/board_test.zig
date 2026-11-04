@@ -454,3 +454,68 @@ test "tasks interface creation boundaries and public result" {
     try client.expectRefused("InvalidArguments", client.mutate(list, &.{ .{ .string = "add" }, .{ .string = &too_long } }));
     try std.testing.expectEqual(@as(i64, 1), try client.integer(list, "count", &.{}));
 }
+
+test "tasks server reads reject malformed arguments before disclosure" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const path = try tmp.dir.realPathFileAlloc(io, ".", a);
+    defer a.free(path);
+    const terminated = try a.dupeSentinel(u8, path, 0);
+    defer a.free(terminated);
+    var running: Running = undefined;
+    try running.start(terminated);
+    defer running.finish() catch @panic("server cleanup failed");
+    var client = try Client.connect(running.port);
+    defer client.deinit();
+    const root = try client.session.fetch(running.storage.name.slice());
+    const todo = try client.facet(root, "list", 0);
+    const task = try client.addAt(todo, try client.integer(todo, "mutation-sequence", &.{}), "checked read");
+    for ([_]struct { target: driver.Capability, verb: []const u8 }{
+        .{ .target = root, .verb = "lists" },
+        .{ .target = todo, .verb = "name" },
+        .{ .target = todo, .verb = "count" },
+        .{ .target = task, .verb = "text" },
+    }) |read| {
+        try client.expectRefused("InvalidArguments", client.reply(read.target, read.verb, &.{.{ .string = "extra" }}));
+    }
+    for ([_]struct { target: driver.Capability, verb: []const u8 }{
+        .{ .target = root, .verb = "list" },
+        .{ .target = todo, .verb = "task" },
+    }) |read| {
+        try client.expectRefused("InvalidArguments", client.reply(read.target, read.verb, &.{}));
+        try client.expectRefused("InvalidArguments", client.reply(read.target, read.verb, &.{.{ .string = "0" }}));
+        try client.expectRefused("InvalidArguments", client.reply(read.target, read.verb, &.{.{ .integer = -1 }}));
+        try client.expectRefused("InvalidArguments", client.reply(read.target, read.verb, &.{ .{ .integer = 0 }, .{ .integer = 1 } }));
+        try client.expectRefused("NoSuchEdge", client.reply(read.target, read.verb, &.{.{ .integer = 300 }}));
+        const extreme_error = if (std.math.cast(usize, std.math.maxInt(i64)) == null) "InvalidArguments" else "NoSuchEdge";
+        try client.expectRefused(extreme_error, client.reply(read.target, read.verb, &.{.{ .integer = std.math.maxInt(i64) }}));
+    }
+    try std.testing.expectEqual(@as(i64, 2), try client.integer(root, "lists", &.{}));
+    try std.testing.expectEqual(@as(i64, 1), try client.integer(todo, "count", &.{}));
+    try std.testing.expectEqualStrings("checked read", try client.text(todo, 0));
+}
+
+test "generated server scalar checks borrow payloads and preserve schema domains" {
+    const generated = @import("interface.zig");
+    var payload: [4098]u8 = undefined;
+    for (&payload, 0..) |*byte, i| byte.* = if (i % 2 == 0) 0xc3 else 0xa9;
+    const name: []const u8 = payload[0..64];
+    const text: []const u8 = payload[0..4096];
+    try std.testing.expectEqual(name.ptr, (try generated.listNameReply(name)).ptr);
+    try std.testing.expectEqual(text.ptr, (try generated.taskTextReply(text)).ptr);
+    try std.testing.expectEqualStrings("x", try generated.listNameReply("x"));
+    try std.testing.expectEqualStrings("x", try generated.taskTextReply("x"));
+    try std.testing.expectError(error.InvalidReply, generated.listNameReply(""));
+    try std.testing.expectError(error.InvalidReply, generated.taskTextReply(""));
+    try std.testing.expectError(error.InvalidReply, generated.listNameReply(payload[0..66]));
+    try std.testing.expectError(error.InvalidReply, generated.taskTextReply(&payload));
+    try std.testing.expectError(error.InvalidReply, generated.listNameReply("\xff"));
+    try std.testing.expectError(error.InvalidReply, generated.taskTextReply("\xff"));
+    try std.testing.expectEqual(@as(i64, 0), try generated.boardListsReply(0));
+    try std.testing.expectEqual(@as(i64, 16), try generated.boardListsReply(16));
+    try std.testing.expectEqual(@as(i64, 256), try generated.listCountReply(256));
+    try std.testing.expectError(error.InvalidReply, generated.boardListsReply(17));
+    try std.testing.expectError(error.InvalidReply, generated.listCountReply(257));
+    try std.testing.expectError(error.InvalidReply, generated.listCountReply(std.math.maxInt(usize)));
+    try std.testing.expectEqual(@as(i64, std.math.maxInt(i64)), try generated.indexArguments(&[_]driver.Value{.{ .integer = std.math.maxInt(i64) }}));
+}
