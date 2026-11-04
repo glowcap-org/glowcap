@@ -22,6 +22,7 @@ pub fn read(model: *Model, receiver: []const u8, method_name: ?[]const u8) !Call
     const parameters = try model.arena_allocator.alloc(Type, fields[0].children.len);
     var required_parameters = parameters.len;
     for (fields[0].children, parameters, 0..) |parameter, *kind, i| {
+        if (parameter.kind == .record and std.mem.eql(u8, parameter.bytes, "rest")) return error.UnsupportedProjection;
         const param = try parameter.fields("parameter", 3);
         if (param[2].boolean) required_parameters = @min(required_parameters, i);
         kind.* = try model.callType(param[1]);

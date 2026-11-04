@@ -7,3 +7,26 @@ type Board = tasks.Board
 interface Reader {
   read() -> Name
 }
+
+type Cursor = bytes(min_bytes: 56, max_bytes: 56)
+type Observation = record<
+  "access:observation", Cursor, value, bool, bool, list<symbol>
+>
+type Registration = tuple<Receiver, Canceller>
+type Notices = list<symbol>(max_items: 16)
+type Nested = tagged<"fixture/nested", tuple<Index, Name>>
+type Empty = record<"fixture/empty">
+interface Receiver {
+  poll(cursor?: Cursor) -> Observation
+  receive(cursor?: Cursor) -> Observation
+}
+interface Canceller {
+  cancel() -> bool
+}
+interface Containers {
+  notices() -> Notices
+  nested() -> Nested
+  empty_record() -> Empty
+  empty_tuple() -> tuple<>
+  positional() -> record<"fixture/nested", Index, Name>
+}

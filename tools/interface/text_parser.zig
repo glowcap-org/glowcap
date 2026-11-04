@@ -198,39 +198,70 @@ pub const Parser = struct {
         const name = try self.word();
         const start = self.start;
         var value: Node = undefined;
-        if (std.mem.eql(u8, name, "promise")) {
-            try self.expect("<");
-            const element = try self.typeExpression(depth + 1);
-            try self.expect(">");
-            value = try self.record("promise", &.{element});
+        if (std.mem.eql(u8, name, "promise") or std.mem.eql(u8, name, "list") or std.mem.eql(u8, name, "tuple") or std.mem.eql(u8, name, "record") or std.mem.eql(u8, name, "tagged")) {
+            value = try self.constructor(name, depth);
         } else {
             const primitive = for ([_][]const u8{ "undefined", "null", "bool", "integer", "float64", "string", "bytes", "symbol", "target", "value", "error" }) |candidate| {
                 if (std.mem.eql(u8, name, candidate)) break true;
             } else false;
             value = if (primitive) self.atom(name, .symbol) else try self.record("ref", &.{self.atom(try self.qualified(name, false), .string)});
-            if (try self.accept("(")) {
-                var bounds: std.ArrayList(Entry) = .empty;
-                while (true) {
-                    const key = self.atom(try self.word(), .string);
-                    try self.expect(":");
-                    const number = try self.next();
-                    if (number.kind != .number) return self.fail("expected integer bound");
-                    var clean: std.ArrayList(u8) = .empty;
-                    for (number.text) |c| if (c != '_') {
-                        try clean.append(self.a, c);
-                    };
-                    const integer = std.fmt.parseInt(i64, clean.items, 10) catch return self.fail("bound exceeds signed 64-bit comparison range");
-                    try bounds.append(self.a, .{ .key = key, .value = .{ .kind = .integer, .integer = integer, .source = self.span(number.offset) } });
-                    if (try self.accept(")")) break;
-                    try self.expect(",");
-                }
-                var restrictions = try self.dictionary(bounds.items);
-                restrictions.source = self.span(start);
-                value = try self.record("bounded", &.{ value, restrictions });
+        }
+        if (try self.accept("(")) {
+            var bounds: std.ArrayList(Entry) = .empty;
+            while (true) {
+                const key = self.atom(try self.word(), .string);
+                try self.expect(":");
+                const number = try self.next();
+                if (number.kind != .number) return self.fail("expected integer bound");
+                var clean: std.ArrayList(u8) = .empty;
+                for (number.text) |c| if (c != '_') {
+                    try clean.append(self.a, c);
+                };
+                const integer = std.fmt.parseInt(i64, clean.items, 10) catch return self.fail("bound exceeds signed 64-bit comparison range");
+                try bounds.append(self.a, .{ .key = key, .value = .{ .kind = .integer, .integer = integer, .source = self.span(number.offset) } });
+                if (try self.accept(")")) break;
+                try self.expect(",");
             }
+            var restrictions = try self.dictionary(bounds.items);
+            restrictions.source = self.span(start);
+            value = try self.record("bounded", &.{ value, restrictions });
         }
         value.source = self.span(start);
         return value;
+    }
+
+    fn constructor(self: *Parser, name: []const u8, depth: usize) Error!Node {
+        try self.expect("<");
+        if (std.mem.eql(u8, name, "list") or std.mem.eql(u8, name, "promise")) {
+            const element = try self.typeExpression(depth + 1);
+            try self.expect(">");
+            return self.record(name, &.{element});
+        }
+        const positional = std.mem.eql(u8, name, "record");
+        const tagged = std.mem.eql(u8, name, "tagged");
+        var tag: Node = undefined;
+        if (positional or tagged) {
+            const token = try self.next();
+            if (token.kind != .string) return self.fail("expected quoted record tag");
+            tag = self.atom(token.text, .string);
+            if (tagged) {
+                try self.expect(",");
+                const payload = try self.typeExpression(depth + 1);
+                try self.expect(">");
+                return self.record("tagged", &.{ tag, payload });
+            }
+        }
+        var fields: std.ArrayList(Node) = .empty;
+        if (!try self.accept(">")) {
+            if (positional) try self.expect(",");
+            while (true) {
+                try fields.append(self.a, try self.typeExpression(depth + 1));
+                if (try self.accept(">")) break;
+                try self.expect(",");
+            }
+        }
+        const members = try self.list(fields.items);
+        return if (positional) self.record("record", &.{ tag, members }) else self.record("tuple", &.{members});
     }
     fn interface(self: *Parser) Error!Node {
         try self.expect("{");
@@ -252,11 +283,17 @@ pub const Parser = struct {
             try self.expect("(");
             var parameters: std.ArrayList(Node) = .empty;
             if (!try self.accept(")")) while (true) {
+                const rest = try self.accept(".");
+                if (rest) {
+                    try self.expect(".");
+                    try self.expect(".");
+                }
                 const name = self.atom(try self.word(), .string);
                 const optional = try self.accept("?");
                 try self.expect(":");
                 const kind = try self.typeExpression(0);
-                try parameters.append(self.a, try self.record("parameter", &.{ name, kind, .{ .kind = .boolean, .boolean = optional } }));
+                if (rest and optional) return self.fail("rest parameters cannot be optional");
+                try parameters.append(self.a, if (rest) try self.record("rest", &.{ name, kind }) else try self.record("parameter", &.{ name, kind, .{ .kind = .boolean, .boolean = optional } }));
                 if (parameters.items.len > @import("model.zig").max_parameters) return error.ResourceLimit;
                 if (try self.accept(")")) break;
                 try self.expect(",");
