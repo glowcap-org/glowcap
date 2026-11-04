@@ -232,10 +232,18 @@ try {
 			const inventory = await ask(session, workspace, "effect-inventory", [], "effect inventory did not answer");
 			if (typeof inventory !== "string") throw new Error("effect inventory was not text");
 			const effects: { operation: string; status: string; resumable: boolean }[] = JSON.parse(inventory);
-			const retained = await Promise.all(effects.slice(-8).map(async (effect) => ({
-				...effect,
-				intent: await ask(session, workspace, "effect-intent", [effect.operation], "effect intent did not answer"),
-			})));
+			const retained = await Promise.all(
+				effects.slice(-8).map(async (effect) => ({
+					...effect,
+					intent: await ask(
+						session,
+						workspace,
+						"effect-intent",
+						[effect.operation],
+						"effect intent did not answer",
+					),
+				})),
+			);
 			return { status, effectCount: effects.length, lastRetainedEffects: retained };
 		} finally {
 			await runtime.close();
