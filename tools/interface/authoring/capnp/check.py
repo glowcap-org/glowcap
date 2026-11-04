@@ -90,6 +90,7 @@ def main():
         # their contradictory bounds and required-after-optional parameter list.
         for changed in [
             source.replace("$maxBytes(64)", "$maxBytes(0)"),
+            source.replace('$wireName("")', "$direct"),
             source.replace("reader :Reader, pending", "reader :Reader $optional, pending"),
         ]:
             canonical.write_bytes(require(run([adapter], compile_request(changed)), "request translation"))

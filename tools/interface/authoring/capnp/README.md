@@ -61,7 +61,7 @@ noise is visible. These measure frontend work, not emitted consumers or runtime
 performance. RSS does not isolate payload allocations.
 
 Nonblank source counts are 424 Rust adapter lines (including the version test),
-112 Python test lines, 42 Rust proof lines, 38 schema lines, and 39 separate Zig
+113 Python test lines, 42 Rust proof lines, 38 schema lines, and 39 separate Zig
 build-integration lines. Manifests, lockfiles, and prose are excluded.
 
 The measured source digest is
