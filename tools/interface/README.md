@@ -13,7 +13,7 @@ owns executable qualification.
 | `zig.zig`, `zig_reads.zig` | Tasks creation and read checks, and the fixed Zig direct receiver |
 | `rust.zig` | Tasks creation and read module assembly |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
-| `typescript_scalars.zig` | Exact JavaScript scalar guards and byte limits |
+| `typescript_scalars.zig` | Exact JavaScript scalar guards, bigint bounds, and UTF-8 byte limits |
 | `compound_graph.zig` | Bounded target-neutral graph traversal and minimum decoder work |
 | `typescript_compounds.zig` | Validated views of existing list, tuple, and tagged-record replies |
 | `rust_compounds.zig` | Owned list, tuple, and tagged positional-record reply decoders |
@@ -43,7 +43,9 @@ value types before sending. Contract null remains an unsupported target type.
 Rust and TypeScript calls and tells also project booleans, bytes, symbols,
 float64, and fulfilled error values. Byte bounds count bytes and retain their
 normalized `u64` limits. The description reader admits signed-64-bit integer
-metadata.
+metadata. TypeScript preserves arbitrary bigint values and applies normalized
+integer and text bounds in both directions, including nested replies. Text
+validation counts UTF-8 bytes without allocating encoded payloads.
 
 Rust consumes owned byte vectors and symbol/error strings,
 then moves them into the binding argument. Local refusal drops those inputs.
@@ -80,9 +82,9 @@ before returning the poll error. A cancellation failure adds cleanup context
 while preserving the primary poll error. Dropping references does not retire
 Loam's durable observation context.
 
-Typed lists reserve one result vector after schema and decoder-work checks.
-Their elements have a different layout from `Argument`, so this allocation
-cannot reuse the incoming vector. Payloads and references move into results.
+Rust typed lists reserve one result vector after schema and decoder-work checks
+when their elements have a different layout from `Argument`. A `list<value>`
+already has the projected `Vec<Argument>` layout and returns that buffer directly. Payloads and references move into results.
 Opaque `value` fields move intact without decoder traversal. The decoder's
 work limit returns `ResourceLimit`, separately from a wrong reply category.
 

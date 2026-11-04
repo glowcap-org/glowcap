@@ -4,6 +4,7 @@ import * as generated from "../generated/callbacks.ts";
 import { authoring } from "./authoring.ts";
 import { invocation } from "./invocation.ts";
 import { presence } from "./presence.ts";
+import { bounds } from "./bounds.ts";
 import { compounds } from "./compounds.ts";
 import { scalars } from "./scalars.ts";
 import { assert, withPair } from "./pair.ts";
@@ -117,6 +118,7 @@ await invocation();
 await presence();
 await scalars();
 await compounds();
+await bounds();
 await authoring();
 for (const profile of ["interop", "glowcap"] satisfies HostProfile[]) {
 	for (const outcome of ["reader", "wrong", "broken", "cancel"] satisfies Outcome[]) {

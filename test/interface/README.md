@@ -11,6 +11,7 @@ format, target mappings, and acceptance cases.
 | --- | --- |
 | `contracts.syrup` | Authored Tasks, shared Loam, and callback definitions |
 | `compounds.syrup` | Independently authored list and tuple reply shapes |
+| `scalar_bounds.syrup` | Integer and UTF-8 limits, empty bounds, alias intersections, and mixed replies |
 | `messages.syrup` | Independently authored expected messages |
 | `check_fixtures.py` | Canonical encoding and fixture integrity using the pinned upstream Syrup reader |
 | `rust/` | Standalone consumer crate with Tasks, refusal, and callback scenarios |
@@ -41,6 +42,14 @@ bytes, symbols, float64, and fulfilled errors. Wrong replies, unchanged remote
 breaks, float edge cases, and local byte-limit refusal are exercised too.
 The existing strict consumer check compiles each method on its own, so unused
 helpers cannot hide behind another selected method.
+
+The TypeScript scalar-bound corpus exercises required and optional calls and
+tells with bigint values beyond i64, exact endpoints, empty and partial bounds,
+alias intersections, multibyte text, and surrogate replacement on both profiles.
+Raw peers check wrong categories, local refusal without effects, remote breaks,
+and independent raw settlement. Nested tuples and tagged records use the same guards.
+Scratch tests compare every UTF-16 code unit and surrogate boundary cases with
+`TextEncoder`, check early scan termination, and mutate an actual integer bound.
 
 The generated Zig direct receiver accepts exactly two passable values and an
 undefined result. Raw callers on both profiles send whole lists, including
@@ -78,9 +87,11 @@ original object identity. Malformed cursor inputs refuse before sending.
 
 Isolated strict Rust and TypeScript consumers compile each compound method independently.
 Harness-only child tests call the actual emitted private decoders with small
-work/depth budgets and check moved cursor and symbol buffer identity.
-TypeScript scratch modules call the emitted private helpers for work/depth
-limits and minimum element work, without constructing giant transport replies.
+work budgets and check moved cursor and symbol buffer identity.
+TypeScript scratch modules check minimum actual element work, without constructing
+giant transport replies. Opaque list proofs preserve the original array or Rust
+vector buffer with no per-element work, including lengths above the work budget.
+The compiler owns depth and productive-recursion refusal before emission.
 An opaque value exceeding the decoder work budget still passes without traversal.
 
 The callback matrix holds the factory reply open through admission and checks

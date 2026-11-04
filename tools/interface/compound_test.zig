@@ -119,16 +119,11 @@ test "TypeScript nested leaves preserve target refusals and compile only selecte
     defer arena.deinit();
     const a = arena.allocator();
     const types = @import("call_type.zig");
-    for ([_]calls.Type{
-        .{ .integer = .{} },        .{ .integer = .{ .min = 0, .max = 10 } },
-        .{ .text = .{ .min = 1 } }, .{ .text = .{ .max = 10 } },
-        .pending_target,            .pending_value,
-    }) |leaf| {
+    for ([_]calls.Type{ .pending_target, .pending_value }) |leaf| {
         const tuple: types.Tuple = .{ .fields = &.{leaf} };
         const list: types.List = .{ .element = .{ .tuple = &tuple } };
         const call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .list = &list }, .effect = .call };
-        const expected = if (leaf == .pending_target or leaf == .pending_value) error.UnsupportedProjection else error.UnsupportedTarget;
-        try std.testing.expectError(expected, ts.emit(a, &.{.{ .api = "read", .call = call }}));
+        try std.testing.expectError(error.UnsupportedProjection, ts.emit(a, &.{.{ .api = "read", .call = call }}));
     }
     const tuple: types.Tuple = .{ .fields = &.{ .nothing, .{ .text = .{} }, .float64, .error_value, .value } };
     var call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .tuple = &tuple }, .effect = .call };
@@ -155,4 +150,15 @@ test "TypeScript shares aliases and decoder helpers across selected methods" {
     for ([_][]const u8{ "Pending", "ResourceLimit" }) |name| {
         try std.testing.expectError(error.ExportCollision, ts.emit(a, &.{.{ .api = name, .call = call }}));
     }
+}
+
+test "compound work scores distinguish borrowed opaque views from owned moves" {
+    const types = @import("call_type.zig");
+    const tuple: types.Tuple = .{ .fields = &.{ .value, .value, .boolean } };
+    const list: types.List = .{ .element = .{ .tuple = &tuple } };
+    const call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .list = &list }, .effect = .call };
+    var graph = try @import("compound_graph.zig").Graph.init(std.testing.allocator, &.{.{ .api = "read", .call = call }});
+    defer graph.deinit();
+    try std.testing.expectEqual(@as(usize, 4), try graph.minimumWork(list.element, true));
+    try std.testing.expectEqual(@as(usize, 2), try graph.minimumWork(list.element, false));
 }

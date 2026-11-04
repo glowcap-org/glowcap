@@ -1,5 +1,5 @@
 // The raw peer distinguishes omitted arguments from explicitly supplied wire void.
-import { type Argument, type HostProfile, Ref, VowBroken } from "@glowcap/runtime";
+import { type Argument, GlowcapError, type HostProfile, Ref, VowBroken } from "@glowcap/runtime";
 import * as generated from "../generated/callbacks.ts";
 import { presenceArguments } from "../generated/expected.ts";
 import { assert, withPair } from "./pair.ts";
@@ -110,7 +110,6 @@ async function scenario(profile: HostProfile): Promise<void> {
 				[generated.presence_references, [undefined, reader]],
 				[generated.presence_references, ["not a reference"]],
 				[generated.presence_references, [reader, Promise.resolve(reader)]],
-				[generated.presence_value, [undefined]],
 				[generated.presence_notify, [null]],
 			] satisfies [(...args: never[]) => unknown, unknown[]][]
 		) {
@@ -122,6 +121,17 @@ async function scenario(profile: HostProfile): Promise<void> {
 			}
 			assert(refused, "invalid arguments were not refused before sending");
 		}
+		const unsupported = Reflect.apply(generated.presence_value, undefined, [client, target, undefined]);
+		const rawUnsupported = Reflect.apply(client.send, client, [target, "value", [undefined]]);
+		const failures = await Promise.allSettled([unsupported.observe(), rawUnsupported]);
+		assert(failures[0].status === "rejected" && failures[1].status === "rejected", "unsupported value accepted");
+		const generatedFailure = failures[0].reason;
+		const rawFailure = failures[1].reason;
+		assert(
+			generatedFailure instanceof GlowcapError && rawFailure instanceof GlowcapError &&
+				generatedFailure.code === rawFailure.code && generatedFailure.message === rawFailure.message,
+			"generic passability failure replaced",
+		);
 		await required();
 		assert(calls.length === before + 1, "invalid arguments admitted a call");
 		outcome = "wrong";

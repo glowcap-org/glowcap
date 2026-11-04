@@ -561,9 +561,10 @@ and residency.
     No separate Rust Host guard is acquired for this borrow.
 - **Generated owned reply list**: `Projection.emit` in
   `tools/interface/rust_compounds.zig` emits one result Vec reservation for each
-  nonempty typed list, after schema and decoder-work checks. Its element layout
-  differs from Argument. Children move into the result, which owns them until
-  drop or refusal. Tuples, records, and opaque value fields add no payload copy.
+  nonempty list whose projected element layout differs from Argument, after
+  schema and work checks. An opaque list reuses its existing Vec<Argument> buffer
+  with no element traversal or result allocation, proved by buffer identity.
+  Other children move into results. Tuples and records add no payload copy.
 - **Tasks observation input snapshot**: `Watcher::poll` in
   `apps/tasks/rust/board.rs` clones its optional stored cursor once before send.
   That Vec lasts through binding admission. A valid generated reply moves its

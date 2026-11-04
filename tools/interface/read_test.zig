@@ -6,7 +6,7 @@ const Model = @import("model.zig").Model;
 const rust = @import("callbacks.zig");
 const ts = @import("typescript.zig");
 
-test "unmigrated TypeScript refuses bounded text and integer inputs and replies" {
+test "TypeScript projects bounded text and integer inputs and replies" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -16,7 +16,7 @@ test "unmigrated TypeScript refuses bounded text and integer inputs and replies"
         .{ "tasks.TaskList", "count" }, .{ "tasks.Task", "text" },
     }) |method| {
         const call = try calls.read(&model, method[0], method[1]);
-        try std.testing.expectError(error.UnsupportedTarget, ts.emit(a, &.{.{ .api = "read", .call = call }}));
+        _ = try ts.emit(a, &.{.{ .api = "read", .call = call }});
     }
     const call = try calls.read(&model, "fixture.Reader", "read");
     const source = try ts.emit(a, &.{.{ .api = "read", .call = call }});

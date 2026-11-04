@@ -46,6 +46,9 @@ pub const outputs = [_]Output{
     .{ .path = "test/interface/generated/observation.ts", .generate = generateTypeScriptObservation },
     .{ .path = "test/interface/generated/scalars.rs", .generate = generateScalarRust },
     .{ .path = "test/interface/generated/scalars.ts", .generate = generateScalarTypeScript },
+    .{ .path = "test/interface/generated/integers.ts", .generate = generateIntegerTypeScript },
+    .{ .path = "test/interface/generated/text_bounds.ts", .generate = generateTextBoundsTypeScript },
+    .{ .path = "test/interface/generated/mixed_bounds.ts", .generate = generateMixedBoundsTypeScript },
     .{ .path = "test/interface/generated/callbacks.ts", .generate = generateTypeScript },
     .{ .path = "test/interface/generated/callbacks.rs", .generate = generateCallbacks },
     .{ .path = "test/interface/generated/expected.rs", .generate = @import("expectations.zig").generate },
@@ -437,4 +440,34 @@ fn generateTypeScriptObservation(a: std.mem.Allocator) ![]u8 {
     defer arena.deinit();
     var model = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("contract")));
     return @import("typescript.zig").emit(a, &.{.{ .api = "poll", .call = try calls.read(&model, "loam.Receiver", "poll") }});
+}
+
+fn boundsSource(a: std.mem.Allocator, comptime receiver: []const u8, comptime variants: anytype) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var model = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("scalar_bound_contract")));
+    var methods: [variants.len * 4]calls.Named = undefined;
+    var index: usize = 0;
+    inline for (variants) |variant| inline for (.{ "call", "optional", "tell", "optional_tell" }) |shape| {
+        const name = variant ++ "_" ++ shape;
+        methods[index] = .{ .api = name, .call = try calls.read(&model, receiver, name) };
+        index += 1;
+    };
+    return @import("typescript.zig").emit(a, &methods);
+}
+fn generateIntegerTypeScript(a: std.mem.Allocator) ![]u8 {
+    return boundsSource(a, "bounds.Integer", .{ "bare", "empty", "lower", "upper", "signed", "narrow", "alias" });
+}
+fn generateTextBoundsTypeScript(a: std.mem.Allocator) ![]u8 {
+    return boundsSource(a, "bounds.Text", .{ "bare", "empty", "lower", "upper", "zero", "bounded", "alias" });
+}
+fn generateMixedBoundsTypeScript(a: std.mem.Allocator) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var model = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("scalar_bound_contract")));
+    return @import("typescript.zig").emit(a, &.{
+        .{ .api = "tuple", .call = try calls.read(&model, "bounds.Mixed", "tuple") },
+        .{ .api = "record", .call = try calls.read(&model, "bounds.Mixed", "record") },
+        .{ .api = "values", .call = try calls.read(&model, "bounds.Mixed", "values") },
+    });
 }

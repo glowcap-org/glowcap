@@ -183,6 +183,7 @@ def copy_sources():
         "tools/interface/typescript_scalars.zig",
         "tools/interface/typescript_compounds.zig",
         "tools/interface/templates/compound.ts.in",
+        "tools/interface/templates/text_bounds.ts.in",
         "tools/interface/callbacks.zig",
         "apps/tasks/rust/interface.rs",
         "test/interface/generated/callbacks.rs",

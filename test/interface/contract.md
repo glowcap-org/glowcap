@@ -267,8 +267,9 @@ independently. Excess returns compiler `ResourceLimit` before output, without
 boxing or changing the representation. This is a compiler layout guard, not a
 schema cardinality bound or exact Rust byte estimate.
 
-Declared list bounds are separate from the generated decoder's work and depth
-limits. A schema violation returns `InvalidReply`, while exhausted decoder work
+Declared list bounds are separate from the generated decoder's work limit.
+Normalization bounds the finite type graph before emission, so generated
+decoders need no runtime depth counter. A schema violation returns `InvalidReply`, while exhausted decoder work
 returns `ResourceLimit`. Compound inputs remain explicitly unsupported.
 Productive copied recursion validates as a description
 but is refused for this projection. Alias-only cycles remain invalid.
@@ -284,7 +285,7 @@ category. Unknown and duplicate notices retain their order.
 
 Validation returns the original array or record. Payloads and capability
 wrappers keep their identity and existing runtime ownership. An opaque `value`
-field is one decoder leaf, including nested records and capabilities. A source
+field needs no projection, including nested records and capabilities. A source
 `undefined` field remains the binding's raw `null` value inside a compound,
 while a top-level undefined reply exposes `void`. Source `null` remains refused.
 These views are mutable, with no freeze or membrane guarantee.
@@ -292,17 +293,19 @@ These views are mutable, with no freeze or membrane guarantee.
 Each observation allocates one temporary work-counter object shared by recursive
 helpers. Decoder work is limited to
 <!-- value ../../tools/interface/compound_graph.zig max_reply_work -->65,536<!-- /value -->
-steps and depth to
-<!-- value ../../tools/interface/compound_graph.zig max_reply_depth -->64<!-- /value -->.
+schema visits. Opaque fields need no element read or work charge, and a
+`list<value>` checks only its container and declared length bound. Its length
+adds no decoder work limit because its elements require no traversal.
+
 Exhaustion throws exported `ResourceLimit`. Category, tag, arity, and schema-bound
 violations throw `TypeError`. Either refusal leaves independent raw observers
 and the runtime's original settlement intact. Remote breaks retain their runtime
 failure object.
 
 Both targets use the same bounded graph traversal and inline-structure admission.
-TypeScript separately refuses integer projections and bounded text, including
-nested leaves. Compound inputs and productive recursive projections remain
-unsupported.
+Compound inputs and productive recursive projections remain unsupported.
+Rust `list<value>` returns its existing `Vec<Argument>` directly. Other owned
+list element layouts need a result vector and per-element projection.
 
 ## Tasks Rust read projection
 
@@ -327,8 +330,29 @@ supports their finite signed-64-bit interval exactly. Bare and partially bounded
 integers receive `UnsupportedTarget`. Raw bindings still support bignums, as
 the value table below states.
 
-The TypeScript projection refuses bounded text and integer calls until its
-bounds checks are qualified. Its existing unbounded projections are unchanged.
+## TypeScript scalar bounds
+
+Integer calls use exact JavaScript `bigint`, including values outside i64.
+Number values cannot substitute for integers. Bare and empty bounds add no
+range restriction. Partial and full bounds compare bigint literals directly,
+without narrowing or coercion. Schema endpoint metadata remains signed-64-bit.
+Normalized alias restrictions retain their intersection in both directions and
+in nested compound replies.
+
+Bounded text counts the UTF-8 bytes that the binding's `TextEncoder` emits.
+Paired UTF-16 surrogates count four bytes. Unpaired surrogates count three bytes,
+matching U+FFFD replacement in the existing binding. The validator passes the
+original string unchanged. It neither encodes a byte snapshot nor changes the
+binding's encoding behavior.
+
+The scan admits the counter's exact numeric range once using the maximum of
+three bytes per UTF-16 unit. It refuses at the first byte exceeding a maximum,
+and a minimum alone stops once satisfied. Required and optional calls and tells
+apply the same guards. Schema failures throw `TypeError` before sending, while
+generic passability failures keep the binding's failure type and result channel.
+Generated checks establish declared shape, not authorization or Host admission.
+The [validation ownership decision](../../docs/decisions/adr/ADR-0069-proposed-interface-language.md)
+owns that distinction.
 
 ## Target mapping
 
