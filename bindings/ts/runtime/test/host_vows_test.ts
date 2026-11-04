@@ -1,7 +1,7 @@
-import { CLOSED, INTERNAL } from "@glowcap/abi";
-import { GlowcapError } from "../errors.ts";
+import { CLOSED, INTERNAL, INVALID_ARGUMENT } from "@glowcap/abi";
+import { FetchFailed, GlowcapError, secondaryFailures } from "../errors.ts";
 import { Host } from "../host.ts";
-import { awaitMinted, type PromiseFactoryHandle, promiseFor } from "../promise.ts";
+import { awaitMinted, finishFetch, type PromiseFactoryHandle, promiseFor, RemotePromise } from "../promise.ts";
 import { type LoopChannel, Session } from "../session.ts";
 import { refFromId } from "../value.ts";
 import { assert, assertRejects } from "../../test/assert.ts";
@@ -11,6 +11,71 @@ async function assertRejectsCode(promise: Promise<unknown>, code: number): Promi
 	assert(error instanceof GlowcapError, "rejection was not a GlowcapError");
 	assert(error.code === code, `expected ${code}, got ${error.code}`);
 }
+
+Deno.test("reply GC selects far and listen outcomes before observation", async () => {
+	for (const pipelineable of [true, false]) {
+		const selected: bigint[] = [];
+		const handle: PromiseFactoryHandle = {
+			ptr: 0n,
+			hostRaw: 0n,
+			hostOwner: { trackVowOutcome: (vow) => selected.push(vow), discardGcArgument() {} },
+			vowMinted() {},
+			attend() {},
+			awaitVow: () => Promise.resolve(null),
+			kickActions: () => Promise.resolve(),
+			parkVowRelease() {},
+			trackVow() {},
+			scheduleProgress() {},
+			recordBackgroundFailure(error) {
+				throw error;
+			},
+		};
+		const pending = promiseFor(handle, 7n, pipelineable);
+		assert(pending.withGc() === pending, "tracking replaced the promise");
+		assert(selected.length === 1 && selected[0] === 7n, "tracking selected the wrong outcome");
+		assert(await pending === null, "tracking changed the result");
+		let refused: unknown = null;
+		try {
+			pending.withGc();
+		} catch (error) {
+			refused = error;
+		}
+		assert(refused instanceof GlowcapError && refused.code === INVALID_ARGUMENT, "late selection was silent");
+	}
+});
+
+Deno.test("reply GC preserves refused and expired outcomes", async () => {
+	const failure = new GlowcapError(INTERNAL, "original failure");
+	const refused = RemotePromise.failed(failure).withGc();
+	assert(await assertRejects(() => refused) === failure, "tracking changed an immediate failure");
+	const host = new Host();
+	try {
+		host.trackVowOutcome(9n);
+		await assertRejectsCode(host.awaitVow(9n), CLOSED);
+		host.vowMinted(11n);
+		host.settleVow(11n, { err: failure });
+		host.trackVowOutcome(11n);
+		assert(await assertRejects(() => host.awaitVow(11n)) === failure, "tracking changed a settled failure");
+	} finally {
+		await host.close();
+	}
+});
+
+Deno.test("fetch cleanup failure remains secondary to invalid native result", () => {
+	const cleanup = new Error("tracking refused");
+	let failed: unknown = null;
+	try {
+		finishFetch([], "invalid publication", {
+			discardGcArgument() {
+				throw cleanup;
+			},
+		});
+	} catch (error) {
+		failed = error;
+	}
+	assert(failed instanceof FetchFailed, "cleanup replaced the fetch failure");
+	assert(secondaryFailures(failed)[0] === cleanup, "the exact cleanup failure was lost");
+});
 
 Deno.test("Host vow table evicts unobserved outcomes without shifting the FIFO", async () => {
 	const host = new Host();
@@ -62,7 +127,7 @@ Deno.test("promise adoption parks FFI release at every post-mint failure", () =>
 		const handle = {
 			ptr: null,
 			hostRaw: null,
-			hostOwner: {},
+			hostOwner: { trackVowOutcome() {}, discardGcArgument() {} },
 			vowMinted: () => {
 				if (failing === "mint") throw failure;
 			},
@@ -137,7 +202,7 @@ for (const mode of ["minted", "remote"] as const) {
 			const handle: PromiseFactoryHandle = {
 				ptr: 0n,
 				hostRaw: 0n,
-				hostOwner: {},
+				hostOwner: { trackVowOutcome() {}, discardGcArgument() {} },
 				vowMinted() {},
 				attend() {},
 				awaitVow: () => settled,
@@ -185,6 +250,7 @@ Deno.test("vow observation drives progress before waiting for a successful settl
 	const didKick = new Promise<void>((resolve) => kicked = resolve);
 	const handle = {
 		ptr: 0n,
+		hostOwner: { discardGcArgument() {} },
 		vowMinted() {},
 		attend() {},
 		awaitVow: () => settled,
@@ -217,6 +283,7 @@ for (const first of ["settlement", "progress"] as const) {
 		const progress = new Promise<void>((_resolve, reject) => rejectProgress = reject);
 		const handle = {
 			ptr: 0n,
+			hostOwner: { discardGcArgument() {} },
 			vowMinted() {},
 			attend() {},
 			awaitVow: () => settled,
@@ -252,6 +319,7 @@ Deno.test("vow rejection waits for successful progress before escaping", async (
 	const progress = new Promise<void>((resolve) => releaseProgress = resolve);
 	const handle = {
 		ptr: 0n,
+		hostOwner: { discardGcArgument() {} },
 		vowMinted() {},
 		attend() {},
 		awaitVow: () => Promise.reject(failure),

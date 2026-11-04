@@ -80,6 +80,25 @@ Listening:
   will not put a wildcard into a Host locator.
 - The driver accepts connections and limits concurrent handshakes.
 
+## Reference lifetime
+
+Release a received capability with `session.release(ref)` when you are done with it.
+`session.withGc()` instead selects finalizer cleanup for later replies and
+delivered arguments projected by the Host. For one reply, select
+`session.send(target, method).withGc()` before awaiting or attaching a reaction.
+Selecting reply GC after observation has begun is refused.
+
+Generated TypeScript calls select reply GC automatically. Saved raw results share
+the same capability wrappers and remain usable while reachable. Local behavior
+results remain borrowed, while a caretaker forwarding to a peer carries the reply
+selection to that call. Collection timing is chosen by JavaScript, so use
+explicit release when cleanup must happen now.
+
+A fetch that receives a non-capability result throws `FetchFailed` and queues its
+references for release without waiting for collection. Valid fetch results keep the
+session's release policy. Unobserved replies abandoned or evicted by the Host
+retire their references without waiting for JavaScript collection.
+
 ## How it is built
 
 - It loads two C libraries. `libglowcap_host` handles byte-fed sessions, where your code supplies

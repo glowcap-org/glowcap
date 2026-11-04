@@ -112,6 +112,8 @@ The [read projection](../../test/interface/contract.md#tasks-rust-read-projectio
 owns the bounds and target coverage.
 
 Generated helpers delegate promise and reference ownership to the bindings.
+TypeScript handles select `RemotePromise.withGc` before observation, preserving
+the [shared raw views and borrowed local results](../../test/interface/contract.md#typescript-compound-replies).
 Tasks owns its workflow and the server's policy. Binding changes needed by a
 proof belong in the binding and have regression coverage there.
 

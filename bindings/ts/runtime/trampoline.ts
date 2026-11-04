@@ -136,7 +136,7 @@ export function sendLocal(
 		args: Argument[],
 	) => Promise<Argument> | RemotePromise,
 ): RemotePromise {
-	const begin = async (): Promise<Argument> => {
+	const begin = async (trackGc: boolean): Promise<Argument> => {
 		try {
 			const hosted = runHosted(ctx, verb, args);
 			// Reached when the entry's connection tore down: `closeTransport`
@@ -146,7 +146,9 @@ export function sendLocal(
 			if (hosted === undefined) throw new VowBroken("no such hosted object");
 			const result = hosted.result;
 			if (result instanceof Forward) {
-				return await forwardFar(result.target, result.verb, result.args);
+				const forwarded = forwardFar(result.target, result.verb, result.args);
+				if (trackGc && forwarded instanceof RemotePromise) forwarded.withGc();
+				return await forwarded;
 			}
 			if (isThenable(result)) {
 				// A local send to an async behavior awaits it. The

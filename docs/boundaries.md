@@ -86,6 +86,10 @@ unsupported. TypeScript preserves arbitrary bigint integers while schema bound
 literals use signed-64-bit metadata.
 The [interface contract](../test/interface/contract.md#typescript-compound-replies)
 owns these mappings and their separate decoder resource limits.
+
+Generated TypeScript replies use JavaScript finalizers for reference cleanup.
+Collection timing is not deterministic, and borrowed local results retain their
+original ownership ([reference lifetime](../bindings/ts/runtime/README.md#reference-lifetime)).
 The text authoring parser supports rooted imports, lists, tuples, positional
 records and single-payload tagged values. String-keyed structs, maps, unions and
 recognized-failure syntax remain unsupported

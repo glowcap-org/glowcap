@@ -8,6 +8,7 @@ import { presence } from "./presence.ts";
 import { bounds } from "./bounds.ts";
 import { compounds } from "./compounds.ts";
 import { scalars } from "./scalars.ts";
+import { outcomeGc } from "./outcome_gc.ts";
 import { assert, withPair } from "./pair.ts";
 
 type Outcome = "reader" | "wrong" | "broken" | "cancel";
@@ -122,6 +123,7 @@ await compounds();
 await bounds();
 await packed();
 await authoring();
+await outcomeGc();
 for (const profile of ["interop", "glowcap"] satisfies HostProfile[]) {
 	for (const outcome of ["reader", "wrong", "broken", "cancel"] satisfies Outcome[]) {
 		await scenario(profile, outcome);

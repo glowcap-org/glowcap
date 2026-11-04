@@ -260,7 +260,8 @@ so a peer with no listening socket can still reply and take part in a handoff.
   and distinguish omitted arguments from explicit undefined values on both profiles.
 
   Both targets qualify list, tuple, and tagged positional-record replies.
-  TypeScript validates existing objects while preserving raw settlement and capability ownership.
+  TypeScript validates existing objects while preserving raw settlement and shared wrappers. Generated replies track references for cleanup when JavaScript collects their wrappers.
+
   Its scalar calls qualify arbitrary bigint integers and UTF-8 text limits on both profiles.
   Generated Rust receives Goblins handoffs, and a plain Goblins caller exercises Tasks creation through its generated Zig checks on Syrup/V1.0.
   Text authoring [loads rooted modules](../test/interface/authoring/README.md#imported-modules) and reports imported bound and unknown-type locations.

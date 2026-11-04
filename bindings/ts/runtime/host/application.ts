@@ -26,7 +26,7 @@ import { L } from "../internal/layout.ts";
 import { NULL, type Ptr } from "../internal/ffi/runtime.ts";
 import { ab, outPointer } from "../internal/seam.ts";
 import { type Locator, withOwnedLocator } from "../locator.ts";
-import { asLiveRef } from "../promise.ts";
+import { finishFetch } from "../promise.ts";
 import { Session } from "../session.ts";
 import {
 	type BehaviorEntry,
@@ -133,7 +133,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		this.vowMinted(vow);
 		try {
 			await this.kickActions();
-			return asLiveRef(await this.awaitVow(vow), subject);
+			return finishFetch(await this.awaitVow(vow), subject, this);
 		} finally {
 			this._gc.parkVow(vow);
 		}

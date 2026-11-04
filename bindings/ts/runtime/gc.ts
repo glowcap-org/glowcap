@@ -1,7 +1,9 @@
 // Distributed GC (ADR-0025), opt-in and off by default. Owns the Host-wide
 // `HostGc` state, recursive application-value tracking / verb-head `drainGc`, and
-// FFI release verbs. Session keeps `withGc` as a thin capability opt-in;
-// public vow lifetime is mandatory and uses the same Host-owned scheduler.
+// FFI release verbs. Session and RemotePromise select tracking for native
+// outcomes. Rejected fetch values and other unexposed outcomes retire through
+// the release queue directly. Public
+// vow lifetime is mandatory and uses the same Host-owned scheduler.
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
@@ -47,8 +49,11 @@ export class HostGc {
 		this.#pendingVowIds.clear();
 	}
 
-	/** Register one projected capability occurrence selected by a GC-enabled
-	 * session. The id is an opaque Host-scoped identity (ADR-0026). The
+	/** Register one projected capability occurrence selected for collection.
+	 * Each registration owns its existing C retain until the wrapper becomes
+	 * unreachable or explicit release disarms it. The first registration creates
+	 * one Host-wide FinalizationRegistry. No payload or C retain is copied.
+	 * The id is an opaque Host-scoped identity (ADR-0026).
 	 * Tracking is scoped by the application projection seam, never by an id-range branch,
 	 * and the host resolves it
 	 * to its home connection and real wire import when the release fires. The
@@ -71,17 +76,43 @@ export class HostGc {
 	 * FFI Host has just projected. Containers stay intact; equal ids in two
 	 * leaves remain two guards because FFI projection minted two retains. */
 	trackArgument(value: Argument): Argument {
-		if (isReference(value)) return this.trackRef(value);
-		if (Array.isArray(value)) {
-			for (const item of value) this.trackArgument(item);
-		} else if (value instanceof PSet) {
-			for (const item of value.items) this.trackArgument(item);
-		} else if (value instanceof Tagged) {
-			for (const item of value.value) this.trackArgument(item);
-		} else if (value instanceof PStruct) {
-			for (const [, item] of value.entries) this.trackArgument(item);
-		}
+		this.#visitArgument(value, false);
 		return value;
+	}
+
+	/** Retire an unexposed native outcome without waiting for wrapper collection.
+	 * Disarming prior tracking transfers each occurrence to the existing release
+	 * queue. The caller must relinquish the value before this schedules progress. */
+	discardArgument(value: Argument): void {
+		const h = this.#h;
+		if (h === null) return;
+		this.#visitArgument(value, true);
+		if (this.pending.length !== 0) {
+			try {
+				this.#schedule(h);
+			} catch (failure) {
+				h.recordFailure(failure);
+			}
+		}
+	}
+
+	#visitArgument(value: Argument, discard: boolean): void {
+		if (isReference(value)) {
+			if (discard) {
+				this.disarm(value);
+				this.pending.push(value.id);
+			} else this.trackRef(value);
+			return;
+		}
+		if (Array.isArray(value)) {
+			for (const item of value) this.#visitArgument(item, discard);
+		} else if (value instanceof PSet) {
+			for (const item of value.items) this.#visitArgument(item, discard);
+		} else if (value instanceof Tagged) {
+			for (const item of value.value) this.#visitArgument(item, discard);
+		} else if (value instanceof PStruct) {
+			for (const [, item] of value.entries) this.#visitArgument(item, discard);
+		}
 	}
 
 	trackArguments(values: Argument[]): Argument[] {

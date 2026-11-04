@@ -1,7 +1,7 @@
 // The `RemotePromise` a Session send returns: immediate progress, lazy observation, promise
 // pipelining target, and `index`/`untag`/`get` projection (ADR-0003 /
 // ADR-0004). Also the shared fetch/enliven mint→await→classify
-// path (`awaitMinted` / `asLiveRef`), the far-send mint→`promiseFor` path
+// path (`awaitMinted` / `finishFetch`), the far-send mint→`promiseFor` path
 // (`sendFar`), and RemotePromise construction. Session owns CapTP verb
 // wrappers; trampoline owns Host-reference send·tell dispatch and local arms;
 // this module owns the handle type, remote-send/post-mint choreography, and
@@ -24,6 +24,7 @@ import { type Argument, isReference, promiseArgument, Ref, refFromId } from "./v
  * outcome. */
 export interface VowWaitHandle {
 	readonly ptr: Ptr;
+	readonly hostOwner: UnexposedOutcomeOwner;
 	vowMinted(vow: bigint, trackGc?: boolean): void;
 	attend(): void;
 	awaitVow(vow: bigint): Promise<Argument>;
@@ -37,14 +38,24 @@ export interface MintAwaitHandle extends VowWaitHandle {
 	drainGc(): void;
 }
 
+/** Values hidden by a failed wait or fetch still belong to the projecting Host. */
+interface UnexposedOutcomeOwner {
+	discardGcArgument(value: Argument): void;
+}
+
 /** The far-send `promiseFor` / `sendFar` path adds the raw host handle its
  * `index` / `untag` / `get` projections mint sibling vows through. */
 export interface PromiseFactoryHandle extends VowWaitHandle {
 	readonly hostRaw: Ptr;
-	readonly hostOwner: object;
+	readonly hostOwner: VowOutcomeOwner;
 	trackVow(handle: object, vow: bigint): void;
 	scheduleProgress(): void;
 	recordBackgroundFailure(failure: unknown): void;
+}
+
+/** The Host owns tracking for occurrences projected from its FFI outcomes. */
+export interface VowOutcomeOwner extends UnexposedOutcomeOwner {
+	trackVowOutcome(vow: bigint): void;
 }
 
 const utf8Encoder = new TextEncoder();
@@ -81,8 +92,9 @@ function projectVow(
 /** Observe native settlement immediately without letting it bypass progress.
  * Each wait owns an outcome promise with settlement reactions, one outcome record,
  * plus this async helper's return promise. The record is consumed after progress
- * succeeds, or retires with its promise if progress fails first. No Host registry
- * or wire retain is added. Boxing keeps a late native rejection observed even
+ * succeeds. Progress failure adds one continuation and its derived promise until
+ * settlement, then transfers any fulfilled value to the Host release queue.
+ * No Host registry or wire retain is added. Boxing keeps a late native rejection observed even
  * after progress has failed; sequential bare awaits would orphan that rejection.
  * Progress retains its existing completion order and exact failure precedence.
  */
@@ -91,7 +103,19 @@ async function awaitDrivenVow(h: VowWaitHandle, vow: bigint): Promise<Argument> 
 		(value) => ({ ok: true as const, value }),
 		(error: unknown) => ({ ok: false as const, error }),
 	);
-	await h.kickActions();
+	try {
+		await h.kickActions();
+	} catch (failure) {
+		void settled.then((outcome) => {
+			if (!outcome.ok) return;
+			try {
+				h.hostOwner.discardGcArgument(outcome.value);
+			} catch (cleanup) {
+				retainSecondaryFailure(failure, cleanup);
+			}
+		});
+		throw failure;
+	}
 	const outcome = await settled;
 	if (!outcome.ok) throw outcome.error;
 	return outcome.value;
@@ -121,12 +145,17 @@ export async function awaitMinted(
 	}
 }
 
-/** Classify a settled mint as an opaque Host capability. */
-export function asLiveRef(result: Argument, label: string): Ref {
-	if (!isReference(result)) {
-		throw new FetchFailed(label);
+/** Finish a native fetch without leaving rejected capability occurrences
+ * ownerless. Valid results retain the fetching operation's release policy. */
+export function finishFetch(result: Argument, label: string, owner: UnexposedOutcomeOwner): Ref {
+	if (isReference(result)) return result;
+	const failure = new FetchFailed(label);
+	try {
+		owner.discardGcArgument(result);
+	} catch (cleanup) {
+		retainSecondaryFailure(failure, cleanup);
 	}
-	return result;
+	throw failure;
 }
 
 /** The one mint/await/classify body under `fetch` and `enliven`: mint the
@@ -151,7 +180,7 @@ export async function fetchLike(
 	checkHost(mint(h.ptr, ab(swiss), BigInt(swiss.length), ab(out)));
 	const vow = outU64(out);
 	const result = await awaitMinted(h, vow, trackGc);
-	return asLiveRef(result, label);
+	return finishFetch(result, label, h.hostOwner);
 }
 
 /** Adopt a freshly minted Host vow into one public wrapper. Registration,
@@ -177,7 +206,7 @@ export function promiseFor(
 		h.vowMinted(vow, true);
 		const promise = pipelineable
 			? RemotePromise.far(vow, h.hostOwner, begin, project)
-			: RemotePromise.observer(vow, begin);
+			: RemotePromise.observer(vow, h.hostOwner, begin);
 		h.attend();
 		h.scheduleProgress();
 		// Last fallible adoption step: after registration succeeds, returning
@@ -363,9 +392,11 @@ export function sendFar(
  * answer, so `task.untag("cell").index(0)` or `task.get("name")` costs no
  * extra round trip. */
 export type PromiseState =
-	| { readonly tag: "far"; readonly vow: bigint; readonly hostOwner: object }
-	| { readonly tag: "observer"; readonly vow: bigint }
-	| { readonly tag: "local" }
+	| { readonly tag: "far"; readonly vow: bigint; readonly hostOwner: VowOutcomeOwner }
+	| { readonly tag: "observer"; readonly vow: bigint; readonly hostOwner: VowOutcomeOwner }
+	// A local result borrows its wrappers. This bit carries selection only to
+	// a fresh native operation reached through Forward, without a new adapter.
+	| { readonly tag: "local"; trackGc: boolean }
 	// A send that could not be issued at all (a closed session, an argument
 	// that would not lower). It is a state rather than a thrown error because
 	// `send` must return its handle *synchronously*, so pipelining can project
@@ -378,7 +409,7 @@ export class RemotePromise extends Promise<Argument> {
 	/** A promise is a passable send argument in any state (ADR-0068). */
 	readonly [promiseArgument]: true = true;
 	readonly #state: PromiseState;
-	readonly #begin: () => Promise<Argument>;
+	readonly #begin: (trackGc: boolean) => Promise<Argument>;
 	#started = false;
 	readonly #resolve: (value: Argument | PromiseLike<Argument>) => void;
 	readonly #reject: (reason?: unknown) => void;
@@ -389,7 +420,7 @@ export class RemotePromise extends Promise<Argument> {
 
 	private constructor(
 		state: PromiseState,
-		begin: () => Promise<Argument>,
+		begin: (trackGc: boolean) => Promise<Argument>,
 		project?: (op: "index" | "untag" | "get", key: string | bigint) => RemotePromise,
 	) {
 		// The executor only captures settlement functions. The factory schedules
@@ -410,7 +441,7 @@ export class RemotePromise extends Promise<Argument> {
 	/** A far answer that settles a host vow (pipelinable). */
 	static far(
 		vow: bigint,
-		hostOwner: object,
+		hostOwner: VowOutcomeOwner,
 		begin: () => Promise<Argument>,
 		project: (op: "index" | "untag" | "get", key: string | bigint) => RemotePromise,
 	): RemotePromise {
@@ -418,13 +449,13 @@ export class RemotePromise extends Promise<Argument> {
 	}
 
 	/** A local-send handle (not pipelinable). */
-	static local(begin: () => Promise<Argument>): RemotePromise {
-		return new RemotePromise({ tag: "local" }, begin);
+	static local(begin: (trackGc: boolean) => Promise<Argument>): RemotePromise {
+		return new RemotePromise({ tag: "local", trackGc: false }, begin);
 	}
 
 	/** An await-only FFI vow whose answer is local observation state. */
-	static observer(vow: bigint, begin: () => Promise<Argument>): RemotePromise {
-		return new RemotePromise({ tag: "observer", vow }, begin);
+	static observer(vow: bigint, hostOwner: VowOutcomeOwner, begin: () => Promise<Argument>): RemotePromise {
+		return new RemotePromise({ tag: "observer", vow, hostOwner }, begin);
 	}
 
 	/** A handle for a send that never left: awaiting it rejects with `error`,
@@ -436,6 +467,26 @@ export class RemotePromise extends Promise<Argument> {
 		// a handle nobody awaits is not an unhandled rejection. Projection is
 		// answered by `#projectOp` from the state, not by a thunk.
 		return new RemotePromise({ tag: "failed", error }, () => Promise.reject(error));
+	}
+
+	/** Track newly projected reply references with the Host's existing GC owner.
+	 * Select before observing this promise. Repeated selection is idempotent,
+	 * including a settled, unobserved outcome. Saved raw results keep the
+	 * same wrappers, and collection releases only unreachable occurrences.
+	 * Local results remain borrowed. A local proxy carries this selection to
+	 * an operation it forwards. Other Session calls keep their own GC policy.
+	 *
+	 * Selection adds one vow lookup. When tracking was off, the existing reply
+	 * walk registers each capability occurrence with FinalizationRegistry. It
+	 * adds no payload copy or FFI retain. Already tracked outcomes skip that work. */
+	withGc(): this {
+		if (this.#state.tag === "failed") return this;
+		if (this.#started) {
+			throw new GlowcapError(INVALID_ARGUMENT, "select reply GC before observing the promise");
+		}
+		if (this.#state.tag === "local") this.#state.trackGc = true;
+		else this.#state.hostOwner.trackVowOutcome(this.#state.vow);
+		return this;
 	}
 
 	/** Host vow when far; `null` when local (convenience, not the discriminant). */
@@ -504,7 +555,7 @@ export class RemotePromise extends Promise<Argument> {
 	): Promise<R1 | R2> {
 		if (!this.#started) {
 			this.#started = true;
-			this.#begin().then(this.#resolve, this.#reject);
+			this.#begin(this.#state.tag === "local" && this.#state.trackGc).then(this.#resolve, this.#reject);
 		}
 		return super.then(onFulfilled, onRejected);
 	}
