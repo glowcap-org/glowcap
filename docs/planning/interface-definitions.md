@@ -48,10 +48,14 @@ or a larger budget inferred from this checkpoint.
 ## Execution map
 
 The current work is milestone 2. Conversation, generation-cost, and proposed
-text comparisons are retained. Tasks' Rust read workflow and six Zig server
+text comparisons are retained.
+
+Tasks' Rust read workflow and six Zig server
 reads use generated checks for declared bounds and exact arity. Complete authored
 Tasks and Loam modules feed generation and match the independent Syrup fixture.
-Syrup remains supported input. The [continuation proposal](#continuation-proposal)
+Syrup remains supported input.
+
+The [continuation proposal](#continuation-proposal)
 recommends the text frontend. Frontend selection and the full-target budget remain open.
 
 | Work | State and next action | Owner |
