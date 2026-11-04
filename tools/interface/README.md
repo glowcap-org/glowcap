@@ -15,6 +15,7 @@ owns executable qualification.
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
 | `rust_bounds.zig` | Rust argument checks and deduplicated bounded reply decoders |
 | `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
+| `exports.zig` | Public export validation and isolation from private implementation names |
 | `literal.zig` | Source string escaping |
 | `expectations.zig` | Test constants from independent message fixtures |
 | `generate.zig` | Fixture selection, output paths, and compiler tests |

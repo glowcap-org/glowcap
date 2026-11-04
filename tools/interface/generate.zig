@@ -47,6 +47,8 @@ pub const outputs = [_]Output{
     .{ .path = "test/interface/generated/expected.ts", .generate = @import("expectations.zig").generateTypeScript },
     .{ .path = "test/interface/generated/authoring_text.ts", .generate = generateAuthoringText },
     .{ .path = "test/interface/generated/direct_receiver.zig", .generate = generateDirectReceiver },
+    .{ .path = "test/interface/generated/names.rs", .generate = generateRustNames },
+    .{ .path = "test/interface/generated/names.ts", .generate = generateTypeScriptNames },
     .{ .path = "apps/tasks/zig/interface.zig", .generate = generateZig },
     .{ .path = "apps/tasks/rust/interface.rs", .generate = generateRust },
 };
@@ -85,6 +87,14 @@ fn generateCallbacks(a: std.mem.Allocator) ![]u8 {
 }
 fn generateTypeScript(a: std.mem.Allocator) ![]u8 {
     return generateCalls(a, @import("typescript.zig"), selected);
+}
+
+fn generateRustNames(a: std.mem.Allocator) ![]u8 {
+    return generateCalls(a, @import("callbacks.zig"), @import("names_test.zig").rust_selections);
+}
+
+fn generateTypeScriptNames(a: std.mem.Allocator) ![]u8 {
+    return generateCalls(a, @import("typescript.zig"), @import("names_test.zig").typescript_selections);
 }
 
 fn generateRust(a: std.mem.Allocator) ![]u8 {
@@ -274,6 +284,7 @@ test {
     _ = @import("authoring_test.zig");
     _ = @import("profiles_test.zig");
     _ = @import("read_test.zig");
+    _ = @import("names_test.zig");
 }
 
 fn generateAuthoringText(a: std.mem.Allocator) ![]u8 {

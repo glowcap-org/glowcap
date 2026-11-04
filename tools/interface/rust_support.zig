@@ -10,6 +10,17 @@ pub const Needs = struct {
     optional: bool = false,
     replies: std.EnumSet(Kind) = .{},
 
+    pub fn exports(self: Needs) [5]@import("exports.zig").Support {
+        const pending = self.receipt or self.replies.count() != 0;
+        return .{
+            .{ .name = "Error" },
+            .{ .name = "Pending", .enabled = pending },
+            .{ .name = "Observation", .enabled = pending },
+            .{ .name = "Reference", .enabled = self.references },
+            .{ .name = "PreparedMutation", .enabled = self.receipt },
+        };
+    }
+
     pub fn emit(self: Needs, out: *std.ArrayList(u8), a: std.mem.Allocator) !void {
         const pending = self.receipt or self.replies.count() != 0;
         const imports = .{

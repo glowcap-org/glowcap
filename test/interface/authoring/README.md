@@ -33,17 +33,23 @@ root. The interface test step builds the comparison checker. It reads build inpu
 zig build interface-test
 zig-out/bin/interface-authoring text test/interface/authoring/comparison.interface
 zig-out/bin/interface-authoring syrup test/interface/authoring/comparison.syrup
-zig-out/bin/interface-authoring text test/interface/authoring/comparison.interface description comparison.Reader read unused zig-out/comparison.syrup
+zig-out/bin/interface-authoring text test/interface/authoring/comparison.interface description comparison.Reader --named read unused zig-out/comparison.syrup
 cmp test/interface/authoring/comparison.syrup zig-out/comparison.syrup
-zig-out/bin/interface-authoring syrup test/interface/authoring/comparison.syrup rust comparison.Reader read authoring_read zig-out/authoring_read.rs
+zig-out/bin/interface-authoring syrup test/interface/authoring/comparison.syrup rust comparison.Reader --named read authoring_read zig-out/authoring_read.rs
 zig build gen-interface-fixtures-check interface-conversation-check
 ```
 
-After input format and path, emission takes target, receiver, selector, generated
-function name, and output path. Use `--direct` for an absent selector and `''`
-for the empty symbol. Targets are `description`, `rust`, `ts`, and the existing
+After input format and path, emission takes target, receiver, selector kind,
+generated function name, and output path. Use `--direct` for an absent selector
+or `--named NAME` for a literal wire name. `--named ''` selects the empty symbol,
+and `--named --direct` selects the method named `--direct`.
+Targets are `description`, `rust`, `ts`, and the existing
 `zig` creation projection. Every path reads the canonical description and calls
 `Model.init` before emission. The text path does so before returning its bytes.
+
+Requested function names survive emission unchanged. Private helper and import
+names cannot conflict with them. Duplicate exports and names already exported
+as public support, such as `Pending`, are refused before writing output.
 
 `interface-test` compares exact independent descriptions and checked selections.
 It changes the Name bound to 32, Reader.read's reply to undefined, and the `a-b`
@@ -63,15 +69,20 @@ passable pending input before settlement, and an unknown remote break.
 The shared runtime corpus remains the evidence for the other emitter paths.
 A description match alone does not establish runtime support for a type.
 
-`interface-conversation-check` also compiles isolated Rust projections
-from [rust_helpers.interface](rust_helpers.interface). Each is a public library
-module checked with `cargo clippy --lib -- -D warnings`, without lint allowances.
+`interface-conversation-check` also compiles isolated Rust and TypeScript projections
+from [rust_helpers.interface](rust_helpers.interface). Rust uses public library
+modules checked with `cargo clippy --lib -- -D warnings`, without lint allowances.
 The cases cover text, capability and value replies, reference inputs, optional
 arguments, receipt preparation, and tells with zero, string, undefined, value,
 or optional arguments. Bounded cases add UTF-8 text inputs and replies,
 lower-only and wide byte limits, integer parameters and tells, optional bounded
-text, and full signed-64-bit replies. The scratch library reuses the conversation crate's
-dependencies, lockfile, and Cargo caches. It adds no runtime calls.
+text, and full signed-64-bit replies.
+
+The scratch library reuses the conversation crate's
+dependencies, lockfile, and Cargo caches. Deno checks TypeScript consumers.
+Both compilers check exports matching private helpers and imports, plus multiple
+selected functions in one module. Rust also checks bounded decoder names and
+private module name allocation. These checks add no runtime calls.
 
 The adapter has no new production dependency. An arena owns decoded tokens and
 encoded fragments for one compilation, and the caller owns the final canonical

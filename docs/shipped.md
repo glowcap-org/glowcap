@@ -253,7 +253,8 @@ so a peer with no listening socket can still reply and take part in a handoff.
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
   Tasks uses generated Zig creation and six server read checks from a Syrup contract, plus a Rust retained-request client and five bounded read calls.
   Rust prepared pending arguments run through acquisition and replay on both wire profiles.
-  Generated Rust and TypeScript callers preserve positional, empty-symbol, and named invocation,
+  Generated Rust and TypeScript callers [isolate public exports from private helpers](../test/interface/authoring/README.md#reproduce),
+  preserve positional, empty-symbol, and named invocation,
   and distinguish omitted arguments from explicit undefined values on both profiles.
   Generated Rust receives Goblins handoffs, and a plain Goblins caller exercises Tasks creation through its generated Zig checks on Syrup/V1.0.
   This is the first [interface generation slice](planning/interface-definitions.md), not a general interface compiler.

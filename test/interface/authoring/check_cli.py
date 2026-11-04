@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="glowcap-authoring-cli-") as directory:
             "safe\n}\npub fn injected() {}",
         ):
             result = subprocess.run(
-                [checker, "syrup", fixture, target, "comparison.Reader", "read", name, output],
+                [checker, "syrup", fixture, target, "comparison.Reader", "--named", "read", name, output],
                 capture_output=True,
                 timeout=5,
                 check=False,
@@ -36,12 +36,58 @@ with tempfile.TemporaryDirectory(prefix="glowcap-authoring-cli-") as directory:
             if result.returncode == 0 or output.exists() or b"InvalidIdentifier" not in result.stderr:
                 raise AssertionError(f"{target} admitted invalid identifier {name!r}: {result.stderr!r}")
         subprocess.run(
-            [checker, "syrup", fixture, target, "comparison.Reader", "read", "authoring_read", output],
+            [checker, "syrup", fixture, target, "comparison.Reader", "--named", "read", "authoring_read", output],
             capture_output=True,
             timeout=5,
             check=True,
         )
         assert output.is_file(), "valid identifier did not produce output"
+
+        for name in ("Error", "Pending", "Observation") if target == "rust" else ("Pending",):
+            refused = Path(directory) / f"refused-{name}.{target}"
+            result = subprocess.run(
+                [checker, "syrup", fixture, target, "comparison.Reader", "--named", "read", name, refused],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode == 0 or refused.exists() or b"ExportCollision" not in result.stderr:
+                raise AssertionError(f"{target} admitted public support collision {name!r}: {result.stderr!r}")
+
+    # Independently authored selectors distinguish both option strings from direct calls.
+    source = Path(directory) / "selector.interface"
+    source.write_text(
+        'module names\ninterface R { "--direct"() -> string "--named"() -> string ""() -> string }\ninterface D { () -> string }\n'
+    )
+    for target in ("rust", "ts"):
+        for index, selector in enumerate(("--direct", "--named", "")):
+            output = Path(directory) / f"selector-{index}.{target}"
+            result = subprocess.run(
+                [checker, "text", source, target, "names.R", "--named", selector, "selected", output],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode or f'"{selector}", ' not in output.read_text():
+                raise AssertionError(f"{target} lost named selector {selector!r}: {result.stderr!r}")
+        output = Path(directory) / f"direct.{target}"
+        subprocess.run(
+            [checker, "text", source, target, "names.D", "--direct", "selected", output],
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        assert ("None::<&str>" if target == "rust" else "target, null,") in output.read_text()
+        for selection in (("--named",), ("read",), ("--direct", "unexpected")):
+            refused = Path(directory) / "bad-selector"
+            result = subprocess.run(
+                [checker, "text", source, target, "names.D", *selection, "selected", refused],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode == 0 or refused.exists() or b"InvalidArguments" not in result.stderr:
+                raise AssertionError(f"{target} admitted malformed selector {selection!r}: {result.stderr!r}")
 
     # Independently authored descriptions reach the shared model before any output.
     ordinary = b"{1\"R<9'interface{1\"m<6'method[]6'string4'call>}>}"
@@ -61,7 +107,7 @@ with tempfile.TemporaryDirectory(prefix="glowcap-authoring-cli-") as directory:
         source.write_bytes(b"<17'glowcap:interface1+" + profiles + definitions + b">")
         output = Path(directory) / f"{name}.{target}"
         result = subprocess.run(
-            [checker, "syrup", source, target, "R", "m", "profile_call", output],
+            [checker, "syrup", source, target, "R", "--named", "m", "profile_call", output],
             capture_output=True,
             timeout=5,
             check=False,

@@ -25,7 +25,7 @@ test "ordinary descriptions emit without declaring the receipt convention" {
         const methods = [_]calls.Named{.{ .api = "read", .call = try calls.read(a, &model, "R", "m") }};
         const rust_code = try rust.emit(a, &methods);
         const ts_code = try ts.emit(a, &methods);
-        try std.testing.expect(std.mem.indexOf(u8, rust_code, "pub fn read(") != null);
+        try std.testing.expect(std.mem.indexOf(u8, rust_code, " as read;") != null);
         try std.testing.expect(std.mem.indexOf(u8, rust_code, "Pending<String>") != null);
         try std.testing.expect(std.mem.indexOf(u8, rust_code, "PreparedMutation") == null);
         try std.testing.expect(std.mem.indexOf(u8, ts_code, "Pending<string>") != null);
@@ -40,7 +40,7 @@ test "receipt methods require their declared convention before emission" {
     var model = try checked(a, receipt_profiles, receipt);
     const methods = [_]calls.Named{.{ .api = "prepare_read", .call = try calls.read(a, &model, "R", "m") }};
     const code = try rust.emit(a, &methods);
-    try std.testing.expect(std.mem.indexOf(u8, code, "pub fn prepare_read(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, code, " as prepare_read;") != null);
     try std.testing.expect(std.mem.indexOf(u8, code, "PreparedMutation<()>") != null);
     // A selected ordinary method cannot hide a receipt elsewhere in the bundle.
     const mixed = "{1\"R<9'interface{1\"a<6'method[]6'string4'call>1\"b<6'method[]9'undefined12'loam.receipt>}>}";

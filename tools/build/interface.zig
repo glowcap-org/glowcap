@@ -17,13 +17,13 @@ pub fn registerRuntime(b: *std.Build, tasks_server: *std.Build.Step.Compile, run
     });
     commands.setLibDir(typescript, .host);
     typescript.has_side_effects = true;
-    const minimal_rust = addInstalledSystemRun(b, .build_tool, &.{ "python3", "test/interface/authoring/check_rust.py" });
-    minimal_rust.addArtifactArg(checker);
-    minimal_rust.step.dependOn(&rust_build.step);
-    commands.setLibDir(minimal_rust, .host);
+    const generated = addInstalledSystemRun(b, .build_tool, &.{ "python3", "test/interface/authoring/check_generated.py" });
+    generated.addArtifactArg(checker);
+    generated.step.dependOn(&rust_build.step);
+    commands.setLibDir(generated, .host);
     const conversation_step = b.step("interface-conversation-check", "Prove generated Tasks creation and Rust/TypeScript pending callback conversations (needs cargo + deno + python3)");
     conversation_step.dependOn(&rust_proof.step);
-    conversation_step.dependOn(&minimal_rust.step);
+    conversation_step.dependOn(&generated.step);
     conversation_step.dependOn(&typescript.step);
     runtime_gate.add(conversation_step);
     registerGoblins(b, tasks_server, check_step);

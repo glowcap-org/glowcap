@@ -2,6 +2,8 @@
 const std = @import("std");
 const calls = @import("calls.zig");
 const literal = @import("literal.zig").write;
+const exports = @import("exports.zig");
+const support = [_]exports.Support{.{ .name = "Pending" }};
 
 pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
@@ -26,12 +28,13 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
             else => unreachable,
         });
     };
-    for (methods) |method| {
+    for (methods, 0..) |method, index| {
         const call = method.call;
         for (call.parameters) |parameter| try supported(parameter);
         try supported(call.result);
         if (call.effect == .receipt) return error.UnsupportedProjection;
-        try out.print(a, "\nexport function {s}(\n\tsession: Session,\n\ttarget: Ref | RemotePromise,\n", .{method.api});
+        var buffer: [32]u8 = undefined;
+        try out.print(a, "\nfunction {s}(\n\tsession: Session,\n\ttarget: Ref | RemotePromise,\n", .{try exports.callName(&buffer, index)});
         for (call.parameters, 0..) |kind, i| {
             if (kind == .pending_value) return error.UnsupportedProjection;
             try out.print(a, "\targ{d}{s}: {s},\n", .{ i, if (i >= call.required_parameters) "?" else "", switch (kind) {
@@ -76,6 +79,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
         }});
         try out.appendSlice(a, "}\n");
     }
+    try exports.typescript(&out, a, methods, &support);
     return out.toOwnedSlice(a);
 }
 

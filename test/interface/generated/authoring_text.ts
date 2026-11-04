@@ -3,7 +3,7 @@ import { type Argument, Ref, RemotePromise } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
 
 /** Observation checks a reply without replacing the runtime's pending target. */
-export class Pending<T> {
+class Pending<T> {
 	constructor(readonly raw: RemotePromise, private readonly decode: (value: Argument) => T) {}
 	observe(): Promise<T> {
 		return this.raw.then(this.decode);
@@ -15,7 +15,7 @@ function nothing(value: Argument): void {
 	if (value !== null) throw new TypeError("expected void reply");
 }
 
-export function invoke_text(
+function call_0(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0?: undefined,
@@ -32,7 +32,7 @@ export function invoke_text(
 	return new Pending(raw, nothing);
 }
 
-export function accept_text(
+function call_1(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: Ref | RemotePromise,
@@ -49,3 +49,6 @@ export function accept_text(
 	const raw = session.send(target, "accept", args);
 	return new Pending(raw, nothing);
 }
+export { Pending };
+export { call_0 as invoke_text };
+export { call_1 as accept_text };

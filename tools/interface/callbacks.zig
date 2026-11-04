@@ -3,14 +3,15 @@ const std = @import("std");
 const calls = @import("calls.zig");
 const bounds = @import("rust_bounds.zig");
 const literal = @import("literal.zig").write;
+const exports = @import("exports.zig");
 
 pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(a);
-    try out.appendSlice(a, "// Generated from checked interface descriptions.\n");
-    try (try requirements(methods)).emit(&out, a);
+    defer out.deinit(a);
+    const needs = try requirements(methods);
+    try needs.emit(&out, a);
     try emitMethods(&out, a, methods);
-    return out.toOwnedSlice(a);
+    return exports.rust(a, out.items, methods, &needs.exports());
 }
 
 pub fn requirements(methods: []const calls.Named) !@import("rust_support.zig").Needs {
@@ -33,8 +34,10 @@ pub fn requirements(methods: []const calls.Named) !@import("rust_support.zig").N
 
 pub fn emitMethods(out: *std.ArrayList(u8), a: std.mem.Allocator, methods: []const calls.Named) !void {
     try bounds.replies(out, a, methods);
-    for (methods) |method| {
-        if (method.call.effect == .receipt) try emitPrepared(out, a, method.call, method.api) else try emitCall(out, a, method.call, method.api);
+    for (methods, 0..) |method, i| {
+        var buffer: [32]u8 = undefined;
+        const name = try exports.callName(&buffer, i);
+        if (method.call.effect == .receipt) try emitPrepared(out, a, method.call, name) else try emitCall(out, a, method.call, name);
     }
 }
 

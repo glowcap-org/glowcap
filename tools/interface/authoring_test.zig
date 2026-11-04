@@ -37,7 +37,7 @@ test "proposed text equals independent canonical description and retains exact m
     try std.testing.expectEqual(calls.Effect.receipt, prepared.effect);
     try std.testing.expect(prepared.parameters[0] == .pending_value);
     const prepared_rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "prepared_text", .call = prepared }});
-    try std.testing.expect(std.mem.indexOf(u8, prepared_rust, "pub fn prepared_text(") != null);
+    try std.testing.expect(std.mem.indexOf(u8, prepared_rust, " as prepared_text;") != null);
     for ([_][]const u8{ "null-input", "null-result" }) |selector| {
         try std.testing.expectError(error.UnsupportedTarget, calls.read(a, &model, "comparison.Named", selector));
     }
