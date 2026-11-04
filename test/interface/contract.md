@@ -81,7 +81,9 @@ them in a list.
 
 Bounds are `min`, `max` for integers, `min_bytes`, `max_bytes` for strings and
 bytes, and `max_items` for containers. A bounded container wraps its type expression
-instead of a primitive symbol. String limits count UTF-8 bytes. Reject unknown
+instead of a primitive symbol. String limits count UTF-8 bytes. Restrictions
+on aliases intersect: a wider outer bound cannot relax an inner bound, and an
+empty intersection is invalid. Reject unknown
 records, profiles, fields, conventions, unresolved names, contradictory bounds,
 ambiguous unions, and unproductive alias cycles. Recursive copied structures
 may contain references to themselves, but runtime copied values must be acyclic.

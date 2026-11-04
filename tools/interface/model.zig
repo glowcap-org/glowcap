@@ -154,7 +154,7 @@ pub const Model = struct {
         } else if (std.mem.eql(u8, label, "bounded")) {
             const fields = try value.fields("bounded", 2);
             try self.checkType(fields[0], depth + 1);
-            _ = try bounds(try self.resolve(fields[0]), fields[1]);
+            _ = try self.constrained(value);
         } else if (std.mem.eql(u8, label, "list") or std.mem.eql(u8, label, "set") or std.mem.eql(u8, label, "promise")) {
             try self.checkType((try value.fields(label, 1))[0], depth + 1);
         } else if (std.mem.eql(u8, label, "tuple") or std.mem.eql(u8, label, "union")) {
@@ -168,6 +168,37 @@ pub const Model = struct {
             if (fields[1].kind != .list) return error.InvalidDescription;
             for (fields[1].children) |field| try self.checkType(field, depth + 1);
         } else return error.UnsupportedProjection;
+    }
+
+    const Constrained = struct { base: Node, limits: call_type.IntegerBounds };
+
+    // Follow only aliases and bound wrappers. A copied container terminates
+    // this chain, so returning to a wrapper is unproductive recursion.
+    fn constrained(self: *Model, input: Node) Error!Constrained {
+        var layers: [description.max_depth]Node = undefined;
+        var visited: [description.max_depth][*]const Node = undefined;
+        var count: usize = 0;
+        var base = try self.resolve(input);
+        while (base.kind == .record and std.mem.eql(u8, base.bytes, "bounded")) {
+            try self.spend(count + 1);
+            for (visited[0..count]) |previous| if (previous == base.children.ptr) return error.InvalidDescription;
+            if (count == layers.len) return error.ResourceLimit;
+            const fields = try base.fields("bounded", 2);
+            visited[count] = base.children.ptr;
+            layers[count] = fields[1];
+            count += 1;
+            base = try self.resolve(fields[0]);
+        }
+        var result = try bounds(base, .{ .kind = .dictionary });
+        for (layers[0..count]) |layer| {
+            const next = try bounds(base, layer);
+            if (next.min) |minimum| result.min = if (result.min) |previous| @max(previous, minimum) else minimum;
+            if (next.max) |maximum| result.max = if (result.max) |previous| @min(previous, maximum) else maximum;
+            if (result.min) |minimum| if (result.max) |maximum| {
+                if (minimum > maximum) return error.InvalidDescription;
+            };
+        }
+        return .{ .base = base, .limits = result };
     }
 
     // One interpretation of bound names and units for validation and call projection.
@@ -245,8 +276,9 @@ pub const Model = struct {
             const fields = try node.fields("bounded", 2);
             var normalized = try self.normalize(fields[0], depth, hops + 1);
             normalized.height += 1;
-            const base = try self.resolve(fields[0]);
-            const limits = try bounds(base, fields[1]);
+            const effective = try self.constrained(node);
+            const base = effective.base;
+            const limits = effective.limits;
             if (base.is("integer")) return .{ .kind = .{ .integer = limits }, .height = normalized.height };
             if (base.is("string") or base.is("bytes")) {
                 const bytes: call_type.ByteBounds = .{ .min = @intCast(limits.min.?), .max = if (limits.max) |max| @intCast(max) else null };
@@ -409,4 +441,41 @@ test "checked call alias chains preserve the final scalar restriction" {
     const alias = try checked.callType(try description.read(a, "<3'ref1\"A>"));
     try std.testing.expectEqual(@as(u64, 1), alias.text.min);
     try std.testing.expectEqual(@as(?u64, 64), alias.text.max);
+}
+
+test "bounded aliases intersect restrictions instead of widening or refusing them" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const prefix = "<17'glowcap:interface1+{14\"glowcap.values1+}{1\"A<4'type<7'bounded";
+    const middle = ">>1\"B<4'type<7'bounded<3'ref1\"A>";
+    const suffix = ">>}>";
+    for ([_]struct { base: []const u8, first: []const u8, second: []const u8, maximum: u64 = 64 }{
+        .{ .base = "6'string", .first = "{9\"max_bytes64+9\"min_bytes1+}", .second = "{9\"max_bytes128+9\"min_bytes4+}" },
+        .{ .base = "5'bytes", .first = "{9\"max_bytes64+9\"min_bytes1+}", .second = "{9\"max_bytes128+9\"min_bytes4+}" },
+        .{ .base = "7'integer", .first = "{3\"max64+3\"min1+}", .second = "{3\"max128+3\"min4+}" },
+        .{ .base = "<4'list6'symbol>", .first = "{9\"max_items64+}", .second = "{9\"max_items128+}" },
+        .{ .base = "6'string", .first = "{9\"max_bytes64+9\"min_bytes1+}", .second = "{9\"max_bytes16+9\"min_bytes4+}", .maximum = 16 },
+        .{ .base = "5'bytes", .first = "{9\"max_bytes64+9\"min_bytes1+}", .second = "{9\"max_bytes16+9\"min_bytes4+}", .maximum = 16 },
+        .{ .base = "7'integer", .first = "{3\"max64+3\"min1+}", .second = "{3\"max16+3\"min4+}", .maximum = 16 },
+        .{ .base = "<4'list6'symbol>", .first = "{9\"max_items64+}", .second = "{9\"max_items16+}", .maximum = 16 },
+    }) |case| {
+        const source = try std.mem.concat(a, u8, &.{ prefix, case.base, case.first, middle, case.second, suffix });
+        var model = try Model.init(a, try description.read(a, source));
+        const result = try model.callType(try description.read(a, "<3'ref1\"B>"));
+        switch (result) {
+            .text, .bytes => |limits| {
+                try std.testing.expectEqual(@as(u64, 4), limits.min);
+                try std.testing.expectEqual(@as(?u64, case.maximum), limits.max);
+            },
+            .integer => |limits| {
+                try std.testing.expectEqual(@as(?i64, 4), limits.min);
+                try std.testing.expectEqual(@as(?i64, @intCast(case.maximum)), limits.max);
+            },
+            .list => |list| try std.testing.expectEqual(@as(?u64, case.maximum), list.max_items),
+            else => return error.UnexpectedType,
+        }
+    }
+    const disjoint = prefix ++ "7'integer{3\"max3+}" ++ middle ++ "{3\"min4+}" ++ suffix;
+    try std.testing.expectError(error.InvalidDescription, Model.init(a, try description.read(a, disjoint)));
 }
