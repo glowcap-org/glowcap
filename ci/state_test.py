@@ -52,10 +52,10 @@ class StateTest(unittest.TestCase):
         cases = [
             (0, 40 * GIB, 12, GIB, False),
             (1, 40 * GIB, 12, GIB, False),
-            (7, 40 * GIB, 12, GIB, False),
-            (7, 40 * GIB, 2, GIB, True),
+            (6, 40 * GIB, 12, GIB, False),
+            (6, 40 * GIB, 2, GIB, True),
             (1, 5 * GIB, 12, GIB, True),
-            (7, 40 * GIB, 1, 1 << 20, False),  # Seven MiB must not count as seven GiB.
+            (6, 40 * GIB, 1, 1 << 20, False),  # Six MiB must not count as six GiB.
             (1, 20 * GIB - 1, 12, 1 << 20, True),  # Free disk must not round up.
             (1, 20 * GIB, 1, GIB, False),
         ]  # Exact limits keep the store.
@@ -68,9 +68,13 @@ class StateTest(unittest.TestCase):
                 self.assertEqual(len(state.STORES), 6)
                 inodes = {}
                 for store in state.STORES[:count]:
-                    (store / "o").mkdir(parents=True)
-                    (store / "o/object").write_text("state\n")
-                    inodes[store] = store.stat().st_ino
+                    if store.name in ("check_cache_v2", "dep_analysis_cache_v2"):
+                        store.parent.mkdir(parents=True, exist_ok=True)
+                        store.write_bytes(b"cache database\n")
+                    else:
+                        (store / "o").mkdir(parents=True)
+                        (store / "o/object").write_text("state\n")
+                        inodes[store] = store.stat().st_ino
                 output = io.StringIO()
                 with (
                     mock.patch.object(state, "size", lambda path: store_bytes),
@@ -82,8 +86,11 @@ class StateTest(unittest.TestCase):
                 self.assertEqual("Dropped it" in output.getvalue(), dropped)
                 # A drop keeps each directory, because the container mounts it.
                 for store in state.STORES[:count]:
-                    self.assertEqual(store.stat().st_ino, inodes[store])
-                    self.assertEqual(any(store.iterdir()), not dropped)
+                    if store in inodes:
+                        self.assertEqual(store.stat().st_ino, inodes[store])
+                        self.assertEqual(any(store.iterdir()), not dropped)
+                    else:
+                        self.assertEqual(store.exists(), not dropped)
 
     def test_size_counts_the_blocks_a_tree_occupies(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -94,6 +101,7 @@ class StateTest(unittest.TestCase):
             measured = state.size(Path(temporary) / "tree")
             self.assertGreaterEqual(measured, 10_000)
             self.assertEqual(measured % 512, 0)
+            self.assertEqual(state.size(tree / "file"), measured)
             self.assertEqual(state.size(Path(temporary) / "absent"), 0)
 
     def test_malformed_calls_change_nothing(self):
