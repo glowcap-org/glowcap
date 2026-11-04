@@ -1,0 +1,33 @@
+module comparison
+
+type Name = string(min_bytes: 1, max_bytes: 64)
+type Count = integer(min: 0, max: 16)
+
+interface Reader {
+  read() -> string
+}
+
+interface Factory {
+  @loam.receipt
+  add(name: Name) -> Reader
+  accept(reader: Reader, pending: promise<Reader>) -> undefined
+}
+
+interface Prepared {
+  @loam.receipt
+  accept(pending: promise<value>) -> undefined
+}
+
+interface Direct {
+  (value?: undefined) -> undefined
+}
+
+interface Named {
+  ""() -> string
+  then() -> string
+  "a-b"() -> string
+  required(value: undefined) -> undefined
+  optional(value?: undefined) -> undefined
+  "null-input"(value: null) -> undefined
+  "null-result"() -> null
+}

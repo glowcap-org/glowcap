@@ -55,10 +55,18 @@ ambiguous primitive spelling. A `struct` represents string-keyed copied data, wh
 not imply arbitrary-label Syrup support. `tagged` has exactly one payload
 position, even when that payload is a tuple.
 
-Method keys are exact wire names as strings. False denotes direct invocation.
-Empty string is a valid named method and differs from false. The runtime
-preserves all three selector forms. Generated client and server qualification
-remains a separate milestone-2 case.
+Method keys are exact wire names as strings. False denotes a direct signature
+for the whole wire argument list, with no selector prepended by the caller.
+An empty string denotes the named shorthand that prepends an empty symbol.
+There is no extra wire tag distinguishing a direct call whose first argument
+is a symbol from a named call carrying the same list.
+
+The current language allows one direct signature or named methods per
+interface. The shared model enforces that scope for every frontend. A direct
+receiver using a binding's `verb` and `args` must restore a peeled leading
+symbol before checking the whole list. The actor boundary proof covers
+`[symbol, integer]` and its reconstruction. A generated direct receiver still
+needs its own integration proof before adoption.
 
 Conventions are
 `call`, `tell`, and `loam.receipt`. A tell result must be `undefined`, denoting
@@ -90,8 +98,11 @@ only on repository-owned inputs and is not the proposed production parser.
 
 `glowcap.values: 1` names the local target mapping below, and `loam.receipt: 1`
 names the existing preparation convention. They are build requirements, not
-wire negotiation or community profile names. The two supported session profiles
-remain `1.0` and `glowcap-next`. A description cannot change a live session.
+wire negotiation or community profile names. The fixture compiler requires
+both entries even for descriptions without receipts. This is a limit of the
+comparison implementation, not a general compiler requirement for every
+interface to use receipts. The two supported session profiles remain `1.0`
+and `glowcap-next`. A description cannot change a live session.
 
 ## Tasks and shared Loam
 

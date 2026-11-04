@@ -38,6 +38,7 @@ pub const outputs = [_]Output{
     .{ .path = "test/interface/generated/callbacks.rs", .generate = generateCallbacks },
     .{ .path = "test/interface/generated/expected.rs", .generate = @import("expectations.zig").generate },
     .{ .path = "test/interface/generated/expected.ts", .generate = @import("expectations.zig").generateTypeScript },
+    .{ .path = "test/interface/generated/authoring_text.ts", .generate = generateAuthoringText },
     .{ .path = "apps/tasks/zig/interface.zig", .generate = generateZig },
     .{ .path = "apps/tasks/rust/interface.rs", .generate = generateRust },
 };
@@ -243,4 +244,21 @@ test "call presence keeps the Models trailing optional rule" {
         .effect = .receipt,
     } }};
     try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods));
+}
+
+test {
+    _ = @import("authoring_test.zig");
+}
+
+fn generateAuthoringText(a: std.mem.Allocator) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const scratch = arena.allocator();
+    var diagnostic: @import("text.zig").Diagnostic = .{};
+    const bytes = try @import("text.zig").translate(scratch, @embedFile("authoring_text"), &diagnostic);
+    var model = try Model.init(try description.read(scratch, bytes));
+    return @import("typescript.zig").emit(a, &.{
+        .{ .api = "invoke_text", .call = try calls.read(scratch, &model, "comparison.Direct", null) },
+        .{ .api = "accept_text", .call = try calls.read(scratch, &model, "comparison.Factory", "accept") },
+    });
 }

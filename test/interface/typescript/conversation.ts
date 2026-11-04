@@ -1,6 +1,7 @@
 // Generated callers meet raw behaviors while the factory answer remains pending.
 import { type Argument, GlowcapError, type HostProfile, Ref, VowBroken } from "@glowcap/runtime";
 import * as generated from "../generated/callbacks.ts";
+import { authoring } from "./authoring.ts";
 import { invocation } from "./invocation.ts";
 import { presence } from "./presence.ts";
 import { assert, withPair } from "./pair.ts";
@@ -112,6 +113,7 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 
 await invocation();
 await presence();
+await authoring();
 for (const profile of ["interop", "glowcap"] satisfies HostProfile[]) {
 	for (const outcome of ["reader", "wrong", "broken", "cancel"] satisfies Outcome[]) {
 		await scenario(profile, outcome);

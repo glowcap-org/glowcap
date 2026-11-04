@@ -1,0 +1,276 @@
+{
+  "revision": "c5e6078ec5449594e704ea8a6091a001cbfd0807",
+  "dirty": false,
+  "environment": {
+    "architecture": "aarch64",
+    "kernel": "7.0.0-1019-nvidia",
+    "zig": "0.17.0",
+    "python": "3.13.5",
+    "container_pins_sha256": "f785a7e74928497bf1326fca0b04bb2d9b2c7341f10c0c4dfa7ed5fc8bc746af"
+  },
+  "concurrent_host_provisional": true,
+  "rss_scope": "wait4 high-water mark includes inherited pre-exec memory, not isolated parser memory",
+  "build_scope": "fresh private local/global Zig caches, warm filesystem; second invocation uses the same command and warm caches without claiming skipped compilation",
+  "compiler_args": [
+    "zig",
+    "build-exe",
+    "-fstrip",
+    "--cache-dir",
+    "LOCAL",
+    "--global-cache-dir",
+    "GLOBAL",
+    "-femit-bin=CHECKER",
+    "-OReleaseFast",
+    "-target",
+    "native",
+    "-mcpu",
+    "baseline",
+    "--dep",
+    "syrup",
+    "-Mroot=tools/interface/authoring_check.zig",
+    "-OReleaseFast",
+    "-target",
+    "native",
+    "-mcpu",
+    "baseline",
+    "--dep",
+    "foundation",
+    "--dep",
+    "model",
+    "--dep",
+    "codec_order",
+    "--dep",
+    "codec_limits",
+    "-Msyrup=src/ocapn/codec/syrup/mod.zig",
+    "-OReleaseFast",
+    "-target",
+    "native",
+    "-mcpu",
+    "baseline",
+    "-Mfoundation=src/foundation/mod.zig",
+    "-OReleaseFast",
+    "-target",
+    "native",
+    "-mcpu",
+    "baseline",
+    "-Mmodel=src/ocapn/model/mod.zig",
+    "-OReleaseFast",
+    "-target",
+    "native",
+    "-mcpu",
+    "baseline",
+    "-Mcodec_order=src/ocapn/codec/order.zig",
+    "-OReleaseFast",
+    "-target",
+    "native",
+    "-mcpu",
+    "baseline",
+    "--dep",
+    "model",
+    "-Mcodec_limits=src/ocapn/codec/limits.zig"
+  ],
+  "inventory": [
+    {
+      "path": "tools/interface/text.zig",
+      "bytes": 13431,
+      "nonblank": 263,
+      "sha256": "edd17597cfb68a312f32a1ca756a6f1515f73823f2c92e245b81e2093095217f"
+    },
+    {
+      "path": "tools/interface/authoring_check.zig",
+      "bytes": 3801,
+      "nonblank": 53,
+      "sha256": "85b3f9fe49a2e31bd6e067623854781f2a7ec68af3a640be1ea6b1d7b2ea9bfa"
+    },
+    {
+      "path": "tools/interface/authoring_test.zig",
+      "bytes": 8919,
+      "nonblank": 141,
+      "sha256": "1e36ecd288aef4a6690c078c550a29c1290c7b11ba4eabd2a4f744f80acd8899"
+    },
+    {
+      "path": "test/interface/authoring/check_cli.py",
+      "bytes": 1649,
+      "nonblank": 41,
+      "sha256": "8ff114cbcc07449b1598ec448c9c05b5263af3bac4833ecb7b2f5390dd29593d"
+    },
+    {
+      "path": "test/interface/typescript/authoring.ts",
+      "bytes": 2402,
+      "nonblank": 59,
+      "sha256": "af92c760b5f0c8084903104c12847525d5c867132e92addbda6a82df8d4903ef"
+    },
+    {
+      "path": "test/interface/generated/authoring_text.ts",
+      "bytes": 2201,
+      "nonblank": 55,
+      "sha256": "b1561b1ea86a33c571fc376a7aca83029a41037b4a04a278a1e7ab3089784b34"
+    },
+    {
+      "path": "test/interface/authoring/comparison.interface",
+      "bytes": 650,
+      "nonblank": 27,
+      "sha256": "d03dfa7b53dc3058c0645c54543186c288987eddd559266ebb7b4c5a8cf7f56f"
+    },
+    {
+      "path": "test/interface/authoring/comparison.syrup",
+      "bytes": 1151,
+      "nonblank": 1,
+      "sha256": "c6446e0cc256472b63bea89eee2f3ab85b00637bbdf18fe41eef2ff5ebd9e87b"
+    }
+  ],
+  "builds": [
+    {
+      "pair": 0,
+      "cold": {
+        "ns": 6325014415,
+        "rss_upper_bytes": 374554624
+      },
+      "warm": {
+        "ns": 4421604662,
+        "rss_upper_bytes": 283840512
+      },
+      "artifact_bytes": 361160
+    },
+    {
+      "pair": 1,
+      "cold": {
+        "ns": 6146679839,
+        "rss_upper_bytes": 382238720
+      },
+      "warm": {
+        "ns": 4265900683,
+        "rss_upper_bytes": 290136064
+      },
+      "artifact_bytes": 361160
+    },
+    {
+      "pair": 2,
+      "cold": {
+        "ns": 6091460258,
+        "rss_upper_bytes": 369983488
+      },
+      "warm": {
+        "ns": 4495065410,
+        "rss_upper_bytes": 294699008
+      },
+      "artifact_bytes": 361160
+    }
+  ],
+  "spawn_floor": [
+    {
+      "ns": 688755,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "ns": 484658,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "ns": 282961,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "ns": 474307,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "ns": 456002,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "ns": 661539,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "ns": 655587,
+      "rss_upper_bytes": 17305600
+    }
+  ],
+  "checks": [
+    {
+      "pair": 0,
+      "format": "syrup",
+      "ns": 651620,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 0,
+      "format": "text",
+      "ns": 455394,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 1,
+      "format": "text",
+      "ns": 608211,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 1,
+      "format": "syrup",
+      "ns": 637283,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 2,
+      "format": "syrup",
+      "ns": 630339,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 2,
+      "format": "text",
+      "ns": 439074,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 3,
+      "format": "text",
+      "ns": 797939,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 3,
+      "format": "syrup",
+      "ns": 636035,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 4,
+      "format": "syrup",
+      "ns": 756980,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 4,
+      "format": "text",
+      "ns": 661363,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 5,
+      "format": "text",
+      "ns": 803860,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 5,
+      "format": "syrup",
+      "ns": 637603,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 6,
+      "format": "syrup",
+      "ns": 636227,
+      "rss_upper_bytes": 17305600
+    },
+    {
+      "pair": 6,
+      "format": "text",
+      "ns": 778675,
+      "rss_upper_bytes": 17305600
+    }
+  ]
+}

@@ -73,6 +73,8 @@ pub const Model = struct {
         while (i < methods.children.len) : (i += 2) {
             const name = methods.children[i];
             if (name.kind != .string and !(name.kind == .boolean and !name.boolean)) return error.InvalidDescription;
+            // Current language scope chooses one raw-list signature or named methods.
+            if (name.kind == .boolean and methods.children.len != 2) return error.InvalidDescription;
             const signature = try methods.children[i + 1].fields("method", 3);
             const params = signature[0];
             if (params.kind != .list or params.children.len > max_parameters) return error.InvalidDescription;
