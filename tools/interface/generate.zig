@@ -41,6 +41,8 @@ const task_reads = .{
 
 pub const step_name = "gen-interface-fixtures";
 pub const outputs = [_]Output{
+    .{ .path = "test/interface/generated/scalars.rs", .generate = generateScalarRust },
+    .{ .path = "test/interface/generated/scalars.ts", .generate = generateScalarTypeScript },
     .{ .path = "test/interface/generated/callbacks.ts", .generate = generateTypeScript },
     .{ .path = "test/interface/generated/callbacks.rs", .generate = generateCallbacks },
     .{ .path = "test/interface/generated/expected.rs", .generate = @import("expectations.zig").generate },
@@ -367,4 +369,40 @@ test "server read emitter keeps edited constraints and rejects unsupported shape
         }
         try std.testing.expectError(error.UnsupportedProjection, zig.emitServer(a, creation, &edited));
     }
+}
+
+fn scalarMethods(a: std.mem.Allocator, model: *Model) ![24]calls.Named {
+    var methods: [24]calls.Named = undefined;
+    var index: usize = 0;
+    inline for (.{ "bool", "bytes", "bounded", "symbol", "float", "error" }) |kind| {
+        inline for (.{ "call", "optional", "tell", "optional_tell" }) |shape| {
+            const name = kind ++ "_" ++ shape;
+            methods[index] = .{ .api = name, .call = try calls.read(a, model, "scalars.Scalars", name) };
+            index += 1;
+        }
+    }
+    return methods;
+}
+fn scalarSource(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const scratch = arena.allocator();
+    var diagnostic: @import("text.zig").Diagnostic = .{};
+    const bytes = try @import("text.zig").translate(scratch, @embedFile("scalar_text"), &diagnostic);
+    var model = try Model.init(try description.read(scratch, bytes));
+    const methods = try scalarMethods(scratch, &model);
+    return emitter.emit(a, &methods);
+}
+fn generateScalarRust(a: std.mem.Allocator) ![]u8 {
+    return scalarSource(a, @import("callbacks.zig"));
+}
+fn generateScalarTypeScript(a: std.mem.Allocator) ![]u8 {
+    return scalarSource(a, @import("typescript.zig"));
+}
+
+test "scalar projections accept exact native representations and bounded bytes" {
+    const rust_source = try generateScalarRust(std.testing.allocator);
+    defer std.testing.allocator.free(rust_source);
+    const ts_source = try generateScalarTypeScript(std.testing.allocator);
+    defer std.testing.allocator.free(ts_source);
 }

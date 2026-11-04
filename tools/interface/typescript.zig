@@ -3,13 +3,24 @@ const std = @import("std");
 const calls = @import("calls.zig");
 const literal = @import("literal.zig").write;
 const exports = @import("exports.zig");
-const support = [_]exports.Support{.{ .name = "Pending" }};
+const scalars = @import("typescript_scalars.zig");
 
 pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(a);
     try out.appendSlice(a, "// Generated from checked interface descriptions.\n");
-    try out.appendSlice(a, @embedFile("templates/pending.ts.in") ++ "\n");
+    try out.appendSlice(a, "import { type Argument, Ref, RemotePromise } from \"@glowcap/runtime\";\nimport type { Session } from \"@glowcap/runtime\";\n");
+    var pending = false;
+    for (methods) |method| pending = pending or method.call.effect == .call;
+    const support = [_]exports.Support{.{ .name = "Pending", .enabled = pending }};
+    var symbols = false;
+    for (methods) |method| {
+        symbols = symbols or method.call.result == .symbol;
+        for (method.call.parameters) |parameter| symbols = symbols or parameter == .symbol;
+    }
+    if (symbols) try out.appendSlice(a, "import { Sym } from \"@glowcap/runtime\";\n");
+    if (pending) try out.appendSlice(a, @embedFile("templates/pending.ts.in") ++ "\n");
+    try scalars.replies(&out, a, methods);
     var replies: std.EnumSet(calls.Kind) = .{};
     for (methods) |method| if (method.call.effect == .call) {
         replies.insert(std.meta.activeTag(method.call.result));
@@ -61,22 +72,37 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
                 .target, .pending_target => try out.print(a, "!(arg{d} instanceof Ref) && !(arg{d} instanceof RemotePromise)", .{ i, i }),
                 .value => try out.print(a, "arg{d} === undefined", .{i}),
                 .pending_value => return error.UnsupportedProjection,
+                .boolean, .bytes, .symbol, .float64, .error_value => {
+                    var name: [32]u8 = undefined;
+                    try scalars.invalid(&out, a, kind, try std.fmt.bufPrint(&name, "arg{d}", .{i}));
+                },
                 .integer => unreachable,
             }
             try out.print(a, ") throw new TypeError(\"invalid argument {d}\");\n{s}args[{d}] = ", .{ i, indent, i });
             if (kind == .nothing) try out.appendSlice(a, "null") else try out.print(a, "arg{d}", .{i});
             try out.appendSlice(a, ";\n");
+            if (kind == .bytes and scalars.bounded(kind.bytes)) {
+                var name: [32]u8 = undefined;
+                try out.print(a, "{s}if (", .{indent});
+                try scalars.byteBounds(&out, a, kind.bytes, try std.fmt.bufPrint(&name, "arg{d}", .{i}));
+                try out.appendSlice(a, ") throw new TypeError(\"byte argument outside bounds\");\n");
+            }
             if (optional) try out.appendSlice(a, "\t}\n");
         }
         try out.appendSlice(a, if (call.effect == .tell) "\treturn session.tell(target, " else "\tconst raw = session.send(target, ");
         if (call.wire_name) |name| try literal(&out, a, name) else try out.appendSlice(a, "null");
         try out.appendSlice(a, ", args);\n");
-        if (call.effect != .tell) try out.print(a, "\treturn new Pending(raw, {s});\n", .{switch (call.result) {
-            .target => "capability",
-            .text => "text",
-            .nothing => "nothing",
-            else => return error.UnsupportedProjection,
-        }});
+        if (call.effect != .tell) {
+            try out.appendSlice(a, "\treturn new Pending(raw, ");
+            switch (call.result) {
+                .target => try out.appendSlice(a, "capability"),
+                .text => try out.appendSlice(a, "text"),
+                .nothing => try out.appendSlice(a, "nothing"),
+                .boolean, .bytes, .symbol, .float64, .error_value => try scalars.decoder(&out, a, call.result),
+                else => return error.UnsupportedProjection,
+            }
+            try out.appendSlice(a, ");\n");
+        }
         try out.appendSlice(a, "}\n");
     }
     try exports.typescript(&out, a, methods, &support);
@@ -91,6 +117,7 @@ fn typeName(kind: calls.Type) []const u8 {
         .nothing => "void",
         .value => "Argument",
         .pending_value => "RemotePromise",
+        .boolean, .bytes, .symbol, .float64, .error_value => scalars.typeName(kind),
         .integer => unreachable,
     };
 }

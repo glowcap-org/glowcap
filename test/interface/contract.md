@@ -181,6 +181,22 @@ suffix could contain a hole. TypeScript counts supplied arguments, so an omitted
 argument differs from explicitly passed `undefined`. Present undefined is encoded
 as the binding's `null` representation for void. Contract null is still unsupported.
 
+The scalar fixture qualifies booleans, bytes, symbols, float64, and fulfilled
+error values in Rust and TypeScript. Calls and tells cover required and optional
+inputs on both profiles. Bytes preserve declared byte limits through local input
+checks and fulfillment checks. Rust uses `bool`, `Vec<u8>`, `String`, and `f64`,
+with separate wire tags for symbols and error strings.
+
+TypeScript uses `boolean`,
+`Uint8Array`, `Sym`, `number`, and `Error`. Strings cannot substitute for symbols
+or error values, other typed-array views cannot substitute for bytes, and integer
+values cannot substitute for float64.
+
+Float edge cases follow the raw bindings,
+including signed zero, subnormals, infinities, and NaN. Error fulfillment and
+remote break remain separate outcomes. Null and copied containers still have no
+generated projection.
+
 The Rust prepared-receipt fixture accepts one `promise<value>` argument and a
 void reply. Its generated input is a borrowed `RemotePromise`. Preparation
 retains it for the receiving Host before asking for a sequence, then owns the

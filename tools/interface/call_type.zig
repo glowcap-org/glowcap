@@ -11,6 +11,11 @@ pub const ByteBounds = struct {
 pub const Type = union(enum) {
     text: ByteBounds,
     integer: IntegerBounds,
+    boolean,
+    bytes: ByteBounds,
+    symbol,
+    float64,
+    error_value,
     target,
     pending_target,
     nothing,

@@ -13,6 +13,7 @@ owns executable qualification.
 | `zig.zig`, `zig_reads.zig` | Tasks creation and read checks, and the fixed Zig direct receiver |
 | `rust.zig` | Tasks creation and read module assembly |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
+| `typescript_scalars.zig` | Exact JavaScript scalar guards and byte limits |
 | `rust_bounds.zig` | Rust argument checks and deduplicated bounded reply decoders |
 | `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
 | `exports.zig` | Public export validation and isolation from private implementation names |
@@ -35,6 +36,19 @@ Ordinary Rust and TypeScript calls preserve trailing optional arguments and
 explicit undefined values. Omission shortens the argument list. Rust refuses a
 missing argument followed by a present one, and TypeScript checks arity and
 value types before sending. Contract null remains an unsupported target type.
+
+Rust and TypeScript calls and tells also project booleans, bytes, symbols,
+float64, and fulfilled error values. Byte bounds count bytes and retain their
+normalized `u64` limits. The description reader admits signed-64-bit integer
+metadata.
+
+Rust consumes owned byte vectors and symbol/error strings,
+then moves them into the binding argument. Local refusal drops those inputs.
+Reply decoding moves the binding's owned values out without cloning them.
+
+TypeScript preserves the JavaScript objects and checks their categories before
+sending. Its byte-length checks add no payload copy. Neither target filters
+float64 values. A fulfilled error remains data, distinct from a broken call.
 
 Tasks' Rust creation and read projections share the checked contract.
 The [read projection](../../test/interface/contract.md#tasks-rust-read-projection)

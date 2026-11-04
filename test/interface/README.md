@@ -33,6 +33,14 @@ on both profiles. It checks required and optional undefined inputs, optional
 text and references, invalid holes, wrong inputs and replies, and remote breaks.
 Expected arguments come from the independent message fixture in both languages.
 
+The scalar source in `authoring/scalars.interface` generates Rust and TypeScript
+callers. Independent raw peers check exact scalar categories and values on both
+profiles. Required and optional calls and tells cover booleans, bytes, bounded
+bytes, symbols, float64, and fulfilled errors. Wrong replies, unchanged remote
+breaks, float edge cases, and local byte-limit refusal are exercised too.
+The existing strict consumer check compiles each method on its own, so unused
+helpers cannot hide behind another selected method.
+
 The generated Zig direct receiver accepts exactly two passable values and an
 undefined result. Raw callers on both profiles send whole lists, including
 leading symbols that the actor API peels into a verb. The receiver restores

@@ -1,0 +1,36 @@
+module scalars
+
+type BoundedBytes = bytes(min_bytes: 1, max_bytes: 4)
+
+interface Scalars {
+  bool_call(value: bool) -> bool
+  bool_optional(value?: bool) -> bool
+  tell bool_tell(value: bool)
+  tell bool_optional_tell(value?: bool)
+  bytes_call(value: bytes) -> bytes
+  bytes_optional(value?: bytes) -> bytes
+  tell bytes_tell(value: bytes)
+  tell bytes_optional_tell(value?: bytes)
+  bounded_call(value: BoundedBytes) -> BoundedBytes
+  bounded_optional(value?: BoundedBytes) -> BoundedBytes
+  tell bounded_tell(value: BoundedBytes)
+  tell bounded_optional_tell(value?: BoundedBytes)
+  symbol_call(value: symbol) -> symbol
+  symbol_optional(value?: symbol) -> symbol
+  tell symbol_tell(value: symbol)
+  tell symbol_optional_tell(value?: symbol)
+  float_call(value: float64) -> float64
+  float_optional(value?: float64) -> float64
+  tell float_tell(value: float64)
+  tell float_optional_tell(value?: float64)
+  error_call(value: error) -> error
+  error_optional(value?: error) -> error
+  tell error_tell(value: error)
+  tell error_optional_tell(value?: error)
+}
+
+// The reader's largest admitted byte-bound metadata must survive both emitters.
+type WideBytes = bytes(max_bytes: 9223372036854775807)
+interface Wide {
+  bytes(value?: WideBytes) -> WideBytes
+}

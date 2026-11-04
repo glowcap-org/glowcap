@@ -187,6 +187,11 @@ pub const Model = struct {
         const node = try self.resolve(input);
         if (node.is("string")) return .{ .text = .{} };
         if (node.is("integer")) return .{ .integer = .{} };
+        if (node.is("bytes")) return .{ .bytes = .{} };
+        if (node.is("bool")) return .boolean;
+        if (node.is("symbol")) return .symbol;
+        if (node.is("float64")) return .float64;
+        if (node.is("error")) return .error_value;
         if (node.is("undefined")) return .nothing;
         if (node.is("null")) return error.UnsupportedTarget;
         if (node.is("value")) return .value;
@@ -196,10 +201,13 @@ pub const Model = struct {
                 const base = try self.resolve(fields[0]);
                 const limits = try bounds(base, fields[1]);
                 if (base.is("integer")) return .{ .integer = limits };
-                if (base.is("string")) return .{ .text = .{
-                    .min = @intCast(limits.min.?),
-                    .max = if (limits.max) |maximum| @intCast(maximum) else null,
-                } };
+                if (base.is("string") or base.is("bytes")) {
+                    const bytes: call_type.ByteBounds = .{
+                        .min = @intCast(limits.min.?),
+                        .max = if (limits.max) |maximum| @intCast(maximum) else null,
+                    };
+                    return if (base.is("string")) .{ .text = bytes } else .{ .bytes = bytes };
+                }
                 return error.UnsupportedProjection;
             }
             if (std.mem.eql(u8, node.bytes, "interface")) return .target;
@@ -312,7 +320,10 @@ test "checked call integers preserve absent endpoints and exact signed extrema" 
         "<7'bounded7'integer{9\"max_bytes1+}>",
     }) |invalid| try std.testing.expectError(error.InvalidDescription, checked.callType(try description.read(a, invalid)));
     try std.testing.expectError(error.UnsupportedTarget, checked.callType(try description.read(a, "4'null")));
-    try std.testing.expectError(error.UnsupportedProjection, checked.callType(try description.read(a, "5'bytes")));
+    try std.testing.expect((try checked.callType(try description.read(a, "5'bytes"))) == .bytes);
+    const wide_bytes = try checked.callType(try description.read(a, "<7'bounded5'bytes{9\"max_bytes9223372036854775807+9\"min_bytes1+}>"));
+    try std.testing.expectEqual(@as(u64, 1), wide_bytes.bytes.min);
+    try std.testing.expectEqual(@as(?u64, std.math.maxInt(i64)), wide_bytes.bytes.max);
 }
 
 test "checked call alias chains preserve the final scalar restriction" {

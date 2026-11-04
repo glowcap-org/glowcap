@@ -46,3 +46,18 @@ test "emitters refuse duplicate APIs and their actual public support exports" {
         try std.testing.expectError(error.ExportCollision, @import("rust.zig").emit(a, creation, &.{.{ .api = api, .call = call }}));
     }
 }
+
+test "TypeScript tell exports reserve only emitted support" {
+    const a = std.testing.allocator;
+    const code = try ts.emit(a, &.{.{ .api = "Pending", .call = .{
+        .wire_name = "notice",
+        .parameters = &.{.symbol},
+        .required_parameters = 1,
+        .result = .nothing,
+        .effect = .tell,
+    } }});
+    defer a.free(code);
+    try std.testing.expect(std.mem.indexOf(u8, code, "class Pending") == null);
+    try std.testing.expect(std.mem.indexOf(u8, code, "function nothing") == null);
+    try std.testing.expect(std.mem.indexOf(u8, code, "import { Sym }") != null);
+}

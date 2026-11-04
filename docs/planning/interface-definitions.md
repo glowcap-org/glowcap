@@ -33,6 +33,7 @@ still undecided.
 | Prepared pending arguments | Rust capture, drop/observation, submission/replay, cancellation, and cross-Host refusal run on both profiles. Binding tests check final retain retirement | Milestone 2 ownership case |
 | Conversation coverage | Zig creation export failure and retry are qualified. Generated Rust recipient handoff and plain Goblins calling the generated Zig Tasks boundary run on Syrup/V1.0 | Milestone 2 runtime cases |
 | Invocation shape | Rust and TypeScript callers preserve selector presence. A generated Zig two-value direct receiver restores leading-symbol data on both profiles | General receiver projections remain |
+| Scalar calls | Rust and TypeScript qualify boolean, bytes with byte bounds, symbol, float64 and fulfilled error values through calls and tells on both profiles | Null and copied containers remain unsupported |
 | Argument presence | Rust and TypeScript distinguish omission from explicit undefined and refuse invalid holes on both profiles. Null remains unsupported by the targets | [Proof suite](../../test/interface/README.md) |
 | Profile requirements | Ordinary descriptions require the value mapping. Receipt methods also require their convention, checked across the whole bundle | [Fixture contract](../../test/interface/contract.md) |
 | Generated Rust support | Selected methods determine imports and helpers. Isolated consumers compile with warnings denied | [Authoring checks](../../test/interface/authoring/README.md) |

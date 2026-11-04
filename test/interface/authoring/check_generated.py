@@ -45,6 +45,11 @@ CASES = [
     ("signed_integer", "Bounded", "signed"),
     ("bounded_optional", "Bounded", "optional"),
 ]
+SCALARS = [
+    (f"scalar_{kind}_{shape}", "Scalars", f"{kind}_{shape}")
+    for kind in ("bool", "bytes", "bounded", "symbol", "float", "error")
+    for shape in ("call", "optional", "tell", "optional_tell")
+] + [("scalar_wide", "Wide", "bytes")]
 
 
 def main():
@@ -82,16 +87,16 @@ def main():
         directory = Path(scratch)
         (directory / "Cargo.toml").write_text(manifest)
         shutil.copyfile(PROOF / "Cargo.lock", directory / "Cargo.lock")
-        for case in CASES:
+        for case in CASES + SCALARS:
             module, receiver, selector = case[:3]
             api = case[3] if len(case) == 4 else "invoke"
             subprocess.run(
                 [
                     checker,
                     "text",
-                    str(Path(__file__).with_name("rust_helpers.interface")),
+                    str(Path(__file__).with_name("scalars.interface" if case in SCALARS else "rust_helpers.interface")),
                     "rust",
-                    f"minimal.{receiver}",
+                    f"{'scalars' if case in SCALARS else 'minimal'}.{receiver}",
                     "--named",
                     selector,
                     api,
@@ -103,7 +108,7 @@ def main():
             )
         (directory / "lib.rs").write_text(
             "#![deny(warnings)]\n"
-            + "".join(f"pub mod {case[0]};\n" for case in CASES)
+            + "".join(f"pub mod {case[0]};\n" for case in CASES + SCALARS)
             + f'#[path = "{ROOT}/test/interface/generated/names.rs"]\npub mod names;\n'
             + "pub use names::{text, capability, nothing, Session, Ref, call_0, __glowcap, __glowcap_1, text_1_4096, integer_p0_p256};\n"
         )
@@ -153,6 +158,25 @@ def main():
         imports.append(
             "void [names.text, names.capability, names.nothing, names.Session, names.Ref, names.call_0, names.__glowcap, names.__glowcap_1, names.Observation];\n"
         )
+        for module, receiver, selector in SCALARS:
+            output = directory / f"{module}.ts"
+            subprocess.run(
+                [
+                    checker,
+                    "text",
+                    str(Path(__file__).with_name("scalars.interface")),
+                    "ts",
+                    f"scalars.{receiver}",
+                    "--named",
+                    selector,
+                    "invoke",
+                    str(output),
+                ],
+                cwd=ROOT,
+                check=True,
+                timeout=30,
+            )
+            imports.append(f'import {{ invoke as {module} }} from "./{module}.ts";\nvoid {module};\n')
         consumer = directory / "consumer.ts"
         consumer.write_text("".join(imports))
         subprocess.run(

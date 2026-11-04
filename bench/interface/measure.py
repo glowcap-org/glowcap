@@ -176,6 +176,8 @@ def copy_sources():
         "tools/interface/rust_support.zig",
         "tools/interface/rust_bounds.zig",
         "tools/interface/zig_reads.zig",
+        "tools/interface/typescript.zig",
+        "tools/interface/typescript_scalars.zig",
         "tools/interface/callbacks.zig",
         "apps/tasks/rust/interface.rs",
         "test/interface/generated/callbacks.rs",

@@ -11,6 +11,9 @@ mod pair;
 mod prepared;
 mod presence;
 mod reads;
+#[path = "../generated/scalars.rs"]
+pub mod scalar_generated;
+mod scalars;
 #[path = "../../../apps/tasks/rust/board.rs"]
 pub mod task_board;
 mod tasks;
@@ -24,6 +27,7 @@ async fn main() {
 			tokio::time::timeout(std::time::Duration::from_secs(15), async {
 				tasks::run(args[1].parse().unwrap(), &args[2]).await;
 				reads::run().await;
+				scalars::run().await;
 				conversation::run().await;
 				invocation::run().await;
 				presence::run().await;

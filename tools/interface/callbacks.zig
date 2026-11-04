@@ -25,7 +25,7 @@ pub fn requirements(methods: []const calls.Named) !@import("rust_support.zig").N
         needs.optional = needs.optional or call.required_parameters < call.parameters.len;
         if (call.effect != .tell) needs.replies.insert(std.meta.activeTag(call.result));
         for (call.parameters) |parameter| {
-            needs.arguments = needs.arguments or parameter == .value;
+            needs.arguments = needs.arguments or parameter == .value or parameter == .symbol or parameter == .error_value;
             needs.references = needs.references or parameter == .target or parameter == .pending_target;
         }
     }
@@ -93,18 +93,29 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
     }
 }
 
+// Scalar Vec/String inputs already own their snapshot. Packing moves those
+// owners into Argument; local validation refusal drops them without copying.
 fn emitArguments(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call) !void {
     for (call.parameters, 0..) |parameter, i| {
         const optional = call.required_parameters < call.parameters.len;
         if (optional) try out.appendSlice(a, "\t\t") else if (i != 0) try out.appendSlice(a, ", ");
+        if (i < call.required_parameters and (parameter == .symbol or parameter == .error_value)) {
+            try out.print(a, "Argument::{s}(arg{d})", .{ if (parameter == .symbol) "Symbol" else "Error", i });
+            if (optional) try out.appendSlice(a, ",\n");
+            continue;
+        }
         try out.print(a, "arg{d}{s}", .{ i, if (i >= call.required_parameters) switch (parameter) {
             .target, .pending_target => ".map(Reference::argument).unwrap_or(Argument::Void)",
-            .text, .nothing, .integer => ".map(Argument::from).unwrap_or(Argument::Void)",
+            .text, .nothing, .integer, .boolean, .float64 => ".map(Argument::from).unwrap_or(Argument::Void)",
+            .bytes => ".map(Argument::Bytes).unwrap_or(Argument::Void)",
+            .symbol => ".map(Argument::Symbol).unwrap_or(Argument::Void)",
+            .error_value => ".map(Argument::Error).unwrap_or(Argument::Void)",
             .value => ".unwrap_or(Argument::Void)",
             .pending_value => return error.UnsupportedProjection,
         } else switch (parameter) {
             .target, .pending_target => ".into().argument()",
-            .text, .nothing, .integer => ".into()",
+            .text, .nothing, .integer, .boolean, .float64, .bytes => ".into()",
+            .symbol, .error_value => "",
             .value => "",
             .pending_value => return error.UnsupportedProjection,
         } });
@@ -127,6 +138,10 @@ fn parameterType(kind: calls.Type) []const u8 {
         .target, .pending_target => "impl Into<Reference<'a>>",
         .text => "&str",
         .integer => "i64",
+        .boolean => "bool",
+        .bytes => "Vec<u8>",
+        .symbol, .error_value => "String",
+        .float64 => "f64",
         .value => "Argument",
         .nothing => "()",
         .pending_value => "&RemotePromise",
@@ -139,6 +154,10 @@ fn resultType(kind: calls.Type) []const u8 {
         .pending_value => "Argument",
         .text => "String",
         .integer => "i64",
+        .boolean => "bool",
+        .bytes => "Vec<u8>",
+        .symbol, .error_value => "String",
+        .float64 => "f64",
         .value => "Argument",
         .nothing => "()",
     };

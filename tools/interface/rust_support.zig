@@ -1,4 +1,6 @@
 //! Shared Rust support selected from the methods being emitted.
+//! Scalar reply decoders consume Argument and move its owned payload out.
+//! They do not allocate or clone the binding snapshot.
 const std = @import("std");
 const Kind = @import("calls.zig").Kind;
 
@@ -38,7 +40,7 @@ pub const Needs = struct {
         if (self.references) try out.appendSlice(a, @embedFile("templates/references.rs"));
         if (self.optional) try out.appendSlice(a, @embedFile("templates/optional.rs"));
         if (self.receipt) try out.appendSlice(a, @embedFile("templates/receipt.rs"));
-        for ([_]Kind{ .target, .text, .nothing, .integer }) |kind| if (self.replies.contains(kind)) {
+        for ([_]Kind{ .target, .text, .nothing, .integer, .boolean, .bytes, .symbol, .float64, .error_value }) |kind| if (self.replies.contains(kind)) {
             try out.appendSlice(a, switch (kind) {
                 .target => "fn capability(value: Argument) -> Result<Ref, Error> {\n" ++
                     "\tRef::try_from(&value).map_err(|_| Error::InvalidReply)\n}\n",
@@ -49,6 +51,21 @@ pub const Needs = struct {
                     "\tvalue.as_i64().ok_or(Error::InvalidReply)\n}\n",
                 .nothing => "fn nothing(value: Argument) -> Result<(), Error> {\n" ++
                     "\tif matches!(value, Argument::Void) {\n\t\tOk(())\n" ++
+                    "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",
+                .boolean => "fn boolean(value: Argument) -> Result<bool, Error> {\n" ++
+                    "\tif let Argument::Boolean(value) = value {\n\t\tOk(value)\n" ++
+                    "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",
+                .bytes => "fn bytes(value: Argument) -> Result<Vec<u8>, Error> {\n" ++
+                    "\tif let Argument::Bytes(value) = value {\n\t\tOk(value)\n" ++
+                    "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",
+                .symbol => "fn symbol(value: Argument) -> Result<String, Error> {\n" ++
+                    "\tif let Argument::Symbol(value) = value {\n\t\tOk(value)\n" ++
+                    "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",
+                .float64 => "fn float64(value: Argument) -> Result<f64, Error> {\n" ++
+                    "\tif let Argument::Float(value) = value {\n\t\tOk(value)\n" ++
+                    "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",
+                .error_value => "fn error_value(value: Argument) -> Result<String, Error> {\n" ++
+                    "\tif let Argument::Error(value) = value {\n\t\tOk(value)\n" ++
                     "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",
                 else => unreachable,
             });
