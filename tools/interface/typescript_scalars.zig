@@ -9,7 +9,13 @@ pub fn typeName(kind: calls.Type) []const u8 {
         .symbol => "Sym",
         .float64 => "number",
         .error_value => "Error",
-        else => unreachable,
+        .target => "Ref",
+        .pending_target => "Ref | RemotePromise",
+        .text => "string",
+        .nothing => "void",
+        .value => "Argument",
+        .pending_value => "RemotePromise",
+        .integer, .list, .tuple, .record => unreachable,
     };
 }
 
@@ -50,19 +56,21 @@ pub fn decoder(out: *std.ArrayList(u8), a: std.mem.Allocator, kind: calls.Type) 
     }
 }
 
-pub fn replies(out: *std.ArrayList(u8), a: std.mem.Allocator, methods: []const calls.Named) !void {
-    for (methods, 0..) |method, i| {
-        const kind = method.call.result;
+pub fn supported(kind: calls.Type) !void {
+    switch (kind) {
+        .text => |bounds| if (bounds.min != 0 or bounds.max != null) return error.UnsupportedTarget,
+        .integer => return error.UnsupportedTarget,
+        .list, .tuple, .record => return error.UnsupportedProjection,
+        else => {},
+    }
+}
+
+pub fn replies(out: *std.ArrayList(u8), a: std.mem.Allocator, types: []const calls.Type) !void {
+    for (types) |kind| {
         switch (kind) {
             .boolean, .bytes, .symbol, .float64, .error_value => {},
             else => continue,
         }
-        if (method.call.effect != .call) continue;
-        var seen = false;
-        for (methods[0..i]) |previous| if (previous.call.effect == .call and std.meta.eql(previous.call.result, kind)) {
-            seen = true;
-        };
-        if (seen) continue;
         try out.appendSlice(a, "function ");
         try decoder(out, a, kind);
         try out.print(a, "(value: Argument): {s} {{\n\tif (", .{typeName(kind)});

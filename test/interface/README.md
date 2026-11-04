@@ -14,7 +14,7 @@ format, target mappings, and acceptance cases.
 | `messages.syrup` | Independently authored expected messages |
 | `check_fixtures.py` | Canonical encoding and fixture integrity using the pinned upstream Syrup reader |
 | `rust/` | Standalone consumer crate with Tasks, refusal, and callback scenarios |
-| `typescript/` | Callback and promise-assimilation scenarios |
+| `typescript/` | Scalar, compound, callback, and promise-assimilation scenarios |
 | `generated/` | Emitted clients, the fixed direct receiver, and independent message constants |
 | `run.ts` | Starts the Tasks server and runs the Rust proof with bounded lifetime and cleanup |
 
@@ -71,9 +71,16 @@ and a cancellation failure retains the primary poll error.
 Generated observation results preserve
 unknown and duplicate notices and opaque descriptions containing references.
 
-Isolated strict Rust consumers compile each compound method independently.
+TypeScript raw peers on both profiles exercise the same compound schemas and
+Loam observation reply. They check category, tag, arity, byte/list bounds,
+unknown duplicate notices, opaque capabilities, raw observer independence, and
+original object identity. Malformed cursor inputs refuse before sending.
+
+Isolated strict Rust and TypeScript consumers compile each compound method independently.
 Harness-only child tests call the actual emitted private decoders with small
 work/depth budgets and check moved cursor and symbol buffer identity.
+TypeScript scratch modules call the emitted private helpers for work/depth
+limits and minimum element work, without constructing giant transport replies.
 An opaque value exceeding the decoder work budget still passes without traversal.
 
 The callback matrix holds the factory reply open through admission and checks

@@ -258,6 +258,8 @@ so a peer with no listening socket can still reply and take part in a handoff.
   Generated Rust and TypeScript callers [isolate public exports from private helpers](../test/interface/authoring/README.md#reproduce),
   preserve positional, empty-symbol, and named invocation,
   and distinguish omitted arguments from explicit undefined values on both profiles.
+  Both targets qualify list, tuple, and tagged positional-record replies.
+  TypeScript validates existing objects while preserving raw settlement and capability ownership.
   Generated Rust receives Goblins handoffs, and a plain Goblins caller exercises Tasks creation through its generated Zig checks on Syrup/V1.0.
   Text authoring [loads rooted modules](../test/interface/authoring/README.md#imported-modules) and reports imported bound and unknown-type locations.
   This is the first [interface generation slice](planning/interface-definitions.md), not a general interface compiler.
