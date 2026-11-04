@@ -4,22 +4,30 @@ const calls = @import("calls.zig");
 const bounds = @import("rust_bounds.zig");
 const literal = @import("literal.zig").write;
 const exports = @import("exports.zig");
+const compounds = @import("rust_compounds.zig");
 
-pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
+pub fn emit(a: std.mem.Allocator, methods: []const calls.Named, types: []const calls.TypeExport) ![]u8 {
+    var projection = try compounds.Projection.init(a, methods, types);
+    defer projection.deinit();
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(a);
-    const needs = try requirements(methods);
+    const needs = try requirements(methods, &projection);
     try needs.emit(&out, a);
-    try emitMethods(&out, a, methods);
-    return exports.rust(a, out.items, methods, &needs.exports());
+    try emitMethods(&out, a, methods, &projection);
+    const support = try projection.support(&needs.exports());
+    defer a.free(support);
+    return exports.rust(a, out.items, methods, support);
 }
 
-pub fn requirements(methods: []const calls.Named) !@import("rust_support.zig").Needs {
-    var needs: @import("rust_support.zig").Needs = .{};
+pub fn requirements(methods: []const calls.Named, projection: *const compounds.Projection) !@import("rust_support.zig").Needs {
+    var needs: @import("rust_support.zig").Needs = .{ .replies = projection.graph.leaves };
     for (methods) |method| {
         const call = method.call;
         try bounds.supported(call.result);
-        for (call.parameters) |parameter| try bounds.supported(parameter);
+        for (call.parameters) |parameter| {
+            if (@import("compound_graph.zig").compound(parameter)) return error.UnsupportedProjection;
+            try bounds.supported(parameter);
+        }
         needs.ordinary = needs.ordinary or call.effect != .receipt;
         needs.receipt = needs.receipt or call.effect == .receipt;
         needs.optional = needs.optional or call.required_parameters < call.parameters.len;
@@ -32,16 +40,17 @@ pub fn requirements(methods: []const calls.Named) !@import("rust_support.zig").N
     return needs;
 }
 
-pub fn emitMethods(out: *std.ArrayList(u8), a: std.mem.Allocator, methods: []const calls.Named) !void {
-    try bounds.replies(out, a, methods);
+pub fn emitMethods(out: *std.ArrayList(u8), a: std.mem.Allocator, methods: []const calls.Named, projection: *compounds.Projection) !void {
+    if (projection.graph.nodes.items.len == 0) try bounds.replies(out, a, methods);
+    try projection.emit(out);
     for (methods, 0..) |method, i| {
         var buffer: [32]u8 = undefined;
         const name = try exports.callName(&buffer, i);
-        if (method.call.effect == .receipt) try emitPrepared(out, a, method.call, name) else try emitCall(out, a, method.call, name);
+        if (method.call.effect == .receipt) try emitPrepared(out, a, method.call, name) else try emitCall(out, a, method.call, name, projection);
     }
 }
 
-fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api: []const u8) !void {
+fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api: []const u8, projection: *compounds.Projection) !void {
     const optional = call.required_parameters < call.parameters.len;
     var fallible = optional;
     for (call.parameters) |parameter| fallible = fallible or bounds.fallible(parameter);
@@ -60,7 +69,9 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
     if (call.effect == .tell) {
         try out.appendSlice(a, ") -> Result<(), Error> {\n");
     } else {
-        try out.print(a, ") -> {s}Pending<{s}>{s} {{\n", .{ if (fallible) "Result<" else "", resultType(call.result), if (fallible) ", Error>" else "" });
+        try out.print(a, ") -> {s}Pending<", .{if (fallible) "Result<" else ""});
+        try projection.typeName(out, call.result);
+        try out.print(a, ">{s} {{\n", .{if (fallible) ", Error>" else ""});
     }
     for (call.parameters, 0..) |parameter, i| try bounds.argument(out, a, parameter, i, i >= call.required_parameters);
     if (optional) {
@@ -88,7 +99,7 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
         try out.appendSlice(a, ");\n\tresult.map_err(Error::Runtime)\n}\n");
     } else {
         try out.print(a, ");\n\t{s}Pending::new(raw, ", .{if (fallible) "Ok(" else ""});
-        try bounds.decoder(out, a, call.result);
+        try projection.decoder(out, call.result);
         try out.print(a, "){s}\n}}\n", .{if (fallible) ")" else ""});
     }
 }
@@ -111,13 +122,13 @@ fn emitArguments(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call
             .symbol => ".map(Argument::Symbol).unwrap_or(Argument::Void)",
             .error_value => ".map(Argument::Error).unwrap_or(Argument::Void)",
             .value => ".unwrap_or(Argument::Void)",
-            .pending_value => return error.UnsupportedProjection,
+            .pending_value, .list, .tuple, .record => return error.UnsupportedProjection,
         } else switch (parameter) {
             .target, .pending_target => ".into().argument()",
             .text, .nothing, .integer, .boolean, .float64, .bytes => ".into()",
             .symbol, .error_value => "",
             .value => "",
-            .pending_value => return error.UnsupportedProjection,
+            .pending_value, .list, .tuple, .record => return error.UnsupportedProjection,
         } });
         if (optional) try out.appendSlice(a, ",\n");
     }
@@ -145,20 +156,6 @@ fn parameterType(kind: calls.Type) []const u8 {
         .value => "Argument",
         .nothing => "()",
         .pending_value => "&RemotePromise",
-    };
-}
-
-fn resultType(kind: calls.Type) []const u8 {
-    return switch (kind) {
-        .target, .pending_target => "Ref",
-        .pending_value => "Argument",
-        .text => "String",
-        .integer => "i64",
-        .boolean => "bool",
-        .bytes => "Vec<u8>",
-        .symbol, .error_value => "String",
-        .float64 => "f64",
-        .value => "Argument",
-        .nothing => "()",
+        .list, .tuple, .record => unreachable,
     };
 }

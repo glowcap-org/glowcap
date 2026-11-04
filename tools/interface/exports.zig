@@ -3,9 +3,13 @@
 const std = @import("std");
 const calls = @import("calls.zig");
 
-pub const Support = struct { name: []const u8, enabled: bool = true };
+pub const Support = struct { name: []const u8, enabled: bool = true, implementation: ?[]const u8 = null };
 
 fn validate(methods: []const calls.Named, support: []const Support) !void {
+    for (support, 0..) |item, i| if (item.enabled) {
+        try identifier(item.name);
+        for (support[0..i]) |previous| if (previous.enabled and std.mem.eql(u8, previous.name, item.name)) return error.ExportCollision;
+    };
     for (methods, 0..) |method, i| {
         try identifier(method.api);
         for (support) |item| {
@@ -38,16 +42,18 @@ pub fn rust(a: std.mem.Allocator, implementation: []const u8, methods: []const c
     defer a.free(ordered);
     std.mem.sort(Support, ordered, {}, struct {
         fn lessThan(_: void, left: Support, right: Support) bool {
-            return std.mem.lessThan(u8, left.name, right.name);
+            return std.mem.lessThan(u8, left.implementation orelse left.name, right.implementation orelse right.name);
         }
     }.lessThan);
     var calls_emitted = false;
     for (ordered) |item| if (item.enabled) {
-        if (!calls_emitted and std.mem.lessThan(u8, "call_0", item.name)) {
+        if (!calls_emitted and std.mem.lessThan(u8, "call_0", item.implementation orelse item.name)) {
             try rustCalls(&out, a, module, methods);
             calls_emitted = true;
         }
-        try out.print(a, "pub use {s}::{s};\n", .{ module, item.name });
+        if (item.implementation) |source_name| {
+            try out.print(a, "pub use {s}::{s} as {s};\n", .{ module, source_name, item.name });
+        } else try out.print(a, "pub use {s}::{s};\n", .{ module, item.name });
     };
     if (!calls_emitted) try rustCalls(&out, a, module, methods);
     try out.print(a, "\nmod {s} {{\n", .{module});

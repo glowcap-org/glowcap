@@ -71,7 +71,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
                 .text => try out.print(a, "typeof arg{d} !== \"string\"", .{i}),
                 .target, .pending_target => try out.print(a, "!(arg{d} instanceof Ref) && !(arg{d} instanceof RemotePromise)", .{ i, i }),
                 .value => try out.print(a, "arg{d} === undefined", .{i}),
-                .pending_value => return error.UnsupportedProjection,
+                .pending_value, .list, .tuple, .record => return error.UnsupportedProjection,
                 .boolean, .bytes, .symbol, .float64, .error_value => {
                     var name: [32]u8 = undefined;
                     try scalars.invalid(&out, a, kind, try std.fmt.bufPrint(&name, "arg{d}", .{i}));
@@ -118,7 +118,7 @@ fn typeName(kind: calls.Type) []const u8 {
         .value => "Argument",
         .pending_value => "RemotePromise",
         .boolean, .bytes, .symbol, .float64, .error_value => scalars.typeName(kind),
-        .integer => unreachable,
+        .integer, .list, .tuple, .record => unreachable,
     };
 }
 
@@ -126,6 +126,7 @@ fn supported(kind: calls.Type) !void {
     switch (kind) {
         .text => |bounds| if (bounds.min != 0 or bounds.max != null) return error.UnsupportedTarget,
         .integer => return error.UnsupportedTarget,
+        .list, .tuple, .record => return error.UnsupportedProjection,
         else => {},
     }
 }

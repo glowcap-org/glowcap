@@ -62,6 +62,12 @@ pub async fn run(port: u16, name: &str) {
 	assert_eq!(lists[0].tasks, ["write tests", maximum.as_str()]);
 	assert_eq!(lists[1].name, "Done");
 	assert!(lists[1].tasks.is_empty());
+	let mut watcher = board.watch().await.unwrap();
+	assert!(!watcher.changed().await.unwrap());
+	board.add("observed task").await.unwrap();
+	assert!(watcher.changed().await.unwrap());
+	assert!(!watcher.changed().await.unwrap());
+	watcher.stop().await.unwrap();
 	board.leave().await.unwrap();
 
 	session.close(PendingWork::Cancel).await.unwrap();

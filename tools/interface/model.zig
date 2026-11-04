@@ -19,20 +19,54 @@ pub const Creation = struct {
     maximum: usize,
 };
 
+const Normalized = struct { kind: call_type.Type, height: usize = 0 };
+const Memo = struct {
+    state: enum { unseen, visiting, complete } = .unseen,
+    depth: usize = 0,
+    value: Normalized = undefined,
+};
+
 pub const Model = struct {
+    arena_allocator: std.mem.Allocator,
+    memo: []Memo,
     definitions: Node,
     remaining: usize = 1 << 20,
     receipt_convention: bool = false,
+    diagnostic: ?*?Node = null,
 
-    pub fn init(root: Node) Error!Model {
+    /// The caller owns an arena lasting through method selection and emission.
+    pub fn init(arena_allocator: std.mem.Allocator, root: Node) Error!Model {
+        return initWithDiagnostic(arena_allocator, root, null);
+    }
+
+    /// Capture the first rejected node during initialization only.
+    pub fn initDiagnostic(arena_allocator: std.mem.Allocator, root: Node, diagnostic: *?Node) Error!Model {
+        diagnostic.* = null;
+        return initWithDiagnostic(arena_allocator, root, diagnostic);
+    }
+
+    fn mark(self: *Model, node: Node) void {
+        if (node.source.len == 0) return;
+        if (self.diagnostic) |diagnostic| {
+            if (diagnostic.* == null) diagnostic.* = node;
+        }
+    }
+
+    fn initWithDiagnostic(arena_allocator: std.mem.Allocator, root: Node, diagnostic: ?*?Node) Error!Model {
+        errdefer if (diagnostic) |failed| {
+            if (failed.* == null) failed.* = root;
+        };
         const fields = try root.fields("glowcap:interface", 3);
         if (try fields[0].number() != 1 or fields[1].kind != .dictionary or fields[2].kind != .dictionary) return error.InvalidDescription;
         if (fields[2].children.len > 2 * max_definitions) return error.ResourceLimit;
-        var self: Model = .{ .definitions = fields[2], .receipt_convention = try checkProfiles(fields[1]) };
+        const memo = try arena_allocator.alloc(Memo, fields[2].children.len / 2);
+        @memset(memo, .{});
+        var self: Model = .{ .arena_allocator = arena_allocator, .memo = memo, .definitions = fields[2], .receipt_convention = try checkProfiles(fields[1]), .diagnostic = diagnostic };
         var i: usize = 0;
         while (i < self.definitions.children.len) : (i += 2) {
             try identifier(try self.definitions.children[i].string());
             const declaration = self.definitions.children[i + 1];
+            errdefer self.mark(declaration);
             if (declaration.kind != .record or declaration.children.len != 1) return error.InvalidDescription;
             if (std.mem.eql(u8, declaration.bytes, "type")) {
                 try self.checkType(declaration.children[0], 0);
@@ -41,6 +75,7 @@ pub const Model = struct {
                 try self.checkInterface(declaration.children[0]);
             } else return error.InvalidDescription;
         }
+        self.diagnostic = null;
         return self;
     }
 
@@ -77,13 +112,17 @@ pub const Model = struct {
     }
 
     pub fn resolve(self: *Model, input: Node) Error!Node {
+        errdefer self.mark(input);
         var value = input;
         var hops: usize = 0;
         while (value.kind == .record and std.mem.eql(u8, value.bytes, "ref")) {
             if (hops >= self.definitions.children.len / 2) return error.InvalidDescription;
             hops += 1;
             const reference = try value.fields("ref", 1);
-            const declaration = try self.definition(try reference[0].string());
+            const declaration = self.definition(try reference[0].string()) catch |err| {
+                self.mark(value);
+                return err;
+            };
             if (std.mem.eql(u8, declaration.bytes, "interface")) return declaration;
             value = (try declaration.fields("type", 1))[0];
         }
@@ -91,6 +130,7 @@ pub const Model = struct {
     }
 
     fn checkInterface(self: *Model, methods: Node) Error!void {
+        errdefer self.mark(methods);
         if (methods.kind != .dictionary) return error.InvalidDescription;
         var i: usize = 0;
         while (i < methods.children.len) : (i += 2) {
@@ -106,6 +146,7 @@ pub const Model = struct {
             if (signature[2].is("tell") and !signature[1].is("undefined")) return error.InvalidDescription;
             var optional = false;
             for (params.children, 0..) |param, at| {
+                errdefer self.mark(param);
                 if (param.kind != .record) return error.InvalidDescription;
                 const rest = std.mem.eql(u8, param.bytes, "rest");
                 const fields = try param.fields(if (rest) "rest" else "parameter", if (rest) 2 else 3);
@@ -126,6 +167,7 @@ pub const Model = struct {
     }
 
     fn checkType(self: *Model, value: Node, depth: usize) Error!void {
+        errdefer self.mark(value);
         try self.spend(1);
         if (depth > description.max_depth) return error.ResourceLimit;
         if (value.kind == .symbol) {
@@ -142,7 +184,7 @@ pub const Model = struct {
         } else if (std.mem.eql(u8, label, "bounded")) {
             const fields = try value.fields("bounded", 2);
             try self.checkType(fields[0], depth + 1);
-            _ = try bounds(try self.resolve(fields[0]), fields[1]);
+            _ = try self.constrained(value);
         } else if (std.mem.eql(u8, label, "list") or std.mem.eql(u8, label, "set") or std.mem.eql(u8, label, "promise")) {
             try self.checkType((try value.fields(label, 1))[0], depth + 1);
         } else if (std.mem.eql(u8, label, "tuple") or std.mem.eql(u8, label, "union")) {
@@ -150,16 +192,53 @@ pub const Model = struct {
             if (members.kind != .list) return error.InvalidDescription;
             if (std.mem.eql(u8, label, "union")) return error.UnsupportedProjection;
             for (members.children) |member| try self.checkType(member, depth + 1);
-        } else if (std.mem.eql(u8, label, "record")) {
+        } else if (std.mem.eql(u8, label, "record") or std.mem.eql(u8, label, "tagged")) {
             const fields = try value.fields(label, 2);
             _ = try fields[0].string();
-            if (fields[1].kind != .list) return error.InvalidDescription;
-            for (fields[1].children) |field| try self.checkType(field, depth + 1);
+            if (std.mem.eql(u8, label, "tagged")) {
+                try self.checkType(fields[1], depth + 1);
+            } else {
+                if (fields[1].kind != .list) return error.InvalidDescription;
+                for (fields[1].children) |field| try self.checkType(field, depth + 1);
+            }
         } else return error.UnsupportedProjection;
     }
 
+    const Constrained = struct { base: Node, limits: call_type.IntegerBounds };
+
+    // Follow only aliases and bound wrappers. A copied container terminates
+    // this chain, so returning to a wrapper is unproductive recursion.
+    fn constrained(self: *Model, input: Node) Error!Constrained {
+        errdefer self.mark(input);
+        var layers: [description.max_depth]Node = undefined;
+        var visited: [description.max_depth][*]const Node = undefined;
+        var count: usize = 0;
+        var base = try self.resolve(input);
+        while (base.kind == .record and std.mem.eql(u8, base.bytes, "bounded")) {
+            try self.spend(count + 1);
+            for (visited[0..count]) |previous| if (previous == base.children.ptr) return error.InvalidDescription;
+            if (count == layers.len) return error.ResourceLimit;
+            const fields = try base.fields("bounded", 2);
+            visited[count] = base.children.ptr;
+            layers[count] = fields[1];
+            count += 1;
+            base = try self.resolve(fields[0]);
+        }
+        var result = try self.bounds(base, .{ .kind = .dictionary });
+        for (layers[0..count]) |layer| {
+            const next = try self.bounds(base, layer);
+            if (next.min) |minimum| result.min = if (result.min) |previous| @max(previous, minimum) else minimum;
+            if (next.max) |maximum| result.max = if (result.max) |previous| @min(previous, maximum) else maximum;
+            if (result.min) |minimum| if (result.max) |maximum| {
+                if (minimum > maximum) return error.InvalidDescription;
+            };
+        }
+        return .{ .base = base, .limits = result };
+    }
+
     // One interpretation of bound names and units for validation and call projection.
-    fn bounds(base: Node, restrictions: Node) Error!call_type.IntegerBounds {
+    fn bounds(self: *Model, base: Node, restrictions: Node) Error!call_type.IntegerBounds {
+        errdefer self.mark(restrictions);
         if (restrictions.kind != .dictionary) return error.InvalidDescription;
         const integers = base.is("integer");
         const bytes = base.is("string") or base.is("bytes");
@@ -168,6 +247,7 @@ pub const Model = struct {
         var result: call_type.IntegerBounds = .{ .min = if (integers) null else 0 };
         var i: usize = 0;
         while (i < restrictions.children.len) : (i += 2) {
+            errdefer self.mark(restrictions.children[i]);
             const key = try restrictions.children[i].string();
             const number = try restrictions.children[i + 1].number();
             const lower = std.mem.eql(u8, key, if (integers) "min" else "min_bytes");
@@ -181,41 +261,106 @@ pub const Model = struct {
         return result;
     }
 
-    /// A checked call type retains the qualified scalar constraints.
-    /// Unsupported categories remain explicit refusals, never generic values.
+    /// Normalized nodes and parameter arrays belong to the caller's arena.
     pub fn callType(self: *Model, input: Node) !call_type.Type {
-        const node = try self.resolve(input);
-        if (node.is("string")) return .{ .text = .{} };
-        if (node.is("integer")) return .{ .integer = .{} };
-        if (node.is("bytes")) return .{ .bytes = .{} };
-        if (node.is("bool")) return .boolean;
-        if (node.is("symbol")) return .symbol;
-        if (node.is("float64")) return .float64;
-        if (node.is("error")) return .error_value;
-        if (node.is("undefined")) return .nothing;
+        return (try self.normalize(input, 0, 0)).kind;
+    }
+
+    fn normalize(self: *Model, input: Node, depth: usize, hops: usize) !Normalized {
+        try self.spend(1);
+        if (depth > description.max_depth or hops > description.max_depth) return error.ResourceLimit;
+        if (input.kind == .record and std.mem.eql(u8, input.bytes, "ref")) {
+            const name = try (try input.fields("ref", 1))[0].string();
+            try self.spend(self.memo.len);
+            var index: usize = 0;
+            while (index < self.memo.len) : (index += 1) {
+                if (std.mem.eql(u8, self.definitions.children[index * 2].bytes, name)) break;
+            }
+            if (index == self.memo.len) return error.InvalidDescription;
+            const memo = &self.memo[index];
+            switch (memo.state) {
+                .visiting => return if (depth == memo.depth) error.InvalidDescription else error.UnsupportedProjection,
+                .complete => {
+                    if (hops + memo.value.height > description.max_depth) return error.ResourceLimit;
+                    return memo.value;
+                },
+                .unseen => {},
+            }
+            const declaration = self.definitions.children[index * 2 + 1];
+            if (std.mem.eql(u8, declaration.bytes, "interface")) return .{ .kind = .target };
+            memo.state = .visiting;
+            memo.depth = depth;
+            errdefer memo.state = .unseen;
+            memo.value = try self.normalize((try declaration.fields("type", 1))[0], depth, hops + 1);
+            memo.value.height += 1;
+            memo.state = .complete;
+            return memo.value;
+        }
+        const node = input;
+        if (node.is("string")) return .{ .kind = .{ .text = .{} } };
+        if (node.is("integer")) return .{ .kind = .{ .integer = .{} } };
+        if (node.is("bytes")) return .{ .kind = .{ .bytes = .{} } };
+        if (node.is("bool")) return .{ .kind = .boolean };
+        if (node.is("symbol")) return .{ .kind = .symbol };
+        if (node.is("float64")) return .{ .kind = .float64 };
+        if (node.is("error")) return .{ .kind = .error_value };
+        if (node.is("undefined")) return .{ .kind = .nothing };
         if (node.is("null")) return error.UnsupportedTarget;
-        if (node.is("value")) return .value;
-        if (node.kind == .record) {
-            if (std.mem.eql(u8, node.bytes, "bounded")) {
-                const fields = try node.fields("bounded", 2);
-                const base = try self.resolve(fields[0]);
-                const limits = try bounds(base, fields[1]);
-                if (base.is("integer")) return .{ .integer = limits };
-                if (base.is("string") or base.is("bytes")) {
-                    const bytes: call_type.ByteBounds = .{
-                        .min = @intCast(limits.min.?),
-                        .max = if (limits.max) |maximum| @intCast(maximum) else null,
-                    };
-                    return if (base.is("string")) .{ .text = bytes } else .{ .bytes = bytes };
-                }
-                return error.UnsupportedProjection;
+        if (node.is("value")) return .{ .kind = .value };
+        if (node.is("target")) return .{ .kind = .target };
+        if (node.kind != .record) return error.UnsupportedProjection;
+        if (std.mem.eql(u8, node.bytes, "bounded")) {
+            const fields = try node.fields("bounded", 2);
+            var normalized = try self.normalize(fields[0], depth, hops + 1);
+            normalized.height += 1;
+            const effective = try self.constrained(node);
+            const base = effective.base;
+            const limits = effective.limits;
+            if (base.is("integer")) return .{ .kind = .{ .integer = limits }, .height = normalized.height };
+            if (base.is("string") or base.is("bytes")) {
+                const bytes: call_type.ByteBounds = .{ .min = @intCast(limits.min.?), .max = if (limits.max) |max| @intCast(max) else null };
+                return .{ .kind = if (base.is("string")) .{ .text = bytes } else .{ .bytes = bytes }, .height = normalized.height };
             }
-            if (std.mem.eql(u8, node.bytes, "interface")) return .target;
-            if (std.mem.eql(u8, node.bytes, "promise")) {
-                const fulfilled = try self.resolve((try node.fields("promise", 1))[0]);
-                if (fulfilled.is("value")) return .pending_value;
-                if (fulfilled.kind == .record and std.mem.eql(u8, fulfilled.bytes, "interface")) return .pending_target;
+            if (normalized.kind != .list) return error.UnsupportedProjection;
+            const list = try self.arena_allocator.create(call_type.List);
+            list.* = .{ .element = normalized.kind.list.element, .max_items = if (limits.max) |max| @intCast(max) else null };
+            normalized.kind = .{ .list = list };
+            return normalized;
+        }
+        if (std.mem.eql(u8, node.bytes, "promise")) {
+            const fulfilled = try self.normalize((try node.fields("promise", 1))[0], depth, hops + 1);
+            if (fulfilled.kind == .value) return .{ .kind = .pending_value, .height = fulfilled.height + 1 };
+            if (fulfilled.kind == .target) return .{ .kind = .pending_target, .height = fulfilled.height + 1 };
+            return error.UnsupportedProjection;
+        }
+        if (std.mem.eql(u8, node.bytes, "list")) {
+            const child = try self.normalize((try node.fields("list", 1))[0], depth + 1, hops + 1);
+            const list = try self.arena_allocator.create(call_type.List);
+            list.* = .{ .element = child.kind };
+            return .{ .kind = .{ .list = list }, .height = child.height + 1 };
+        }
+        const record = std.mem.eql(u8, node.bytes, "record");
+        const tagged = std.mem.eql(u8, node.bytes, "tagged");
+        if (record or tagged or std.mem.eql(u8, node.bytes, "tuple")) {
+            const fields = try node.fields(node.bytes, if (record or tagged) 2 else 1);
+            const members = fields[if (record or tagged) 1 else 0];
+            if (!tagged and members.kind != .list) return error.InvalidDescription;
+            const children = if (tagged) fields[1..2] else members.children;
+            const types = try self.arena_allocator.alloc(call_type.Type, children.len);
+            var height: usize = 0;
+            for (children, types) |member, *kind| {
+                const child = try self.normalize(member, depth + 1, hops + 1);
+                kind.* = child.kind;
+                height = @max(height, child.height);
             }
+            if (record or tagged) {
+                const result = try self.arena_allocator.create(call_type.Record);
+                result.* = .{ .tag = try fields[0].string(), .fields = types };
+                return .{ .kind = .{ .record = result }, .height = if (types.len == 0) 0 else height + 1 };
+            }
+            const result = try self.arena_allocator.create(call_type.Tuple);
+            result.* = .{ .fields = types };
+            return .{ .kind = .{ .tuple = result }, .height = if (types.len == 0) 0 else height + 1 };
         }
         return error.UnsupportedProjection;
     }
@@ -272,7 +417,7 @@ test "checked call types retain Tasks bounds through aliases" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var checked = try Model.init(try description.read(a, @embedFile("contract")));
+    var checked = try Model.init(a, try description.read(a, @embedFile("contract")));
     const name = try checked.callType(try description.read(a, "<3'ref10\"tasks.Name>"));
     try std.testing.expectEqual(@as(u64, 1), name.text.min);
     try std.testing.expectEqual(@as(?u64, 64), name.text.max);
@@ -295,7 +440,7 @@ test "checked call integers preserve absent endpoints and exact signed extrema" 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var checked = try Model.init(try description.read(a, "<17'glowcap:interface1+{14\"glowcap.values1+}{}>"));
+    var checked = try Model.init(a, try description.read(a, "<17'glowcap:interface1+{14\"glowcap.values1+}{}>"));
     const unbounded = try checked.callType(try description.read(a, "7'integer"));
     try std.testing.expectEqual(@as(?i64, null), unbounded.integer.min);
     try std.testing.expectEqual(@as(?i64, null), unbounded.integer.max);
@@ -331,8 +476,45 @@ test "checked call alias chains preserve the final scalar restriction" {
     defer arena.deinit();
     const a = arena.allocator();
     const bytes = "<17'glowcap:interface1+{14\"glowcap.values1+}{1\"A<4'type<3'ref1\"B>>1\"B<4'type<7'bounded6'string{9\"max_bytes64+9\"min_bytes1+}>>}>";
-    var checked = try Model.init(try description.read(a, bytes));
+    var checked = try Model.init(a, try description.read(a, bytes));
     const alias = try checked.callType(try description.read(a, "<3'ref1\"A>"));
     try std.testing.expectEqual(@as(u64, 1), alias.text.min);
     try std.testing.expectEqual(@as(?u64, 64), alias.text.max);
+}
+
+test "bounded aliases intersect restrictions instead of widening or refusing them" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const prefix = "<17'glowcap:interface1+{14\"glowcap.values1+}{1\"A<4'type<7'bounded";
+    const middle = ">>1\"B<4'type<7'bounded<3'ref1\"A>";
+    const suffix = ">>}>";
+    for ([_]struct { base: []const u8, first: []const u8, second: []const u8, maximum: u64 = 64 }{
+        .{ .base = "6'string", .first = "{9\"max_bytes64+9\"min_bytes1+}", .second = "{9\"max_bytes128+9\"min_bytes4+}" },
+        .{ .base = "5'bytes", .first = "{9\"max_bytes64+9\"min_bytes1+}", .second = "{9\"max_bytes128+9\"min_bytes4+}" },
+        .{ .base = "7'integer", .first = "{3\"max64+3\"min1+}", .second = "{3\"max128+3\"min4+}" },
+        .{ .base = "<4'list6'symbol>", .first = "{9\"max_items64+}", .second = "{9\"max_items128+}" },
+        .{ .base = "6'string", .first = "{9\"max_bytes64+9\"min_bytes1+}", .second = "{9\"max_bytes16+9\"min_bytes4+}", .maximum = 16 },
+        .{ .base = "5'bytes", .first = "{9\"max_bytes64+9\"min_bytes1+}", .second = "{9\"max_bytes16+9\"min_bytes4+}", .maximum = 16 },
+        .{ .base = "7'integer", .first = "{3\"max64+3\"min1+}", .second = "{3\"max16+3\"min4+}", .maximum = 16 },
+        .{ .base = "<4'list6'symbol>", .first = "{9\"max_items64+}", .second = "{9\"max_items16+}", .maximum = 16 },
+    }) |case| {
+        const source = try std.mem.concat(a, u8, &.{ prefix, case.base, case.first, middle, case.second, suffix });
+        var model = try Model.init(a, try description.read(a, source));
+        const result = try model.callType(try description.read(a, "<3'ref1\"B>"));
+        switch (result) {
+            .text, .bytes => |limits| {
+                try std.testing.expectEqual(@as(u64, 4), limits.min);
+                try std.testing.expectEqual(@as(?u64, case.maximum), limits.max);
+            },
+            .integer => |limits| {
+                try std.testing.expectEqual(@as(?i64, 4), limits.min);
+                try std.testing.expectEqual(@as(?i64, @intCast(case.maximum)), limits.max);
+            },
+            .list => |list| try std.testing.expectEqual(@as(?u64, case.maximum), list.max_items),
+            else => return error.UnexpectedType,
+        }
+    }
+    const disjoint = prefix ++ "7'integer{3\"max3+}" ++ middle ++ "{3\"min4+}" ++ suffix;
+    try std.testing.expectError(error.InvalidDescription, Model.init(a, try description.read(a, disjoint)));
 }

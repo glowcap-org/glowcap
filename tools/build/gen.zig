@@ -225,9 +225,17 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
             .{ .name = "syrup", .module = host_mods[layerIndex("codec")].import_table.get("syrup").? },
             .{ .name = "contract", .module = b.createModule(.{ .root_source_file = b.path("test/interface/contracts.syrup") }) },
             .{ .name = "messages", .module = b.createModule(.{ .root_source_file = b.path("test/interface/messages.syrup") }) },
+            .{ .name = "compound_contract", .module = b.createModule(.{ .root_source_file = b.path("test/interface/compounds.syrup") }) },
             .{ .name = "scalar_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/scalars.interface") }) },
             .{ .name = "authoring_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/comparison.interface") }) },
             .{ .name = "authoring_expected", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/comparison.syrup") }) },
+            .{ .name = "imported_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/imports/board.interface") }) },
+            .{ .name = "imported_shared", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/imports/shared/loam.interface") }) },
+            .{ .name = "imported_expected", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/imports/expected.syrup") }) },
+            .{ .name = "authored_entry", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/contracts/contracts.interface") }) },
+            .{ .name = "authored_tasks", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/contracts/tasks.interface") }) },
+            .{ .name = "authored_loam", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/contracts/loam.interface") }) },
+            .{ .name = "authored_fixtures", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/contracts/fixtures.interface") }) },
         },
     });
 

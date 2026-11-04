@@ -5,6 +5,7 @@ standard-library subprocesses, and a temporary output directory. Exits nonzero
 if invalid source names or profile requirements are accepted or leave output.
 """
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -118,3 +119,147 @@ with tempfile.TemporaryDirectory(prefix="glowcap-authoring-cli-") as directory:
             assert "profile_call" in output.read_text(), "valid profile did not reach emission"
         elif result.returncode == 0 or output.exists() or b"InvalidDescription" not in result.stderr:
             raise AssertionError(f"{name} emitted before profile validation: {result.stderr!r}")
+
+    # Rooted imports are compiler inputs. The expected bytes were authored with
+    # the pinned upstream encoder, independently of either text or bundle code.
+    imported = Path("test/interface/authoring/imports").resolve()
+    expected = (imported / "expected.syrup").read_bytes()
+    output = Path(directory) / "imported.syrup"
+    subprocess.run(
+        [checker, "text", imported / "board.interface", "description", "unused", "--direct", "unused", output],
+        capture_output=True,
+        timeout=5,
+        check=True,
+    )
+    assert output.read_bytes() == expected, "default-root imported fixture differs"
+    subprocess.run(
+        [
+            checker,
+            "--root",
+            imported,
+            "text",
+            imported / "board.interface",
+            "description",
+            "unused",
+            "--direct",
+            "unused",
+            output,
+        ],
+        cwd=directory,
+        capture_output=True,
+        timeout=5,
+        check=True,
+    )
+    assert output.read_bytes() == expected, "explicit root depends on working directory"
+    project = Path(directory) / "project"
+    project.mkdir()
+    entry = project / "entry.interface"
+
+    def checked_imports(body, error=None):
+        entry.write_text(body)
+        result = subprocess.run(
+            [checker, "--root", project, "text", entry], capture_output=True, timeout=5, check=False
+        )
+        if error is None:
+            assert result.returncode == 0, result.stderr
+        else:
+            assert result.returncode and error.encode() in result.stderr, result.stderr
+        return result
+
+    outside = Path(directory) / "outside.interface"
+    outside.write_text("module Outside\ntype T = string\n")
+    (project / "escape.interface").symlink_to(outside)
+    for path, error in (
+        ("missing.interface", "FileNotFound"),
+        ("../outside.interface", "ImportOutsideRoot"),
+        ("escape.interface", "ImportOutsideRoot"),
+        (str(outside), "InvalidImportPath"),
+        ("https://example.invalid/source", "InvalidImportPath"),
+    ):
+        checked_imports(f'module Entry\nimport "{path}" as library\n', error)
+
+    if hasattr(os, "mkfifo"):
+        fifo = project / "fifo.interface"
+        os.mkfifo(fifo)
+        checked_imports('module Entry\nimport "fifo.interface" as fifo\n', "InvalidImportPath")
+        result = subprocess.run([checker, "text", fifo], capture_output=True, timeout=5, check=False)
+        assert result.returncode and b"InvalidImportPath" in result.stderr, result.stderr
+
+    library = project / "library.interface"
+    library.write_text("module Library\ntype T = string\n")
+    (project / "alias.interface").symlink_to(library)
+    checked_imports(
+        'module Entry\nimport "library.interface" as a\nimport "alias.interface" as b\ninterface R { call(value: a.T) -> b.T }\n'
+    )
+    library.write_text('module Library\nimport "entry.interface" as entry\ntype R = entry.R\ntype T = string\n')
+    checked_imports('module Entry\nimport "library.interface" as a\ninterface R { call(value: a.T) -> string }\n')
+
+    for declaration, location in (
+        ("type T = string(min_bytes: 65, max_bytes: 64)", "library.interface:2:10:"),
+        ("type T = Missing", "library.interface:2:10:"),
+    ):
+        library.write_text(f"module Library\n{declaration}\n")
+        result = checked_imports('module Entry\nimport "library.interface" as a\n', "InvalidDescription")
+        assert location.encode() in result.stderr, result.stderr
+
+    library.write_text("module Library\ntype T = string\n")
+    entry.write_text(
+        'module Entry\nimport "library.interface" as a\nimport "alias.interface" as b\ninterface R { call(value: a.T) -> b.T }\n'
+    )
+    canonical = []
+    for first, second in (("library.interface", "alias.interface"), ("alias.interface", "library.interface")):
+        entry.write_text(
+            f'module Entry\nimport "{first}" as a\nimport "{second}" as b\ninterface R {{ call(value: a.T) -> b.T }}\n'
+        )
+        subprocess.run(
+            [checker, "text", entry, "description", "unused", "--direct", "unused", output],
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        canonical.append(output.read_bytes())
+    assert canonical[0] == canonical[1], "import order changes canonical output"
+
+    # Both files fit individually, while the compilation exceeds one MiB.
+    library.write_text("module Library\n" + " " * 600_000)
+    checked_imports('module Entry\nimport "library.interface" as a\n' + " " * 600_000, "ResourceLimit")
+    library.write_text("module Library\n")
+    for count in (63, 64):
+        declarations = []
+        for index in range(count):
+            (project / f"f{index}.interface").write_text(f"module F{index}\n")
+            declarations.append(f'import "f{index}.interface" as f{index}\n')
+        checked_imports("module Entry\n" + "".join(declarations), None if count == 63 else "ResourceLimit")
+    for depth in (32, 33):
+        for index in range(depth):
+            next_import = f'import "d{index + 1}.interface" as next\n' if index + 1 < depth else ""
+            (project / f"d{index}.interface").write_text(f"module D{index}\n" + next_import)
+        checked_imports('module Entry\nimport "d0.interface" as next\n', None if depth == 32 else "ResourceLimit")
+
+    complete = Path("test/interface/authoring/contracts").resolve()
+    subprocess.run(
+        [checker, "text", complete / "contracts.interface", "description", "unused", "--direct", "unused", output],
+        capture_output=True,
+        timeout=5,
+        check=True,
+    )
+    assert output.read_bytes() == Path("test/interface/contracts.syrup").read_bytes(), (
+        "complete authored contract differs"
+    )
+    refused = Path(directory) / "rest.rs"
+    result = subprocess.run(
+        [
+            checker,
+            "text",
+            complete / "contracts.interface",
+            "rust",
+            "fixture.AnyReceiver",
+            "--direct",
+            "invoke",
+            refused,
+        ],
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert result.returncode and b"UnsupportedProjection" in result.stderr and not refused.exists(), result.stderr

@@ -3,6 +3,7 @@ pub enum Error {
 	InvalidArgument,
 	InvalidSequence,
 	InvalidReply,
+	ResourceLimit,
 	Runtime(glowcap::Error),
 }
 impl std::fmt::Display for Error {
@@ -11,6 +12,7 @@ impl std::fmt::Display for Error {
 			Self::InvalidArgument => f.write_str("an argument is outside the bounds the interface declares"),
 			Self::InvalidSequence => f.write_str("the target returned no positive mutation sequence"),
 			Self::InvalidReply => f.write_str("the reply does not have the type the interface declares"),
+			Self::ResourceLimit => f.write_str("reply decoder work or depth limit exceeded"),
 			Self::Runtime(error) => error.fmt(f),
 		}
 	}
