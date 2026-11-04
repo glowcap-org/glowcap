@@ -20,8 +20,9 @@ place, and Cargo's build scripts watch those archives' mtimes.
 The archive keeps absolute paths, so pack and restore run as the same user
 with the same home and checkout path, as every hosted runner does. Restore
 overwrites files at the recorded paths and removes nothing. The running
-container mounts the stores, so `bound` empties each in place: a removed
-directory would leave its mount on a deleted inode.
+container mounts the store directories, so `bound` empties them in place:
+a removed directory would leave its mount on a deleted inode. Deno's cache
+databases are files inside its mounted cache directory and can be unlinked.
 
 `restore` takes the shards as a JSON array and the build job's result. The
 first shard, which ran every Cargo build, lands last so Cargo's recorded
@@ -62,7 +63,12 @@ def say(message):
 
 
 def size(path):
-    """Bytes a tree occupies on disk, as `du` counts them."""
+    """Allocated bytes in a cache file or a directory's files."""
+    if not path.is_dir() or path.is_symlink():
+        try:
+            return path.lstat().st_blocks * 512
+        except OSError:
+            return 0  # a removed cache occupies nothing
     total = 0
     for directory, _, names in os.walk(path):
         for name in names:
@@ -102,8 +108,11 @@ def bound(limit_gb, floor_gb):
     print(f"Restored build state: {used / GIB:.2f} GiB of {limit_gb:.2f} GiB, {free / GIB:.2f} GiB free")
     if used > limit_gb * GIB or free < floor_gb * GIB:
         for store in stores:
-            for child in store.iterdir():
-                shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
+            if store.is_dir() and not store.is_symlink():
+                for child in store.iterdir():
+                    shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
+            else:
+                store.unlink()
         print("Dropped it; this run builds cold.")
 
 

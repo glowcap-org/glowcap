@@ -65,6 +65,7 @@ pub fn translate(request: code_generator_request::Reader<'_>) -> Result<V> {
 		}
 	}
 	let mut definitions = Vec::new();
+	let mut receipt_convention = false;
 	let mut work = 0usize;
 	for (&id, name) in &schema.names {
 		let declaration = schema.node(id)?;
@@ -141,6 +142,7 @@ pub fn translate(request: code_generator_request::Reader<'_>) -> Result<V> {
 						Some(V::Text(value)) if ["call", "tell", "loam.receipt"].contains(&value.as_str()) => value,
 						_ => return Err("unsupported delivery convention".into()),
 					};
+					receipt_convention |= delivery == "loam.receipt";
 					methods.push((
 						selector,
 						V::record("method", vec![V::List(parameters), result, V::symbol(delivery)]),
@@ -164,16 +166,13 @@ pub fn translate(request: code_generator_request::Reader<'_>) -> Result<V> {
 		};
 		definitions.push((V::Text(name.clone()), definition));
 	}
+	let mut profiles = vec![(V::Text("glowcap.values".into()), V::Integer(1))];
+	if receipt_convention {
+		profiles.push((V::Text("loam.receipt".into()), V::Integer(1)));
+	}
 	Ok(V::record(
 		"glowcap:interface",
-		vec![
-			V::Integer(1),
-			V::Dictionary(vec![
-				(V::Text("glowcap.values".into()), V::Integer(1)),
-				(V::Text("loam.receipt".into()), V::Integer(1)),
-			]),
-			V::Dictionary(definitions),
-		],
+		vec![V::Integer(1), V::Dictionary(profiles), V::Dictionary(definitions)],
 	))
 }
 impl<'a> Schema<'a> {
