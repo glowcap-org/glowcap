@@ -16,6 +16,35 @@ TypeScript, Python, and Racket, and migrated Tasks, Rooms, and Loam-management
 consumers. Application developers using prebuilt compiler and runtime artifacts
 need no Zig installation. Building the compiler from source requires Zig.
 
+## Release checkpoint
+
+Finish the existing Rust Tasks Board and Watcher client migration, then freeze
+interface features for the release pass. This checkpoint is smaller than
+milestone 3. It neither adopts the language nor accepts a full-target budget.
+The milestone exits below remain unchanged.
+
+Completion requires:
+
+- Generate the client's existing calls, prepared receipt requests and reply
+  checks from the authored contract. Remove their handwritten wire counterparts.
+  Connection setup, fetching, cursor policy and cleanup stay with the application.
+- Retain targets and reference arguments before sequence acquisition. Qualify
+  explicit release of originals, foreign-Host refusal, partial capture failure,
+  cancellation and final retirement.
+- Exercise the migrated client against the actual Tasks server and independent
+  peers on both profiles. Verify exact replay, malformed registration and replies,
+  remote breaks, and cleanup after committed observation. A decode failure must
+  not imply that the mutation rolled back.
+- Integrate the accepted branches at one verified commit, reconcile generated
+  output and living documentation, and complete release checks and promotion
+  through the existing prerelease process.
+
+The release can claim qualified build-time generation for this Rust client and
+the independently tested TypeScript projections. General compiler coverage,
+language adoption and the remaining migrations still require their milestone
+proofs. Source and ownership costs remain explicit, without a performance claim
+or a larger budget inferred from this checkpoint.
+
 ## Execution map
 
 The current work is milestone 2. Conversation, generation-cost, and proposed
