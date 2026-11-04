@@ -1,16 +1,14 @@
 //! Paired frontend cost over one negotiated Syrup / CapTP 1.0 TCP workflow.
 //! Timing, allocator traffic, and trace observation are distinct runs.
-#[allow(dead_code)]
 #[cfg(feature = "generated-client")]
 #[path = "../../../test/interface/generated/callbacks.rs"]
-mod callbacks;
+pub mod callbacks;
 #[allow(dead_code)]
 #[path = "../../../test/interface/rust/pair.rs"]
 mod connection;
-#[allow(dead_code)]
 #[cfg(feature = "generated-client")]
 #[path = "../../../apps/tasks/rust/interface.rs"]
-mod creation;
+pub mod creation;
 
 #[cfg(not(any(feature = "raw-client", feature = "generated-client")))]
 compile_error!("select at least one interface benchmark client");
