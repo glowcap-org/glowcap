@@ -80,9 +80,10 @@ binding ([invocation contract](../bindings/README.md#invocation-shape)).
 
 ### Generated interfaces
 
-Generated Rust compound replies cover lists, tuples, and tagged positional
-records. Compound inputs, TypeScript compound replies, and productive recursive
-projections remain unsupported. The [interface contract](../test/interface/contract.md#rust-compound-replies)
+Generated Rust and TypeScript compound replies cover lists, tuples, and tagged
+positional records. Compound inputs and productive recursive projections remain
+unsupported. TypeScript also refuses integer and bounded-text projections.
+The [interface contract](../test/interface/contract.md#typescript-compound-replies)
 owns these mappings and their separate decoder resource limits.
 
 ### Loam storage

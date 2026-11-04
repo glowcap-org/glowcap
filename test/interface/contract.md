@@ -196,8 +196,8 @@ values cannot substitute for float64.
 
 Float edge cases follow the raw bindings,
 including signed zero, subnormals, infinities, and NaN. Error fulfillment and
-remote break remain separate outcomes. Null remains unsupported. Rust compound
-replies have the separate mapping below.
+remote break remain separate outcomes. Null remains unsupported. Compound
+replies have the separate mappings below.
 
 The Rust prepared-receipt fixture accepts one `promise<value>` argument and a
 void reply. Its generated input is a borrowed `RemotePromise`. Preparation
@@ -269,9 +269,40 @@ schema cardinality bound or exact Rust byte estimate.
 
 Declared list bounds are separate from the generated decoder's work and depth
 limits. A schema violation returns `InvalidReply`, while exhausted decoder work
-returns `ResourceLimit`. Compound inputs and TypeScript compound outputs remain
-explicitly unsupported. Productive copied recursion validates as a description
+returns `ResourceLimit`. Compound inputs remain explicitly unsupported.
+Productive copied recursion validates as a description
 but is refused for this projection. Alias-only cycles remain invalid.
+
+## TypeScript compound replies
+
+Lists and tuples validate the binding's existing `Argument[]` arrays. Tagged
+positional records validate `Tagged`, its exact string tag, payload array, arity,
+and each declared field. Generated aliases share nested types and helpers.
+`Receiver.poll` returns the existing record with its typed positional payload.
+It checks the cursor's byte length, both booleans, and each notice's `Sym`
+category. Unknown and duplicate notices retain their order.
+
+Validation returns the original array or record. Payloads and capability
+wrappers keep their identity and existing runtime ownership. An opaque `value`
+field is one decoder leaf, including nested records and capabilities. A source
+`undefined` field remains the binding's raw `null` value inside a compound,
+while a top-level undefined reply exposes `void`. Source `null` remains refused.
+These views are mutable, with no freeze or membrane guarantee.
+
+Each observation allocates one temporary work-counter object shared by recursive
+helpers. Decoder work is limited to
+<!-- value ../../tools/interface/compound_graph.zig max_reply_work -->65,536<!-- /value -->
+steps and depth to
+<!-- value ../../tools/interface/compound_graph.zig max_reply_depth -->64<!-- /value -->.
+Exhaustion throws exported `ResourceLimit`. Category, tag, arity, and schema-bound
+violations throw `TypeError`. Either refusal leaves independent raw observers
+and the runtime's original settlement intact. Remote breaks retain their runtime
+failure object.
+
+Both targets use the same bounded graph traversal and inline-structure admission.
+TypeScript separately refuses integer projections and bounded text, including
+nested leaves. Compound inputs and productive recursive projections remain
+unsupported.
 
 ## Tasks Rust read projection
 

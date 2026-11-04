@@ -15,6 +15,7 @@ owns executable qualification.
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
 | `typescript_scalars.zig` | Exact JavaScript scalar guards and byte limits |
 | `compound_graph.zig` | Bounded target-neutral graph traversal and minimum decoder work |
+| `typescript_compounds.zig` | Validated views of existing list, tuple, and tagged-record replies |
 | `rust_compounds.zig` | Owned list, tuple, and tagged positional-record reply decoders |
 | `rust_bounds.zig` | Rust argument checks and deduplicated bounded reply decoders |
 | `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
@@ -52,11 +53,11 @@ TypeScript preserves the JavaScript objects and checks their categories before
 sending. Its byte-length checks add no payload copy. Neither target filters
 float64 values. A fulfilled error remains data, distinct from a broken call.
 
-Rust reply projections also support lists, tuples, and tagged positional records.
+Rust and TypeScript reply projections also support lists, tuples, and tagged positional records.
 `Model.init` requires a caller-owned arena that lasts through emission.
 Named aliases share immutable normalized nodes.
 
-Rust admission limits expanded
+Shared graph admission limits expanded
 inline structure to <!-- value compound_graph.zig max_inline_structure -->256<!-- /value -->
 units per emitted type, including list element helpers. Tuple/record containers
 and their inline fields are counted, with each scalar or list slot counting once.
@@ -84,6 +85,13 @@ Their elements have a different layout from `Argument`, so this allocation
 cannot reuse the incoming vector. Payloads and references move into results.
 Opaque `value` fields move intact without decoder traversal. The decoder's
 work limit returns `ResourceLimit`, separately from a wrong reply category.
+
+TypeScript validates the existing arrays and `Tagged` objects in place and returns
+them with their original payloads and capability wrappers. Its single temporary
+work counter dies after each observation. Shape failures throw `TypeError`, and
+decoder exhaustion throws exported `ResourceLimit`, without changing raw
+settlement. The [compound mapping](../../test/interface/contract.md#typescript-compound-replies)
+owns its representation, ownership, and target refusals.
 
 Tasks' Rust creation and read projections share the checked contract.
 The [read projection](../../test/interface/contract.md#tasks-rust-read-projection)

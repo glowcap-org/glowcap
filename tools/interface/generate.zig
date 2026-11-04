@@ -42,6 +42,8 @@ const task_reads = .{
 pub const step_name = "gen-interface-fixtures";
 pub const outputs = [_]Output{
     .{ .path = "test/interface/generated/compounds.rs", .generate = generateCompounds },
+    .{ .path = "test/interface/generated/compounds.ts", .generate = generateTypeScriptCompounds },
+    .{ .path = "test/interface/generated/observation.ts", .generate = generateTypeScriptObservation },
     .{ .path = "test/interface/generated/scalars.rs", .generate = generateScalarRust },
     .{ .path = "test/interface/generated/scalars.ts", .generate = generateScalarTypeScript },
     .{ .path = "test/interface/generated/callbacks.ts", .generate = generateTypeScript },
@@ -411,7 +413,7 @@ test "scalar projections accept exact native representations and bounded bytes" 
     defer std.testing.allocator.free(ts_source);
 }
 
-fn generateCompounds(a: std.mem.Allocator) ![]u8 {
+fn compoundSource(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     var model = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("compound_contract")));
@@ -419,5 +421,20 @@ fn generateCompounds(a: std.mem.Allocator) ![]u8 {
     for ([_][]const u8{ "list", "limited", "tuple", "zero", "nested" }, &methods) |name, *method| {
         method.* = .{ .api = name, .call = try calls.read(&model, "compound.Source", name) };
     }
-    return @import("callbacks.zig").emit(a, &methods, &.{});
+    return if (emitter == @import("typescript.zig")) emitter.emit(a, &methods) else emitter.emit(a, &methods, &.{});
+}
+
+fn generateCompounds(a: std.mem.Allocator) ![]u8 {
+    return compoundSource(a, @import("callbacks.zig"));
+}
+
+fn generateTypeScriptCompounds(a: std.mem.Allocator) ![]u8 {
+    return compoundSource(a, @import("typescript.zig"));
+}
+
+fn generateTypeScriptObservation(a: std.mem.Allocator) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var model = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("contract")));
+    return @import("typescript.zig").emit(a, &.{.{ .api = "poll", .call = try calls.read(&model, "loam.Receiver", "poll") }});
 }
