@@ -20,8 +20,11 @@ comparison types, bounded primitives, named references, promise arguments,
 trailing optional parameters, direct calls, exact quoted names, `tell`, and
 `@loam.receipt`. It uses the proposed syntax from the
 [language reference](../../../docs/research/interface-language-example.md).
+
 Rooted imports share the checked model with single-file input.
-Copied containers, records, unions, and `throws` remain outside this parser.
+The parser accepts `list<T>`, `tuple<T...>`, `record<"tag", T...>` and
+single-payload `tagged<"tag", T>`. Lists accept declared `max_items` bounds.
+String-keyed `struct` declarations, maps, unions and `throws` remain unsupported.
 They are refused rather than discarded. These adapters do not select a
 production authoring frontend.
 
@@ -117,13 +120,15 @@ Dependencies and declaration bodies have deterministic order.
 Receipt requirements reflect methods across the complete bundle.
 Filesystem paths and source positions remain outside canonical descriptions.
 
-[The imported fixture](imports/board.interface) references a shared scalar and
-capability module under two aliases, with a cycle back to the Tasks-like entry.
+[The imported fixture](imports/board.interface) references a shared Loam module
+under two aliases, with a cycle back to the Tasks-like entry. Its observation
+has five positional fields, and its tagged tuple keeps one nested payload.
 Its expected description was authored with the pinned upstream Python encoder.
 `interface-test` checks exact bytes, imported diagnostics, duplicate declarations,
 allocation failures, missing files, root escapes, symlinks and aggregate limits.
-`interface-conversation-check` compiles its generated Rust caller with warnings
-denied alongside the existing consumer cases.
+`interface-conversation-check` compiles generated Rust observation, list, tuple,
+and record replies with warnings denied. These imported callers are not run in
+a separate live conversation.
 
 ## Process and build costs, 2026-11-03
 

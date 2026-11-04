@@ -244,8 +244,9 @@ Lists decode to owned `Vec<T>` and tuples to positional Rust tuples. Tagged
 records check their exact tag and field count before decoding each position.
 A selected explicit type export makes a positional tuple struct, such as
 `LoamObservation(Vec<u8>, Argument, bool, bool, Vec<String>)`.
-This canonical record form differs from the proposed source language's
-string-keyed records. This slice adds no source-language record syntax.
+The source form `record<"tag", T...>` preserves those positional fields.
+`tagged<"tag", T>` preserves one payload, including a nested tuple.
+String-keyed data uses the reserved `struct` declaration, which remains unsupported.
 
 `Receiver.poll` checks the 56-byte cursor, both booleans, and every notice symbol.
 Unknown and duplicate notices preserve their order. Description remains opaque

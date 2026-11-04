@@ -289,6 +289,7 @@ test "call presence keeps the Models trailing optional rule" {
 test {
     _ = @import("authoring_test.zig");
     _ = @import("text_bundle_test.zig");
+    _ = @import("text_container_test.zig");
     _ = @import("profiles_test.zig");
     _ = @import("read_test.zig");
     _ = @import("names_test.zig");

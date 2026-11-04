@@ -192,11 +192,15 @@ pub const Model = struct {
             if (members.kind != .list) return error.InvalidDescription;
             if (std.mem.eql(u8, label, "union")) return error.UnsupportedProjection;
             for (members.children) |member| try self.checkType(member, depth + 1);
-        } else if (std.mem.eql(u8, label, "record")) {
+        } else if (std.mem.eql(u8, label, "record") or std.mem.eql(u8, label, "tagged")) {
             const fields = try value.fields(label, 2);
             _ = try fields[0].string();
-            if (fields[1].kind != .list) return error.InvalidDescription;
-            for (fields[1].children) |field| try self.checkType(field, depth + 1);
+            if (std.mem.eql(u8, label, "tagged")) {
+                try self.checkType(fields[1], depth + 1);
+            } else {
+                if (fields[1].kind != .list) return error.InvalidDescription;
+                for (fields[1].children) |field| try self.checkType(field, depth + 1);
+            }
         } else return error.UnsupportedProjection;
     }
 
@@ -336,18 +340,20 @@ pub const Model = struct {
             return .{ .kind = .{ .list = list }, .height = child.height + 1 };
         }
         const record = std.mem.eql(u8, node.bytes, "record");
-        if (record or std.mem.eql(u8, node.bytes, "tuple")) {
-            const fields = try node.fields(if (record) "record" else "tuple", if (record) 2 else 1);
-            const members = fields[if (record) 1 else 0];
-            if (members.kind != .list) return error.InvalidDescription;
-            const types = try self.arena_allocator.alloc(call_type.Type, members.children.len);
+        const tagged = std.mem.eql(u8, node.bytes, "tagged");
+        if (record or tagged or std.mem.eql(u8, node.bytes, "tuple")) {
+            const fields = try node.fields(node.bytes, if (record or tagged) 2 else 1);
+            const members = fields[if (record or tagged) 1 else 0];
+            if (!tagged and members.kind != .list) return error.InvalidDescription;
+            const children = if (tagged) fields[1..2] else members.children;
+            const types = try self.arena_allocator.alloc(call_type.Type, children.len);
             var height: usize = 0;
-            for (members.children, types) |member, *kind| {
+            for (children, types) |member, *kind| {
                 const child = try self.normalize(member, depth + 1, hops + 1);
                 kind.* = child.kind;
                 height = @max(height, child.height);
             }
-            if (record) {
+            if (record or tagged) {
                 const result = try self.arena_allocator.create(call_type.Record);
                 result.* = .{ .tag = try fields[0].string(), .fields = types };
                 return .{ .kind = .{ .record = result }, .height = if (types.len == 0) 0 else height + 1 };
