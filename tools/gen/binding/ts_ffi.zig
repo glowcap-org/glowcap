@@ -23,11 +23,17 @@ fn checkInventory(comptime M: type) void {
             if (@typeInfo(@TypeOf(@field(M, decl_name))) != .@"fn") continue;
             var listed = false;
             for (M.symbols.symbols) |row| {
-                if (std.mem.eql(u8, row.name, decl_name)) listed = true;
+                if (std.mem.eql(u8, row.name, decl_name)) {
+                    listed = true;
+                    break;
+                }
             }
-            for (M.symbols.omitted_families) |fam| {
-                if (std.mem.startsWith(u8, decl_name, fam.prefix)) listed = true;
-            }
+            if (!listed) for (M.symbols.omitted_families) |fam| {
+                if (std.mem.startsWith(u8, decl_name, fam.prefix)) {
+                    listed = true;
+                    break;
+                }
+            };
             if (!listed) @compileError("export '" ++ decl_name ++ "' has no row (or omitted-family match) in its symbols.zig inventory");
         }
         for (M.symbols.symbols) |row| {

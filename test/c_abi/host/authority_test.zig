@@ -98,6 +98,31 @@ test "libglowcap_host: opaque references cannot cross Host authority" {
     try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_ref_release(b, &b_ref, 1));
 }
 
+test "libglowcap_host: retaining a capability owns another occurrence without a wire call" {
+    const a = try newHost(0x61);
+    defer _ = cd.glowcap_host_release(a);
+    const b = try newHost(0x62);
+    defer _ = cd.glowcap_host_release(b);
+    var original: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_spawn(a, widgetBehavior, null, null, &original));
+    var retained: c.GlowcapReference = .{ .id = 123 };
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_ref_retain(null, &original, &retained));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_ref_retain(a, null, &retained));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_ref_retain(a, &original, null));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_ref_retain(b, &original, &retained));
+    try std.testing.expectEqual(@as(u64, 123), retained.id);
+    try expectOk(cd.glowcap_host_ref_retain(a, &original, &retained));
+    try std.testing.expectEqual(original.id, retained.id);
+    // There is no session or remote operation to create the additional root.
+    try expectOk(cd.glowcap_host_ref_release(a, &original, 1));
+    var further: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_ref_retain(a, &retained, &further));
+    try expectOk(cd.glowcap_host_ref_release(a, &retained, 1));
+    try expectOk(cd.glowcap_host_ref_release(a, &further, 1));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_ref_retain(a, &original, &retained));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_ref_release(a, &original, 1));
+}
+
 test "libglowcap_host: raw capability ids are opaque and process-unique across equal-seed Hosts" {
     const a = try newHost(0x55);
     defer _ = cd.glowcap_host_release(a);

@@ -597,6 +597,7 @@ pub const Host = struct {
     pub const settledCapability = host_capability_identity.settledCapability;
     pub const localActorFor = host_capability_identity.localActorFor;
     pub const capabilitySession = host_capability_identity.capabilitySession;
+    pub const retainCapability = host_capability_identity.retainCapability;
     pub const releaseCapability = host_capability_identity.releaseCapability;
     pub const releaseCapabilityTerminal = host_capability_identity.releaseCapabilityTerminal;
 

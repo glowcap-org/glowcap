@@ -365,6 +365,16 @@ pub fn capabilitySession(self: *Host, ref: capability.Ref) error{WrongThread}!?*
     };
 }
 
+/// Own another application occurrence without inspecting or contacting its target.
+/// The existing registry row holds any actor root or pending answer until the
+/// last occurrence retires. No value tree or wire reference is copied.
+pub fn retainCapability(self: *Host, ref: capability.Ref) !capability.Ref {
+    try self.claimOwner();
+    try self.admitApplicationOperation();
+    const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+    return self.capabilities.retain(self.allocator, target);
+}
+
 /// Release application retains on one Host capability. A remote Host row may
 /// have more application retains than wire retains (for example when a
 /// sturdyref cache reissues the same identity). Keep enough wire retains to

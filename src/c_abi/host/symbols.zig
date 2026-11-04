@@ -303,7 +303,15 @@ pub const symbols = [_]Symbol{
     },
     .{ .name = "glowcap_host_turn_spawn", .out_params = &.{4} },
     .{ .name = "glowcap_host_turn_break", .out_params = &.{} },
-    .{ .name = "glowcap_host_ref_release", .section = "Capability lifetime, teardown, diagnostics." },
+    .{
+        .name = "glowcap_host_ref_retain",
+        .out_params = &.{2},
+        .section = "Capability lifetime, teardown, diagnostics.",
+        .ts_omit = "independent prepared reference captures are not exposed by the TypeScript binding",
+        .python_omit = "independent prepared reference captures are not exposed by the Python binding",
+        .racket_omit = "independent prepared reference captures are not exposed by the Racket binding",
+    },
+    .{ .name = "glowcap_host_ref_release" },
     .{ .name = "glowcap_host_session_published_ref", .out_params = &.{3} },
     .{
         .name = "glowcap_host_session_break_far_vows",

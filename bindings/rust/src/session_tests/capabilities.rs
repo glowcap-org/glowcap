@@ -55,6 +55,71 @@ async fn released_local_targets_are_refused_without_spending_another_occurrence(
 		.await;
 }
 
+#[tokio::test]
+async fn retained_references_survive_explicit_release_and_retire_their_own_occurrence() {
+	LocalSet::new()
+		.run_until(async {
+			let server = listen("127.0.0.1:0").await.unwrap();
+			let locator = crate::tcp::locator("127.0.0.1", server.port().unwrap());
+			let (session, peer) = tokio::join!(connect(&locator, ConnectOptions::default()), server.accept());
+			let session = session.unwrap();
+			let peer = peer.unwrap();
+			let foreign = Host::new_host();
+			let control = session.spawn(|_, _| Ok(19.into())).unwrap();
+			for automatic in [false, true] {
+				session.host().set_release_on_drop(automatic).unwrap();
+				struct Retired(Rc<Cell<bool>>);
+				impl Drop for Retired {
+					fn drop(&mut self) {
+						self.0.set(true);
+					}
+				}
+				let retired = Rc::new(Cell::new(false));
+				let marker = Retired(Rc::clone(&retired));
+				let target = session
+					.spawn_owned(move |_, _| {
+						let _root = &marker;
+						Ok(17.into())
+					})
+					.unwrap();
+				assert_eq!(target.retain_for(&foreign).unwrap_err().kind(), ErrorKind::NotFound);
+				let retained = target.retain_for(&session.host()).unwrap();
+				assert_eq!(target, retained);
+				let spent = target.clone();
+				session.release(target).unwrap();
+				assert!(spent.released());
+				assert_eq!(
+					spent.retain_for(&session.host()).unwrap_err().kind(),
+					ErrorKind::InvalidArgument
+				);
+				assert!(!retained.released());
+				assert_eq!(session.send(&retained, "get", &[]).await.unwrap().as_i64(), Some(17));
+				assert!(!retired.get());
+				let last = retained.retain_for(&session.host()).unwrap();
+				session.release(retained).unwrap();
+				let stale = Ref::bare_id(last.id());
+				drop(last);
+				session.shared.drain_gc().unwrap();
+				assert_eq!(session.send(&control, "get", &[]).await.unwrap().as_i64(), Some(19));
+				assert!(
+					retired.get(),
+					"the independently owned final drop releases the actor root"
+				);
+				assert_eq!(
+					session.send(&stale, "get", &[]).await.unwrap_err().kind(),
+					ErrorKind::NotFound
+				);
+			}
+			session.release(control).unwrap();
+			session.close(crate::PendingWork::Cancel).await.unwrap();
+			peer.close(crate::PendingWork::Cancel).await.unwrap();
+			let closed = foreign.spawn(|_, _| Ok(Argument::Void)).unwrap();
+			foreign.close(crate::PendingWork::Cancel).await.unwrap();
+			assert_eq!(closed.retain_for(&foreign).unwrap_err().kind(), ErrorKind::Closed);
+		})
+		.await;
+}
+
 // Promise pipelining (ADR-0003), the questioner's half: `send` returns a
 // `RemotePromise` that is itself a `send` target, so a create -> assign ->
 // complete -> status chain may be issued against the create answer after a

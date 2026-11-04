@@ -182,6 +182,11 @@ Dropping the last copy releases the application's hold, even when the session
 has not opted into GC. Releasing it explicitly also works, and then the drop
 does nothing.
 
+`Ref::clone` shares that occurrence, including its explicit release state.
+Use `reference.retain_for(&host)` when captured work must survive release of the
+original. It returns an independently owned occurrence that releases on final
+drop, refusing foreign, released or closed-Host inputs before acquiring a hold.
+
 `Host::reference_session` retains an owned handle to a capability's live
 exporter.
 

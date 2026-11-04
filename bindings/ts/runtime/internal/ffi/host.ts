@@ -134,7 +134,6 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_turn_defer: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_host_turn_spawn: { parameters: [P, P, P, P, B], result: I, outBuffers: [4] },
 	glowcap_host_turn_break: { parameters: [P, B, U], result: I, outBuffers: [] },
-	// Capability lifetime, teardown, diagnostics.
 	glowcap_host_ref_release: { parameters: [P, B, U64], result: I, outBuffers: [] },
 	glowcap_host_session_published_ref: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	glowcap_host_session_transport_closed: { parameters: [P, B, U], result: I, outBuffers: [] },

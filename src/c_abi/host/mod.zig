@@ -499,6 +499,10 @@ pub const glowcap_host_unpublish = publications.glowcap_host_unpublish;
 pub const glowcap_host_publish_durable = publications.glowcap_host_publish_durable;
 pub const glowcap_host_publish_reference = publications.glowcap_host_publish_reference;
 pub const glowcap_host_remove_durable = publications.glowcap_host_remove_durable;
+/// Retain one independent occurrence of a live capability on its owning Host.
+/// The output names the same opaque identity and owns one application retain.
+/// Failure leaves the output and existing retains unchanged. No wire call occurs.
+pub const glowcap_host_ref_retain = host.glowcap_host_ref_retain;
 pub const glowcap_host_ref_release = host.glowcap_host_ref_release;
 pub const glowcap_host_send = @import("application_delivery.zig").glowcap_host_send;
 pub const glowcap_host_tell = @import("application_delivery.zig").glowcap_host_tell;

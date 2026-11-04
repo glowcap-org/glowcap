@@ -938,6 +938,12 @@ int32_t glowcap_host_turn_spawn(GlowcapHostTurn *turn, GlowcapHostBehavior behav
    return GLOWCAP_OK from the behavior, whose return value then resolves
    nothing. message is borrowed and copied. */
 int32_t glowcap_host_turn_break(GlowcapHostTurn *turn, const uint8_t *message, size_t message_len);
+/* Own another application occurrence of a live capability on its owning Host.
+   On success *out_reference names the same opaque identity with one independent
+   retain, released through glowcap_host_ref_release. Failure leaves the output
+   and existing retains unchanged. The Host must still admit application work.
+   No inspection, remote call or wire export occurs. Legal inside a callback. */
+int32_t glowcap_host_ref_retain(GlowcapHost *host, const GlowcapReference *ref, GlowcapReference *out_reference);
 /* Release delta application retains on one opaque Host capability. The Host
    resolves the owning session and emits any required op:gc-exports itself; the
    caller never pairs a capability with a session-local wire position. If that
