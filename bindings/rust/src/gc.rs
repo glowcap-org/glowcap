@@ -159,25 +159,48 @@ pub(crate) fn track_argument(shared: &Rc<SessionShared>, argument: &mut Argument
 
 /// Track an application-owned projection, independent of a Session opt-in.
 pub(crate) fn track_owned_argument(host: &Rc<HostShared>, argument: &mut Argument) {
-	match argument {
-		Argument::Reference(reference) => {
-			if reference.guard().is_none() {
-				reference.attach_guard(owned_guard(host, reference.id()));
-			}
+	visit_references(argument, &mut |reference| {
+		if reference.guard().is_none() {
+			reference.attach_guard(owned_guard(host, reference.id()));
 		}
+	});
+}
+
+/// Retire manual occurrences discarded before exposure. Existing guarded
+/// leaves keep their normal death rite; unguarded leaves park one release
+/// each, including repeated equal ids. No guard allocation or FFI call.
+pub(crate) fn discard_unexposed(host: &Rc<HostShared>, argument: &mut Argument) {
+	if host.raw().is_null() {
+		return;
+	}
+	let mut parked = false;
+	visit_references(argument, &mut |reference| {
+		if reference.guard().is_none() {
+			host.gc_pending.borrow_mut().push_back(reference.id());
+			parked = true;
+		}
+	});
+	if parked {
+		host.schedule_kick_or_record();
+	}
+}
+
+fn visit_references(argument: &mut Argument, visit: &mut impl FnMut(&mut Ref)) {
+	match argument {
+		Argument::Reference(reference) => visit(reference),
 		Argument::List(items) | Argument::Set(items) => {
 			for item in items {
-				track_owned_argument(host, item);
+				visit_references(item, visit);
 			}
 		}
 		Argument::Tagged { value, .. } => {
 			for item in value {
-				track_owned_argument(host, item);
+				visit_references(item, visit);
 			}
 		}
 		Argument::Struct(entries) => {
 			for (_, value) in entries {
-				track_owned_argument(host, value);
+				visit_references(value, visit);
 			}
 		}
 		Argument::Integer(_)

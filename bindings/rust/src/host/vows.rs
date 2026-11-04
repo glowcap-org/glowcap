@@ -2,8 +2,61 @@
 
 use super::*;
 
+/// A projected outcome awaiting transfer to its observer. Manual policy
+/// governs exposed values, never values the binding discards internally.
+/// The envelope lives inline in the existing row/channel slots: no allocation
+/// or payload copy. Only abandoned manual outcomes need its cold cleanup walk.
+/// Its Weak owner adds one pointer to the channel payload (64-bit Rust:
+/// 88 -> 96 bytes). Moving pending policy into the state keeps row storage
+/// at 96 bytes. Channel handle sizes stay unchanged.
+/// Extraction at raw return or successful classification ends this custody.
+pub(crate) struct VowOutcome {
+	value: Option<Result<Argument>>,
+	/// None means the references already carry automatic or explicit guards.
+	discard_host: Option<Weak<HostShared>>,
+}
+
+impl VowOutcome {
+	fn new(value: Result<Argument>, discard_host: Weak<HostShared>) -> Self {
+		Self {
+			value: Some(value),
+			discard_host: Some(discard_host),
+		}
+	}
+
+	fn own(&mut self) {
+		// Automatic and explicitly owned values have no manual owner.
+		// Taking it makes repeated upgrades free of a second walk or guard.
+		if let Some(owner) = self.discard_host.take()
+			&& let Some(host) = owner.upgrade()
+			&& let Some(Ok(value)) = &mut self.value
+		{
+			crate::gc::track_owned_argument(&host, value);
+		}
+	}
+
+	pub(crate) fn as_result(&self) -> &Result<Argument> {
+		self.value.as_ref().expect("unexposed outcome")
+	}
+
+	/// Acceptance transfers the original raw policy without walking its value.
+	pub(crate) fn into_result(mut self) -> Result<Argument> {
+		self.value.take().expect("unexposed outcome")
+	}
+}
+
+impl Drop for VowOutcome {
+	fn drop(&mut self) {
+		if let Some(Ok(value)) = &mut self.value
+			&& let Some(host) = self.discard_host.as_ref().and_then(Weak::upgrade)
+		{
+			crate::gc::discard_unexposed(&host, value);
+		}
+	}
+}
+
 pub(super) struct VowTable {
-	rows: RefCell<HashMap<u64, VowRow>>,
+	rows: RefCell<HashMap<u64, VowState>>,
 	/// FIFO of settled-but-unobserved vow ids, for the eviction cap.
 	unobserved: RefCell<VecDeque<u64>>,
 	/// Exact terminal projection failure for late observers after teardown has
@@ -21,7 +74,7 @@ impl VowTable {
 		}
 	}
 
-	fn insert(&self, vow: u64, row: VowRow) {
+	fn insert(&self, vow: u64, row: VowState) {
 		self.rows.borrow_mut().insert(vow, row);
 	}
 
@@ -29,19 +82,14 @@ impl VowTable {
 		self.rows.borrow_mut().remove(&vow);
 	}
 
-	fn own_outcome(&self, vow: u64, host: &Rc<HostShared>) {
+	fn own_outcome(&self, vow: u64) {
 		let mut rows = self.rows.borrow_mut();
 		let Some(row) = rows.get_mut(&vow) else {
 			return;
 		};
-		// The ordinary automatic path already selected this custody. Do not
-		// repeat its walk or allocate another guard for an occurrence.
-		if row.gc_host.is_some() {
-			return;
-		}
-		row.gc_host = Some(Rc::downgrade(host));
-		if let VowState::Settled(Ok(value)) = &mut row.state {
-			crate::gc::track_owned_argument(host, value);
+		match row {
+			VowState::Minted { owned } | VowState::Awaited { owned, .. } => *owned = true,
+			VowState::Settled(outcome) => outcome.own(),
 		}
 	}
 
@@ -49,13 +97,16 @@ impl VowTable {
 		let mut rows = self.rows.borrow_mut();
 		match rows.get_mut(&vow) {
 			// Evicted (never awaited until past the cap) or never minted here.
-			None => Waiting::Now(Err(self.terminal_failure.borrow().clone().unwrap_or_else(|| {
-				Error::with_detail(
-					sys::ERR_CLOSED,
-					"the vow's outcome is gone (unobserved past the cap)".to_string(),
-				)
-			}))),
-			Some(row) => match std::mem::replace(&mut row.state, VowState::Minted) {
+			None => Waiting::Now(VowOutcome::new(
+				Err(self.terminal_failure.borrow().clone().unwrap_or_else(|| {
+					Error::with_detail(
+						sys::ERR_CLOSED,
+						"the vow's outcome is gone (unobserved past the cap)".to_string(),
+					)
+				})),
+				Weak::new(),
+			)),
+			Some(row) => match std::mem::replace(row, VowState::Minted { owned: false }) {
 				VowState::Settled(outcome) => {
 					rows.remove(&vow);
 					Waiting::Now(outcome)
@@ -63,40 +114,45 @@ impl VowTable {
 				// Minted, or re-awaited: (re)park a waiter. A prior
 				// `Awaited`'s sender is dropped here, breaking that stale
 				// receiver: the same overwrite the two-field form performed.
-				VowState::Minted | VowState::Awaited(_) => {
+				VowState::Minted { owned } | VowState::Awaited { owned, .. } => {
 					let (tx, rx) = oneshot::channel();
-					row.state = VowState::Awaited(tx);
+					*row = VowState::Awaited { waiter: tx, owned };
 					Waiting::Settled(rx)
 				}
 			},
 		}
 	}
 
-	fn settle(&self, vow: u64, mut outcome: Result<Argument>) {
+	fn settle(&self, vow: u64, mut outcome: VowOutcome) {
 		{
 			let mut rows = self.rows.borrow_mut();
 			let Some(row) = rows.get_mut(&vow) else {
 				return; // an outcome nobody registered for
 			};
-			if let (Ok(value), Some(host)) = (&mut outcome, row.gc_host.as_ref().and_then(std::rc::Weak::upgrade)) {
-				crate::gc::track_owned_argument(&host, value);
-			}
-			match std::mem::replace(&mut row.state, VowState::Minted) {
-				VowState::Awaited(waiter) => {
+			match std::mem::replace(row, VowState::Minted { owned: false }) {
+				VowState::Awaited { waiter, owned } => {
+					if owned {
+						outcome.own();
+					}
 					rows.remove(&vow);
 					drop(rows);
-					// Send failure proves the awaiting future was cancelled. The vow
-					// row is terminal and removed, and no FFI handle belongs to this
-					// binding-side delivery.
+					// Failed delivery or a later receiver drop destroys the
+					// unexposed owner, including its manual capability occurrences.
 					drop(waiter.send(outcome));
 					return;
 				}
-				// Minted, or an already-settled row re-settled: hold the
-				// outcome for a late observation.
-				VowState::Minted | VowState::Settled(_) => {
-					row.state = VowState::Settled(outcome);
+				VowState::Minted { owned } => {
+					if owned {
+						outcome.own();
+					}
+				}
+				VowState::Settled(previous) => {
+					if previous.discard_host.is_none() {
+						outcome.own();
+					}
 				}
 			}
+			*row = VowState::Settled(outcome);
 		}
 		let mut unobserved = self.unobserved.borrow_mut();
 		unobserved.push_back(vow);
@@ -106,10 +162,7 @@ impl VowTable {
 			};
 			let mut rows = self.rows.borrow_mut();
 			// Only evict a row still parked unobserved; an observed one is gone.
-			let evict = matches!(
-				rows.get(&oldest),
-				Some(stale) if matches!(stale.state, VowState::Settled(_))
-			);
+			let evict = matches!(rows.get(&oldest), Some(VowState::Settled(_)));
 			if evict {
 				rows.remove(&oldest);
 			}
@@ -125,7 +178,7 @@ impl VowTable {
 		drop(terminal);
 		let vows: Vec<u64> = self.rows.borrow().keys().copied().collect();
 		for vow in vows {
-			self.settle(vow, Err(failure.clone()));
+			self.settle(vow, VowOutcome::new(Err(failure.clone()), Weak::new()));
 		}
 	}
 
@@ -133,7 +186,7 @@ impl VowTable {
 		self.rows
 			.borrow()
 			.values()
-			.all(|row| matches!(row.state, VowState::Settled(_)))
+			.all(|row| matches!(row, VowState::Settled(_)))
 	}
 
 	pub(super) fn clear(&self) {
@@ -143,8 +196,8 @@ impl VowTable {
 }
 
 enum Waiting {
-	Now(Result<Argument>),
-	Settled(oneshot::Receiver<Result<Argument>>),
+	Now(VowOutcome),
+	Settled(oneshot::Receiver<VowOutcome>),
 }
 
 // A host vow's pending state: exactly three shapes, so the illegal "settled AND
@@ -155,25 +208,26 @@ enum Waiting {
 // a channel.
 enum VowState {
 	/// Registered, not yet awaited and not yet settled. status-allow: pending state or quoted runtime label
-	Minted,
+	Minted { owned: bool },
 	/// A caller is awaiting. The outcome fires this sender.
-	Awaited(oneshot::Sender<Result<Argument>>),
+	Awaited {
+		waiter: oneshot::Sender<VowOutcome>,
+		owned: bool,
+	},
 	/// The outcome landed before anyone awaited. Held for a late observation.
-	Settled(Result<Argument>),
-}
-
-struct VowRow {
-	state: VowState,
-	/// Host whose application retain this outcome owns. The default policy
-	/// is sampled at mint. Explicit ownership can upgrade it before delivery.
-	/// Weak custody cannot keep the FFI Host alive after retirement.
-	gc_host: Option<std::rc::Weak<HostShared>>,
+	Settled(VowOutcome),
 }
 
 impl HostShared {
 	/// A completed observation outranks a failure while driving unrelated work.
 	/// Register before driving so synchronous settlement cannot lose the result.
 	pub(crate) async fn observe_vow(self: &Rc<Self>, vow: u64) -> Result<Argument> {
+		// Keep custody through progress failures and suspension. Extraction
+		// immediately returns the raw value, with no intervening yield.
+		self.observe_vow_outcome(vow).await?.into_result()
+	}
+
+	pub(crate) async fn observe_vow_outcome(self: &Rc<Self>, vow: u64) -> Result<VowOutcome> {
 		let settled = self.await_vow(vow);
 		drive_observation(settled, self.kick_actions()).await
 	}
@@ -186,35 +240,23 @@ impl HostShared {
 		// Finalizer policy belongs to the operation that exposes the value, so
 		// sample the setting at mint rather than letting a later toggle rewrite
 		// an already-admitted outcome's ownership contract.
-		let gc_host = gc_session
-			.filter(|session| session.host.release_on_drop())
-			.map(|session| Rc::downgrade(&session.host));
-		self.insert_vow(vow, gc_host);
+		let owned = gc_session.is_some_and(|session| session.host.release_on_drop());
+		self.vows.insert(vow, VowState::Minted { owned });
 	}
 
 	pub(crate) fn owned_vow_minted(self: &Rc<Self>, vow: u64) {
-		self.insert_vow(vow, Some(Rc::downgrade(self)));
+		self.vows.insert(vow, VowState::Minted { owned: true });
 	}
 
 	pub(crate) fn own_vow_outcome(self: &Rc<Self>, vow: u64) {
-		self.vows.own_outcome(vow, self);
-	}
-
-	fn insert_vow(&self, vow: u64, gc_host: Option<Weak<Self>>) {
-		self.vows.insert(
-			vow,
-			VowRow {
-				state: VowState::Minted,
-				gc_host,
-			},
-		);
+		self.vows.own_outcome(vow);
 	}
 
 	/// The vow's eventual outcome: the fulfilled wire value, or a typed
 	/// rejection: `ErrorKind::Broken` for a partner break, `ErrorKind::Closed`
 	/// when the settle was the disconnect's own break. Settles immediately
 	/// from the recorded state when the outcome already landed.
-	pub(crate) fn await_vow(self: &Rc<HostShared>, vow: u64) -> impl std::future::Future<Output = Result<Argument>> {
+	pub(crate) fn await_vow(self: &Rc<HostShared>, vow: u64) -> impl std::future::Future<Output = Result<VowOutcome>> {
 		let waiting = self.vows.begin_await(vow);
 		// The future holds the host alive so a parked waiter cannot outlive the
 		// vow table it is registered in.
@@ -222,12 +264,12 @@ impl HostShared {
 		async move {
 			let _hold = host;
 			match waiting {
-				Waiting::Now(outcome) => outcome,
-				Waiting::Settled(rx) => rx.await.unwrap_or_else(|_| {
-					Err(Error::with_detail(
+				Waiting::Now(outcome) => Ok(outcome),
+				Waiting::Settled(rx) => rx.await.map_err(|_| {
+					Error::with_detail(
 						sys::ERR_CLOSED,
 						"the host was released with the vow still pending".to_string(),
-					))
+					)
 				}),
 			}
 		}
@@ -236,8 +278,8 @@ impl HostShared {
 	// The drain's settle arms: fire the waiter, or record the outcome for a
 	// late observation (bounded FIFO: an outcome nobody ever awaits is evicted
 	// at the cap). Called from `action::run`'s SETTLE / FAIL arms.
-	pub(crate) fn settle_vow(&self, vow: u64, outcome: Result<Argument>) {
-		self.vows.settle(vow, outcome);
+	pub(crate) fn settle_vow(self: &Rc<Self>, vow: u64, outcome: Result<Argument>) {
+		self.vows.settle(vow, VowOutcome::new(outcome, Rc::downgrade(self)));
 	}
 
 	pub(crate) fn abandon_vow(&self, vow: u64) {
@@ -253,10 +295,10 @@ impl HostShared {
 	}
 }
 
-async fn drive_observation(
-	settled: impl std::future::Future<Output = Result<Argument>>,
+async fn drive_observation<T>(
+	settled: impl std::future::Future<Output = Result<T>>,
 	progress: impl std::future::Future<Output = Result<()>>,
-) -> Result<Argument> {
+) -> Result<T> {
 	let mut settled = std::pin::pin!(settled);
 	if let Some(outcome) = std::future::poll_fn(|cx| {
 		std::task::Poll::Ready(match settled.as_mut().poll(cx) {
@@ -297,7 +339,7 @@ mod tests {
 		.await;
 		assert_eq!(observed.unwrap().as_i64(), Some(42));
 		assert!(
-			drive_observation(std::future::pending(), async {
+			drive_observation(std::future::pending::<Result<Argument>>(), async {
 				Err(Error::broken("drive failed".into()))
 			})
 			.await
@@ -305,20 +347,17 @@ mod tests {
 		);
 	}
 
-	fn row() -> VowRow {
-		VowRow {
-			state: VowState::Minted,
-			gc_host: None,
-		}
+	fn row() -> VowState {
+		VowState::Minted { owned: false }
 	}
 
-	fn err(code: i32, detail: impl Into<String>) -> Result<Argument> {
-		Err(Error::with_detail(code, detail.into()))
+	fn err(code: i32, detail: impl Into<String>) -> VowOutcome {
+		VowOutcome::new(Err(Error::with_detail(code, detail.into())), Weak::new())
 	}
 
 	fn now(table: &VowTable, vow: u64) -> Result<Argument> {
 		match table.begin_await(vow) {
-			Waiting::Now(outcome) => outcome,
+			Waiting::Now(outcome) => outcome.into_result(),
 			Waiting::Settled(_) => panic!("vow parked instead of settling immediately"),
 		}
 	}
@@ -355,7 +394,7 @@ mod tests {
 		table.fail_pending(sys::ERR_INTERNAL, "driver loop failed");
 
 		let outcome = receiver.try_recv().expect("pending waiter should fire");
-		assert_eq!(outcome.unwrap_err().code(), sys::ERR_INTERNAL);
+		assert_eq!(outcome.into_result().unwrap_err().code(), sys::ERR_INTERNAL);
 		assert!(table.only_settled());
 	}
 
@@ -375,7 +414,7 @@ mod tests {
 	fn clear_without_terminal_failure_reports_missing_outcome() {
 		let table = VowTable::new();
 		table.insert(11, row());
-		table.settle(11, Ok(Argument::Void));
+		table.settle(11, VowOutcome::new(Ok(Argument::Void), Weak::new()));
 		assert!(table.only_settled());
 
 		table.clear();

@@ -544,6 +544,12 @@ the name stays here.
   guard for each owned C occurrence, including local callback observations.
   Clones share that guard. Independently received equal ids keep distinct
   C retains. Its declaration owns the lifetime and cycle derivation.
+- **Rust unexposed outcome custody**: `VowOutcome` in `host/vows.rs` holds one
+  inline Weak Host owner until observation or capability classification accepts
+  the value. On 64-bit Rust, row storage stays 96 bytes and channel payload
+  grows 8 bytes. There is no new allocation. Only discarded manual values take
+  the cold `gc::discard_unexposed` walk, parking occurrences in the existing release
+  queue without allocating guards. The declaration owns the lifetime derivation.
 - **Binding outbound flush copy**: TypeScript, Python, and Racket copy
   managed-frame bytes and release before the async write. Rust holds the frame
   across it. Language and lifetime forced: no change without a hold-across-await

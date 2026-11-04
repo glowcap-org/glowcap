@@ -199,6 +199,21 @@ outcome needs no second walk or guard. A settled manual outcome receives its
 guards when ownership is selected. Selecting ownership adds no future wrapper,
 payload copy or FFI retain.
 
+Until observation transfers a reply to its caller, the binding owns it.
+Unobserved eviction, abandoned handles and cancelled observations release every
+reply occurrence even under manual release. Exposed raw replies keep their
+sampled policy and explicit-release responsibility.
+
+`Session::fetch` and `Session::enliven` keep that ownership through capability
+classification. Rejected replies and cancelled lookups clean up. Accepted
+capabilities follow the Host policy sampled when the lookup starts.
+
+The reply keeps a weak Host reference inside the existing waiter payload.
+It adds no heap allocation or future wrapper, and leaves row storage unchanged.
+Discarding an unexposed manual value walks its references into the existing
+release queue without allocating guards. Acceptance takes constant time, with
+no payload copy, FFI retain or success walk. Manual fetch needs no guard.
+
 `Host::reference_session` retains an owned handle to a capability's live
 exporter.
 

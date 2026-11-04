@@ -18,23 +18,25 @@ use crate::{Argument, Error, Ref, Result, SendArena, sys};
 
 /// Shared fetch/enliven wait: the mint already registered the vow. Kick the
 /// drain so the deliver leaves now, and await the drain-routed outcome.
-pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64, track_gc: bool) -> Result<Argument> {
+pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64) -> Result<crate::host::VowOutcome> {
 	let _release = crate::gc::VowGuard::new(&shared.host, vow);
 	shared.attend_inbound()?;
-	shared.host.vow_minted(vow, track_gc.then_some(shared));
-	shared.host.observe_vow(vow).await
+	shared.host.observe_vow_outcome(vow).await
 }
 
 /// The one mint/await/classify body under `fetch` and `enliven`: mint the
 /// host vow with `mint`, await its drain-routed completion, and classify:
 /// only an opaque Host reference is a capability this surface can hand out.
-/// `track` enrolls the fulfilled application value in distributed GC.
+/// Outcomes own their occurrences until classification, including cancellation
+/// after delivery. Keep the table's inline outcome owner until accepting a
+/// capability, then transfer its sampled raw release policy in constant time.
+/// Manual success needs no temporary guard; rejected manual values take the
+/// owner's cold release walk. No extra FFI retain, payload copy or heap wrapper.
 pub(crate) async fn fetch_like(
 	shared: &Rc<SessionShared>,
 	swiss: &[u8],
 	label: &str,
 	mint: unsafe extern "C" fn(*mut ffi::GlowcapHostSession, *const u8, usize, *mut u64) -> i32,
-	track: bool,
 ) -> Result<Ref> {
 	shared.guard_open()?;
 	shared.drain_gc()?;
@@ -43,10 +45,15 @@ pub(crate) async fn fetch_like(
 	// it unreleased; `mint` is one of the session's `glowcap_host_session_*` mint verbs, `swiss` borrows the caller's
 	// slice for the call, and `vow` is a local out-parameter the callee writes.
 	check_host(unsafe { mint(shared.ptr.get(), swiss.as_ptr(), swiss.len(), &mut vow) })?;
-	let value = await_minted(shared, vow, track).await?;
-	match value {
-		Argument::Reference(reference) => Ok(reference),
-		_ => Err(Error::broken(format!("{label:?} did not resolve to a capability"))),
+	shared.host.vow_minted(vow, Some(shared));
+	let outcome = await_minted(shared, vow).await?;
+	if matches!(outcome.as_result(), Ok(Argument::Reference(_)) | Err(_)) {
+		let Argument::Reference(reference) = outcome.into_result()? else {
+			unreachable!("classified capability")
+		};
+		Ok(reference)
+	} else {
+		Err(Error::broken(format!("{label:?} did not resolve to a capability")))
 	}
 }
 
@@ -101,7 +108,8 @@ pub(crate) async fn resolve(shared: &Rc<SessionShared>, target: &Ref) -> Result<
 		check_host(unsafe { ffi::glowcap_host_session_resolve(shared.ptr.get(), &wire, &mut reference, &mut vow) })?;
 	}
 	if vow != 0 {
-		return await_minted(shared, vow, true).await;
+		shared.host.vow_minted(vow, Some(shared));
+		return await_minted(shared, vow).await?.into_result();
 	}
 	let mut value = Argument::Reference(Ref::from_sys(&reference));
 	crate::gc::track_owned_argument(&shared.host, &mut value);

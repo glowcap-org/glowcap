@@ -278,16 +278,11 @@ impl Session {
 	/// before the completion is queued, so a return re-gifts the right home.
 	/// Rejects with the typed break when the partner refuses the fetch, and with
 	/// a broken error when it fulfills with something that is not a live
-	/// capability.
+	/// capability. Rejected or cancelled outcomes release their occurrences.
+	/// Successful results follow the Host's release policy sampled when the
+	/// lookup starts, including explicit release under the manual policy.
 	pub async fn fetch(&self, name: &str) -> Result<Ref> {
-		crate::promise::fetch_like(
-			&self.shared,
-			name.as_bytes(),
-			name,
-			ffi::glowcap_host_session_fetch,
-			true,
-		)
-		.await
+		crate::promise::fetch_like(&self.shared, name.as_bytes(), name, ffi::glowcap_host_session_fetch).await
 	}
 
 	/// Enliven a sturdyref against this session (ADR-0007): bring the durable
@@ -298,14 +293,13 @@ impl Session {
 	/// session must already be open to the sturdyref's peer. This session-level
 	/// call never dials. Rejects with the typed break
 	/// when the partner refuses, and with a broken error on a non-capability
-	/// fulfillment.
+	/// fulfillment. Release policy and rejected-outcome cleanup match [`Self::fetch`].
 	pub async fn enliven(&self, sturdyref: &str) -> Result<Ref> {
 		crate::promise::fetch_like(
 			&self.shared,
 			sturdyref.as_bytes(),
 			"enliven",
 			ffi::glowcap_host_session_enliven,
-			true,
 		)
 		.await
 	}
