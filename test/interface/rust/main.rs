@@ -4,10 +4,15 @@ pub mod callbacks;
 mod conversation;
 #[path = "../generated/expected.rs"]
 mod expected;
+#[path = "../../../apps/tasks/rust/interface.rs"]
+pub mod interface;
 mod invocation;
 mod pair;
 mod prepared;
 mod presence;
+mod reads;
+#[path = "../../../apps/tasks/rust/board.rs"]
+pub mod task_board;
 mod tasks;
 
 #[tokio::main(flavor = "current_thread")]
@@ -18,6 +23,7 @@ async fn main() {
 		.run_until(async {
 			tokio::time::timeout(std::time::Duration::from_secs(15), async {
 				tasks::run(args[1].parse().unwrap(), &args[2]).await;
+				reads::run().await;
 				conversation::run().await;
 				invocation::run().await;
 				presence::run().await;

@@ -21,7 +21,7 @@ test "proposed text equals independent canonical description and retains exact m
     const direct = try calls.read(a, &model, "comparison.Direct", null);
     try std.testing.expectEqual(@as(?[]const u8, null), direct.wire_name);
     try std.testing.expectEqual(@as(usize, 0), direct.required_parameters);
-    try std.testing.expectEqual(calls.Kind.nothing, direct.parameters[0]);
+    try std.testing.expect(direct.parameters[0] == .nothing);
     for ([_][]const u8{ "", "then", "a-b" }) |selector| {
         const call = try calls.read(a, &model, "comparison.Named", selector);
         try std.testing.expectEqualStrings(selector, call.wire_name.?);
@@ -31,10 +31,11 @@ test "proposed text equals independent canonical description and retains exact m
     const optional = try calls.read(a, &model, "comparison.Named", "optional");
     try std.testing.expectEqual(@as(usize, 0), optional.required_parameters);
     const pending = try calls.read(a, &model, "comparison.Factory", "accept");
-    try std.testing.expectEqualSlices(calls.Kind, &.{ .target, .pending_target }, pending.parameters);
+    try std.testing.expectEqual(calls.Kind.target, std.meta.activeTag(pending.parameters[0]));
+    try std.testing.expectEqual(calls.Kind.pending_target, std.meta.activeTag(pending.parameters[1]));
     const prepared = try calls.read(a, &model, "comparison.Prepared", "accept");
     try std.testing.expectEqual(calls.Effect.receipt, prepared.effect);
-    try std.testing.expectEqual(calls.Kind.pending_value, prepared.parameters[0]);
+    try std.testing.expect(prepared.parameters[0] == .pending_value);
     const prepared_rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "prepared_text", .call = prepared }});
     try std.testing.expect(std.mem.indexOf(u8, prepared_rust, "pub fn prepared_text(") != null);
     for ([_][]const u8{ "null-input", "null-result" }) |selector| {
@@ -61,7 +62,7 @@ test "bound reply and exact method edits change checked consumers" {
     const changed_reply = try text.translate(a, try edited(a, "read() -> string", "read() -> undefined"), &diagnostic);
     model = try Model.init(try description.read(a, changed_reply));
     const reply = try calls.read(a, &model, "comparison.Reader", "read");
-    try std.testing.expectEqual(calls.Kind.nothing, reply.result);
+    try std.testing.expect(reply.result == .nothing);
     const ts = try @import("typescript.zig").emit(a, &.{.{ .api = "read", .call = reply }});
     try std.testing.expect(std.mem.indexOf(u8, ts, "): Pending<void>") != null);
     const changed_method = try text.translate(a, try edited(a, "\"a-b\"()", "\"renamed\"()"), &diagnostic);

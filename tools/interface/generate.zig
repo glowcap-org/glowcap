@@ -31,6 +31,13 @@ const selected = .{
     .{ "fixture.Presence", "notify", "presence_notify" },
 };
 const prepared = .{.{ "fixture.Prepared", "accept", "prepare_accept" }};
+const task_reads = .{
+    .{ "tasks.Board", "list", "board_list" },
+    .{ "tasks.TaskList", "name", "list_name" },
+    .{ "tasks.TaskList", "count", "list_count" },
+    .{ "tasks.TaskList", "task", "list_task" },
+    .{ "tasks.Task", "text", "task_text" },
+};
 
 pub const step_name = "gen-interface-fixtures";
 pub const outputs = [_]Output{
@@ -44,12 +51,12 @@ pub const outputs = [_]Output{
     .{ .path = "apps/tasks/rust/interface.rs", .generate = generateRust },
 };
 
-fn generate(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
+fn generateZig(a: std.mem.Allocator) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     var model = try Model.init(try description.read(arena.allocator(), @embedFile("contract")));
     const method = try model.creation("tasks.TaskList", creation_method);
-    return emitter.emit(a, method);
+    return zig.emit(a, method);
 }
 
 fn generateCalls(a: std.mem.Allocator, comptime emitter: type, comptime selections: anytype) ![]u8 {
@@ -70,11 +77,17 @@ fn generateTypeScript(a: std.mem.Allocator) ![]u8 {
     return generateCalls(a, @import("typescript.zig"), selected);
 }
 
-fn generateZig(a: std.mem.Allocator) ![]u8 {
-    return generate(a, zig);
-}
 fn generateRust(a: std.mem.Allocator) ![]u8 {
-    return generate(a, rust);
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const scratch = arena.allocator();
+    var model = try Model.init(try description.read(scratch, @embedFile("contract")));
+    const creation = try model.creation("tasks.TaskList", creation_method);
+    var reads: [task_reads.len]calls.Named = undefined;
+    inline for (task_reads, 0..) |method, i| {
+        reads[i] = .{ .api = method[2], .call = try calls.read(scratch, &model, method[0], method[1]) };
+    }
+    return rust.emit(a, creation, &reads);
 }
 
 test "authored contract selects creation and rejects another method shape" {
@@ -88,7 +101,7 @@ test "authored contract selects creation and rejects another method shape" {
     const other = try model.creation("tasks.Board", "add-list");
     try std.testing.expectEqual(@as(usize, 64), other.maximum);
     // The templates spell `add`, so they refuse to name another method's request.
-    try std.testing.expectError(error.UnsupportedProjection, rust.emit(std.testing.allocator, other));
+    try std.testing.expectError(error.UnsupportedProjection, rust.emit(std.testing.allocator, other, &.{}));
     try std.testing.expectError(error.UnsupportedProjection, zig.emit(std.testing.allocator, other));
     try std.testing.expectError(error.UnsupportedProjection, model.creation("tasks.TaskList", "move"));
 }
@@ -188,7 +201,7 @@ test "call projections admit present undefined and optional arguments but refuse
 }
 
 test "prepared receipt emitters refuse unqualified shapes" {
-    for ([_]calls.Kind{ .text, .target, .pending_target, .nothing, .value }) |kind| {
+    for ([_]calls.Type{ .{ .text = .{} }, .target, .pending_target, .nothing, .value }) |kind| {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
             .wire_name = "accept",
             .parameters = &.{kind},
@@ -198,7 +211,7 @@ test "prepared receipt emitters refuse unqualified shapes" {
         } }};
         try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods));
     }
-    for ([_]calls.Kind{ .text, .target, .pending_target, .pending_value, .value }) |kind| {
+    for ([_]calls.Type{ .{ .text = .{} }, .target, .pending_target, .pending_value, .value }) |kind| {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
             .wire_name = "accept",
             .parameters = &.{.pending_value},
@@ -250,6 +263,7 @@ test "call presence keeps the Models trailing optional rule" {
 test {
     _ = @import("authoring_test.zig");
     _ = @import("profiles_test.zig");
+    _ = @import("read_test.zig");
 }
 
 fn generateAuthoringText(a: std.mem.Allocator) ![]u8 {
@@ -282,10 +296,10 @@ test "direct receiver projection refuses unqualified call shapes" {
     call.required_parameters = 1;
     try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
     call.required_parameters = 2;
-    call.parameters = &.{ .text, .value };
+    call.parameters = &.{ .{ .text = .{} }, .value };
     try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
     call.parameters = &.{ .value, .value };
-    call.result = .text;
+    call.result = .{ .text = .{} };
     try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
     call.result = .nothing;
     call.effect = .tell;

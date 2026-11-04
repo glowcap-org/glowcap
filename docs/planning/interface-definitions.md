@@ -18,8 +18,11 @@ need no Zig installation. Building the compiler from source requires Zig.
 
 ## Execution map
 
-The current work is milestone 2. Conversation and generation-cost baselines are
-retained. Compare authoring frontends next. Syrup remains the direct compiler input.
+The current work is milestone 2. Conversation, generation-cost, and proposed
+text comparisons are retained. Tasks' Rust read workflow now uses generated
+calls that enforce its declared bounds. Syrup remains the direct compiler
+input. The production authoring frontend and full-target completion budget are
+still undecided.
 
 | Work | State and next action | Owner |
 | --- | --- | --- |
@@ -31,13 +34,22 @@ retained. Compare authoring frontends next. Syrup remains the direct compiler in
 | Conversation coverage | Zig creation export failure and retry are qualified. Generated Rust recipient handoff and plain Goblins calling the generated Zig Tasks boundary run on Syrup/V1.0 | Milestone 2 runtime cases |
 | Invocation shape | Rust and TypeScript callers preserve selector presence. A generated Zig two-value direct receiver restores leading-symbol data on both profiles | General receiver projections remain |
 | Argument presence | Rust and TypeScript distinguish omission from explicit undefined and refuse invalid holes on both profiles. Null remains unsupported by the targets | [Proof suite](../../test/interface/README.md) |
-| Cost and authoring decision | [Generation and paired costs](../../bench/interface/results.md) are recorded at their measured source revision. Compare text and Cap'n Proto adapters next | Milestone 2 decision |
+| Profile requirements | Ordinary descriptions require the value mapping. Receipt methods also require their convention, checked across the whole bundle | [Fixture contract](../../test/interface/contract.md) |
+| Generated Rust support | Selected methods determine imports and helpers. Isolated consumers compile with warnings denied | [Authoring checks](../../test/interface/authoring/README.md) |
+| Tasks read workflow | Five generated Rust reads replace manual wire calls and text/count decoding. Real Board reads and independent raw peers check bounds and failures. Zig read handlers remain application-owned | Milestone 2 application qualification |
+| Cap'n Proto comparison | The compiler-request comparison is retained in [#65](https://github.com/glowcap-org/glowcap/pull/65) | Milestone 2 comparison |
+| Cost and authoring decision | [Generation costs](../../bench/interface/results.md) and the [text comparison](../../test/interface/authoring/README.md) retain measurements and limits. Complete the frontend assessment and completion budget | Milestone 2 decision |
 
 The [earlier experiment](../research/interface-design-proof.md) is background
 research. Its live results are not reproducible from the retained sources.
 The proof suite above is the executable evidence for this implementation.
 [ADR-0069](../decisions/adr/ADR-0069-proposed-interface-language.md) remains a
 proposal until the adoption decision at milestone 4.
+
+The read workflow extends milestone 2's application evidence before the complete
+Tasks migration. It removes handwritten wire calls, decoders, and a String
+copy in the Rust read path. Imports, records, unions, declared failure types, and complete target mappings
+remain language work. The comparison adapters' size and passing cases do not establish those features or their cost.
 
 ## Fixed scope
 

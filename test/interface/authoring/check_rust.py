@@ -31,6 +31,13 @@ CASES = [
     ("tell_value", "Notices", "changed"),
     ("tell_optional", "Notices", "optional"),
     ("receipt", "Prepared", "accept"),
+    ("bounded_text", "Bounded", "text"),
+    ("lower_text", "Bounded", "lower"),
+    ("wide_text", "Bounded", "wide"),
+    ("integer_argument", "Bounded", "integer"),
+    ("integer_tell", "Bounded", "index"),
+    ("signed_integer", "Bounded", "signed"),
+    ("bounded_optional", "Bounded", "optional"),
 ]
 
 

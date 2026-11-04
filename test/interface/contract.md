@@ -219,6 +219,31 @@ references surviving answer release. ADR-0070 supplies stored
 resolution retention. It does not by itself prove a binding exposes every
 operation preparation needs. No generator-owned vow registry is permitted.
 
+## Tasks Rust read projection
+
+Five ordinary calls in the real Rust application use checked generation:
+Board.list, TaskList.name, TaskList.count, TaskList.task, and Task.text.
+They retain the declared Name and Text byte bounds, TaskCount range, and Index
+range from zero through signed-64-bit maximum. List and task membership still
+belongs to the server. The Zig read handlers and storage constants are unchanged.
+
+Bounded arguments return a local validation result around `Pending<T>`.
+Invalid input creates no call or error promise. Valid calls send immediately.
+Zero-argument reads return `Pending<T>` directly. Typed observation reports
+`InvalidReply` for wrong reply types or bounds and preserves runtime failures
+and independent raw observation. Bounded text decoders move the binding's
+owned String after checking its UTF-8 byte length.
+
+Description bound literals use the reader's signed-64-bit metadata
+representation. This limits schema literals, not OCapN Integer values.
+The Rust typed integer projection requires both declared endpoints and
+supports their finite signed-64-bit interval exactly. Bare and partially bounded
+integers receive `UnsupportedTarget`. Raw bindings still support bignums, as
+the value table below states.
+
+The TypeScript projection refuses bounded text and integer calls until its
+bounds checks are qualified. Its existing unbounded projections are unchanged.
+
 ## Target mapping
 
 Both session profiles use the following current value mapping. The protocol
