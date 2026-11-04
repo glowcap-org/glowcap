@@ -5,6 +5,26 @@ custody costs.
 
 ## The ledger
 
+- **Selected TypeScript reply tracking**: [withGc](../../../../bindings/ts/runtime/promise.ts)
+  selects the existing Host vow row before observation: one lookup, no payload
+  copy or C retain. A manual outcome uses the existing
+  [argument walk and reference registration](../../../../bindings/ts/runtime/gc.ts)
+  per capability occurrence; an already tracked row skips both. The first
+  tracked reference creates one Host-wide FinalizationRegistry, whose targets
+  remain the shared wrappers until collection or explicit release.
+
+  A local promise adds one intent bit to its existing state, and an await-only Host promise
+  keeps its Host owner beside the vow id; neither adds an adapter object or
+  closure. Unexposed, discarded outcomes use the same argument walk to disarm
+  tracking and append one id per occurrence to the existing release queue,
+  then schedule once without creating finalizer registrations.
+  [Fetch completion](../../../../bindings/ts/runtime/promise.ts) transfers
+  rejected values to that same queue; valid results keep their release policy.
+
+  A progress failure adds one settlement continuation and its derived promise
+  to the existing outcome record until a late value can enter that same release
+  queue. Successful waits add neither cost.
+
 - **Generated TypeScript reply work counter**: `emit` in
   `tools/interface/typescript_compounds.zig` emits one temporary DecodeBudget
   object per compound observation. Recursive helpers share it until return or

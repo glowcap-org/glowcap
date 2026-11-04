@@ -47,8 +47,13 @@ export abstract class HostDrive extends HostApplication {
 	 * clears the table. A later observation receives the same failure. */
 	failPendingVows(error: GlowcapError): void {
 		if (this._terminalVowFailure == null) this._terminalVowFailure = error;
-		for (const row of this._vows.values()) {
+		for (const vow of this._vows.keys()) {
+			const row = this._vows.get(vow)!;
+			this._vows.delete(vow);
 			if (row.state.tag === "awaited") row.state.waiter.reject(error);
+			else if (row.state.tag === "settled" && "ok" in row.state.outcome) {
+				this._gc.discardArgument(row.state.outcome.ok);
+			}
 		}
 		this.clearVowRows();
 	}
@@ -58,6 +63,17 @@ export abstract class HostDrive extends HostApplication {
 	 * can pop the completion first. Binding-internal. */
 	vowMinted(vow: bigint, trackGc = false): void {
 		this._vows.set(vow, { state: { tag: "minted" }, trackGc });
+	}
+
+	/** Select finalizer tracking for this outcome before delivery. Existing
+	 * automatic tracking needs no second walk or registration. Binding-internal. */
+	trackVowOutcome(vow: bigint): void {
+		const row = this._vows.get(vow);
+		if (row == null || row.trackGc) return;
+		row.trackGc = true;
+		if (row.state.tag === "settled" && "ok" in row.state.outcome) {
+			this._gc.trackArgument(row.state.outcome.ok);
+		}
 	}
 
 	/** The vow's eventual outcome: the fulfilled wire value, or a rejection:
@@ -92,7 +108,11 @@ export abstract class HostDrive extends HostApplication {
 	 * at the cap). Binding-internal: `action.ts` calls it. */
 	settleVow(vow: bigint, outcome: { ok: Argument } | { err: GlowcapError }): void {
 		const row = this._vows.get(vow);
-		if (row === undefined) return; // an outcome nobody registered for
+		if (row === undefined) {
+			if ("ok" in outcome) this._gc.discardArgument(outcome.ok);
+			return;
+		}
+		const previous = row.state;
 		if (row.trackGc && "ok" in outcome) this._gc.trackArgument(outcome.ok);
 		if (row.state.tag === "awaited") {
 			const waiter = row.state.waiter;
@@ -109,7 +129,7 @@ export abstract class HostDrive extends HostApplication {
 			const stale = this._vows.get(oldest);
 			// Only evict a row still parked unobserved; an observed one is gone.
 			if (stale !== undefined && stale.state.tag === "settled") {
-				this._vows.delete(oldest);
+				this.abandonVow(oldest);
 			}
 		}
 		if (this._unobservedHead !== 0 && this._unobservedHead === this._unobserved.length) {
@@ -119,11 +139,20 @@ export abstract class HostDrive extends HostApplication {
 			this._unobserved.splice(0, this._unobservedHead);
 			this._unobservedHead = 0;
 		}
+		// A replacement also retires the stored, unexposed projection after the
+		// table relinquishes it, before scheduling any cleanup progress.
+		if (previous.tag === "settled" && "ok" in previous.outcome) {
+			this._gc.discardArgument(previous.outcome.ok);
+		}
 	}
 
 	/** Drop completion state after the last public promise wrapper dies. */
 	abandonVow(vow: bigint): void {
+		const row = this._vows.get(vow);
 		this._vows.delete(vow);
+		if (row?.state.tag === "settled" && "ok" in row.state.outcome) {
+			this._gc.discardArgument(row.state.outcome.ok);
+		}
 	}
 
 	// ── The action drain (the one loop rule) ──────────────────────────────────
@@ -136,9 +165,14 @@ export abstract class HostDrive extends HostApplication {
 	}
 
 	/** Track every newly projected capability occurrence in an application
-	 * value. Binding-internal; Session decides whether its opt-in applies. */
+	 * value. The exposing operation selects this cleanup. Binding-internal. */
 	trackGcArgument(value: Argument): Argument {
 		return this._gc.trackArgument(value);
+	}
+
+	/** Retire an application projection hidden by a failed observation. */
+	discardGcArgument(value: Argument): void {
+		this._gc.discardArgument(value);
 	}
 
 	trackVow(handle: object, vow: bigint): void {

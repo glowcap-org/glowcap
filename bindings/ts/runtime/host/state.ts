@@ -99,6 +99,7 @@ export abstract class HostState {
 	abstract vowMinted(vow: bigint, trackGc?: boolean): void;
 	abstract awaitVow(vow: bigint): Promise<Argument>;
 	abstract abandonVow(vow: bigint): void;
+	abstract discardGcArgument(value: Argument): void;
 	protected readonly _context: Context;
 	protected readonly _diagnosticId: bigint;
 	/** The host's retained durable identity seed. Each read returns a copy. */

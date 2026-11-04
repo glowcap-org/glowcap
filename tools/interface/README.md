@@ -63,6 +63,9 @@ TypeScript preserves the JavaScript objects and checks their categories before
 sending. Its byte-length checks add no payload copy. Neither target filters
 float64 values. A fulfilled error remains data, distinct from a broken call.
 
+TypeScript handles select `RemotePromise.withGc` before observation, preserving
+the [shared raw views and borrowed local results](../../test/interface/contract.md#typescript-compound-replies).
+
 Text source describes lists, tuples, positional records and single-payload tagged
 values through the same checked model as Syrup input. A tagged tuple stays one
 payload. String-keyed structs, maps and unions remain unsupported.

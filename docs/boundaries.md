@@ -80,6 +80,10 @@ binding ([invocation contract](../bindings/README.md#invocation-shape)).
 
 ### Generated interfaces
 
+Generated TypeScript replies use JavaScript finalizers for reference cleanup.
+Collection timing is not deterministic, and borrowed local results retain their
+original ownership ([reference lifetime](../bindings/ts/runtime/README.md#reference-lifetime)).
+
 Generated Rust and TypeScript compound replies cover lists, tuples, and tagged
 positional records. Compound inputs and productive recursive projections remain
 unsupported. TypeScript preserves arbitrary bigint integers while schema bound

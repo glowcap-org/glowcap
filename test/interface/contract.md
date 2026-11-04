@@ -303,6 +303,13 @@ field needs no projection, including nested records and capabilities. A source
 `undefined` field remains the binding's raw `null` value inside a compound,
 while a top-level undefined reply exposes `void`. Source `null` remains refused.
 
+Generated handles select Host reply tracking before observation. Each projected
+capability occurrence is registered with the Host's finalizer owner, including
+opaque nested values and rejected replies. Saved raw aliases keep the same live
+wrappers. Borrowed local results retain their original release policy, while local
+forwarding carries the selection to a peer send. Independent raw Session calls
+keep their opt-in policy.
+
 Readonly indexing restricts the generated view, without freezing the object or
 adding a membrane. Views remain passable to raw calls and opaque parameters
 without copying or casting.
