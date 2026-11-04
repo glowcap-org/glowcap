@@ -442,6 +442,7 @@ comptime {
         _ = @import("actors/vat_alloc_budget_test.zig");
         _ = @import("actors/freight_send_test.zig");
         _ = @import("actors/invocation_shape_test.zig");
+        _ = @import("actors/interface_direct_receiver_test.zig");
         _ = @import("actors/vat_footprint_budget_test.zig");
         _ = @import("actors/ocap_test.zig");
         _ = @import("actors/host_test.zig");

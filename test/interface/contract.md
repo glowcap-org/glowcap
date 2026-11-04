@@ -64,9 +64,11 @@ is a symbol from a named call carrying the same list.
 The current language allows one direct signature or named methods per
 interface. The shared model enforces that scope for every frontend. A direct
 receiver using a binding's `verb` and `args` must restore a peeled leading
-symbol before checking the whole list. The actor boundary proof covers
-`[symbol, integer]` and its reconstruction. A generated direct receiver still
-needs its own integration proof before adoption.
+symbol before checking the whole list. The generated Zig receiver proof covers
+a fixed two-value call with an undefined result on both profiles, including
+`[symbol, integer]`, refusal before handler entry, and a named receiver control.
+Other direct signatures, rest arguments, and receiver targets remain outside
+that projection.
 
 Conventions are
 `call`, `tell`, and `loam.receipt`. A tell result must be `undefined`, denoting
