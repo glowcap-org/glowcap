@@ -20,7 +20,11 @@ comparison types, bounded primitives, named references, promise arguments,
 trailing optional parameters, direct calls, exact quoted names, `tell`, and
 `@loam.receipt`. It uses the proposed syntax from the
 [language reference](../../../docs/research/interface-language-example.md).
-Imports, copied records, unions, and `throws` are outside this comparison.
+
+Rooted imports share the checked model with single-file input.
+The parser accepts `list<T>`, `tuple<T...>`, `record<"tag", T...>` and
+single-payload `tagged<"tag", T>`. Lists accept declared `max_items` bounds.
+String-keyed `struct` declarations, maps, unions and `throws` remain unsupported.
 They are refused rather than discarded. These adapters do not select a
 production authoring frontend.
 
@@ -33,17 +37,25 @@ root. The interface test step builds the comparison checker. It reads build inpu
 zig build interface-test
 zig-out/bin/interface-authoring text test/interface/authoring/comparison.interface
 zig-out/bin/interface-authoring syrup test/interface/authoring/comparison.syrup
-zig-out/bin/interface-authoring text test/interface/authoring/comparison.interface description comparison.Reader read unused zig-out/comparison.syrup
+zig-out/bin/interface-authoring text test/interface/authoring/comparison.interface description comparison.Reader --named read unused zig-out/comparison.syrup
 cmp test/interface/authoring/comparison.syrup zig-out/comparison.syrup
-zig-out/bin/interface-authoring syrup test/interface/authoring/comparison.syrup rust comparison.Reader read authoring_read zig-out/authoring_read.rs
+zig-out/bin/interface-authoring syrup test/interface/authoring/comparison.syrup rust comparison.Reader --named read authoring_read zig-out/authoring_read.rs
 zig build gen-interface-fixtures-check interface-conversation-check
 ```
 
-After input format and path, emission takes target, receiver, selector, generated
-function name, and output path. Use `--direct` for an absent selector and `''`
-for the empty symbol. Targets are `description`, `rust`, `ts`, and the existing
-`zig` creation projection. Every path reads the canonical description and calls
-`Model.init` before emission. The text path does so before returning its bytes.
+After input format and path, emission takes target, receiver, selector kind,
+generated function name, and output path. Use `--direct` for an absent selector
+or `--named NAME` for a literal wire name. `--named ''` selects the empty symbol,
+and `--named --direct` selects the method named `--direct`.
+
+Targets are `description`, `rust`, `ts`, and the existing
+`zig` creation projection. Syrup input is read and validated before emission.
+Text compilation checks the parsed nodes once and returns that Model with its
+canonical bytes. Emission reuses the Model without rereading those bytes.
+
+Requested function names survive emission unchanged. Private helper and import
+names cannot conflict with them. Duplicate exports and names already exported
+as public support, such as `Pending`, are refused before writing output.
 
 `interface-test` compares exact independent descriptions and checked selections.
 It changes the Name bound to 32, Reader.read's reply to undefined, and the `a-b`
@@ -53,9 +65,9 @@ and unsupported syntax. Long module prefixes consume the existing output byte
 budget before expanded names allocate scratch. Adversarial references refuse
 without growing allocation demand after that budget is exhausted.
 
-Syntax diagnostics include a byte offset, line, and
-column. Shared model refusals identify the validation boundary, without a
-field-specific source location.
+Syntax diagnostics include a file, byte offset, line and column.
+Imported bounds and unknown references retain their authoring locations during
+shared model validation.
 
 The TypeScript runtime proof starts from proposed text through the same emitter
 as direct Syrup. Both session profiles check presence, immediate sending, a
@@ -63,22 +75,78 @@ passable pending input before settlement, and an unknown remote break.
 The shared runtime corpus remains the evidence for the other emitter paths.
 A description match alone does not establish runtime support for a type.
 
-`interface-conversation-check` also compiles isolated Rust projections
-from [rust_helpers.interface](rust_helpers.interface). Each is a public library
-module checked with `cargo clippy --lib -- -D warnings`, without lint allowances.
+`interface-conversation-check` also compiles isolated Rust and TypeScript projections
+from [rust_helpers.interface](rust_helpers.interface). Rust uses public library
+modules checked with `cargo clippy --lib -- -D warnings`, without lint allowances.
 The cases cover text, capability and value replies, reference inputs, optional
 arguments, receipt preparation, and tells with zero, string, undefined, value,
 or optional arguments. Bounded cases add UTF-8 text inputs and replies,
 lower-only and wide byte limits, integer parameters and tells, optional bounded
-text, and full signed-64-bit replies. The scratch library reuses the conversation crate's
-dependencies, lockfile, and Cargo caches. It adds no runtime calls.
+text, and full signed-64-bit replies.
 
-The adapter has no new production dependency. An arena owns decoded tokens and
-encoded fragments for one compilation, and the caller owns the final canonical
-byte copy. The shared reader's input, node, and depth limits also bound this
+The scratch library reuses the conversation crate's
+dependencies, lockfile, and Cargo caches. Deno checks TypeScript consumers.
+Both compilers check exports matching private helpers and imports, plus multiple
+selected functions in one module. Rust also checks bounded decoder names and
+private module name allocation. These checks add no runtime calls.
+
+The adapter has no new production dependency. A compilation arena owns tokens,
+description nodes, cached sources and canonical bytes. The pure single-source
+convenience returns a separate owned canonical byte copy.
+The shared reader's input, node, and depth limits also bound this
 adapter. Handwritten parser, checker, tests, and generated output are counted
 separately when comparing authoring cost. The measured generation report is
 unchanged by this comparison.
+
+## Imported modules
+
+Use `import "shared/loam.interface" as loam` after the module declaration.
+Paths resolve relative to the importing file, inside the entry file's parent
+directory by default. Prefix the CLI with `--root DIRECTORY` to choose a wider
+source root. The entry path still resolves from the command's working directory.
+
+```sh
+zig-out/bin/interface-authoring --root test/interface/authoring/imports text test/interface/authoring/imports/board.interface
+```
+
+The loader resolves real paths and checks the opened file's identity before
+reading. Absolute import paths, network addresses and symlink escapes are refused.
+POSIX opens are nonblocking, so a FIFO can be rejected before waiting for a writer.
+Each real file is read once for the compilation. Cached headers bind aliases to
+declared module names, including forward references and import cycles.
+Duplicate aliases, module names and declarations are errors.
+
+The whole bundle shares input, output, token and validation limits.
+File and active import-depth limits belong to `text.zig`.
+Dependencies and declaration bodies have deterministic order.
+Receipt requirements reflect methods across the complete bundle.
+Filesystem paths and source positions remain outside canonical descriptions.
+
+[The imported fixture](imports/board.interface) references a shared Loam module
+under two aliases, with a cycle back to the Tasks-like entry. Its observation
+has five positional fields, and its tagged tuple keeps one nested payload.
+Its expected description was authored with the pinned upstream Python encoder.
+`interface-test` checks exact bytes, imported diagnostics, duplicate declarations,
+allocation failures, missing files, root escapes, symlinks and aggregate limits.
+`interface-conversation-check` compiles generated Rust observation, list, tuple,
+and record replies with warnings denied. These imported callers are not run in
+a separate live conversation.
+
+## Complete contract bundle
+
+[The complete authored entry](contracts/contracts.interface) imports Tasks,
+shared Loam and the qualification interfaces. Its canonical bytes must equal
+[the independent expected description](../contracts.syrup).
+The fixture generator uses the authored bundle for Tasks and callback output.
+The expected description and independent messages remain test authorities.
+Existing generated files stay byte identical.
+
+Rest parameters use `...arguments: value`. Their placement and combination with
+optional arguments are checked by the Model. Generated rest calls remain
+unsupported. `interface-test` repeats imported bound, reply and method edits,
+checks source diagnostics, and injects allocation failures through selection.
+`interface-conversation-check` also compiles actual Tasks reads and Loam poll,
+receive and cancel projections from the complete authored bundle.
 
 ## Process and build costs, 2026-11-03
 

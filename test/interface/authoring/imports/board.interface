@@ -1,0 +1,10 @@
+module tasks.imported
+import "shared/loam.interface" as loam
+import "shared/loam.interface" as common
+
+type Name = loam.Name
+interface Board {
+  list(index: loam.Index) -> common.Reader
+  @loam.receipt add(name: Name) -> loam.Reader
+  @loam.receipt observe() -> loam.Registration
+}

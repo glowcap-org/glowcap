@@ -47,27 +47,14 @@ pub struct Watcher {
 impl Watcher {
 	/// Poll from the stored cursor, keep the reply's cursor, and return whether the board changed.
 	async fn poll(&mut self) -> Result<bool, String> {
-		let args: Vec<Argument> = if self.cursor.is_empty() {
-			Vec::new()
-		} else {
-			vec![self.cursor.as_slice().into()]
-		};
-		let reply = self
-			.session
-			.send(&self.receiver, "poll", &args)
-			.await
-			.map_err(|e| format!("poll: {e}"))?;
-		let observation = || "the watcher sent no observation".to_string();
-		let Argument::Tagged { value, .. } = &reply else {
-			return Err(observation());
-		};
-		if value.len() != 5 {
-			return Err(observation());
-		}
-		// Loam's `access:observation` record, see docs/loam/access-observation.md:
-		// the cursor comes first and the fourth field is whether anything changed.
-		let cursor = value[0].as_bytes().ok_or_else(observation)?.to_vec();
-		let changed = value[3].as_bool().ok_or_else(observation)?;
+		// The optional owned cursor is the one input snapshot. Keep the current
+		// cursor until the generated decoder has checked the entire reply.
+		let cursor = (!self.cursor.is_empty()).then(|| self.cursor.clone());
+		let interface::LoamObservation(cursor, _description, _reset, changed, _notices) =
+			interface::receiver_poll(&self.session, &self.receiver, cursor)
+				.map_err(|error| format!("poll: {error}"))?
+				.await
+				.map_err(|error| format!("poll: {error}"))?;
 		self.cursor = cursor;
 		Ok(changed)
 	}
@@ -106,6 +93,11 @@ impl Board {
 		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
 			.await
 			.map_err(|e| format!("runtime: {e}"))?;
+		Self::join_with_runtime(runtime, locator, name).await
+	}
+
+	/// Join with a configured Runtime, transferring its lifetime to the Board.
+	pub async fn join_with_runtime(runtime: Runtime, locator: &Locator, name: &str) -> Result<Board, String> {
 		let session = Rc::new(
 			runtime
 				.connect(locator, ConnectOptions::default())
@@ -171,7 +163,14 @@ impl Board {
 			canceller: capability(canceller, "watch canceller")?,
 			cursor: Vec::new(),
 		};
-		watcher.poll().await?;
+		if let Err(primary) = watcher.poll().await {
+			// Observe already committed a durable context. Dropping its refs
+			// does not retire it, so cancel before returning the poll failure.
+			return match watcher.stop().await {
+				Ok(()) => Err(primary),
+				Err(cleanup) => Err(format!("{primary}; watcher cleanup failed: {cleanup}")),
+			};
+		}
 		Ok(watcher)
 	}
 

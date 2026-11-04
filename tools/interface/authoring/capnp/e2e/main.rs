@@ -1,8 +1,7 @@
 //! One frontend integration call; shared runtime qualification is not repeated.
 #[path = "../../../../../test/interface/rust/pair.rs"]
 mod pair;
-#[allow(dead_code)]
-mod generated {
+pub mod generated {
 	include!(env!("CAPNP_AUTHORING_RS"));
 }
 use glowcap::{Argument, Host, HostOptions, HostProfile};

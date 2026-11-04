@@ -1,9 +1,8 @@
 // Generated from checked interface descriptions.
 import { type Argument, Ref, RemotePromise } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
-
 /** Observation checks a reply without replacing the runtime's pending target. */
-export class Pending<T> {
+class Pending<T> {
 	constructor(readonly raw: RemotePromise, private readonly decode: (value: Argument) => T) {}
 	observe(): Promise<T> {
 		return this.raw.then(this.decode);
@@ -23,7 +22,7 @@ function nothing(value: Argument): void {
 	if (value !== null) throw new TypeError("expected void reply");
 }
 
-export function introducer_get_greeter(
+function call_0(
 	session: Session,
 	target: Ref | RemotePromise,
 ): Pending<Ref> {
@@ -35,7 +34,7 @@ export function introducer_get_greeter(
 	return new Pending(raw, capability);
 }
 
-export function factory_open(
+function call_1(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: Ref | RemotePromise,
@@ -50,7 +49,7 @@ export function factory_open(
 	return new Pending(raw, capability);
 }
 
-export function factory_accept(
+function call_2(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: Ref | RemotePromise,
@@ -65,7 +64,7 @@ export function factory_accept(
 	return new Pending(raw, nothing);
 }
 
-export function sink_push(
+function call_3(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: Ref | RemotePromise,
@@ -80,7 +79,7 @@ export function sink_push(
 	return new Pending(raw, nothing);
 }
 
-export function sink_changed(
+function call_4(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: Argument,
@@ -94,7 +93,7 @@ export function sink_changed(
 	return session.tell(target, "changed", args);
 }
 
-export function reader_read(
+function call_5(
 	session: Session,
 	target: Ref | RemotePromise,
 ): Pending<string> {
@@ -106,7 +105,7 @@ export function reader_read(
 	return new Pending(raw, text);
 }
 
-export function reader_then(
+function call_6(
 	session: Session,
 	target: Ref | RemotePromise,
 ): Pending<string> {
@@ -118,7 +117,7 @@ export function reader_then(
 	return new Pending(raw, text);
 }
 
-export function invoke_direct(
+function call_7(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: string,
@@ -133,7 +132,7 @@ export function invoke_direct(
 	return new Pending(raw, text);
 }
 
-export function notify_direct(
+function call_8(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: Argument,
@@ -147,7 +146,7 @@ export function notify_direct(
 	return session.tell(target, null, args);
 }
 
-export function invoke_empty(
+function call_9(
 	session: Session,
 	target: Ref | RemotePromise,
 ): Pending<string> {
@@ -159,7 +158,7 @@ export function invoke_empty(
 	return new Pending(raw, text);
 }
 
-export function invoke_named(
+function call_10(
 	session: Session,
 	target: Ref | RemotePromise,
 ): Pending<string> {
@@ -171,7 +170,7 @@ export function invoke_named(
 	return new Pending(raw, text);
 }
 
-export function presence_required(
+function call_11(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: undefined,
@@ -186,7 +185,7 @@ export function presence_required(
 	return new Pending(raw, nothing);
 }
 
-export function presence_optional(
+function call_12(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0?: undefined,
@@ -203,7 +202,7 @@ export function presence_optional(
 	return new Pending(raw, nothing);
 }
 
-export function presence_suffix(
+function call_13(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0: string,
@@ -223,7 +222,7 @@ export function presence_suffix(
 	return new Pending(raw, nothing);
 }
 
-export function presence_pair(
+function call_14(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0?: string,
@@ -245,7 +244,7 @@ export function presence_pair(
 	return new Pending(raw, nothing);
 }
 
-export function presence_references(
+function call_15(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0?: Ref | RemotePromise,
@@ -267,7 +266,7 @@ export function presence_references(
 	return new Pending(raw, nothing);
 }
 
-export function presence_value(
+function call_16(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0?: Argument,
@@ -284,7 +283,7 @@ export function presence_value(
 	return new Pending(raw, nothing);
 }
 
-export function presence_notify(
+function call_17(
 	session: Session,
 	target: Ref | RemotePromise,
 	arg0?: undefined,
@@ -299,3 +298,22 @@ export function presence_notify(
 	}
 	return session.tell(target, "notify", args);
 }
+export { Pending };
+export { call_0 as introducer_get_greeter };
+export { call_1 as factory_open };
+export { call_2 as factory_accept };
+export { call_3 as sink_push };
+export { call_4 as sink_changed };
+export { call_5 as reader_read };
+export { call_6 as reader_then };
+export { call_7 as invoke_direct };
+export { call_8 as notify_direct };
+export { call_9 as invoke_empty };
+export { call_10 as invoke_named };
+export { call_11 as presence_required };
+export { call_12 as presence_optional };
+export { call_13 as presence_suffix };
+export { call_14 as presence_pair };
+export { call_15 as presence_references };
+export { call_16 as presence_value };
+export { call_17 as presence_notify };
