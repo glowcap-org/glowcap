@@ -57,6 +57,17 @@ Requested function names survive emission unchanged. Private helper and import
 names cannot conflict with them. Duplicate exports and names already exported
 as public support, such as `Pending`, are refused before writing output.
 
+Output replaces the destination atomically. Generation refuses a destination
+that names a loaded source, including imports and resolved symlink aliases.
+Replacing an unloaded hardlink name leaves the loaded source unchanged.
+Other destination symlinks are replaced as directory entries, without writing
+through them. A generation or write failure leaves existing output intact.
+Existing regular outputs keep their permissions.
+
+Expected selection, type and export refusals identify the input, target,
+receiver, selector and generated API name without a compiler stack trace. Unsupported type
+normalization also reports its source position, including imported aliases.
+
 `interface-test` compares exact independent descriptions and checked selections.
 It changes the Name bound to 32, Reader.read's reply to undefined, and the `a-b`
 wire name to `renamed`, then checks the affected existing emitters. It refuses

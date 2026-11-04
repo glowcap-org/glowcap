@@ -20,6 +20,15 @@ pub const Diagnostic = struct {
             } else self.column += 1;
         }
     }
+
+    /// Locate a borrowed node's source span without parsing or checking again.
+    pub fn setOrigin(self: *Diagnostic, source: Source, origin: []const u8, message: []const u8) bool {
+        const begin = @intFromPtr(source.bytes.ptr);
+        const location = @intFromPtr(origin.ptr);
+        if (origin.len == 0 or location < begin or location - begin >= source.bytes.len) return false;
+        self.set(source, location - begin, message);
+        return true;
+    }
 };
 pub const Budget = struct {
     tokens: usize = description.max_nodes,

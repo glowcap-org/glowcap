@@ -5,6 +5,14 @@ const builtin = @import("builtin");
 const text = @import("text.zig");
 const description = @import("description.zig");
 
+/// Filesystem metadata belongs to the CLI, outside the pure compiled model.
+/// The compilation arena owns these slices through diagnostics and output.
+pub const Loaded = struct {
+    compiled: text.Compiled,
+    input_paths: []const []const u8,
+    sources: []const text.Module = &.{},
+};
+
 fn openSource(io: std.Io, path: []const u8) !std.Io.File {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return std.Io.Dir.cwd().openFile(io, path, .{});
     // Io's ordinary POSIX opener can wait for a FIFO writer before stat.
@@ -18,7 +26,7 @@ fn openSource(io: std.Io, path: []const u8) !std.Io.File {
 
 /// The caller owns a compilation arena lasting through emission and diagnostics.
 /// Sources, cached paths, intermediate nodes and the result all belong to it.
-pub fn compile(a: std.mem.Allocator, io: std.Io, input: []const u8, root_option: ?[]const u8, diagnostic: *text.Diagnostic) !text.Compiled {
+pub fn compile(a: std.mem.Allocator, io: std.Io, input: []const u8, root_option: ?[]const u8, diagnostic: *text.Diagnostic) !Loaded {
     diagnostic.* = .{};
     const cwd = std.Io.Dir.cwd();
     const root = try cwd.realPathFileAlloc(io, root_option orelse std.fs.path.dirname(input) orelse ".", a);
@@ -27,7 +35,7 @@ pub fn compile(a: std.mem.Allocator, io: std.Io, input: []const u8, root_option:
         if (diagnostic.message.len == 0) diagnostic.* = .{ .path = input, .message = @errorName(err) };
         return err;
     };
-    return loader.bundle.compile();
+    return .{ .compiled = try loader.bundle.compile(), .input_paths = loader.paths.items, .sources = loader.bundle.modules.items };
 }
 
 const Loader = struct {
