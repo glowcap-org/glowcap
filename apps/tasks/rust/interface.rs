@@ -319,11 +319,10 @@ mod __glowcap {
 			&mut DecodeBudget {
 				remaining: MAX_REPLY_WORK,
 			},
-			0,
 		)
 	}
-	fn compound_2_at(value: Argument, budget: &mut DecodeBudget, depth: usize) -> Result<ProjectedType1, Error> {
-		budget.step(depth)?;
+	fn compound_2_at(value: Argument, budget: &mut DecodeBudget) -> Result<ProjectedType1, Error> {
+		budget.step()?;
 		let Argument::List(values) = value else {
 			return Err(Error::InvalidReply);
 		};
@@ -333,11 +332,11 @@ mod __glowcap {
 		let mut fields = values.into_iter();
 		Ok(ProjectedType1(
 			{
-				budget.step(depth + 1)?;
+				budget.step()?;
 				capability(fields.next().ok_or(Error::InvalidReply)?)
 			}?,
 			{
-				budget.step(depth + 1)?;
+				budget.step()?;
 				capability(fields.next().ok_or(Error::InvalidReply)?)
 			}?,
 		))
