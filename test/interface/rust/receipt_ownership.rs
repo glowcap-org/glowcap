@@ -58,7 +58,7 @@ pub async fn run() {
 		})
 		.await;
 		let target = pair.client.fetch("sequence").await.unwrap();
-		let preparation = interface::prepare_add(pair.client.clone(), target.clone(), "task".into()).unwrap();
+		let preparation = interface::prepare_add(pair.client.clone(), target.clone(), "task").unwrap();
 		assert!(matches!(preparation.await, Err(interface::Error::InvalidSequence)));
 		pair.client.send(&target, "barrier", &[]).await.unwrap();
 		assert_eq!(releases.get(), 1, "sequence reply leaked with automatic={automatic}");
