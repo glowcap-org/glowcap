@@ -72,6 +72,27 @@ impl Ref {
 // only with it: dead-code linting stays live instead of blanket-allowed.
 #[cfg(feature = "async")]
 impl Ref {
+	/// Own this capability independently on the given Host. The returned
+	/// occurrence survives releasing this one, and its final drop releases
+	/// its retain. Ordinary clones still share one occurrence.
+	/// Independent release state and a drop guard allocate for that occurrence.
+	///
+	/// Foreign, released and closed-Host references are refused before the
+	/// retain is acquired. This neither calls the target nor certifies it.
+	pub fn retain_for(&self, host: &crate::Host) -> Result<Ref> {
+		let shared = host.shared();
+		shared.guard_handle()?;
+		let raw = self.to_sys()?;
+		let mut retained = sys::GlowcapReference { id: 0 };
+		// SAFETY: shared keeps the checked Host handle live. raw is a live
+		// occurrence and the callee validates its ownership before retaining.
+		// retained is a writable local out-parameter, read only on success.
+		crate::host::check_host(unsafe { sys::host::glowcap_host_ref_retain(shared.raw(), &raw, &mut retained) })?;
+		let mut reference = Ref::from_sys(&retained);
+		reference.attach_guard(crate::gc::owned_guard(&shared, retained.id));
+		Ok(reference)
+	}
+
 	pub(crate) fn to_sys(&self) -> Result<sys::GlowcapReference> {
 		Ok(sys::GlowcapReference { id: self.live_id()? })
 	}

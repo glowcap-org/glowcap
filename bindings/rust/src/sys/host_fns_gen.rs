@@ -395,6 +395,11 @@ unsafe extern "C" {
 		out_ref: *mut GlowcapReference,
 	) -> c_int;
 	pub fn glowcap_host_turn_break(turn: *mut GlowcapHostTurn, message: *const c_uchar, message_len: usize) -> c_int;
+	pub fn glowcap_host_ref_retain(
+		host: *mut GlowcapHost,
+		ref_: *const GlowcapReference,
+		out_reference: *mut GlowcapReference,
+	) -> c_int;
 	pub fn glowcap_host_ref_release(host: *mut GlowcapHost, ref_: *const GlowcapReference, delta: u64) -> c_int;
 	pub fn glowcap_host_session_published_ref(
 		session: *mut GlowcapHostSession,

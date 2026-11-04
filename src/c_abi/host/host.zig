@@ -525,6 +525,18 @@ pub fn glowcap_host_gift_id_failed(host: ?*GlowcapHost, ticket: u64) callconv(.c
 
 // ── GC and diagnostics ───────────────────────────────────────────────────────
 
+/// Own another application occurrence through the Host registry. Failure leaves
+/// the output unchanged. This operation performs no remote call.
+pub fn glowcap_host_ref_retain(host: ?*GlowcapHost, ref: ?*const shared.GlowcapReference, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const raw = ref orelse return GLOWCAP_ERR_NULL_POINTER;
+    const out = out_reference orelse return GLOWCAP_ERR_NULL_POINTER;
+    const retained = inst.core.retainCapability(inst.core.capabilityFromRaw(raw.id)) catch |err| return errToCode(err);
+    out.* = .{ .id = retained.raw() };
+    return GLOWCAP_OK;
+}
+
 /// Release `delta` application retains on one opaque Host capability. The Host
 /// resolves the owning session itself. Callers never pair a handle with a
 /// session-local wire position. If that session already closed, its
