@@ -46,6 +46,12 @@ both profiles check text byte limits, count limits, wrong types, unchanged
 breaks and raw settlement, and invalid indices without sending. Signed-64-bit
 maximum is admitted as an Index, leaving membership to the application.
 
+Tasks' Zig handlers also use generated checks for all six reads. Real server
+calls reject extra, missing, wrong-type, and negative arguments, then continue
+serving valid requests. Nonmember indices retain the application's NoSuchEdge
+result. Scalar tests cover byte/count limits, invalid UTF-8, and borrowed slice
+identity. The schema owns the server's name and capacity maxima.
+
 The callback matrix holds the factory reply open through admission and checks
 wrong fulfillment, remote break messages, and independent raw observation.
 Rust drops both unobserved handles and polled observations while retaining the

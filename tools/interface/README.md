@@ -10,7 +10,7 @@ owns executable qualification.
 | `description.zig` | Bounded Syrup description reader |
 | `model.zig` | Declaration validation, method selection, references, and type resolution |
 | `calls.zig`, `call_type.zig` | Checked call signatures carrying scalar constraints |
-| `zig.zig` | Tasks creation argument projection and the fixed Zig direct receiver |
+| `zig.zig`, `zig_reads.zig` | Tasks creation and read checks, and the fixed Zig direct receiver |
 | `rust.zig` | Tasks creation and read module assembly |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
 | `rust_bounds.zig` | Rust argument checks and deduplicated bounded reply decoders |
@@ -47,3 +47,9 @@ proof belong in the binding and have regression coverage there.
 .agents/skills/work/bin/glowcap-dev zig build gen-interface-fixtures
 .agents/skills/work/bin/glowcap-dev zig build gen-interface-fixtures-check interface-test
 ```
+
+The Zig server checks exact read arity and the declared Index range before
+asking ContentCall to disclose a child. Scalar replies check counts and text
+byte limits. Stored text receives one UTF-8 scan up to its declared byte maximum.
+The reply borrows that payload through the hosting turn.
+Loam still owns capability disclosure and export.
