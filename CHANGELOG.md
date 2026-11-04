@@ -31,6 +31,13 @@ and storage formats before 1.0.
 
 ### Fixed
 
+- Generated Rust reply decoding releases discarded references when automatic
+  release is disabled for raw Session calls. Typed results own their references,
+  and raw calls keep their manual release policy.
+- A failed session open or handshake keeps its original error when channel
+  cleanup also fails. Cleanup runs once and remains visible beside that error.
+- The portable deadline wrapper reaps children that exit during group signalling
+  on macOS, while preserving real signal-permission failures.
 - Pending calls settle with their original failure when progress or close
   fails. Cleanup failures preserve the primary construction error.
 - Rooms and its test processes use the ports their children actually bind,
