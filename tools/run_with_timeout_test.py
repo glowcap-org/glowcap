@@ -248,22 +248,26 @@ class RunWithTimeoutTest(unittest.TestCase):
             "        unmask_pending = False\n"
             "        os.kill(owner, signal.SIGTERM)\n"
             "    return original_mask(how, signals)\n"
+            # Darwin discards default SIGCHLD before sigwait can observe it.
+            # A handler preserves the notification without reaping the child.
+            "def terminate_without_reaping(process):\n"
+            "    signal.signal(signal.SIGCHLD, lambda *_: None)\n"
+            "    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGCHLD})\n"
+            "    print('waiting for unreaped child exit', flush=True)\n"
+            "    original_killpg(process.pid, signal.SIGTERM)\n"
+            "    signal.sigwait({signal.SIGCHLD})\n"
+            "    print('observed unreaped child exit', flush=True)\n"
             "calls = 0\n"
             "def interrupted_wait(self, *args, **kwargs):\n"
             "    global calls\n"
             "    calls += 1\n"
             "    if mode.startswith('kill-') and calls <= 2:\n"
             "        if calls == 2 and mode == 'kill-dead-denied':\n"
-            "            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGCHLD})\n"
-            "            original_killpg(self.pid, signal.SIGTERM)\n"
-            "            signal.sigwait({signal.SIGCHLD})\n"
+            "            terminate_without_reaping(self)\n"
             "        raise subprocess.TimeoutExpired(self.args, 0)\n"
             "    if calls == 1 and mode.startswith('deadline-'):\n"
             "        if mode == 'deadline-dead-denied':\n"
-            # Observe exit without reaping, leaving the deadline owner a zombie.
-            "            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGCHLD})\n"
-            "            original_killpg(self.pid, signal.SIGTERM)\n"
-            "            signal.sigwait({signal.SIGCHLD})\n"
+            "            terminate_without_reaping(self)\n"
             "        raise subprocess.TimeoutExpired(self.args, 0)\n"
             "    if calls == 1 and mode != 'unmask':\n"
             "        if mode == 'late-denied':\n"
@@ -315,7 +319,14 @@ class RunWithTimeoutTest(unittest.TestCase):
                         expected = 124
                     else:
                         expected = 128 + signal.SIGTERM
-                    self.assertEqual(wrapper.wait(timeout=2), expected, logfile.read_text())
+                    try:
+                        status = wrapper.wait(timeout=2)
+                    except subprocess.TimeoutExpired as error:
+                        error.add_note(f"{mode} probe output:\n{logfile.read_text()}")
+                        raise
+                    self.assertEqual(status, expected, logfile.read_text())
+                    if mode in ("deadline-dead-denied", "kill-dead-denied"):
+                        self.assertIn("observed unreaped child exit", logfile.read_text())
                     if mode.endswith("live-denied") or mode == "late-denied":
                         self.assertIn("PermissionError", logfile.read_text())
                     else:
