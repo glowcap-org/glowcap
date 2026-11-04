@@ -110,4 +110,5 @@ Reports mark figures provisional when that metadata is unavailable.
 The source inventory separates compiler code, embedded tests, qualification
 sources, generated outputs and benchmark code. Helpers outside test blocks
 count as implementation. Generated output gives no credit against compiler
-maintenance cost.
+maintenance cost. It counts nonignored repository source files, excluding build
+outputs, manifests, and lockfiles.

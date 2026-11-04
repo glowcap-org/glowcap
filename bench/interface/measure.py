@@ -103,9 +103,15 @@ def without_literals(source):
 
 
 def inventory():
+    paths = [
+        name
+        for name in command("git", "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+        if Path(name).is_file()
+    ]
     rows = []
-    for path in sorted(Path("tools/interface").rglob("*")):
-        if not path.is_file() or path.suffix == ".md":
+    for name in sorted(paths):
+        path = Path(name)
+        if not name.startswith("tools/interface/") or path.suffix not in {".zig", ".rs", ".in", ".py", ".capnp"}:
             continue
         source = path.read_text()
         masked = without_literals(source)
@@ -127,7 +133,6 @@ def inventory():
             )
         )
     generated, qualification, benchmark = [], [], []
-    paths = command("git", "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
     for name in paths:
         path = Path(name)
         if path.suffix not in {".rs", ".ts", ".py", ".zig", ".rkt", ".in"}:
