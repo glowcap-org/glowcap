@@ -259,6 +259,7 @@ so a peer with no listening socket can still reply and take part in a handoff.
   preserve positional, empty-symbol, and named invocation,
   and distinguish omitted arguments from explicit undefined values on both profiles.
   Generated Rust receives Goblins handoffs, and a plain Goblins caller exercises Tasks creation through its generated Zig checks on Syrup/V1.0.
+  Text authoring [loads rooted modules](../test/interface/authoring/README.md#imported-modules) and reports imported bound and unknown-type locations.
   This is the first [interface generation slice](planning/interface-definitions.md), not a general interface compiler.
 - The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions. Members hold rooms
   and direct messages with files over WebRTC, the Noise-sealed relay, iroh, and TCP. A session process started with

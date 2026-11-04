@@ -84,6 +84,9 @@ Generated Rust compound replies cover lists, tuples, and tagged positional
 records. Compound inputs, TypeScript compound replies, and productive recursive
 projections remain unsupported. The [interface contract](../test/interface/contract.md#rust-compound-replies)
 owns these mappings and their separate decoder resource limits.
+The text authoring parser supports rooted imports and scalar method declarations.
+Copied-container, record, union and recognized-failure syntax remains unsupported
+([authoring coverage](../test/interface/authoring/README.md)).
 
 ### Loam storage
 

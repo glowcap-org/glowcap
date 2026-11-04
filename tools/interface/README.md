@@ -20,6 +20,8 @@ owns executable qualification.
 | `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
 | `exports.zig` | Public export validation and isolation from private implementation names |
 | `literal.zig` | Source string escaping |
+| `text.zig`, `text_parser.zig`, `text_encode.zig` | Pure module translation, cached headers and canonical source mappings |
+| `text_loader.zig` | CLI-owned rooted file loading and compilation cache |
 | `expectations.zig` | Test constants from independent message fixtures |
 | `generate.zig` | Fixture selection, output paths, and compiler tests |
 

@@ -1,0 +1,9 @@
+module shared.control
+import "../board.interface" as tasks
+
+type Name = string(min_bytes: 1, max_bytes: 64)
+type Index = integer(min: 0, max: 16)
+type Board = tasks.Board
+interface Reader {
+  read() -> Name
+}

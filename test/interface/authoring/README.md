@@ -20,7 +20,8 @@ comparison types, bounded primitives, named references, promise arguments,
 trailing optional parameters, direct calls, exact quoted names, `tell`, and
 `@loam.receipt`. It uses the proposed syntax from the
 [language reference](../../../docs/research/interface-language-example.md).
-Imports, copied records, unions, and `throws` are outside this comparison.
+Rooted imports share the checked model with single-file input.
+Copied containers, records, unions, and `throws` remain outside this parser.
 They are refused rather than discarded. These adapters do not select a
 production authoring frontend.
 
@@ -59,9 +60,9 @@ and unsupported syntax. Long module prefixes consume the existing output byte
 budget before expanded names allocate scratch. Adversarial references refuse
 without growing allocation demand after that budget is exhausted.
 
-Syntax diagnostics include a byte offset, line, and
-column. Shared model refusals identify the validation boundary, without a
-field-specific source location.
+Syntax diagnostics include a file, byte offset, line and column.
+Imported bounds and unknown references preserve their source location through
+canonical encoding and shared model validation.
 
 The TypeScript runtime proof starts from proposed text through the same emitter
 as direct Syrup. Both session profiles check presence, immediate sending, a
@@ -84,12 +85,45 @@ Both compilers check exports matching private helpers and imports, plus multiple
 selected functions in one module. Rust also checks bounded decoder names and
 private module name allocation. These checks add no runtime calls.
 
-The adapter has no new production dependency. An arena owns decoded tokens and
-encoded fragments for one compilation, and the caller owns the final canonical
-byte copy. The shared reader's input, node, and depth limits also bound this
+The adapter has no new production dependency. A compilation arena owns tokens,
+description nodes, cached sources and encoding ranges. The pure single-source
+convenience returns a separate owned canonical byte copy.
+The shared reader's input, node, and depth limits also bound this
 adapter. Handwritten parser, checker, tests, and generated output are counted
 separately when comparing authoring cost. The measured generation report is
 unchanged by this comparison.
+
+## Imported modules
+
+Use `import "shared/loam.interface" as loam` after the module declaration.
+Paths resolve relative to the importing file, inside the entry file's parent
+directory by default. Prefix the CLI with `--root DIRECTORY` to choose a wider
+source root. The entry path still resolves from the command's working directory.
+
+```sh
+zig-out/bin/interface-authoring --root test/interface/authoring/imports text test/interface/authoring/imports/board.interface
+```
+
+The loader resolves real paths and checks the opened file's identity before
+reading. Absolute import paths, network addresses and symlink escapes are refused.
+POSIX opens are nonblocking, so a FIFO can be rejected before waiting for a writer.
+Each real file is read once for the compilation. Cached headers bind aliases to
+declared module names, including forward references and import cycles.
+Duplicate aliases, module names and declarations are errors.
+
+The whole bundle shares input, output, token and validation limits.
+File and active import-depth limits belong to `text.zig`.
+Dependencies and declaration bodies have deterministic order.
+Receipt requirements reflect methods across the complete bundle.
+Filesystem paths and source positions remain outside canonical descriptions.
+
+[The imported fixture](imports/board.interface) references a shared scalar and
+capability module under two aliases, with a cycle back to the Tasks-like entry.
+Its expected description was authored with the pinned upstream Python encoder.
+`interface-test` checks exact bytes, imported diagnostics, duplicate declarations,
+allocation failures, missing files, root escapes, symlinks and aggregate limits.
+`interface-conversation-check` compiles its generated Rust caller with warnings
+denied alongside the existing consumer cases.
 
 ## Process and build costs, 2026-11-03
 

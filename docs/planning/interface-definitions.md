@@ -36,6 +36,7 @@ still undecided.
 | Scalar calls | Rust and TypeScript qualify boolean, bytes with byte bounds, symbol, float64 and fulfilled error values through calls and tells on both profiles | Null, compound inputs, and TypeScript compound replies remain unsupported |
 | Argument presence | Rust and TypeScript distinguish omission from explicit undefined and refuse invalid holes on both profiles. Null remains unsupported by the targets | [Proof suite](../../test/interface/README.md) |
 | Profile requirements | Ordinary descriptions require the value mapping. Receipt methods also require their convention, checked across the whole bundle | [Fixture contract](../../test/interface/contract.md) |
+| Text imports | Rooted file loading, cached cyclic headers, exact imported descriptions and bound/reference source locations run through the shared model | [Authoring checks](../../test/interface/authoring/README.md#imported-modules) |
 | Generated Rust support | Selected methods determine imports and helpers. Isolated consumers compile with warnings denied | [Authoring checks](../../test/interface/authoring/README.md) |
 | Rust compound replies | Owned list, tuple and positional-record replies drive actual Watcher polling on both profiles. Tags, bounds, notices and cursor replacement are checked | [Fixture contract](../../test/interface/contract.md#rust-compound-replies) |
 | Tasks read workflow | Five generated Rust reads replace manual wire calls and text/count decoding. Zig handlers use generated checks for arguments and scalar replies. Real Board reads and independent raw peers check bounds and failures | Milestone 2 application qualification |
@@ -50,7 +51,7 @@ proposal until the adoption decision at milestone 4.
 
 The read workflow extends milestone 2's application evidence before the complete
 Tasks migration. It removes handwritten wire calls, decoders, and a String
-copy in the Rust read path. Imports, records, unions, declared failure types, and complete target mappings
+copy in the Rust read path. Records, unions, declared failure types, and complete target mappings
 remain language work. The comparison adapters' size and passing cases do not establish those features or their cost.
 
 ## Fixed scope

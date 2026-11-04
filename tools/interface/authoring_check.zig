@@ -11,15 +11,16 @@ pub fn main(init: std.process.Init) !void {
     const a = arena.allocator();
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
-    const format = args.next() orelse return error.InvalidArguments;
+    const first = args.next() orelse return error.InvalidArguments;
+    const root = if (std.mem.eql(u8, first, "--root")) args.next() orelse return error.InvalidArguments else null;
+    const format = if (root != null) args.next() orelse return error.InvalidArguments else first;
     const input = args.next() orelse return error.InvalidArguments;
     const cwd = std.Io.Dir.cwd();
-    const source = try cwd.readFileAlloc(init.io, input, a, .limited(description.max_input_bytes));
     var diagnostic: text.Diagnostic = .{};
-    const bytes = if (std.mem.eql(u8, format, "text")) text.translate(a, source, &diagnostic) catch |err| {
-        std.debug.print("{s}:{d}:{d}: {s} ({s})\n", .{ input, diagnostic.line, diagnostic.column, diagnostic.message, @errorName(err) });
+    const bytes = if (std.mem.eql(u8, format, "text")) @import("text_loader.zig").translate(a, init.io, input, root, &diagnostic) catch |err| {
+        std.debug.print("{s}:{d}:{d}: {s} ({s})\n", .{ if (diagnostic.path.len == 0) input else diagnostic.path, diagnostic.line, diagnostic.column, diagnostic.message, @errorName(err) });
         return err;
-    } else if (std.mem.eql(u8, format, "syrup")) source else return error.InvalidArguments;
+    } else if (std.mem.eql(u8, format, "syrup") and root == null) try cwd.readFileAlloc(init.io, input, a, .limited(description.max_input_bytes)) else return error.InvalidArguments;
     var model = try Model.init(a, try description.read(a, bytes));
     const emitter = args.next() orelse return; // Check-only invocation.
     const receiver = args.next() orelse return error.InvalidArguments;

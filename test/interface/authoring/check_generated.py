@@ -106,6 +106,24 @@ def main():
                 check=True,
                 timeout=30,
             )
+        subprocess.run(
+            [
+                checker,
+                "--root",
+                str(Path(__file__).with_name("imports")),
+                "text",
+                str(Path(__file__).with_name("imports") / "board.interface"),
+                "rust",
+                "tasks.imported.Board",
+                "--named",
+                "list",
+                "imported_list",
+                str(directory / "imported_list.rs"),
+            ],
+            cwd=ROOT,
+            check=True,
+            timeout=30,
+        )
         for selector in ("list", "limited", "tuple", "zero", "nested"):
             subprocess.run(
                 [
@@ -209,6 +227,7 @@ def main():
         observation.write_text(source)
         (directory / "lib.rs").write_text(
             "#![deny(warnings)]\n"
+            + "pub mod imported_list;\n"
             + "".join(f"pub mod {case[0]};\n" for case in CASES + SCALARS)
             + "".join(
                 f"pub mod compound_{name};\n" for name in ("list", "limited", "tuple", "zero", "nested", "observation")

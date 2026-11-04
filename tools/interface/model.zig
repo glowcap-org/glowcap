@@ -32,19 +32,41 @@ pub const Model = struct {
     definitions: Node,
     remaining: usize = 1 << 20,
     receipt_convention: bool = false,
+    diagnostic: ?*?Node = null,
 
     /// The caller owns an arena lasting through method selection and emission.
     pub fn init(arena_allocator: std.mem.Allocator, root: Node) Error!Model {
+        return initWithDiagnostic(arena_allocator, root, null);
+    }
+
+    /// Capture the first rejected node during initialization only.
+    pub fn initDiagnostic(arena_allocator: std.mem.Allocator, root: Node, diagnostic: *?Node) Error!Model {
+        diagnostic.* = null;
+        return initWithDiagnostic(arena_allocator, root, diagnostic);
+    }
+
+    fn mark(self: *Model, node: Node) void {
+        if (node.source.len == 0) return;
+        if (self.diagnostic) |diagnostic| {
+            if (diagnostic.* == null) diagnostic.* = node;
+        }
+    }
+
+    fn initWithDiagnostic(arena_allocator: std.mem.Allocator, root: Node, diagnostic: ?*?Node) Error!Model {
+        errdefer if (diagnostic) |failed| {
+            if (failed.* == null) failed.* = root;
+        };
         const fields = try root.fields("glowcap:interface", 3);
         if (try fields[0].number() != 1 or fields[1].kind != .dictionary or fields[2].kind != .dictionary) return error.InvalidDescription;
         if (fields[2].children.len > 2 * max_definitions) return error.ResourceLimit;
         const memo = try arena_allocator.alloc(Memo, fields[2].children.len / 2);
         @memset(memo, .{});
-        var self: Model = .{ .arena_allocator = arena_allocator, .memo = memo, .definitions = fields[2], .receipt_convention = try checkProfiles(fields[1]) };
+        var self: Model = .{ .arena_allocator = arena_allocator, .memo = memo, .definitions = fields[2], .receipt_convention = try checkProfiles(fields[1]), .diagnostic = diagnostic };
         var i: usize = 0;
         while (i < self.definitions.children.len) : (i += 2) {
             try identifier(try self.definitions.children[i].string());
             const declaration = self.definitions.children[i + 1];
+            errdefer self.mark(declaration);
             if (declaration.kind != .record or declaration.children.len != 1) return error.InvalidDescription;
             if (std.mem.eql(u8, declaration.bytes, "type")) {
                 try self.checkType(declaration.children[0], 0);
@@ -53,6 +75,7 @@ pub const Model = struct {
                 try self.checkInterface(declaration.children[0]);
             } else return error.InvalidDescription;
         }
+        self.diagnostic = null;
         return self;
     }
 
@@ -89,13 +112,17 @@ pub const Model = struct {
     }
 
     pub fn resolve(self: *Model, input: Node) Error!Node {
+        errdefer self.mark(input);
         var value = input;
         var hops: usize = 0;
         while (value.kind == .record and std.mem.eql(u8, value.bytes, "ref")) {
             if (hops >= self.definitions.children.len / 2) return error.InvalidDescription;
             hops += 1;
             const reference = try value.fields("ref", 1);
-            const declaration = try self.definition(try reference[0].string());
+            const declaration = self.definition(try reference[0].string()) catch |err| {
+                self.mark(value);
+                return err;
+            };
             if (std.mem.eql(u8, declaration.bytes, "interface")) return declaration;
             value = (try declaration.fields("type", 1))[0];
         }
@@ -103,6 +130,7 @@ pub const Model = struct {
     }
 
     fn checkInterface(self: *Model, methods: Node) Error!void {
+        errdefer self.mark(methods);
         if (methods.kind != .dictionary) return error.InvalidDescription;
         var i: usize = 0;
         while (i < methods.children.len) : (i += 2) {
@@ -118,6 +146,7 @@ pub const Model = struct {
             if (signature[2].is("tell") and !signature[1].is("undefined")) return error.InvalidDescription;
             var optional = false;
             for (params.children, 0..) |param, at| {
+                errdefer self.mark(param);
                 if (param.kind != .record) return error.InvalidDescription;
                 const rest = std.mem.eql(u8, param.bytes, "rest");
                 const fields = try param.fields(if (rest) "rest" else "parameter", if (rest) 2 else 3);
@@ -138,6 +167,7 @@ pub const Model = struct {
     }
 
     fn checkType(self: *Model, value: Node, depth: usize) Error!void {
+        errdefer self.mark(value);
         try self.spend(1);
         if (depth > description.max_depth) return error.ResourceLimit;
         if (value.kind == .symbol) {
@@ -175,6 +205,7 @@ pub const Model = struct {
     // Follow only aliases and bound wrappers. A copied container terminates
     // this chain, so returning to a wrapper is unproductive recursion.
     fn constrained(self: *Model, input: Node) Error!Constrained {
+        errdefer self.mark(input);
         var layers: [description.max_depth]Node = undefined;
         var visited: [description.max_depth][*]const Node = undefined;
         var count: usize = 0;
@@ -189,9 +220,9 @@ pub const Model = struct {
             count += 1;
             base = try self.resolve(fields[0]);
         }
-        var result = try bounds(base, .{ .kind = .dictionary });
+        var result = try self.bounds(base, .{ .kind = .dictionary });
         for (layers[0..count]) |layer| {
-            const next = try bounds(base, layer);
+            const next = try self.bounds(base, layer);
             if (next.min) |minimum| result.min = if (result.min) |previous| @max(previous, minimum) else minimum;
             if (next.max) |maximum| result.max = if (result.max) |previous| @min(previous, maximum) else maximum;
             if (result.min) |minimum| if (result.max) |maximum| {
@@ -202,7 +233,8 @@ pub const Model = struct {
     }
 
     // One interpretation of bound names and units for validation and call projection.
-    fn bounds(base: Node, restrictions: Node) Error!call_type.IntegerBounds {
+    fn bounds(self: *Model, base: Node, restrictions: Node) Error!call_type.IntegerBounds {
+        errdefer self.mark(restrictions);
         if (restrictions.kind != .dictionary) return error.InvalidDescription;
         const integers = base.is("integer");
         const bytes = base.is("string") or base.is("bytes");
@@ -211,6 +243,7 @@ pub const Model = struct {
         var result: call_type.IntegerBounds = .{ .min = if (integers) null else 0 };
         var i: usize = 0;
         while (i < restrictions.children.len) : (i += 2) {
+            errdefer self.mark(restrictions.children[i]);
             const key = try restrictions.children[i].string();
             const number = try restrictions.children[i + 1].number();
             const lower = std.mem.eql(u8, key, if (integers) "min" else "min_bytes");

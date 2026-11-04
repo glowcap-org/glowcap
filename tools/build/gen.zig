@@ -229,6 +229,9 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
             .{ .name = "scalar_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/scalars.interface") }) },
             .{ .name = "authoring_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/comparison.interface") }) },
             .{ .name = "authoring_expected", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/comparison.syrup") }) },
+            .{ .name = "imported_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/imports/board.interface") }) },
+            .{ .name = "imported_shared", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/imports/shared/loam.interface") }) },
+            .{ .name = "imported_expected", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/imports/expected.syrup") }) },
         },
     });
 
