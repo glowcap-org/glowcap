@@ -190,12 +190,13 @@ impl Host {
 		})
 	}
 
-	/// Choose whether far capabilities this Host hands the application release
-	/// their Host retain when the last `Ref` clone drops (ADR-0025). On by
-	/// default: the partner learns through `op:gc-exports` that the import is
-	/// gone. Turn it off only to release every capability explicitly. The
-	/// setting lives on the Host archive (ADR-0025) and applies to outcomes
-	/// minted after the call, on every session.
+	/// Choose the default release policy for Session outcomes (ADR-0025).
+	/// On by default: the last `Ref` clone's drop releases its occurrence,
+	/// with any required `op:gc-exports`. When off, raw received capabilities
+	/// need explicit release. The setting applies to outcomes minted after
+	/// this call on every session. Explicit ownership operations, including
+	/// `Host::spawn`, `Ref::retain_for` and `RemotePromise::with_owned_outcome`,
+	/// retain their own final-drop cleanup independently of this default.
 	pub fn set_release_on_drop(&self, enabled: bool) -> Result<()> {
 		// SAFETY: `self.shared.raw()` is this `HostShared`'s handle from `glowcap_host_new_in`, which the callee
 		// refuses as a null host once teardown has cleared it.

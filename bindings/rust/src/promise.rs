@@ -429,6 +429,25 @@ impl RemotePromise {
 		}
 	}
 
+	/// Own every capability occurrence in this handle's reply, independently
+	/// of the Host's automatic-release policy. Each returned `Ref` releases
+	/// its occurrence when its last clone drops, including inside a reply
+	/// decoder that refuses the value. Independent raw observations keep
+	/// their own policy and outcome.
+	///
+	/// Selecting pending custody adds no FFI retain, payload copy, future
+	/// wrapper or heap allocation. Reply tracking uses the existing walk and
+	/// one shared guard allocation per occurrence. An already settled manual
+	/// outcome receives that tracking once here. Automatic outcomes already
+	/// own those guards and incur no second walk.
+	pub fn with_owned_outcome(self) -> Self {
+		match self.state {
+			PromiseState::Call(vow) | PromiseState::Observer(vow) => self.session.host.own_vow_outcome(vow),
+			PromiseState::Failed(_) => {}
+		}
+		self
+	}
+
 	/// Return an eagerly refused operation before publishing dependent state.
 	/// Success means admission succeeded. The remote outcome still requires
 	/// awaiting this promise. This consumes the same operation without polling,

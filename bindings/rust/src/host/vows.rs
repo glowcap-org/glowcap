@@ -29,6 +29,22 @@ impl VowTable {
 		self.rows.borrow_mut().remove(&vow);
 	}
 
+	fn own_outcome(&self, vow: u64, host: &Rc<HostShared>) {
+		let mut rows = self.rows.borrow_mut();
+		let Some(row) = rows.get_mut(&vow) else {
+			return;
+		};
+		// The ordinary automatic path already selected this custody. Do not
+		// repeat its walk or allocate another guard for an occurrence.
+		if row.gc_host.is_some() {
+			return;
+		}
+		row.gc_host = Some(Rc::downgrade(host));
+		if let VowState::Settled(Ok(value)) = &mut row.state {
+			crate::gc::track_owned_argument(host, value);
+		}
+	}
+
 	fn begin_await(&self, vow: u64) -> Waiting {
 		let mut rows = self.rows.borrow_mut();
 		match rows.get_mut(&vow) {
@@ -148,8 +164,8 @@ enum VowState {
 
 struct VowRow {
 	state: VowState,
-	/// Host whose application retain this outcome owns. Session opt-in is
-	/// sampled at mint. Host-owned lookup results always track their retains.
+	/// Host whose application retain this outcome owns. The default policy
+	/// is sampled at mint. Explicit ownership can upgrade it before delivery.
 	/// Weak custody cannot keep the FFI Host alive after retirement.
 	gc_host: Option<std::rc::Weak<HostShared>>,
 }
@@ -178,6 +194,10 @@ impl HostShared {
 
 	pub(crate) fn owned_vow_minted(self: &Rc<Self>, vow: u64) {
 		self.insert_vow(vow, Some(Rc::downgrade(self)));
+	}
+
+	pub(crate) fn own_vow_outcome(self: &Rc<Self>, vow: u64) {
+		self.vows.own_outcome(vow, self);
 	}
 
 	fn insert_vow(&self, vow: u64, gc_host: Option<Weak<Self>>) {

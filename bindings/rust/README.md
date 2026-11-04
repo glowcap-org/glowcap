@@ -187,6 +187,18 @@ Use `reference.retain_for(&host)` when captured work must survive release of the
 original. It returns an independently owned occurrence that releases on final
 drop, refusing foreign, released or closed-Host inputs before acquiring a hold.
 
+`promise.with_owned_outcome()` gives every capability in that reply final-drop
+cleanup, including references nested in copied values. It applies even when
+`Host::set_release_on_drop(false)` leaves raw Session replies under manual
+release. Generated Rust calls choose owned outcomes before observation, so
+discarded replies and failed decoding can release their references.
+
+This choice reuses the vow row and the automatic-release tracking walk. Each
+capability occurrence gets its existing shared guard allocation. An automatic
+outcome needs no second walk or guard. A settled manual outcome receives its
+guards when ownership is selected. Selecting ownership adds no future wrapper,
+payload copy or FFI retain.
+
 `Host::reference_session` retains an owned handle to a capability's live
 exporter.
 
