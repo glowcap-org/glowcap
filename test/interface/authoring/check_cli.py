@@ -235,3 +235,31 @@ with tempfile.TemporaryDirectory(prefix="glowcap-authoring-cli-") as directory:
             next_import = f'import "d{index + 1}.interface" as next\n' if index + 1 < depth else ""
             (project / f"d{index}.interface").write_text(f"module D{index}\n" + next_import)
         checked_imports('module Entry\nimport "d0.interface" as next\n', None if depth == 32 else "ResourceLimit")
+
+    complete = Path("test/interface/authoring/contracts").resolve()
+    subprocess.run(
+        [checker, "text", complete / "contracts.interface", "description", "unused", "--direct", "unused", output],
+        capture_output=True,
+        timeout=5,
+        check=True,
+    )
+    assert output.read_bytes() == Path("test/interface/contracts.syrup").read_bytes(), (
+        "complete authored contract differs"
+    )
+    refused = Path(directory) / "rest.rs"
+    result = subprocess.run(
+        [
+            checker,
+            "text",
+            complete / "contracts.interface",
+            "rust",
+            "fixture.AnyReceiver",
+            "--direct",
+            "invoke",
+            refused,
+        ],
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert result.returncode and b"UnsupportedProjection" in result.stderr and not refused.exists(), result.stderr

@@ -1,0 +1,22 @@
+module loam
+
+type Sequence = integer(min: 1, max: 9223372036854775807)
+type Identity = bytes(min_bytes: 16, max_bytes: 16)
+type Cursor = bytes(min_bytes: 56, max_bytes: 56)
+type Registration = tuple<Receiver, Canceller>
+type Observation = record<"access:observation", Cursor, value, bool, bool, list<symbol>>
+
+interface Receipts {
+  "mutation-sequence"() -> Sequence
+}
+interface Observable {
+  @loam.receipt observe() -> Registration
+  @loam.receipt "observe-live"(identity: Identity) -> Registration
+}
+interface Receiver {
+  poll(cursor?: Cursor) -> Observation
+  receive(cursor?: Cursor) -> Observation
+}
+interface Canceller {
+  cancel() -> bool
+}

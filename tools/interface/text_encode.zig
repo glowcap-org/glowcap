@@ -1,13 +1,11 @@
-//! Canonical description encoding with authoring spans kept outside the bytes.
+//! Canonical encoding bounds output and rejects duplicate dictionary keys.
 const std = @import("std");
 const description = @import("description.zig");
 const Node = description.Node;
 const Error = @import("text_parser.zig").Error;
-pub const Mapping = struct { start: usize, end: usize, source: []const u8 };
 pub const Encoder = struct {
     a: std.mem.Allocator,
     bytes: std.ArrayList(u8) = .empty,
-    mappings: std.ArrayList(Mapping) = .empty,
     remaining: usize = description.max_nodes,
     failed_source: []const u8 = "",
     fn append(self: *Encoder, value: []const u8) Error!void {
@@ -25,8 +23,6 @@ pub const Encoder = struct {
     pub fn node(self: *Encoder, value: Node, depth: usize) Error!void {
         if (depth > description.max_depth or self.remaining == 0) return error.ResourceLimit;
         self.remaining -= 1;
-        const index = self.mappings.items.len;
-        try self.mappings.append(self.a, .{ .start = self.bytes.items.len, .end = 0, .source = value.source });
         switch (value.kind) {
             .string, .symbol => try self.atom(value.bytes, if (value.kind == .string) '"' else '\''),
             .integer => {
@@ -37,7 +33,7 @@ pub const Encoder = struct {
             .list, .record => {
                 try self.append(if (value.kind == .list) "[" else "<");
                 if (value.kind == .record) {
-                    if (self.remaining == 0) return error.ResourceLimit;
+                    if (depth == description.max_depth or self.remaining == 0) return error.ResourceLimit;
                     self.remaining -= 1;
                     try self.atom(value.bytes, '\'');
                 }
@@ -70,19 +66,5 @@ pub const Encoder = struct {
                 try self.append("}");
             },
         }
-        self.mappings.items[index].end = self.bytes.items.len;
-    }
-    pub fn origin(self: Encoder, canonical: []const u8) []const u8 {
-        if (canonical.len == 0) return "";
-        const offset = @intFromPtr(canonical.ptr) - @intFromPtr(self.bytes.items.ptr);
-        var result: []const u8 = "";
-        var length: usize = std.math.maxInt(usize);
-        for (self.mappings.items) |mapping| {
-            if (mapping.source.len != 0 and mapping.start <= offset and offset < mapping.end and mapping.end - mapping.start < length) {
-                result = mapping.source;
-                length = mapping.end - mapping.start;
-            }
-        }
-        return result;
     }
 };

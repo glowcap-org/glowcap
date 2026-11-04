@@ -9,8 +9,9 @@ sources:
 
 # Interface description and fixture contract
 
-The authored [Syrup description](contracts.syrup) defines the Tasks and callback
-corpus. This reference specifies its encoding, mappings, and acceptance cases.
+The [Syrup description](contracts.syrup) is the independent expected Tasks and
+callback corpus. [Authored modules](authoring/contracts/contracts.interface)
+supply generation input. This reference specifies encoding, mappings and acceptance cases.
 
 ## Description version 1
 

@@ -52,6 +52,7 @@ class MeasurementTest(unittest.TestCase):
                     "interop/goblins_interop/interface_client.rs": "fn main() {}\n",
                     "conformance/goblins-peer/racket/interface-creation-client.rkt": "#lang racket\n",
                     "bench/interface/src/main.rs": "fn main() {}\n",
+                    "test/interface/authoring/contracts/tasks.interface": "module tasks\n\ntype Name = string\n",
                 }
                 for name, text in files.items():
                     path = Path(name)
@@ -79,6 +80,16 @@ class MeasurementTest(unittest.TestCase):
                 self.assertEqual(len(inventory["generated_output"]), 2)
                 self.assertEqual(len(inventory["handwritten_qualification"]), 3)
                 self.assertEqual(len(inventory["benchmark_infrastructure"]), 1)
+                self.assertEqual(
+                    inventory["authored_descriptions"],
+                    [
+                        {
+                            "path": "test/interface/authoring/contracts/tasks.interface",
+                            "nonblank": 2,
+                            "bytes": len(files["test/interface/authoring/contracts/tasks.interface"].encode()),
+                        }
+                    ],
+                )
             finally:
                 os.chdir(previous)
 

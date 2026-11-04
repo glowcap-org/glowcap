@@ -283,11 +283,17 @@ pub const Parser = struct {
             try self.expect("(");
             var parameters: std.ArrayList(Node) = .empty;
             if (!try self.accept(")")) while (true) {
+                const rest = try self.accept(".");
+                if (rest) {
+                    try self.expect(".");
+                    try self.expect(".");
+                }
                 const name = self.atom(try self.word(), .string);
                 const optional = try self.accept("?");
                 try self.expect(":");
                 const kind = try self.typeExpression(0);
-                try parameters.append(self.a, try self.record("parameter", &.{ name, kind, .{ .kind = .boolean, .boolean = optional } }));
+                if (rest and optional) return self.fail("rest parameters cannot be optional");
+                try parameters.append(self.a, if (rest) try self.record("rest", &.{ name, kind }) else try self.record("parameter", &.{ name, kind, .{ .kind = .boolean, .boolean = optional } }));
                 if (parameters.items.len > @import("model.zig").max_parameters) return error.ResourceLimit;
                 if (try self.accept(")")) break;
                 try self.expect(",");

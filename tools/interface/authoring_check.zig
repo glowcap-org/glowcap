@@ -17,11 +17,14 @@ pub fn main(init: std.process.Init) !void {
     const input = args.next() orelse return error.InvalidArguments;
     const cwd = std.Io.Dir.cwd();
     var diagnostic: text.Diagnostic = .{};
-    const bytes = if (std.mem.eql(u8, format, "text")) @import("text_loader.zig").translate(a, init.io, input, root, &diagnostic) catch |err| {
+    var compiled = if (std.mem.eql(u8, format, "text")) @import("text_loader.zig").compile(a, init.io, input, root, &diagnostic) catch |err| {
         std.debug.print("{s}:{d}:{d}: {s} ({s})\n", .{ if (diagnostic.path.len == 0) input else diagnostic.path, diagnostic.line, diagnostic.column, diagnostic.message, @errorName(err) });
         return err;
-    } else if (std.mem.eql(u8, format, "syrup") and root == null) try cwd.readFileAlloc(init.io, input, a, .limited(description.max_input_bytes)) else return error.InvalidArguments;
-    var model = try Model.init(a, try description.read(a, bytes));
+    } else if (std.mem.eql(u8, format, "syrup") and root == null) raw: {
+        const bytes = try cwd.readFileAlloc(init.io, input, a, .limited(description.max_input_bytes));
+        break :raw text.Compiled{ .bytes = bytes, .model = try Model.init(a, try description.read(a, bytes)) };
+    } else return error.InvalidArguments;
+    const model = &compiled.model;
     const emitter = args.next() orelse return; // Check-only invocation.
     const receiver = args.next() orelse return error.InvalidArguments;
     const selector_kind = args.next() orelse return error.InvalidArguments;
@@ -32,9 +35,9 @@ pub fn main(init: std.process.Init) !void {
     const api = args.next() orelse return error.InvalidArguments;
     const output = args.next() orelse return error.InvalidArguments;
     if (args.next() != null) return error.InvalidArguments;
-    const generated = if (std.mem.eql(u8, emitter, "description")) bytes else generated: {
+    const generated = if (std.mem.eql(u8, emitter, "description")) compiled.bytes else generated: {
         if (std.mem.eql(u8, emitter, "zig")) break :generated try @import("zig.zig").emit(a, try model.creation(receiver, selector orelse return error.InvalidArguments));
-        const call: calls.Named = .{ .api = api, .call = try calls.read(&model, receiver, selector) };
+        const call: calls.Named = .{ .api = api, .call = try calls.read(model, receiver, selector) };
         if (std.mem.eql(u8, emitter, "rust")) break :generated try @import("callbacks.zig").emit(a, &.{call}, &.{});
         if (std.mem.eql(u8, emitter, "ts")) break :generated try @import("typescript.zig").emit(a, &.{call});
         return error.InvalidArguments;
