@@ -10,7 +10,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
     try out.appendSlice(a, @embedFile("templates/pending.ts.in") ++ "\n");
     var replies: std.EnumSet(calls.Kind) = .{};
     for (methods) |method| if (method.call.effect == .call) {
-        replies.insert(method.call.result);
+        replies.insert(std.meta.activeTag(method.call.result));
     };
     for ([_]calls.Kind{ .target, .text, .nothing }) |kind| if (replies.contains(kind)) {
         try out.appendSlice(a, switch (kind) {
@@ -28,6 +28,8 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
     };
     for (methods) |method| {
         const call = method.call;
+        for (call.parameters) |parameter| try supported(parameter);
+        try supported(call.result);
         if (call.effect == .receipt) return error.UnsupportedProjection;
         try out.print(a, "\nexport function {s}(\n\tsession: Session,\n\ttarget: Ref | RemotePromise,\n", .{method.api});
         for (call.parameters, 0..) |kind, i| {
@@ -56,6 +58,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
                 .target, .pending_target => try out.print(a, "!(arg{d} instanceof Ref) && !(arg{d} instanceof RemotePromise)", .{ i, i }),
                 .value => try out.print(a, "arg{d} === undefined", .{i}),
                 .pending_value => return error.UnsupportedProjection,
+                .integer => unreachable,
             }
             try out.print(a, ") throw new TypeError(\"invalid argument {d}\");\n{s}args[{d}] = ", .{ i, indent, i });
             if (kind == .nothing) try out.appendSlice(a, "null") else try out.print(a, "arg{d}", .{i});
@@ -76,7 +79,7 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
     return out.toOwnedSlice(a);
 }
 
-fn typeName(kind: calls.Kind) []const u8 {
+fn typeName(kind: calls.Type) []const u8 {
     return switch (kind) {
         .target => "Ref",
         .pending_target => "Ref | RemotePromise",
@@ -84,5 +87,14 @@ fn typeName(kind: calls.Kind) []const u8 {
         .nothing => "void",
         .value => "Argument",
         .pending_value => "RemotePromise",
+        .integer => unreachable,
     };
+}
+
+fn supported(kind: calls.Type) !void {
+    switch (kind) {
+        .text => |bounds| if (bounds.min != 0 or bounds.max != null) return error.UnsupportedTarget,
+        .integer => return error.UnsupportedTarget,
+        else => {},
+    }
 }

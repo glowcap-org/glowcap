@@ -1,6 +1,5 @@
 //! Generated Tasks creation against its real server, with independent raw reads.
-#[path = "../../../apps/tasks/rust/interface.rs"]
-mod interface;
+use crate::{interface, task_board::Board};
 #[path = "refusal.rs"]
 mod refusal;
 use glowcap::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
@@ -55,6 +54,16 @@ pub async fn run(port: u16, name: &str) {
 		Err(interface::Error::InvalidArgument)
 	));
 	assert_eq!(call(&session, &list, "count", &[]).await.as_i64(), Some(2));
+	// Exercise the real application bodies, not only generated fixture wrappers.
+	let board = Board::join(&tcp::locator("127.0.0.1", port), name).await.unwrap();
+	let lists = board.lists().await.unwrap();
+	assert_eq!(lists.len(), 2);
+	assert_eq!(lists[0].name, "To do");
+	assert_eq!(lists[0].tasks, ["write tests", maximum.as_str()]);
+	assert_eq!(lists[1].name, "Done");
+	assert!(lists[1].tasks.is_empty());
+	board.leave().await.unwrap();
+
 	session.close(PendingWork::Cancel).await.unwrap();
 	runtime.close(PendingWork::Cancel).await.unwrap();
 	refusal::run().await;

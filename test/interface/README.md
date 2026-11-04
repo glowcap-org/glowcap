@@ -40,6 +40,12 @@ that first value before invoking the handler. The same wire list reaches a
 separate named receiver as a control. Wrong arity and failed argument projections are
 refused before handler entry, and a local payload remains borrowed in place.
 
+The real Rust Board.join and Board.lists methods use five generated reads.
+The application proof reads the actual Tasks server. Independent raw peers on
+both profiles check text byte limits, count limits, wrong types, unchanged
+breaks and raw settlement, and invalid indices without sending. Signed-64-bit
+maximum is admitted as an Index, leaving membership to the application.
+
 The callback matrix holds the factory reply open through admission and checks
 wrong fulfillment, remote break messages, and independent raw observation.
 Rust drops both unobserved handles and polled observations while retaining the

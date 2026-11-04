@@ -9,9 +9,11 @@ owns executable qualification.
 | --- | --- |
 | `description.zig` | Bounded Syrup description reader |
 | `model.zig` | Declaration validation, method selection, references, and type resolution |
-| `calls.zig` | Checked ordinary-call signatures |
-| `zig.zig`, `rust.zig` | Tasks creation projections and the fixed Zig direct receiver |
+| `calls.zig`, `call_type.zig` | Checked call signatures carrying scalar constraints |
+| `zig.zig` | Tasks creation argument projection and the fixed Zig direct receiver |
+| `rust.zig` | Tasks creation and read module assembly |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
+| `rust_bounds.zig` | Rust argument checks and deduplicated bounded reply decoders |
 | `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
 | `literal.zig` | Source string escaping |
 | `expectations.zig` | Test constants from independent message fixtures |
@@ -32,6 +34,10 @@ Ordinary Rust and TypeScript calls preserve trailing optional arguments and
 explicit undefined values. Omission shortens the argument list. Rust refuses a
 missing argument followed by a present one, and TypeScript checks arity and
 value types before sending. Contract null remains an unsupported target type.
+
+Tasks' Rust creation and read projections share the checked contract.
+The [read projection](../../test/interface/contract.md#tasks-rust-read-projection)
+owns the bounds and target coverage.
 
 Generated helpers delegate promise and reference ownership to the bindings.
 Tasks owns its workflow and the server's policy. Binding changes needed by a

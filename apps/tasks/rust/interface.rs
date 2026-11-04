@@ -3,6 +3,7 @@ const MIN_TEXT_BYTES: usize = 1;
 const MAX_TEXT_BYTES: usize = 4096;
 const ADD_VERB: &str = "add";
 use glowcap::Argument;
+use glowcap::AsSendTarget;
 use glowcap::Ref;
 use glowcap::RemotePromise;
 use glowcap::Session;
@@ -119,6 +120,16 @@ where
 fn capability(value: Argument) -> Result<Ref, Error> {
 	Ref::try_from(&value).map_err(|_| Error::InvalidReply)
 }
+fn text(value: Argument) -> Result<String, Error> {
+	if let Argument::String(text) = value {
+		Ok(text)
+	} else {
+		Err(Error::InvalidReply)
+	}
+}
+fn integer(value: Argument) -> Result<i64, Error> {
+	value.as_i64().ok_or(Error::InvalidReply)
+}
 /// Copies text before acquiring a sequence. The prepared request owns that
 /// snapshot until it is dropped, so caller edits cannot change submission or replay.
 pub fn prepare_add(
@@ -142,4 +153,59 @@ pub fn prepare_add(
 pub fn add(session: Rc<Session>, target: Ref, text: &str) -> impl Future<Output = Result<Ref, Error>> + use<> {
 	let preparation = prepare_add(session, target, text);
 	async move { preparation?.await?.submit().await }
+}
+fn text_1_64(value: Argument) -> Result<String, Error> {
+	let value = text(value)?;
+	if !(1u128..=64u128).contains(&(value.len() as u128)) {
+		Err(Error::InvalidReply)
+	} else {
+		Ok(value)
+	}
+}
+fn integer_p0_p256(value: Argument) -> Result<i64, Error> {
+	let value = integer(value)?;
+	if !(0..=256).contains(&value) {
+		Err(Error::InvalidReply)
+	} else {
+		Ok(value)
+	}
+}
+fn text_1_4096(value: Argument) -> Result<String, Error> {
+	let value = text(value)?;
+	if !(1u128..=4096u128).contains(&(value.len() as u128)) {
+		Err(Error::InvalidReply)
+	} else {
+		Ok(value)
+	}
+}
+
+pub fn board_list(session: &Session, target: impl AsSendTarget, arg0: i64) -> Result<Pending<Ref>, Error> {
+	if !(0..=9223372036854775807).contains(&arg0) {
+		return Err(Error::InvalidArgument);
+	}
+	let raw = session.send(target, "list", &[arg0.into()]);
+	Ok(Pending::new(raw, capability))
+}
+
+pub fn list_name(session: &Session, target: impl AsSendTarget) -> Pending<String> {
+	let raw = session.send(target, "name", &[]);
+	Pending::new(raw, text_1_64)
+}
+
+pub fn list_count(session: &Session, target: impl AsSendTarget) -> Pending<i64> {
+	let raw = session.send(target, "count", &[]);
+	Pending::new(raw, integer_p0_p256)
+}
+
+pub fn list_task(session: &Session, target: impl AsSendTarget, arg0: i64) -> Result<Pending<Ref>, Error> {
+	if !(0..=9223372036854775807).contains(&arg0) {
+		return Err(Error::InvalidArgument);
+	}
+	let raw = session.send(target, "task", &[arg0.into()]);
+	Ok(Pending::new(raw, capability))
+}
+
+pub fn task_text(session: &Session, target: impl AsSendTarget) -> Pending<String> {
+	let raw = session.send(target, "text", &[]);
+	Pending::new(raw, text_1_4096)
 }

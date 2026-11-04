@@ -24,3 +24,19 @@ interface Prepared {
   @loam.receipt
   accept(pending: promise<value>) -> undefined
 }
+
+type Name = string(min_bytes: 1, max_bytes: 64)
+type LowerText = string(min_bytes: 1)
+type WideText = string(max_bytes: 9223372036854775807)
+type Index = integer(min: 0, max: 9223372036854775807)
+type Signed = integer(min: -9223372036854775808, max: 9223372036854775807)
+
+interface Bounded {
+  text(value: Name) -> Name
+  lower(value: LowerText) -> undefined
+  wide(value: WideText) -> WideText
+  integer(value: Index) -> undefined
+  tell index(value: Index)
+  signed() -> Signed
+  optional(value?: Name) -> Name
+}
