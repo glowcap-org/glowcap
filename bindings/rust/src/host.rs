@@ -57,6 +57,7 @@ mod send;
 mod vows;
 
 use lifecycle::CloseBarrierState;
+pub(crate) use vows::VowOutcome;
 use vows::VowTable;
 
 pub use public::{Host, HostOptions, ListenerIdentity, SessionLimitOptions};

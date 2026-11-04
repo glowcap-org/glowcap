@@ -24,6 +24,9 @@ mod reply_ownership;
 #[path = "session_tests/fetch_custody.rs"]
 mod fetch_custody;
 
+#[path = "session_tests/unobserved_custody.rs"]
+mod unobserved_custody;
+
 #[path = "session_tests/enliven_gc.rs"]
 mod enliven_gc;
 
