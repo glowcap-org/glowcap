@@ -56,14 +56,28 @@ function text_3_unbounded(value: unknown): string {
 	text_bytes(value, 3n, null);
 	return value;
 }
-type Compound0 = [bigint, string, Compound1];
-type Compound1 = [bigint, string];
+type Sequence<T> = Argument & object & ArrayLike<T> & Iterable<T>;
+type Compound0 = Sequence<bigint | string | Compound1> & {
+	readonly length: 3;
+	readonly 0: bigint;
+	readonly 1: string;
+	readonly 2: Compound1;
+};
+type Compound1 = Sequence<bigint | string> & {
+	readonly length: 2;
+	readonly 0: bigint;
+	readonly 1: string;
+};
 type Compound2 = Tagged & {
 	readonly tag: "bounds:mixed";
 	readonly value: [bigint, string, Compound3];
 };
-type Compound3 = [bigint, string];
-type Compound4 = Array<Argument>;
+type Compound3 = Sequence<bigint | string> & {
+	readonly length: 2;
+	readonly 0: bigint;
+	readonly 1: string;
+};
+type Compound4 = Sequence<Argument>;
 const MAX_REPLY_WORK = 65536;
 /** A local decoder limit, independent of schema shape and collection bounds. */
 class ResourceLimit extends Error {}
@@ -81,24 +95,32 @@ function compound_0(value: Argument): Compound0 {
 function compound_0_at(value: Argument, budget: DecodeBudget): Compound0 {
 	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
 	if (values.length !== 3) throw new TypeError("wrong reply arity");
-	step(budget);
-	integer_unbounded_unbounded(values[0]);
-	step(budget);
-	text_1_4(values[1]);
-	compound_1_at(values[2], budget);
+	if (values instanceof BigInt64Array) {
+		throw new TypeError("integer tuple has incompatible fields");
+	} else {
+		step(budget);
+		integer_unbounded_unbounded(values[0]);
+		step(budget);
+		text_1_4(values[1]);
+		compound_1_at(values[2], budget);
+	}
 	return value as Compound0;
 }
 function compound_1_at(value: Argument, budget: DecodeBudget): Compound1 {
 	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
 	if (values.length !== 2) throw new TypeError("wrong reply arity");
-	step(budget);
-	integer_m2_p2(values[0]);
-	step(budget);
-	text_3_unbounded(values[1]);
+	if (values instanceof BigInt64Array) {
+		throw new TypeError("integer tuple has incompatible fields");
+	} else {
+		step(budget);
+		integer_m2_p2(values[0]);
+		step(budget);
+		text_3_unbounded(values[1]);
+	}
 	return value as Compound1;
 }
 function compound_2(value: Argument): Compound2 {
@@ -119,12 +141,16 @@ function compound_2_at(value: Argument, budget: DecodeBudget): Compound2 {
 function compound_3_at(value: Argument, budget: DecodeBudget): Compound3 {
 	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
 	if (values.length !== 2) throw new TypeError("wrong reply arity");
-	step(budget);
-	integer_m2_p2(values[0]);
-	step(budget);
-	text_3_unbounded(values[1]);
+	if (values instanceof BigInt64Array) {
+		throw new TypeError("integer tuple has incompatible fields");
+	} else {
+		step(budget);
+		integer_m2_p2(values[0]);
+		step(budget);
+		text_3_unbounded(values[1]);
+	}
 	return value as Compound3;
 }
 function compound_4(value: Argument): Compound4 {
@@ -133,7 +159,7 @@ function compound_4(value: Argument): Compound4 {
 function compound_4_at(value: Argument, budget: DecodeBudget): Compound4 {
 	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
 	return value as Compound4;
 }
 

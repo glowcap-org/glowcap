@@ -1,5 +1,5 @@
 // The raw peer distinguishes omitted arguments from explicitly supplied wire void.
-import { type Argument, GlowcapError, type HostProfile, Ref, VowBroken } from "@glowcap/runtime";
+import { type Argument, type HostProfile, Ref, VowBroken } from "@glowcap/runtime";
 import * as generated from "../generated/callbacks.ts";
 import { presenceArguments } from "../generated/expected.ts";
 import { assert, withPair } from "./pair.ts";
@@ -121,16 +121,28 @@ async function scenario(profile: HostProfile): Promise<void> {
 			}
 			assert(refused, "invalid arguments were not refused before sending");
 		}
-		const unsupported = Reflect.apply(generated.presence_value, undefined, [client, target, undefined]);
-		const rawUnsupported = Reflect.apply(client.send, client, [target, "value", [undefined]]);
-		const failures = await Promise.allSettled([unsupported.observe(), rawUnsupported]);
-		assert(failures[0].status === "rejected" && failures[1].status === "rejected", "unsupported value accepted");
-		const generatedFailure = failures[0].reason;
-		const rawFailure = failures[1].reason;
+		const localCalls: Argument[][] = [];
+		const local = client.spawn((_verb, args) => {
+			localCalls.push(args);
+			return null;
+		});
+		for (const receiver of [target, local]) {
+			let refused = false;
+			try {
+				generated.presence_value(client, receiver, undefined);
+			} catch (error) {
+				refused = error instanceof TypeError;
+			}
+			assert(refused, "supplied optional opaque undefined was not narrowed");
+		}
+		assert(Number(localCalls.length) === 0, "invalid optional opaque value reached local handler");
+		await generated.presence_value(client, local).observe();
+		await generated.presence_value(client, local, null).observe();
+		await generated.presence_required(client, local, undefined).observe();
 		assert(
-			generatedFailure instanceof GlowcapError && rawFailure instanceof GlowcapError &&
-				generatedFailure.code === rawFailure.code && generatedFailure.message === rawFailure.message,
-			"generic passability failure replaced",
+			localCalls.length === 3 && localCalls[0].length === 0 && localCalls[1][0] === null &&
+				localCalls[2][0] === null,
+			"local omission/opaque null/explicit void controls",
 		);
 		await required();
 		assert(calls.length === before + 1, "invalid arguments admitted a call");

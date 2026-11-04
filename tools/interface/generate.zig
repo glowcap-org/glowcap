@@ -49,6 +49,8 @@ pub const outputs = [_]Output{
     .{ .path = "test/interface/generated/integers.ts", .generate = generateIntegerTypeScript },
     .{ .path = "test/interface/generated/text_bounds.ts", .generate = generateTextBoundsTypeScript },
     .{ .path = "test/interface/generated/mixed_bounds.ts", .generate = generateMixedBoundsTypeScript },
+    .{ .path = "test/interface/generated/packed_lists.ts", .generate = generatePackedLists },
+    .{ .path = "test/interface/generated/packed_tuples.ts", .generate = generatePackedTuples },
     .{ .path = "test/interface/generated/callbacks.ts", .generate = generateTypeScript },
     .{ .path = "test/interface/generated/callbacks.rs", .generate = generateCallbacks },
     .{ .path = "test/interface/generated/expected.rs", .generate = @import("expectations.zig").generate },
@@ -470,4 +472,21 @@ fn generateMixedBoundsTypeScript(a: std.mem.Allocator) ![]u8 {
         .{ .api = "record", .call = try calls.read(&model, "bounds.Mixed", "record") },
         .{ .api = "values", .call = try calls.read(&model, "bounds.Mixed", "values") },
     });
+}
+
+fn packedSource(a: std.mem.Allocator, comptime selections: anytype) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var model = try Model.init(arena.allocator(), try description.read(arena.allocator(), @embedFile("scalar_bound_contract")));
+    var methods: [selections.len]calls.Named = undefined;
+    inline for (selections, 0..) |name, index| {
+        methods[index] = .{ .api = name, .call = try calls.read(&model, "bounds.Packed", name) };
+    }
+    return @import("typescript.zig").emit(a, &methods);
+}
+fn generatePackedLists(a: std.mem.Allocator) ![]u8 {
+    return packedSource(a, .{ "integers", "signed", "narrow", "values", "symbols", "floats", "targets", "texts", "booleans", "byteArrays", "nested", "limited" });
+}
+fn generatePackedTuples(a: std.mem.Allocator) ![]u8 {
+    return packedSource(a, .{ "tuple", "wideTuple", "zero", "incompatible", "opaqueTuple", "nestedTuples", "record" });
 }

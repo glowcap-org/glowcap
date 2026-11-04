@@ -274,7 +274,8 @@ function call_16(
 	// One array is allocated at supplied arity; packing adds no payload snapshot.
 	const args = new Array<Argument>(supplied);
 	if (supplied > 0) {
-		args[0] = arg0 as Argument;
+		if (arg0 === undefined) throw new TypeError("present value cannot be undefined");
+		args[0] = arg0;
 	}
 	const raw = session.send(target, "value", args);
 	return new Pending(raw, nothing);

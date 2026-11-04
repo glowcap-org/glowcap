@@ -10,7 +10,7 @@ pub fn compound(kind: calls.Type) bool {
 /// Scalar and list slots count once. This is not a byte or schema cardinality limit.
 pub const max_inline_structure: usize = 256;
 pub const max_reply_work: usize = 65536;
-const Node = struct { kind: calls.Type, minimum_work: [2]usize = .{ 0, 0 } };
+const Node = struct { kind: calls.Type, minimum_work: usize = 0 };
 
 pub const Graph = struct {
     a: std.mem.Allocator,
@@ -24,7 +24,7 @@ pub const Graph = struct {
         errdefer self.deinit();
         for (methods) |method| if (method.call.effect != .tell) try self.collect(method.call.result);
         for (self.nodes.items) |node| {
-            if (try self.minimumWork(node.kind, true) > max_inline_structure) return error.ResourceLimit;
+            if (try self.minimumWork(node.kind) > max_inline_structure) return error.ResourceLimit;
         }
         return self;
     }
@@ -72,13 +72,12 @@ pub const Graph = struct {
     }
 
     // Inline admission and owned projection count opaque Argument moves.
-    // Borrowed views skip opaque leaves because they neither read nor move them.
-    // Both scores share traversal and saturate before compiler emission.
-    pub fn minimumWork(self: *Graph, kind: calls.Type, count_opaque: bool) !usize {
+    // Borrowed views charge actual checks because local list representations
+    // can establish categories without reading their elements.
+    pub fn minimumWork(self: *Graph, kind: calls.Type) !usize {
         try self.spend();
-        const index_value = try self.index(kind) orelse return if (!count_opaque and kind == .value) 0 else 1;
-        const score: usize = @intFromBool(count_opaque);
-        if (self.nodes.items[index_value].minimum_work[score] != 0) return self.nodes.items[index_value].minimum_work[score];
+        const index_value = try self.index(kind) orelse return 1;
+        if (self.nodes.items[index_value].minimum_work != 0) return self.nodes.items[index_value].minimum_work;
         var work: usize = 1;
         const fields = switch (kind) {
             .tuple => |tuple| tuple.fields,
@@ -87,13 +86,13 @@ pub const Graph = struct {
             else => unreachable,
         };
         for (fields) |field| {
-            work += try self.minimumWork(field, count_opaque);
+            work += try self.minimumWork(field);
             if (work > max_inline_structure) {
                 work = max_inline_structure + 1;
                 break;
             }
         }
-        self.nodes.items[index_value].minimum_work[score] = work;
+        self.nodes.items[index_value].minimum_work = work;
         return work;
     }
 };

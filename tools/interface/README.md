@@ -88,8 +88,9 @@ already has the projected `Vec<Argument>` layout and returns that buffer directl
 Opaque `value` fields move intact without decoder traversal. The decoder's
 work limit returns `ResourceLimit`, separately from a wrong reply category.
 
-TypeScript validates the existing arrays and `Tagged` objects in place and returns
-them with their original payloads and capability wrappers. Its single temporary
+TypeScript exposes readonly, passable sequence views over the existing arrays
+or local packed integer runs. Tagged payloads retain their actual array shape.
+Validation returns original objects, payloads, and capability wrappers. Its single temporary
 work counter dies after each observation. Shape failures throw `TypeError`, and
 decoder exhaustion throws exported `ResourceLimit`, without changing raw
 settlement. The [compound mapping](../../test/interface/contract.md#typescript-compound-replies)

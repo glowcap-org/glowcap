@@ -129,11 +129,7 @@ fn reply(out: *std.ArrayList(u8), a: std.mem.Allocator, kind: calls.Type) !void 
         .integer => |limits| {
             if (limits.min != null or limits.max != null) {
                 try out.appendSlice(a, "\tif (");
-                if (limits.min) |min| try out.print(a, "value < {d}n", .{min});
-                if (limits.max) |max| {
-                    if (limits.min != null) try out.appendSlice(a, " || ");
-                    try out.print(a, "value > {d}n", .{max});
-                }
+                try integerBounds(out, a, limits, "value");
                 try out.appendSlice(a, ") throw new TypeError(\"integer outside bounds\");\n");
             }
         },
@@ -145,4 +141,25 @@ fn reply(out: *std.ArrayList(u8), a: std.mem.Allocator, kind: calls.Type) !void 
         else => {},
     }
     try out.appendSlice(a, "\treturn value;\n}\n");
+}
+
+/// A packed run establishes the full i64 category and range without a walk.
+pub fn packedInteger(limits: @import("call_type.zig").IntegerBounds) bool {
+    const narrowed = packedBounds(limits);
+    return narrowed.min == null and narrowed.max == null;
+}
+
+pub fn integerBounds(out: *std.ArrayList(u8), a: std.mem.Allocator, limits: @import("call_type.zig").IntegerBounds, value: []const u8) !void {
+    if (limits.min) |min| try out.print(a, "{s} < {d}n", .{ value, min });
+    if (limits.max) |max| {
+        if (limits.min != null) try out.appendSlice(a, " || ");
+        try out.print(a, "{s} > {d}n", .{ value, max });
+    }
+}
+
+pub fn packedBounds(limits: @import("call_type.zig").IntegerBounds) @import("call_type.zig").IntegerBounds {
+    return .{
+        .min = if (limits.min == std.math.minInt(i64)) null else limits.min,
+        .max = if (limits.max == std.math.maxInt(i64)) null else limits.max,
+    };
 }

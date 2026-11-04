@@ -17,6 +17,7 @@ import tomllib
 from pathlib import Path
 
 from check_bounds import check_bounds
+from check_packed import check_packed
 
 ROOT = Path(__file__).resolve().parents[3]
 PROOF = ROOT / "test/interface/rust"
@@ -426,9 +427,9 @@ if (!refused) throw new Error("full work limit accepted");
             (directory / "compound_nested.ts").read_text()
             + r"""
 let refused = false;
-try { compound_0_at([[null, null, null]], { remaining: 3 }); }
+try { compound_0_at([[null, null, null]], { remaining: 2 }); }
 catch (error) { refused = error instanceof ResourceLimit; }
-if (!refused) throw new Error("list minimum work did not precede child decoding");
+if (!refused) throw new Error("actual schema visits exceeded the work budget");
 """
         )
         (directory / "compound_observation.ts").write_text(
@@ -484,6 +485,7 @@ if (result !== original || result.value[0] !== cursor || result.value[1] !== opa
         assert result.returncode != 0 and b"ExportCollision" in result.stderr, "support export collision accepted"
         assert not collision.exists(), "refused generation wrote output"
         compound_ts.extend(check_bounds(checker, directory, imports))
+        compound_ts.extend(check_packed(checker, directory, imports))
         consumer = directory / "consumer.ts"
         consumer.write_text("".join(imports))
         subprocess.run(

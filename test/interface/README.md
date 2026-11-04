@@ -34,6 +34,8 @@ The presence fixture distinguishes no arguments from one void argument on the wi
 on both profiles. It checks required and optional undefined inputs, optional
 text and references, invalid holes, wrong inputs and replies, and remote breaks.
 Expected arguments come from the independent message fixture in both languages.
+A supplied optional opaque value rejects `undefined` before local or far effects.
+Omission, opaque null, and source-undefined-to-void mapping remain distinct.
 
 The scalar source in `authoring/scalars.interface` generates Rust and TypeScript
 callers. Independent raw peers check exact scalar categories and values on both
@@ -88,11 +90,18 @@ original object identity. Malformed cursor inputs refuse before sending.
 Isolated strict Rust and TypeScript consumers compile each compound method independently.
 Harness-only child tests call the actual emitted private decoders with small
 work budgets and check moved cursor and symbol buffer identity.
-TypeScript scratch modules check minimum actual element work, without constructing
+TypeScript scratch modules check actual schema visits, without constructing
 giant transport replies. Opaque list proofs preserve the original array or Rust
 vector buffer with no per-element work, including lengths above the work budget.
 The compiler owns depth and productive-recursion refusal before emission.
 An opaque value exceeding the decoder work budget still passes without traversal.
+
+Local TypeScript peers preserve packed integer lists through list, fixed-tuple,
+and nested record projections. Empty packed runs satisfy arbitrary list schemas.
+The wire control proves received lists normalize to arrays on both profiles.
+Strict consumers prove readonly indexing, iteration, precise tuple positions,
+and passability to raw calls, opaque parameters, and Tagged fields without copies.
+They refuse Array-only APIs, primitive strings, and unpassable sequence-shaped objects.
 
 The callback matrix holds the factory reply open through admission and checks
 wrong fulfillment, remote break messages, and independent raw observation.

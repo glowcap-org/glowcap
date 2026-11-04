@@ -147,7 +147,7 @@ pub const Projection = struct {
                 }
                 // Typed lists cannot reuse Vec<Argument>'s layout. Reserve once,
                 // after schema/work checks, and move each owned child into it.
-                const work = try self.graph.minimumWork(kind.list.element, true);
+                const work = try self.graph.minimumWork(kind.list.element);
                 try out.appendSlice(self.a, "\tif values.len() > budget.remaining");
                 if (work != 1) try out.print(self.a, " / {d}", .{work});
                 try out.appendSlice(self.a, " {\n\t\treturn Err(Error::ResourceLimit);\n\t}\n\tlet mut result = Vec::with_capacity(values.len());\n\tfor value in values {\n\t\tresult.push(");

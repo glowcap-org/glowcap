@@ -24,11 +24,12 @@ function symbol_value(value: Argument): Sym {
 	if (!(value instanceof Sym)) throw new TypeError("wrong scalar value");
 	return value;
 }
+type Sequence<T> = Argument & object & ArrayLike<T> & Iterable<T>;
 type Compound0 = Tagged & {
 	readonly tag: "access:observation";
 	readonly value: [Uint8Array, Argument, boolean, boolean, Compound1];
 };
-type Compound1 = Array<Sym>;
+type Compound1 = Sequence<Sym>;
 const MAX_REPLY_WORK = 65536;
 /** A local decoder limit, independent of schema shape and collection bounds. */
 class ResourceLimit extends Error {}
@@ -60,11 +61,14 @@ function compound_0_at(value: Argument, budget: DecodeBudget): Compound0 {
 function compound_1_at(value: Argument, budget: DecodeBudget): Compound1 {
 	step(budget);
 	const values = value;
-	if (!Array.isArray(values)) throw new TypeError("expected list reply");
-	if (values.length > budget.remaining / 1) throw new ResourceLimit("reply work limit");
-	for (let index = 0; index < values.length; index++) {
-		step(budget);
-		symbol_value(values[index]);
+	if (!Array.isArray(values) && !(values instanceof BigInt64Array)) throw new TypeError("expected list reply");
+	if (values instanceof BigInt64Array) {
+		if (values.length !== 0) throw new TypeError("integer list has incompatible elements");
+	} else {
+		for (let index = 0; index < values.length; index++) {
+			step(budget);
+			symbol_value(values[index]);
+		}
 	}
 	return value as Compound1;
 }

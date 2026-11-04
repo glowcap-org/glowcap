@@ -173,7 +173,7 @@ async function scalar<T extends string | bigint>(
 		const counts: number[] = [];
 		let prefix = "";
 		host.publish("bounds", (verb, args) => {
-			assert(verb?.startsWith(`${prefix}_`), "raw scalar selector");
+			assert(verb !== null && verb.startsWith(`${prefix}_`), "raw scalar selector");
 			assert(args.length <= 1 && (verb.includes("optional") || args.length === 1), "raw scalar arity");
 			if (args.length) assert(args[0] === expected, "raw scalar category/value");
 			counts.push(args.length);
@@ -261,7 +261,7 @@ async function compounds(profile: HostProfile): Promise<void> {
 			const pending = mixed.tuple(client, target);
 			const [typed, raw] = await Promise.all([pending.observe(), pending.raw.then((v) => v)]);
 			assert(typed === raw && typed[0] === value[0], "mixed tuple copied or narrowed integer");
-			reply = new Tagged("bounds:mixed", value);
+			reply = new Tagged<Argument>("bounds:mixed", value);
 			const record = mixed.record(client, target);
 			const [recordValue, rawRecord] = await Promise.all([record.observe(), record.raw.then((v) => v)]);
 			assert(recordValue === rawRecord && recordValue.value[0] === value[0], "mixed record copied");
@@ -273,7 +273,7 @@ async function compounds(profile: HostProfile): Promise<void> {
 			]]]
 		) {
 			for (const shape of ["tuple", "record"]) {
-				reply = shape === "tuple" ? value : new Tagged("bounds:mixed", value);
+				reply = shape === "tuple" ? value : new Tagged<Argument>("bounds:mixed", value);
 				const pending = shape === "tuple" ? mixed.tuple(client, target) : mixed.record(client, target);
 				const [typed, raw] = await Promise.allSettled([pending.observe(), pending.raw.then((v) => v)]);
 				assert(

@@ -86,9 +86,10 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
             if (optional) try out.print(a, "\tif (supplied > {d}) {{\n", .{i});
             const indent = if (optional) "\t\t" else "\t";
             if (kind == .value) {
-                // Presence is arity. The binding owns generic passability,
-                // including explicit undefined supplied by an untyped caller.
-                try out.print(a, "{s}args[{d}] = arg{d}{s};\n", .{ indent, i, i, if (optional) " as Argument" else "" });
+                // Optional syntax widens Argument to include undefined. A
+                // supplied value must narrow back before local or far dispatch.
+                if (optional) try out.print(a, "{s}if (arg{d} === undefined) throw new TypeError(\"present value cannot be undefined\");\n", .{ indent, i });
+                try out.print(a, "{s}args[{d}] = arg{d};\n", .{ indent, i, i });
                 if (optional) try out.appendSlice(a, "\t}\n");
                 continue;
             }

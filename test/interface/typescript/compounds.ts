@@ -43,7 +43,7 @@ export async function compounds(): Promise<void> {
 				reply = value;
 				const result = await g.list(client, target).observe();
 				assert(
-					result.length === value.length && result.every((item) => item.value === "future"),
+					result.length === value.length && Array.from(result).every((item) => item.value === "future"),
 					"symbol list",
 				);
 				await same(g.list(client, target));
@@ -129,7 +129,7 @@ async function observation(profile: HostProfile): Promise<void> {
 		assert(value.tag === "access:observation" && value.value.length === 5, "record tag/arity");
 		assert(value.value[0].byteLength === 56 && !value.value[2] && value.value[3], "record fields");
 		assert(
-			value.value[4].length === 2 && value.value[4].every((n) => n.value === "future-notice"),
+			value.value[4].length === 2 && Array.from(value.value[4]).every((n) => n.value === "future-notice"),
 			"unknown duplicate notices lost",
 		);
 		assert(value.value[1] instanceof Tagged, "opaque Tagged category");

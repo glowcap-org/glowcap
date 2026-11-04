@@ -128,7 +128,7 @@ test "TypeScript nested leaves preserve target refusals and compile only selecte
     const tuple: types.Tuple = .{ .fields = &.{ .nothing, .{ .text = .{} }, .float64, .error_value, .value } };
     var call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .tuple = &tuple }, .effect = .call };
     const code = try ts.emit(a, &.{.{ .api = "read", .call = call }});
-    try std.testing.expect(std.mem.indexOf(u8, code, "[null, string, number, Error, Argument]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, code, "Sequence<null | string | number | Error | Argument>") != null);
     try std.testing.expect(std.mem.indexOf(u8, code, "import { Sym }") == null);
     try std.testing.expect(std.mem.indexOf(u8, code, "import { Tagged }") == null);
     call.parameters = &.{.{ .tuple = &tuple }};
@@ -152,13 +152,12 @@ test "TypeScript shares aliases and decoder helpers across selected methods" {
     }
 }
 
-test "compound work scores distinguish borrowed opaque views from owned moves" {
+test "compound inline admission counts owned opaque slots" {
     const types = @import("call_type.zig");
     const tuple: types.Tuple = .{ .fields = &.{ .value, .value, .boolean } };
     const list: types.List = .{ .element = .{ .tuple = &tuple } };
     const call: calls.Call = .{ .wire_name = "read", .parameters = &.{}, .required_parameters = 0, .result = .{ .list = &list }, .effect = .call };
     var graph = try @import("compound_graph.zig").Graph.init(std.testing.allocator, &.{.{ .api = "read", .call = call }});
     defer graph.deinit();
-    try std.testing.expectEqual(@as(usize, 4), try graph.minimumWork(list.element, true));
-    try std.testing.expectEqual(@as(usize, 2), try graph.minimumWork(list.element, false));
+    try std.testing.expectEqual(@as(usize, 4), try graph.minimumWork(list.element));
 }

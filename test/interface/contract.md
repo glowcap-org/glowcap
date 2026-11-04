@@ -180,8 +180,13 @@ remain observable, and declared break cases must not close the error universe.
 Ordinary Rust calls use unit for undefined and `Option` for optional arguments.
 They return a local validation result around the pending handle when an optional
 suffix could contain a hole. TypeScript counts supplied arguments, so an omitted
-argument differs from explicitly passed `undefined`. Present undefined is encoded
-as the binding's `null` representation for void. Contract null is still unsupported.
+argument differs from explicitly passed `undefined`. A present source-undefined parameter is encoded
+as the binding's `null` representation for void.
+
+An optional `Argument` parameter
+widens the TypeScript signature with `undefined`, so a supplied value is narrowed
+before local or far dispatch. Required `Argument` parameters retain the raw
+passability contract. Contract null is still unsupported.
 
 The scalar fixture qualifies booleans, bytes, symbols, float64, and fulfilled
 error values in Rust and TypeScript. Calls and tells cover required and optional
@@ -276,9 +281,16 @@ but is refused for this projection. Alias-only cycles remain invalid.
 
 ## TypeScript compound replies
 
-Lists and tuples validate the binding's existing `Argument[]` arrays. Tagged
-positional records validate `Tagged`, its exact string tag, payload array, arity,
-and each declared field. Generated aliases share nested types and helpers.
+Lists and tuples expose passable object views with readonly indexing, length,
+and iteration. Fixed tuples retain precise numeric positions and literal length.
+The pinned TypeScript check also qualifies positional destructuring. Array-only
+methods require an explicit caller conversion, such as `Array.from`.
+
+Wire lists arrive as `Argument[]`. Local sends can preserve `BigInt64Array`,
+which represents the same list of integers. Both representations keep their
+original objects. Tagged positional records retain their actual array payload,
+exact tag, and field count. Generated aliases share nested types and helpers.
+
 `Receiver.poll` returns the existing record with its typed positional payload.
 It checks the cursor's byte length, both booleans, and each notice's `Sym`
 category. Unknown and duplicate notices retain their order.
@@ -288,7 +300,10 @@ wrappers keep their identity and existing runtime ownership. An opaque `value`
 field needs no projection, including nested records and capabilities. A source
 `undefined` field remains the binding's raw `null` value inside a compound,
 while a top-level undefined reply exposes `void`. Source `null` remains refused.
-These views are mutable, with no freeze or membrane guarantee.
+
+Readonly indexing restricts the generated view, without freezing the object or
+adding a membrane. Views remain passable to raw calls and opaque parameters
+without copying or casting.
 
 Each observation allocates one temporary work-counter object shared by recursive
 helpers. Decoder work is limited to
@@ -296,6 +311,11 @@ helpers. Decoder work is limited to
 schema visits. Opaque fields need no element read or work charge, and a
 `list<value>` checks only its container and declared length bound. Its length
 adds no decoder work limit because its elements require no traversal.
+
+Packed runs also establish integer categories and the full i64 interval. Only
+narrower integer bounds need a per-element scan. Empty packed runs satisfy any
+list element schema, and fixed tuples still check exact arity. Budgets charge
+actual checks across nested representations, with no speculative work score.
 
 Exhaustion throws exported `ResourceLimit`. Category, tag, arity, and schema-bound
 violations throw `TypeError`. Either refusal leaves independent raw observers
