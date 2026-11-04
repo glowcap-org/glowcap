@@ -106,6 +106,7 @@ bundle uses `loam.receipt`, including a method not selected for emission.
 Descriptions without receipt methods may omit it. A supported declared profile
 may remain unused, but unknown profiles and unsupported versions are refused.
 
+Both authoring adapters omit the receipt profile when no method uses it.
 The existing comparison corpus retains both supported profile entries.
 The ordinary Rust projection does not require the binding's `loam` feature.
 These build requirements do not change the session profiles `1.0` and

@@ -40,6 +40,7 @@ const Parser = struct {
     remaining: usize = description.max_nodes,
     prefix: []const u8 = "",
     expanded_name_bytes: usize = 0,
+    receipt_convention: bool = false,
 
     fn note(self: *Parser, message: []const u8) void {
         self.diagnostic.* = .{ .offset = self.start, .message = message };
@@ -195,7 +196,8 @@ const Parser = struct {
             });
             if (entries.items.len > @import("model.zig").max_definitions) return error.ResourceLimit;
         }
-        return self.record("glowcap:interface", &.{ "1+", "{12\"loam.receipt1+14\"glowcap.values1+}", try self.dictionary(entries.items) });
+        const profiles = if (self.receipt_convention) "{12\"loam.receipt1+14\"glowcap.values1+}" else "{14\"glowcap.values1+}";
+        return self.record("glowcap:interface", &.{ "1+", profiles, try self.dictionary(entries.items) });
     }
 
     fn typeExpression(self: *Parser, depth: usize) Error![]const u8 {
@@ -243,6 +245,7 @@ const Parser = struct {
             if (try self.accept("@")) {
                 if (!std.mem.eql(u8, try self.word(), "loam.receipt")) return self.unsupported();
                 effect = "loam.receipt";
+                self.receipt_convention = true;
             } else if (try self.accept("tell")) effect = "tell";
             const token = try self.peek();
             const selector = if (token.kind == .punctuation and std.mem.eql(u8, token.text, "(")) selector: {

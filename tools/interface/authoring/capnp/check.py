@@ -46,6 +46,20 @@ def main():
             return request, actual
 
         request, base_output = accepted(source, expected)
+        ordinary_source = source.replace(' $delivery("loam.receipt")', "")
+        ordinary_expected = expected.replace(b"12'loam.receipt", b"4'call").replace(b'12"loam.receipt1+', b"")
+        accepted(ordinary_source, ordinary_expected)
+        # The annotation controls delivery, even when a wire name spells the
+        # convention name. Ordinary tells need only the values profile.
+        accepted(
+            "@0xf3f3de678a47c902;\n"
+            "annotation module(file) :Text;\n"
+            "annotation wireName(method) :Text;\n"
+            "annotation delivery(method) :Text;\n"
+            '$module("M");\n'
+            'interface R { notify @0 () -> (value :Void) $wireName("loam.receipt") $delivery("tell"); }',
+            b"<17'glowcap:interface1+{14\"glowcap.values1+}{3\"M.R<9'interface{12\"loam.receipt<6'method[]9'undefined4'tell>}>}>",
+        )
         for before, after, old, new in [
             ("$maxBytes(64)", "$maxBytes(65)", b'9"max_bytes64+', b'9"max_bytes65+'),
             (

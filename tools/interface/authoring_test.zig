@@ -47,6 +47,21 @@ fn edited(a: std.mem.Allocator, before: []const u8, after: []const u8) ![]u8 {
     return std.mem.replaceOwned(u8, a, source, before, after);
 }
 
+test "text declares receipt only when an authored method uses it" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var diagnostic: text.Diagnostic = .{};
+    const ordinary_source = try std.mem.replaceOwned(u8, a, source, "@loam.receipt", "");
+    const ordinary_methods = try std.mem.replaceOwned(u8, a, expected, "12'loam.receipt", "4'call");
+    const ordinary_expected = try std.mem.replaceOwned(u8, a, ordinary_methods, "12\"loam.receipt1+", "");
+    try std.testing.expectEqualStrings(ordinary_expected, try text.translate(a, ordinary_source, &diagnostic));
+    // A wire name containing the convention name is still an ordinary tell.
+    const tell = "module M\ninterface R { tell \"loam.receipt\"() }";
+    const tell_expected = "<17'glowcap:interface1+{14\"glowcap.values1+}{3\"M.R<9'interface{12\"loam.receipt<6'method[]9'undefined4'tell>}>}>";
+    try std.testing.expectEqualStrings(tell_expected, try text.translate(a, tell, &diagnostic));
+}
+
 test "bound reply and exact method edits change checked consumers" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
