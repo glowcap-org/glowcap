@@ -10,14 +10,6 @@ export class Pending<T> {
 	}
 }
 
-function capability(value: Argument): Ref {
-	if (!(value instanceof Ref)) throw new TypeError("expected capability reply");
-	return value;
-}
-function text(value: Argument): string {
-	if (typeof value !== "string") throw new TypeError("expected string reply");
-	return value;
-}
 function nothing(value: Argument): void {
 	// The existing TypeScript binding represents the profile's void value as null.
 	if (value !== null) throw new TypeError("expected void reply");
