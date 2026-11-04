@@ -213,6 +213,64 @@ class RunWithTimeoutTest(unittest.TestCase):
 
     # Signals and survivors.
 
+    def test_cancellation_unwinds_wait_lock_and_spawn_unmask_before_reaping(self) -> None:
+        # CPython can run a signal handler inside Popen.wait's non-reentrant
+        # waitpid lock. Inject that interleaving without depending on timing.
+        probe = self.scratch / "wait_lock.py"
+        pidfile = self.scratch / "child.pid"
+        probe.write_text(
+            "import os, pathlib, runpy, signal, subprocess, sys\n"
+            "wrapper, marker, mode = sys.argv[1:]\n"
+            "original = subprocess.Popen.wait\n"
+            "original_init = subprocess.Popen.__init__\n"
+            "original_mask = signal.pthread_sigmask\n"
+            "owner = os.getpid()\n"
+            "unmask_pending = True\n"
+            "def started(self, *args, **kwargs):\n"
+            "    original_init(self, *args, **kwargs)\n"
+            "    pathlib.Path(marker).write_text(str(self.pid))\n"
+            "def unmask(how, signals):\n"
+            "    global unmask_pending\n"
+            "    if mode == 'unmask' and os.getpid() == owner and how == signal.SIG_UNBLOCK and unmask_pending:\n"
+            "        unmask_pending = False\n"
+            "        os.kill(owner, signal.SIGTERM)\n"
+            "    return original_mask(how, signals)\n"
+            "calls = 0\n"
+            "def interrupted_wait(self, *args, **kwargs):\n"
+            "    global calls\n"
+            "    calls += 1\n"
+            "    if calls == 1 and mode != 'unmask':\n"
+            "        with self._waitpid_lock:\n"
+            "            os.kill(os.getpid(), signal.SIGTERM)\n"
+            "    elif calls == 2 and mode == 'wait-repeat':\n"
+            "        os.kill(os.getpid(), signal.SIGINT)\n"
+            "    return original(self, *args, **kwargs)\n"
+            "subprocess.Popen.wait = interrupted_wait\n"
+            "subprocess.Popen.__init__ = started\n"
+            "signal.pthread_sigmask = unmask\n"
+            "sys.argv = [wrapper, '--kill-after', '0.1s', '10s', sys.executable, '-c', 'import time; time.sleep(10)']\n"
+            "runpy.run_path(wrapper, run_name='__main__')\n"
+        )
+        for mode in ("wait", "wait-repeat", "unmask"):
+            with self.subTest(cancellation=mode):
+                wrapper = subprocess.Popen(
+                    [sys.executable, str(probe), str(WRAPPER), str(pidfile), mode],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                try:
+                    self.assertEqual(wrapper.wait(timeout=2), 128 + signal.SIGTERM)
+                    self.assertFalse(process_exists(int(pidfile.read_text())), "cancelled child survived")
+                finally:
+                    if wrapper.poll() is None:
+                        wrapper.kill()
+                        wrapper.wait()
+                    if pidfile.exists():
+                        pid = int(pidfile.read_text())
+                        if process_exists(pid):
+                            os.killpg(pid, signal.SIGKILL)
+                        pidfile.unlink()
+
     def test_the_child_receives_the_signal_that_arrived_not_a_substitute(self) -> None:
         # The victim records the signal number it actually received. It writes
         # a ready file once its handler is installed, so the signal cannot

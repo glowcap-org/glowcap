@@ -156,83 +156,96 @@ def main() -> int:
     def unblock_in_child() -> None:
         signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
 
-    # Cancellation from a CI runner or a terminal must reach the child, which
-    # is in its own session and would otherwise outlive us. Relay the signal
-    # that arrived. A Ctrl-C the child sees as SIGTERM is a different
-    # event. Then apply the same escalation a deadline gets, reap, and exit
-    # 128+N so the caller sees what killed it. SIGINT is relayed here rather
-    # than left to raise `KeyboardInterrupt`, because returning from a handler
-    # into `wait()` would let a child that ignores the signal defeat the
-    # cancellation entirely.
+    class Cancelled(BaseException):
+        pass
+
+    interrupted: int | None = None
+
+    # Forward immediately, then unwind any Popen wait lock before the owner
+    # reaps. Later signals still reach the child but cannot re-enter cleanup.
     def relay(sig: int, _frame: object) -> None:
+        nonlocal interrupted
+        first = interrupted is None
+        if first:
+            interrupted = sig
         if process is not None:
             signal_group(process, sig)
-            escalate(process, args.kill_after)
-        sys.exit(finish(128 + sig))
+        if first:
+            raise Cancelled
 
     for forwarded in relayed:
         signal.signal(forwarded, relay)
 
-    capture = tempfile.TemporaryFile() if args.quiet_success else None
-    try:
-        process = subprocess.Popen(
-            command,
-            start_new_session=True,
-            preexec_fn=unblock_in_child,
-            stdout=capture,
-            stderr=subprocess.STDOUT if capture is not None else None,
-        )
-    except FileNotFoundError as exc:
-        print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
-        return finish(127)
-    except OSError as exc:
-        # GNU timeout separates these: 127 is "no such command", 126 is
-        # "found it, could not run it".
-        print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
-        return finish(126)
-    finally:
-        signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
+    def execute() -> int:
+        nonlocal capture, process
+        capture = tempfile.TemporaryFile() if args.quiet_success else None
+        try:
+            process = subprocess.Popen(
+                command,
+                start_new_session=True,
+                preexec_fn=unblock_in_child,
+                stdout=capture,
+                stderr=subprocess.STDOUT if capture is not None else None,
+            )
+        except FileNotFoundError as exc:
+            print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
+            return finish(127)
+        except OSError as exc:
+            # GNU timeout separates these: 127 is "no such command", 126 is
+            # "found it, could not run it".
+            print(f"run-with-timeout: {command[0]}: {exc.strerror}", file=sys.stderr)
+            return finish(126)
+        finally:
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
 
-    started = time.monotonic()
-    deadline = started + args.timeout
-    try:
-        while True:
-            remaining = max(0, deadline - time.monotonic())
-            interval = min(remaining, args.heartbeat) if args.heartbeat else remaining
-            try:
-                code = shell_code(process.wait(timeout=interval))
-                break
-            except subprocess.TimeoutExpired:
-                if time.monotonic() >= deadline:
-                    raise
-                print(
-                    f"run-with-timeout: {shlex.join(command)} still running "
-                    f"({time.monotonic() - started:.0f}s elapsed, "
-                    f"{args.timeout:g}s deadline)",
-                    file=sys.stderr,
-                    flush=True,
-                )
-    except subprocess.TimeoutExpired:
-        signal_group(process, signal.SIGTERM)
-        escalate(process, args.kill_after)
+        started = time.monotonic()
+        deadline = started + args.timeout
+        try:
+            while True:
+                remaining = max(0, deadline - time.monotonic())
+                interval = min(remaining, args.heartbeat) if args.heartbeat else remaining
+                try:
+                    code = shell_code(process.wait(timeout=interval))
+                    break
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        raise
+                    print(
+                        f"run-with-timeout: {shlex.join(command)} still running "
+                        f"({time.monotonic() - started:.0f}s elapsed, "
+                        f"{args.timeout:g}s deadline)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+        except subprocess.TimeoutExpired:
+            signal_group(process, signal.SIGTERM)
+            escalate(process, args.kill_after)
+            signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
+            process = None
+            code = finish(124)
+            print(
+                f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline and was stopped",
+                file=sys.stderr,
+                flush=True,
+            )
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
+            return code
+        elapsed = time.monotonic() - started
         signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
         process = None
-        code = finish(124)
-        print(
-            f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline and was stopped",
-            file=sys.stderr,
-            flush=True,
-        )
         signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
+        code = finish(code)
+        if code == 0:
+            report_headroom(command, elapsed, args.timeout)
         return code
-    elapsed = time.monotonic() - started
-    signal.pthread_sigmask(signal.SIG_BLOCK, relayed)
-    process = None
-    signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
-    code = finish(code)
-    if code == 0:
-        report_headroom(command, elapsed, args.timeout)
-    return code
+
+    try:
+        return execute()
+    except Cancelled:
+        if process is not None:
+            escalate(process, args.kill_after)
+        assert interrupted is not None
+        return finish(128 + interrupted)
 
 
 def report_headroom(command: list[str], elapsed: float, timeout: float) -> None:
