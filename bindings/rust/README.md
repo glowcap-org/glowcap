@@ -199,6 +199,13 @@ outcome needs no second walk or guard. A settled manual outcome receives its
 guards when ownership is selected. Selecting ownership adds no future wrapper,
 payload copy or FFI retain.
 
+`Session::fetch` and `Session::enliven` own reply occurrences until accepting
+a capability. Rejected replies and cancelled lookups therefore clean up even
+under manual release. A successful result follows the Host policy sampled when
+the lookup starts. Valid manual lookups temporarily allocate the usual guard,
+then detach it without releasing the returned occurrence. Classification adds
+no payload copy, FFI retain or recursive success walk.
+
 `Host::reference_session` retains an owned handle to a capability's live
 exporter.
 

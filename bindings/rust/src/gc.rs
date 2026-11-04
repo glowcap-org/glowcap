@@ -131,6 +131,9 @@ pub(crate) fn retire(host: &HostShared) {
 /// outlive its argument tree, and Weak prevents an FFI actor/Host cycle.
 /// Explicit owned outcomes use this same guard even when automatic release
 /// is disabled. Their existing vow row selects tracking once, before delivery.
+/// Classified Session lookups also need it until acceptance or cancellation.
+/// A successful manual lookup detaches and frees its unshared guard without
+/// releasing the occurrence; fetch_like owns that temporary lifetime's derivation.
 pub(crate) fn owned_guard(host: &Rc<HostShared>, id: u64) -> Rc<CapabilityGuard> {
 	Rc::new(CapabilityGuard {
 		token: id,

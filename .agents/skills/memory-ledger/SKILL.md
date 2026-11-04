@@ -544,6 +544,9 @@ the name stays here.
   guard for each owned C occurrence, including local callback observations.
   Clones share that guard. Independently received equal ids keep distinct
   C retains. Its declaration owns the lifetime and cycle derivation.
+  Classified Session fetch/enliven outcomes use the same guard until acceptance.
+  Valid manual lookups free it at acceptance, with the temporary lifetime
+  derived at `fetch_like` in `bindings/rust/src/promise.rs`.
 - **Binding outbound flush copy**: TypeScript, Python, and Racket copy
   managed-frame bytes and release before the async write. Rust holds the frame
   across it. Language and lifetime forced: no change without a hold-across-await

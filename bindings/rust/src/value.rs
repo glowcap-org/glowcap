@@ -72,6 +72,20 @@ impl Ref {
 // only with it: dead-code linting stays live instead of blanket-allowed.
 #[cfg(feature = "async")]
 impl Ref {
+	/// Transfer an unexposed occurrence to explicit release without consuming
+	/// its FFI retain. Classification accepts exactly one Ref, so detaching
+	/// this guard requires neither a recursive walk nor a replacement owner.
+	pub(crate) fn into_manual_release(mut self) -> Self {
+		debug_assert!(
+			self.guard
+				.as_ref()
+				.is_none_or(|guard| std::rc::Rc::strong_count(guard) == 1)
+		);
+		crate::gc::disarm(&self);
+		self.guard = None;
+		self
+	}
+
 	/// Own this capability independently on the given Host. The returned
 	/// occurrence survives releasing this one, and its final drop releases
 	/// its retain. Ordinary clones still share one occurrence.
