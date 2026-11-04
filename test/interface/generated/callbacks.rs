@@ -35,6 +35,7 @@ mod __glowcap {
 		InvalidArgument,
 		InvalidSequence,
 		InvalidReply,
+		ResourceLimit,
 		Runtime(glowcap::Error),
 	}
 	impl std::fmt::Display for Error {
@@ -43,6 +44,7 @@ mod __glowcap {
 				Self::InvalidArgument => f.write_str("an argument is outside the bounds the interface declares"),
 				Self::InvalidSequence => f.write_str("the target returned no positive mutation sequence"),
 				Self::InvalidReply => f.write_str("the reply does not have the type the interface declares"),
+				Self::ResourceLimit => f.write_str("reply decoder work or depth limit exceeded"),
 				Self::Runtime(error) => error.fmt(f),
 			}
 		}
@@ -174,7 +176,11 @@ mod __glowcap {
 		}
 	}
 	fn capability(value: Argument) -> Result<Ref, Error> {
-		Ref::try_from(&value).map_err(|_| Error::InvalidReply)
+		if let Argument::Reference(reference) = value {
+			Ok(reference)
+		} else {
+			Err(Error::InvalidReply)
+		}
 	}
 	fn text(value: Argument) -> Result<String, Error> {
 		if let Argument::String(text) = value {

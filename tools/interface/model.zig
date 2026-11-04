@@ -19,16 +19,28 @@ pub const Creation = struct {
     maximum: usize,
 };
 
+const Normalized = struct { kind: call_type.Type, height: usize = 0 };
+const Memo = struct {
+    state: enum { unseen, visiting, complete } = .unseen,
+    depth: usize = 0,
+    value: Normalized = undefined,
+};
+
 pub const Model = struct {
+    arena_allocator: std.mem.Allocator,
+    memo: []Memo,
     definitions: Node,
     remaining: usize = 1 << 20,
     receipt_convention: bool = false,
 
-    pub fn init(root: Node) Error!Model {
+    /// The caller owns an arena lasting through method selection and emission.
+    pub fn init(arena_allocator: std.mem.Allocator, root: Node) Error!Model {
         const fields = try root.fields("glowcap:interface", 3);
         if (try fields[0].number() != 1 or fields[1].kind != .dictionary or fields[2].kind != .dictionary) return error.InvalidDescription;
         if (fields[2].children.len > 2 * max_definitions) return error.ResourceLimit;
-        var self: Model = .{ .definitions = fields[2], .receipt_convention = try checkProfiles(fields[1]) };
+        const memo = try arena_allocator.alloc(Memo, fields[2].children.len / 2);
+        @memset(memo, .{});
+        var self: Model = .{ .arena_allocator = arena_allocator, .memo = memo, .definitions = fields[2], .receipt_convention = try checkProfiles(fields[1]) };
         var i: usize = 0;
         while (i < self.definitions.children.len) : (i += 2) {
             try identifier(try self.definitions.children[i].string());
@@ -181,41 +193,103 @@ pub const Model = struct {
         return result;
     }
 
-    /// A checked call type retains the qualified scalar constraints.
-    /// Unsupported categories remain explicit refusals, never generic values.
+    /// Normalized nodes and parameter arrays belong to the caller's arena.
     pub fn callType(self: *Model, input: Node) !call_type.Type {
-        const node = try self.resolve(input);
-        if (node.is("string")) return .{ .text = .{} };
-        if (node.is("integer")) return .{ .integer = .{} };
-        if (node.is("bytes")) return .{ .bytes = .{} };
-        if (node.is("bool")) return .boolean;
-        if (node.is("symbol")) return .symbol;
-        if (node.is("float64")) return .float64;
-        if (node.is("error")) return .error_value;
-        if (node.is("undefined")) return .nothing;
+        return (try self.normalize(input, 0, 0)).kind;
+    }
+
+    fn normalize(self: *Model, input: Node, depth: usize, hops: usize) !Normalized {
+        try self.spend(1);
+        if (depth > description.max_depth or hops > description.max_depth) return error.ResourceLimit;
+        if (input.kind == .record and std.mem.eql(u8, input.bytes, "ref")) {
+            const name = try (try input.fields("ref", 1))[0].string();
+            try self.spend(self.memo.len);
+            var index: usize = 0;
+            while (index < self.memo.len) : (index += 1) {
+                if (std.mem.eql(u8, self.definitions.children[index * 2].bytes, name)) break;
+            }
+            if (index == self.memo.len) return error.InvalidDescription;
+            const memo = &self.memo[index];
+            switch (memo.state) {
+                .visiting => return if (depth == memo.depth) error.InvalidDescription else error.UnsupportedProjection,
+                .complete => {
+                    if (hops + memo.value.height > description.max_depth) return error.ResourceLimit;
+                    return memo.value;
+                },
+                .unseen => {},
+            }
+            const declaration = self.definitions.children[index * 2 + 1];
+            if (std.mem.eql(u8, declaration.bytes, "interface")) return .{ .kind = .target };
+            memo.state = .visiting;
+            memo.depth = depth;
+            errdefer memo.state = .unseen;
+            memo.value = try self.normalize((try declaration.fields("type", 1))[0], depth, hops + 1);
+            memo.value.height += 1;
+            memo.state = .complete;
+            return memo.value;
+        }
+        const node = input;
+        if (node.is("string")) return .{ .kind = .{ .text = .{} } };
+        if (node.is("integer")) return .{ .kind = .{ .integer = .{} } };
+        if (node.is("bytes")) return .{ .kind = .{ .bytes = .{} } };
+        if (node.is("bool")) return .{ .kind = .boolean };
+        if (node.is("symbol")) return .{ .kind = .symbol };
+        if (node.is("float64")) return .{ .kind = .float64 };
+        if (node.is("error")) return .{ .kind = .error_value };
+        if (node.is("undefined")) return .{ .kind = .nothing };
         if (node.is("null")) return error.UnsupportedTarget;
-        if (node.is("value")) return .value;
-        if (node.kind == .record) {
-            if (std.mem.eql(u8, node.bytes, "bounded")) {
-                const fields = try node.fields("bounded", 2);
-                const base = try self.resolve(fields[0]);
-                const limits = try bounds(base, fields[1]);
-                if (base.is("integer")) return .{ .integer = limits };
-                if (base.is("string") or base.is("bytes")) {
-                    const bytes: call_type.ByteBounds = .{
-                        .min = @intCast(limits.min.?),
-                        .max = if (limits.max) |maximum| @intCast(maximum) else null,
-                    };
-                    return if (base.is("string")) .{ .text = bytes } else .{ .bytes = bytes };
-                }
-                return error.UnsupportedProjection;
+        if (node.is("value")) return .{ .kind = .value };
+        if (node.is("target")) return .{ .kind = .target };
+        if (node.kind != .record) return error.UnsupportedProjection;
+        if (std.mem.eql(u8, node.bytes, "bounded")) {
+            const fields = try node.fields("bounded", 2);
+            var normalized = try self.normalize(fields[0], depth, hops + 1);
+            normalized.height += 1;
+            const base = try self.resolve(fields[0]);
+            const limits = try bounds(base, fields[1]);
+            if (base.is("integer")) return .{ .kind = .{ .integer = limits }, .height = normalized.height };
+            if (base.is("string") or base.is("bytes")) {
+                const bytes: call_type.ByteBounds = .{ .min = @intCast(limits.min.?), .max = if (limits.max) |max| @intCast(max) else null };
+                return .{ .kind = if (base.is("string")) .{ .text = bytes } else .{ .bytes = bytes }, .height = normalized.height };
             }
-            if (std.mem.eql(u8, node.bytes, "interface")) return .target;
-            if (std.mem.eql(u8, node.bytes, "promise")) {
-                const fulfilled = try self.resolve((try node.fields("promise", 1))[0]);
-                if (fulfilled.is("value")) return .pending_value;
-                if (fulfilled.kind == .record and std.mem.eql(u8, fulfilled.bytes, "interface")) return .pending_target;
+            if (normalized.kind != .list) return error.UnsupportedProjection;
+            const list = try self.arena_allocator.create(call_type.List);
+            list.* = .{ .element = normalized.kind.list.element, .max_items = if (limits.max) |max| @intCast(max) else null };
+            normalized.kind = .{ .list = list };
+            return normalized;
+        }
+        if (std.mem.eql(u8, node.bytes, "promise")) {
+            const fulfilled = try self.normalize((try node.fields("promise", 1))[0], depth, hops + 1);
+            if (fulfilled.kind == .value) return .{ .kind = .pending_value, .height = fulfilled.height + 1 };
+            if (fulfilled.kind == .target) return .{ .kind = .pending_target, .height = fulfilled.height + 1 };
+            return error.UnsupportedProjection;
+        }
+        if (std.mem.eql(u8, node.bytes, "list")) {
+            const child = try self.normalize((try node.fields("list", 1))[0], depth + 1, hops + 1);
+            const list = try self.arena_allocator.create(call_type.List);
+            list.* = .{ .element = child.kind };
+            return .{ .kind = .{ .list = list }, .height = child.height + 1 };
+        }
+        const record = std.mem.eql(u8, node.bytes, "record");
+        if (record or std.mem.eql(u8, node.bytes, "tuple")) {
+            const fields = try node.fields(if (record) "record" else "tuple", if (record) 2 else 1);
+            const members = fields[if (record) 1 else 0];
+            if (members.kind != .list) return error.InvalidDescription;
+            const types = try self.arena_allocator.alloc(call_type.Type, members.children.len);
+            var height: usize = 0;
+            for (members.children, types) |member, *kind| {
+                const child = try self.normalize(member, depth + 1, hops + 1);
+                kind.* = child.kind;
+                height = @max(height, child.height);
             }
+            if (record) {
+                const result = try self.arena_allocator.create(call_type.Record);
+                result.* = .{ .tag = try fields[0].string(), .fields = types };
+                return .{ .kind = .{ .record = result }, .height = if (types.len == 0) 0 else height + 1 };
+            }
+            const result = try self.arena_allocator.create(call_type.Tuple);
+            result.* = .{ .fields = types };
+            return .{ .kind = .{ .tuple = result }, .height = if (types.len == 0) 0 else height + 1 };
         }
         return error.UnsupportedProjection;
     }
@@ -272,7 +346,7 @@ test "checked call types retain Tasks bounds through aliases" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var checked = try Model.init(try description.read(a, @embedFile("contract")));
+    var checked = try Model.init(a, try description.read(a, @embedFile("contract")));
     const name = try checked.callType(try description.read(a, "<3'ref10\"tasks.Name>"));
     try std.testing.expectEqual(@as(u64, 1), name.text.min);
     try std.testing.expectEqual(@as(?u64, 64), name.text.max);
@@ -295,7 +369,7 @@ test "checked call integers preserve absent endpoints and exact signed extrema" 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var checked = try Model.init(try description.read(a, "<17'glowcap:interface1+{14\"glowcap.values1+}{}>"));
+    var checked = try Model.init(a, try description.read(a, "<17'glowcap:interface1+{14\"glowcap.values1+}{}>"));
     const unbounded = try checked.callType(try description.read(a, "7'integer"));
     try std.testing.expectEqual(@as(?i64, null), unbounded.integer.min);
     try std.testing.expectEqual(@as(?i64, null), unbounded.integer.max);
@@ -331,7 +405,7 @@ test "checked call alias chains preserve the final scalar restriction" {
     defer arena.deinit();
     const a = arena.allocator();
     const bytes = "<17'glowcap:interface1+{14\"glowcap.values1+}{1\"A<4'type<3'ref1\"B>>1\"B<4'type<7'bounded6'string{9\"max_bytes64+9\"min_bytes1+}>>}>";
-    var checked = try Model.init(try description.read(a, bytes));
+    var checked = try Model.init(a, try description.read(a, bytes));
     const alias = try checked.callType(try description.read(a, "<3'ref1\"A>"));
     try std.testing.expectEqual(@as(u64, 1), alias.text.min);
     try std.testing.expectEqual(@as(?u64, 64), alias.text.max);

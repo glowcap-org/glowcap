@@ -20,7 +20,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("{s}:{d}:{d}: {s} ({s})\n", .{ input, diagnostic.line, diagnostic.column, diagnostic.message, @errorName(err) });
         return err;
     } else if (std.mem.eql(u8, format, "syrup")) source else return error.InvalidArguments;
-    var model = try Model.init(try description.read(a, bytes));
+    var model = try Model.init(a, try description.read(a, bytes));
     const emitter = args.next() orelse return; // Check-only invocation.
     const receiver = args.next() orelse return error.InvalidArguments;
     const selector_kind = args.next() orelse return error.InvalidArguments;
@@ -33,8 +33,8 @@ pub fn main(init: std.process.Init) !void {
     if (args.next() != null) return error.InvalidArguments;
     const generated = if (std.mem.eql(u8, emitter, "description")) bytes else generated: {
         if (std.mem.eql(u8, emitter, "zig")) break :generated try @import("zig.zig").emit(a, try model.creation(receiver, selector orelse return error.InvalidArguments));
-        const call: calls.Named = .{ .api = api, .call = try calls.read(a, &model, receiver, selector) };
-        if (std.mem.eql(u8, emitter, "rust")) break :generated try @import("callbacks.zig").emit(a, &.{call});
+        const call: calls.Named = .{ .api = api, .call = try calls.read(&model, receiver, selector) };
+        if (std.mem.eql(u8, emitter, "rust")) break :generated try @import("callbacks.zig").emit(a, &.{call}, &.{});
         if (std.mem.eql(u8, emitter, "ts")) break :generated try @import("typescript.zig").emit(a, &.{call});
         return error.InvalidArguments;
     };

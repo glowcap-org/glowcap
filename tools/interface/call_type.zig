@@ -21,4 +21,12 @@ pub const Type = union(enum) {
     nothing,
     value,
     pending_value,
+    list: *const List,
+    tuple: *const Tuple,
+    record: *const Record,
 };
+
+// Immutable graph nodes borrow the Model arena through emission.
+pub const List = struct { element: Type, max_items: ?u64 = null };
+pub const Tuple = struct { fields: []const Type };
+pub const Record = struct { tag: []const u8, fields: []const Type };

@@ -194,8 +194,8 @@ values cannot substitute for float64.
 
 Float edge cases follow the raw bindings,
 including signed zero, subnormals, infinities, and NaN. Error fulfillment and
-remote break remain separate outcomes. Null and copied containers still have no
-generated projection.
+remote break remain separate outcomes. Null remains unsupported. Rust compound
+replies have the separate mapping below.
 
 The Rust prepared-receipt fixture accepts one `promise<value>` argument and a
 void reply. Its generated input is a borrowed `RemotePromise`. Preparation
@@ -236,13 +236,49 @@ references surviving answer release. ADR-0070 supplies stored
 resolution retention. It does not by itself prove a binding exposes every
 operation preparation needs. No generator-owned vow registry is permitted.
 
+## Rust compound replies
+
+Lists decode to owned `Vec<T>` and tuples to positional Rust tuples. Tagged
+records check their exact tag and field count before decoding each position.
+A selected explicit type export makes a positional tuple struct, such as
+`LoamObservation(Vec<u8>, Argument, bool, bool, Vec<String>)`.
+This canonical record form differs from the proposed source language's
+string-keyed records. This slice adds no source-language record syntax.
+
+`Receiver.poll` checks the 56-byte cursor, both booleans, and every notice symbol.
+Unknown and duplicate notices preserve their order. Description remains opaque
+`Argument`, including retained capabilities and application-specific records.
+The decoder does not apply Loam's semantic observation-description reader.
+Watcher keeps its previous cursor after any failure and moves in a valid reply's
+cursor. Its optional input cursor still requires one owned snapshot.
+
+If initial polling fails after observe commits, `Board.watch` attempts one
+`cancel` before returning the poll failure. A failed cancellation adds diagnostic
+context without replacing the primary error. A live Watcher remains available
+after later poll failures and is cancelled by its explicit `stop` call.
+
+Rust emission also limits expanded inline structure to
+<!-- value ../../tools/interface/rust_compounds.zig max_inline_structure -->256<!-- /value -->
+units per emitted node. A tuple or record counts its container plus inline
+fields, and each scalar or list slot counts once. List element types are checked
+independently. Excess returns compiler `ResourceLimit` before output, without
+boxing or changing the representation. This is a compiler layout guard, not a
+schema cardinality bound or exact Rust byte estimate.
+
+Declared list bounds are separate from the generated decoder's work and depth
+limits. A schema violation returns `InvalidReply`, while exhausted decoder work
+returns `ResourceLimit`. Compound inputs and TypeScript compound outputs remain
+explicitly unsupported. Productive copied recursion validates as a description
+but is refused for this projection. Alias-only cycles remain invalid.
+
 ## Tasks Rust read projection
 
 Five ordinary calls in the real Rust application use checked generation:
 Board.list, TaskList.name, TaskList.count, TaskList.task, and Task.text.
 They retain the declared Name and Text byte bounds, TaskCount range, and Index
 range from zero through signed-64-bit maximum. List and task membership still
-belongs to the server. The Zig read handlers and storage constants are unchanged.
+belongs to the server. Zig read handlers use generated argument and scalar reply
+checks. Storage conversion stays with the application.
 
 Bounded arguments return a local validation result around `Pending<T>`.
 Invalid input creates no call or error promise. Valid calls send immediately.

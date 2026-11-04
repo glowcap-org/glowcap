@@ -14,32 +14,32 @@ test "proposed text equals independent canonical description and retains exact m
     var diagnostic: text.Diagnostic = .{};
     const actual = try text.translate(a, source, &diagnostic);
     try std.testing.expectEqualStrings(expected, actual);
-    var model = try Model.init(try description.read(a, actual));
+    var model = try Model.init(a, try description.read(a, actual));
     const creation = try model.creation("comparison.Factory", "add");
     try std.testing.expectEqual(@as(usize, 1), creation.minimum);
     try std.testing.expectEqual(@as(usize, 64), creation.maximum);
-    const direct = try calls.read(a, &model, "comparison.Direct", null);
+    const direct = try calls.read(&model, "comparison.Direct", null);
     try std.testing.expectEqual(@as(?[]const u8, null), direct.wire_name);
     try std.testing.expectEqual(@as(usize, 0), direct.required_parameters);
     try std.testing.expect(direct.parameters[0] == .nothing);
     for ([_][]const u8{ "", "then", "a-b" }) |selector| {
-        const call = try calls.read(a, &model, "comparison.Named", selector);
+        const call = try calls.read(&model, "comparison.Named", selector);
         try std.testing.expectEqualStrings(selector, call.wire_name.?);
     }
-    const required = try calls.read(a, &model, "comparison.Named", "required");
+    const required = try calls.read(&model, "comparison.Named", "required");
     try std.testing.expectEqual(@as(usize, 1), required.required_parameters);
-    const optional = try calls.read(a, &model, "comparison.Named", "optional");
+    const optional = try calls.read(&model, "comparison.Named", "optional");
     try std.testing.expectEqual(@as(usize, 0), optional.required_parameters);
-    const pending = try calls.read(a, &model, "comparison.Factory", "accept");
+    const pending = try calls.read(&model, "comparison.Factory", "accept");
     try std.testing.expectEqual(calls.Kind.target, std.meta.activeTag(pending.parameters[0]));
     try std.testing.expectEqual(calls.Kind.pending_target, std.meta.activeTag(pending.parameters[1]));
-    const prepared = try calls.read(a, &model, "comparison.Prepared", "accept");
+    const prepared = try calls.read(&model, "comparison.Prepared", "accept");
     try std.testing.expectEqual(calls.Effect.receipt, prepared.effect);
     try std.testing.expect(prepared.parameters[0] == .pending_value);
-    const prepared_rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "prepared_text", .call = prepared }});
+    const prepared_rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "prepared_text", .call = prepared }}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, prepared_rust, " as prepared_text;") != null);
     for ([_][]const u8{ "null-input", "null-result" }) |selector| {
-        try std.testing.expectError(error.UnsupportedTarget, calls.read(a, &model, "comparison.Named", selector));
+        try std.testing.expectError(error.UnsupportedTarget, calls.read(&model, "comparison.Named", selector));
     }
 }
 
@@ -69,22 +69,22 @@ test "bound reply and exact method edits change checked consumers" {
     const a = arena.allocator();
     var diagnostic: text.Diagnostic = .{};
     const changed_bound = try text.translate(a, try edited(a, "max_bytes: 64", "max_bytes: 32"), &diagnostic);
-    var model = try Model.init(try description.read(a, changed_bound));
+    var model = try Model.init(a, try description.read(a, changed_bound));
     const creation = try model.creation("comparison.Factory", "add");
     try std.testing.expectEqual(@as(usize, 32), creation.maximum);
     const zig = try @import("zig.zig").emit(a, creation);
     try std.testing.expect(std.mem.indexOf(u8, zig, "32") != null);
     const changed_reply = try text.translate(a, try edited(a, "read() -> string", "read() -> undefined"), &diagnostic);
-    model = try Model.init(try description.read(a, changed_reply));
-    const reply = try calls.read(a, &model, "comparison.Reader", "read");
+    model = try Model.init(a, try description.read(a, changed_reply));
+    const reply = try calls.read(&model, "comparison.Reader", "read");
     try std.testing.expect(reply.result == .nothing);
     const ts = try @import("typescript.zig").emit(a, &.{.{ .api = "read", .call = reply }});
     try std.testing.expect(std.mem.indexOf(u8, ts, "): Pending<void>") != null);
     const changed_method = try text.translate(a, try edited(a, "\"a-b\"()", "\"renamed\"()"), &diagnostic);
-    model = try Model.init(try description.read(a, changed_method));
+    model = try Model.init(a, try description.read(a, changed_method));
     try std.testing.expectError(error.InvalidDescription, model.method("comparison.Named", "a-b"));
-    const renamed = try calls.read(a, &model, "comparison.Named", "renamed");
-    const rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "renamed", .call = renamed }});
+    const renamed = try calls.read(&model, "comparison.Named", "renamed");
+    const rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "renamed", .call = renamed }}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, rust, "\"renamed\"") != null);
 }
 
@@ -145,7 +145,7 @@ test "expanded qualified names refuse before allocation grows with impossible ou
     const a = arena.allocator();
     var valid_diagnostic: text.Diagnostic = .{};
     const bytes = try text.translate(a, valid, &valid_diagnostic);
-    var model = try Model.init(try description.read(a, bytes));
+    var model = try Model.init(a, try description.read(a, bytes));
     const factory = try std.fmt.allocPrint(a, "{s}.Factory", .{valid[7..][0..4096]});
     _ = try model.method(factory, "f0");
     var allocated: [2]usize = undefined;
@@ -171,13 +171,13 @@ test "canonical descriptions admit direct or named methods and refuse their mixt
     const prefix = "<17'glowcap:interface1+{12\"loam.receipt1+14\"glowcap.values1+}{1\"I<9'interface";
     const suffix = ">}>";
     const method = "<6'method[]9'undefined4'call>";
-    var direct = try Model.init(try description.read(allocator, prefix ++ "{f" ++ method ++ "}" ++ suffix));
+    var direct = try Model.init(allocator, try description.read(allocator, prefix ++ "{f" ++ method ++ "}" ++ suffix));
     _ = try direct.method("I", null);
-    var named = try Model.init(try description.read(allocator, prefix ++ "{0\"" ++ method ++ "1\"m" ++ method ++ "}" ++ suffix));
+    var named = try Model.init(allocator, try description.read(allocator, prefix ++ "{0\"" ++ method ++ "1\"m" ++ method ++ "}" ++ suffix));
     _ = try named.method("I", "");
     _ = try named.method("I", "m");
     const mixed = try description.read(allocator, prefix ++ "{0\"" ++ method ++ "f" ++ method ++ "}" ++ suffix);
-    try std.testing.expectError(error.InvalidDescription, Model.init(mixed));
+    try std.testing.expectError(error.InvalidDescription, Model.init(allocator, mixed));
 }
 
 test "text mixed invocation uses the shared checked-model diagnostic" {

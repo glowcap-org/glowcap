@@ -22,7 +22,7 @@ pub fn translate(a: std.mem.Allocator, source: []const u8, diagnostic: *Diagnost
     var parser: Parser = .{ .a = arena.allocator(), .source = source, .diagnostic = diagnostic };
     const encoded = try parser.module();
     // Serialization is never a route around the checked description boundary.
-    _ = Model.init(try description.read(arena.allocator(), encoded)) catch |err| {
+    _ = Model.init(arena.allocator(), try description.read(arena.allocator(), encoded)) catch |err| {
         parser.note("description rejected by checked model");
         return err;
     };

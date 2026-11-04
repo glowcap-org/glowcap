@@ -49,6 +49,20 @@ class Fixtures(unittest.TestCase):
             raise ValueError("unexpected description version")
         cls.messages = read_canonical((ROOT / "test/interface/messages.syrup").read_bytes())
 
+    def test_compound_reply_facts(self):
+        version, profiles, definitions = record(
+            read_canonical((ROOT / "test/interface/compounds.syrup").read_bytes()), "glowcap:interface"
+        )
+        self.assertEqual(version, 1)
+        self.assertEqual(profiles, {"glowcap.values": 1})
+        methods = record(definitions["compound.Source"], "interface")[0]
+        self.assertEqual(set(methods), {"list", "limited", "tuple", "zero", "nested"})
+        self.assertEqual(record(record(methods["list"], "method")[1], "list")[0].name, "symbol")
+        base, limits = record(record(methods["limited"], "method")[1], "bounded")
+        self.assertEqual(record(base, "list")[0].name, "symbol")
+        self.assertEqual(limits, {"max_items": 2})
+        self.assertEqual(record(record(methods["zero"], "method")[1], "tuple"), [[]])
+
     def methods(self, name):
         return record(self.defs[name], "interface")[0]
 

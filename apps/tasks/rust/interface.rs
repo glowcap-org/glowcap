@@ -3,12 +3,14 @@ pub use __glowcap::Error;
 pub use __glowcap::Observation;
 pub use __glowcap::Pending;
 pub use __glowcap::PreparedMutation;
+pub use __glowcap::ProjectedType0 as LoamObservation;
 pub use __glowcap::add;
 pub use __glowcap::call_0 as board_list;
 pub use __glowcap::call_1 as list_name;
 pub use __glowcap::call_2 as list_count;
 pub use __glowcap::call_3 as list_task;
 pub use __glowcap::call_4 as task_text;
+pub use __glowcap::call_5 as receiver_poll;
 pub use __glowcap::prepare_add;
 
 mod __glowcap {
@@ -25,6 +27,7 @@ mod __glowcap {
 		InvalidArgument,
 		InvalidSequence,
 		InvalidReply,
+		ResourceLimit,
 		Runtime(glowcap::Error),
 	}
 	impl std::fmt::Display for Error {
@@ -33,6 +36,7 @@ mod __glowcap {
 				Self::InvalidArgument => f.write_str("an argument is outside the bounds the interface declares"),
 				Self::InvalidSequence => f.write_str("the target returned no positive mutation sequence"),
 				Self::InvalidReply => f.write_str("the reply does not have the type the interface declares"),
+				Self::ResourceLimit => f.write_str("reply decoder work or depth limit exceeded"),
 				Self::Runtime(error) => error.fmt(f),
 			}
 		}
@@ -91,6 +95,15 @@ mod __glowcap {
 			}
 		}
 	}
+	// Presence is fixed stack scratch. A missing optional argument ends the supplied
+	// prefix; a later Some is refused before arguments acquire wire custody.
+	fn optional_argument_count(present: &[bool]) -> Result<usize, Error> {
+		let count = present.iter().take_while(|value| **value).count();
+		if present[count..].iter().any(|value| *value) {
+			return Err(Error::InvalidArgument);
+		}
+		Ok(count)
+	}
 	use std::rc::Rc;
 
 	/// Exact target, sequence, and owned arguments, retained for submission and replay.
@@ -131,7 +144,11 @@ mod __glowcap {
 		}
 	}
 	fn capability(value: Argument) -> Result<Ref, Error> {
-		Ref::try_from(&value).map_err(|_| Error::InvalidReply)
+		if let Argument::Reference(reference) = value {
+			Ok(reference)
+		} else {
+			Err(Error::InvalidReply)
+		}
 	}
 	fn text(value: Argument) -> Result<String, Error> {
 		if let Argument::String(text) = value {
@@ -142,6 +159,27 @@ mod __glowcap {
 	}
 	fn integer(value: Argument) -> Result<i64, Error> {
 		value.as_i64().ok_or(Error::InvalidReply)
+	}
+	fn boolean(value: Argument) -> Result<bool, Error> {
+		if let Argument::Boolean(value) = value {
+			Ok(value)
+		} else {
+			Err(Error::InvalidReply)
+		}
+	}
+	fn bytes(value: Argument) -> Result<Vec<u8>, Error> {
+		if let Argument::Bytes(value) = value {
+			Ok(value)
+		} else {
+			Err(Error::InvalidReply)
+		}
+	}
+	fn symbol(value: Argument) -> Result<String, Error> {
+		if let Argument::Symbol(value) = value {
+			Ok(value)
+		} else {
+			Err(Error::InvalidReply)
+		}
 	}
 	/// Copies text before acquiring a sequence. The prepared request owns that
 	/// snapshot until it is dropped, so caller edits cannot change submission or replay.
@@ -167,6 +205,8 @@ mod __glowcap {
 		let preparation = prepare_add(session, target, text);
 		async move { preparation?.await?.submit().await }
 	}
+	pub struct ProjectedType0(pub Vec<u8>, pub Argument, pub bool, pub bool, pub Compound1);
+	pub type Compound1 = Vec<String>;
 	fn text_1_64(value: Argument) -> Result<String, Error> {
 		let value = text(value)?;
 		if !(1u128..=64u128).contains(&(value.len() as u128)) {
@@ -190,6 +230,89 @@ mod __glowcap {
 		} else {
 			Ok(value)
 		}
+	}
+	fn bytes_56_56(value: Argument) -> Result<Vec<u8>, Error> {
+		let value = bytes(value)?;
+		if !(56u128..=56u128).contains(&(value.len() as u128)) {
+			Err(Error::InvalidReply)
+		} else {
+			Ok(value)
+		}
+	}
+	const MAX_REPLY_DEPTH: usize = 64;
+	const MAX_REPLY_WORK: usize = 65536;
+	// This is a decoder work limit, not a schema collection bound. Opaque value
+	// fields move intact. A typed list needs one Vec allocation because its element
+	// layout differs from Argument, and owns it until result drop or refusal.
+	struct DecodeBudget {
+		remaining: usize,
+	}
+	impl DecodeBudget {
+		fn step(&mut self, depth: usize) -> Result<(), Error> {
+			if depth > MAX_REPLY_DEPTH || self.remaining == 0 {
+				return Err(Error::ResourceLimit);
+			}
+			self.remaining -= 1;
+			Ok(())
+		}
+	}
+	fn compound_0(value: Argument) -> Result<ProjectedType0, Error> {
+		compound_0_at(
+			value,
+			&mut DecodeBudget {
+				remaining: MAX_REPLY_WORK,
+			},
+			0,
+		)
+	}
+	fn compound_0_at(value: Argument, budget: &mut DecodeBudget, depth: usize) -> Result<ProjectedType0, Error> {
+		budget.step(depth)?;
+		let Argument::Tagged { tag, value: values } = value else {
+			return Err(Error::InvalidReply);
+		};
+		if tag != "access:observation" {
+			return Err(Error::InvalidReply);
+		}
+		if values.len() != 5 {
+			return Err(Error::InvalidReply);
+		}
+		let mut fields = values.into_iter();
+		Ok(ProjectedType0(
+			{
+				budget.step(depth + 1)?;
+				bytes_56_56(fields.next().ok_or(Error::InvalidReply)?)
+			}?,
+			{
+				budget.step(depth + 1)?;
+				Ok::<_, Error>(fields.next().ok_or(Error::InvalidReply)?)
+			}?,
+			{
+				budget.step(depth + 1)?;
+				boolean(fields.next().ok_or(Error::InvalidReply)?)
+			}?,
+			{
+				budget.step(depth + 1)?;
+				boolean(fields.next().ok_or(Error::InvalidReply)?)
+			}?,
+			compound_1_at(fields.next().ok_or(Error::InvalidReply)?, budget, depth + 1)?,
+		))
+	}
+	fn compound_1_at(value: Argument, budget: &mut DecodeBudget, depth: usize) -> Result<Compound1, Error> {
+		budget.step(depth)?;
+		let Argument::List(values) = value else {
+			return Err(Error::InvalidReply);
+		};
+		if values.len() > budget.remaining {
+			return Err(Error::ResourceLimit);
+		}
+		let mut result = Vec::with_capacity(values.len());
+		for value in values {
+			result.push({
+				budget.step(depth + 1)?;
+				symbol(value)
+			}?);
+		}
+		Ok(result)
 	}
 
 	pub fn call_0(session: &Session, target: impl AsSendTarget, arg0: i64) -> Result<Pending<Ref>, Error> {
@@ -221,5 +344,25 @@ mod __glowcap {
 	pub fn call_4(session: &Session, target: impl AsSendTarget) -> Pending<String> {
 		let raw = session.send(target, "text", &[]);
 		Pending::new(raw, text_1_4096)
+	}
+
+	pub fn call_5(
+		session: &Session,
+		target: impl AsSendTarget,
+		// Omit only a trailing suffix of these arguments.
+		arg0: Option<Vec<u8>>,
+	) -> Result<Pending<ProjectedType0>, Error> {
+		if let Some(value) = arg0.as_ref()
+			&& !(56u128..=56u128).contains(&(value.len() as u128))
+		{
+			return Err(Error::InvalidArgument);
+		}
+		let count = optional_argument_count(&[arg0.is_some()])?;
+		let arguments = [
+			// Fixed stack scratch; omitted slots are outside the sent prefix.
+			arg0.map(Argument::Bytes).unwrap_or(Argument::Void),
+		];
+		let raw = session.send(target, "poll", &arguments[..count]);
+		Ok(Pending::new(raw, compound_0))
 	}
 }

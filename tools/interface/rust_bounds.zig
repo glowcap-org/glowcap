@@ -35,7 +35,7 @@ pub fn decoder(out: *std.ArrayList(u8), a: std.mem.Allocator, kind: calls.Type) 
         .target => try out.appendSlice(a, "capability"),
         .nothing => try out.appendSlice(a, "nothing"),
         .value => try out.appendSlice(a, "Ok"),
-        .pending_target, .pending_value => return error.UnsupportedProjection,
+        .pending_target, .pending_value, .list, .tuple, .record => return error.UnsupportedProjection,
     }
 }
 
@@ -69,10 +69,14 @@ pub fn replies(out: *std.ArrayList(u8), a: std.mem.Allocator, methods: []const c
             if (previous.call.effect != .tell and std.meta.eql(previous.call.result, kind)) seen = true;
         }
         if (seen) continue;
-        try out.appendSlice(a, "fn ");
-        try decoder(out, a, kind);
-        try out.print(a, "(value: Argument) -> Result<{s}, Error> {{\n\tlet value = {s}(value)?;\n\tif ", .{ if (kind == .text) "String" else if (kind == .bytes) "Vec<u8>" else "i64", if (kind == .text) "text" else if (kind == .bytes) "bytes" else "integer" });
-        try outside(out, a, kind, "value");
-        try out.appendSlice(a, " {\n\t\tErr(Error::InvalidReply)\n\t} else {\n\t\tOk(value)\n\t}\n}\n");
+        try reply(out, a, kind);
     }
+}
+
+pub fn reply(out: *std.ArrayList(u8), a: std.mem.Allocator, kind: calls.Type) !void {
+    try out.appendSlice(a, "fn ");
+    try decoder(out, a, kind);
+    try out.print(a, "(value: Argument) -> Result<{s}, Error> {{\n\tlet value = {s}(value)?;\n\tif ", .{ if (kind == .text) "String" else if (kind == .bytes) "Vec<u8>" else "i64", if (kind == .text) "text" else if (kind == .bytes) "bytes" else "integer" });
+    try outside(out, a, kind, "value");
+    try out.appendSlice(a, " {\n\t\tErr(Error::InvalidReply)\n\t} else {\n\t\tOk(value)\n\t}\n}\n");
 }

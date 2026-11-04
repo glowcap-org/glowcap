@@ -43,7 +43,8 @@ pub const Needs = struct {
         for ([_]Kind{ .target, .text, .nothing, .integer, .boolean, .bytes, .symbol, .float64, .error_value }) |kind| if (self.replies.contains(kind)) {
             try out.appendSlice(a, switch (kind) {
                 .target => "fn capability(value: Argument) -> Result<Ref, Error> {\n" ++
-                    "\tRef::try_from(&value).map_err(|_| Error::InvalidReply)\n}\n",
+                    "\tif let Argument::Reference(reference) = value {\n\t\tOk(reference)\n" ++
+                    "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",
                 .text => "fn text(value: Argument) -> Result<String, Error> {\n" ++
                     "\tif let Argument::String(text) = value {\n\t\tOk(text)\n" ++
                     "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",

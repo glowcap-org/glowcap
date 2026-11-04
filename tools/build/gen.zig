@@ -225,6 +225,7 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
             .{ .name = "syrup", .module = host_mods[layerIndex("codec")].import_table.get("syrup").? },
             .{ .name = "contract", .module = b.createModule(.{ .root_source_file = b.path("test/interface/contracts.syrup") }) },
             .{ .name = "messages", .module = b.createModule(.{ .root_source_file = b.path("test/interface/messages.syrup") }) },
+            .{ .name = "compound_contract", .module = b.createModule(.{ .root_source_file = b.path("test/interface/compounds.syrup") }) },
             .{ .name = "scalar_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/scalars.interface") }) },
             .{ .name = "authoring_text", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/comparison.interface") }) },
             .{ .name = "authoring_expected", .module = b.createModule(.{ .root_source_file = b.path("test/interface/authoring/comparison.syrup") }) },

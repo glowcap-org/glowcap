@@ -1,12 +1,16 @@
 //! Rust qualification runner for Tasks creation, refusals, and callbacks.
 #[path = "../generated/callbacks.rs"]
 pub mod callbacks;
+#[path = "../generated/compounds.rs"]
+pub mod compound_generated;
+mod compounds;
 mod conversation;
 #[path = "../generated/expected.rs"]
 mod expected;
 #[path = "../../../apps/tasks/rust/interface.rs"]
 pub mod interface;
 mod invocation;
+mod observations;
 mod pair;
 mod prepared;
 mod presence;
@@ -27,6 +31,8 @@ async fn main() {
 			tokio::time::timeout(std::time::Duration::from_secs(15), async {
 				tasks::run(args[1].parse().unwrap(), &args[2]).await;
 				reads::run().await;
+				observations::run().await;
+				compounds::run().await;
 				scalars::run().await;
 				conversation::run().await;
 				invocation::run().await;

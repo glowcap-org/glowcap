@@ -8,12 +8,13 @@ owns executable qualification.
 | Source | Responsibility |
 | --- | --- |
 | `description.zig` | Bounded Syrup description reader |
-| `model.zig` | Declaration validation, method selection, references, and type resolution |
-| `calls.zig`, `call_type.zig` | Checked call signatures carrying scalar constraints |
+| `model.zig` | Declaration validation, method selection, and arena-owned normalized type graph |
+| `calls.zig`, `call_type.zig` | Checked call signatures and immutable compound types |
 | `zig.zig`, `zig_reads.zig` | Tasks creation and read checks, and the fixed Zig direct receiver |
 | `rust.zig` | Tasks creation and read module assembly |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
 | `typescript_scalars.zig` | Exact JavaScript scalar guards and byte limits |
+| `rust_compounds.zig` | Owned list, tuple, and tagged positional-record reply decoders |
 | `rust_bounds.zig` | Rust argument checks and deduplicated bounded reply decoders |
 | `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
 | `exports.zig` | Public export validation and isolation from private implementation names |
@@ -49,6 +50,39 @@ Reply decoding moves the binding's owned values out without cloning them.
 TypeScript preserves the JavaScript objects and checks their categories before
 sending. Its byte-length checks add no payload copy. Neither target filters
 float64 values. A fulfilled error remains data, distinct from a broken call.
+
+Rust reply projections also support lists, tuples, and tagged positional records.
+`Model.init` requires a caller-owned arena that lasts through emission.
+Named aliases share immutable normalized nodes.
+
+Rust admission limits expanded
+inline structure to <!-- value rust_compounds.zig max_inline_structure -->256<!-- /value -->
+units per emitted type, including list element helpers. Tuple/record containers
+and their inline fields are counted, with each scalar or list slot counting once.
+This compiler resource limit prevents excessive Rust value and future layouts.
+It is separate from schema cardinality and is not a Rust byte-size estimate.
+
+Alias cycles are invalid,
+and productive copied recursion remains an explicit projection refusal.
+Compiler work and effective depth include alias expansion.
+
+Rust type exports are explicit rows pairing an API name with a normalized type.
+The existing export validator checks those names against calls and support.
+Tasks selects `LoamObservation`, a public tuple struct with positional fields.
+Its Watcher calls generated `Receiver.poll` and commits the moved cursor only
+after the whole reply passes. `Board.join_with_runtime` consumes a configured
+Runtime when the caller needs to select its Host or transport configuration.
+
+If initial polling fails after observe commits, Watcher attempts cancellation
+before returning the poll error. A cancellation failure adds cleanup context
+while preserving the primary poll error. Dropping references does not retire
+Loam's durable observation context.
+
+Typed lists reserve one result vector after schema and decoder-work checks.
+Their elements have a different layout from `Argument`, so this allocation
+cannot reuse the incoming vector. Payloads and references move into results.
+Opaque `value` fields move intact without decoder traversal. The decoder's
+work limit returns `ResourceLimit`, separately from a wrong reply category.
 
 Tasks' Rust creation and read projections share the checked contract.
 The [read projection](../../test/interface/contract.md#tasks-rust-read-projection)

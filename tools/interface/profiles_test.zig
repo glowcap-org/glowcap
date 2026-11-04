@@ -13,7 +13,7 @@ const receipt = "{1\"R<9'interface{1\"m<6'method[<9'parameter1\"p<7'promise5'val
 
 fn checked(a: std.mem.Allocator, profiles: []const u8, definitions: []const u8) !Model {
     const bytes = try std.fmt.allocPrint(a, "<17'glowcap:interface1+{s}{s}>", .{ profiles, definitions });
-    return Model.init(try description.read(a, bytes));
+    return Model.init(a, try description.read(a, bytes));
 }
 
 test "ordinary descriptions emit without declaring the receipt convention" {
@@ -22,8 +22,8 @@ test "ordinary descriptions emit without declaring the receipt convention" {
     const a = arena.allocator();
     for ([_][]const u8{ ordinary_profiles, receipt_profiles }) |profiles| {
         var model = try checked(a, profiles, ordinary);
-        const methods = [_]calls.Named{.{ .api = "read", .call = try calls.read(a, &model, "R", "m") }};
-        const rust_code = try rust.emit(a, &methods);
+        const methods = [_]calls.Named{.{ .api = "read", .call = try calls.read(&model, "R", "m") }};
+        const rust_code = try rust.emit(a, &methods, &.{});
         const ts_code = try ts.emit(a, &methods);
         try std.testing.expect(std.mem.indexOf(u8, rust_code, " as read;") != null);
         try std.testing.expect(std.mem.indexOf(u8, rust_code, "Pending<String>") != null);
@@ -38,8 +38,8 @@ test "receipt methods require their declared convention before emission" {
     const a = arena.allocator();
     try std.testing.expectError(error.InvalidDescription, checked(a, ordinary_profiles, receipt));
     var model = try checked(a, receipt_profiles, receipt);
-    const methods = [_]calls.Named{.{ .api = "prepare_read", .call = try calls.read(a, &model, "R", "m") }};
-    const code = try rust.emit(a, &methods);
+    const methods = [_]calls.Named{.{ .api = "prepare_read", .call = try calls.read(&model, "R", "m") }};
+    const code = try rust.emit(a, &methods, &.{});
     try std.testing.expect(std.mem.indexOf(u8, code, " as prepare_read;") != null);
     try std.testing.expect(std.mem.indexOf(u8, code, "PreparedMutation<()>") != null);
     // A selected ordinary method cannot hide a receipt elsewhere in the bundle.

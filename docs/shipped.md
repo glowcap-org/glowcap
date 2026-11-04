@@ -252,6 +252,8 @@ so a peer with no listening socket can still reply and take part in a handoff.
   an MCP interface, and join a Rooms session ([CLI guide](cli.md)).
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
   Tasks uses generated Zig creation and six server read checks from a Syrup contract, plus a Rust retained-request client and five bounded read calls.
+  Watcher polling uses a generated positional-record reply check and moves a valid returned cursor into place.
+
   Rust prepared pending arguments run through acquisition and replay on both wire profiles.
   Generated Rust and TypeScript callers [isolate public exports from private helpers](../test/interface/authoring/README.md#reproduce),
   preserve positional, empty-symbol, and named invocation,
