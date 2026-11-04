@@ -18,26 +18,38 @@ need no Zig installation. Building the compiler from source requires Zig.
 
 ## Execution map
 
-The current work is milestone 2. Conversation and generation-cost baselines are
-retained. Compare authoring frontends next. Syrup remains the direct compiler input.
+The current work is milestone 2. Conversation, generation-cost, and proposed
+text comparisons are retained. Tasks' Rust read workflow and six Zig server
+reads use generated checks for declared bounds and exact arity. Syrup remains the direct compiler
+input. The production authoring frontend and full-target completion budget are
+still undecided.
 
 | Work | State and next action | Owner |
 | --- | --- | --- |
 | Contract and independent messages | Authored and checked | [Fixture contract](../../test/interface/contract.md) |
-| Compiler and first Tasks migration | Bounded reader/model, Zig creation checks, Rust preparation and replay run | [Compiler](../../tools/interface/README.md) |
+| Compiler and first Tasks migration | Bounded reader/model, Zig creation and read checks, Rust preparation and replay run | [Compiler](../../tools/interface/README.md) |
 | Rust and TypeScript callbacks | Both profiles preserve pending admission, callbacks, pipelines, wrong replies and remote breaks. Rust drops polled observations, and TypeScript cancels sessions with observers active | [Proof suite](../../test/interface/README.md) |
 | Binding prerequisites | Rust retention and TypeScript owning-thread capability fulfillment are implemented using existing Host operations | `bindings/rust`, `bindings/ts` |
 | Prepared pending arguments | Rust capture, drop/observation, submission/replay, cancellation, and cross-Host refusal run on both profiles. Binding tests check final retain retirement | Milestone 2 ownership case |
 | Conversation coverage | Zig creation export failure and retry are qualified. Generated Rust recipient handoff and plain Goblins calling the generated Zig Tasks boundary run on Syrup/V1.0 | Milestone 2 runtime cases |
 | Invocation shape | Rust and TypeScript callers preserve selector presence. A generated Zig two-value direct receiver restores leading-symbol data on both profiles | General receiver projections remain |
 | Argument presence | Rust and TypeScript distinguish omission from explicit undefined and refuse invalid holes on both profiles. Null remains unsupported by the targets | [Proof suite](../../test/interface/README.md) |
-| Cost and authoring decision | [Generation and paired costs](../../bench/interface/results.md) are recorded at their measured source revision. Compare text and Cap'n Proto adapters next | Milestone 2 decision |
+| Profile requirements | Ordinary descriptions require the value mapping. Receipt methods also require their convention, checked across the whole bundle | [Fixture contract](../../test/interface/contract.md) |
+| Generated Rust support | Selected methods determine imports and helpers. Isolated consumers compile with warnings denied | [Authoring checks](../../test/interface/authoring/README.md) |
+| Tasks read workflow | Five generated Rust reads replace manual wire calls and text/count decoding. Zig handlers use generated checks for arguments and scalar replies. Real Board reads and independent raw peers check bounds and failures | Milestone 2 application qualification |
+| Cap'n Proto comparison | The compiler-request comparison is retained in [#65](https://github.com/glowcap-org/glowcap/pull/65) | Milestone 2 comparison |
+| Cost and authoring decision | [Generation costs](../../bench/interface/results.md) and the [text comparison](../../test/interface/authoring/README.md) retain measurements and limits. Complete the frontend assessment and completion budget | Milestone 2 decision |
 
 The [earlier experiment](../research/interface-design-proof.md) is background
 research. Its live results are not reproducible from the retained sources.
 The proof suite above is the executable evidence for this implementation.
 [ADR-0069](../decisions/adr/ADR-0069-proposed-interface-language.md) remains a
 proposal until the adoption decision at milestone 4.
+
+The read workflow extends milestone 2's application evidence before the complete
+Tasks migration. It removes handwritten wire calls, decoders, and a String
+copy in the Rust read path. Imports, records, unions, declared failure types, and complete target mappings
+remain language work. The comparison adapters' size and passing cases do not establish those features or their cost.
 
 ## Fixed scope
 
@@ -334,11 +346,9 @@ arity, bounds, and sequence handling.
 | Zig content selector/argument projection, generated shape and bounds checks | Storage schemas, authorization, transactions, child materialization, participant admission, membership, capacity policy |
 | Client copies of method names and return shapes | Session ownership, persistence, retry decisions, cancellation policy |
 
-Move `max_name_bytes`, `max_text_bytes`, `max_lists`, and `max_tasks` to the
-shared generated owner when their consumers migrate. The generated creation
-projection owns `max_text_bytes`, and `board.zig` keeps the other three until
-their consumers migrate. Fixture
-limits remain independently checked expectations.
+Tasks creation and read projections own `max_name_bytes`, `max_text_bytes`,
+`max_lists`, and `max_tasks`. The board converts them to its storage types.
+Fixture limits remain independently checked expectations.
 Do not introduce a second production constants table during this leg.
 
 Initial ceilings, fixed before compiler implementation:

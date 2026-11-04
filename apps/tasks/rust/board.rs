@@ -33,17 +33,6 @@ fn capability(reply: &Argument, what: &str) -> Result<Ref, String> {
 	Ref::try_from(reply).map_err(|_| format!("{what} was not a capability"))
 }
 
-fn integer(reply: &Argument, what: &str) -> Result<i64, String> {
-	reply.as_i64().ok_or_else(|| format!("{what} was not an integer"))
-}
-
-fn text(reply: &Argument, what: &str) -> Result<String, String> {
-	reply
-		.as_str()
-		.map(str::to_string)
-		.ok_or_else(|| format!("{what} was not text"))
-}
-
 /// A task on the board, named by its capability.
 pub struct Task(Ref);
 
@@ -126,11 +115,8 @@ impl Board {
 		let board = session.fetch(name).await.map_err(|e| format!("fetch board: {e}"))?;
 		let mut lists = Vec::new();
 		for at in 0..2i64 {
-			let reply = session
-				.send(&board, "list", &[at.into()])
-				.await
-				.map_err(|e| format!("list {at}: {e}"))?;
-			lists.push(capability(&reply, "list")?);
+			let pending = interface::board_list(&session, &board, at).map_err(|error| format!("list {at}: {error}"))?;
+			lists.push(pending.await.map_err(|error| format!("list {at}: {error}"))?);
 		}
 		let done = lists.pop().ok_or("missing done list")?;
 		let todo = lists.pop().ok_or("missing to do list")?;
@@ -193,12 +179,22 @@ impl Board {
 	pub async fn lists(&self) -> Result<Vec<TaskList>, String> {
 		let mut lists = Vec::new();
 		for list in [&self.todo, &self.done] {
-			let name = text(&self.call(list, "name", &[]).await?, "list name")?;
-			let count = integer(&self.call(list, "count", &[]).await?, "list count")?;
+			let name = interface::list_name(&self.session, list)
+				.await
+				.map_err(|error| format!("list name: {error}"))?;
+			let count = interface::list_count(&self.session, list)
+				.await
+				.map_err(|error| format!("list count: {error}"))?;
 			let mut tasks = Vec::new();
 			for at in 0..count {
-				let task = capability(&self.call(list, "task", &[at.into()]).await?, "task")?;
-				tasks.push(text(&self.call(&task, "text", &[]).await?, "task text")?);
+				let pending =
+					interface::list_task(&self.session, list, at).map_err(|error| format!("task: {error}"))?;
+				let task = pending.await.map_err(|error| format!("task: {error}"))?;
+				tasks.push(
+					interface::task_text(&self.session, &task)
+						.await
+						.map_err(|error| format!("task text: {error}"))?,
+				);
 			}
 			lists.push(TaskList { name, tasks });
 		}

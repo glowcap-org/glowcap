@@ -31,6 +31,13 @@ const selected = .{
     .{ "fixture.Presence", "notify", "presence_notify" },
 };
 const prepared = .{.{ "fixture.Prepared", "accept", "prepare_accept" }};
+const task_reads = .{
+    .{ "tasks.Board", "list", "board_list" },
+    .{ "tasks.TaskList", "name", "list_name" },
+    .{ "tasks.TaskList", "count", "list_count" },
+    .{ "tasks.TaskList", "task", "list_task" },
+    .{ "tasks.Task", "text", "task_text" },
+};
 
 pub const step_name = "gen-interface-fixtures";
 pub const outputs = [_]Output{
@@ -44,12 +51,22 @@ pub const outputs = [_]Output{
     .{ .path = "apps/tasks/rust/interface.rs", .generate = generateRust },
 };
 
-fn generate(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
+fn generateZig(a: std.mem.Allocator) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     var model = try Model.init(try description.read(arena.allocator(), @embedFile("contract")));
     const method = try model.creation("tasks.TaskList", creation_method);
-    return emitter.emit(a, method);
+    const reads = try serverReads(arena.allocator(), &model);
+    return zig.emitServer(a, method, &reads);
+}
+
+fn serverReads(a: std.mem.Allocator, model: *Model) ![6]calls.Named {
+    const selections = task_reads ++ .{.{ "tasks.Board", "lists", "board_lists" }};
+    var reads: [selections.len]calls.Named = undefined;
+    inline for (selections, 0..) |selected_method, i| {
+        reads[i] = .{ .api = selected_method[2], .call = try calls.read(a, model, selected_method[0], selected_method[1]) };
+    }
+    return reads;
 }
 
 fn generateCalls(a: std.mem.Allocator, comptime emitter: type, comptime selections: anytype) ![]u8 {
@@ -70,11 +87,17 @@ fn generateTypeScript(a: std.mem.Allocator) ![]u8 {
     return generateCalls(a, @import("typescript.zig"), selected);
 }
 
-fn generateZig(a: std.mem.Allocator) ![]u8 {
-    return generate(a, zig);
-}
 fn generateRust(a: std.mem.Allocator) ![]u8 {
-    return generate(a, rust);
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const scratch = arena.allocator();
+    var model = try Model.init(try description.read(scratch, @embedFile("contract")));
+    const creation = try model.creation("tasks.TaskList", creation_method);
+    var reads: [task_reads.len]calls.Named = undefined;
+    inline for (task_reads, 0..) |method, i| {
+        reads[i] = .{ .api = method[2], .call = try calls.read(scratch, &model, method[0], method[1]) };
+    }
+    return rust.emit(a, creation, &reads);
 }
 
 test "authored contract selects creation and rejects another method shape" {
@@ -88,7 +111,7 @@ test "authored contract selects creation and rejects another method shape" {
     const other = try model.creation("tasks.Board", "add-list");
     try std.testing.expectEqual(@as(usize, 64), other.maximum);
     // The templates spell `add`, so they refuse to name another method's request.
-    try std.testing.expectError(error.UnsupportedProjection, rust.emit(std.testing.allocator, other));
+    try std.testing.expectError(error.UnsupportedProjection, rust.emit(std.testing.allocator, other, &.{}));
     try std.testing.expectError(error.UnsupportedProjection, zig.emit(std.testing.allocator, other));
     try std.testing.expectError(error.UnsupportedProjection, model.creation("tasks.TaskList", "move"));
 }
@@ -188,7 +211,7 @@ test "call projections admit present undefined and optional arguments but refuse
 }
 
 test "prepared receipt emitters refuse unqualified shapes" {
-    for ([_]calls.Kind{ .text, .target, .pending_target, .nothing, .value }) |kind| {
+    for ([_]calls.Type{ .{ .text = .{} }, .target, .pending_target, .nothing, .value }) |kind| {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
             .wire_name = "accept",
             .parameters = &.{kind},
@@ -198,7 +221,7 @@ test "prepared receipt emitters refuse unqualified shapes" {
         } }};
         try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods));
     }
-    for ([_]calls.Kind{ .text, .target, .pending_target, .pending_value, .value }) |kind| {
+    for ([_]calls.Type{ .{ .text = .{} }, .target, .pending_target, .pending_value, .value }) |kind| {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
             .wire_name = "accept",
             .parameters = &.{.pending_value},
@@ -250,6 +273,7 @@ test "call presence keeps the Models trailing optional rule" {
 test {
     _ = @import("authoring_test.zig");
     _ = @import("profiles_test.zig");
+    _ = @import("read_test.zig");
 }
 
 fn generateAuthoringText(a: std.mem.Allocator) ![]u8 {
@@ -282,12 +306,54 @@ test "direct receiver projection refuses unqualified call shapes" {
     call.required_parameters = 1;
     try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
     call.required_parameters = 2;
-    call.parameters = &.{ .text, .value };
+    call.parameters = &.{ .{ .text = .{} }, .value };
     try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
     call.parameters = &.{ .value, .value };
-    call.result = .text;
+    call.result = .{ .text = .{} };
     try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
     call.result = .nothing;
     call.effect = .tell;
     try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
+}
+
+test "server read emitter keeps edited constraints and rejects unsupported shapes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var model = try Model.init(try description.read(a, @embedFile("contract")));
+    const creation = try model.creation("tasks.TaskList", creation_method);
+    const original = try serverReads(a, &model);
+    var edited = original;
+    edited[1].call.result = .{ .text = .{ .min = 2, .max = 32 } };
+    edited[2].call.result = .{ .integer = .{ .min = 1, .max = 12 } };
+    edited[5].call.result = .{ .integer = .{ .min = 0, .max = 8 } };
+    edited[0].call.wire_name = "renamed-list";
+    const source = try zig.emitServer(a, creation, &edited);
+    for ([_][]const u8{
+        "pub const max_name_bytes: u64 = 32;",
+        "pub const max_tasks: u64 = 12;",
+        "pub const max_lists: u64 = 8;",
+        "@as(u128, bytes.len) < 2 or @as(u128, bytes.len) > 32",
+        "@as(u128, count) < 1 or @as(u128, count) > 12",
+        "pub const board_list_verb = \"renamed-list\";",
+    }) |needle| try std.testing.expect(std.mem.indexOf(u8, source, needle) != null);
+    // Full-width schema maxima stay u64. Storage owns its separate usize cast.
+    edited = original;
+    edited[1].call.result = .{ .text = .{ .max = std.math.maxInt(u64) } };
+    const wide = try zig.emitServer(a, creation, &edited);
+    try std.testing.expect(std.mem.indexOf(u8, wide, "pub const max_name_bytes: u64 = 18446744073709551615;") != null);
+    for (0..7) |case| {
+        edited = original;
+        switch (case) {
+            0 => edited[1].call.result = .{ .text = .{} },
+            1 => edited[2].call.result = .{ .integer = .{ .min = -1, .max = 12 } },
+            2 => edited[2].call.result = .{ .integer = .{ .min = 0 } },
+            3 => edited[3].call.parameters = &.{.{ .integer = .{ .min = 0, .max = 16 } }},
+            4 => edited[0].call.parameters = &.{.{ .integer = .{ .min = 0 } }},
+            5 => edited[1].call.parameters = &.{.{ .text = .{} }},
+            6 => edited[1].call.result = .value,
+            else => unreachable,
+        }
+        try std.testing.expectError(error.UnsupportedProjection, zig.emitServer(a, creation, &edited));
+    }
 }

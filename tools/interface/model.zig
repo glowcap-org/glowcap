@@ -4,6 +4,7 @@ const std = @import("std");
 const description = @import("description.zig");
 const Node = description.Node;
 const Error = description.Error;
+const call_type = @import("call_type.zig");
 
 pub const max_definitions: usize = 4096;
 pub const max_parameters: usize = 256;
@@ -141,24 +142,7 @@ pub const Model = struct {
         } else if (std.mem.eql(u8, label, "bounded")) {
             const fields = try value.fields("bounded", 2);
             try self.checkType(fields[0], depth + 1);
-            if (fields[1].kind != .dictionary) return error.InvalidDescription;
-            const base = try self.resolve(fields[0]);
-            const integers = base.is("integer");
-            const bytes = base.is("string") or base.is("bytes");
-            const container = base.kind == .record and (std.mem.eql(u8, base.bytes, "list") or std.mem.eql(u8, base.bytes, "map") or std.mem.eql(u8, base.bytes, "set"));
-            if (!integers and !bytes and !container) return error.InvalidDescription;
-            var minimum: i64 = if (base.is("integer")) std.math.minInt(i64) else 0;
-            var maximum: i64 = std.math.maxInt(i64);
-            var i: usize = 0;
-            while (i < fields[1].children.len) : (i += 2) {
-                const key = try fields[1].children[i].string();
-                const number = try fields[1].children[i + 1].number();
-                const lower = std.mem.eql(u8, key, if (integers) "min" else "min_bytes");
-                const upper = std.mem.eql(u8, key, if (integers) "max" else if (bytes) "max_bytes" else "max_items");
-                if ((!lower and !upper) or (container and lower) or (!integers and number < 0)) return error.InvalidDescription;
-                if (lower) minimum = number else maximum = number;
-            }
-            if (minimum > maximum) return error.InvalidDescription;
+            _ = try bounds(try self.resolve(fields[0]), fields[1]);
         } else if (std.mem.eql(u8, label, "list") or std.mem.eql(u8, label, "set") or std.mem.eql(u8, label, "promise")) {
             try self.checkType((try value.fields(label, 1))[0], depth + 1);
         } else if (std.mem.eql(u8, label, "tuple") or std.mem.eql(u8, label, "union")) {
@@ -172,6 +156,60 @@ pub const Model = struct {
             if (fields[1].kind != .list) return error.InvalidDescription;
             for (fields[1].children) |field| try self.checkType(field, depth + 1);
         } else return error.UnsupportedProjection;
+    }
+
+    // One interpretation of bound names and units for validation and call projection.
+    fn bounds(base: Node, restrictions: Node) Error!call_type.IntegerBounds {
+        if (restrictions.kind != .dictionary) return error.InvalidDescription;
+        const integers = base.is("integer");
+        const bytes = base.is("string") or base.is("bytes");
+        const container = base.kind == .record and (std.mem.eql(u8, base.bytes, "list") or std.mem.eql(u8, base.bytes, "map") or std.mem.eql(u8, base.bytes, "set"));
+        if (!integers and !bytes and !container) return error.InvalidDescription;
+        var result: call_type.IntegerBounds = .{ .min = if (integers) null else 0 };
+        var i: usize = 0;
+        while (i < restrictions.children.len) : (i += 2) {
+            const key = try restrictions.children[i].string();
+            const number = try restrictions.children[i + 1].number();
+            const lower = std.mem.eql(u8, key, if (integers) "min" else "min_bytes");
+            const upper = std.mem.eql(u8, key, if (integers) "max" else if (bytes) "max_bytes" else "max_items");
+            if ((!lower and !upper) or (container and lower) or (!integers and number < 0)) return error.InvalidDescription;
+            if (lower) result.min = number else result.max = number;
+        }
+        if (result.min) |minimum| if (result.max) |maximum| {
+            if (minimum > maximum) return error.InvalidDescription;
+        };
+        return result;
+    }
+
+    /// A checked call type retains the qualified scalar constraints.
+    /// Unsupported categories remain explicit refusals, never generic values.
+    pub fn callType(self: *Model, input: Node) !call_type.Type {
+        const node = try self.resolve(input);
+        if (node.is("string")) return .{ .text = .{} };
+        if (node.is("integer")) return .{ .integer = .{} };
+        if (node.is("undefined")) return .nothing;
+        if (node.is("null")) return error.UnsupportedTarget;
+        if (node.is("value")) return .value;
+        if (node.kind == .record) {
+            if (std.mem.eql(u8, node.bytes, "bounded")) {
+                const fields = try node.fields("bounded", 2);
+                const base = try self.resolve(fields[0]);
+                const limits = try bounds(base, fields[1]);
+                if (base.is("integer")) return .{ .integer = limits };
+                if (base.is("string")) return .{ .text = .{
+                    .min = @intCast(limits.min.?),
+                    .max = if (limits.max) |maximum| @intCast(maximum) else null,
+                } };
+                return error.UnsupportedProjection;
+            }
+            if (std.mem.eql(u8, node.bytes, "interface")) return .target;
+            if (std.mem.eql(u8, node.bytes, "promise")) {
+                const fulfilled = try self.resolve((try node.fields("promise", 1))[0]);
+                if (fulfilled.is("value")) return .pending_value;
+                if (fulfilled.kind == .record and std.mem.eql(u8, fulfilled.bytes, "interface")) return .pending_target;
+            }
+        }
+        return error.UnsupportedProjection;
     }
 
     /// Select a checked method while preserving positional versus symbolic invocation.
@@ -191,21 +229,19 @@ pub const Model = struct {
         return error.InvalidDescription;
     }
 
-    pub fn creation(self: *Model, interface_name: []const u8, method_name: []const u8) Error!Creation {
+    pub fn creation(self: *Model, interface_name: []const u8, method_name: []const u8) !Creation {
         const selected = try self.method(interface_name, method_name);
         if (!selected[2].is("loam.receipt") or selected[0].children.len != 1) return error.UnsupportedProjection;
         const param = try selected[0].children[0].fields("parameter", 3);
         if (param[2].boolean) return error.UnsupportedProjection;
-        const input = try self.resolve(param[1]);
-        if (input.kind != .record or !std.mem.eql(u8, input.bytes, "bounded")) return error.UnsupportedProjection;
-        const bounded = try input.fields("bounded", 2);
-        if (!bounded[0].is("string")) return error.UnsupportedProjection;
-        const min = try (try bounded[1].get("min_bytes")).number();
-        const max = try (try bounded[1].get("max_bytes")).number();
-        if (min < 0 or max < min) return error.InvalidDescription;
+        const input = self.callType(param[1]) catch |err| {
+            return if (err == error.UnsupportedTarget) error.UnsupportedProjection else err;
+        };
+        if (input != .text) return error.UnsupportedProjection;
+        const maximum = input.text.max orelse return error.UnsupportedProjection;
         const result = try self.resolve(selected[1]);
         if (result.kind != .record or !std.mem.eql(u8, result.bytes, "interface")) return error.UnsupportedProjection;
-        return .{ .wire_name = method_name, .minimum = std.math.cast(usize, min) orelse return error.UnsupportedProjection, .maximum = std.math.cast(usize, max) orelse return error.UnsupportedProjection };
+        return .{ .wire_name = method_name, .minimum = std.math.cast(usize, input.text.min) orelse return error.UnsupportedProjection, .maximum = std.math.cast(usize, maximum) orelse return error.UnsupportedProjection };
     }
 };
 
@@ -222,4 +258,70 @@ fn identifier(name: []const u8) Error!void {
         }
     }
     if (first) return error.InvalidDescription;
+}
+
+test "checked call types retain Tasks bounds through aliases" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var checked = try Model.init(try description.read(a, @embedFile("contract")));
+    const name = try checked.callType(try description.read(a, "<3'ref10\"tasks.Name>"));
+    try std.testing.expectEqual(@as(u64, 1), name.text.min);
+    try std.testing.expectEqual(@as(?u64, 64), name.text.max);
+    const text = try checked.callType(try description.read(a, "<3'ref10\"tasks.Text>"));
+    try std.testing.expectEqual(@as(u64, 1), text.text.min);
+    try std.testing.expectEqual(@as(?u64, 4096), text.text.max);
+    const count = try checked.callType(try description.read(a, "<3'ref15\"tasks.TaskCount>"));
+    try std.testing.expectEqual(@as(?i64, 0), count.integer.min);
+    try std.testing.expectEqual(@as(?i64, 256), count.integer.max);
+    const index = try checked.callType(try description.read(a, "<3'ref11\"tasks.Index>"));
+    try std.testing.expectEqual(@as(?i64, 0), index.integer.min);
+    try std.testing.expectEqual(@as(?i64, std.math.maxInt(i64)), index.integer.max);
+    const target = try checked.callType(try description.read(a, "<3'ref14\"tasks.TaskList>"));
+    try std.testing.expect(target == .target);
+    const pending = try checked.callType(try description.read(a, "<7'promise<3'ref10\"tasks.Task>>"));
+    try std.testing.expect(pending == .pending_target);
+}
+
+test "checked call integers preserve absent endpoints and exact signed extrema" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var checked = try Model.init(try description.read(a, "<17'glowcap:interface1+{14\"glowcap.values1+}{}>"));
+    const unbounded = try checked.callType(try description.read(a, "7'integer"));
+    try std.testing.expectEqual(@as(?i64, null), unbounded.integer.min);
+    try std.testing.expectEqual(@as(?i64, null), unbounded.integer.max);
+    const lower = try checked.callType(try description.read(a, "<7'bounded7'integer{3\"min0+}>"));
+    try std.testing.expectEqual(@as(?i64, 0), lower.integer.min);
+    try std.testing.expectEqual(@as(?i64, null), lower.integer.max);
+    const upper = try checked.callType(try description.read(a, "<7'bounded7'integer{3\"max3+}>"));
+    try std.testing.expectEqual(@as(?i64, null), upper.integer.min);
+    try std.testing.expectEqual(@as(?i64, 3), upper.integer.max);
+    const full = try checked.callType(try description.read(a, "<7'bounded7'integer{3\"max9223372036854775807+3\"min9223372036854775808-}>"));
+    try std.testing.expectEqual(@as(?i64, std.math.minInt(i64)), full.integer.min);
+    try std.testing.expectEqual(@as(?i64, std.math.maxInt(i64)), full.integer.max);
+    const wide = try checked.callType(try description.read(a, "<7'bounded6'string{9\"max_bytes9223372036854775807+}>"));
+    try std.testing.expectEqual(@as(?u64, std.math.maxInt(i64)), wide.text.max);
+    const string = try checked.callType(try description.read(a, "6'string"));
+    try std.testing.expectEqual(@as(u64, 0), string.text.min);
+    try std.testing.expectEqual(@as(?u64, null), string.text.max);
+    for ([_][]const u8{
+        "<7'bounded6'string{9\"max_bytes1-}>",
+        "<7'bounded6'string{9\"max_bytes1+9\"min_bytes2+}>",
+        "<7'bounded7'integer{3\"max1+3\"min2+}>",
+        "<7'bounded7'integer{9\"max_bytes1+}>",
+    }) |invalid| try std.testing.expectError(error.InvalidDescription, checked.callType(try description.read(a, invalid)));
+    try std.testing.expectError(error.UnsupportedTarget, checked.callType(try description.read(a, "4'null")));
+    try std.testing.expectError(error.UnsupportedProjection, checked.callType(try description.read(a, "5'bytes")));
+}
+
+test "checked call alias chains preserve the final scalar restriction" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const bytes = "<17'glowcap:interface1+{14\"glowcap.values1+}{1\"A<4'type<3'ref1\"B>>1\"B<4'type<7'bounded6'string{9\"max_bytes64+9\"min_bytes1+}>>}>";
+    var checked = try Model.init(try description.read(a, bytes));
+    const alias = try checked.callType(try description.read(a, "<3'ref1\"A>"));
+    try std.testing.expectEqual(@as(u64, 1), alias.text.min);
+    try std.testing.expectEqual(@as(?u64, 64), alias.text.max);
 }

@@ -68,7 +68,9 @@ from [rust_helpers.interface](rust_helpers.interface). Each is a public library
 module checked with `cargo clippy --lib -- -D warnings`, without lint allowances.
 The cases cover text, capability and value replies, reference inputs, optional
 arguments, receipt preparation, and tells with zero, string, undefined, value,
-or optional arguments. The scratch library reuses the conversation crate's
+or optional arguments. Bounded cases add UTF-8 text inputs and replies,
+lower-only and wide byte limits, integer parameters and tells, optional bounded
+text, and full signed-64-bit replies. The scratch library reuses the conversation crate's
 dependencies, lockfile, and Cargo caches. It adds no runtime calls.
 
 The adapter has no new production dependency. An arena owns decoded tokens and

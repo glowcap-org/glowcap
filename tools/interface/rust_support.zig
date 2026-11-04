@@ -27,13 +27,15 @@ pub const Needs = struct {
         if (self.references) try out.appendSlice(a, @embedFile("templates/references.rs"));
         if (self.optional) try out.appendSlice(a, @embedFile("templates/optional.rs"));
         if (self.receipt) try out.appendSlice(a, @embedFile("templates/receipt.rs"));
-        for ([_]Kind{ .target, .text, .nothing }) |kind| if (self.replies.contains(kind)) {
+        for ([_]Kind{ .target, .text, .nothing, .integer }) |kind| if (self.replies.contains(kind)) {
             try out.appendSlice(a, switch (kind) {
                 .target => "fn capability(value: Argument) -> Result<Ref, Error> {\n" ++
                     "\tRef::try_from(&value).map_err(|_| Error::InvalidReply)\n}\n",
                 .text => "fn text(value: Argument) -> Result<String, Error> {\n" ++
                     "\tif let Argument::String(text) = value {\n\t\tOk(text)\n" ++
                     "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",
+                .integer => "fn integer(value: Argument) -> Result<i64, Error> {\n" ++
+                    "\tvalue.as_i64().ok_or(Error::InvalidReply)\n}\n",
                 .nothing => "fn nothing(value: Argument) -> Result<(), Error> {\n" ++
                     "\tif matches!(value, Argument::Void) {\n\t\tOk(())\n" ++
                     "\t} else {\n\t\tErr(Error::InvalidReply)\n\t}\n}\n",

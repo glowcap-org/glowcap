@@ -14,11 +14,11 @@ const access = glowcap.loam.access;
 const driver = glowcap.driver.core;
 
 /// A list holds at most this many tasks.
-pub const max_tasks = 256;
+pub const max_tasks = std.math.cast(usize, interface.max_tasks) orelse @compileError("Tasks storage cannot represent max_tasks");
 /// A board holds at most this many lists.
-pub const max_lists = 16;
+pub const max_lists = std.math.cast(usize, interface.max_lists) orelse @compileError("Tasks storage cannot represent max_lists");
 pub const max_text_bytes = interface.max_text_bytes;
-pub const max_name_bytes = 64;
+pub const max_name_bytes = std.math.cast(usize, interface.max_name_bytes) orelse @compileError("Tasks storage cannot represent max_name_bytes");
 
 pub const board_schema = 0x5441534b53424f41;
 pub const list_schema = 0x5441534b534c4953;
@@ -44,7 +44,7 @@ pub const contents = [_]access.hosting.ContentBehavior{
     .{ .schema = task_schema, .requirement = requirement, .retry = retry, .invoke = invokeTask },
 };
 
-const readers = [_][]const u8{ "lists", "list", "name", "count", "task", "text" };
+const readers = [_][]const u8{ interface.board_lists_verb, interface.board_list_verb, interface.list_name_verb, interface.list_count_verb, interface.list_task_verb, interface.task_text_verb };
 const writers = [_][]const u8{ "add-list", interface.add_verb, "move" };
 
 fn named(verb: []const u8, set: []const []const u8) bool {
@@ -62,20 +62,11 @@ fn retry(_: ?*anyopaque, verb: []const u8, _: []const driver.Value) !access.host
     return if (named(verb, &readers)) .read_only else .receipt;
 }
 
-fn index(args: []const driver.Value) !usize {
-    if (args.len == 0 or args[0] != .integer) return error.InvalidArguments;
-    return std.math.cast(usize, args[0].integer) orelse error.InvalidArguments;
-}
-
 fn text(args: []const driver.Value, limit: usize) ![]const u8 {
     if (args.len != 1 or args[0] != .string) return error.InvalidArguments;
     const value = args[0].string;
     if (value.len == 0 or value.len > limit) return error.InvalidArguments;
     return value;
-}
-
-fn count(content: core.RecordView) driver.Value {
-    return .{ .integer = @intCast(content.edge_count) };
 }
 
 /// The destination's count once a move appends the task.
@@ -89,8 +80,14 @@ fn createList(_: ?*anyopaque, _: std.mem.Allocator, input: access.hosting.Conten
 }
 
 fn invokeBoard(_: ?*anyopaque, call: *access.hosting.ContentCall, input: access.hosting.ContentInvocation) !driver.Value {
-    if (std.mem.eql(u8, input.verb, "lists")) return count(input.content);
-    if (std.mem.eql(u8, input.verb, "list")) return call.discloseDependent(try index(input.args));
+    if (std.mem.eql(u8, input.verb, interface.board_lists_verb)) {
+        try interface.readArguments(input.args);
+        return .{ .integer = try interface.boardListsReply(input.content.edge_count) };
+    }
+    if (std.mem.eql(u8, input.verb, interface.board_list_verb)) {
+        const at = try interface.indexArguments(input.args);
+        return call.discloseDependent(std.math.cast(usize, at) orelse return error.InvalidArguments);
+    }
     if (std.mem.eql(u8, input.verb, "add-list")) {
         try call.createChild(try text(input.args, max_name_bytes));
         return .void;
@@ -126,9 +123,18 @@ fn moveTask(_: ?*anyopaque, _: std.mem.Allocator, input: access.hosting.ContentI
 }
 
 fn invokeList(_: ?*anyopaque, call: *access.hosting.ContentCall, input: access.hosting.ContentInvocation) !driver.Value {
-    if (std.mem.eql(u8, input.verb, "name")) return .{ .string = input.content.payload };
-    if (std.mem.eql(u8, input.verb, "count")) return count(input.content);
-    if (std.mem.eql(u8, input.verb, "task")) return call.discloseDependent(try index(input.args));
+    if (std.mem.eql(u8, input.verb, interface.list_name_verb)) {
+        try interface.readArguments(input.args);
+        return .{ .string = try interface.listNameReply(input.content.payload) };
+    }
+    if (std.mem.eql(u8, input.verb, interface.list_count_verb)) {
+        try interface.readArguments(input.args);
+        return .{ .integer = try interface.listCountReply(input.content.edge_count) };
+    }
+    if (std.mem.eql(u8, input.verb, interface.list_task_verb)) {
+        const at = try interface.indexArguments(input.args);
+        return call.discloseDependent(std.math.cast(usize, at) orelse return error.InvalidArguments);
+    }
     if (std.mem.eql(u8, input.verb, interface.add_verb)) {
         try call.createChild(try interface.addArguments(input.args));
         return .void;
@@ -143,6 +149,9 @@ fn invokeList(_: ?*anyopaque, call: *access.hosting.ContentCall, input: access.h
 }
 
 fn invokeTask(_: ?*anyopaque, _: *access.hosting.ContentCall, input: access.hosting.ContentInvocation) !driver.Value {
-    if (std.mem.eql(u8, input.verb, "text")) return .{ .string = input.content.payload };
+    if (std.mem.eql(u8, input.verb, interface.task_text_verb)) {
+        try interface.readArguments(input.args);
+        return .{ .string = try interface.taskTextReply(input.content.payload) };
+    }
     return error.NoSuchMethod;
 }
