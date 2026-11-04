@@ -1,4 +1,4 @@
-import { type Argument, Ref, type RemotePromise } from "@glowcap/runtime";
+import { type Argument, Ref, RemotePromise } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
 
 /** Observation checks a reply without replacing the runtime's pending target. */

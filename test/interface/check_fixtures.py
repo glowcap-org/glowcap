@@ -110,6 +110,23 @@ class Fixtures(unittest.TestCase):
             self.messages["handoff-result"], "Hello glowcap-carol, I'm Bob, handed off directly from the exporter!"
         )
 
+    def test_presence_keeps_omission_void_and_null_distinct(self):
+        methods = self.methods("fixture.Presence")
+        for name, optional in (("required", False), ("optional", True)):
+            parameters, result, convention = record(methods[name], "method")
+            _, kind, actual_optional = record(parameters[0], "parameter")
+            self.assertEqual(
+                (kind.name, actual_optional, result.name, convention.name), ("undefined", optional, "undefined", "call")
+            )
+        parameters, _, _ = record(methods["null-input"], "method")
+        self.assertEqual(record(parameters[0], "parameter")[1].name, "null")
+        self.assertEqual(record(methods["null-result"], "method")[1].name, "null")
+        cases = self.messages["presence"]
+        self.assertEqual(cases["absent"], [])
+        self.assertEqual(record(cases["void"][0], "void"), [])
+        self.assertEqual(cases["one"], ["first"])
+        self.assertEqual(cases["two"], ["first", "second"])
+
     def test_reference_closure(self):
         found = set()
 

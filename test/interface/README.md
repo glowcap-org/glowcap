@@ -28,6 +28,11 @@ Generated Rust and TypeScript callers distinguish positional invocation, empty-s
 methods, and named methods on both profiles. Rust checks that the positional
 tell carries no answer authority.
 
+The presence fixture distinguishes no arguments from one void argument on the wire
+on both profiles. It checks required and optional undefined inputs, optional
+text and references, invalid holes, wrong inputs and replies, and remote breaks.
+Expected arguments come from the independent message fixture in both languages.
+
 The callback matrix holds the factory reply open through admission and checks
 wrong fulfillment, remote break messages, and independent raw observation.
 Rust drops both unobserved handles and polled observations while retaining the

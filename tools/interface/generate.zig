@@ -22,6 +22,13 @@ const selected = .{
     .{ "fixture.Notify", @as(?[]const u8, null), "notify_direct" },
     .{ "fixture.Hostile", "", "invoke_empty" },
     .{ "fixture.Hostile", "then", "invoke_named" },
+    .{ "fixture.Presence", "required", "presence_required" },
+    .{ "fixture.Presence", "optional", "presence_optional" },
+    .{ "fixture.Presence", "suffix", "presence_suffix" },
+    .{ "fixture.Presence", "pair", "presence_pair" },
+    .{ "fixture.Presence", "references", "presence_references" },
+    .{ "fixture.Presence", "value", "presence_value" },
+    .{ "fixture.Presence", "notify", "presence_notify" },
 };
 const prepared = .{.{ "fixture.Prepared", "accept", "prepare_accept" }};
 
@@ -30,6 +37,7 @@ pub const outputs = [_]Output{
     .{ .path = "test/interface/generated/callbacks.ts", .generate = generateTypeScript },
     .{ .path = "test/interface/generated/callbacks.rs", .generate = generateCallbacks },
     .{ .path = "test/interface/generated/expected.rs", .generate = @import("expectations.zig").generate },
+    .{ .path = "test/interface/generated/expected.ts", .generate = @import("expectations.zig").generateTypeScript },
     .{ .path = "apps/tasks/zig/interface.zig", .generate = generateZig },
     .{ .path = "apps/tasks/rust/interface.rs", .generate = generateRust },
 };
@@ -154,25 +162,27 @@ test "empty bounds validate their base and reject unproductive recursion" {
     }
 }
 
-test "TypeScript projection refuses void parameters and accepts void results" {
-    const typescript = @import("typescript.zig");
-    for ([_]bool{ false, true }) |tell| {
-        const methods = [_]calls.Named{.{ .api = "void_argument", .call = .{
-            .wire_name = "void-argument",
-            .parameters = &.{.nothing},
-            .result = .nothing,
-            .effect = if (tell) .tell else .call,
-        } }};
-        try std.testing.expectError(error.UnsupportedProjection, typescript.emit(std.testing.allocator, &methods));
+test "call projections admit present undefined and optional arguments but refuse contract null" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var model = try Model.init(try description.read(arena.allocator(), @embedFile("contract")));
+    for ([_][]const u8{ "required", "optional", "suffix", "pair", "references", "value", "notify" }) |name| {
+        const call = try calls.read(arena.allocator(), &model, "fixture.Presence", name);
+        const methods = [_]calls.Named{.{ .api = "presence", .call = call }};
+        const rust_source = try @import("callbacks.zig").emit(std.testing.allocator, &methods);
+        defer std.testing.allocator.free(rust_source);
+        const ts_source = try @import("typescript.zig").emit(std.testing.allocator, &methods);
+        defer std.testing.allocator.free(ts_source);
     }
-    const methods = [_]calls.Named{.{ .api = "void_result", .call = .{
-        .wire_name = "void-result",
-        .parameters = &.{},
-        .result = .nothing,
-        .effect = .call,
-    } }};
-    const source = try typescript.emit(std.testing.allocator, &methods);
-    defer std.testing.allocator.free(source);
+    const required = try calls.read(arena.allocator(), &model, "fixture.Presence", "required");
+    const optional = try calls.read(arena.allocator(), &model, "fixture.Presence", "optional");
+    const suffix = try calls.read(arena.allocator(), &model, "fixture.Presence", "suffix");
+    try std.testing.expectEqual(@as(usize, 1), required.required_parameters);
+    try std.testing.expectEqual(@as(usize, 0), optional.required_parameters);
+    try std.testing.expectEqual(@as(usize, 1), suffix.required_parameters);
+    for ([_][]const u8{ "null-input", "null-result" }) |name| {
+        try std.testing.expectError(error.UnsupportedTarget, calls.read(arena.allocator(), &model, "fixture.Presence", name));
+    }
 }
 
 test "prepared receipt emitters refuse unqualified shapes" {
@@ -180,6 +190,7 @@ test "prepared receipt emitters refuse unqualified shapes" {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
             .wire_name = "accept",
             .parameters = &.{kind},
+            .required_parameters = 1,
             .result = .nothing,
             .effect = .receipt,
         } }};
@@ -189,6 +200,7 @@ test "prepared receipt emitters refuse unqualified shapes" {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
             .wire_name = "accept",
             .parameters = &.{.pending_value},
+            .required_parameters = 1,
             .result = kind,
             .effect = .receipt,
         } }};
@@ -197,6 +209,7 @@ test "prepared receipt emitters refuse unqualified shapes" {
     const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
         .wire_name = "accept",
         .parameters = &.{.pending_value},
+        .required_parameters = 1,
         .result = .nothing,
         .effect = .receipt,
     } }};
@@ -215,4 +228,19 @@ test "checked call selection preserves positional, empty, and named methods" {
     try std.testing.expectEqualStrings("then", named.wire_name.?);
     try std.testing.expectError(error.InvalidDescription, calls.read(arena.allocator(), &model, "fixture.Direct", ""));
     try std.testing.expectError(error.InvalidDescription, calls.read(arena.allocator(), &model, "fixture.Hostile", null));
+}
+
+test "call presence keeps the Models trailing optional rule" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const source = "<17'glowcap:interface1+{12\"loam.receipt1+14\"glowcap.values1+}{1\"A<9'interface{1\"m<6'method[<9'parameter1\"a6'stringt><9'parameter1\"b6'stringf>]9'undefined4'call>}>}>";
+    try std.testing.expectError(error.InvalidDescription, Model.init(try description.read(arena.allocator(), source)));
+    const methods = [_]calls.Named{.{ .api = "optional_receipt", .call = .{
+        .wire_name = "accept",
+        .parameters = &.{.pending_value},
+        .required_parameters = 0,
+        .result = .nothing,
+        .effect = .receipt,
+    } }};
+    try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods));
 }

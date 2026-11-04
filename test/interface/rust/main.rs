@@ -7,6 +7,7 @@ mod expected;
 mod invocation;
 mod pair;
 mod prepared;
+mod presence;
 mod tasks;
 
 #[tokio::main(flavor = "current_thread")]
@@ -19,6 +20,7 @@ async fn main() {
 				tasks::run(args[1].parse().unwrap(), &args[2]).await;
 				conversation::run().await;
 				invocation::run().await;
+				presence::run().await;
 				prepared::run().await;
 			})
 			.await

@@ -16,3 +16,15 @@ pub const PREPARED_OPERATION: &str = "accept";
 pub const HANDOFF_NAME: &str = "glowcap-carol";
 #[allow(dead_code)]
 pub const HANDOFF_RESULT: &str = "Hello glowcap-carol, I'm Bob, handed off directly from the exporter!";
+
+#[allow(dead_code)]
+pub fn presence_arguments(name: &str) -> Vec<Argument> {
+	match name {
+		"one" => vec!["first".into()],
+		"two" => vec!["first".into(), "second".into()],
+		"void" => vec![Argument::Void],
+		"absent" => vec![],
+		"text-void" => vec!["first".into(), Argument::Void],
+		_ => panic!("unknown presence expectation"),
+	}
+}
