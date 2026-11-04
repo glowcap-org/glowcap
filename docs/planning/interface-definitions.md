@@ -1,6 +1,6 @@
 # Interface definitions
 
-Status: execution authorized, milestone 2 in progress.
+Status: execution authorized, milestone 2 in progress, authoring continuation proposed.
 This file owns the execution order and completion criteria for generation.
 Delete it after milestones 5 and 6 pass. Discovery is not a completion condition.
 
@@ -22,8 +22,8 @@ The current work is milestone 2. Conversation, generation-cost, and proposed
 text comparisons are retained. Tasks' Rust read workflow and six Zig server
 reads use generated checks for declared bounds and exact arity. Complete authored
 Tasks and Loam modules feed generation and match the independent Syrup fixture.
-Syrup remains supported input. The production authoring choice and full-target completion budget are
-still undecided.
+Syrup remains supported input. The [continuation proposal](#continuation-proposal)
+recommends the text frontend. Frontend selection and the full-target budget remain open.
 
 | Work | State and next action | Owner |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ still undecided.
 | Rust compound replies | Owned list, tuple and positional-record replies drive actual Watcher polling on both profiles. Tags, bounds, notices and cursor replacement are checked | [Fixture contract](../../test/interface/contract.md#rust-compound-replies) |
 | Tasks read workflow | Five generated Rust reads replace manual wire calls and text/count decoding. Zig handlers use generated checks for arguments and scalar replies. Real Board reads and independent raw peers check bounds and failures | Milestone 2 application qualification |
 | Cap'n Proto comparison | The compiler-request comparison is retained in [#65](https://github.com/glowcap-org/glowcap/pull/65) | Milestone 2 comparison |
-| Cost and authoring decision | [Generation costs](../../bench/interface/results.md) and the [text comparison](../../test/interface/authoring/README.md) retain measurements and limits. Complete the frontend assessment and completion budget | Milestone 2 decision |
+| Cost and authoring decision | [Generation costs](../../bench/interface/results.md) and the [text comparison](../../test/interface/authoring/README.md) retain measurements and limits. Review the continuation proposal and complete its measurement checkpoint | [Continuation proposal](#continuation-proposal) |
 
 The [earlier experiment](../research/interface-design-proof.md) is background
 research. Its live results are not reproducible from the retained sources.
@@ -347,9 +347,11 @@ arity, bounds, and sequence handling.
 
 | Remove when generated | Retain at current owner |
 | --- | --- |
-| Rust capability/integer/text reply helpers, call packing, watcher record decoding, receipt envelope packing | Board workflow, connection setup, cursor lifecycle, user error presentation |
-| Zig content selector/argument projection, generated shape and bounds checks | Storage schemas, authorization, transactions, child materialization, participant admission, membership, capacity policy |
-| Client copies of method names and return shapes | Session ownership, persistence, retry decisions, cancellation policy |
+| Remaining Rust capability checks, watcher poll/cancel and registration decoding, receipt packing for move and observation | Board workflow, connection setup, cursor lifecycle, user error presentation |
+| Zig content selector/argument projection, index/text checks, and client reply and receipt helpers | Storage schemas, authorization, transactions, child materialization, participant admission, membership, capacity policy |
+| TypeScript, Python and Racket Tasks call layouts, reply checks, watcher decoding and receipt packing | Session ownership, persistence, retry decisions, cancellation policy |
+| Rooms control method names, argument packing and reply shapes for policy, labels and lifecycle | Revision selection, deadlines, admission, effect handling and recovery |
+| Existing Rooms generator tables and emitters, plus consumer shape checks covered by the replacement contract | Room membership, message queues, registration and application policy |
 
 Tasks creation and read projections own `max_name_bytes`, `max_text_bytes`,
 `max_lists`, and `max_tasks`. The board converts them to its storage types.
@@ -370,12 +372,92 @@ Initial ceilings, fixed before compiler implementation:
 | Prepared mutation | Same sequence query plus submission as raw, one retained snapshot, no second full snapshot or automatic resend |
 | Generation | Under 1 second warm for this corpus, at most 64 MiB peak resident memory |
 
-These are stop-and-review ceilings, not measurements of software that does not
-exist yet. Full-target completion needs a revised measured budget at the
-milestone-2 decision. Multiplying a tiny prototype's line count is not evidence.
+These are stop-and-review ceilings for milestone 2. The proposal below does not
+replace them until accepted. Generated output and deleted application code do
+not offset compiler maintenance cost.
 
 Measure raw and generated build time, allocations, copied bytes, and latency
-in the same pinned environment and harness. The existing Tasks test exercises
-behavior, not a calibrated call benchmark. Its wall time must not be presented
-as call latency. Establish that paired benchmark before accepting generation's
-cost result. No performance improvement is claimed by this leg.
+in the same pinned environment and harness. The retained paired benchmark
+establishes costs for its selected Rust calls. Tasks test wall time is not call
+latency. Extend the paired measurements when the generated value or ownership
+path changes. No general performance improvement is claimed.
+
+### Continuation proposal
+
+Continue generation and use the proposed text frontend for the next authoring
+proof. The retained conversation and paired costs justify that work. Final
+frontend selection and the full-target budget remain milestone-2 decisions.
+ADR-0069 stays proposed through complete Tasks migration and the adoption proof.
+
+Text expresses methods, exact symbols, bounds and pending references directly.
+It adds no production dependency, but makes this project responsible for imports,
+diagnostics and formatting. Cap'n Proto supplies a compiler and schema tooling,
+but its adapter still needs glowcap mappings and imported-bundle assembly.
+
+| Remaining authoring work | Proposed text | Cap'n Proto adapter |
+| --- | --- | --- |
+| Value mapping | Complete container, recursive and failure syntax | Mappings for integers, symbols, dynamic values, null, promises and positional records |
+| Imports | Rooted loading, resolution and bounded bundle assembly | Adapter currently accepts one requested file and refuses external references |
+| Diagnostics | Preserve syntax locations through shared validation | Mapping errors need source positions beyond compiler syntax diagnostics |
+| Formatting | Preserve comments, which the comparison parser discards | Qualify the annotation and formatting workflow |
+| Dependencies | Existing Zig modules | Compiler 1.1.0 and locked Rust capnp 0.27.3 |
+
+Both adapters reproduce the independent comparison description. Neither proves
+complete authoring support. Prefer text for its direct contract notation, and
+reconsider that choice if the imported-module proof cannot fit the existing
+frontend limit or produces worse authoring than the mapped Cap'n Proto input.
+
+The [generation report](../../bench/interface/results.md) qualifies selected
+Rust/Syrup 1.0 calls. It records matching raw/generated allocation counts and
+message histograms, with no extra payload copies in the reviewed wrappers.
+The [text](../../test/interface/authoring/README.md#process-and-build-costs-2026-11-03)
+and [Cap'n Proto](../../tools/interface/authoring/capnp/README.md#dependencies-and-measurements)
+process measurements use different harnesses and do not rank parser speed.
+
+### Current source and missing budget evidence
+
+At `39678c7c`, the implementation inventory is 1,772 nonblank lines: shared
+reader/model 443, Zig/Rust emitters and helpers 630, TypeScript 207, text 258,
+and command/build integration 234. Comments count. Embedded Zig tests, standalone
+tests, generated output and the Cap'n Proto comparison are separate.
+
+These counts can be reproduced from tracked blobs at that revision. Use the
+literal masker and brace-balanced test-block exclusion in
+[`measure.py`](../../bench/interface/measure.py). Shared code comprises
+`description`, `model`, `calls`, `call_type` and `literal`. Zig/Rust comprises
+`callbacks`, `exports`, `rust*`, `zig` and the Rust templates. TypeScript comprises
+`typescript*` and its template. Integration comprises `generate`,
+`authoring_check` and `tools/build/interface.zig`.
+
+The compound-reply batch is additional, unmerged work. Its Rust reply checks
+and Watcher migration do not establish compound inputs or other targets.
+Historical benchmark results keep their original source revisions.
+
+No supported estimate yet covers complete values, generic receivers and
+receipts, authoring tools, distribution, and all five targets. Keep the existing
+ceilings while measuring the next complete module. A later budget proposal must
+charge each remaining feature to its owner and distinguish estimated additions
+from measured source. Deleted consumer code and generated output do not offset
+compiler maintenance cost.
+
+### Next measurement checkpoint
+
+Complete these steps before closing milestone 2:
+
+1. Load Tasks and shared Loam definitions through bounded text imports. Compare
+   their checked graph with the independent description. Include lists, tuples
+   and positional records without changing the source language's string-keyed
+   record meaning. Check missing files, import cycles and resource limits.
+2. Preserve an imported bound error's source location through validation.
+   Repeat bound, reply and method edits through imported declarations.
+3. Record the resulting compiler/frontend source, tests, generated output and
+   deleted wire decisions. Measure bundle checking and supported emission
+   against the existing 1-second warm and 64-MiB RSS limits.
+4. Extend paired raw/generated measurements to compound replies. Use an
+   equivalent typed raw decoder, accounting for result-vector storage, payload
+   copies, retained bytes, messages and cleanup after partial decoding.
+
+This checkpoint keeps the existing 1,200-line frontend ceiling. Full grammar,
+formatting, packaging and remaining targets retain their milestone exits.
+If the checkpoint exceeds a ceiling, review its design and cost before extending
+it. A passing scalar benchmark does not qualify container allocation costs.
