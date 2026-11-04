@@ -32,9 +32,9 @@ pub fn emit(out: *std.ArrayList(u8), a: std.mem.Allocator, projection: *graph.Gr
             },
             .tuple, .record => {
                 if (node.kind == .record) {
-                    try out.appendSlice(a, "Tagged & { readonly tag: ");
+                    try out.appendSlice(a, "Tagged & {\n\treadonly tag: ");
                     try literal(out, a, node.kind.record.tag);
-                    try out.appendSlice(a, "; readonly value: ");
+                    try out.appendSlice(a, ";\n\treadonly value: ");
                 }
                 try out.appendSlice(a, "[");
                 const fields = if (node.kind == .record) node.kind.record.fields else node.kind.tuple.fields;
@@ -42,7 +42,7 @@ pub fn emit(out: *std.ArrayList(u8), a: std.mem.Allocator, projection: *graph.Gr
                     if (j != 0) try out.appendSlice(a, ", ");
                     try typeName(out, a, projection, field);
                 }
-                try out.appendSlice(a, if (node.kind == .record) "] }" else "]");
+                try out.appendSlice(a, if (node.kind == .record) "];\n}" else "]");
             },
             else => unreachable,
         }
