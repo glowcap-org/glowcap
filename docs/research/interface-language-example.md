@@ -35,7 +35,7 @@ type Chunk = bytes(max_bytes: 1_048_576)
 type Offset = integer(min: 0, max: 18_446_744_073_709_551_615)
 
 // Every atom in the draft model.
-record Atoms {
+struct Atoms {
   absent: undefined
   nothing: null
   enabled: bool
@@ -53,7 +53,7 @@ type Properties = map<string, value>
 type Decimal = tagged<"example/decimal", tuple<integer, integer>>
 type Mode = symbol("snapshot") | symbol("live")
 
-record Metadata {
+struct Metadata {
   name: Name
   length: Offset
   position: Position
@@ -66,13 +66,13 @@ record Metadata {
 }
 
 // Explicitly preserve fields this version does not recognize.
-record ExtensionData {
+struct ExtensionData {
   name: Name
   ...extra: value
 }
 
 // Recursive copied data. No cyclic copied object graph is implied.
-record Tree {
+struct Tree {
   name: Name
   children: list<Tree>
 }
@@ -88,7 +88,7 @@ type OpenFailure = tagged<"example/not-found", Name>
                  | tagged<"example/denied", undefined>
 
 // Arbitrary targets and promises can occur inside copied containers.
-record Mixed {
+struct Mixed {
   object: target
   document: Reader
   pending_document: promise<Reader>
@@ -153,7 +153,7 @@ interface Revoker {
   revoke() -> undefined
 }
 
-record SharedDocument {
+struct SharedDocument {
   access: Reader
   control: Revoker
 }
@@ -197,7 +197,7 @@ interface Workspace {
 
 ## Source and names
 
-A module contains aliases, records, and interfaces. Imports name local files
+A module contains aliases, structs, and interfaces. Imports name local files
 explicitly and bind a module alias, as in `import "loam.interface" as loam`.
 Import resolution uses a supplied root and pinned inputs, never ambient network
 access. Modules can reference each other's types within a bounded resolved
@@ -213,7 +213,7 @@ The public formatter preserves comments and has one stable output for each input
 
 An unquoted method identifier is its exact wire symbol, with no case conversion.
 A quoted name such as `"read-all"` also selects a symbol, not a string.
-Parameter labels never enter the argument list. A record field names an exact
+Parameter labels never enter the argument list. A struct field names an exact
 string key. Renaming either wire name changes the contract.
 
 Generated identifiers use deterministic, collision-free escaping for each
@@ -224,11 +224,38 @@ Names cannot inject source code or select output paths outside the output root.
 
 ## Values and bounds
 
-`record` is a copied structure with string keys. `tuple` is a fixed-shape list,
-`list` a variable-length list, and `map<string, T>` a string-keyed structure.
-`tagged<"name", T>` has an exact string tag and one payload. A tuple payload
-remains one payload, not a variadic Syrup record.
+`struct Name { ... }` declares a copied structure with string keys. `tuple` is
+a fixed-shape list, `list` a variable-length list, and `map<string, T>` a
+string-keyed structure.
+
+`record<"name", T...>` has an exact string tag followed
+by zero or more positional field types. Each field keeps its position and
+nesting. `tagged<"name", T>` has exactly one payload. A tuple payload remains
+one payload, not a variadic record.
 `symbol("name")` is a literal symbol, distinct from a string.
+
+The shared Loam module defines its observation as a positional record:
+
+```text
+module loam
+
+type Cursor = bytes(min_bytes: 56, max_bytes: 56)
+type Observation = record<
+  "access:observation", Cursor, value, bool, bool, list<symbol>
+>
+```
+
+The [canonical description](../../test/interface/contract.md#description-version-1)
+contains the following type expression, with Syrup length prefixes omitted:
+
+```text
+<record "access:observation" [<ref "loam.Cursor"> value bool bool <list symbol>]>
+```
+
+The positions are cursor, description, reset, changed, and notices. Description
+stays open as `value`. Tasks imports this shared definition. These string-tagged
+records belong to the existing `glowcap.values` mapping and need no additional
+profile. Arbitrary labels belong to the separate `syrup.record` proposal below.
 
 Bounds have explicit units: inclusive `min` and `max` for integers,
 `min_bytes` and `max_bytes` for bytes or UTF-8 text, and `min_items` and
@@ -258,7 +285,7 @@ The [conformance manifest](../ocapn-conformance.md) owns runtime status.
 ## Optionality, unions, and recursion
 
 `field?: T` means that the key may be absent. Present null or undefined must
-be admitted explicitly by T. Records are closed by default, so unknown keys
+be admitted explicitly by T. Structs are closed by default, so unknown keys
 fail. An explicit final `...extra: value` field captures unknown keys and their
 values, including reference ownership, without adding an `extra` key on the
 wire. Re-encoding preserves them. Duplicate keys are refused.
@@ -504,7 +531,7 @@ These are separate authorities, not one frozen profile.
 | Facility | Where this example puts it |
 | --- | --- |
 | Undefined, null, bool, integer, float64, string, bytes, symbol | Atom declarations |
-| Lists, string-keyed structures, tagged values | Lists, records, maps, and tags |
+| Lists, string-keyed structures, tagged values | Lists, structs, maps, positional records, and single-payload tags |
 | Target references and promises within values | Interface types, `target`, `promise<T>`, Mixed |
 | Errors and broken promises | `error`, open `throws`, resolver break, broken handler |
 | Method selection and arbitrary invocation | Named, quoted, unnamed, and variadic signatures |

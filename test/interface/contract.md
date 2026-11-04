@@ -422,7 +422,7 @@ not execute them.
 | UTF-8 bounds | 1 and 4,096 text bytes accepted, empty and 4,097 refused, multibyte strings counted by bytes |
 | Parameters | Exact arity, missing required or excess arguments refused, optional cursor omitted or 56 bytes, never 55/57 or void |
 | Integers | i64 endpoints and big integers round-trip, Index -1 refused, Sequence 0 refused |
-| Copied data | Missing/null/undefined distinct, closed-record extra field refused, extension fields preserved, depth budget enforced |
+| Copied data | Missing/null/undefined distinct, closed-struct extra field refused, extension fields preserved, depth budget enforced |
 | Reply projection | Wrong creation result, observation tag/arity, nonboolean reset/changed, malformed cursor, or missing canceller refused |
 | Receipts | Identical replay applies once, different arguments at same sequence conflict, reply loss does not imply rollback |
 | Authority | Read-only/revoked access refused, stale membership and full destinations remain runtime decisions |

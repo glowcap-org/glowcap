@@ -447,8 +447,9 @@ Complete these steps before closing milestone 2:
 
 1. Load Tasks and shared Loam definitions through bounded text imports. Compare
    their checked graph with the independent description. Include lists, tuples
-   and positional records without changing the source language's string-keyed
-   record meaning. Check missing files, import cycles and resource limits.
+   and `record<"tag", T...>` using the [source value mapping](../research/interface-language-example.md#values-and-bounds).
+   String-keyed declarations use `struct Name { ... }`. Check missing files,
+   import cycles and resource limits.
 2. Preserve an imported bound error's source location through validation.
    Repeat bound, reply and method edits through imported declarations.
 3. Record the resulting compiler/frontend source, tests, generated output and
