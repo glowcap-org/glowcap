@@ -38,7 +38,7 @@ pub fn main(init: std.process.Init) !void {
     const generated = if (std.mem.eql(u8, emitter, "description")) compiled.bytes else generated: {
         if (std.mem.eql(u8, emitter, "zig")) break :generated try @import("zig.zig").emit(a, try model.creation(receiver, selector orelse return error.InvalidArguments));
         const call: calls.Named = .{ .api = api, .call = try calls.read(model, receiver, selector) };
-        if (std.mem.eql(u8, emitter, "rust")) break :generated try @import("callbacks.zig").emit(a, &.{call}, &.{});
+        if (std.mem.eql(u8, emitter, "rust")) break :generated try @import("rust.zig").emit(a, &.{call}, &.{});
         if (std.mem.eql(u8, emitter, "ts")) break :generated try @import("typescript.zig").emit(a, &.{call});
         return error.InvalidArguments;
     };

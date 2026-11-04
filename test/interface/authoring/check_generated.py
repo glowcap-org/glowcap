@@ -40,6 +40,10 @@ CASES = [
     ("tell_value", "Notices", "changed"),
     ("tell_optional", "Notices", "optional"),
     ("receipt", "Prepared", "accept"),
+    ("receipt_capture", "Prepared", "capture"),
+    ("receipt_optional", "Prepared", "optional"),
+    ("receipt_scalars", "Prepared", "scalars"),
+    ("receipt_data", "Prepared", "data"),
     ("bounded_text", "Bounded", "text"),
     ("lower_text", "Bounded", "lower"),
     ("wide_text", "Bounded", "wide"),
@@ -68,6 +72,9 @@ AUTHORED = [
     ("authored_poll", "loam.Receiver", "poll"),
     ("authored_receive", "loam.Receiver", "receive"),
     ("authored_cancel", "loam.Canceller", "cancel"),
+    ("authored_move", "tasks.TaskList", "move"),
+    ("authored_observe", "loam.Observable", "observe"),
+    ("authored_live", "loam.Observable", "observe-live"),
 ]
 
 

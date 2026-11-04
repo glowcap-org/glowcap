@@ -6,7 +6,12 @@ const Model = @import("model.zig").Model;
 pub const Type = @import("call_type.zig").Type;
 pub const Kind = std.meta.Tag(Type);
 pub const Effect = enum { call, tell, receipt };
-pub const Named = struct { api: []const u8, call: Call };
+pub const Named = struct {
+    api: []const u8,
+    call: Call,
+    /// Explicit Rust export for preparing and submitting this receipt once.
+    one_shot_api: ?[]const u8 = null,
+};
 pub const TypeExport = struct { api: []const u8, kind: Type };
 pub const Call = struct {
     wire_name: ?[]const u8,

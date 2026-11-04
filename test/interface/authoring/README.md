@@ -141,7 +141,6 @@ shared Loam and the qualification interfaces. Its canonical bytes must equal
 [the independent expected description](../contracts.syrup).
 The fixture generator uses the authored bundle for Tasks and callback output.
 The expected description and independent messages remain test authorities.
-Existing generated files stay byte identical.
 
 Rest parameters use `...arguments: value`. Their placement and combination with
 optional arguments are checked by the Model. Generated rest calls remain

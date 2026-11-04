@@ -121,7 +121,7 @@ then move it into one retained argument vector with a 3-byte operation string.
 Submission and replay borrow that vector. The generated wrappers add zero
 payload copies relative to those raw paths.
 The [raw workflow](src/workflow.rs),
-[creation template](../../tools/interface/templates/creation.rs) and
+[creation template](https://github.com/glowcap-org/glowcap/blob/7f05db9a2c1f0cf6e62274d5eed729d7d6b24762/tools/interface/templates/creation.rs) and
 [retained request template](../../tools/interface/templates/receipt.rs)
 contain those string and vector operations.
 

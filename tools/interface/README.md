@@ -12,8 +12,7 @@ owns executable qualification.
 | `model.zig` | Declaration validation, method selection, and arena-owned normalized type graph |
 | `calls.zig`, `call_type.zig` | Checked call signatures and immutable compound types |
 | `zig.zig`, `zig_reads.zig` | Tasks creation and read checks, and the fixed Zig direct receiver |
-| `rust.zig` | Tasks creation and read module assembly |
-| `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
+| `rust.zig`, `typescript.zig` | Call emission from checked signatures |
 | `typescript_scalars.zig` | Exact JavaScript scalar guards, bigint bounds, and UTF-8 byte limits |
 | `compound_graph.zig` | Bounded target-neutral graph traversal and minimum decoder work |
 | `typescript_compounds.zig` | Validated views of existing list, tuple, and tagged-record replies |
@@ -30,18 +29,25 @@ owns executable qualification.
 
 Emitters receive checked descriptions and write source, and never parse the
 authored contract. The generation driver selects each projection's method and
-uses the repository's emit/verify harness. The creation projection's names
-and Loam receipt verbs are written for Tasks' `add`, so its emitters refuse
-any other method.
+uses the repository's emit/verify harness. The Zig creation projection selects
+Tasks' creation shape. Rust receipts use the shared call model.
 
 Text compilation returns canonical bytes and the checked Model over the original
 source nodes. Consumers reuse that Model through emission. The compilation arena
 and source bytes outlive it. Untrusted Syrup input is read and validated once.
 
-Rust also projects a receipt with one `promise<value>`
-argument and a void result. Its preparation retains through the binding before
-sequence acquisition. Tasks and this projection share the request/replay
-helper. Unsupported projections fail explicitly.
+Rust receipt preparation accepts scalar, capability and pending arguments and
+uses the ordinary result projections. Before sequence acquisition, it copies
+borrowed text and retains the target and reference arguments for the Session's
+Host. One prepared request owns these snapshots through submission and replay.
+Opaque-value and compound receipt inputs are refused because they need a
+binding-owned recursive retain. TypeScript receipts remain unsupported.
+
+Rust selections explicitly name prepared and one-shot receipt exports. Tasks
+provides `prepare_add`/`add`, `prepare_move`/`move_task`, and
+`prepare_observe`/`observe`. One-shot calls capture inputs and request a sequence
+immediately, then submit once when awaited. Prepared calls keep submission and
+replay explicit. All public names share the ordinary export collision checks.
 
 Ordinary Rust and TypeScript calls preserve trailing optional arguments and
 explicit undefined values. Omission shortens the argument list. Rust refuses a
@@ -115,6 +121,9 @@ The [read projection](../../test/interface/contract.md#tasks-rust-read-projectio
 owns the bounds and target coverage.
 
 Generated helpers delegate promise and reference ownership to the bindings.
+Rust handles select `RemotePromise::with_owned_outcome` before observation,
+including when the Host's default is manual release. Partial decoding and
+discarded results then release the reply's occurrences through existing guards.
 Tasks owns its workflow and the server's policy. Binding changes needed by a
 proof belong in the binding and have regression coverage there.
 

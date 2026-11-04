@@ -1,7 +1,7 @@
 //! Adversarial exports compiled by the authoring source proof, plus refusal tests.
 const std = @import("std");
 const calls = @import("calls.zig");
-const rust = @import("callbacks.zig");
+const rust = @import("rust.zig");
 const ts = @import("typescript.zig");
 const Model = @import("model.zig").Model;
 const description = @import("description.zig");
@@ -41,10 +41,34 @@ test "emitters refuse duplicate APIs and their actual public support exports" {
     try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = "Reference", .call = reference }}, &.{}));
     const receipt = try calls.read(&model, "fixture.Prepared", "accept");
     try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = "PreparedMutation", .call = receipt }}, &.{}));
-    const creation = try model.creation("tasks.TaskList", "add");
-    for ([_][]const u8{ "add", "prepare_add" }) |api| {
-        try std.testing.expectError(error.ExportCollision, @import("rust.zig").emit(a, creation, &.{.{ .api = api, .call = call }}, &.{}));
+}
+
+test "Rust one-shot receipt names share the public export namespace" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var model = try Model.init(a, try description.read(a, @embedFile("contract")));
+    const ordinary = try calls.read(&model, "fixture.Reader", "read");
+    const receipt = try calls.read(&model, "loam.Observable", "observe");
+    for ([_][]const u8{ "prepare", "read", "Error", "Pending", "Observation", "PreparedMutation" }) |api| {
+        try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{
+            .{ .api = "prepare", .one_shot_api = api, .call = receipt },
+            .{ .api = "read", .call = ordinary },
+        }, &.{}));
     }
+    try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{
+        .{ .api = "first", .one_shot_api = "once", .call = receipt },
+        .{ .api = "second", .one_shot_api = "once", .call = receipt },
+    }, &.{}));
+    try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{
+        .{ .api = "prepare", .one_shot_api = "Registration", .call = receipt },
+    }, &.{.{ .api = "Registration", .kind = receipt.result }}));
+    try std.testing.expectError(error.InvalidIdentifier, rust.emit(a, &.{
+        .{ .api = "prepare", .one_shot_api = "move", .call = receipt },
+    }, &.{}));
+    try std.testing.expectError(error.UnsupportedProjection, rust.emit(a, &.{
+        .{ .api = "read", .one_shot_api = "once", .call = ordinary },
+    }, &.{}));
 }
 
 test "TypeScript tell exports reserve only emitted support" {

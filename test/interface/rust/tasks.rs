@@ -64,11 +64,29 @@ pub async fn run(port: u16, name: &str) {
 	assert!(lists[1].tasks.is_empty());
 	let mut watcher = board.watch().await.unwrap();
 	assert!(!watcher.changed().await.unwrap());
-	board.add("observed task").await.unwrap();
+	let task = board.add("observed task").await.unwrap();
 	assert!(watcher.changed().await.unwrap());
 	assert!(!watcher.changed().await.unwrap());
+	board.done(&task).await.unwrap();
+	assert!(watcher.changed().await.unwrap());
+	let lists = board.lists().await.unwrap();
+	assert_eq!(lists[0].tasks, ["write tests", maximum.as_str()]);
+	assert_eq!(lists[1].tasks, ["observed task"]);
 	watcher.stop().await.unwrap();
 	board.leave().await.unwrap();
+	let destination = Ref::try_from(&call(&session, &root, "list", &[1i64.into()]).await).unwrap();
+	let task = interface::add(session.clone(), list.clone(), "replayed move")
+		.await
+		.unwrap();
+	let movement = interface::prepare_move(session.clone(), list.clone(), (&task).into(), (&destination).into())
+		.unwrap()
+		.await
+		.unwrap();
+	assert_eq!(movement.submit().await.unwrap(), 2);
+	assert_eq!(movement.submit().await.unwrap(), 2);
+	assert_eq!(call(&session, &list, "count", &[]).await.as_i64(), Some(2));
+	assert_eq!(call(&session, &destination, "count", &[]).await.as_i64(), Some(2));
+	drop(movement);
 
 	session.close(PendingWork::Cancel).await.unwrap();
 	runtime.close(PendingWork::Cancel).await.unwrap();

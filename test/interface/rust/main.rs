@@ -15,6 +15,8 @@ mod pair;
 mod prepared;
 mod presence;
 mod reads;
+mod receipt_ownership;
+mod receipts;
 #[path = "../generated/scalars.rs"]
 pub mod scalar_generated;
 mod scalars;
@@ -38,6 +40,8 @@ async fn main() {
 				invocation::run().await;
 				presence::run().await;
 				prepared::run().await;
+				receipts::run().await;
+				receipt_ownership::run().await;
 			})
 			.await
 			.expect("interface conversation proof timed out");

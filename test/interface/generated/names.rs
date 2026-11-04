@@ -63,7 +63,10 @@ mod __glowcap_2 {
 	}
 	impl<T> Pending<T> {
 		fn new(raw: RemotePromise, decode: fn(Argument) -> Result<T, Error>) -> Self {
-			Self { raw, decode }
+			Self {
+				raw: raw.with_owned_outcome(),
+				decode,
+			}
 		}
 		pub fn raw(&self) -> &RemotePromise {
 			&self.raw
@@ -94,7 +97,7 @@ mod __glowcap_2 {
 		}
 	}
 	/// A borrowed reference argument, lowered synchronously before the send returns.
-	/// It never owns an independent pending reference across a suspension.
+	/// Receipt preparation retains it independently before acquiring a sequence.
 	pub enum Reference<'a> {
 		Target(&'a Ref),
 		Pending(&'a RemotePromise),

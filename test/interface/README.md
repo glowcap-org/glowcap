@@ -26,6 +26,14 @@ and broken outcomes on both profiles. Binding tests check retained-reference
 retirement while the session stays usable. Actor teardown follows the Port's
 separate export root.
 
+The actual Board client uses generated move, observe and cancel calls. Raw
+move peers on both profiles hold sequence acquisition while callers explicitly
+release the target and argument handles. They check exact requests, bounded
+replies and replay after remote breaks without a new sequence or duplicate
+effect. Those breaks preserve unknown-outcome and expiry diagnostics but do not
+simulate durable receipt expiry or transport reply loss. The real Tasks server
+checks move replay on its configured interoperability profile.
+
 Generated Rust and TypeScript callers distinguish positional invocation, empty-symbol
 methods, and named methods on both profiles. Rust checks that the positional
 tell carries no answer authority.

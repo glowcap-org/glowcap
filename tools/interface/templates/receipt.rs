@@ -21,12 +21,13 @@ fn prepare_mutation<T, Arguments>(
 	target: Ref,
 	make_arguments: Arguments,
 	decode: fn(Argument) -> Result<T, Error>,
-) -> impl Future<Output = Result<PreparedMutation<T>, Error>> + use<T, Arguments>
+) -> Result<impl Future<Output = Result<PreparedMutation<T>, Error>> + use<T, Arguments>, Error>
 where
 	Arguments: FnOnce(i64) -> Vec<Argument>,
 {
-	let sequence = session.send(&target, "mutation-sequence", &[]);
-	async move {
+	let target = target.retain_for(&session.host())?;
+	let sequence = session.send(&target, "mutation-sequence", &[]).with_owned_outcome();
+	Ok(async move {
 		let reply = sequence.await?;
 		let number = reply.as_i64().filter(|n| *n > 0).ok_or(Error::InvalidSequence)?;
 		Ok(PreparedMutation {
@@ -35,5 +36,5 @@ where
 			arguments: make_arguments(number),
 			decode,
 		})
-	}
+	})
 }

@@ -90,6 +90,12 @@ unsupported. TypeScript preserves arbitrary bigint integers while schema bound
 literals use signed-64-bit metadata.
 The [interface contract](../test/interface/contract.md#typescript-compound-replies)
 owns these mappings and their separate decoder resource limits.
+
+Generated Rust receipts offer explicit preparation and one-shot submission.
+Both retain the target and reference arguments before sequence acquisition.
+Replay uses the prepared request without automatic retries.
+Opaque-value and compound receipt inputs remain unsupported.
+
 The text authoring parser supports rooted imports, lists, tuples, positional
 records and single-payload tagged values. String-keyed structs, maps, unions and
 recognized-failure syntax remain unsupported

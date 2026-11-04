@@ -36,8 +36,10 @@ pub async fn run() {
 			.unwrap();
 		let cancellations = Rc::new(Cell::new(0));
 		let cancel_fails = Rc::new(Cell::new(false));
+		let cancel_reply = Rc::new(RefCell::new(Argument::Boolean(true)));
 		let counted = cancellations.clone();
 		let failing = cancel_fails.clone();
+		let cancellation = cancel_reply.clone();
 		let canceller = host
 			.spawn(move |verb, args| {
 				assert_eq!(verb, Some("cancel"));
@@ -46,19 +48,26 @@ pub async fn run() {
 				if failing.get() {
 					Err("independent cancellation failure".into())
 				} else {
-					Ok(Argument::Boolean(true))
+					Ok(cancellation.borrow().clone())
 				}
 			})
 			.unwrap();
 		let list = host.spawn(|_, _| Ok(Argument::Void)).unwrap();
+		let registration = Rc::new(RefCell::new(None));
+		let registered = registration.clone();
+		let valid_registration = vec![(&receiver).into(), (&canceller).into()];
 		host.publish("watch-board", move || {
 			let (receiver, canceller, list) = (receiver.clone(), canceller.clone(), list.clone());
+			let registration = registered.clone();
 			Box::new(move |verb, args| match verb {
 				Some("list") => Ok((&list).into()),
 				Some("mutation-sequence") => Ok(1i64.into()),
 				Some("mutate") => {
 					assert_eq!(args, &[1i64.into(), "observe".into()]);
-					Ok(Argument::List(vec![(&receiver).into(), (&canceller).into()]))
+					Ok(registration
+						.borrow()
+						.clone()
+						.unwrap_or_else(|| Argument::List(vec![(&receiver).into(), (&canceller).into()])))
 				}
 				_ => panic!("unexpected board method"),
 			})
@@ -91,6 +100,21 @@ pub async fn run() {
 		});
 		let (_accepted, serving) = serving;
 		let board = board.unwrap();
+		let mut extra = valid_registration.clone();
+		extra.push(Argument::Void);
+		for fields in [
+			vec![],
+			vec![valid_registration[0].clone()],
+			extra,
+			vec![Argument::Void, valid_registration[1].clone()],
+			vec![valid_registration[0].clone(), Argument::Void],
+		] {
+			*registration.borrow_mut() = Some(Argument::List(fields));
+			assert!(board.watch().await.err().unwrap().starts_with("observe:"));
+			assert_eq!(cancellations.get(), 0, "invalid registration created a Watcher");
+			assert!(seen.borrow().is_empty(), "invalid registration reached poll");
+		}
+		*registration.borrow_mut() = None;
 		let primary = board
 			.watch()
 			.await
@@ -155,6 +179,13 @@ pub async fn run() {
 		assert_eq!(cancellations.get(), 1, "retryable poll failure cancelled live watcher");
 		watcher.stop().await.unwrap();
 		assert_eq!(cancellations.get(), 2, "explicit stop did not cancel exactly once");
+		*cancel_reply.borrow_mut() = Argument::Boolean(false);
+		watcher.stop().await.unwrap();
+		assert_eq!(cancellations.get(), 3, "false cancellation was retried");
+		*cancel_reply.borrow_mut() = Argument::String("not a boolean".into());
+		assert!(watcher.stop().await.unwrap_err().starts_with("cancel:"));
+		assert_eq!(cancellations.get(), 4, "invalid cancellation was retried");
+		*cancel_reply.borrow_mut() = Argument::Boolean(true);
 		*reply.borrow_mut() = observation("wrong:observation");
 		cancel_fails.set(true);
 		let failure = board.watch().await.err().expect("invalid initial poll accepted");
@@ -163,7 +194,7 @@ pub async fn run() {
 			failure.contains("independent cancellation failure"),
 			"cleanup context lost"
 		);
-		assert_eq!(cancellations.get(), 3, "failed cancellation was retried or omitted");
+		assert_eq!(cancellations.get(), 5, "failed cancellation was retried or omitted");
 		cancel_fails.set(false);
 		board.leave().await.unwrap();
 		server.close().await.unwrap();

@@ -75,7 +75,10 @@ mod __glowcap {
 	}
 	impl<T> Pending<T> {
 		fn new(raw: RemotePromise, decode: fn(Argument) -> Result<T, Error>) -> Self {
-			Self { raw, decode }
+			Self {
+				raw: raw.with_owned_outcome(),
+				decode,
+			}
 		}
 		pub fn raw(&self) -> &RemotePromise {
 			&self.raw

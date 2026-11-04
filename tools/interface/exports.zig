@@ -26,6 +26,10 @@ pub fn callName(buffer: []u8, index: usize) ![]const u8 {
     return std.fmt.bufPrint(buffer, "call_{d}", .{index});
 }
 
+pub fn oneShotName(buffer: []u8, index: usize) ![]const u8 {
+    return std.fmt.bufPrint(buffer, "receipt_once_{d}", .{index});
+}
+
 pub fn rust(a: std.mem.Allocator, implementation: []const u8, methods: []const calls.Named, support: []const Support) ![]u8 {
     try validate(methods, support);
     var out: std.ArrayList(u8) = .empty;

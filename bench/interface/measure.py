@@ -174,7 +174,6 @@ def inventory():
 def copy_sources():
     sources = [
         "bench/interface/src/workflow.rs",
-        "tools/interface/templates/creation.rs",
         "tools/interface/templates/receipt.rs",
         "tools/interface/templates/references.rs",
         "tools/interface/templates/support.rs",
@@ -191,7 +190,6 @@ def copy_sources():
         "tools/interface/typescript_compounds.zig",
         "tools/interface/templates/compound.ts.in",
         "tools/interface/templates/text_bounds.ts.in",
-        "tools/interface/callbacks.zig",
         "apps/tasks/rust/interface.rs",
         "test/interface/generated/callbacks.rs",
         "bindings/rust/src/value.rs",

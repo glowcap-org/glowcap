@@ -20,17 +20,13 @@
 use crate::interface;
 use std::rc::Rc;
 
-use glowcap::{Argument, ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
+use glowcap::{ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
 
 /// One list on the board: its name and the text of each task in order.
 #[derive(Debug, Clone)]
 pub struct TaskList {
 	pub name: String,
 	pub tasks: Vec<String>,
-}
-
-fn capability(reply: &Argument, what: &str) -> Result<Ref, String> {
-	Ref::try_from(reply).map_err(|_| format!("{what} was not a capability"))
 }
 
 /// A task on the board, named by its capability.
@@ -66,15 +62,10 @@ impl Watcher {
 
 	/// Close the board's observation context. Call it once when done watching.
 	pub async fn stop(&self) -> Result<(), String> {
-		let closed = self
-			.session
-			.send(&self.canceller, "cancel", &[])
+		interface::cancel(&self.session, &self.canceller)
 			.await
-			.map_err(|e| format!("cancel: {e}"))?;
-		closed
-			.as_bool()
 			.map(|_| ())
-			.ok_or_else(|| "cancelling the watcher returned no boolean".to_string())
+			.map_err(|e| format!("cancel: {e}"))
 	}
 }
 
@@ -121,21 +112,6 @@ impl Board {
 		})
 	}
 
-	async fn call(&self, target: &Ref, verb: &str, args: &[Argument]) -> Result<Argument, String> {
-		self.session
-			.send(target, verb, args)
-			.await
-			.map_err(|error| format!("{verb}: {error}"))
-	}
-
-	/// One change with a fresh sequence number, so a retry applies once.
-	async fn mutate(&self, target: &Ref, args: Vec<Argument>) -> Result<Argument, String> {
-		let seq = self.call(target, "mutation-sequence", &[]).await?;
-		let mut wrapped = vec![seq];
-		wrapped.extend(args);
-		self.call(target, "mutate", &wrapped).await
-	}
-
 	/// Add a task to "To do" and return the new task.
 	pub async fn add(&self, text: &str) -> Result<Task, String> {
 		interface::add(self.session.clone(), self.todo.clone(), text)
@@ -146,21 +122,27 @@ impl Board {
 
 	/// Move `task` from "To do" to the end of "Done".
 	pub async fn done(&self, task: &Task) -> Result<(), String> {
-		self.mutate(&self.todo, vec!["move".into(), (&task.0).into(), (&self.done).into()])
-			.await
-			.map(|_| ())
+		interface::move_task(
+			self.session.clone(),
+			self.todo.clone(),
+			(&task.0).into(),
+			(&self.done).into(),
+		)
+		.await
+		.map(|_| ())
+		.map_err(|error| format!("move: {error}"))
 	}
 
 	/// Start watching the board for changes.
 	pub async fn watch(&self) -> Result<Watcher, String> {
-		let reply = self.mutate(&self.root, vec!["observe".into()]).await?;
-		let [receiver, canceller, ..] = reply.as_list().ok_or("watching returned no receiver")? else {
-			return Err("watching returned no canceller".to_string());
-		};
+		let interface::LoamRegistration(receiver, canceller) =
+			interface::observe(self.session.clone(), self.root.clone())
+				.await
+				.map_err(|error| format!("observe: {error}"))?;
 		let mut watcher = Watcher {
 			session: Rc::clone(&self.session),
-			receiver: capability(receiver, "watch receiver")?,
-			canceller: capability(canceller, "watch canceller")?,
+			receiver,
+			canceller,
 			cursor: Vec::new(),
 		};
 		if let Err(primary) = watcher.poll().await {

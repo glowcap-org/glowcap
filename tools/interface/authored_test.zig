@@ -48,7 +48,7 @@ test "actual imported bound reply and method edits reach generated consumers" {
     var method = try authored.compile(a, &diagnostic, inputs);
     try std.testing.expectError(error.InvalidDescription, method.model.method("tasks.Task", "text"));
     const renamed = try calls.read(&method.model, "tasks.Task", "content");
-    const rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "content", .call = renamed }}, &.{});
+    const rust = try @import("rust.zig").emit(a, &.{.{ .api = "content", .call = renamed }}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, rust, "\"content\"") != null);
 }
 
