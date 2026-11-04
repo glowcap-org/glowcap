@@ -31,8 +31,9 @@ Completion requires:
 - Retain targets and reference arguments before sequence acquisition. Qualify
   explicit release of originals, foreign-Host refusal, partial capture failure,
   cancellation and final retirement.
-- Exercise the migrated client against the actual Tasks server and independent
-  peers on both profiles. Verify exact replay, malformed registration and replies,
+- Exercise the migrated client against the actual Tasks server on its
+  interoperability profile and independent peers on both profiles. Verify exact
+  replay, malformed registration and replies,
   remote breaks, and cleanup after committed observation. A decode failure must
   not imply that the mutation rolled back.
 - Integrate the accepted branches at one verified commit, reconcile generated
@@ -50,10 +51,10 @@ or a larger budget inferred from this checkpoint.
 The current work is milestone 2. Conversation, generation-cost, and proposed
 text comparisons are retained.
 
-Tasks' Rust read workflow and six Zig server
-reads use generated checks for declared bounds and exact arity. Complete authored
-Tasks and Loam modules feed generation and match the independent Syrup fixture.
-Syrup remains supported input.
+Tasks' Rust Board and Watcher use generated calls and reply checks. Six Zig
+server reads use generated checks for declared bounds and exact arity.
+Complete authored Tasks and Loam modules feed generation and match the
+independent Syrup fixture. Syrup remains supported input.
 
 The [continuation proposal](#continuation-proposal)
 recommends the text frontend. Frontend selection and the full-target budget remain open.
@@ -63,18 +64,19 @@ recommends the text frontend. Frontend selection and the full-target budget rema
 | Contract and independent messages | Authored and checked | [Fixture contract](../../test/interface/contract.md) |
 | Compiler and first Tasks migration | Bounded reader/model, Zig creation and read checks, Rust preparation and replay run | [Compiler](../../tools/interface/README.md) |
 | Rust and TypeScript callbacks | Both profiles preserve pending admission, callbacks, pipelines, wrong replies and remote breaks. Rust drops polled observations, and TypeScript cancels sessions with observers active | [Proof suite](../../test/interface/README.md) |
-| Binding prerequisites | Rust retention and TypeScript owning-thread capability fulfillment are implemented using existing Host operations | `bindings/rust`, `bindings/ts` |
+| Binding prerequisites | Rust independent capability and pending-reference ownership, and TypeScript owning-thread capability fulfillment, are implemented | `bindings/rust`, `bindings/ts` |
 | Prepared pending arguments | Rust capture, drop/observation, submission/replay, cancellation, and cross-Host refusal run on both profiles. Binding tests check final retain retirement | Milestone 2 ownership case |
 | Conversation coverage | Zig creation export failure and retry are qualified. Generated Rust recipient handoff and plain Goblins calling the generated Zig Tasks boundary run on Syrup/V1.0 | Milestone 2 runtime cases |
 | Invocation shape | Rust and TypeScript callers preserve selector presence. A generated Zig two-value direct receiver restores leading-symbol data on both profiles | General receiver projections remain |
-| Scalar calls | Rust and TypeScript qualify boolean, bytes with byte bounds, symbol, float64 and fulfilled error values through calls and tells on both profiles | Null, compound inputs, and TypeScript compound replies remain unsupported |
+| Scalar calls | Rust and TypeScript qualify boolean, bytes with byte bounds, symbol, float64 and fulfilled error values through calls and tells on both profiles | Null and compound inputs remain unsupported |
+| TypeScript scalar bounds | Exact arbitrary bigint values and UTF-8 text limits cover required/optional calls and tells, including nested compound replies | [Fixture contract](../../test/interface/contract.md) |
 | Argument presence | Rust and TypeScript distinguish omission from explicit undefined and refuse invalid holes on both profiles. Null remains unsupported by the targets | [Proof suite](../../test/interface/README.md) |
 | Profile requirements | Ordinary descriptions require the value mapping. Receipt methods also require their convention, checked across the whole bundle | [Fixture contract](../../test/interface/contract.md) |
 | Text imports | Rooted file loading, cached cyclic headers, exact imported descriptions and bound/reference source locations run through the shared model | [Authoring checks](../../test/interface/authoring/README.md#imported-modules) |
 | Complete authored contract | Tasks, shared Loam and qualification modules match the full independent description. Text consumers reuse the checked Model and existing generated output stays byte identical | [Authoring bundle](../../test/interface/authoring/README.md#complete-contract-bundle) |
 | Generated Rust support | Selected methods determine imports and helpers. Isolated consumers compile with warnings denied | [Authoring checks](../../test/interface/authoring/README.md) |
-| Rust compound replies | Owned list, tuple and positional-record replies drive actual Watcher polling on both profiles. Tags, bounds, notices and cursor replacement are checked | [Fixture contract](../../test/interface/contract.md#rust-compound-replies) |
-| Tasks read workflow | Five generated Rust reads replace manual wire calls and text/count decoding. Zig handlers use generated checks for arguments and scalar replies. Real Board reads and independent raw peers check bounds and failures | Milestone 2 application qualification |
+| Compound replies | Rust owned replies drive Watcher polling. TypeScript validates existing arrays and records. Both profiles check tags, bounds, notices, opaque capabilities, and raw settlement | [Fixture contract](../../test/interface/contract.md) |
+| Tasks Rust client | Generated add, move, observe, poll, cancel and read calls replace manual packing and reply checks. Connection, cursor and cleanup policy stay with the application. Real server and raw-peer scenarios check behavior | Release checkpoint |
 | Cap'n Proto comparison | The compiler-request comparison is retained in [#65](https://github.com/glowcap-org/glowcap/pull/65) | Milestone 2 comparison |
 | Cost and authoring decision | [Generation costs](../../bench/interface/results.md) and the [text comparison](../../test/interface/authoring/README.md) retain measurements and limits. Review the continuation proposal and complete its measurement checkpoint | [Continuation proposal](#continuation-proposal) |
 
@@ -84,10 +86,10 @@ The proof suite above is the executable evidence for this implementation.
 [ADR-0069](../decisions/adr/ADR-0069-proposed-interface-language.md) remains a
 proposal until the adoption decision at milestone 4.
 
-The read workflow extends milestone 2's application evidence before the complete
-Tasks migration. It removes handwritten wire calls, decoders, and a String
-copy in the Rust read path. Records, unions, declared failure types, and complete target mappings
-remain language work. The comparison adapters' size and passing cases do not establish those features or their cost.
+The Rust client migration extends milestone 2's application evidence. The Zig
+server migration and broader mutation-failure qualification remain milestone-3
+work. String-keyed structs, unions, declared failure types and complete target
+mappings remain language work. The comparison adapters' size and passing cases do not establish those features or their cost.
 
 ## Fixed scope
 
@@ -380,7 +382,6 @@ arity, bounds, and sequence handling.
 
 | Remove when generated | Retain at current owner |
 | --- | --- |
-| Remaining Rust capability checks, watcher poll/cancel and registration decoding, receipt packing for move and observation | Board workflow, connection setup, cursor lifecycle, user error presentation |
 | Zig content selector/argument projection, index/text checks, and client reply and receipt helpers | Storage schemas, authorization, transactions, child materialization, participant admission, membership, capacity policy |
 | TypeScript, Python and Racket Tasks call layouts, reply checks, watcher decoding and receipt packing | Session ownership, persistence, retry decisions, cancellation policy |
 | Rooms control method names, argument packing and reply shapes for policy, labels and lifecycle | Revision selection, deadlines, admission, effect handling and recovery |
@@ -427,18 +428,18 @@ It adds no production dependency, but makes this project responsible for imports
 diagnostics and formatting. Cap'n Proto supplies a compiler and schema tooling,
 but its adapter still needs glowcap mappings and imported-bundle assembly.
 
-| Remaining authoring work | Proposed text | Cap'n Proto adapter |
+| Authoring coverage | Proposed text | Cap'n Proto adapter |
 | --- | --- | --- |
-| Value mapping | Complete container, recursive and failure syntax | Mappings for integers, symbols, dynamic values, null, promises and positional records |
-| Imports | Rooted loading, resolution and bounded bundle assembly | Adapter currently accepts one requested file and refuses external references |
-| Diagnostics | Preserve syntax locations through shared validation | Mapping errors need source positions beyond compiler syntax diagnostics |
+| Value mapping | Positional containers implemented. String-keyed structs, recursive projections and failure syntax remain | Mappings for integers, symbols, dynamic values, null, promises and positional records |
+| Imports | Rooted loading, resolution and bounded bundle assembly implemented | Adapter currently accepts one requested file and refuses external references |
+| Diagnostics | Imported semantic locations preserved through shared validation | Mapping errors need source positions beyond compiler syntax diagnostics |
 | Formatting | Preserve comments, which the comparison parser discards | Qualify the annotation and formatting workflow |
 | Dependencies | Existing Zig modules | Compiler 1.1.0 and locked Rust capnp 0.27.3 |
 
 Both adapters reproduce the independent comparison description. Neither proves
 complete authoring support. Prefer text for its direct contract notation, and
-reconsider that choice if the imported-module proof cannot fit the existing
-frontend limit or produces worse authoring than the mapped Cap'n Proto input.
+reconsider that choice if completing its grammar exceeds the existing frontend
+limit or produces worse authoring than the mapped Cap'n Proto input.
 
 The [generation report](../../bench/interface/results.md) qualifies selected
 Rust/Syrup 1.0 calls. It records matching raw/generated allocation counts and
@@ -447,7 +448,7 @@ The [text](../../test/interface/authoring/README.md#process-and-build-costs-2026
 and [Cap'n Proto](../../tools/interface/authoring/capnp/README.md#dependencies-and-measurements)
 process measurements use different harnesses and do not rank parser speed.
 
-### Current source and missing budget evidence
+### Historical source inventory and missing budget evidence
 
 At `39678c7c`, the implementation inventory is 1,772 nonblank lines: shared
 reader/model 443, Zig/Rust emitters and helpers 630, TypeScript 207, text 258,
@@ -462,9 +463,9 @@ literal masker and brace-balanced test-block exclusion in
 `typescript*` and its template. Integration comprises `generate`,
 `authoring_check` and `tools/build/interface.zig`.
 
-The compound-reply batch is additional, unmerged work. Its Rust reply checks
-and Watcher migration do not establish compound inputs or other targets.
-Historical benchmark results keep their original source revisions.
+Compound replies and the Rust client migration do not establish compound inputs
+or complete target coverage. Historical benchmark results keep their original
+source revisions.
 
 No supported estimate yet covers complete values, generic receivers and
 receipts, authoring tools, distribution, and all five targets. Keep the existing
@@ -477,17 +478,15 @@ compiler maintenance cost.
 
 Complete these steps before closing milestone 2:
 
-1. Load Tasks and shared Loam definitions through bounded text imports. Compare
-   their checked graph with the independent description. Include lists, tuples
-   and `record<"tag", T...>` using the [source value mapping](../research/interface-language-example.md#values-and-bounds).
-   String-keyed declarations use `struct Name { ... }`. Check missing files,
-   import cycles and resource limits.
-2. Preserve an imported bound error's source location through validation.
-   Repeat bound, reply and method edits through imported declarations.
-3. Record the resulting compiler/frontend source, tests, generated output and
+The [complete authored bundle](../../test/interface/authoring/README.md)
+qualifies rooted imports, containers, imported diagnostics and bound, reply and
+method edits. Generation measurements fingerprint the authored inputs. They do
+not measure the runtime cost of the new receipt ownership path.
+
+1. Record the resulting compiler/frontend source, tests, generated output and
    deleted wire decisions. Measure bundle checking and supported emission
    against the existing 1-second warm and 64-MiB RSS limits.
-4. Extend paired raw/generated measurements to compound replies. Use an
+2. Extend paired raw/generated measurements to compound replies and retained receipt ownership. Use an
    equivalent typed raw decoder, accounting for result-vector storage, payload
    copies, retained bytes, messages and cleanup after partial decoding.
 
