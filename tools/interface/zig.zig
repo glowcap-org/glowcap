@@ -24,3 +24,31 @@ pub fn emit(a: std.mem.Allocator, method: Creation) ![]u8 {
     );
     return out.toOwnedSlice(a);
 }
+
+/// Narrow direct receiver proof: two passable values and an undefined result.
+/// The generated wrapper lends views only through the handler call.
+pub fn emitDirect(a: std.mem.Allocator, call: @import("calls.zig").Call) ![]u8 {
+    if (call.wire_name != null or call.effect != .call or call.required_parameters != 2 or
+        call.parameters.len != 2 or call.parameters[0] != .value or
+        call.parameters[1] != .value or call.result != .nothing) return error.UnsupportedProjection;
+    return a.dupe(u8,
+        \\//! Generated from checked interface descriptions.
+        \\const glowcap = @import("glowcap");
+        \\const model = glowcap.ocapn.model;
+        \\
+        \\/// Values borrow this call. Keeping one requires existing ownership operations.
+        \\pub fn receive(receiver: anytype, delivery: glowcap.actors.Delivery) !model.Argument {
+        \\    const peeled = delivery.verb != null;
+        \\    if (try delivery.args.len() != @as(usize, if (peeled) 1 else 2)) return error.InvalidArguments;
+        \\    // Two fixed stack view slots. No payload is copied or retained here.
+        \\    // value admits every passable category; projection must finish before invoke.
+        \\    const raw = [2]model.view.Argument{
+        \\        if (delivery.verb) |symbol| .{ .symbol = symbol } else try delivery.args.at(0),
+        \\        try delivery.args.at(if (peeled) 0 else 1),
+        \\    };
+        \\    try receiver.invoke(raw[0], raw[1]);
+        \\    return .{ .void = {} };
+        \\}
+        \\
+    );
+}

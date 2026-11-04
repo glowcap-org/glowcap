@@ -14,7 +14,7 @@ format, target mappings, and acceptance cases.
 | `check_fixtures.py` | Canonical encoding and fixture integrity using the pinned upstream Syrup reader |
 | `rust/` | Standalone consumer crate with Tasks, refusal, and callback scenarios |
 | `typescript/` | Callback and promise-assimilation scenarios |
-| `generated/` | Emitted callback clients and independent message constants |
+| `generated/` | Emitted clients, the fixed direct receiver, and independent message constants |
 | `run.ts` | Starts the Tasks server and runs the Rust proof with bounded lifetime and cleanup |
 
 The Rust Tasks scenario consumes the application's generated interface. Tasks
@@ -32,6 +32,13 @@ The presence fixture distinguishes no arguments from one void argument on the wi
 on both profiles. It checks required and optional undefined inputs, optional
 text and references, invalid holes, wrong inputs and replies, and remote breaks.
 Expected arguments come from the independent message fixture in both languages.
+
+The generated Zig direct receiver accepts exactly two passable values and an
+undefined result. Raw callers on both profiles send whole lists, including
+leading symbols that the actor API peels into a verb. The receiver restores
+that first value before invoking the handler. The same wire list reaches a
+separate named receiver as a control. Wrong arity and failed argument projections are
+refused before handler entry, and a local payload remains borrowed in place.
 
 The callback matrix holds the factory reply open through admission and checks
 wrong fulfillment, remote break messages, and independent raw observation.
@@ -51,6 +58,7 @@ Run from the repository root through `.agents/skills/work/bin/glowcap-dev`.
 zig build gen-interface-fixtures
 zig build gen-interface-fixtures-check interface-test interface-fixtures-check
 zig build interface-conversation-check
+zig build test -Dtest-layer=actors -Dtest-filter="generated direct receiver"
 zig build interface-goblins-check
 zig build tasks-app-test
 ```

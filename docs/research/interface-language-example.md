@@ -302,8 +302,9 @@ The actor and binding APIs can peel a leading symbol into `verb`. A generated
 direct receiver must reconstruct the whole list from `verb` and the remaining
 arguments before checking its signature. A first symbol is then ordinary data,
 including for `AnyReceiver`. A named receiver instead uses that symbol for
-dispatch. This receiver projection remains to be implemented and qualified.
-The retained direct-call fixtures cover callers and the actor splitting boundary.
+dispatch. A generated Zig receiver qualifies the fixed two-value, undefined-result
+case on both profiles. Other receiver shapes, including `AnyReceiver`'s variable
+tail, remain outside that projection.
 
 The example's `reader()` must return an actual restricted facet to withhold
 write authority. Changing only the static type does not restrict access.

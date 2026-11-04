@@ -154,6 +154,15 @@ class Fixtures(unittest.TestCase):
         self.assertEqual(syrup.syrup_encode(self.messages["sequence"]), b"[17'mutation-sequence]")
         self.assertEqual(syrup.syrup_encode(self.messages["direct"]), b'[5"hello]')
 
+    def test_direct_receiver_has_two_required_values_and_undefined_reply(self):
+        params, reply, convention = record(self.methods("fixture.DirectPair")[False], "method")
+        self.assertEqual(
+            [record(param, "parameter") for param in params],
+            [["left", syrup.Symbol("value"), False], ["right", syrup.Symbol("value"), False]],
+        )
+        self.assertEqual(reply.name, "undefined")
+        self.assertEqual(convention.name, "call")
+
     def test_direct_and_empty_named_invocation_are_distinct(self):
         self.assertEqual(syrup.syrup_encode(self.messages["direct-empty"]), b"[]")
         self.assertEqual(syrup.syrup_encode(self.messages["named-empty"]), b"[0']")

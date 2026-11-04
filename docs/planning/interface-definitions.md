@@ -29,7 +29,7 @@ retained. Compare authoring frontends next. Syrup remains the direct compiler in
 | Binding prerequisites | Rust retention and TypeScript owning-thread capability fulfillment are implemented using existing Host operations | `bindings/rust`, `bindings/ts` |
 | Prepared pending arguments | Rust capture, drop/observation, submission/replay, cancellation, and cross-Host refusal run on both profiles. Binding tests check final retain retirement | Milestone 2 ownership case |
 | Conversation coverage | Zig creation export failure and retry are qualified. Generated Rust recipient handoff and plain Goblins calling the generated Zig Tasks boundary run on Syrup/V1.0 | Milestone 2 runtime cases |
-| Invocation shape | Generated Rust and TypeScript callers preserve absent, empty, and named selectors on both profiles | Server-adapter qualification remains |
+| Invocation shape | Rust and TypeScript callers preserve selector presence. A generated Zig two-value direct receiver restores leading-symbol data on both profiles | General receiver projections remain |
 | Argument presence | Rust and TypeScript distinguish omission from explicit undefined and refuse invalid holes on both profiles. Null remains unsupported by the targets | [Proof suite](../../test/interface/README.md) |
 | Cost and authoring decision | [Generation and paired costs](../../bench/interface/results.md) are recorded at their measured source revision. Compare text and Cap'n Proto adapters next | Milestone 2 decision |
 

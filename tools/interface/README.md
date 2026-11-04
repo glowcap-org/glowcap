@@ -10,7 +10,7 @@ owns executable qualification.
 | `description.zig` | Bounded Syrup description reader |
 | `model.zig` | Declaration validation, method selection, references, and type resolution |
 | `calls.zig` | Checked ordinary-call signatures |
-| `zig.zig`, `rust.zig` | Tasks creation projections |
+| `zig.zig`, `rust.zig` | Tasks creation projections and the fixed Zig direct receiver |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
 | `templates/` | Reusable generated helpers, owned once in source |
 | `literal.zig` | Source string escaping |

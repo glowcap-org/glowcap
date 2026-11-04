@@ -39,6 +39,7 @@ pub const outputs = [_]Output{
     .{ .path = "test/interface/generated/expected.rs", .generate = @import("expectations.zig").generate },
     .{ .path = "test/interface/generated/expected.ts", .generate = @import("expectations.zig").generateTypeScript },
     .{ .path = "test/interface/generated/authoring_text.ts", .generate = generateAuthoringText },
+    .{ .path = "test/interface/generated/direct_receiver.zig", .generate = generateDirectReceiver },
     .{ .path = "apps/tasks/zig/interface.zig", .generate = generateZig },
     .{ .path = "apps/tasks/rust/interface.rs", .generate = generateRust },
 };
@@ -261,4 +262,31 @@ fn generateAuthoringText(a: std.mem.Allocator) ![]u8 {
         .{ .api = "invoke_text", .call = try calls.read(scratch, &model, "comparison.Direct", null) },
         .{ .api = "accept_text", .call = try calls.read(scratch, &model, "comparison.Factory", "accept") },
     });
+}
+
+fn generateDirectReceiver(a: std.mem.Allocator) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var checked = try Model.init(try description.read(arena.allocator(), @embedFile("contract")));
+    return zig.emitDirect(a, try calls.read(arena.allocator(), &checked, "fixture.DirectPair", null));
+}
+
+test "direct receiver projection refuses unqualified call shapes" {
+    var call: calls.Call = .{ .wire_name = null, .parameters = &.{ .value, .value }, .required_parameters = 2, .result = .nothing, .effect = .call };
+    const code = try zig.emitDirect(std.testing.allocator, call);
+    defer std.testing.allocator.free(code);
+    call.wire_name = "";
+    try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
+    call.wire_name = null;
+    call.required_parameters = 1;
+    try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
+    call.required_parameters = 2;
+    call.parameters = &.{ .text, .value };
+    try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
+    call.parameters = &.{ .value, .value };
+    call.result = .text;
+    try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
+    call.result = .nothing;
+    call.effect = .tell;
+    try std.testing.expectError(error.UnsupportedProjection, zig.emitDirect(std.testing.allocator, call));
 }
