@@ -10,6 +10,7 @@ format, target mappings, and acceptance cases.
 | Path | Responsibility |
 | --- | --- |
 | `contracts.syrup` | Authored Tasks, shared Loam, and callback definitions |
+| `compounds.syrup` | Independently authored list and tuple reply shapes |
 | `messages.syrup` | Independently authored expected messages |
 | `check_fixtures.py` | Canonical encoding and fixture integrity using the pinned upstream Syrup reader |
 | `rust/` | Standalone consumer crate with Tasks, refusal, and callback scenarios |
@@ -33,6 +34,14 @@ on both profiles. It checks required and optional undefined inputs, optional
 text and references, invalid holes, wrong inputs and replies, and remote breaks.
 Expected arguments come from the independent message fixture in both languages.
 
+The scalar source in `authoring/scalars.interface` generates Rust and TypeScript
+callers. Independent raw peers check exact scalar categories and values on both
+profiles. Required and optional calls and tells cover booleans, bytes, bounded
+bytes, symbols, float64, and fulfilled errors. Wrong replies, unchanged remote
+breaks, float edge cases, and local byte-limit refusal are exercised too.
+The existing strict consumer check compiles each method on its own, so unused
+helpers cannot hide behind another selected method.
+
 The generated Zig direct receiver accepts exactly two passable values and an
 undefined result. Raw callers on both profiles send whole lists, including
 leading symbols that the actor API peels into a verb. The receiver restores
@@ -51,6 +60,21 @@ calls reject extra, missing, wrong-type, and negative arguments, then continue
 serving valid requests. Nonmember indices retain the application's NoSuchEdge
 result. Scalar tests cover byte/count limits, invalid UTF-8, and borrowed slice
 identity. The schema owns the server's name and capacity maxima.
+
+The Rust compound proof checks empty and nonempty lists, list bounds, positional
+tuples, retained references, and unchanged raw settlement.
+The actual Watcher meets a raw board on both asserted negotiated profiles.
+It refuses wrong observation tags, arity, cursor sizes, booleans, and notices,
+then continues with its previous cursor. Failed initial polls cancel once,
+and a cancellation failure retains the primary poll error.
+
+Generated observation results preserve
+unknown and duplicate notices and opaque descriptions containing references.
+
+Isolated strict Rust consumers compile each compound method independently.
+Harness-only child tests call the actual emitted private decoders with small
+work/depth budgets and check moved cursor and symbol buffer identity.
+An opaque value exceeding the decoder work budget still passes without traversal.
 
 The callback matrix holds the factory reply open through admission and checks
 wrong fulfillment, remote break messages, and independent raw observation.

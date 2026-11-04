@@ -1,7 +1,6 @@
 // Generated from checked interface descriptions.
 import { type Argument, Ref, RemotePromise } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
-
 /** Observation checks a reply without replacing the runtime's pending target. */
 class Pending<T> {
 	constructor(readonly raw: RemotePromise, private readonly decode: (value: Argument) => T) {}

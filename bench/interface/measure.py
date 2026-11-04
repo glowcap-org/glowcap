@@ -132,9 +132,15 @@ def inventory():
                 embedded_test_nonblank=len(nonblank & test_lines),
             )
         )
-    generated, qualification, benchmark = [], [], []
+    generated, qualification, benchmark, authored = [], [], [], []
     for name in paths:
         path = Path(name)
+        if name.startswith("test/interface/authoring/contracts/") and path.suffix == ".interface":
+            data = path.read_bytes()
+            authored.append(
+                dict(path=name, nonblank=sum(bool(line.strip()) for line in data.splitlines()), bytes=len(data))
+            )
+            continue
         if path.suffix not in {".rs", ".ts", ".py", ".zig", ".rkt", ".in"}:
             continue
         text = path.read_text()
@@ -160,6 +166,7 @@ def inventory():
         handwritten_qualification=qualification,
         generated_output=generated,
         benchmark_infrastructure=benchmark,
+        authored_descriptions=authored,
         generated_output_offsets_compiler=False,
     )
 
@@ -174,12 +181,37 @@ def copy_sources():
         "tools/interface/templates/pending.rs",
         "tools/interface/templates/optional.rs",
         "tools/interface/rust_support.zig",
+        "tools/interface/rust_compounds.zig",
+        "tools/interface/templates/compound.rs",
+        "apps/tasks/rust/board.rs",
         "tools/interface/rust_bounds.zig",
         "tools/interface/zig_reads.zig",
+        "tools/interface/typescript.zig",
+        "tools/interface/typescript_scalars.zig",
         "tools/interface/callbacks.zig",
         "apps/tasks/rust/interface.rs",
         "test/interface/generated/callbacks.rs",
         "bindings/rust/src/value.rs",
+        "tools/interface/authored.zig",
+        "tools/interface/text.zig",
+        "tools/interface/text_parser.zig",
+        "tools/interface/text_encode.zig",
+        "tools/interface/text_loader.zig",
+        "tools/interface/description.zig",
+        "tools/interface/model.zig",
+        "tools/interface/calls.zig",
+        "tools/interface/generate.zig",
+        "tools/interface/call_type.zig",
+        "tools/interface/compound_graph.zig",
+        "tools/interface/exports.zig",
+        "tools/interface/literal.zig",
+        "tools/interface/rust.zig",
+        "tools/interface/zig.zig",
+        "tools/build/gen.zig",
+        "test/interface/authoring/contracts/contracts.interface",
+        "test/interface/authoring/contracts/tasks.interface",
+        "test/interface/authoring/contracts/loam.interface",
+        "test/interface/authoring/contracts/fixtures.interface",
     ]
     return dict(
         kind="not_instrumented",
@@ -291,6 +323,7 @@ def main():
             environment=recorded_environment,
             provisional=recorded_environment["storage"]["status"] != "observed",
             inventory=inventory(),
+            source_sha256=copy_sources()["source_sha256"],
             generation=[run_generator(args.generator) for _ in range(args.generation_samples)],
             rss_scope="wait4 includes inherited pre-exec RSS, so this bounds rather than isolates the generator peak",
             scope="warm generation and fixture verification, excluding compilation",

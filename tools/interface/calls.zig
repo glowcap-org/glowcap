@@ -7,6 +7,7 @@ pub const Type = @import("call_type.zig").Type;
 pub const Kind = std.meta.Tag(Type);
 pub const Effect = enum { call, tell, receipt };
 pub const Named = struct { api: []const u8, call: Call };
+pub const TypeExport = struct { api: []const u8, kind: Type };
 pub const Call = struct {
     wire_name: ?[]const u8,
     parameters: []const Type,
@@ -15,13 +16,13 @@ pub const Call = struct {
     effect: Effect,
 };
 
-pub fn read(a: std.mem.Allocator, model: *Model, receiver: []const u8, method_name: ?[]const u8) !Call {
+pub fn read(model: *Model, receiver: []const u8, method_name: ?[]const u8) !Call {
     const fields = try model.method(receiver, method_name);
     const effect: Effect = if (fields[2].is("call")) .call else if (fields[2].is("tell")) .tell else if (fields[2].is("loam.receipt")) .receipt else return error.UnsupportedProjection;
-    const parameters = try a.alloc(Type, fields[0].children.len);
-    errdefer a.free(parameters);
+    const parameters = try model.arena_allocator.alloc(Type, fields[0].children.len);
     var required_parameters = parameters.len;
     for (fields[0].children, parameters, 0..) |parameter, *kind, i| {
+        if (parameter.kind == .record and std.mem.eql(u8, parameter.bytes, "rest")) return error.UnsupportedProjection;
         const param = try parameter.fields("parameter", 3);
         if (param[2].boolean) required_parameters = @min(required_parameters, i);
         kind.* = try model.callType(param[1]);

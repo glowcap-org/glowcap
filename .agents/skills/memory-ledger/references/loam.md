@@ -559,6 +559,20 @@ and residency.
   - `Call.page_reference` materializes one Rust Ref occurrence and its existing
     release-status cell. The retained shared call owns the capability custody.
     No separate Rust Host guard is acquired for this borrow.
+- **Generated owned reply list**: `Projection.emit` in
+  `tools/interface/rust_compounds.zig` emits one result Vec reservation for each
+  nonempty typed list, after schema and decoder-work checks. Its element layout
+  differs from Argument. Children move into the result, which owns them until
+  drop or refusal. Tuples, records, and opaque value fields add no payload copy.
+- **Tasks observation input snapshot**: `Watcher::poll` in
+  `apps/tasks/rust/board.rs` clones its optional stored cursor once before send.
+  That Vec lasts through binding admission. A valid generated reply moves its
+  owned cursor into the Watcher after all fields pass, replacing the previous
+  extra cursor `to_vec` allocation and copy.
+  - After a committed observe with a failed initial poll, `Board::watch` sends
+    and awaits one existing cancel call to retire the durable context. Ref drop
+    cannot replace it. If cancellation also fails, one joined diagnostic String
+    retains the primary poll error and cleanup context. No extra task is created.
 - **Loam Rust consumer boundary**: `invocation` in the Rust Loam content
   projection copies arguments into the existing owned String/Vec representation.
   Reply `SendArena` lives through the C copying call.

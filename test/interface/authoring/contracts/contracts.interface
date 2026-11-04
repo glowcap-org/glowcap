@@ -1,0 +1,4 @@
+module contracts
+import "tasks.interface" as tasks
+import "loam.interface" as loam
+import "fixtures.interface" as fixtures

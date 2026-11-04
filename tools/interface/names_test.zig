@@ -27,22 +27,37 @@ test "emitters refuse duplicate APIs and their actual public support exports" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var model = try Model.init(try description.read(a, @embedFile("contract")));
-    const call = try calls.read(a, &model, "fixture.Reader", "read");
+    var model = try Model.init(a, try description.read(a, @embedFile("contract")));
+    const call = try calls.read(&model, "fixture.Reader", "read");
     const duplicate = calls.Named{ .api = "same", .call = call };
     inline for (.{ rust, ts }) |emitter| {
-        try std.testing.expectError(error.ExportCollision, emitter.emit(a, &.{ duplicate, duplicate }));
-        try std.testing.expectError(error.ExportCollision, emitter.emit(a, &.{.{ .api = "Pending", .call = call }}));
+        try std.testing.expectError(error.ExportCollision, if (emitter == ts) emitter.emit(a, &.{ duplicate, duplicate }) else emitter.emit(a, &.{ duplicate, duplicate }, &.{}));
+        try std.testing.expectError(error.ExportCollision, if (emitter == ts) emitter.emit(a, &.{.{ .api = "Pending", .call = call }}) else emitter.emit(a, &.{.{ .api = "Pending", .call = call }}, &.{}));
     }
     for ([_][]const u8{ "Error", "Observation" }) |api| {
-        try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = api, .call = call }}));
+        try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = api, .call = call }}, &.{}));
     }
-    const reference = try calls.read(a, &model, "fixture.Sink", "push");
-    try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = "Reference", .call = reference }}));
-    const receipt = try calls.read(a, &model, "fixture.Prepared", "accept");
-    try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = "PreparedMutation", .call = receipt }}));
+    const reference = try calls.read(&model, "fixture.Sink", "push");
+    try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = "Reference", .call = reference }}, &.{}));
+    const receipt = try calls.read(&model, "fixture.Prepared", "accept");
+    try std.testing.expectError(error.ExportCollision, rust.emit(a, &.{.{ .api = "PreparedMutation", .call = receipt }}, &.{}));
     const creation = try model.creation("tasks.TaskList", "add");
     for ([_][]const u8{ "add", "prepare_add" }) |api| {
-        try std.testing.expectError(error.ExportCollision, @import("rust.zig").emit(a, creation, &.{.{ .api = api, .call = call }}));
+        try std.testing.expectError(error.ExportCollision, @import("rust.zig").emit(a, creation, &.{.{ .api = api, .call = call }}, &.{}));
     }
+}
+
+test "TypeScript tell exports reserve only emitted support" {
+    const a = std.testing.allocator;
+    const code = try ts.emit(a, &.{.{ .api = "Pending", .call = .{
+        .wire_name = "notice",
+        .parameters = &.{.symbol},
+        .required_parameters = 1,
+        .result = .nothing,
+        .effect = .tell,
+    } }});
+    defer a.free(code);
+    try std.testing.expect(std.mem.indexOf(u8, code, "class Pending") == null);
+    try std.testing.expect(std.mem.indexOf(u8, code, "function nothing") == null);
+    try std.testing.expect(std.mem.indexOf(u8, code, "import { Sym }") != null);
 }
