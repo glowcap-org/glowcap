@@ -171,6 +171,12 @@ views live only through their hosting turn, and asynchronous retention uses the
 existing Host owner. A typed target wrapper expresses an expectation, not
 remote introspection or authority validation.
 
+Generated Rust handles select the binding's owned-outcome policy before
+observation. Returned capabilities, including opaque nested values, release
+their occurrences on final drop even when the Host's automatic release is off.
+Refused and partially decoded replies receive the same cleanup. Independent
+raw observations keep their own release policy and settlement.
+
 Preparation copies and validates data and retains references **before** it
 suspends for sequence acquisition. Submission retains the exact target,
 sequence, and snapshot. Replay never acquires a fresh sequence automatically.

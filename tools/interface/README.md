@@ -118,6 +118,9 @@ The [read projection](../../test/interface/contract.md#tasks-rust-read-projectio
 owns the bounds and target coverage.
 
 Generated helpers delegate promise and reference ownership to the bindings.
+Rust handles select `RemotePromise::with_owned_outcome` before observation,
+including when the Host's default is manual release. Partial decoding and
+discarded results then release the reply's occurrences through existing guards.
 Tasks owns its workflow and the server's policy. Binding changes needed by a
 proof belong in the binding and have regression coverage there.
 
