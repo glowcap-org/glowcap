@@ -36,7 +36,7 @@ test "proposed text equals independent canonical description and retains exact m
     const prepared = try calls.read(&model, "comparison.Prepared", "accept");
     try std.testing.expectEqual(calls.Effect.receipt, prepared.effect);
     try std.testing.expect(prepared.parameters[0] == .pending_value);
-    const prepared_rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "prepared_text", .call = prepared }}, &.{});
+    const prepared_rust = try @import("rust.zig").emit(a, &.{.{ .api = "prepared_text", .call = prepared }}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, prepared_rust, " as prepared_text;") != null);
     for ([_][]const u8{ "null-input", "null-result" }) |selector| {
         try std.testing.expectError(error.UnsupportedTarget, calls.read(&model, "comparison.Named", selector));
@@ -84,7 +84,7 @@ test "bound reply and exact method edits change checked consumers" {
     model = try Model.init(a, try description.read(a, changed_method));
     try std.testing.expectError(error.InvalidDescription, model.method("comparison.Named", "a-b"));
     const renamed = try calls.read(&model, "comparison.Named", "renamed");
-    const rust = try @import("callbacks.zig").emit(a, &.{.{ .api = "renamed", .call = renamed }}, &.{});
+    const rust = try @import("rust.zig").emit(a, &.{.{ .api = "renamed", .call = renamed }}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, rust, "\"renamed\"") != null);
 }
 

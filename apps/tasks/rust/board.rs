@@ -122,16 +122,12 @@ impl Board {
 
 	/// Move `task` from "To do" to the end of "Done".
 	pub async fn done(&self, task: &Task) -> Result<(), String> {
-		interface::prepare_move(
+		interface::move_task(
 			self.session.clone(),
 			self.todo.clone(),
 			(&task.0).into(),
 			(&self.done).into(),
 		)
-		.map_err(|error| format!("move: {error}"))?
-		.await
-		.map_err(|error| format!("move: {error}"))?
-		.submit()
 		.await
 		.map(|_| ())
 		.map_err(|error| format!("move: {error}"))
@@ -140,11 +136,7 @@ impl Board {
 	/// Start watching the board for changes.
 	pub async fn watch(&self) -> Result<Watcher, String> {
 		let interface::LoamRegistration(receiver, canceller) =
-			interface::prepare_observe(self.session.clone(), self.root.clone())
-				.map_err(|error| format!("observe: {error}"))?
-				.await
-				.map_err(|error| format!("observe: {error}"))?
-				.submit()
+			interface::observe(self.session.clone(), self.root.clone())
 				.await
 				.map_err(|error| format!("observe: {error}"))?;
 		let mut watcher = Watcher {

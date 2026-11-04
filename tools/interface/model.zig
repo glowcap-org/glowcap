@@ -9,8 +9,8 @@ const call_type = @import("call_type.zig");
 pub const max_definitions: usize = 4096;
 pub const max_parameters: usize = 256;
 
-/// The creation templates spell this method's names and Loam's receipt verbs,
-/// so their emitters refuse a creation projected from any other method.
+/// The narrow Zig creation checker spells this method's name and refuses
+/// creation projected from any other method.
 pub const creation_method = "add";
 
 pub const Creation = struct {

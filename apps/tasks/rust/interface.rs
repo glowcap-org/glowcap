@@ -6,7 +6,6 @@ pub use __glowcap::PreparedMutation;
 pub use __glowcap::ProjectedType0 as LoamObservation;
 pub use __glowcap::ProjectedType1 as LoamRegistration;
 pub use __glowcap::Reference;
-pub use __glowcap::add;
 pub use __glowcap::call_0 as board_list;
 pub use __glowcap::call_1 as list_name;
 pub use __glowcap::call_2 as list_count;
@@ -16,12 +15,12 @@ pub use __glowcap::call_5 as receiver_poll;
 pub use __glowcap::call_6 as prepare_move;
 pub use __glowcap::call_7 as prepare_observe;
 pub use __glowcap::call_8 as cancel;
-pub use __glowcap::prepare_add;
+pub use __glowcap::call_9 as prepare_add;
+pub use __glowcap::receipt_once_6 as move_task;
+pub use __glowcap::receipt_once_7 as observe;
+pub use __glowcap::receipt_once_9 as add;
 
 mod __glowcap {
-	const MIN_TEXT_BYTES: usize = 1;
-	const MAX_TEXT_BYTES: usize = 4096;
-	const ADD_VERB: &str = "add";
 	use glowcap::Argument;
 	use glowcap::AsSendTarget;
 	use glowcap::Ref;
@@ -202,30 +201,6 @@ mod __glowcap {
 		} else {
 			Err(Error::InvalidReply)
 		}
-	}
-	/// Copies text before acquiring a sequence. The prepared request owns that
-	/// snapshot until it is dropped, so caller edits cannot change submission or replay.
-	pub fn prepare_add(
-		session: Rc<Session>,
-		target: Ref,
-		text: &str,
-	) -> Result<impl Future<Output = Result<PreparedMutation<Ref>, Error>> + use<>, Error> {
-		if text.len() < MIN_TEXT_BYTES || text.len() > MAX_TEXT_BYTES {
-			return Err(Error::InvalidArgument);
-		}
-		let snapshot = text.to_owned();
-		prepare_mutation(
-			session,
-			target,
-			move |number| vec![number.into(), ADD_VERB.into(), snapshot.into()],
-			capability,
-		)
-	}
-
-	/// Submit once. Use prepare_add when the caller needs to retain and replay.
-	pub fn add(session: Rc<Session>, target: Ref, text: &str) -> impl Future<Output = Result<Ref, Error>> + use<> {
-		let preparation = prepare_add(session, target, text);
-		async move { preparation?.await?.submit().await }
 	}
 	pub struct ProjectedType0(pub Vec<u8>, pub Argument, pub bool, pub bool, pub Compound1);
 	pub struct ProjectedType1(pub Ref, pub Ref);
@@ -438,6 +413,17 @@ mod __glowcap {
 		)
 	}
 
+	/// Prepare immediately and submit once when awaited. Use explicit preparation for replay.
+	pub fn receipt_once_6<'a>(
+		session: Rc<Session>,
+		target: Ref,
+		arg0: Reference<'a>,
+		arg1: Reference<'a>,
+	) -> impl Future<Output = Result<i64, Error>> + use<> {
+		let preparation = call_6(session, target, arg0, arg1);
+		async move { preparation?.await?.submit().await }
+	}
+
 	pub fn call_7(
 		session: Rc<Session>,
 		target: Ref,
@@ -450,8 +436,44 @@ mod __glowcap {
 		)
 	}
 
+	/// Prepare immediately and submit once when awaited. Use explicit preparation for replay.
+	pub fn receipt_once_7(
+		session: Rc<Session>,
+		target: Ref,
+	) -> impl Future<Output = Result<ProjectedType1, Error>> + use<> {
+		let preparation = call_7(session, target);
+		async move { preparation?.await?.submit().await }
+	}
+
 	pub fn call_8(session: &Session, target: impl AsSendTarget) -> Pending<bool> {
 		let raw = session.send(target, "cancel", &[]);
 		Pending::new(raw, boolean)
+	}
+
+	pub fn call_9(
+		session: Rc<Session>,
+		target: Ref,
+		arg0: &str,
+	) -> Result<impl Future<Output = Result<PreparedMutation<Ref>, Error>> + use<>, Error> {
+		if !(1u128..=4096u128).contains(&(arg0.len() as u128)) {
+			return Err(Error::InvalidArgument);
+		}
+		let arg0 = arg0.to_owned();
+		prepare_mutation(
+			session,
+			target,
+			move |number| vec![number.into(), "add".into(), arg0.into()],
+			capability,
+		)
+	}
+
+	/// Prepare immediately and submit once when awaited. Use explicit preparation for replay.
+	pub fn receipt_once_9(
+		session: Rc<Session>,
+		target: Ref,
+		arg0: &str,
+	) -> impl Future<Output = Result<Ref, Error>> + use<> {
+		let preparation = call_9(session, target, arg0);
+		async move { preparation?.await?.submit().await }
 	}
 }

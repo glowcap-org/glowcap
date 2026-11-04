@@ -3,7 +3,7 @@ const std = @import("std");
 const description = @import("description.zig");
 const Model = @import("model.zig").Model;
 const calls = @import("calls.zig");
-const rust = @import("callbacks.zig");
+const rust = @import("rust.zig");
 const ts = @import("typescript.zig");
 
 const ordinary_profiles = "{14\"glowcap.values1+}";

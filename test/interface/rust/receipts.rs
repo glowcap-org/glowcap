@@ -84,6 +84,10 @@ pub async fn run() {
 				Err(interface::Error::Runtime(error)) => assert_eq!(error.kind(), glowcap::ErrorKind::NotFound),
 				_ => panic!("foreign reference preparation was admitted"),
 			}
+			let refused = interface::move_task(pair.client.clone(), receiver.clone(), first.into(), second.into());
+			assert!(
+				matches!(refused.await, Err(interface::Error::Runtime(error)) if error.kind() == glowcap::ErrorKind::NotFound)
+			);
 		}
 		pair.client.send(&barrier, "barrier", &[]).await.unwrap();
 		assert_eq!(state.borrow().queries, 0, "foreign preparation acquired a sequence");
@@ -162,6 +166,38 @@ pub async fn run() {
 				8,
 				"abandoned preparation submitted a mutation"
 			);
+		}
+		for submit in [false, true] {
+			let target = barrier.retain_for(&pair.client.host()).unwrap();
+			let task = glowcap::Ref::try_from(&pair.client.send(&barrier, "task", &[]).await.unwrap()).unwrap();
+			let destination =
+				glowcap::Ref::try_from(&pair.client.send(&barrier, "destination", &[]).await.unwrap()).unwrap();
+			let queries = state.borrow().queries;
+			let deliveries = state.borrow().deliveries;
+			let operation = interface::move_task(
+				pair.client.clone(),
+				target.clone(),
+				(&task).into(),
+				(&destination).into(),
+			);
+			// The one-shot future has not been polled. It must already own
+			// these occurrences and have sent its sequence request.
+			pair.client.release(target).unwrap();
+			pair.client.release(task).unwrap();
+			pair.client.release(destination).unwrap();
+			pair.client.send(&barrier, "barrier", &[]).await.unwrap();
+			assert_eq!(state.borrow().queries, queries + 1);
+			assert_eq!(state.borrow().deliveries, deliveries);
+			let mut sequence = state.borrow_mut().sequence.take().unwrap();
+			if submit {
+				sequence.fulfill(&4i64.into()).unwrap();
+				assert_eq!(operation.await.unwrap(), 1);
+			} else {
+				drop(operation);
+				sequence.fulfill(&4i64.into()).unwrap();
+			}
+			pair.client.send(&barrier, "barrier", &[]).await.unwrap();
+			assert_eq!(state.borrow().deliveries, deliveries + usize::from(submit));
 		}
 		pair.close().await;
 		foreign_host.close(glowcap::PendingWork::Cancel).await.unwrap();

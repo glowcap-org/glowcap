@@ -3,7 +3,7 @@ const std = @import("std");
 const description = @import("description.zig");
 const Model = @import("model.zig").Model;
 const calls = @import("calls.zig");
-const rust = @import("callbacks.zig");
+const rust = @import("rust.zig");
 const ts = @import("typescript.zig");
 
 test "Observation graph preserves positional tag and schema bounds" {

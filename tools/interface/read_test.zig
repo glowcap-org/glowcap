@@ -3,7 +3,7 @@ const std = @import("std");
 const calls = @import("calls.zig");
 const description = @import("description.zig");
 const Model = @import("model.zig").Model;
-const rust = @import("callbacks.zig");
+const rust = @import("rust.zig");
 const ts = @import("typescript.zig");
 
 test "TypeScript projects bounded text and integer inputs and replies" {

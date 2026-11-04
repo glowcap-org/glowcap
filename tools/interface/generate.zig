@@ -97,14 +97,14 @@ fn generateCalls(a: std.mem.Allocator, comptime emitter: type, comptime selectio
 }
 
 fn generateCallbacks(a: std.mem.Allocator) ![]u8 {
-    return generateCalls(a, @import("callbacks.zig"), selected ++ prepared);
+    return generateCalls(a, @import("rust.zig"), selected ++ prepared);
 }
 fn generateTypeScript(a: std.mem.Allocator) ![]u8 {
     return generateCalls(a, @import("typescript.zig"), selected);
 }
 
 fn generateRustNames(a: std.mem.Allocator) ![]u8 {
-    return generateCalls(a, @import("callbacks.zig"), @import("names_test.zig").rust_selections);
+    return generateCalls(a, @import("rust.zig"), @import("names_test.zig").rust_selections);
 }
 
 fn generateTypeScriptNames(a: std.mem.Allocator) ![]u8 {
@@ -117,20 +117,22 @@ fn generateRust(a: std.mem.Allocator) ![]u8 {
     const scratch = arena.allocator();
     var diagnostic: text.Diagnostic = .{};
     var model = (try authored.compile(scratch, &diagnostic, authored.sources)).model;
-    const creation = try model.creation("tasks.TaskList", creation_method);
     const selections = task_reads ++ .{
         .{ "loam.Receiver", "poll", "receiver_poll" },
-        .{ "tasks.TaskList", "move", "prepare_move" },
-        .{ "loam.Observable", "observe", "prepare_observe" },
-        .{ "loam.Canceller", "cancel", "cancel" },
     };
     var reads: [selections.len]calls.Named = undefined;
     inline for (selections, 0..) |method, i| {
         reads[i] = .{ .api = method[2], .call = try calls.read(&model, method[0], method[1]) };
     }
+    const methods = reads ++ [_]calls.Named{
+        .{ .api = "prepare_move", .one_shot_api = "move_task", .call = try calls.read(&model, "tasks.TaskList", "move") },
+        .{ .api = "prepare_observe", .one_shot_api = "observe", .call = try calls.read(&model, "loam.Observable", "observe") },
+        .{ .api = "cancel", .call = try calls.read(&model, "loam.Canceller", "cancel") },
+        .{ .api = "prepare_add", .one_shot_api = "add", .call = try calls.read(&model, "tasks.TaskList", "add") },
+    };
     const observation = try model.callType(.{ .kind = .record, .bytes = "ref", .children = &.{.{ .kind = .string, .bytes = "loam.Observation" }} });
     const registration = try model.callType(.{ .kind = .record, .bytes = "ref", .children = &.{.{ .kind = .string, .bytes = "loam.Registration" }} });
-    return rust.emit(a, creation, &reads, &.{ .{ .api = "LoamObservation", .kind = observation }, .{ .api = "LoamRegistration", .kind = registration } });
+    return rust.emit(a, &methods, &.{ .{ .api = "LoamObservation", .kind = observation }, .{ .api = "LoamRegistration", .kind = registration } });
 }
 
 test "authored contract selects creation and rejects another method shape" {
@@ -143,8 +145,7 @@ test "authored contract selects creation and rejects another method shape" {
     try std.testing.expectEqual(@as(usize, 4096), method.maximum);
     const other = try model.creation("tasks.Board", "add-list");
     try std.testing.expectEqual(@as(usize, 64), other.maximum);
-    // The templates spell `add`, so they refuse to name another method's request.
-    try std.testing.expectError(error.UnsupportedProjection, rust.emit(std.testing.allocator, other, &.{}, &.{}));
+    // The narrow Zig creation checker spells `add` and refuses other methods.
     try std.testing.expectError(error.UnsupportedProjection, zig.emit(std.testing.allocator, other));
     try std.testing.expectError(error.UnsupportedProjection, model.creation("tasks.TaskList", "move"));
 }
@@ -228,7 +229,7 @@ test "call projections admit present undefined and optional arguments but refuse
     for ([_][]const u8{ "required", "optional", "suffix", "pair", "references", "value", "notify" }) |name| {
         const call = try calls.read(&model, "fixture.Presence", name);
         const methods = [_]calls.Named{.{ .api = "presence", .call = call }};
-        const rust_source = try @import("callbacks.zig").emit(std.testing.allocator, &methods, &.{});
+        const rust_source = try @import("rust.zig").emit(std.testing.allocator, &methods, &.{});
         defer std.testing.allocator.free(rust_source);
         const ts_source = try @import("typescript.zig").emit(std.testing.allocator, &methods);
         defer std.testing.allocator.free(ts_source);
@@ -257,7 +258,7 @@ test "prepared receipt emitters refuse unqualified shapes" {
             .result = .nothing,
             .effect = .receipt,
         } }};
-        try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods, &.{}));
+        try std.testing.expectError(error.UnsupportedProjection, @import("rust.zig").emit(std.testing.allocator, &methods, &.{}));
     }
     for ([_]calls.Type{ .pending_target, .pending_value }) |kind| {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
@@ -267,7 +268,7 @@ test "prepared receipt emitters refuse unqualified shapes" {
             .result = kind,
             .effect = .receipt,
         } }};
-        try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods, &.{}));
+        try std.testing.expectError(error.UnsupportedProjection, @import("rust.zig").emit(std.testing.allocator, &methods, &.{}));
     }
     const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
         .wire_name = "accept",
@@ -305,7 +306,7 @@ test "call presence keeps the Models trailing optional rule" {
         .result = .nothing,
         .effect = .receipt,
     } }};
-    const code = try @import("callbacks.zig").emit(std.testing.allocator, &methods, &.{});
+    const code = try @import("rust.zig").emit(std.testing.allocator, &methods, &.{});
     defer std.testing.allocator.free(code);
     try std.testing.expect(std.mem.indexOf(u8, code, ".transpose()?") != null);
     try std.testing.expect(std.mem.indexOf(u8, code, "arguments.truncate(count + 2)") != null);
@@ -426,7 +427,7 @@ fn scalarSource(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
     return if (emitter == @import("typescript.zig")) emitter.emit(a, &methods) else emitter.emit(a, &methods, &.{});
 }
 fn generateScalarRust(a: std.mem.Allocator) ![]u8 {
-    return scalarSource(a, @import("callbacks.zig"));
+    return scalarSource(a, @import("rust.zig"));
 }
 fn generateScalarTypeScript(a: std.mem.Allocator) ![]u8 {
     return scalarSource(a, @import("typescript.zig"));
@@ -451,7 +452,7 @@ fn compoundSource(a: std.mem.Allocator, comptime emitter: type) ![]u8 {
 }
 
 fn generateCompounds(a: std.mem.Allocator) ![]u8 {
-    return compoundSource(a, @import("callbacks.zig"));
+    return compoundSource(a, @import("rust.zig"));
 }
 
 fn generateTypeScriptCompounds(a: std.mem.Allocator) ![]u8 {
