@@ -260,7 +260,7 @@ context without replacing the primary error. A live Watcher remains available
 after later poll failures and is cancelled by its explicit `stop` call.
 
 Rust emission also limits expanded inline structure to
-<!-- value ../../tools/interface/rust_compounds.zig max_inline_structure -->256<!-- /value -->
+<!-- value ../../tools/interface/compound_graph.zig max_inline_structure -->256<!-- /value -->
 units per emitted node. A tuple or record counts its container plus inline
 fields, and each scalar or list slot counts once. List element types are checked
 independently. Excess returns compiler `ResourceLimit` before output, without

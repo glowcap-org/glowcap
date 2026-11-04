@@ -20,12 +20,12 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named, types: []const c
 }
 
 pub fn requirements(methods: []const calls.Named, projection: *const compounds.Projection) !@import("rust_support.zig").Needs {
-    var needs: @import("rust_support.zig").Needs = .{ .replies = projection.leaves };
+    var needs: @import("rust_support.zig").Needs = .{ .replies = projection.graph.leaves };
     for (methods) |method| {
         const call = method.call;
         try bounds.supported(call.result);
         for (call.parameters) |parameter| {
-            if (compounds.compound(parameter)) return error.UnsupportedProjection;
+            if (@import("compound_graph.zig").compound(parameter)) return error.UnsupportedProjection;
             try bounds.supported(parameter);
         }
         needs.ordinary = needs.ordinary or call.effect != .receipt;
@@ -41,7 +41,7 @@ pub fn requirements(methods: []const calls.Named, projection: *const compounds.P
 }
 
 pub fn emitMethods(out: *std.ArrayList(u8), a: std.mem.Allocator, methods: []const calls.Named, projection: *compounds.Projection) !void {
-    if (projection.nodes.items.len == 0) try bounds.replies(out, a, methods);
+    if (projection.graph.nodes.items.len == 0) try bounds.replies(out, a, methods);
     try projection.emit(out);
     for (methods, 0..) |method, i| {
         var buffer: [32]u8 = undefined;

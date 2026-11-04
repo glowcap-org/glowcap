@@ -4,38 +4,27 @@ const calls = @import("calls.zig");
 const bounds = @import("rust_bounds.zig");
 const literal = @import("literal.zig").write;
 
-pub fn compound(kind: calls.Type) bool {
-    return kind == .list or kind == .tuple or kind == .record;
-}
-
-/// Compiler admission counts tuple/record containers and their inline fields.
-/// Scalar and list slots count once. This is not a byte or schema cardinality limit.
-pub const max_inline_structure: usize = 256;
-pub const max_reply_work: usize = 65536;
-pub const max_reply_depth: usize = 64;
-const Node = struct { kind: calls.Type, minimum_work: usize = 0 };
+const graph = @import("compound_graph.zig");
 
 pub const Projection = struct {
     a: std.mem.Allocator,
-    nodes: std.ArrayList(Node) = .empty,
+    graph: graph.Graph,
     exports: []const calls.TypeExport,
     methods: []const calls.Named,
     type_names: std.ArrayList([]u8) = .empty,
     bounded: std.ArrayList(calls.Type) = .empty,
-    leaves: std.EnumSet(calls.Kind) = .{},
-    remaining: usize = 65536,
 
     pub fn init(a: std.mem.Allocator, methods: []const calls.Named, types: []const calls.TypeExport) !Projection {
-        var self: Projection = .{ .a = a, .exports = types, .methods = methods };
+        var self: Projection = .{ .a = a, .exports = types, .methods = methods, .graph = try graph.Graph.init(a, methods) };
         errdefer self.deinit();
-        for (methods) |method| if (method.call.effect != .tell) try self.collect(method.call.result);
-        // List indirection does not excuse an oversized emitted element helper.
-        for (self.nodes.items) |node| {
-            if (try self.minimumWork(node.kind) > max_inline_structure) return error.ResourceLimit;
+        for (self.graph.scalar_types.items) |kind| {
+            try bounds.supported(kind);
+            if (kind == .pending_target or kind == .pending_value) return error.UnsupportedProjection;
+            if (bounds.fallible(kind)) try self.bounded.append(a, kind);
         }
         for (types, 0..) |item, i| {
             if (item.kind != .record and item.kind != .tuple) return error.UnsupportedProjection;
-            if (try self.index(item.kind) == null) return error.UnsupportedProjection;
+            if (try self.graph.index(item.kind) == null) return error.UnsupportedProjection;
             for (types[0..i]) |previous| if (std.meta.eql(previous.kind, item.kind)) return error.ExportCollision;
         }
         for (types, 0..) |_, i| {
@@ -49,60 +38,20 @@ pub const Projection = struct {
     pub fn deinit(self: *Projection) void {
         for (self.type_names.items) |name| self.a.free(name);
         self.type_names.deinit(self.a);
-        self.nodes.deinit(self.a);
+        self.graph.deinit();
         self.bounded.deinit(self.a);
     }
 
-    fn spend(self: *Projection) !void {
-        try self.spendWork(1);
-    }
-
-    fn spendWork(self: *Projection, work: usize) !void {
-        if (work > self.remaining) return error.ResourceLimit;
-        self.remaining -= work;
-    }
-
-    fn index(self: *Projection, kind: calls.Type) !?usize {
-        try self.spendWork(self.nodes.items.len);
-        for (self.nodes.items, 0..) |node, i| if (std.meta.eql(node.kind, kind)) return i;
-        return null;
-    }
-
-    fn collect(self: *Projection, kind: calls.Type) !void {
-        try self.spend();
-        if (!compound(kind)) {
-            try bounds.supported(kind);
-            if (kind == .pending_target or kind == .pending_value) return error.UnsupportedProjection;
-            if (bounds.fallible(kind)) {
-                var seen = false;
-                for (self.bounded.items) |previous| if (std.meta.eql(previous, kind)) {
-                    seen = true;
-                };
-                if (!seen) try self.bounded.append(self.a, kind);
-            }
-            self.leaves.insert(std.meta.activeTag(kind));
-            return;
-        }
-        if (try self.index(kind) != null) return;
-        try self.nodes.append(self.a, .{ .kind = kind });
-        switch (kind) {
-            .list => |list| try self.collect(list.element),
-            .tuple => |tuple| for (tuple.fields) |field| try self.collect(field),
-            .record => |record| for (record.fields) |field| try self.collect(field),
-            else => unreachable,
-        }
-    }
-
     fn exported(self: *Projection, kind: calls.Type) !?[]const u8 {
-        try self.spendWork(self.exports.len);
+        try self.graph.spendWork(self.exports.len);
         for (self.exports, 0..) |item, i| if (std.meta.eql(item.kind, kind)) return self.type_names.items[i];
         return null;
     }
 
     pub fn typeName(self: *Projection, out: *std.ArrayList(u8), kind: calls.Type) !void {
-        try self.spend();
+        try self.graph.spend();
         if (try self.exported(kind)) |name| return out.appendSlice(self.a, name);
-        if (try self.index(kind)) |i| return out.print(self.a, "Compound{d}", .{i});
+        if (try self.graph.index(kind)) |i| return out.print(self.a, "Compound{d}", .{i});
         try out.appendSlice(self.a, switch (kind) {
             .text, .symbol, .error_value => "String",
             .integer => "i64",
@@ -140,7 +89,7 @@ pub const Projection = struct {
     }
 
     pub fn decoder(self: *Projection, out: *std.ArrayList(u8), kind: calls.Type) !void {
-        if (try self.index(kind)) |i| return out.print(self.a, "compound_{d}", .{i});
+        if (try self.graph.index(kind)) |i| return out.print(self.a, "compound_{d}", .{i});
         return bounds.decoder(out, self.a, kind);
     }
 
@@ -152,7 +101,7 @@ pub const Projection = struct {
     }
 
     pub fn emit(self: *Projection, out: *std.ArrayList(u8)) !void {
-        if (self.nodes.items.len == 0) return;
+        if (self.graph.nodes.items.len == 0) return;
         for (self.exports, 0..) |item, i| {
             const fields = if (item.kind == .record) item.kind.record.fields else item.kind.tuple.fields;
             try out.print(self.a, "pub struct {s}(", .{self.type_names.items[i]});
@@ -165,16 +114,16 @@ pub const Projection = struct {
         }
         // Private aliases keep shared graphs linear in generated source and
         // avoid repeating complex tuple types in every helper signature.
-        for (self.nodes.items, 0..) |node, i| if (try self.exported(node.kind) == null) {
+        for (self.graph.nodes.items, 0..) |node, i| if (try self.exported(node.kind) == null) {
             const kind = node.kind;
             try out.print(self.a, "pub type Compound{d} = ", .{i});
             try self.bodyName(out, kind);
             try out.appendSlice(self.a, ";\n");
         };
         for (self.bounded.items) |kind| try bounds.reply(out, self.a, kind);
-        try out.print(self.a, "const MAX_REPLY_DEPTH: usize = {d};\nconst MAX_REPLY_WORK: usize = {d};\n", .{ max_reply_depth, max_reply_work });
+        try out.print(self.a, "const MAX_REPLY_DEPTH: usize = {d};\nconst MAX_REPLY_WORK: usize = {d};\n", .{ graph.max_reply_depth, graph.max_reply_work });
         try out.appendSlice(self.a, @embedFile("templates/compound.rs"));
-        for (self.nodes.items, 0..) |node, i| {
+        for (self.graph.nodes.items, 0..) |node, i| {
             const kind = node.kind;
             var root = false;
             for (self.methods) |method| if (method.call.effect != .tell and std.meta.eql(method.call.result, kind)) {
@@ -193,7 +142,7 @@ pub const Projection = struct {
                 if (kind.list.max_items) |max| try out.print(self.a, "\tif values.len() as u128 > {d}u128 {{\n\t\treturn Err(Error::InvalidReply);\n\t}}\n", .{max});
                 // Typed lists cannot reuse Vec<Argument>'s layout. Reserve once,
                 // after schema/work checks, and move each owned child into it.
-                const work = try self.minimumWork(kind.list.element);
+                const work = try self.graph.minimumWork(kind.list.element);
                 try out.appendSlice(self.a, "\tif values.len() > budget.remaining");
                 if (work != 1) try out.print(self.a, " / {d}", .{work});
                 try out.appendSlice(self.a, " {\n\t\treturn Err(Error::ResourceLimit);\n\t}\n\tlet mut result = Vec::with_capacity(values.len());\n\tfor value in values {\n\t\tresult.push(");
@@ -221,33 +170,8 @@ pub const Projection = struct {
         }
     }
 
-    // This shared score counts inline structure and mandatory decoding work.
-    // Admission refuses saturation before output, so admitted scores stay exact
-    // when reused to bound typed-list reservation against the runtime budget.
-    fn minimumWork(self: *Projection, kind: calls.Type) !usize {
-        try self.spend();
-        const index_value = try self.index(kind) orelse return 1;
-        if (self.nodes.items[index_value].minimum_work != 0) return self.nodes.items[index_value].minimum_work;
-        var work: usize = 1;
-        const fields = switch (kind) {
-            .tuple => |tuple| tuple.fields,
-            .record => |record| record.fields,
-            .list => &.{},
-            else => unreachable,
-        };
-        for (fields) |field| {
-            work += try self.minimumWork(field);
-            if (work > max_inline_structure) {
-                work = max_inline_structure + 1;
-                break;
-            }
-        }
-        self.nodes.items[index_value].minimum_work = work;
-        return work;
-    }
-
     fn child(self: *Projection, out: *std.ArrayList(u8), kind: calls.Type, value: []const u8) !void {
-        if (try self.index(kind)) |i| {
+        if (try self.graph.index(kind)) |i| {
             try out.print(self.a, "compound_{d}_at({s}, budget, depth + 1)", .{ i, value });
         } else {
             // value is opaque: charge one leaf without traversing its contents.

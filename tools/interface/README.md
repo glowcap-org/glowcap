@@ -14,6 +14,7 @@ owns executable qualification.
 | `rust.zig` | Tasks creation and read module assembly |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
 | `typescript_scalars.zig` | Exact JavaScript scalar guards and byte limits |
+| `compound_graph.zig` | Bounded target-neutral graph traversal and minimum decoder work |
 | `rust_compounds.zig` | Owned list, tuple, and tagged positional-record reply decoders |
 | `rust_bounds.zig` | Rust argument checks and deduplicated bounded reply decoders |
 | `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
@@ -56,7 +57,7 @@ Rust reply projections also support lists, tuples, and tagged positional records
 Named aliases share immutable normalized nodes.
 
 Rust admission limits expanded
-inline structure to <!-- value rust_compounds.zig max_inline_structure -->256<!-- /value -->
+inline structure to <!-- value compound_graph.zig max_inline_structure -->256<!-- /value -->
 units per emitted type, including list element helpers. Tuple/record containers
 and their inline fields are counted, with each scalar or list slot counting once.
 This compiler resource limit prevents excessive Rust value and future layouts.

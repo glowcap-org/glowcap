@@ -92,7 +92,7 @@ test "Rust inline structure admission includes the container and every emitted l
     defer arena.deinit();
     const a = arena.allocator();
     const types = @import("call_type.zig");
-    const maximum = @import("rust_compounds.zig").max_inline_structure;
+    const maximum = @import("compound_graph.zig").max_inline_structure;
     const fields = try a.alloc(calls.Type, maximum);
     @memset(fields, .boolean);
     for ([_]usize{ maximum - 1, maximum }) |count| {
