@@ -95,8 +95,8 @@ selection to that call. Collection timing is chosen by JavaScript, so use
 explicit release when cleanup must happen now.
 
 A fetch that receives a non-capability result throws `FetchFailed` and queues its
-references for release without waiting for collection. Valid fetch results keep the
-session's release policy. Unobserved replies abandoned or evicted by the Host
+references for release without waiting for collection. Valid fetch results keep their
+existing release policy. Unobserved replies abandoned or evicted by the Host
 retire their references without waiting for JavaScript collection.
 
 ## How it is built
