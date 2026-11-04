@@ -9,9 +9,43 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-11-02
+## [0.1.2] - 2026-11-04
+
+### Added
+
+- Build-time interface generation feeds the Tasks client from authored Tasks
+  and shared Loam definitions. Rust calls check declared replies and keep
+  prepared mutation requests for explicit replay. Creation and read handlers
+  in Zig check their declared arguments and results.
+- Generated Rust and TypeScript callers preserve positional calls, named
+  methods, omitted arguments and explicit undefined values. Both decode lists,
+  tuples and tagged records. TypeScript keeps arbitrary bigint integers and
+  checks text bounds in UTF-8 bytes.
+- Interface text supports rooted imports and positional containers. The
+  compiler checks the complete authored bundle against independent Syrup
+  descriptions. These are qualified projections, not a general-purpose
+  interface compiler or an adopted language.
+- Rust `Ref::retain_for` owns a capability independently of the original
+  reference's explicit release. Prepared Rust calls retain their target and
+  reference arguments before acquiring a mutation sequence.
 
 ### Fixed
+
+- Rust and TypeScript clean up discarded references in generated and internal
+  replies, and after failed fetch/enliven calls, when automatic release is
+  disabled. Successful manual results keep their existing release policy.
+  JavaScript aliases retain their shared finalizer lifetime.
+- A failed session open or handshake keeps its original error when channel
+  cleanup also fails. Cleanup runs once and remains visible beside that error.
+- The portable deadline wrapper reaps children that exit during group signalling
+  on macOS, while preserving real signal-permission failures.
+- Pending calls settle with their original failure when progress or close
+  fails. Cleanup failures preserve the primary construction error.
+- Rooms and its test processes use the ports their children actually bind,
+  avoiding races from choosing a free port before starting a listener. Room
+  selection waits for directory registration before opening the session.
+- The TypeScript argument encoder rejects sparse arrays instead of silently
+  converting missing slots into integer zero.
 
 - The C SDK archive ships the WebRTC transport's shared library and header
   beside the iroh one, so the Rust crate's `webrtc` feature links against the
