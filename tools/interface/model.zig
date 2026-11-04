@@ -21,13 +21,13 @@ pub const Creation = struct {
 pub const Model = struct {
     definitions: Node,
     remaining: usize = 1 << 20,
+    receipt_convention: bool = false,
 
     pub fn init(root: Node) Error!Model {
         const fields = try root.fields("glowcap:interface", 3);
         if (try fields[0].number() != 1 or fields[1].kind != .dictionary or fields[2].kind != .dictionary) return error.InvalidDescription;
         if (fields[2].children.len > 2 * max_definitions) return error.ResourceLimit;
-        if (fields[1].children.len != 4 or try (try fields[1].get("glowcap.values")).number() != 1 or try (try fields[1].get("loam.receipt")).number() != 1) return error.InvalidDescription;
-        var self: Model = .{ .definitions = fields[2] };
+        var self: Model = .{ .definitions = fields[2], .receipt_convention = try checkProfiles(fields[1]) };
         var i: usize = 0;
         while (i < self.definitions.children.len) : (i += 2) {
             try identifier(try self.definitions.children[i].string());
@@ -41,6 +41,28 @@ pub const Model = struct {
             } else return error.InvalidDescription;
         }
         return self;
+    }
+
+    // Declared profiles are build requirements, including when not used.
+    // Return the receipt permission only after validating every declaration.
+    fn checkProfiles(profiles: Node) Error!bool {
+        if (profiles.children.len % 2 != 0) return error.InvalidDescription;
+        var values = false;
+        var receipts = false;
+        var i: usize = 0;
+        while (i < profiles.children.len) : (i += 2) {
+            const name = try profiles.children[i].string();
+            if (try profiles.children[i + 1].number() != 1) return error.InvalidDescription;
+            if (std.mem.eql(u8, name, "glowcap.values")) {
+                if (values) return error.InvalidDescription;
+                values = true;
+            } else if (std.mem.eql(u8, name, "loam.receipt")) {
+                if (receipts) return error.InvalidDescription;
+                receipts = true;
+            } else return error.InvalidDescription;
+        }
+        if (!values) return error.InvalidDescription;
+        return receipts;
     }
 
     fn definition(self: *Model, name: []const u8) Error!Node {
@@ -79,7 +101,7 @@ pub const Model = struct {
             const params = signature[0];
             if (params.kind != .list or params.children.len > max_parameters) return error.InvalidDescription;
             if (!signature[2].is("call") and !signature[2].is("tell") and !signature[2].is("loam.receipt")) return error.InvalidDescription;
-            if (signature[2].is("loam.receipt") and name.kind != .string) return error.InvalidDescription;
+            if (signature[2].is("loam.receipt") and (!self.receipt_convention or name.kind != .string)) return error.InvalidDescription;
             if (signature[2].is("tell") and !signature[1].is("undefined")) return error.InvalidDescription;
             var optional = false;
             for (params.children, 0..) |param, at| {

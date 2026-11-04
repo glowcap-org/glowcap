@@ -98,11 +98,16 @@ only on repository-owned inputs and is not the proposed production parser.
 
 `glowcap.values: 1` names the local target mapping below, and `loam.receipt: 1`
 names the existing preparation convention. They are build requirements, not
-wire negotiation or community profile names. The fixture compiler requires
-both entries even for descriptions without receipts. This is a limit of the
-comparison implementation, not a general compiler requirement for every
-interface to use receipts. The two supported session profiles remain `1.0`
-and `glowcap-next`. A description cannot change a live session.
+wire negotiation or community profile names. Every description declares
+`glowcap.values: 1`. The receipt profile is required when any method in the
+bundle uses `loam.receipt`, including a method not selected for emission.
+Descriptions without receipt methods may omit it. A supported declared profile
+may remain unused, but unknown profiles and unsupported versions are refused.
+
+The existing comparison corpus retains both supported profile entries.
+The ordinary Rust projection does not require the binding's `loam` feature.
+These build requirements do not change the session profiles `1.0` and
+`glowcap-next`. A description cannot change a live session.
 
 ## Tasks and shared Loam
 
