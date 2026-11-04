@@ -17,6 +17,7 @@ watcher reports whether anything on the board changed since its last look, and `
 
 from __future__ import annotations
 
+import asyncio
 import pathlib
 import sys
 from dataclasses import dataclass
@@ -87,6 +88,9 @@ class TaskBoard:
         self._board = board
         self._todo = todo
         self._done = done
+        # One lock per membership spans sequence acquisition through reply.
+        # asyncio removes cancelled waiters and releases the active guard.
+        self._mutations = asyncio.Lock()
 
     @classmethod
     async def join(cls, host: str, port: int, name: str) -> TaskBoard:
@@ -103,8 +107,9 @@ class TaskBoard:
             raise
 
     async def _mutate(self, target: Any, *args: Any) -> Any:
-        seq = await self._session.send(target, "mutation-sequence", [])
-        return await self._session.send(target, "mutate", [seq, *args])
+        async with self._mutations:
+            seq = await self._session.send(target, "mutation-sequence", [])
+            return await self._session.send(target, "mutate", [seq, *args])
 
     @staticmethod
     def _task(value: Any, what: str) -> Task:
@@ -128,7 +133,16 @@ class TaskBoard:
         if not isinstance(reply[1], Ref):
             raise RuntimeError("watching returned no canceller")
         watcher = Watcher(self._session, reply[0], reply[1])
-        await watcher._poll()
+        try:
+            await watcher._poll()
+        except BaseException as primary:
+            # Observe committed a durable context; dropping refs cannot cancel it.
+            try:
+                await watcher.stop()
+            except BaseException as cleanup:
+                BaseException.add_note(primary, f"watcher cleanup failed: {cleanup}")
+                raise primary
+            raise
         return watcher
 
     async def lists(self) -> list[TaskList]:

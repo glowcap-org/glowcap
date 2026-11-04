@@ -56,7 +56,7 @@ async function readCommands(): Promise<void> {
 				console.log("  commands: add <text>, done <index>, list, quit");
 			}
 		} catch (error) {
-			console.log(`  refused: ${error instanceof Error ? error.message : error}`);
+			console.log(`  failed: ${error instanceof Error ? error.message : error}`);
 		}
 	}
 }

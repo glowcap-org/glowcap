@@ -20,12 +20,14 @@
 (require "../../_demo/bindings.rkt"
          "../../../bindings/racket/glowcap-tcp.rkt")
 (provide board-join board-add board-done board-watch watcher-changed? watcher-stop
-         board-lists board-leave (struct-out task-list))
+         board-lists board-leave (struct-out task-list) (struct-out exn:fail:watcher-start))
 
 ;; One list on the board: its name and the text of each task in order.
 (struct task-list (name tasks) #:transparent)
 
-(struct board (runtime session root todo-list done-list))
+;; One semaphore per membership spans sequence acquisition through reply.
+;; Reads stay outside it; call-with-semaphore releases it on refusal or break.
+(struct board (runtime session root todo-list done-list mutations))
 
 ;; A task on the board, named by its capability.
 (struct task (ref))
@@ -34,6 +36,10 @@
 ;; position of that look.
 (struct watcher (board receiver canceller [cursor #:mutable]))
 
+;; Only a double failure allocates this application exception. It keeps both
+;; original exceptions and the startup continuation marks until its caller drops it.
+(struct exn:fail:watcher-start exn:fail (primary cleanup) #:transparent)
+
 ;; Join the board: connect, fetch it by name, and take its first two lists.
 (define (board-join host port name)
   (define runtime (open-runtime #:providers (list (tcp-provider))))
@@ -41,7 +47,8 @@
   (define the-board (session-fetch c name))
   (board runtime c the-board
          (session-send c the-board 'list 0)
-         (session-send c the-board 'list 1)))
+         (session-send c the-board 'list 1)
+         (make-semaphore 1)))
 
 ;; Send one request and drive the connection until it settles.
 (define (call a-board target verb . args)
@@ -49,8 +56,11 @@
 
 ;; One change with a fresh sequence number, so a retry applies once.
 (define (mutate a-board target . args)
-  (define seq (call a-board target 'mutation-sequence))
-  (apply call a-board target 'mutate seq args))
+  (call-with-semaphore
+   (board-mutations a-board)
+   (lambda ()
+     (define seq (call a-board target 'mutation-sequence))
+     (apply call a-board target 'mutate seq args))))
 
 ;; Add a task to "To do". Returns the new task.
 (define (board-add a-board text)
@@ -70,7 +80,18 @@
   (unless (and (pair? (cdr reply)) (ref? (cadr reply)))
     (error 'board-watch "watching returned no canceller"))
   (define w (watcher a-board (car reply) (cadr reply) #f))
-  (poll! w)
+  (with-handlers
+      ([exn? (lambda (primary)
+               ;; Observe committed a durable context; dropping refs cannot cancel it.
+               (with-handlers
+                   ([exn? (lambda (cleanup)
+                            (raise
+                             (exn:fail:watcher-start
+                              (format "~a; watcher cleanup failed: ~a" (exn-message primary) (exn-message cleanup))
+                              (exn-continuation-marks primary) primary cleanup)))])
+                 (watcher-stop w))
+               (raise primary))])
+    (poll! w))
   w)
 
 ;; Poll from the stored cursor, keep the reply's cursor, and return whether the

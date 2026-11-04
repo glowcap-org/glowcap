@@ -1,5 +1,7 @@
 //! Generated Tasks creation against its real server, with independent raw reads.
 use crate::{interface, task_board::Board};
+#[path = "mutations.rs"]
+mod mutations;
 #[path = "refusal.rs"]
 mod refusal;
 use glowcap::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
@@ -90,5 +92,6 @@ pub async fn run(port: u16, name: &str) {
 
 	session.close(PendingWork::Cancel).await.unwrap();
 	runtime.close(PendingWork::Cancel).await.unwrap();
+	mutations::run(port, name).await;
 	refusal::run().await;
 }

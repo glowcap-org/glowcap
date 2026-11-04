@@ -253,6 +253,7 @@ so a peer with no listening socket can still reply and take part in a handoff.
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
   Tasks uses generated Zig creation and six server read checks from authored modules. Its Rust client uses generated creation, move, observation, cancellation and bounded reads.
   Watcher polling uses a generated positional-record reply check and moves a valid returned cursor into place.
+  Tasks clients [sequence changes within each membership](../apps/tasks/README.md#try-every-binding).
 
   Rust prepared pending arguments run through acquisition and replay on both wire profiles.
   Generated Rust and TypeScript callers [isolate public exports from private helpers](../test/interface/authoring/README.md#reproduce),
