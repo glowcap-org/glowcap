@@ -205,13 +205,23 @@ including signed zero, subnormals, infinities, and NaN. Error fulfillment and
 remote break remain separate outcomes. Null remains unsupported. Compound
 replies have the separate mappings below.
 
-The Rust prepared-receipt fixture accepts one `promise<value>` argument and a
-void reply. Its generated input is a borrowed `RemotePromise`. Preparation
-retains it for the receiving Host before asking for a sequence, then owns the
-reference through submission and replay. Both wire profiles cover pending and
-settled inputs with data, capability, and broken outcomes. Replay checks the
-same envelope and capability authority, respecting runtime shortening and
-terminal promise-wrapper behavior.
+Rust receipt methods use the same scalar and compound reply projections as
+ordinary calls. Preparation validates scalar inputs, copies borrowed text and
+retains the target and capability or pending arguments for the receiving Host
+before asking for a sequence. Foreign and released references refuse locally.
+Opaque-value and compound receipt inputs remain unsupported.
+
+The prepared request owns one argument vector after acquisition and reuses it
+for every submission. It never refreshes a sequence or resends automatically.
+Both wire profiles cover pending and settled inputs with data, capability, and
+broken outcomes. Replay checks the same envelope and authority, respecting
+runtime shortening and terminal promise-wrapper behavior.
+
+Tasks' Rust client uses generated add, move, observe, poll, and cancel calls.
+Registration requires exactly two capabilities, without certifying their remote
+interfaces. Move checks the declared count result and cancel requires a Boolean,
+including false. If the first poll fails after observe commits, the application
+attempts cancellation once and preserves the primary failure.
 
 An identical replayed promise is observed once. The current Host observation
 path exposes the one settling listener glowcap-next permits across the wire.

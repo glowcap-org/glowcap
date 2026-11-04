@@ -4,6 +4,8 @@ pub use __glowcap::Observation;
 pub use __glowcap::Pending;
 pub use __glowcap::PreparedMutation;
 pub use __glowcap::ProjectedType0 as LoamObservation;
+pub use __glowcap::ProjectedType1 as LoamRegistration;
+pub use __glowcap::Reference;
 pub use __glowcap::add;
 pub use __glowcap::call_0 as board_list;
 pub use __glowcap::call_1 as list_name;
@@ -11,6 +13,9 @@ pub use __glowcap::call_2 as list_count;
 pub use __glowcap::call_3 as list_task;
 pub use __glowcap::call_4 as task_text;
 pub use __glowcap::call_5 as receiver_poll;
+pub use __glowcap::call_6 as prepare_move;
+pub use __glowcap::call_7 as prepare_observe;
+pub use __glowcap::call_8 as cancel;
 pub use __glowcap::prepare_add;
 
 mod __glowcap {
@@ -95,6 +100,22 @@ mod __glowcap {
 			}
 		}
 	}
+	/// A borrowed reference argument, lowered synchronously before the send returns.
+	/// Receipt preparation retains it independently before acquiring a sequence.
+	pub enum Reference<'a> {
+		Target(&'a Ref),
+		Pending(&'a RemotePromise),
+	}
+	impl<'a> From<&'a Ref> for Reference<'a> {
+		fn from(value: &'a Ref) -> Self {
+			Self::Target(value)
+		}
+	}
+	impl<'a> From<&'a RemotePromise> for Reference<'a> {
+		fn from(value: &'a RemotePromise) -> Self {
+			Self::Pending(value)
+		}
+	}
 	// Presence is fixed stack scratch. A missing optional argument ends the supplied
 	// prefix; a later Some is refused before arguments acquire wire custody.
 	fn optional_argument_count(present: &[bool]) -> Result<usize, Error> {
@@ -127,12 +148,13 @@ mod __glowcap {
 		target: Ref,
 		make_arguments: Arguments,
 		decode: fn(Argument) -> Result<T, Error>,
-	) -> impl Future<Output = Result<PreparedMutation<T>, Error>> + use<T, Arguments>
+	) -> Result<impl Future<Output = Result<PreparedMutation<T>, Error>> + use<T, Arguments>, Error>
 	where
 		Arguments: FnOnce(i64) -> Vec<Argument>,
 	{
+		let target = target.retain_for(&session.host())?;
 		let sequence = session.send(&target, "mutation-sequence", &[]);
-		async move {
+		Ok(async move {
 			let reply = sequence.await?;
 			let number = reply.as_i64().filter(|n| *n > 0).ok_or(Error::InvalidSequence)?;
 			Ok(PreparedMutation {
@@ -141,7 +163,7 @@ mod __glowcap {
 				arguments: make_arguments(number),
 				decode,
 			})
-		}
+		})
 	}
 	fn capability(value: Argument) -> Result<Ref, Error> {
 		if let Argument::Reference(reference) = value {
@@ -192,12 +214,12 @@ mod __glowcap {
 			return Err(Error::InvalidArgument);
 		}
 		let snapshot = text.to_owned();
-		Ok(prepare_mutation(
+		prepare_mutation(
 			session,
 			target,
 			move |number| vec![number.into(), ADD_VERB.into(), snapshot.into()],
 			capability,
-		))
+		)
 	}
 
 	/// Submit once. Use prepare_add when the caller needs to retain and replay.
@@ -206,6 +228,7 @@ mod __glowcap {
 		async move { preparation?.await?.submit().await }
 	}
 	pub struct ProjectedType0(pub Vec<u8>, pub Argument, pub bool, pub bool, pub Compound1);
+	pub struct ProjectedType1(pub Ref, pub Ref);
 	pub type Compound1 = Vec<String>;
 	fn text_1_64(value: Argument) -> Result<String, Error> {
 		let value = text(value)?;
@@ -312,6 +335,35 @@ mod __glowcap {
 		}
 		Ok(result)
 	}
+	fn compound_2(value: Argument) -> Result<ProjectedType1, Error> {
+		compound_2_at(
+			value,
+			&mut DecodeBudget {
+				remaining: MAX_REPLY_WORK,
+			},
+			0,
+		)
+	}
+	fn compound_2_at(value: Argument, budget: &mut DecodeBudget, depth: usize) -> Result<ProjectedType1, Error> {
+		budget.step(depth)?;
+		let Argument::List(values) = value else {
+			return Err(Error::InvalidReply);
+		};
+		if values.len() != 2 {
+			return Err(Error::InvalidReply);
+		}
+		let mut fields = values.into_iter();
+		Ok(ProjectedType1(
+			{
+				budget.step(depth + 1)?;
+				capability(fields.next().ok_or(Error::InvalidReply)?)
+			}?,
+			{
+				budget.step(depth + 1)?;
+				capability(fields.next().ok_or(Error::InvalidReply)?)
+			}?,
+		))
+	}
 
 	pub fn call_0(session: &Session, target: impl AsSendTarget, arg0: i64) -> Result<Pending<Ref>, Error> {
 		if !(0..=9223372036854775807).contains(&arg0) {
@@ -362,5 +414,44 @@ mod __glowcap {
 		];
 		let raw = session.send(target, "poll", &arguments[..count]);
 		Ok(Pending::new(raw, compound_0))
+	}
+
+	pub fn call_6<'a>(
+		session: Rc<Session>,
+		target: Ref,
+		arg0: Reference<'a>,
+		arg1: Reference<'a>,
+	) -> Result<impl Future<Output = Result<PreparedMutation<i64>, Error>> + use<>, Error> {
+		let arg0 = match arg0 {
+			Reference::Target(value) => value.retain_for(&session.host()),
+			Reference::Pending(value) => value.retain_for(&session.host()),
+		}?;
+		let arg1 = match arg1 {
+			Reference::Target(value) => value.retain_for(&session.host()),
+			Reference::Pending(value) => value.retain_for(&session.host()),
+		}?;
+		prepare_mutation(
+			session,
+			target,
+			move |number| vec![number.into(), "move".into(), arg0.into(), arg1.into()],
+			integer_p0_p256,
+		)
+	}
+
+	pub fn call_7(
+		session: Rc<Session>,
+		target: Ref,
+	) -> Result<impl Future<Output = Result<PreparedMutation<ProjectedType1>, Error>> + use<>, Error> {
+		prepare_mutation(
+			session,
+			target,
+			move |number| vec![number.into(), "observe".into()],
+			compound_2,
+		)
+	}
+
+	pub fn call_8(session: &Session, target: impl AsSendTarget) -> Pending<bool> {
+		let raw = session.send(target, "cancel", &[]);
+		Pending::new(raw, boolean)
 	}
 }

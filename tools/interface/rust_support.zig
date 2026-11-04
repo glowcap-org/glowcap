@@ -9,6 +9,7 @@ pub const Needs = struct {
     receipt: bool = false,
     arguments: bool = false,
     references: bool = false,
+    borrowed_references: bool = false,
     optional: bool = false,
     replies: std.EnumSet(Kind) = .{},
 
@@ -38,6 +39,8 @@ pub const Needs = struct {
         try out.appendSlice(a, @embedFile("templates/support.rs"));
         if (pending) try out.appendSlice(a, @embedFile("templates/pending.rs"));
         if (self.references) try out.appendSlice(a, @embedFile("templates/references.rs"));
+        if (self.borrowed_references) try out.appendSlice(a, "impl Reference<'_> {\n\tfn argument(self) -> Argument {\n\t\tmatch self {\n" ++
+            "\t\t\tSelf::Target(value) => value.into(),\n\t\t\tSelf::Pending(value) => value.into(),\n\t\t}\n\t}\n}\n");
         if (self.optional) try out.appendSlice(a, @embedFile("templates/optional.rs"));
         if (self.receipt) try out.appendSlice(a, @embedFile("templates/receipt.rs"));
         for ([_]Kind{ .target, .text, .nothing, .integer, .boolean, .bytes, .symbol, .float64, .error_value }) |kind| if (self.replies.contains(kind)) {

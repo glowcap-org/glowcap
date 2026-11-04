@@ -118,13 +118,19 @@ fn generateRust(a: std.mem.Allocator) ![]u8 {
     var diagnostic: text.Diagnostic = .{};
     var model = (try authored.compile(scratch, &diagnostic, authored.sources)).model;
     const creation = try model.creation("tasks.TaskList", creation_method);
-    const selections = task_reads ++ .{.{ "loam.Receiver", "poll", "receiver_poll" }};
+    const selections = task_reads ++ .{
+        .{ "loam.Receiver", "poll", "receiver_poll" },
+        .{ "tasks.TaskList", "move", "prepare_move" },
+        .{ "loam.Observable", "observe", "prepare_observe" },
+        .{ "loam.Canceller", "cancel", "cancel" },
+    };
     var reads: [selections.len]calls.Named = undefined;
     inline for (selections, 0..) |method, i| {
         reads[i] = .{ .api = method[2], .call = try calls.read(&model, method[0], method[1]) };
     }
     const observation = try model.callType(.{ .kind = .record, .bytes = "ref", .children = &.{.{ .kind = .string, .bytes = "loam.Observation" }} });
-    return rust.emit(a, creation, &reads, &.{.{ .api = "LoamObservation", .kind = observation }});
+    const registration = try model.callType(.{ .kind = .record, .bytes = "ref", .children = &.{.{ .kind = .string, .bytes = "loam.Registration" }} });
+    return rust.emit(a, creation, &reads, &.{ .{ .api = "LoamObservation", .kind = observation }, .{ .api = "LoamRegistration", .kind = registration } });
 }
 
 test "authored contract selects creation and rejects another method shape" {
@@ -239,7 +245,11 @@ test "call projections admit present undefined and optional arguments but refuse
 }
 
 test "prepared receipt emitters refuse unqualified shapes" {
-    for ([_]calls.Type{ .{ .text = .{} }, .target, .pending_target, .nothing, .value }) |kind| {
+    const container = @import("call_type.zig");
+    const list: container.List = .{ .element = .target };
+    const tuple: container.Tuple = .{ .fields = &.{.target} };
+    const record: container.Record = .{ .tag = "cap", .fields = &.{.target} };
+    for ([_]calls.Type{ .value, .{ .list = &list }, .{ .tuple = &tuple }, .{ .record = &record } }) |kind| {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
             .wire_name = "accept",
             .parameters = &.{kind},
@@ -249,7 +259,7 @@ test "prepared receipt emitters refuse unqualified shapes" {
         } }};
         try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods, &.{}));
     }
-    for ([_]calls.Type{ .{ .text = .{} }, .target, .pending_target, .pending_value, .value }) |kind| {
+    for ([_]calls.Type{ .pending_target, .pending_value }) |kind| {
         const methods = [_]calls.Named{.{ .api = "prepare_test", .call = .{
             .wire_name = "accept",
             .parameters = &.{.pending_value},
@@ -295,7 +305,10 @@ test "call presence keeps the Models trailing optional rule" {
         .result = .nothing,
         .effect = .receipt,
     } }};
-    try std.testing.expectError(error.UnsupportedProjection, @import("callbacks.zig").emit(std.testing.allocator, &methods, &.{}));
+    const code = try @import("callbacks.zig").emit(std.testing.allocator, &methods, &.{});
+    defer std.testing.allocator.free(code);
+    try std.testing.expect(std.mem.indexOf(u8, code, ".transpose()?") != null);
+    try std.testing.expect(std.mem.indexOf(u8, code, "arguments.truncate(count + 2)") != null);
 }
 
 test {

@@ -9,12 +9,12 @@ pub fn prepare_add(
 		return Err(Error::InvalidArgument);
 	}
 	let snapshot = text.to_owned();
-	Ok(prepare_mutation(
+	prepare_mutation(
 		session,
 		target,
 		move |number| vec![number.into(), ADD_VERB.into(), snapshot.into()],
 		capability,
-	))
+	)
 }
 
 /// Submit once. Use prepare_add when the caller needs to retain and replay.

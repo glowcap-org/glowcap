@@ -94,7 +94,7 @@ mod __glowcap_2 {
 		}
 	}
 	/// A borrowed reference argument, lowered synchronously before the send returns.
-	/// It never owns an independent pending reference across a suspension.
+	/// Receipt preparation retains it independently before acquiring a sequence.
 	pub enum Reference<'a> {
 		Target(&'a Ref),
 		Pending(&'a RemotePromise),

@@ -23,6 +23,14 @@ interface Notices {
 interface Prepared {
   @loam.receipt
   accept(pending: promise<value>) -> undefined
+  @loam.receipt
+  capture(name: string(min_bytes: 1, max_bytes: 64), reader: Reader, pending?: promise<Reader>) -> tuple<Reader, bool>
+  @loam.receipt
+  optional(name?: string, bytes?: bytes, marker?: symbol) -> bool
+  @loam.receipt
+  scalars(integer: integer(min: 0, max: 64), flag: bool, marker: symbol, error: error) -> bool
+  @loam.receipt
+  data(bytes: bytes, float: float64, absent: undefined) -> bool
 }
 
 type Name = string(min_bytes: 1, max_bytes: 64)

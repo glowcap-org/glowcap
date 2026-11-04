@@ -104,7 +104,7 @@ mod __glowcap {
 		}
 	}
 	/// A borrowed reference argument, lowered synchronously before the send returns.
-	/// It never owns an independent pending reference across a suspension.
+	/// Receipt preparation retains it independently before acquiring a sequence.
 	pub enum Reference<'a> {
 		Target(&'a Ref),
 		Pending(&'a RemotePromise),
@@ -159,12 +159,13 @@ mod __glowcap {
 		target: Ref,
 		make_arguments: Arguments,
 		decode: fn(Argument) -> Result<T, Error>,
-	) -> impl Future<Output = Result<PreparedMutation<T>, Error>> + use<T, Arguments>
+	) -> Result<impl Future<Output = Result<PreparedMutation<T>, Error>> + use<T, Arguments>, Error>
 	where
 		Arguments: FnOnce(i64) -> Vec<Argument>,
 	{
+		let target = target.retain_for(&session.host())?;
 		let sequence = session.send(&target, "mutation-sequence", &[]);
-		async move {
+		Ok(async move {
 			let reply = sequence.await?;
 			let number = reply.as_i64().filter(|n| *n > 0).ok_or(Error::InvalidSequence)?;
 			Ok(PreparedMutation {
@@ -173,7 +174,7 @@ mod __glowcap {
 				arguments: make_arguments(number),
 				decode,
 			})
-		}
+		})
 	}
 	fn capability(value: Argument) -> Result<Ref, Error> {
 		if let Argument::Reference(reference) = value {
@@ -356,14 +357,14 @@ mod __glowcap {
 	pub fn call_18(
 		session: Rc<Session>,
 		target: Ref,
-		pending: &RemotePromise,
+		arg0: &RemotePromise,
 	) -> Result<impl Future<Output = Result<PreparedMutation<()>, Error>> + use<>, Error> {
-		let owned = pending.retain_for(&session.host())?;
-		Ok(prepare_mutation(
+		let arg0 = arg0.retain_for(&session.host())?;
+		prepare_mutation(
 			session,
 			target,
-			move |number| vec![number.into(), "accept".into(), owned.into()],
+			move |number| vec![number.into(), "accept".into(), arg0.into()],
 			nothing,
-		))
+		)
 	}
 }

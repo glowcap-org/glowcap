@@ -26,6 +26,9 @@ pub fn requirements(methods: []const calls.Named, projection: *const compounds.P
         try bounds.supported(call.result);
         for (call.parameters) |parameter| {
             if (@import("compound_graph.zig").compound(parameter)) return error.UnsupportedProjection;
+            // An opaque value can contain nested references. Preparing it needs
+            // a binding-owned recursive retain, not a shallow Argument move.
+            if (call.effect == .receipt and parameter == .value) return error.UnsupportedProjection;
             try bounds.supported(parameter);
         }
         needs.ordinary = needs.ordinary or call.effect != .receipt;
@@ -35,6 +38,7 @@ pub fn requirements(methods: []const calls.Named, projection: *const compounds.P
         for (call.parameters) |parameter| {
             needs.arguments = needs.arguments or parameter == .value or parameter == .symbol or parameter == .error_value;
             needs.references = needs.references or parameter == .target or parameter == .pending_target;
+            needs.borrowed_references = needs.borrowed_references or (call.effect != .receipt and (parameter == .target or parameter == .pending_target));
         }
     }
     return needs;
@@ -46,8 +50,19 @@ pub fn emitMethods(out: *std.ArrayList(u8), a: std.mem.Allocator, methods: []con
     for (methods, 0..) |method, i| {
         var buffer: [32]u8 = undefined;
         const name = try exports.callName(&buffer, i);
-        if (method.call.effect == .receipt) try emitPrepared(out, a, method.call, name) else try emitCall(out, a, method.call, name, projection);
+        if (method.call.effect == .receipt) try emitPrepared(out, a, method.call, name, projection) else try emitCall(out, a, method.call, name, projection);
     }
+}
+
+fn emitOptionalCount(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call) !void {
+    try out.appendSlice(a, "\tlet count = ");
+    if (call.required_parameters != 0) try out.print(a, "{d} + ", .{call.required_parameters});
+    try out.appendSlice(a, "optional_argument_count(&[");
+    for (call.parameters[call.required_parameters..], call.required_parameters..) |_, i| {
+        if (i != call.required_parameters) try out.appendSlice(a, ", ");
+        try out.print(a, "arg{d}.is_some()", .{i});
+    }
+    try out.appendSlice(a, "])?;\n");
 }
 
 fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api: []const u8, projection: *compounds.Projection) !void {
@@ -75,15 +90,9 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
     }
     for (call.parameters, 0..) |parameter, i| try bounds.argument(out, a, parameter, i, i >= call.required_parameters);
     if (optional) {
-        try out.appendSlice(a, "\tlet count = ");
-        if (call.required_parameters != 0) try out.print(a, "{d} + ", .{call.required_parameters});
-        try out.appendSlice(a, "optional_argument_count(&[");
-        for (call.parameters[call.required_parameters..], call.required_parameters..) |_, i| {
-            if (i != call.required_parameters) try out.appendSlice(a, ", ");
-            try out.print(a, "arg{d}.is_some()", .{i});
-        }
-        try out.appendSlice(a, "])?;\n\tlet arguments = [\n\t\t// Fixed stack scratch; omitted slots are outside the sent prefix.\n");
-        try emitArguments(out, a, call);
+        try emitOptionalCount(out, a, call);
+        try out.appendSlice(a, "\tlet arguments = [\n\t\t// Fixed stack scratch; omitted slots are outside the sent prefix.\n");
+        try emitArguments(out, a, call, false);
         try out.appendSlice(a, "\t];\n");
     }
     try out.appendSlice(a, if (call.effect == .tell) "\tlet result = session.tell(target, " else "\tlet raw = session.send(target, ");
@@ -92,7 +101,7 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
         try out.appendSlice(a, ", &arguments[..count]");
     } else {
         try out.appendSlice(a, ", &[");
-        try emitArguments(out, a, call);
+        try emitArguments(out, a, call, false);
         try out.appendSlice(a, "]");
     }
     if (call.effect == .tell) {
@@ -106,7 +115,7 @@ fn emitCall(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api
 
 // Scalar Vec/String inputs already own their snapshot. Packing moves those
 // owners into Argument; local validation refusal drops them without copying.
-fn emitArguments(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call) !void {
+fn emitArguments(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, retained: bool) !void {
     for (call.parameters, 0..) |parameter, i| {
         const optional = call.required_parameters < call.parameters.len;
         if (optional) try out.appendSlice(a, "\t\t") else if (i != 0) try out.appendSlice(a, ", ");
@@ -116,32 +125,66 @@ fn emitArguments(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call
             continue;
         }
         try out.print(a, "arg{d}{s}", .{ i, if (i >= call.required_parameters) switch (parameter) {
-            .target, .pending_target => ".map(Reference::argument).unwrap_or(Argument::Void)",
+            .target, .pending_target => if (retained) ".map(Argument::from).unwrap_or(Argument::Void)" else ".map(Reference::argument).unwrap_or(Argument::Void)",
             .text, .nothing, .integer, .boolean, .float64 => ".map(Argument::from).unwrap_or(Argument::Void)",
             .bytes => ".map(Argument::Bytes).unwrap_or(Argument::Void)",
             .symbol => ".map(Argument::Symbol).unwrap_or(Argument::Void)",
             .error_value => ".map(Argument::Error).unwrap_or(Argument::Void)",
             .value => ".unwrap_or(Argument::Void)",
-            .pending_value, .list, .tuple, .record => return error.UnsupportedProjection,
+            .pending_value => if (retained) ".map(Argument::from).unwrap_or(Argument::Void)" else return error.UnsupportedProjection,
+            .list, .tuple, .record => return error.UnsupportedProjection,
         } else switch (parameter) {
-            .target, .pending_target => ".into().argument()",
+            .target, .pending_target => if (retained) ".into()" else ".into().argument()",
             .text, .nothing, .integer, .boolean, .float64, .bytes => ".into()",
             .symbol, .error_value => "",
             .value => "",
-            .pending_value, .list, .tuple, .record => return error.UnsupportedProjection,
+            .pending_value => if (retained) ".into()" else return error.UnsupportedProjection,
+            .list, .tuple, .record => return error.UnsupportedProjection,
         } });
         if (optional) try out.appendSlice(a, ",\n");
     }
 }
 
-fn emitPrepared(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api: []const u8) !void {
-    // The retained-pending qualification is deliberately one owned promise
-    // argument and a void result. Other receipt shapes need their own proof.
-    if (call.required_parameters != 1 or call.parameters.len != 1 or call.parameters[0] != .pending_value or call.result != .nothing) return error.UnsupportedProjection;
-    try out.print(a, "\npub fn {s}(\n\tsession: Rc<Session>,\n\ttarget: Ref,\n\tpending: &RemotePromise,\n) -> Result<impl Future<Output = Result<PreparedMutation<()>, Error>> + use<>, Error> {{\n", .{api});
-    try out.appendSlice(a, "\tlet owned = pending.retain_for(&session.host())?;\n\tOk(prepare_mutation(\n\t\tsession,\n\t\ttarget,\n\t\tmove |number| vec![number.into(), ");
+fn emitPrepared(out: *std.ArrayList(u8), a: std.mem.Allocator, call: calls.Call, api: []const u8, projection: *compounds.Projection) !void {
+    const optional = call.required_parameters < call.parameters.len;
+    var references = false;
+    for (call.parameters) |kind| references = references or kind == .target or kind == .pending_target;
+    try out.print(a, "\npub fn {s}{s}(\n\tsession: Rc<Session>,\n\ttarget: Ref,\n", .{ api, if (references) "<'a>" else "" });
+    // Concrete borrowed carriers keep caller lifetimes out of the future.
+    // Synchronous retention replaces them with owned references before capture.
+    for (call.parameters, 0..) |kind, i| {
+        const omitted = i >= call.required_parameters;
+        try out.print(a, "\targ{d}: {s}{s}{s},\n", .{ i, if (omitted) "Option<" else "", if (kind == .target or kind == .pending_target) "Reference<'a>" else parameterType(kind), if (omitted) ">" else "" });
+    }
+    try out.appendSlice(a, ") -> Result<impl Future<Output = Result<PreparedMutation<");
+    try projection.typeName(out, call.result);
+    try out.appendSlice(a, ">, Error>> + use<>, Error> {\n");
+    for (call.parameters, 0..) |kind, i| try bounds.argument(out, a, kind, i, i >= call.required_parameters);
+    if (optional) try emitOptionalCount(out, a, call);
+    for (call.parameters, 0..) |kind, i| {
+        const omitted = i >= call.required_parameters;
+        switch (kind) {
+            .text => try out.print(a, "\tlet arg{d} = arg{d}{s};\n", .{ i, i, if (omitted) ".map(str::to_owned)" else ".to_owned()" }),
+            .pending_value => try out.print(a, "\tlet arg{d} = arg{d}{s};\n", .{ i, i, if (omitted) ".map(|value| value.retain_for(&session.host())).transpose()?" else ".retain_for(&session.host())?" }),
+            .target, .pending_target => {
+                try out.print(a, "\tlet arg{d} = {s}", .{ i, if (omitted) "arg" else "match arg" });
+                try out.print(a, "{d}{s} {{\n\t\tReference::Target(value) => value.retain_for(&session.host()),\n\t\tReference::Pending(value) => value.retain_for(&session.host()),\n\t}}{s};\n", .{ i, if (omitted) ".map(|value| match value" else "", if (omitted) ").transpose()?" else "?" });
+            },
+            else => {},
+        }
+    }
+    try out.appendSlice(a, "\tprepare_mutation(\n\t\tsession,\n\t\ttarget,\n\t\tmove |number| ");
+    if (optional) try out.appendSlice(a, "{\n\t\t\tlet mut arguments = ");
+    try out.appendSlice(a, "vec![number.into(), ");
     try literal(out, a, call.wire_name orelse return error.UnsupportedProjection);
-    try out.appendSlice(a, ".into(), owned.into()],\n\t\tnothing,\n\t))\n}\n");
+    try out.appendSlice(a, ".into()");
+    if (call.parameters.len != 0) try out.appendSlice(a, ", ");
+    try emitArguments(out, a, call, true);
+    try out.appendSlice(a, "]");
+    if (optional) try out.appendSlice(a, ";\n\t\t\targuments.truncate(count + 2);\n\t\t\targuments\n\t\t}");
+    try out.appendSlice(a, ",\n\t\t");
+    try projection.decoder(out, call.result);
+    try out.appendSlice(a, ",\n\t)\n}\n");
 }
 
 fn parameterType(kind: calls.Type) []const u8 {
