@@ -91,7 +91,7 @@ def escalate(process: subprocess.Popen[bytes], kill_after: float | None) -> Perm
     child is reaped before returning."""
     if kill_after is None:
         process.wait()
-        return
+        return None
     deadline = time.monotonic() + kill_after
     try:
         process.wait(timeout=kill_after)
