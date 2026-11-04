@@ -260,6 +260,11 @@ references surviving answer release. ADR-0070 supplies stored
 resolution retention. It does not by itself prove a binding exposes every
 operation preparation needs. No generator-owned vow registry is permitted.
 
+Rust receipt preparation owns the sequence-query outcome before observing it,
+including when raw Session calls use manual release. A malformed sequence reply
+is discarded without leaking its capabilities. A Syrup wire observation checks
+that this release happens before session close with either raw release policy.
+
 ## Rust compound replies
 
 Lists decode to owned `Vec<T>` and tuples to positional Rust tuples. Tagged

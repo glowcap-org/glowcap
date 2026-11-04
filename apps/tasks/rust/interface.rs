@@ -155,7 +155,7 @@ mod __glowcap {
 		Arguments: FnOnce(i64) -> Vec<Argument>,
 	{
 		let target = target.retain_for(&session.host())?;
-		let sequence = session.send(&target, "mutation-sequence", &[]);
+		let sequence = session.send(&target, "mutation-sequence", &[]).with_owned_outcome();
 		Ok(async move {
 			let reply = sequence.await?;
 			let number = reply.as_i64().filter(|n| *n > 0).ok_or(Error::InvalidSequence)?;
