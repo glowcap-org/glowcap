@@ -252,14 +252,15 @@ class RunWithTimeoutTest(unittest.TestCase):
             "runpy.run_path(wrapper, run_name='__main__')\n"
         )
         for mode in ("wait", "wait-repeat", "unmask"):
-            with self.subTest(cancellation=mode):
+            logfile = self.scratch / f"{mode}.log"
+            with self.subTest(cancellation=mode), logfile.open("w") as output:
                 wrapper = subprocess.Popen(
                     [sys.executable, str(probe), str(WRAPPER), str(pidfile), mode],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
                 )
                 try:
-                    self.assertEqual(wrapper.wait(timeout=2), 128 + signal.SIGTERM)
+                    self.assertEqual(wrapper.wait(timeout=2), 128 + signal.SIGTERM, logfile.read_text())
                     self.assertFalse(process_exists(int(pidfile.read_text())), "cancelled child survived")
                 finally:
                     if wrapper.poll() is None:
