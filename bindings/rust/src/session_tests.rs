@@ -18,6 +18,9 @@ mod verbs;
 #[path = "session_tests/wire_ownership.rs"]
 mod wire_ownership;
 
+#[path = "session_tests/reply_ownership.rs"]
+mod reply_ownership;
+
 #[path = "session_tests/enliven_gc.rs"]
 mod enliven_gc;
 

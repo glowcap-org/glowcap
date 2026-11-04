@@ -3,8 +3,8 @@
 //! cleanup are always active.
 //! Owns the
 //! [`CapabilityGuard`] death rite, recursive application-value tracking, and the
-//! `glowcap_host_ref_release` drain. Session holds only the opt-in flag. The
-//! Host owns the pending queue because a Ref may outlive its arrival session.
+//! `glowcap_host_ref_release` drain. The Host owns the policy and pending
+//! queue because a Ref may outlive its arrival session.
 
 use std::cell::Cell;
 use std::rc::{Rc, Weak};
@@ -129,6 +129,8 @@ pub(crate) fn retire(host: &HostShared) {
 /// callback observations. Clones share its FFI retain. Equal ids received
 /// independently must retain separate guards. The Rc lets behavior state
 /// outlive its argument tree, and Weak prevents an FFI actor/Host cycle.
+/// Explicit owned outcomes use this same guard even when automatic release
+/// is disabled. Their existing vow row selects tracking once, before delivery.
 pub(crate) fn owned_guard(host: &Rc<HostShared>, id: u64) -> Rc<CapabilityGuard> {
 	Rc::new(CapabilityGuard {
 		token: id,
