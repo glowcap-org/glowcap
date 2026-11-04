@@ -1,0 +1,19 @@
+[package]
+name = "interface-capnp-comparison"
+version = "0.1.2"
+license = "Apache-2.0"
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
+edition = "2024"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[dependencies]
+# dep capnp: Reads the compiler's CodeGeneratorRequest through its schema types.
+capnp = "=0.27.3"

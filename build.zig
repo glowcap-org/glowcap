@@ -345,6 +345,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .check_step = check_step,
+        .runtime_gate = runtime_gate,
         .host_mods = host_mods,
         .host_abi_mod = host_abi_mod,
         .driver_abi_mod = driver_abi_mod,

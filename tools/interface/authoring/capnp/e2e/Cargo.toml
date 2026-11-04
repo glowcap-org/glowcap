@@ -1,0 +1,24 @@
+[package]
+name = "interface-capnp-e2e"
+version = "0.1.2"
+license = "Apache-2.0"
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
+edition = "2024"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[[bin]]
+name = "interface-capnp-e2e"
+path = "main.rs"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[dependencies]
+glowcap = { path = "../../../../../bindings/rust", default-features = false, features = ["async", "tcp"] }
+# dep tokio: Runs the one authored Reader call against the existing raw proof peer.
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "time"] }
