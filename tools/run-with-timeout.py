@@ -160,16 +160,20 @@ def main() -> int:
         pass
 
     interrupted: int | None = None
+    denied: PermissionError | None = None
 
     # Forward immediately, then unwind any Popen wait lock before the owner
     # reaps. Later signals still reach the child but cannot re-enter cleanup.
     def relay(sig: int, _frame: object) -> None:
-        nonlocal interrupted
+        nonlocal denied, interrupted
         first = interrupted is None
         if first:
             interrupted = sig
         if process is not None:
-            signal_group(process, sig)
+            try:
+                signal_group(process, sig)
+            except PermissionError as error:
+                denied = error
         if first:
             raise Cancelled
 
@@ -243,7 +247,18 @@ def main() -> int:
         return execute()
     except Cancelled:
         if process is not None:
+            if denied is not None and process.poll() is None:
+                raise denied
             escalate(process, args.kill_after)
+            if denied is not None:
+                # Darwin can refuse a signal to an unreaped zombie group.
+                # Reaping must prove the entire group gone before ignoring it.
+                try:
+                    os.killpg(process.pid, 0)
+                except ProcessLookupError:
+                    pass
+                else:
+                    raise denied
         assert interrupted is not None
         return finish(128 + interrupted)
 

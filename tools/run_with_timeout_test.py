@@ -224,6 +224,7 @@ class RunWithTimeoutTest(unittest.TestCase):
             "original = subprocess.Popen.wait\n"
             "original_init = subprocess.Popen.__init__\n"
             "original_mask = signal.pthread_sigmask\n"
+            "original_killpg = os.killpg\n"
             "owner = os.getpid()\n"
             "unmask_pending = True\n"
             "def started(self, *args, **kwargs):\n"
@@ -242,16 +243,23 @@ class RunWithTimeoutTest(unittest.TestCase):
             "    if calls == 1 and mode != 'unmask':\n"
             "        with self._waitpid_lock:\n"
             "            os.kill(os.getpid(), signal.SIGTERM)\n"
-            "    elif calls == 2 and mode == 'wait-repeat':\n"
+            "    elif calls == 2 and mode in ('wait-repeat', 'dead-denied'):\n"
+            "        if mode == 'dead-denied':\n"
+            "            original(self, timeout=1)\n"
             "        os.kill(os.getpid(), signal.SIGINT)\n"
             "    return original(self, *args, **kwargs)\n"
+            "def killpg(pid, sig):\n"
+            "    if (mode == 'dead-denied' and sig == signal.SIGINT) or mode == 'live-denied':\n"
+            "        raise PermissionError('injected signal denial')\n"
+            "    return original_killpg(pid, sig)\n"
             "subprocess.Popen.wait = interrupted_wait\n"
             "subprocess.Popen.__init__ = started\n"
             "signal.pthread_sigmask = unmask\n"
+            "os.killpg = killpg\n"
             "sys.argv = [wrapper, '--kill-after', '0.1s', '10s', sys.executable, '-c', 'import time; time.sleep(10)']\n"
             "runpy.run_path(wrapper, run_name='__main__')\n"
         )
-        for mode in ("wait", "wait-repeat", "unmask"):
+        for mode in ("wait", "wait-repeat", "unmask", "dead-denied", "live-denied"):
             logfile = self.scratch / f"{mode}.log"
             with self.subTest(cancellation=mode), logfile.open("w") as output:
                 wrapper = subprocess.Popen(
@@ -260,8 +268,12 @@ class RunWithTimeoutTest(unittest.TestCase):
                     stderr=subprocess.STDOUT,
                 )
                 try:
-                    self.assertEqual(wrapper.wait(timeout=2), 128 + signal.SIGTERM, logfile.read_text())
-                    self.assertFalse(process_exists(int(pidfile.read_text())), "cancelled child survived")
+                    expected = 1 if mode == "live-denied" else 128 + signal.SIGTERM
+                    self.assertEqual(wrapper.wait(timeout=2), expected, logfile.read_text())
+                    if mode == "live-denied":
+                        self.assertIn("PermissionError", logfile.read_text())
+                    else:
+                        self.assertFalse(process_exists(int(pidfile.read_text())), "cancelled child survived")
                 finally:
                     if wrapper.poll() is None:
                         wrapper.kill()
