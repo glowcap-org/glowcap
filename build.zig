@@ -353,7 +353,7 @@ pub fn build(b: *std.Build) void {
         .reflected_archives = .{ .tcp = tcp_abi_mod, .inproc = inproc_abi_mod, .relay = relay_check_abi_mod, .onion = onion_abi_mod },
         .support = gen_support,
     };
-    gen_build.register(gen_ctx);
+    const interface_checker = gen_build.register(gen_ctx);
 
     // Every step that drives a real headless Chromium depends on this one
     // preparation (tools/build/browser_preflight.zig).
@@ -596,7 +596,7 @@ pub fn build(b: *std.Build) void {
 
     // The tasks, tools, and accountability applications register from
     // tools/build/apps_demos.zig.
-    apps_demos_build.register(b, target, optimize, lib_mod, loam_engines.sqlite, check_step, runtime_gate, pin_port, attach, demo_usage_mod, demo_tools_check_mod);
+    apps_demos_build.register(b, target, optimize, lib_mod, loam_engines.sqlite, check_step, runtime_gate, pin_port, attach, demo_usage_mod, demo_tools_check_mod, interface_checker);
 
     // The formatting, per-scope, and detached-package checks register from
     // tools/build/bindings_steps.zig, over the archives and suite runs.

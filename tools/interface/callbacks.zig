@@ -7,12 +7,19 @@ pub fn emit(a: std.mem.Allocator, methods: []const calls.Named) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(a);
     try out.appendSlice(a, "// Generated from checked interface descriptions.\n");
-    try out.appendSlice(a, @embedFile("templates/support.rs"));
-    try out.appendSlice(a, @embedFile("templates/references.rs"));
-    for (methods) |method| if (method.call.effect == .receipt) {
-        try out.appendSlice(a, @embedFile("templates/receipt.rs"));
-        break;
-    };
+    var needs: @import("rust_support.zig").Needs = .{};
+    for (methods) |method| {
+        const call = method.call;
+        needs.ordinary = needs.ordinary or call.effect != .receipt;
+        needs.receipt = needs.receipt or call.effect == .receipt;
+        needs.optional = needs.optional or call.required_parameters < call.parameters.len;
+        if (call.effect != .tell) needs.replies.insert(call.result);
+        for (call.parameters) |parameter| {
+            needs.arguments = needs.arguments or parameter == .value;
+            needs.references = needs.references or parameter == .target or parameter == .pending_target;
+        }
+    }
+    try needs.emit(&out, a);
     for (methods) |method| {
         if (method.call.effect == .receipt) try emitPrepared(&out, a, method.call, method.api) else try emitCall(&out, a, method.call, method.api);
     }

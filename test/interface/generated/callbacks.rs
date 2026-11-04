@@ -1,10 +1,9 @@
 // Generated from checked interface descriptions.
-use glowcap::{Argument, Ref, RemotePromise, Session};
-use std::{
-	future::{Future, IntoFuture},
-	pin::Pin,
-	task::{Context, Poll},
-};
+use glowcap::Argument;
+use glowcap::AsSendTarget;
+use glowcap::Ref;
+use glowcap::RemotePromise;
+use glowcap::Session;
 #[derive(Debug)]
 pub enum Error {
 	InvalidArgument,
@@ -35,6 +34,11 @@ impl From<glowcap::Error> for Error {
 		Self::Runtime(error)
 	}
 }
+use std::{
+	future::{Future, IntoFuture},
+	pin::Pin,
+	task::{Context, Poll},
+};
 pub struct Pending<T> {
 	raw: RemotePromise,
 	decode: fn(Argument) -> Result<T, Error>,
@@ -71,11 +75,6 @@ impl<T> IntoFuture for Pending<T> {
 		}
 	}
 }
-fn capability(value: Argument) -> Result<Ref, Error> {
-	Ref::try_from(&value).map_err(|_| Error::InvalidReply)
-}
-use glowcap::AsSendTarget;
-
 /// A borrowed reference argument, lowered synchronously before the send returns.
 /// It never owns an independent pending reference across a suspension.
 pub enum Reference<'a> {
@@ -100,21 +99,6 @@ impl Reference<'_> {
 		}
 	}
 }
-fn text(value: Argument) -> Result<String, Error> {
-	if let Argument::String(text) = value {
-		Ok(text)
-	} else {
-		Err(Error::InvalidReply)
-	}
-}
-fn nothing(value: Argument) -> Result<(), Error> {
-	if matches!(value, Argument::Void) {
-		Ok(())
-	} else {
-		Err(Error::InvalidReply)
-	}
-}
-
 // Presence is fixed stack scratch. A missing optional argument ends the supplied
 // prefix; a later Some is refused before arguments acquire wire custody.
 fn optional_argument_count(present: &[bool]) -> Result<usize, Error> {
@@ -161,6 +145,23 @@ where
 			arguments: make_arguments(number),
 			decode,
 		})
+	}
+}
+fn capability(value: Argument) -> Result<Ref, Error> {
+	Ref::try_from(&value).map_err(|_| Error::InvalidReply)
+}
+fn text(value: Argument) -> Result<String, Error> {
+	if let Argument::String(text) = value {
+		Ok(text)
+	} else {
+		Err(Error::InvalidReply)
+	}
+}
+fn nothing(value: Argument) -> Result<(), Error> {
+	if matches!(value, Argument::Void) {
+		Ok(())
+	} else {
+		Err(Error::InvalidReply)
 	}
 }
 

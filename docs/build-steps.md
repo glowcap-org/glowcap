@@ -141,7 +141,7 @@ zig build gen-interface-fixtures       # Generate interface qualification projec
 zig build gen-interface-fixtures-check # Verify interface qualification projections match the authored Syrup fixtures; part of check
 zig build interface-test               # Test bounded interface descriptions and generation allocation failures; part of check
 zig build interface-goblins-check      # Prove generated recipient handoff and plain Goblins calling the generated Tasks server boundary (needs cargo + racket + Goblins + deno); part of check-external
-zig build interface-conversation-check # Prove generated Tasks creation and Rust/TypeScript pending callback conversations (needs cargo + deno); part of runtime-check
+zig build interface-conversation-check # Prove generated Tasks creation and Rust/TypeScript pending callback conversations (needs cargo + deno + python3); part of runtime-check
 zig build interface-authoring-check    # Compare authored descriptions and prove a generated Cap'n Proto frontend call (needs capnp + cargo + python3); part of runtime-check
 zig build interface-authoring-lint     # Lint the compiler-request adapter and its generated-call integration (needs capnp + cargo + python3); part of rust-lint
 zig build interface-fixtures-check     # Verify authored interface contract and message fixtures; part of check

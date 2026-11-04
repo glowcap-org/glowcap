@@ -1,0 +1,26 @@
+module minimal
+
+interface Reader {
+  read() -> string
+}
+
+interface Source {
+  open() -> Reader
+  accept(reader: Reader) -> undefined
+  acceptPending(reader: promise<Reader>) -> undefined
+  optional(value?: string) -> undefined
+  value() -> value
+}
+
+interface Notices {
+  tell zero()
+  tell text(value: string)
+  tell absent(value: undefined)
+  tell changed(value: value)
+  tell optional(value?: undefined)
+}
+
+interface Prepared {
+  @loam.receipt
+  accept(pending: promise<value>) -> undefined
+}

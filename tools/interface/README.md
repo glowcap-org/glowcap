@@ -12,7 +12,7 @@ owns executable qualification.
 | `calls.zig` | Checked ordinary-call signatures |
 | `zig.zig`, `rust.zig` | Tasks creation projections and the fixed Zig direct receiver |
 | `callbacks.zig`, `typescript.zig` | Ordinary-call emission from checked signatures |
-| `templates/` | Reusable generated helpers, owned once in source |
+| `rust_support.zig`, `templates/` | Reusable helpers, selected from the emitted methods |
 | `literal.zig` | Source string escaping |
 | `expectations.zig` | Test constants from independent message fixtures |
 | `generate.zig` | Fixture selection, output paths, and compiler tests |

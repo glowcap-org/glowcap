@@ -202,7 +202,7 @@ pub const Context = struct {
 };
 
 /// The base rows: every generator that needs no injected sidecar resident.
-pub fn register(ctx: Context) void {
+pub fn register(ctx: Context) *std.Build.Step.Compile {
     const b = ctx.b;
     const target = ctx.target;
     const optimize = ctx.optimize;
@@ -371,6 +371,7 @@ pub fn register(ctx: Context) void {
     for (header_gens) |hg| {
         addHeaderGen(b, check_step, target, optimize, support, hg);
     }
+    return authoring_exe;
 }
 
 /// The resident-dependent rows: the iroh and WebRTC headers and every
