@@ -1,0 +1,56 @@
+module fixture
+
+interface Sink {
+  push(reader: Reader) -> undefined
+  tell changed(value: value)
+}
+interface Factory {
+  open(sink: Sink) -> Reader
+  accept(reader: promise<Reader>) -> undefined
+}
+interface Reader {
+  read() -> string
+  then() -> string
+}
+interface Direct {
+  (name: string) -> string
+}
+interface Notify {
+  tell (value: value)
+}
+interface DirectPair {
+  (left: value, right: value) -> undefined
+}
+interface Introducer {
+  "get-greeter"() -> Direct
+}
+interface AnyReceiver {
+  (...arguments: value) -> value
+}
+interface Prepared {
+  @loam.receipt accept(value: promise<value>) -> undefined
+}
+interface Presence {
+  required(value: undefined) -> undefined
+  optional(value?: undefined) -> undefined
+  suffix(text: string, value?: undefined) -> undefined
+  pair(first?: string, second?: string) -> undefined
+  references(reader?: Reader, pending?: promise<Reader>) -> undefined
+  value(value?: value) -> undefined
+  tell notify(value?: undefined)
+  "null-input"(value: null) -> undefined
+  "null-result"() -> null
+}
+interface Hostile {
+  ""() -> string
+  then() -> string
+  constructor() -> string
+  "__proto__"() -> string
+  type() -> string
+  "a-b"() -> string
+  a_b() -> string
+  "é"() -> string
+  "é"() -> string
+  "quote\"\\\n"() -> string
+  "../escape"() -> string
+}

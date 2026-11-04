@@ -11,6 +11,8 @@ pub const Source = syntax.Source;
 pub const max_files: usize = 64;
 pub const max_import_depth: usize = 32;
 pub const Module = struct { source: Source, header: syntax.Header };
+/// The caller's compilation arena and input sources last through emission.
+pub const Compiled = struct { bytes: []u8, model: Model };
 
 pub const Bundle = struct {
     a: std.mem.Allocator,
@@ -48,6 +50,10 @@ pub const Bundle = struct {
     }
 
     pub fn translate(self: *Bundle) Error![]u8 {
+        return (try self.compile()).bytes;
+    }
+
+    pub fn compile(self: *Bundle) Error!Compiled {
         var entries: std.ArrayList(syntax.Entry) = .empty;
         var receipt = false;
         const order = try self.a.alloc(usize, self.modules.items.len);
@@ -82,14 +88,14 @@ pub const Bundle = struct {
             if (err == error.InvalidText) self.noteOrigin(encoder.failed_source, "duplicate declaration, method, or bound");
             return err;
         };
-        const checked = try description.read(self.a, encoder.bytes.items);
+        // The encoder has established duplicate-key, node, depth and output
+        // limits. Validate this parser-owned graph without rereading our bytes.
         var failed: ?Node = null;
-        _ = Model.initDiagnostic(self.a, checked, &failed) catch |err| {
-            const origin = encoder.origin((failed orelse checked).source);
-            self.noteOrigin(origin, "description rejected by checked model");
+        const model = Model.initDiagnostic(self.a, root, &failed) catch |err| {
+            self.noteOrigin((failed orelse root).source, "description rejected by checked model");
             return err;
         };
-        return encoder.bytes.toOwnedSlice(self.a);
+        return .{ .bytes = try encoder.bytes.toOwnedSlice(self.a), .model = model };
     }
 };
 
@@ -98,8 +104,15 @@ pub fn translate(a: std.mem.Allocator, source: []const u8, diagnostic: *Diagnost
     diagnostic.* = .{};
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    var bundle: Bundle = .{ .a = arena.allocator(), .diagnostic = diagnostic };
+    const compiled = try compile(arena.allocator(), source, diagnostic);
+    return a.dupe(u8, compiled.bytes);
+}
+
+/// Compile one source using the caller's arena. The returned Model borrows it
+/// and the source bytes through method selection and emission.
+pub fn compile(a: std.mem.Allocator, source: []const u8, diagnostic: *Diagnostic) Error!Compiled {
+    diagnostic.* = .{};
+    var bundle: Bundle = .{ .a = a, .diagnostic = diagnostic };
     _ = try bundle.add(.{ .path = "", .bytes = source });
-    const bytes = try bundle.translate();
-    return a.dupe(u8, bytes);
+    return bundle.compile();
 }

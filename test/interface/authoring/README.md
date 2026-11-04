@@ -47,9 +47,11 @@ After input format and path, emission takes target, receiver, selector kind,
 generated function name, and output path. Use `--direct` for an absent selector
 or `--named NAME` for a literal wire name. `--named ''` selects the empty symbol,
 and `--named --direct` selects the method named `--direct`.
+
 Targets are `description`, `rust`, `ts`, and the existing
-`zig` creation projection. Every path reads the canonical description and calls
-`Model.init` before emission. The text path does so before returning its bytes.
+`zig` creation projection. Syrup input is read and validated before emission.
+Text compilation checks the parsed nodes once and returns that Model with its
+canonical bytes. Emission reuses the Model without rereading those bytes.
 
 Requested function names survive emission unchanged. Private helper and import
 names cannot conflict with them. Duplicate exports and names already exported
@@ -64,8 +66,8 @@ budget before expanded names allocate scratch. Adversarial references refuse
 without growing allocation demand after that budget is exhausted.
 
 Syntax diagnostics include a file, byte offset, line and column.
-Imported bounds and unknown references preserve their source location through
-canonical encoding and shared model validation.
+Imported bounds and unknown references retain their authoring locations during
+shared model validation.
 
 The TypeScript runtime proof starts from proposed text through the same emitter
 as direct Syrup. Both session profiles check presence, immediate sending, a
@@ -89,7 +91,7 @@ selected functions in one module. Rust also checks bounded decoder names and
 private module name allocation. These checks add no runtime calls.
 
 The adapter has no new production dependency. A compilation arena owns tokens,
-description nodes, cached sources and encoding ranges. The pure single-source
+description nodes, cached sources and canonical bytes. The pure single-source
 convenience returns a separate owned canonical byte copy.
 The shared reader's input, node, and depth limits also bound this
 adapter. Handwritten parser, checker, tests, and generated output are counted
@@ -129,6 +131,22 @@ allocation failures, missing files, root escapes, symlinks and aggregate limits.
 `interface-conversation-check` compiles generated Rust observation, list, tuple,
 and record replies with warnings denied. These imported callers are not run in
 a separate live conversation.
+
+## Complete contract bundle
+
+[The complete authored entry](contracts/contracts.interface) imports Tasks,
+shared Loam and the qualification interfaces. Its canonical bytes must equal
+[the independent expected description](../contracts.syrup).
+The fixture generator uses the authored bundle for Tasks and callback output.
+The expected description and independent messages remain test authorities.
+Existing generated files stay byte identical.
+
+Rest parameters use `...arguments: value`. Their placement and combination with
+optional arguments are checked by the Model. Generated rest calls remain
+unsupported. `interface-test` repeats imported bound, reply and method edits,
+checks source diagnostics, and injects allocation failures through selection.
+`interface-conversation-check` also compiles actual Tasks reads and Loam poll,
+receive and cancel projections from the complete authored bundle.
 
 ## Process and build costs, 2026-11-03
 

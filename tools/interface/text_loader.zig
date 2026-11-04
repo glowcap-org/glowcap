@@ -18,7 +18,7 @@ fn openSource(io: std.Io, path: []const u8) !std.Io.File {
 
 /// The caller owns a compilation arena lasting through emission and diagnostics.
 /// Sources, cached paths, intermediate nodes and the result all belong to it.
-pub fn translate(a: std.mem.Allocator, io: std.Io, input: []const u8, root_option: ?[]const u8, diagnostic: *text.Diagnostic) ![]u8 {
+pub fn compile(a: std.mem.Allocator, io: std.Io, input: []const u8, root_option: ?[]const u8, diagnostic: *text.Diagnostic) !text.Compiled {
     diagnostic.* = .{};
     const cwd = std.Io.Dir.cwd();
     const root = try cwd.realPathFileAlloc(io, root_option orelse std.fs.path.dirname(input) orelse ".", a);
@@ -27,7 +27,7 @@ pub fn translate(a: std.mem.Allocator, io: std.Io, input: []const u8, root_optio
         if (diagnostic.message.len == 0) diagnostic.* = .{ .path = input, .message = @errorName(err) };
         return err;
     };
-    return loader.bundle.translate();
+    return loader.bundle.compile();
 }
 
 const Loader = struct {
