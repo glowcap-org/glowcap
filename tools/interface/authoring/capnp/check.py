@@ -135,7 +135,19 @@ def main():
         canonical.write_bytes(base_output)
         pathlib.Path(rust_output).parent.mkdir(parents=True, exist_ok=True)
         require(
-            run([checker, "syrup", str(canonical), "rust", "comparison.Reader", "--named", "read", "authoring_read", rust_output]),
+            run(
+                [
+                    checker,
+                    "syrup",
+                    str(canonical),
+                    "rust",
+                    "comparison.Reader",
+                    "--named",
+                    "read",
+                    "authoring_read",
+                    rust_output,
+                ]
+            ),
             "Rust emission from the frontend result",
         )
     print("Cap'n Proto authoring: exact corpus, three edits, refusals, and bounded input passed")
