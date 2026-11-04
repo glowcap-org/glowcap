@@ -101,6 +101,9 @@ changes, so product checks never wait for agent downloads.
 | [`pyproject.toml`](pyproject.toml) | The tests' one dependency, PyYAML, which [`uv.lock`](uv.lock) pins | `uv run --project ci --locked` |
 
 Reproduce a phase locally with `glowcap-dev python3 ci/gates.py run <phase>`.
+`ci/gates.py fetch` first builds Zig's package/build tool without a download,
+using the build allowance. The subsequent download attempts keep their separate
+three-minute deadline, so retries do not repeatedly kill a cold compiler.
 Each program's test sits beside it as `<name>_test.py`, a workflow's test is
 named after the workflow, and `zig build infrastructure-check` runs them all
 through `uv run --project ci --locked`.

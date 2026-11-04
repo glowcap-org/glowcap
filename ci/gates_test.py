@@ -307,19 +307,23 @@ class RunnerTest(unittest.TestCase):
             with self.subTest(codes=codes):
                 calls = []
 
-                def run(argv, cwd):
+                def run(argv, cwd, env=None):
                     calls.append(argv)
-                    return mock.Mock(returncode=codes[min(len(calls) - 1, len(codes) - 1)])
+                    if argv[-3:] == ["zig", "fetch", "--help"]:
+                        return mock.Mock(returncode=0)
+                    return mock.Mock(returncode=codes[min(len(calls) - 2, len(codes) - 1)])
 
                 with (
                     mock.patch.object(GATES.subprocess, "run", run),
                     mock.patch.object(GATES.time, "sleep") as sleep,
                     mock.patch("builtins.print"),
-                    mock.patch.dict(os.environ, {"ZIG_FETCH_RETRY_DELAY": "3"}),
+                    mock.patch.dict(os.environ, {"ZIG_FETCH_RETRY_DELAY": "3", "BUILD_TIMEOUT": "9m"}),
                 ):
                     self.assertEqual(GATES.main(["fetch"]), status)
-                self.assertEqual(len(calls), attempts)
-                for argv in calls:
+                self.assertEqual(len(calls), attempts + 1)
+                self.assertEqual(calls[0][-3:], ["zig", "fetch", "--help"])
+                self.assertIn("9m", calls[0], "cold tool compilation uses the build allowance")
+                for argv in calls[1:]:
                     self.assertEqual(argv[-3:], ["zig", "build", "--fetch=all"])
                     self.assertIn("3m", argv)
                 self.assertEqual(sleep.call_count, attempts - 1)
@@ -332,6 +336,19 @@ class RunnerTest(unittest.TestCase):
         ):
             self.assertEqual(GATES.main(["fetch"]), 2)
             run.assert_not_called()
+
+    def test_failed_tool_bootstrap_stops_before_dependency_downloads(self):
+        for status in (1, 124, 130, 143):
+            with (
+                self.subTest(status=status),
+                mock.patch.object(GATES, "execute", return_value=status) as bootstrap,
+                mock.patch.object(GATES.subprocess, "run") as download,
+                mock.patch("builtins.print"),
+                mock.patch.dict(os.environ, {"BUILD_TIMEOUT": "7m", "ZIG_FETCH_RETRY_DELAY": "0"}),
+            ):
+                self.assertEqual(GATES.main(["fetch"]), status)
+                bootstrap.assert_called_once_with(["zig", "fetch", "--help"], "7m")
+                download.assert_not_called()
 
     def test_a_gate_runs_under_the_deadline_wrapper_with_rust_backtraces(self):
         with mock.patch.object(GATES.subprocess, "run") as run:
