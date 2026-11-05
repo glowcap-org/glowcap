@@ -90,12 +90,12 @@ test "a vow that settles with a capability fulfills the promise to it" {
     try t.expectState(cap, .fulfilled);
 
     // Toward `c` the settlement is a handoff to `b`, which `c` redeems over
-    // its own session to `b`. The call `c` pipelined onto the promise sits
-    // on `a`, which cannot carry it to another session, so it breaks.
+    // its own session to `b`. The call `c` pipelined onto the promise reaches
+    // the same target through `a`'s retained forwarding route.
     try t.redeemAtB();
     const c_target = try t.c.liftCapability(t.pair_buf[2].a, c_seen.ref orelse return error.HandoffUnsettled);
     try std.testing.expect((try t.c.capabilitySession(c_target)) == t.pair_buf[2].a);
-    try std.testing.expect(c_sent.broken);
+    try std.testing.expectEqualStrings("from the target", c_sent.text());
     const c_hit = try t.c.sendValues(t.pair_buf[2].a, c_target, "hit", &.{}, t.arena.allocator());
     var c_heard: capture.CapturedString = .{};
     try listenOn(&t.c, c_hit, &c_heard);
@@ -109,7 +109,7 @@ test "a vow that settles with a capability fulfills the promise to it" {
     try listenOn(&t.a, hit, &a_heard);
     try t.pump();
     try std.testing.expectEqualStrings("from the target", a_heard.text());
-    try std.testing.expectEqual(@as(usize, 3), Target.ran);
+    try std.testing.expectEqual(@as(usize, 4), Target.ran);
 
     try t.a.releaseCapability(cap, 1);
     try t.expectClean();

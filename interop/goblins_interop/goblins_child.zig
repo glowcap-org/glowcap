@@ -178,6 +178,7 @@ pub fn fetchCap(
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            if (event.kind() == .release_pipeline_export) continue;
             const owned = try event.decodeOwned(allocator);
             const match = try engine.fetch.tryMatchFetchOutcome(
                 allocator,
@@ -228,6 +229,7 @@ pub fn enlivenCap(
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            if (event.kind() == .release_pipeline_export) continue;
             const owned = try event.decodeOwned(allocator);
             const match = try engine.fetch.tryMatchFetchOutcome(
                 allocator,

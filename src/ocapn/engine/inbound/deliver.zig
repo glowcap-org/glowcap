@@ -420,10 +420,9 @@ fn surface(
             .virtual_deliver => |answer| .fromVirtual(answer),
             else => if (body.deliver.answer) |answer| .fromWire(answer) else null,
         };
-        self.events.backPtr().?.deliver_answer_target = if (answer_name) |answer|
-            self.session_state.answerTargetNamed(answer)
-        else
-            null;
+        if (answer_name) |answer| if (self.session_state.answerTargetNamed(answer)) |target| {
+            self.events.backPtr().?.answer = .{ .deliver = target };
+        };
     }
     if (!was_closed and self.session_state.state == .closed) self.retireClosedSessionAuthority();
     appended = false;

@@ -383,7 +383,11 @@ fn dispatchDrainedCall(
             queued,
             .{ .@"break" = .{ .message = message } },
         ),
-        .terminal => |terminal| return dispatchTerminalCall(peer, queued, terminal.resolution),
+        .terminal => |terminal| {
+            if (terminal.target.payload.pipeline_target) |target|
+                return deliverDrainedCallLocally(peer, queued, target.near);
+            return dispatchTerminalCall(peer, queued, terminal.resolution);
+        },
     }
 }
 
@@ -484,12 +488,6 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: session.QueuedCall, near: mode
         rewritten.deliver.resolve_me_desc = replayReference(resolver);
     for (@constCast(rewritten.deliver.args)) |*argument| replayArgument(argument);
 
-    // Private reply identity travels with the queued call, independently of
-    // wire answer positions and reusable resolver capabilities.
-    const answer_override: events.AnswerOverride = if (queued.answer) |answer| switch (answer.name) {
-        .virtual => |virtual| .{ .virtual_deliver = virtual },
-        .wire => .none,
-    } else .none;
     var frame = try codec.dispatch.encodeMessageForProfile(
         peer.session_state.codec,
         peer.allocator,
@@ -513,13 +511,10 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: session.QueuedCall, near: mode
     // The push is the last fallible step, so the row's ownership of the parse
     // begins exactly where this function's errdefer ends.
     try peer.events.push(peer.allocator, .{
-        .frame = frame,
-        .parse = parse,
-        .tag = .deliver,
+        .payload = events.Event.Payload.message(.deliver, frame, parse),
         .codec = peer.session_state.codec,
         .captp_version = peer.session_state.captp_version,
-        .answer_override = answer_override,
-        .deliver_answer_target = queued.answer,
+        .answer = if (queued.answer) |target| .{ .deliver = target } else .none,
         .introduced_far_imports = queued.introduced_far_imports,
         .reference_slots = queued.reference_slots,
         .allocator = peer.allocator,

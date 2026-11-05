@@ -57,9 +57,11 @@ pub const Batch = struct {
     gifts: []passable.Gift,
     promises: []passable.PromiseProjection,
     ready: usize = 0,
+    pipeline: ?*session_mod.AnswerPayload.PipelineTarget = null,
     terminal_action_reservations: usize,
 
     pub fn deinit(self: *Batch, node: *Node) void {
+        if (self.pipeline) |target| target.retire(target);
         // `removePeer` retires a recipient's batches before the Peer goes, and
         // `Node.deinit` retires every batch before any Peer; the occurrence row
         // was counted when the batch was staged.
@@ -408,6 +410,8 @@ fn enqueueOutbound(recipient: *engine.Peer, batch: *Batch, batch_id: passable.Ba
             );
             batch.payload_owned = false;
             try enqueue_result;
+            settlement.payload.pipeline_target = batch.pipeline;
+            batch.pipeline = null;
         },
     }
     recipient.fillStagedRow(batch_id, recipient.pending_send.pending().len - rows_before);

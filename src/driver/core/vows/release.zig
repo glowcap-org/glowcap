@@ -228,8 +228,9 @@ pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) v
         var n: usize = 0;
         var it = self.vows.iterator();
         while (it.next()) |entry| {
-            const row_peer = entry.value_ptr.*.peer() orelse continue;
-            if (row_peer != peer_handle) continue;
+            const row = entry.value_ptr.*;
+            const row_peer = row.peer() orelse continue;
+            if (row_peer != peer_handle and !(row.forwarded == .wire_answer and row.forwarded.wire_answer == peer_handle)) continue;
             doomed[n] = entry.key_ptr.*;
             n += 1;
             if (n == doomed.len) break;
@@ -237,6 +238,16 @@ pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) v
         if (n == 0) return;
         for (doomed[0..n]) |id| {
             const row = self.vows.get(id) orelse unreachable;
+            if (row.forwarded == .wire_answer) {
+                const producer = self.sessionForPeer(row.peer().?) orelse unreachable;
+                const listener = row.inner.?;
+                // Either end may close first. Retire the actual producer's
+                // exact listener and answer before returning the completion
+                // box, even when that producer's session stays open.
+                retireUnwatched(self, row, producer);
+                listener.func(listener.ctx, .{ .broken = reason });
+                continue;
+            }
             settlement.cancelObserverRelease(row, session);
             if (!row.settled) {
                 cancelPendingTerminal(self, row, session);

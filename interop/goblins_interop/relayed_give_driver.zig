@@ -20,9 +20,10 @@
 //!                               Its `driver.Server` proxies the promise onto
 //!                               Carol's session and waits on Bob's.
 //!   Carol    (Goblins recipient) asks glowcap for the greeter, waits on the
-//!                               promise she is answered with, redeems the give
-//!                               the settlement carries, dials Bob, and calls
-//!                               what she withdrew.
+//!                               promise she is answered with, and queues a
+//!                               call before settlement. After an ordered
+//!                               barrier, Bob settles; the queued call reaches
+//!                               Bob and Carol also redeems and calls directly.
 //!
 //! Why Bob hands the promise over as an *argument*: an answer carrying a local
 //! promise chains through Goblins' own promise machinery and stays pending on
@@ -91,6 +92,7 @@ const Introducer = struct {
     pub fn handle(self: *Introducer, ht: *driver.HostTurn, selector: ?[]const u8, args: driver.Args) !driver.Value {
         defer ht.releaseArguments(args);
         const verb = selector orelse return error.NoSuchMethod;
+        if (std.mem.eql(u8, verb, "pipeline-barrier")) return .{ .string = "pipeline-barrier" };
         if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
         return .{ .capability = self.held.promise orelse return error.NotReady };
     }
@@ -123,9 +125,8 @@ fn serveIntroducer(
     try goblins_child.serveRecipient(introducer, bob, done, {});
 }
 
-/// Follow Carol's stdout. `LISTENING` means Goblins has subscribed to the
-/// promise, which is the driver's cue to have Bob settle it, so the settlement
-/// finds a subscriber rather than only the store.
+/// Carol observes her actual queued deliver, then awaits an ordinary call on
+/// the same session. Only that barrier permits Bob to settle the promise.
 fn readCarolOk(io: std.Io, carol: *std.process.Child, bob: *std.process.Child) !void {
     var scan: CarolScan = .{ .io = io, .bob = bob };
     const confirmed = try goblins_child.followChildVerdict(io, carol, "goblins-relayed-give: carol", goblins_child.deadline_ms, &scan, judgeCarolLine);
@@ -135,14 +136,14 @@ fn readCarolOk(io: std.Io, carol: *std.process.Child, bob: *std.process.Child) !
 const CarolScan = struct {
     io: std.Io,
     bob: *std.process.Child,
-    // Carol's partial listener fires on every step of the promise chain, so
-    // `LISTENING` can be printed more than once. Bob settles once by
-    // construction; asking once keeps the transcript readable.
     asked_bob_to_settle: bool = false,
+    pipeline_answered: bool = false,
+    gift_answered: bool = false,
 };
 
-fn judgeCarolLine(scan: *CarolScan, line: []const u8) !goblins_child.LineVerdict {
-    if (std.mem.indexOf(u8, line, "LISTENING") != null) {
+fn judgeCarolLine(scan: *CarolScan, raw_line: []const u8) !goblins_child.LineVerdict {
+    const line = std.mem.trimEnd(u8, raw_line, "\r\n");
+    if (std.mem.eql(u8, line, "PIPELINE QUEUED")) {
         if (scan.asked_bob_to_settle) return .more;
         scan.asked_bob_to_settle = true;
         const stdin = scan.bob.stdin orelse return error.NoChildStdin;
@@ -152,10 +153,13 @@ fn judgeCarolLine(scan: *CarolScan, line: []const u8) !goblins_child.LineVerdict
     }
     // `from goblins-bob` is the half of the greeting only Bob's greeter can
     // write; Carol sent her own name in, so it proves nothing on its own.
-    const redeemed = std.mem.indexOf(u8, line, "GIFT OK:") != null and
-        std.mem.indexOf(u8, line, "goblins-carol") != null and
-        std.mem.indexOf(u8, line, "from goblins-bob") != null;
-    return if (redeemed) .confirmed else .more;
+    if (std.mem.indexOf(u8, line, "PIPELINE OK:") != null and
+        std.mem.indexOf(u8, line, "hello goblins-carol-pipelined, from goblins-bob") != null)
+        scan.pipeline_answered = true;
+    if (std.mem.indexOf(u8, line, "GIFT OK:") != null and
+        std.mem.indexOf(u8, line, "hello goblins-carol, from goblins-bob") != null)
+        scan.gift_answered = true;
+    return if (scan.asked_bob_to_settle and scan.pipeline_answered and scan.gift_answered) .confirmed else .more;
 }
 
 pub fn main(init: std.process.Init) !void {

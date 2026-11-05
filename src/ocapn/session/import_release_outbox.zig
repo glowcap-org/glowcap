@@ -1,5 +1,6 @@
-//! A stored resolution's hold on the imports it names and the bounded,
-//! preallocated release that leaves when the resolution does.
+//! Local holds on imports named by stored resolutions or canonical raw-route
+//! copies. Each owner reserves its release batch before taking the hold, so
+//! retirement only queues the release.
 const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
@@ -16,7 +17,7 @@ pub const Outbox = struct {
         batch.destroy(owner);
     }
 
-    /// Live payloads queue their batches before lifecycle invokes this walk.
+    /// Live payloads and import identity memos queue their batches before this walk.
     pub fn deinit(self: *Outbox, owner: *session.Session) void {
         while (self.head != null) self.removeHead(owner);
         std.debug.assert(self.active_batches == 0);
@@ -25,9 +26,10 @@ pub const Outbox = struct {
     }
 };
 
-/// What one stored resolution keeps on the import table until it leaves: one
-/// `ImportTable.holdForResolution` per far import it names, taken at the
-/// store and settled at the drain into the retains released meanwhile. The
+/// One owner's local holds: a stored resolution takes one per far import it
+/// names; a canonical raw-route copy keeps one under its identity memo.
+/// `ImportTable.holdForResolution` takes each hold, which settles at the drain
+/// into the retains released meanwhile. The
 /// batch for the mentions a forwarded reply introduced also parks the
 /// session's retain on each behind that hold (`ImportTable.parkForResolution`):
 /// no caller releases them, so they leave with the resolution. A payload's
@@ -46,7 +48,7 @@ pub const Batch = struct {
     settled: bool = false,
     charge: usize,
 
-    /// Final payload retirement queues an effect without allocating or calling
+    /// Final owner retirement queues an effect without allocating or calling
     /// an engine. The heap outbox remains stable if its Session value moves.
     pub fn ready(self: *Batch) void {
         if (self.chained) |chained| chained.ready();
@@ -56,8 +58,9 @@ pub const Batch = struct {
 
     /// The hold for a value about to be stored, or null for one naming no far
     /// import. Named cost: one cold outbox and one batch plus two exact wire
-    /// arrays per stored resolution naming a far import. Live and ready
-    /// batches together spend twice max_inbound_answers and the retained-answer
+    /// arrays per stored resolution naming a far import. A canonical Host
+    /// copy of a raw route uses one one-import batch under its home memo.
+    /// Live and ready batches share twice max_inbound_answers and the retained-answer
     /// byte budget. Final payload release only links the batch, so a drain
     /// refused for encoding or backpressure retries without losing it.
     pub fn prepareForValue(owner: *session.Session, value: model.Argument) !?*Batch {
@@ -97,7 +100,8 @@ pub const Batch = struct {
             owner.import_release_outbox = outbox;
         }
         const outbox = owner.import_release_outbox.?;
-        // A payload keeps at most two: its hold and a forwarded reply's retains.
+        // Shared bound for stored payloads (up to two each) and canonical raw
+        // route pins. Pins spend this existing cap rather than grow a new one.
         if (outbox.active_batches >= 2 * owner.limits.max_inbound_answers) return error.QueueCapExceeded;
         const batch = try owner.allocator.create(Batch);
         errdefer owner.allocator.destroy(batch);

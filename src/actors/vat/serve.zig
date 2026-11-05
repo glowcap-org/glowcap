@@ -30,6 +30,11 @@ const Port = vat_mod.Port;
 /// to this vat. If it did not, the caller handles it. The application polls
 /// the peer and hands events here.
 pub fn serve(self: *Vat, port: *Port, event: *engine.Event) !bool {
+    if (event.kind() == .release_pipeline_export) {
+        const retirement = event.payload.release_pipeline_export;
+        port.rollbackExport(self, .{ .local = retirement.target }, retirement.near.export_position.int());
+        return true;
+    }
     const body = event.view();
     return switch (body.*) {
         .deliver => |deliver| serveDeliver(self, port, deliver, event.deliverAnswerTarget(), event.reference_slots),

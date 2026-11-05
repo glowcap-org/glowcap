@@ -60,6 +60,7 @@
 const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
+const ImportRelease = @import("import_release_outbox.zig").Batch;
 
 /// One live import position. `count` is every wire retain the partner's
 /// mentions granted. `session_held` is how many of those the session keeps
@@ -102,17 +103,27 @@ pub const ImportTable = struct {
 
     const Identity = struct {
         // Both namespaces reserve zero, so scalar sentinels avoid optional-u64
-        // tags; the third word accounts claimed Host/wire retains.
+        // tags. The third word counts claimed wire retains; the fourth owns a
+        // local pin only for canonical copies of raw routes.
         node_route_id: u64 = 0,
         host_ref: u64 = 0,
         /// Number of this row's wire retains already surfaced as Host handles.
         /// Lift may consume each wire retain once. Local copies of one borrowed
         /// reference cannot manufacture matching GC authority.
         lifted_retains: u64 = 0,
+        /// A canonical Host copy of a raw reference pins its actual import
+        /// without claiming a wire occurrence. The home memo owns this same-
+        /// Session release batch until identity retirement or Session teardown.
+        host_hold: ?*ImportRelease = null,
     };
-    const identity_budget_bytes: usize = 24;
+    // Three scalar identity/count words plus one cold local-hold pointer.
+    const identity_budget_bytes = std.mem.alignForward(
+        usize,
+        3 * @sizeOf(u64) + @sizeOf(?*ImportRelease),
+        @max(@alignOf(u64), @alignOf(?*ImportRelease)),
+    );
     comptime {
-        if (@sizeOf(Identity) > identity_budget_bytes) @compileError("import identity memo exceeded its three-word retained-row budget");
+        if (@sizeOf(Identity) > identity_budget_bytes) @compileError("import identity memo exceeded its four-word retained-row budget");
     }
     pub const IdentityMap = foundation.identity_hash.MapOf(.wire, u64, Identity);
     pub const Id = model.ImportPosition;
@@ -143,6 +154,8 @@ pub const ImportTable = struct {
     pub fn deinit(self: *ImportTable, allocator: std.mem.Allocator) void {
         self.rows.deinit(allocator);
         if (self.identities) |map| {
+            var identities = map.valueIterator();
+            while (identities.next()) |identity| if (identity.host_hold) |hold| hold.ready();
             map.deinit(allocator);
             allocator.destroy(map);
             self.identities = null;
@@ -225,6 +238,13 @@ pub const ImportTable = struct {
         gop.value_ptr.lifted_retains = wire_retains;
     }
 
+    /// Commit a prepared local pin after the Host memo was installed.
+    pub fn attachHostHold(self: *ImportTable, position: Id, host_ref: u64, hold: *ImportRelease) void {
+        const identity = self.identities.?.getPtr(position.int()).?;
+        std.debug.assert(identity.host_ref == host_ref and identity.host_hold == null);
+        identity.host_hold = hold;
+    }
+
     /// Claim one more wire retain for an already-canonical Host identity. Only
     /// a caller-releasable retain can be lifted: the Host's release of the
     /// handle is a caller's `op:gc-exports`, which never spends a session-held
@@ -255,6 +275,10 @@ pub const ImportTable = struct {
         if (identity.host_ref != host_ref) return;
         identity.host_ref = 0;
         identity.lifted_retains = 0;
+        if (identity.host_hold) |hold| {
+            identity.host_hold = null;
+            hold.ready();
+        }
         if (identity.node_route_id == 0) std.debug.assert(map.remove(position.int()));
     }
 

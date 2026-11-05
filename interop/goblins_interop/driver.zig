@@ -391,7 +391,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
             var event = event_value;
             defer event.deinit();
             for (scenario.expect_inbound_ops, 0..) |kind, i| {
-                if (event.tag == kind) seen_ops[i] = true;
+                if (event.kind() == kind) seen_ops[i] = true;
             }
             if (vat) |*v| {
                 if (port.?.serve(v, &event) catch false) served = true;

@@ -137,6 +137,10 @@ pub const Node = struct {
     /// the exact local actor it names. This is node-wide because all Ports of
     /// one Host project the same Vat. Keeping it here spends no bytes per Peer.
     local_object_projection: ?engine.bootstrap.gifts.LocalObjectProjection = null,
+    /// Embeddings install this to keep cross-session root answers callable.
+    /// Host supplies the private export and its FIFO retirement consumer.
+    /// Without it, handoff publication alone cannot forward local pipelines.
+    pipeline_projection: ?PipelineProjection = null,
     /// Optional Host-owned directory used to authenticate a signed give before status-allow: purpose clause
     /// its out-of-order deposit exists. Node-wide, so it costs no bytes per
     /// registered Peer.
@@ -488,6 +492,7 @@ pub const Node = struct {
 
     pub const DialFailure = redeem_dials.Failure;
 
+    pub const PipelineProjection = @import("node/passable/pipeline_target.zig").Projection;
     pub const Action = node_actions.Action;
 
     pub const pendingDial = redeem_dials.pendingDial;

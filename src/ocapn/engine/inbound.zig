@@ -265,7 +265,7 @@ fn applyPlainOwnedFrame(
     // Apply settled the answer's live row, so the event names the question
     // by identity for every reader that serves it after the position may
     // have been released and reused.
-    if (decoded_body.* == .resolve) self.events.backPtr().?.answer_override = .{
+    if (decoded_body.* == .resolve) self.events.backPtr().?.answer = .{
         .resolve = self.session_state.outboundAnswerTarget(decoded_body.resolve.answer) orelse unreachable,
     };
     appended = false;
@@ -300,10 +300,12 @@ pub fn pushAdmittedEvent(
 ) !void {
     const row = try self.events.pushUninit(self.allocator);
     row.* = .{
-        .frame = frame,
-        .parse = parse,
-        .tag = tag,
-        .answer_override = answer_override,
+        .payload = events.Event.Payload.message(tag, frame, parse),
+        .answer = switch (answer_override) {
+            .none => .none,
+            .resolve => |target| .{ .resolve = target },
+            .virtual_deliver => |virtual| .{ .virtual_deliver = virtual },
+        },
         // The codec this frame arrived in, not the session's. A handshake
         // frame is Syrup on a session that settles on something else, and the
         // event reports the codec that carried its frame.
@@ -316,8 +318,7 @@ pub fn pushAdmittedEvent(
 /// Take back the event `pushAdmittedEvent` queued last, with its frame.
 pub fn abandonPushedEvent(self: *Peer) void {
     var removed = self.events.popBack().?;
-    removed.parse.deinit(self.allocator);
-    removed.frame.deinit();
+    removed.deinit();
 }
 
 /// The `EventKind` a decoded body surfaces as, a 1:1 body-tag mapping. The one

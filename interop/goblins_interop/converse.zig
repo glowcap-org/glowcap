@@ -77,6 +77,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            if (event.kind() != .resolve) continue;
             const body = event.view();
             if (body.* == .resolve and body.resolve.answer.int() == echo_answer) {
                 switch (body.resolve.resolution) {
@@ -134,6 +135,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            if (event.kind() != .resolve) continue;
             const body = event.view();
             if (body.* == .resolve and body.resolve.answer.int() == index_answer) {
                 switch (body.resolve.resolution) {
@@ -183,6 +185,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            if (event.kind() != .resolve) continue;
             const body = event.view();
             if (body.* == .resolve and body.resolve.answer.int() == get_answer) {
                 switch (body.resolve.resolution) {
@@ -239,6 +242,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            if (event.kind() != .resolve) continue;
             const body = event.view();
             if (body.* == .resolve and body.resolve.answer.int() == tally_answer) {
                 switch (body.resolve.resolution) {
@@ -289,6 +293,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            if (event.kind() != .resolve) continue;
             const body = event.view();
             if (body.* == .resolve and body.resolve.answer.int() == enliven_answer) {
                 switch (body.resolve.resolution) {
@@ -329,6 +334,7 @@ fn verifyGoblinsStartSession(allocator: std.mem.Allocator, peer: *engine.Peer) !
     while (peer.pollEvent()) |event| {
         var e = event;
         defer e.deinit();
+        if (e.kind() != .start_session) continue;
         const view = e.view();
         switch (view.*) {
             .start_session => |ss| {

@@ -185,12 +185,10 @@ fn resolverCallbackEvent(allocator: std.mem.Allocator, answer: engine.OutboundAn
     errdefer frame.deinit();
     const parse = try engine.events.Parse.decode(allocator, &frame, .syrup, .next);
     return .{
-        .frame = frame,
-        .parse = parse,
-        .tag = .resolve,
+        .payload = engine.Event.Payload.message(.resolve, frame, parse),
         .codec = .syrup,
         .captp_version = .next,
-        .answer_override = .{ .resolve = answer },
+        .answer = .{ .resolve = answer },
         .allocator = allocator,
     };
 }

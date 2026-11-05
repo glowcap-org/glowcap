@@ -91,9 +91,9 @@ the receiver's with its reason, so a promise passes in every state.
 ## Alternatives and consequences
 
 Settling the row from the Vat's reply alone would miss forwarded, projected,
-and chained settlements, which only the engine funnel sees. A new engine
-event kind cannot carry the notification, because event kinds mirror wire
-message kinds exactly. A Host-side map from answer identity to promise would
+and chained settlements, which only the engine funnel sees. A separate engine
+event would split settlement notification from the payload that owns its
+lifetime. A Host-side map from answer identity to promise would
 duplicate a fact the payload can own. Cloning the resolution at lift would
 copy what the retained payload already holds.
 

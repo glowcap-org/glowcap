@@ -104,6 +104,7 @@ fn proveExportGc(
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            if (event.kind() != .gc_export) continue;
             const body = event.view();
             if (body.* != .gc_export) continue;
             const gc = body.gc_export;

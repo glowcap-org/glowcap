@@ -240,6 +240,13 @@ pub const AnswerPayload = struct {
     /// Whether that action was published. The Host releases the seat it
     /// reserved for the action only when the row leaves before it is.
     host_promise_notified: bool = false,
+    pipeline_target: ?*PipelineTarget = null,
+
+    pub const PipelineTarget = @import("pipeline_target.zig").Target;
+
+    pub fn retirePipelineTarget(self: *AnswerPayload) void {
+        PipelineTarget.retireOwned(&self.pipeline_target);
+    }
 };
 
 /// Session-local identity of one inbound answer incarnation. `AnswerName`
@@ -515,6 +522,7 @@ pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayloa
     std.debug.assert(payload.refs != 0);
     payload.refs -= 1;
     if (payload.refs != 0) return .none;
+    payload.retirePipelineTarget();
     var released: ReleasedCharges = .{ .resolution = payload.resolution_charge };
     if (payload.held_imports) |batch| batch.ready();
     for (payload.queue.items) |call| {

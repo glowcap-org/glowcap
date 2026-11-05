@@ -46,9 +46,6 @@ pub const span: u16 = 16384;
 /// The most bytes one flip arm changes.
 pub const max_flips = 3;
 
-/// The gift id `harness.drainActions` answers every request with.
-const gift_id = @as([32]u8, @splat(0x5a));
-
 /// The actions a step draws.
 pub const act_honest: u64 = 0;
 pub const act_damaged: u64 = 1;
@@ -89,6 +86,9 @@ pub const Trio = struct {
     redeemed: CapturedRef,
     /// The `withdraw-gift` frame the recipient sent, owned here.
     withdraw: []u8,
+    /// The exact gift named by the stopped receive, independent of the
+    /// harness's deterministic entropy sequence.
+    gift_id: [32]u8,
     /// Where the receive's envelope lies in it, and the receive's signature.
     envelope_start: usize,
     envelope_end: usize,
@@ -178,19 +178,29 @@ pub const Trio = struct {
         // Everything but the recipient-to-exporter wire moves, so the
         // deposit lands, the give lands, and the withdraw stays queued.
         try harness.pumpToQuiescence(gpa, &all, &.{ self.g_to_e, self.r_to_g }, &self.dials);
-        if (!self.giftLive()) return error.GiftNotDeposited;
         if (self.dials.items.len != 0) return error.UnexpectedDial;
 
         while (try self.r_to_e.a.takeOutbound()) |frame_value| {
             var frame = frame_value;
             defer frame.deinit();
             if (std.mem.indexOf(u8, frame.bytes(), "withdraw-gift") != null and self.withdraw.len == 0) {
+                const peer = self.r_to_e.a.served.port.peer;
+                const body = try glowcap.ocapn.codec.dispatch.decodeBodyForProfile(
+                    peer.session_state.codec,
+                    peer.session_state.captp_version,
+                    frame.view(),
+                );
+                const certificate = try (try body.deliver.args.at(1)).handoff.project();
+                const id = certificate.receive.signed_give.gift_id;
+                if (id.len != self.gift_id.len) return error.UnexpectedGiftId;
+                @memcpy(&self.gift_id, id);
                 self.withdraw = try gpa.dupe(u8, frame.bytes());
             } else {
                 try self.exporter.feed(self.r_to_e.b, frame.view());
             }
         }
         if (self.withdraw.len == 0) return error.NoWithdrawFrame;
+        if (!self.giftLive()) return error.GiftNotDeposited;
         self.envelope_start = std.mem.indexOf(u8, self.withdraw, "<17'desc:sig-envelope") orelse return error.NoEnvelope;
         self.envelope_end = valueEnd(self.withdraw, self.envelope_start) orelse return error.NoEnvelope;
         // The give's signature closes the inner envelope and the receive's
@@ -214,7 +224,7 @@ pub const Trio = struct {
     /// Whether the gift still waits at the exporter, in the registry of the
     /// gifter's session, which is where a withdrawal takes it from.
     pub fn giftLive(self: *Trio) bool {
-        return self.g_to_e.b.served.port.peer.giftRegistry().giftLive(&gift_id);
+        return self.g_to_e.b.served.port.peer.giftRegistry().giftLive(&self.gift_id);
     }
 
     fn acceptedCount(self: *Trio) ?u64 {

@@ -76,6 +76,9 @@ pub const VowRow = struct {
     forwarded: union(enum) {
         none,
         session: struct { peer: engine.PeerHandle, local_answer: bool },
+        /// A wire call forwarded to a sibling session. The producing row owns
+        /// this source session's pending operation until it retires.
+        wire_answer: engine.PeerHandle,
         owning: struct { producer: *@import("../host/local_delivery.zig").Producer, resolver: u64 },
     } = .none,
 
@@ -173,6 +176,10 @@ pub fn retireRow(self: *Host, row: *VowRow) void {
     completion.freeHeld(self, row);
     const removed = self.vows.fetchRemove(row.id) orelse unreachable;
     std.debug.assert(removed.value == row);
+    if (row.forwarded == .wire_answer) {
+        const source = self.sessionForPeer(row.forwarded.wire_answer) orelse unreachable;
+        self.finishSessionOperation(source);
+    }
     self.allocator.destroy(row);
 }
 

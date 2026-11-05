@@ -6,8 +6,8 @@
 //! Keeping those doors together prevents the marshal, engine, and Host paths
 //! from acquiring different ideas of which capability names the session holds.
 //!
-//! These operations mutate the existing Session in place and add no allocation,
-//! copy, lookup, or traversal beyond the table operation each method performs.
+//! Namespace operations mutate the existing tables. A Host copy of raw import
+//! authority additionally owns the existing preallocated import-release batch.
 
 const std = @import("std");
 const model = @import("model");
@@ -217,7 +217,8 @@ pub fn hostImportIdentity(self: *const Session, position: model.ImportPosition) 
 
 /// Attach one Host capability id to held import authority. Ordinary imports
 /// claim one wire retain. Bootstrap is permanently held and claims none.
-/// Session retains only scalar identity, Host owns its meaning and lifetime.
+/// This observation records scalar identity and a wire-retain claim. A copied
+/// raw route uses `noteHostCapabilityHold` for independent local custody.
 pub fn noteHostCapability(self: *Session, position: model.ImportPosition, ref: u64) !void {
     if (!self.holdsImport(position)) return error.InvalidReference;
     return self.imports.noteHostRef(
@@ -226,6 +227,20 @@ pub fn noteHostCapability(self: *Session, position: model.ImportPosition, ref: u
         ref,
         @intFromBool(position.int() != bootstrap_position),
     );
+}
+
+/// Attach a canonical Host copy without adopting the raw caller's wire retain.
+/// Its local resolution hold belongs to this home Session's identity memo.
+pub fn noteHostCapabilityHold(self: *Session, position: model.ImportPosition, ref: u64) !void {
+    if (!self.holdsImport(position)) return error.InvalidReference;
+    const Batch = @import("../import_release_outbox.zig").Batch;
+    const hold = try Batch.prepareForValue(self, .{ .reference = .{ .far = model.FarRef.object(position.int()) } });
+    errdefer if (hold) |batch| batch.destroy(self);
+    try self.imports.noteHostRef(self.allocator, position, ref, 0);
+    if (hold) |batch| {
+        batch.take(self);
+        self.imports.attachHostHold(position, ref, batch);
+    }
 }
 
 pub fn claimHostCapabilityRetain(self: *Session, position: model.ImportPosition, ref: u64) !void {

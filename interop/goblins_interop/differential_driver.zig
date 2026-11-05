@@ -84,7 +84,8 @@ fn watching(peer: *engine.Peer) bool {
     while (peer.pollEvent()) |event_value| {
         var event = event_value;
         defer event.deinit();
-        if (event.tag == .abort) Watch.aborted = true;
+        if (event.kind() == .abort) Watch.aborted = true;
+        if (event.kind() != .resolve) continue;
         const body = event.view();
         if (body.* == .resolve and body.resolve.answer.int() == follow_answer) Watch.answered = true;
     }

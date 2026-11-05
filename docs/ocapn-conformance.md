@@ -65,6 +65,13 @@ operation contracts are adopted on next under
 conversations keep the Goblins-compatible opening and operations, and this
 table does not count them as current-draft conformance.
 
+Cross-session promise-call evidence exercises Host forwarding. Custom Node
+embeddings must provide the [callable projection](boundaries.md#protocol-and-interop)
+that Host installs. The live `goblins-relayed-give` trace checks a queued Goblins
+invocation before settlement as well as the redeemed direct call afterward.
+The checks establish FIFO calls through the same route,
+not stronger ordering between an introducing route and a redeemed direct route.
+
 | Section | Profile | State | Evidence | Decision | Text |
 | --- | --- | --- | --- | --- | --- |
 | CapTP Overview | both | adopted | `zig build test` | none | d6f70e96056a |

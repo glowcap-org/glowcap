@@ -38,18 +38,26 @@ pub const ForwardContext = struct {
 
     /// Resolution borrows the producer's settlement scope across reentry.
     pub fn complete(self: *const ForwardContext, resolution: vat_mod.Resolution) void {
+        self.tryComplete(resolution) catch |err| switch (self.answer) {
+            .wire => |wire| wire.port.peer.emitFailure(err),
+            .local => unreachable,
+        };
+    }
+
+    /// Return a wire admission refusal to the caller that owns any provisional
+    /// capability projections. Those receipts commit only with the answer.
+    pub fn tryComplete(self: *const ForwardContext, resolution: vat_mod.Resolution) !void {
         switch (self.answer) {
             .local => |id| vows.settleLocalPrepared(self.vat, id, switch (resolution) {
                 .give => .{ .broken = "introduction not forwardable" },
                 else => resolution,
             }),
             .wire => |wire| {
-                const sent = switch (resolution) {
+                try switch (resolution) {
                     .fulfilled => |value| serve.resolveFulfill(wire.port, wire.target, value),
                     .broken => |message| serve.resolveBreak(wire.port, wire.target, message),
                     .give => serve.resolveBreak(wire.port, wire.target, "introduction not forwardable"),
                 };
-                sent catch |err| wire.port.peer.emitFailure(err);
             },
         }
     }

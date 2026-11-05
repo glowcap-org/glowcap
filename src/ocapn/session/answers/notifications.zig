@@ -373,3 +373,15 @@ pub fn releaseCarrier(self: *Session, target: answers.AnswerTarget, answer_paylo
     releasePayload(self, answer_payload);
     self.collectLocalPromiseProjections();
 }
+
+/// Retire composition-owned callable destinations before the Peer's event
+/// queue goes away. They publish private retirement events, not wire traffic.
+/// Payload ownership itself stays with these ordinary answer stores.
+pub fn retirePipelineTargets(self: *Session) void {
+    var rows = self.inbound_answers.rows.valueIterator();
+    while (rows.next()) |row| if (row.payload) |answer_payload| answer_payload.retirePipelineTarget();
+    if (self.detached_inbound_answers) |detached| {
+        var detached_rows = detached.rows.valueIterator();
+        while (detached_rows.next()) |row| row.payload.retirePipelineTarget();
+    }
+}

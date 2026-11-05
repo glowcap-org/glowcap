@@ -26,11 +26,16 @@ pub const EventKind = enum {
     get,
     index,
     untag,
+    release_pipeline_export,
 };
 
 comptime {
-    // A new `model.Message` arm cannot land without its `EventKind` mirror.
-    model.assertMirrorsMessageKinds(EventKind);
+    // Every wire kind remains in order; the final arm is a private effect.
+    const wire_fields = @typeInfo(model.Message).@"union".field_names;
+    const event_fields = @typeInfo(EventKind).@"enum".field_names;
+    std.debug.assert(event_fields.len == wire_fields.len + 1);
+    for (wire_fields, event_fields[0..wire_fields.len]) |wire, event|
+        std.debug.assert(std.mem.eql(u8, wire, event));
 }
 
 /// Error decoding an inbound frame into the codec-neutral `model.view.Body`: a
@@ -47,7 +52,7 @@ pub const AnswerOverride = union(enum) {
     /// nominated (ADR-0003).
     resolve: session.OutboundAnswerTarget,
     /// Resolver-only deliver carrying its virtual inbound answer
-    /// (`Event.tag == .deliver`).
+    /// (`Event.kind() == .deliver`).
     virtual_deliver: model.VirtualAnswer,
 };
 
@@ -56,9 +61,9 @@ pub const AnswerOverride = union(enum) {
 /// once, at admission, and the parse rides in the frame's head
 /// (`Frame.initHeaded`), the same allocation as the bytes it borrows, so the
 /// row carries two words naming it (`Parse`) and a warmed session parks
-/// nothing for it. The ceiling keeps the row from growing unnoticed: the
-/// reference-slot count a deliver carries for its handler took eight bytes,
-/// and the identity of the question a resolve settles took the last eight.
+/// nothing for it. The ceiling keeps the row from growing unnoticed. Its
+/// reply identity is one discriminated deliver/resolve authority; the private
+/// retirement arm shares wire storage and adds no per-event allocation.
 pub const event_struct_budget_bytes = 208;
 
 /// The fewest argument views an inbound frame's head lends the decoder.
@@ -215,8 +220,8 @@ pub const Parse = struct {
     }
 };
 
-/// An application-visible inbound event: the queued row, with its parse
-/// admission made. It owns the originating wire frame in the session's
+/// An application-visible event: a wire observation with its admitted parse,
+/// or an off-wire composition effect. A wire observation owns its frame in the
 /// negotiated codec. Typed access is a borrowed projection over that frame
 /// (`view`), and owned materialization (`decodeOwned`) happens only when the
 /// caller asks. Every reader that drains it (the driver, the vat, the GC
@@ -224,23 +229,18 @@ pub const Parse = struct {
 /// `frame` never moves its heap bytes, so the borrow stays valid for the
 /// event's life.
 pub const Event = struct {
-    frame: foundation.Frame,
-    parse: Parse,
-    tag: EventKind,
+    payload: Payload,
+
     /// The codec that carried `frame`, the session's negotiated `model.CodecId`.
     codec: model.CodecId,
     /// The CapTP profile that admitted `frame`. Event projection must use the
     /// same profile as dispatch or a valid next frame can be reinterpreted as
     /// V1.0 when the application later reads it.
     captp_version: model.CaptpVersion,
-    /// Off-wire answer translation when the wire frame alone cannot say
-    /// (ADR-0006). A sum, not two optionals: illegal combinations (both set,
-    /// or set under the wrong tag) are unrepresentable.
-    answer_override: AnswerOverride = .none,
-    /// Stable identity of the answer this deliver may settle. Captured after
-    /// Session admission and carried independently from the reusable wire
-    /// position, so deferred application work cannot answer a later question.
-    deliver_answer_target: ?session.AnswerTarget = null,
+    /// One event's reply identity. Deliver and resolve authorities never
+    /// coexist. A virtual name without a captured stamp is diagnostic only;
+    /// it cannot authorize a reply, just as an unstamped wire name cannot.
+    answer: Answer = .none,
     /// The allocator that owns `introduced_far_imports`, when set. Every
     /// `Event` the engine surfaces carries the same peer-lifetime allocator
     /// here regardless of whether that field is populated, so `deinit` has
@@ -270,18 +270,56 @@ pub const Event = struct {
     /// the same borrowed resolution once per answer.
     resolve_aliases: std.ArrayListUnmanaged(session.OutboundAnswerTarget) = .empty,
 
+    /// Wire observations and private composition effects share one FIFO, so
+    /// retirement cannot overtake a delivery already accepted for an export.
+    pub const Retirement = struct { near: model.NearRef, target: u64 };
+    pub const Wire = struct { frame: foundation.Frame, parse: Parse };
+    pub const Answer = union(enum) {
+        none,
+        deliver: session.AnswerTarget,
+        resolve: session.OutboundAnswerTarget,
+        virtual_deliver: model.VirtualAnswer,
+    };
+    pub const Payload = union(EventKind) {
+        deliver: Wire,
+        resolve: Wire,
+        gc_export: Wire,
+        gc_answer: Wire,
+        start_session: Wire,
+        abort: Wire,
+        listen: Wire,
+        get: Wire,
+        index: Wire,
+        untag: Wire,
+        release_pipeline_export: Retirement,
+
+        pub fn message(event_kind: EventKind, frame: foundation.Frame, parse: Parse) Payload {
+            return switch (event_kind) {
+                .release_pipeline_export => unreachable,
+                inline else => |wire_kind| @unionInit(Payload, @tagName(wire_kind), .{ .frame = frame, .parse = parse }),
+            };
+        }
+
+        fn wire(self: *const Payload) *const Wire {
+            return switch (self.*) {
+                .release_pipeline_export => unreachable,
+                inline else => |*value| value,
+            };
+        }
+    };
+
     pub fn kind(self: Event) EventKind {
-        return self.tag;
+        return std.meta.activeTag(self.payload);
     }
 
     pub fn bytes(self: *const Event) []const u8 {
-        return self.frame.bytes();
+        return self.payload.wire().frame.bytes();
     }
 
     /// The question a `.resolve` event settles, by identity.
     pub fn resolveTarget(self: *const Event) session.OutboundAnswerTarget {
-        std.debug.assert(self.tag == .resolve);
-        return self.answer_override.resolve;
+        std.debug.assert(self.kind() == .resolve);
+        return self.answer.resolve;
     }
 
     /// Outbound answers settled by the same resolution as `resolveTarget`:
@@ -295,7 +333,7 @@ pub const Event = struct {
     /// listener callback even when the semantic event also resolves local
     /// application answers.
     pub fn wireView(self: *const Event) *const model.view.Body {
-        return self.parse.wireBody();
+        return self.payload.wire().parse.wireBody();
     }
 
     /// The parse the application acts on, borrowed from the event: the frame's
@@ -303,16 +341,17 @@ pub const Event = struct {
     /// to (`Parse.translated`). Admission already read it, so nothing here
     /// can fail.
     pub fn view(self: *const Event) *const model.view.Body {
-        return self.parse.body();
+        return self.payload.wire().parse.body();
     }
 
     /// The semantic answer an inbound deliver settles. A wire answer remains
     /// wire-shaped. A V1.0 resolver-only deliver carries its session-local
     /// virtual identity here without manufacturing a wire position in `view`.
     pub fn deliverAnswerName(self: *const Event) ?model.AnswerName {
-        if (self.tag != .deliver) return null;
-        return switch (self.answer_override) {
-            .virtual_deliver => |answer| .fromVirtual(answer),
+        if (self.kind() != .deliver) return null;
+        return switch (self.answer) {
+            .deliver => |target| target.name,
+            .virtual_deliver => |virtual| .fromVirtual(virtual),
             else => if (self.wireView().deliver.answer) |answer|
                 .fromWire(answer)
             else
@@ -321,8 +360,8 @@ pub const Event = struct {
     }
 
     pub fn deliverAnswerTarget(self: *const Event) ?session.AnswerTarget {
-        if (self.tag != .deliver) return null;
-        return self.deliver_answer_target;
+        if (self.kind() != .deliver) return null;
+        return if (self.answer == .deliver) self.answer.deliver else null;
     }
 
     /// Materialize an owned codec-neutral message from the retained frame. Only
@@ -339,8 +378,13 @@ pub const Event = struct {
     pub inline fn deinit(self: *Event) void {
         self.resolve_aliases.deinit(self.allocator);
         if (self.introduced_far_imports) |imports| self.allocator.free(imports);
-        self.parse.deinit(self.allocator);
-        self.frame.deinit();
+        switch (self.payload) {
+            .release_pipeline_export => {},
+            inline else => |*wire| {
+                wire.parse.deinit(self.allocator);
+                wire.frame.deinit();
+            },
+        }
     }
 };
 

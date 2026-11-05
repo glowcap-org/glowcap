@@ -157,3 +157,54 @@ test "a Host handle lifted from a parked introduced mention takes the parked ret
     try s.imports.decrement(position(9), 1);
     try std.testing.expect(!s.holdsImport(position(9)));
 }
+
+test "a canonical raw-route copy pins its import without claiming the caller's wire retain" {
+    var s = session.Session.init(std.testing.allocator);
+    defer s.deinit();
+    try s.registerImport(position(9));
+    try s.noteHostCapabilityHold(position(9), 7);
+    try std.testing.expectEqual(@as(u64, 0), s.hostImportIdentity(position(9)).?.lifted_retains);
+    try std.testing.expectEqual(@as(u64, 1), s.importReleasable(position(9)));
+    try s.imports.decrement(position(9), 1);
+    try std.testing.expect(s.holdsImport(position(9)));
+    try std.testing.expectEqual(@as(u64, 0), s.importReleasable(position(9)));
+
+    // A subsequent real wire observation reuses the memo and contributes only
+    // its own wire retain. Releasing it cannot spend the raw caller's pin.
+    try s.registerImport(position(9));
+    try s.claimHostCapabilityRetain(position(9), 7);
+    try std.testing.expectEqual(@as(u64, 1), s.hostImportIdentity(position(9)).?.lifted_retains);
+    try s.imports.decrement(position(9), 1);
+    s.releaseHostCapabilityRetains(position(9), 7, 1);
+    s.forgetHostCapability(position(9), 7);
+    // Exact-identity retirement is idempotent: no double queue on teardown.
+    s.forgetHostCapability(position(9), 7);
+    const outbox = s.import_release_outbox.?;
+    const batch = outbox.head.?;
+    try std.testing.expect(batch.next == null);
+    batch.settle(&s);
+    try std.testing.expectEqualSlices(u64, &.{2}, batch.release().deltas);
+    s.imports.releaseSessionHeld(position(9), 2);
+    outbox.removeHead(&s);
+    try std.testing.expect(!s.holdsImport(position(9)));
+    try std.testing.expectEqual(@as(usize, 0), outbox.active_batches);
+}
+
+test "canonical raw-route pin preparation rolls back every allocation and teardown owns live pins" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, prepareCanonicalPin, .{});
+}
+
+fn prepareCanonicalPin(allocator: std.mem.Allocator) !void {
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(position(9));
+    s.noteHostCapabilityHold(position(9), 7) catch |err| {
+        try std.testing.expect(s.hostImportIdentity(position(9)) == null);
+        try std.testing.expectEqual(@as(u64, 0), s.imports.resolutionHolds(position(9)));
+        try std.testing.expectEqual(@as(u64, 1), s.importReleasable(position(9)));
+        if (s.import_release_outbox) |outbox| try std.testing.expectEqual(@as(usize, 0), outbox.active_batches);
+        return err;
+    };
+    try std.testing.expectEqual(@as(u64, 1), s.imports.resolutionHolds(position(9)));
+    // Session teardown readies the memo's batch before destroying its outbox.
+}

@@ -2,7 +2,8 @@
 //! shuttles (re-exported from test/support/host_pair.zig), the widget every
 //! scenario pokes, the vendor and introducer behaviors, locator and
 //! sturdyref builders, the action pump, session retirement, and the trace
-//! log the trace tests read back.
+//! log the trace tests read back. The action pump supplies a distinct,
+//! deterministic gift ID per entropy ticket so concurrent handoffs stay separate.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -144,7 +145,10 @@ pub fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *
             switch (action) {
                 .flush => {},
                 .need_gift_id => |n| {
-                    const gift_id = @as([32]u8, @splat(0x5a));
+                    // Deterministic entropy still gives each request a fresh ID.
+                    // Reusing one ID makes simultaneous deposits replace each other.
+                    var gift_id = @as([32]u8, @splat(0x5a));
+                    std.mem.writeInt(u64, gift_id[0..8], n.ticket, .little);
                     try host.provideGiftId(n.ticket, &gift_id);
                 },
                 .dial => |d| {

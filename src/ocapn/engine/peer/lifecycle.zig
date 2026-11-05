@@ -104,6 +104,7 @@ pub fn deinit(self: *Peer) void {
     for (self.outbound.pending()) |*frame| frame.deinit();
     self.outbound.deinit(self.allocator);
 
+    self.session_state.retireAnswerPipelineTargets();
     for (self.events.pending()) |*event| event.deinit();
     self.events.deinit(self.allocator);
 
