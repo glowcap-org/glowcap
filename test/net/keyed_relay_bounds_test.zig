@@ -159,7 +159,13 @@ fn bufferScript(
         switch (try source.tryFill()) {
             .progress => continue,
             .would_block => {},
-            .closed => return error.Truncated,
+            // The server publishes the count before it closes, so a close
+            // after a zero load is only late news: read the count again.
+            .closed => {
+                const final = staged.load(.acquire);
+                if (final != 0 and source.reader.bufferedLen() == final) return;
+                return error.Truncated;
+            },
         }
         if (wait.expired(io, deadline)) return error.WaitTimedOut;
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
