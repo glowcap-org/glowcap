@@ -6,9 +6,9 @@ sources: []
 
 # What you can depend on
 
-glowcap has no stable release yet. Some checks run on every main or dev push.
-Others need external runtimes or network access and run on demand. None is a
-compatibility or security promise.
+glowcap has no stable release yet. Some checks run on every main or dev push,
+and others need external runtimes or network access, so they run on demand.
+None is a compatibility or security promise.
 
 ## Checks by area
 

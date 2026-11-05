@@ -62,8 +62,9 @@ until they are explicitly retired.
 
 ## Atomic acquisition
 
-Saving a whole workspace keeps the source, imported capabilities, expected
-revision and the complete candidate across cancellation and retry. It needs
+Acquisition is saving a whole workspace in one step. It keeps the source,
+imported capabilities, expected revision and the complete candidate across
+cancellation and retry. It needs
 `ManageCustody` and `ReplaceWorkspace`. A stale revision returns a conflict
 before any capability is saved or content changes. An unknown reply keeps the
 original candidate. Only a confirmed conflict allows preparing it again, a
