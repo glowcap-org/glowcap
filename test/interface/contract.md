@@ -177,6 +177,12 @@ their occurrences on final drop even when the Host's automatic release is off.
 Refused and partially decoded replies receive the same cleanup. Independent
 raw observations keep their own release policy and settlement.
 
+TypeScript handles implement `PromiseLike<T>`. Ordinary `await` waits for the
+checked reply and propagates decoding failures and remote breaks. The `raw`
+property remains the runtime's pending target for pipelining and untyped
+observation. `observe()` returns a `Promise<T>` when a consumer needs that type.
+Module exports reserve `then`, while wire selectors keep their original names.
+
 Preparation copies and validates data and retains references **before** it
 suspends for sequence acquisition. Submission retains the exact target,
 sequence, and snapshot. Replay never acquires a fresh sequence automatically.

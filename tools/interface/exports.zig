@@ -77,6 +77,9 @@ fn rustCalls(out: *std.ArrayList(u8), a: std.mem.Allocator, module: []const u8, 
 }
 
 pub fn typescript(out: *std.ArrayList(u8), a: std.mem.Allocator, methods: []const calls.Named, support: []const Support) !void {
+    // Dynamic import treats a module's exported then as Promise resolution.
+    // The wire selector remains available through a different API export.
+    for (methods) |method| if (std.mem.eql(u8, method.api, "then")) return error.ExportCollision;
     try validate(methods, support);
     for (support) |item| if (item.enabled) {
         try out.print(a, "export {{ {s} }};\n", .{item.name});
