@@ -21,7 +21,7 @@ const execution = @import("execution.zig");
 const in_tree_runtimes = [_]toolchain_check.Runtime{
     .{
         .program = "python3",
-        .scripts = &.{ "tools/run-with-timeout.py", "tools/check/rooms_peer.py", "tools/check/glowcap_release.py", "tools/check/glowcap_release_test.py", "tools/check/glowcap_host.py", "tools/check/zig_package.py", "test/loam/engines/io_fault/run.py", "bench/interface/compile.py", "test/interface/authoring/check_cli.py", "tools/interface/authoring/capnp/check.py", "test/interface/authoring/check_generated.py" },
+        .scripts = &.{ "tools/run-with-timeout.py", "tools/check/rooms_peer.py", "tools/check/glowcap_release.py", "tools/check/glowcap_release_test.py", "tools/check/glowcap_host.py", "tools/check/zig_package.py", "test/loam/engines/io_fault/run.py", "bench/interface/compile.py", "test/interface/authoring/check_cli.py", "test/interface/authoring/check_output.py", "tools/interface/authoring/capnp/check.py", "test/interface/authoring/check_generated.py" },
         .modules = &.{"py_compile"},
         .why = "deterministic subprocesses use the shared deadline wrapper, orchestrators bound each child, benchmark clients and paired interface compilation are smoke-checked, the authoring comparison invokes the declared Cap'n Proto compiler, and the Zig package proof uses Git and Rust's matching llvm-nm and builds optional Cargo and TLS modules",
     },

@@ -267,6 +267,7 @@ pub const Model = struct {
     }
 
     fn normalize(self: *Model, input: Node, depth: usize, hops: usize) !Normalized {
+        errdefer self.mark(input);
         try self.spend(1);
         if (depth > description.max_depth or hops > description.max_depth) return error.ResourceLimit;
         if (input.kind == .record and std.mem.eql(u8, input.bytes, "ref")) {

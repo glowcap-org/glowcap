@@ -252,6 +252,9 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
     const authoring_cli_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/authoring/check_cli.py" });
     authoring_cli_check.addArtifactArg(authoring_exe);
     interface_test.dependOn(&authoring_cli_check.step);
+    const authoring_output_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/authoring/check_output.py" });
+    authoring_output_check.addArtifactArg(authoring_exe);
+    interface_test.dependOn(&authoring_output_check.step);
     @import("interface_authoring.zig").register(b, authoring_exe, interface_test, ctx.runtime_gate);
 
     const interface_fixtures = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "test/interface/check_fixtures.py" });

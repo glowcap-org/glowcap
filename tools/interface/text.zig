@@ -23,12 +23,7 @@ pub const Bundle = struct {
 
     fn noteOrigin(self: Bundle, origin: []const u8, message: []const u8) void {
         for (self.modules.items) |module| {
-            const begin = @intFromPtr(module.source.bytes.ptr);
-            const location = @intFromPtr(origin.ptr);
-            if (origin.len > 0 and location >= begin and location - begin < module.source.bytes.len) {
-                self.diagnostic.set(module.source, location - begin, message);
-                return;
-            }
+            if (self.diagnostic.setOrigin(module.source, origin, message)) return;
         }
         self.diagnostic.message = message;
     }

@@ -23,6 +23,7 @@ owns executable qualification.
 | `literal.zig` | Source string escaping |
 | `text.zig`, `text_parser.zig`, `text_encode.zig` | Pure module compilation, cached headers and bounded canonical encoding |
 | `text_loader.zig` | CLI-owned rooted file loading and compilation cache |
+| `output.zig` | CLI-owned source protection and atomic output replacement |
 | `authored.zig` | Pinned complete Tasks, Loam and qualification source bundle |
 | `expectations.zig` | Test constants from independent message fixtures |
 | `generate.zig` | Fixture selection, output paths, and compiler tests |
