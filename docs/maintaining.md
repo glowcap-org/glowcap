@@ -1,6 +1,6 @@
 ---
 type: static
-description: Landing changes on dev as signed commits, the workflow that fast-forwards main to each checked one, and release protection.
+description: Landing changes on dev as signed commits, the workflow that fast-forwards main to each checked one, where each release and the website are published, and release protection.
 sources:
   - resource: /.github/workflows/check.yml
   - resource: /.github/workflows/pages.yml
@@ -22,6 +22,8 @@ sources:
   - resource: /ci/require_main_check.py
   - resource: /.github/rulesets/
   - resource: /tools/deps/fetch-mbedtls.sh
+  - resource: /site/zine.ziggy
+  - resource: /tools/build/site.zig
 ---
 
 # Maintaining glowcap
@@ -44,6 +46,43 @@ requires a deliberate change to this policy and its workflow checks.
 Registry identities live in
 [binding packaging](../bindings/PACKAGING.md#package-ownership), and
 [releasing a version](#releasing-a-version) is the procedure.
+
+## Where glowcap is published
+
+| What | Served from | Published by | When |
+| --- | --- | --- | --- |
+| Website and Zig API reference | [glowcap.org](https://glowcap.org/), GitHub Pages with the domain set in the repository's Pages settings | The [pages workflow](../.github/workflows/pages.yml) | Each time `main` moves to a checked commit, or on demand |
+| Installer | `https://glowcap.org/install.sh`, a static asset of the website | The pages workflow, from `site/assets/install.sh` | With the website |
+| Archives, C SDK, checksums, and provenance | [GitHub Releases](https://github.com/glowcap-org/glowcap/releases) | The [release workflow](../.github/workflows/release.yml) | At each signed `v*` tag |
+| Rooms container image | `ghcr.io/glowcap-org/glowcap-rooms` | The release workflow, by digest | At each signed `v*` tag |
+| Rust crate, Python wheel, and JSR packages | crates.io, PyPI, and JSR | The [publish workflow](../.github/workflows/publish.yml), after the maintainer approves each registry | When the release becomes public |
+| Racket package | The Racket package catalog | The maintainer, guided by `tools/release-publishers.py` | After each release |
+| Repository docs and READMEs | GitHub, read at `main` | Promotion to `main` | Each time `main` moves |
+
+Website pages link repository docs at `blob/main`, so both show the same
+commit once the pages workflow finishes.
+
+## Publishing the website
+
+The website source is `site/`: SuperMD pages in `site/content/`, layouts,
+and assets, rendered by [Zine](https://zine-ssg.io/). `zig build site` renders
+them into `zig-out/site/`, adds the autodoc for the public `glowcap` module
+under `reference/api/`, and validates the output. The code tabs come from
+`site/examples/` through `gen-site-examples`. The Rooms pictures are captured
+from the shipped page when `site/assets/` has none cached. The performance
+figures are committed snapshots that change only when someone runs
+`zig build bench-site-report` and lands the result
+([benchmark index](../bench/README.md)).
+
+Locally, `zig build site-serve` previews the site, and
+`zig build site-render-check` renders every built page at four widths in the
+pinned Chromium.
+
+The pages workflow runs when `main` moves. It confirms that the commit is
+still `main` and passed the full check, builds the site in the devcontainer,
+and deploys `zig-out/site/` to GitHub Pages. It refuses to deploy if `main`
+moved during the build. A change to the site reaches glowcap.org only through
+`dev`, promotion, and that run.
 
 ## Integrating locally
 
