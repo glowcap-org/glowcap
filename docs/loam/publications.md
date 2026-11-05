@@ -68,13 +68,14 @@ ID keeps nothing alive.
 While an outcome is unknown, Loam hides the name's existing Host entry and
 keeps its actor alive. Recovery either removes that entry or makes the same
 entry answer again. This needs no allocation or disk read, even when the
-publication record has left the cache. A name that was not in memory stays
-on demand. Each lookup checks the current record, so a stale lookup cannot
-bring a retired name back.
+publication record has left the cache. A name that was not in memory is still
+loaded on demand. Each lookup checks the current record, so a stale lookup
+cannot bring a retired name back.
 
-Host shutdown finishes these storage outcomes too. Finishing restores a name
-whose retirement never committed. Cancellation removes its in-memory entry
-and leaves the unchanged durable record available after a restart.
+Host shutdown settles these outcomes too. If the retirement turns out never to
+have committed, the name is restored. If shutdown cancels the wait instead, it
+removes the name's in-memory entry and leaves the unchanged durable record
+available after a restart.
 
 ## Destroying the attachment
 

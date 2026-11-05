@@ -18,8 +18,8 @@ covers store and attachment lifetimes.
 Like the
 [Goblins persistence tutorial](https://files.spritely.institute/docs/guile-goblins/0.17.0/Persistence-tutorial.html),
 Loam keeps a behavior's description apart from its storage. Loam also makes
-Zig borrowing, loading without blocking, and when a commit becomes visible
-explicit.
+three things explicit: who borrows memory in Zig, that loading never blocks,
+and when a commit becomes visible.
 
 ## What is supported
 

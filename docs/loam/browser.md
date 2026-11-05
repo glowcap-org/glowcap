@@ -9,8 +9,8 @@ sources:
 
 # Browser resource storage
 
-This is the browser half of the [C and Rust guide](c-and-rust.md): the same
-single-resource model, stored in IndexedDB so it survives a page reload.
+In the browser, Rust stores the same single-resource model as the
+[C and Rust guide](c-and-rust.md) in IndexedDB, so it survives a page reload.
 Rust's `loam` feature uses IndexedDB when compiled for
 `wasm32-unknown-unknown`, linking `libglowcap_loam` with the Host and OCapN
 Wasm archives. Loam's Zig code still checks records and permissions, commits
