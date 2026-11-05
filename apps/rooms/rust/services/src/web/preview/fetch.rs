@@ -175,6 +175,9 @@ fn public_preview_address(address: IpAddr) -> bool {
 /// <https://github.com/pondurance/ip_rfc>. Rooms additionally refuses all
 /// multicast, IPv4-mapped private addresses, and deprecated IPv6 site-local
 /// destinations at this boundary.
+/// Special-purpose ranges follow the IANA registries (2025-10-09):
+/// <https://www.iana.org/assignments/iana-ipv4-special-registry>
+/// <https://www.iana.org/assignments/iana-ipv6-special-registry>
 fn public_preview_v4(address: std::net::Ipv4Addr) -> bool {
 	let [a, b, c, _] = address.octets();
 	if address == std::net::Ipv4Addr::new(192, 0, 0, 9) || address == std::net::Ipv4Addr::new(192, 0, 0, 10) {
@@ -188,6 +191,7 @@ fn public_preview_v4(address: std::net::Ipv4Addr) -> bool {
 		|| (a == 172 && (16..=31).contains(&b))
 		|| (a == 192 && b == 0 && c == 0)
 		|| (a == 192 && b == 0 && c == 2)
+		|| (a == 192 && b == 88 && c == 99)
 		|| (a == 192 && b == 168)
 		|| (a == 198 && matches!(b, 18 | 19))
 		|| (a == 198 && b == 51 && c == 100)
@@ -198,14 +202,18 @@ fn public_preview_v4(address: std::net::Ipv4Addr) -> bool {
 fn public_preview_v6(address: std::net::Ipv6Addr) -> bool {
 	let segments = address.segments();
 	let [first, second, third, ..] = segments;
-	// NAT64 (64:ff9b::/96) and its local-use sibling (64:ff9b:1::/48) carry an
-	// IPv4 address in their low bits, so a private IPv4 destination has to be
-	// refused through them as well as directly.
-	let nat64 =
-		(first == 0x0064 && second == 0xff9b && third == 0) || (first == 0x0064 && second == 0xff9b && third == 1);
-	if nat64 {
+	// Only the well-known /96 prefix fixes the IPv4 address in the low bits.
+	// RFC 8215 section 5 gives local-use 64:ff9b:1::/48 no such encoding.
+	if segments[..6] == [0x0064, 0xff9b, 0, 0, 0, 0] {
 		let [.., seventh, eighth] = segments;
 		return public_preview_v4(std::net::Ipv4Addr::from(((seventh as u32) << 16) | eighth as u32));
+	}
+	if first == 0x2001 && second < 0x0200 {
+		// The IETF protocol block has a few globally reachable assignments.
+		return matches!(segments, [0x2001, 1, 0, 0, 0, 0, 0, 1..=3])
+			|| second == 3 // AMT
+			|| (second == 4 && third == 0x0112) // AS112
+			|| (0x0020..=0x003f).contains(&second); // ORCHIDv2 and DETs
 	}
 	!address.is_unspecified()
 		&& !address.is_loopback()
@@ -215,8 +223,10 @@ fn public_preview_v6(address: std::net::Ipv6Addr) -> bool {
 		&& first & 0xffc0 != 0xfec0 // fec0::/10 deprecated site local
 		&& !(first == 0x2001 && second == 0x0db8) // 2001:db8::/32 documentation
 		&& !(first == 0x3fff && second & 0xf000 == 0) // 3fff::/20 documentation
-		&& !(first == 0x2001 && second == 0) // 2001::/32 Teredo, embeds an IPv4 address
-		&& !(first == 0x0100 && second == 0 && third == 0 && segments[3] == 0) // 100::/64 discard
+		&& !(first == 0x0064 && second == 0xff9b && third == 1) // local-use translation
+		&& first != 0x2002 // 6to4 is not globally reachable by default
+		&& first != 0x5f00 // SRv6 segment identifiers
+		&& !(first == 0x0100 && second == 0 && third == 0 && segments[3] <= 1) // discard and dummy prefixes
 }
 
 async fn exchange<S>(stream: S, url: &url::Url, limit: usize, kind: Kind) -> Result<Response, Error>
@@ -322,6 +332,9 @@ mod tests {
 			("192.0.0.10", true),
 			("192.0.0.11", false),
 			("192.0.2.1", false),
+			("192.88.98.255", true),
+			("192.88.99.2", false),
+			("192.88.100.0", true),
 			("192.168.255.255", false),
 			("198.17.255.255", true),
 			("198.18.0.0", false),
@@ -346,11 +359,28 @@ mod tests {
 			("3fff:fff:ffff::1", false),
 			("2001::1", false),
 			("2001:1::1", true),
+			("2001:1::3", true),
+			("2001:1::4", false),
+			("2001:2::1", false),
+			("2001:3::1", true),
+			("2001:4:112::1", true),
+			("2001:4:113::1", false),
+			("2001:1f:ffff::1", false),
+			("2001:20::1", true),
+			("2001:3f:ffff::1", true),
+			("2001:40::1", false),
+			("2001:1ff:ffff::1", false),
+			("2001:200::1", true),
+			("2002:7f00:1::1", false),
+			("5f00::1", false),
 			("100::1", false),
-			("100:0:0:1::1", true),
+			("100:0:0:1::1", false),
+			("100:0:0:2::1", true),
 			("64:ff9b::10.0.0.1", false),
 			("64:ff9b::1.1.1.1", true),
 			("64:ff9b:1::192.168.1.1", false),
+			("64:ff9b:1::1.1.1.1", false),
+			("64:ff9b:1:a00:1::101:101", false),
 			("::ffff:127.0.0.1", false),
 			("::ffff:1.1.1.1", true),
 			("1.1.1.1", true),
