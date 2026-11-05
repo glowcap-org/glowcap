@@ -18,6 +18,13 @@ pub const Selected = struct {
 
 /// One transport profile served by a multiplexed resident. Several profiles
 /// may name the same resident. The runtime polls each resident once.
+///
+/// The caller owns endpoint identity configuration. When a provider such as
+/// iroh authenticates the key in its locator, its endpoint and the Host must
+/// use the same identity seed, including for dial-only use. Registration
+/// validates profiles and readiness, but cannot inspect an endpoint's local
+/// key. A separately keyed endpoint cannot authenticate the Host identity
+/// advertised in its hello.
 pub const Registration = struct {
     profile: model.transport.Metadata,
     resident: net.MultiplexedResident,

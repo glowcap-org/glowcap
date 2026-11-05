@@ -30,7 +30,7 @@ fn listenOne(
     exchange: *net.inproc_completion.Exchange,
     profile: model.transport.Known,
     designator: []const u8,
-    identity: driver.AcceptIdentity,
+    identity: driver.Identity,
 ) !*driver.Server {
     return driver.listen(allocator, io, .{
         .symbols = &.{profile},

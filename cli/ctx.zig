@@ -89,16 +89,8 @@ pub const Ctx = struct {
         return s;
     }
 
-    /// CapTP session signing posture from the product identity file.
-    pub fn dialIdentity(self: *Ctx) !glowcap.driver.Identity {
-        const secret = try self.ensureSecret();
-        return .{ .keyed = .{
-            .secret = secret,
-            .designator = glowcap.driver.unreachable_client_designator,
-        } };
-    }
-
-    pub fn acceptIdentity(self: *Ctx) !glowcap.driver.AcceptIdentity {
+    /// Host identity from the product identity file, shared by dial and listen.
+    pub fn identity(self: *Ctx) !glowcap.driver.Identity {
         return .{ .keyed = try self.ensureSecret() };
     }
 

@@ -24,7 +24,7 @@ pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
     const bind = parsed.flagString("bind") orelse "127.0.0.1:0";
     const publish_name = parsed.flagString("publish");
     const once = parsed.flagBool("once");
-    const accept_id = try ctx.acceptIdentity();
+    const accept_id = try ctx.identity();
 
     var relay: ?relay_runtime.Provider = null;
     const target = listen_target.select(

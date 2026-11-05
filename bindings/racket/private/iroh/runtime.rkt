@@ -360,33 +360,6 @@
               (when owned-netlayer
                 (iroh-netlayer-close/release! owned-netlayer))))))))))
 
-;; ── dial ─────────────────────────────────────────────────────────────────────
-;; The byte-fed iroh connector: take an endpoint id and
-;; direct-address hints, complete the keyed OCapN handshake over the
-;; encrypted-QUIC transport, and return a ready `connection`. The local endpoint
-;; is ephemeral (a fresh key) and driven by its own readiness loop, both released
-;; with the connection. `reachability` is an IROH-REACH-* posture, supplied by
-;; `connect`.
-;; The fresh host's session key and its node identity are one and the same
-;; seed, so the connection's wire identity stays coherent, a handoff this host
-;; later redeems signs its `desc:handoff-receive` with the very key the gifter
-;; recorded, as a runtime TCP dial does. Delegates to the
-;; node-keyed dial with a fresh host rather than keying the session
-;; independently of the host it builds.
-
-;; The node-keyed iroh dial behind a handoff redeem: dial the exporter
-;; endpoint and bring the connection up under host `m` rather than a fresh
-;; host, so the redeemed capability and any further handoff it triggers share
-;; the recipient's one identity, handoff router, and connection table
-;; (ADR-0039), the iroh sibling of `dial-exporter`'s TCP arm.
-;; The core's `dial-exporter` loads it lazily for an iroh give. The keyed
-;; handshake is the host's (`establish-dialed-locator-session` signs it under
-;; the host identity and drives it byte-fed over this transport), and
-;; `handshake-timeout-ms` bounds it at `HANDSHAKE-TIMEOUT-MS` by default. The
-;; bound covers only the handshake over an established QUIC connection, never
-;; the dial-by-id resolution before it, which is one transport attempt finished
-;; before the handshake starts. A dial staged through the driver loop retries
-;; transient faults on the runtime's GLOWCAP-DISCOVERY-DIAL-* budget (ADR-0018).
 ;; ── raw byte channels ────────────────────────────────────────────────────────
 ;; An iroh connection with nothing running over it: raw bytes in, raw bytes out,
 ;; and no CapTP handshake. Two consumers need exactly that. A byte-transparent
@@ -438,11 +411,13 @@
 
 ;; Open the byte-fed Host's iroh transport. The transport owns the endpoint and
 ;; readiness loop; the second value is the remote endpoint key QUIC proved.
+;; A CapTP connector supplies its Host seed so the endpoint authenticates the
+;; same identity the Host advertises. A raw relay may omit it for a fresh key.
 (define (dial-byte-transport node-id direct-addresses reachability
-                             [worker-threads #f])
+                             [worker-threads #f] #:seed [seed #f])
   (define-values (netlayer _seed)
     (iroh-netlayer-new
-     (make-iroh-config reachability #:worker-threads worker-threads)))
+     (make-iroh-config reachability #:worker-threads worker-threads) seed))
   (define lp (make-iroh-loop netlayer))
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)

@@ -44,6 +44,8 @@
    (lambda (lp host)
      (iroh-adopt-loop! lp config #:seed (and host (host-seed host))))))
 
+;; The byte-fed connector shares its Host identity with the QUIC endpoint.
+;; The Host still draws independent CapTP session signing keys.
 (define (iroh-connector config)
   (unless (iroh-config? config)
     (raise-argument-error 'iroh-connector "iroh-config?" config))
@@ -54,7 +56,8 @@
        (dial-byte-transport
         (locator-designator loc)
         (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES "")
-        (iroh-config-reachability config)))
+        (iroh-config-reachability config)
+        #:seed (host-seed m)))
      (establish-dialed-locator-session
       m loc transport
       #:verified-channel-key proof
@@ -112,3 +115,51 @@
 
 (define (iroh-server-close! server)
   (loop-server-close! (iroh-server-loop-server server)))
+
+(module+ test
+  (require rackunit racket/async-channel
+           (only-in "../../glowcap.rkt"
+                    open-runtime runtime-host runtime-connect runtime-close!
+                    methods session-serve session-fetch session-send
+                    session-partner-identity partner-identity-designator
+                    partner-identity-durable-authenticated?))
+
+  (test-case "the byte connector authenticates the Host identity it advertises"
+    ;; Real QUIC and CapTP exercise both identity claims. A separately random
+    ;; connector endpoint cannot authenticate the Host designator it claims.
+    (define config (make-iroh-config IROH-REACH-DIRECT #:connect-timeout-ms 2000))
+    (define server (listen-iroh config))
+    (host-publish (iroh-server-host server) "probe"
+                  (methods [(ping) "authenticated reply"]))
+    (define rt (open-runtime #:connectors (list (iroh-connector config))
+                             #:handshake-timeout-ms 2000))
+    (define accepted (make-async-channel))
+    (define worker
+      (thread
+       (lambda ()
+         (with-handlers ([exn? (lambda (e) (async-channel-put accepted e))])
+           (define c (iroh-server-accept server))
+           (async-channel-put accepted c)
+           (session-serve c)))))
+    (dynamic-wind
+      void
+      (lambda ()
+        (define client (runtime-connect rt (iroh-server-locator server)))
+        (define remote (sync/timeout 3 accepted))
+        (when (exn? remote) (raise remote))
+        (check-not-false remote)
+        (define identity (session-partner-identity remote))
+        (check-equal? (partner-identity-designator identity)
+                      (designator-from-seed (host-seed (runtime-host rt))))
+        (check-true (partner-identity-durable-authenticated? identity))
+        (check-true (partner-identity-durable-authenticated?
+                     (session-partner-identity client)))
+        (check-equal? (session-send client (session-fetch client "probe") 'ping)
+                      "authenticated reply"))
+      (lambda ()
+        (runtime-close! rt)
+        (iroh-server-close! server)
+        (host-close! (iroh-server-host server))
+        (unless (sync/timeout 3 worker)
+          (kill-thread worker)
+          (fail "accepted session did not close"))))))

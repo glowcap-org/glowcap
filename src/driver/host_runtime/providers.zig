@@ -48,7 +48,7 @@ pub fn init(
     const max_pending_redeem_dials = try opts.redeemDialShare();
     if (opts.busy_poll_ns > HostRuntime.max_busy_poll_ns) return Error.BusyPollWindowTooLong;
     const seed: [foundation.crypto.seed_bytes]u8 = switch (identity) {
-        .keyed => |keyed| keyed.secret.seed(),
+        .keyed => |secret| secret.seed(),
         .ephemeral => blk: {
             var value: [foundation.crypto.seed_bytes]u8 = undefined;
             io.randomSecure(&value) catch return Error.HandshakeEntropyFailed;

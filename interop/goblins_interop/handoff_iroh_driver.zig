@@ -30,7 +30,11 @@ pub fn main(init: std.process.Init) !void {
     const addresses = goblins_child.extractField(ready.block, "\"direct-addresses\":\"") orelse return error.MissingAddresses;
     const swiss = goblins_child.extractField(ready.block, goblins_child.swiss_field) orelse return error.MissingSwiss;
 
-    var endpoint = try iroh.Resident.init(io, null, .{ .reachability = .direct });
+    // Advertise the key this endpoint actually holds. The Goblins adapter
+    // binds each hello's iroh locator to the QUIC-authenticated endpoint.
+    var endpoint_seed: [32]u8 = undefined;
+    try io.randomSecure(&endpoint_seed);
+    var endpoint = try iroh.Resident.init(io, &endpoint_seed, .{ .reachability = .direct });
     defer endpoint.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
     var adapter = try iroh.MultiplexedAdapter.init(allocator, &endpoint);
     defer if (adapter.deinit()) |failure| std.log.err("iroh adapter: {s}", .{failure.primaryName()});
@@ -40,7 +44,7 @@ pub fn main(init: std.process.Init) !void {
         .transport = iroh.transport_name,
         .designator = node_id,
         .hints = .{ .entries = &.{.{ .name = iroh.hint_direct_addresses, .value = .{ .string = addresses } }} },
-    }, .ephemeral, opts);
+    }, .{ .keyed = glowcap.foundation.crypto.SecretKey.fromSeed(endpoint_seed) }, opts);
     defer gifter.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);

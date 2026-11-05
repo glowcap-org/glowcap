@@ -120,7 +120,6 @@ pub const FetchCapture = vocab.FetchCapture;
 pub const Identity = vocab.Identity;
 pub const PartnerIdentity = vocab.PartnerIdentity;
 pub const DurableProvenance = vocab.DurableProvenance;
-pub const AcceptIdentity = vocab.AcceptIdentity;
 pub const Vow = vocab.Vow;
 pub const Exported = vocab.Exported;
 pub const Settled = vocab.Settled;

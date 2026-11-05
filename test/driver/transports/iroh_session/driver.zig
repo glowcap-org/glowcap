@@ -26,11 +26,9 @@
 //! `local_discovery` posture reach each other by node id alone, no
 //! direct-address hints. That is the lookup half of the transport, proven
 //! deterministically with no relay or public infrastructure. Key unification:
-//! each peer seeds its endpoint and signs its `op:start-session` with the secret
-//! half of that same seed, so over the live wire the partner's verified session
-//! pubkey equals the node id the transport authenticated equals the signed
-//! locator designator. One key is at once the transport identity, the OCapN
-//! designator, and the session signing key. Durable identity: a vat tears its
+//! each peer seeds its endpoint and Host with the same durable key. The signed
+//! locator designator matches the node id authenticated by QUIC, while each
+//! session uses a distinct signing key. Durable identity: a vat tears its
 //! endpoint down and rebinds from the same seed: same key, same node id at a
 //! fresh address. A client reaches the same published cap through the
 //! locator recorded before the restart, so a sturdyref (node id + swiss-number)
@@ -73,9 +71,9 @@ const Greeter = harness.StaticReplyBehavior("greet", greeting);
 
 /// Server half: accept one partner on a server bound over iroh, publish the
 /// greeter, serve until the client hangs up. iroh is a key-designator
-/// transport, so every server here is keyed with the endpoint's own secret:
-/// the session key a dialer's identity pin verifies is the node id it dialed,
-/// and `driver.listen` refuses an ephemeral identity.
+/// transport, so every server here shares the endpoint's durable key with its
+/// Host. The signed locator names the node id that QUIC authenticates, and
+/// `driver.listen` refuses an ephemeral identity.
 const hostOnce = harness.AcceptServeOne(Greeter, "greeter", "iroh-session: server accepted a QUIC stream and opened the keyed session").run;
 
 /// One endpoint's registration as the `iroh` provider of a runtime. The
@@ -194,16 +192,14 @@ fn hostUnified(io: std.Io, server: *driver.Server, expect_partner_id: []const u8
     try session.serve();
 }
 
-/// Client half of the key-unification proof: dial the server by id alone, sign
-/// the dialer handshake with `secret` over the dialer's own `self_id`, assert the
-/// server's session identity is its node id, then fetch and call the greeter so
-/// the unified session is proven to carry real traffic.
+/// Dial by id alone from a Host sharing its endpoint's durable key, verify the
+/// server's authenticated locator identity and independent session key, then
+/// fetch and call the greeter.
 fn callUnified(
     io: std.Io,
     allocator: std.mem.Allocator,
     providers: []const Registration,
     server_id: []const u8,
-    self_id: []const u8,
     secret: crypto.SecretKey,
 ) !void {
     const locator: model.PeerLocator = .{
@@ -211,7 +207,7 @@ fn callUnified(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    const session = try driver.connect(allocator, io, .{ .residents = providers }, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, opts);
+    const session = try driver.connect(allocator, io, .{ .residents = providers }, locator, .{ .keyed = secret }, opts);
     defer session.deinit();
     try assertPartnerIsNodeId(session, server_id);
 
@@ -263,9 +259,8 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // The server endpoint is seeded so its accepts sign with the endpoint's
-    // own key: iroh is a key-designator transport, and a dialer pins the
-    // session identity to the node id it dialed.
+    // The server endpoint and Host share their durable key. Each accepted
+    // session signs the matching locator with its own independent key.
     const main_server_seed: [32]u8 = @splat(0x31);
     const main_server_secret = crypto.SecretKey.fromSeed(main_server_seed);
     var server = iroh.Resident.init(io, &main_server_seed, .{ .reachability = .direct }) catch |err| {
@@ -414,7 +409,7 @@ pub fn main(init: std.process.Init) !void {
         defer u_listener.deinit();
 
         var u_host = try io.concurrent(hostUnified, .{ io, u_listener, u_client_id });
-        const u_client_result = callUnified(io, allocator, &u_client_providers, u_server_id, u_client_id, client_secret);
+        const u_client_result = callUnified(io, allocator, &u_client_providers, u_server_id, client_secret);
         if (u_client_result) |_| {} else |err| {
             std.debug.print("iroh-session: key-unification client failed: {s}\n", .{@errorName(err)});
             u_server.close();
@@ -422,7 +417,7 @@ pub fn main(init: std.process.Init) !void {
         const u_host_result = u_host.await(io);
         try u_client_result;
         try u_host_result;
-        std.debug.print("iroh-session: one key per peer is the iroh node id, the locator designator, and the session signing key, verified on both halves over the live wire\n", .{});
+        std.debug.print("iroh-session: each authenticated node id matches its locator, with an independent session signing key on both halves\n", .{});
     }
 
     {
