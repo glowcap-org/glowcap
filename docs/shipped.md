@@ -75,6 +75,9 @@ listening, and events, over a Host it has adopted.
   that answer. Next refuses those wire projection operations. Calls and listeners wait through chains of
   local promises until their requested result is available ([ADR-0003](decisions/adr/ADR-0003-promise-pipelining-and-listeners.md)),
   and a listener the engine fires or discards gives its listener object back to the partner in one `op:gc-exports`.
+  Host preserves queued and late calls when an answer settles to an object on another session
+  ([custom Node requirements](boundaries.md#protocol-and-interop)).
+
   A failed turn withdraws its sends,
   including staged introductions ([ADR-0058](decisions/adr/ADR-0058-transactional-turn-sends.md)).
   glowcap accepts OCapN 1.0 `op:untag` from any peer and sends it only to a partner that advertises the `untag`

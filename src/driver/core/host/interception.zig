@@ -95,6 +95,8 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
     _ = served;
     const session: *HostSession = @ptrCast(@alignCast(ctx.?));
     const host = session.host;
+    // Private effects are served by the Port that owns the export binding.
+    if (event.kind() == .release_pipeline_export) return false;
     const body = event.view();
     // Every event notices a just-opened session. Every deliver reports its
     // selector, including absence, using the actor layer's one splitter.

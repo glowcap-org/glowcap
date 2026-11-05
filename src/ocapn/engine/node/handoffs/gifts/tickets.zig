@@ -3,8 +3,6 @@
 const std = @import("std");
 
 const model = @import("model");
-const session_mod = @import("session");
-const actions = @import("../../actions.zig");
 const node_mod = @import("../../../node.zig");
 const passable = @import("../../passable.zig");
 
@@ -17,15 +15,10 @@ pub const InlineTicket = struct {
     gift_index: u32,
 };
 
-pub const Destination = union(enum) {
-    answer: session_mod.AnswerTarget,
-    inline_gift: InlineTicket,
-};
-
 pub const Pending = struct {
     recipient_peer: PeerHandle,
     route_id: model.CapabilityRouteId,
-    dest: Destination,
+    staged: InlineTicket,
 };
 
 /// The sole registry of live gift-id draws. It remains embedded in Node.
@@ -49,25 +42,6 @@ pub fn ensureUnusedCapacity(self: *Node, count_in: u32) !void {
     try self.gifts.tickets.by_ticket.ensureUnusedCapacity(self.allocator, count_in);
 }
 
-/// Park one answer gift and publish its entropy request atomically. Capacity
-/// and the action seat are acquired before the monotonic ticket is spent.
-pub fn requestAnswer(
-    self: *Node,
-    recipient_peer: PeerHandle,
-    route_id: model.CapabilityRouteId,
-    answer: session_mod.AnswerTarget,
-) !void {
-    try ensureUnusedCapacity(self, 1);
-    try actions.reserve(self, 1);
-    const ticket = try actions.claimTicketRange(self, 1);
-    self.gifts.tickets.by_ticket.putAssumeCapacity(ticket, .{
-        .recipient_peer = recipient_peer,
-        .route_id = route_id,
-        .dest = .{ .answer = answer },
-    });
-    actions.pushReserved(self, .{ .need_gift_id = .{ .ticket = ticket } });
-}
-
 /// Publish one already-reserved inline gift ticket after every fallible batch
 /// acquisition has completed.
 pub fn publishInlineAssumeCapacity(
@@ -80,7 +54,7 @@ pub fn publishInlineAssumeCapacity(
     self.gifts.tickets.by_ticket.putAssumeCapacity(ticket, .{
         .recipient_peer = recipient_peer,
         .route_id = route_id,
-        .dest = .{ .inline_gift = inline_gift },
+        .staged = inline_gift,
     });
 }
 
@@ -95,11 +69,10 @@ pub fn take(self: *Node, ticket: u64) ?Pending {
 /// Removing the iterator's current row cannot move or allocate the backing.
 pub fn cancelBatch(self: *Node, batch: passable.BatchId) void {
     var it = self.gifts.tickets.by_ticket.iterator();
-    while (it.next()) |entry| switch (entry.value_ptr.dest) {
-        .inline_gift => |staged| if (staged.batch == batch)
-            self.gifts.tickets.by_ticket.removeByPtr(entry.key_ptr),
-        .answer => {},
-    };
+    while (it.next()) |entry| {
+        if (entry.value_ptr.staged.batch == batch)
+            self.gifts.tickets.by_ticket.removeByPtr(entry.key_ptr);
+    }
 }
 
 /// Retire every claimed gift whose recipient membership disappeared.

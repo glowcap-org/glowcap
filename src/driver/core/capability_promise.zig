@@ -248,13 +248,13 @@ pub fn settledData(self: *Host, id: capability.PromiseId) ?*const value_mod.Valu
     }
 }
 
-/// The last step of a fulfillment whose projections and operations are done:
-/// an abandoned row leaves with its lift rolled back, and any other holds the
-/// capability.
+/// The last step of a fulfillment whose projections and operations are done.
+/// The lift is already committed. An abandoned row releases its canonical
+/// retain, preserving ownership acquired by projections or queued calls.
 pub fn completeFulfilled(self: *Host, id: capability.PromiseId, lifted: Host.CapabilityLift) host_pump.ActionOutcome {
     const completed = self.capability_promises.getPtr(id) orelse return .done;
     if (completed.abandoned) {
-        self.rollbackCapabilityLift(lifted);
+        self.releaseCapabilityTerminal(lifted.ref, null);
         completed.projections.deinit(self.allocator);
         completed.operations.deinit(self.allocator);
         std.debug.assert(self.capability_promises.remove(id));

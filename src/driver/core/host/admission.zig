@@ -112,6 +112,9 @@ pub const PendingWorkLease = struct {
 pub const WorkAdmission = union(enum) {
     application,
     retained: *const PendingWorkLease,
+    /// A child effect of the actual wire turn being served. Finish preserves
+    /// this admission; cancellation does not. The proof lasts only for the turn.
+    served: struct { session: *HostSession, turn: *@import("actors").Turn },
 
     pub fn check(self: WorkAdmission, host: *Host) !void {
         switch (self) {
@@ -120,7 +123,23 @@ pub const WorkAdmission = union(enum) {
                 try admitApplicationOperation(host);
             },
             .retained => |lease| try lease.checkHost(host),
+            .served => |source| {
+                try claimOwner(host);
+                if (source.turn.vat != &host.vat or source.turn.port() != &source.session.served.port)
+                    return error.ForeignTurn;
+                if (host.sessionForPeer(source.session.peer_handle) != source.session)
+                    return error.ForeignTurn;
+                if (!host.lifecyclePhase().serving()) return error.HostClosing;
+                try admitSessionContinuation(host, source.session);
+            },
         }
+    }
+
+    /// Keep one child operation alive after this borrowed proof expires.
+    pub fn retain(self: WorkAdmission, host: *Host) !PendingWorkLease {
+        try self.check(host);
+        beginOperation(host);
+        return .{ .host = host };
     }
 };
 
@@ -214,12 +233,20 @@ pub fn checkOutboundAdmission(self: *Host, session: *HostSession) HostError!void
 /// Admit application work on one session. Protocol ingress and teardown
 /// bypass this gate so finish can continue driving already-admitted work.
 pub fn admitSessionOperation(self: *const Host, session: *const HostSession) HostError!void {
+    try checkSessionAdmission(self, session, false);
+}
+
+/// Reserve capacity for a consequence of an admitted operation. Callers must
+/// hold that operation's proof; this does not admit new application work.
+pub fn admitSessionContinuation(self: *const Host, session: *const HostSession) HostError!void {
+    try checkSessionAdmission(self, session, true);
+}
+
+fn checkSessionAdmission(self: *const Host, session: *const HostSession, comptime continuation: bool) HostError!void {
     try checkOwnedSession(self, session);
-    try switch (session.lifecyclePhase()) {
-        .active => {},
-        .finishing => error.SessionClosing,
-        .cancel_pending, .terminating => error.SessionCondemned,
-    };
+    if (!continuation and session.lifecyclePhase() == .finishing) return error.SessionClosing;
+    if (session.lifecyclePhase() == .cancel_pending or session.lifecyclePhase() == .terminating)
+        return error.SessionCondemned;
     if (session.pendingOperations() == std.math.maxInt(u24))
         return error.SessionOperationLimitReached;
 }
@@ -229,9 +256,9 @@ pub fn admitSessionOperation(self: *const Host, session: *const HostSession) Hos
 /// Host type through public aliases.
 pub fn beginSessionOperation(self: *Host, session: *HostSession) void {
     assertOwner(self);
-    std.debug.assert(session.lifecyclePhase() == .active);
+    std.debug.assert(session.lifecyclePhase() == .active or session.lifecyclePhase() == .finishing);
     // Every path reserves this representable slot through
-    // `admitSessionOperation` before its effect commits. Enrollment is the
+    // session admission before its effect commits. Enrollment is the
     // sole exception and starts from a freshly zeroed shell.
     std.debug.assert(session.control.pending_operations != std.math.maxInt(u24));
     session.control.pending_operations += 1;

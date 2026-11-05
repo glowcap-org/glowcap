@@ -200,7 +200,7 @@ pub const Peer = struct {
     /// Peer is unlimited. Hosts install their explicit high-water
     /// at the negotiating seam.
     outbound_budget: usize = std.math.maxInt(usize),
-    events: Queue(events.Event, null),
+    events: peer_queue.ReservableQueue(events.Event),
     /// This session's gift and handoff-count authority. A cross-session
     /// withdrawal reaches a sibling's deposits only through the live-session
     /// resolver. The Vat does not own protocol transcript state.

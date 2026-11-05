@@ -182,10 +182,13 @@ when the sender's session ends, even when the message remains.
   answer reference in a call argument or reply breaks with a typed reason.
   The [upstream question](upstream-watch.md#answer-references-outside-target-position)
   owns the missing wire representation.
-- **Projected remote pipelines can break across sessions.** When a projected
-  promise settles on another session, its partner's queued call breaks even
-  though listening can redeem the handoff. Local application calls follow the
-  capability. This needs the [promise work](roadmap.md#what-starts-next).
+- **Bare Node embeddings supply cross-session forwarding.** Host keeps queued
+  and late calls callable when an answer settles to an object on another
+  session, while its listener receives a direct handoff. A custom Node
+  embedding must install `Node.pipeline_projection` and dispatch its private
+  callable deliveries and retirement events in FIFO order. Without that
+  callback, Node publishes the handoff but cannot forward those calls.
+  Discarding a retirement event leaves cleanup to the owning Port's teardown.
 - **Published resolutions retain the imports they name** until the partner
   releases the answer, subject to retained-answer limits
   ([ADR-0070](decisions/adr/ADR-0070-stored-resolutions-hold-imports.md)).

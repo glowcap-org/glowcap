@@ -1,5 +1,4 @@
-//! What a Peer owns at its boundary: originated handoffs need distinct
-//! sessions, the outbound waterline refuses before authority moves,
+//! What a Peer owns at its boundary: the outbound waterline refuses before authority moves,
 //! feedOwned transfers and recvBorrowed copies exactly once, sendBorrowed
 //! encodes a deliver before the caller can mutate its bytes, and no failed
 //! allocation advances session state.
@@ -17,20 +16,6 @@ const peer_fixture = @import("../../support/peer_fixture.zig");
 const harness = @import("harness.zig");
 const FailAfterAllocator = harness.FailAfterAllocator;
 const CountingAllocator = harness.CountingAllocator;
-
-test "originated handoff transaction requires distinct peer sessions" {
-    var peer = engine.Peer.init(std.testing.allocator);
-    defer peer.deinit();
-
-    try std.testing.expectError(error.AliasedHandoffPeers, engine.handoff_gifter.queueOriginatedGive(
-        &peer,
-        &peer,
-        "gift",
-        .{ .far = model.FarRef.object(1) },
-        "give",
-        .{ .name = .fromWire(.from(1)), .row_id = 1 },
-    ));
-}
 
 test "failed withdraw construction does not consume its handoff count" {
     const allocator = std.testing.allocator;

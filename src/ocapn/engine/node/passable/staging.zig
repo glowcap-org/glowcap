@@ -13,6 +13,7 @@ const batches = @import("batches.zig");
 const passable = @import("../passable.zig");
 const walk = @import("walk.zig");
 const gift_tickets = @import("../handoffs/gifts/tickets.zig");
+const pipeline_target = @import("pipeline_target.zig");
 const local_custody = @import("local_custody.zig");
 
 const Node = node_mod.Node;
@@ -58,8 +59,10 @@ const Reserved = struct {
     staged_row: ?engine.Peer.PendingReservation = null,
     custody_owned: bool = false,
     first_ticket: u64 = 0,
+    pipeline: ?*session_mod.AnswerPayload.PipelineTarget = null,
 
     fn abandon(self: *Reserved, node: *Node) void {
+        if (self.pipeline) |target| target.retire(target);
         if (self.custody_owned) local_custody.release(&self.recipient.session_state, self.payload);
         if (self.staged_row) |row| self.recipient.cancelPendingReservation(row);
         var remaining = self.claimed_leases;
@@ -198,6 +201,7 @@ fn reserve(
     reserved.staged_row = try recipient.reserveStagedRow();
     try local_custody.acquire(&recipient.session_state, payload, inventory);
     reserved.custody_owned = true;
+    reserved.pipeline = try pipeline_target.prepare(self, recipient_peer, payload, reserved.gifts);
     reserved.first_ticket = try actions.claimTicketRange(self, counts.objects);
     return reserved;
 }
@@ -227,6 +231,7 @@ fn publish(
         .failure_escrow = failure_escrow.*,
         .staging_reservation = reserved.staging_reservation,
         .gifts = reserved.gifts,
+        .pipeline = reserved.pipeline,
         .promises = reserved.promises,
         .terminal_action_reservations = admission.terminal_reservations,
     });

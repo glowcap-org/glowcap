@@ -432,8 +432,14 @@ pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
     // cannot now fail without an internal invariant breach.
     const retired = self.capabilities.release(ref, delta) catch unreachable;
     if (retired != null) switch (target) {
-        .remote => if (self.sessions.get(target.remote.peer_handle)) |session|
-            session.served.port.peer.session_state.forgetHostCapability(target.remote.far.import_position, ref.raw()),
+        .remote => if (self.sessions.get(target.remote.peer_handle)) |session| {
+            const state = &session.served.port.peer.session_state;
+            state.forgetHostCapability(target.remote.far.import_position, ref.raw());
+            // A copied raw route has a local import hold, not a lifted wire
+            // retain. Its final release still owes the home a drain boundary.
+            if (!session.lifecyclePhase().condemned() and state.hasImportRelease())
+                flush_peer = target.remote.peer_handle;
+        },
         // A retired local slot releases the actor root it held (ADR-0014).
         .local => self.vat.releaseActor(target.local),
         .deferred => |id| capability_promise.abandon(self, id),

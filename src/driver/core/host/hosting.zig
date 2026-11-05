@@ -144,8 +144,9 @@ pub const HostTurn = struct {
 
     /// Transfer this answer to another capability. Local invocation uses the
     /// target's actual home and keeps its original owned reply destination.
-    /// Wire invocation stays on its causal session. The returned placeholder is
-    /// ignored while the forwarded completion owns the answer.
+    /// A wire invocation may cross sessions while its completion keeps the
+    /// original caller's answer. The returned placeholder is ignored while
+    /// the forwarded completion owns the answer.
     pub fn forward(
         self: *HostTurn,
         target: capability.Ref,
@@ -156,6 +157,12 @@ pub const HostTurn = struct {
             try @import("local_delivery.zig").forward(self.turn, target, verb, values);
             return .{ .void = {} };
         };
+        if (try self.host.capabilitySession(target)) |destination| {
+            if (destination != session) {
+                try @import("foreign_forward.zig").beginWire(self.host, session, destination, self.turn, target, verb, values);
+                return .{ .void = {} };
+            }
+        }
         const routed = try self.host.routeTurnCapability(session, target, &.{});
         var prepared = try self.host.prepareValues(session, self.turn.arena, values);
         defer prepared.deinit();

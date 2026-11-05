@@ -222,6 +222,7 @@ comptime {
         _ = @import("engine/node/withdraw_test.zig");
         _ = @import("engine/node/enroll_test.zig");
         _ = @import("engine/node/relay_test.zig");
+        _ = @import("engine/node/relay_pipeline_test.zig");
     }
     if (wanted(.driver)) {
         _ = @import("driver/fuzz_test.zig");
@@ -277,7 +278,10 @@ comptime {
         _ = @import("driver/core_host/enliven/group_test.zig");
         _ = @import("driver/core_host/owned_call_test.zig");
         _ = @import("driver/core_host/local_delivery_test.zig");
-        _ = @import("driver/core_host/local_foreign_forward_test.zig");
+        _ = @import("driver/core_host/foreign_forward_test.zig");
+        _ = @import("driver/core_host/foreign_forward_failure_test.zig");
+        _ = @import("driver/core_host/pipeline_retirement_test.zig");
+        _ = @import("driver/core_host/raw_pipeline_test.zig");
         _ = @import("driver/core_host/local_effects_test.zig");
         _ = @import("driver/core_host/completion_test.zig");
         _ = @import("driver/core_host/view_delivery_test.zig");

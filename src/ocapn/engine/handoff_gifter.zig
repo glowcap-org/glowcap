@@ -275,8 +275,6 @@ pub const PreparedDepositGift = struct {
     pub fn commit(self: *PreparedDepositGift, peer: *Peer) void {
         // `prepareDepositGift` admitted and validated this exact message and
         // reserved every fallible exporter-table and queue resource it needs.
-        // `queueOriginatedGive` excludes an aliased recipient peer, so its
-        // recipient commit cannot mutate this session between those two points.
         peer.session_state.applyValidatedSend(self.message, self.inventory, null) catch unreachable;
         peer.pushPendingAssume(self.reservation, .{ .encoded = self.row });
         self.inventory.deinit(peer.allocator);
@@ -335,32 +333,6 @@ pub fn prepareDepositGift(peer: *Peer, gift_id: []const u8, gifted: model.Refere
 pub fn sendDepositGift(peer: *Peer, gift_id: []const u8, gifted: model.Reference) !void {
     var prepared = try prepareDepositGift(peer, gift_id, gifted);
     prepared.commit(peer);
-}
-
-/// Admit both local halves of one originated handoff as one sans-I/O queue
-/// transaction. Every exporter-side failure is acquired before the recipient
-/// queue can own `give_bytes`. After that recipient commit, the exporter queue
-/// append is infallible. Their independent transports may deliver either half
-/// first, which the handoff protocol permits. The peers must be distinct: an
-/// aliased recipient could mutate the prepared exporter session between those
-/// commits and invalidate the transaction's premise.
-pub fn queueOriginatedGive(
-    exporter: *Peer,
-    recipient: *Peer,
-    gift_id: []const u8,
-    gifted: model.Reference,
-    give_bytes: []const u8,
-    answer: session.AnswerTarget,
-) !void {
-    if (exporter == recipient) return error.AliasedHandoffPeers;
-
-    var deposit = try prepareDepositGift(exporter, gift_id, gifted);
-    var deposit_owned = true;
-    defer if (deposit_owned) deposit.abandon(exporter);
-
-    try sendResolveHandoffGive(recipient, answer, give_bytes);
-    deposit.commit(exporter);
-    deposit_owned = false;
 }
 
 /// Resolve `answer` with a signed `desc:handoff-give` decoded from `give_bytes`.

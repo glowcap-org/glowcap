@@ -233,6 +233,32 @@ declaration under `src/`.
     staging completes. A release flag keeps `Peer` within its struct budget.
     Success transfers it to Session, and failure drops it. Public release copies
     no position array.
+- **Handoff answer callable**: `pipeline_target.Ticket` and
+  `AnswerPayload.pipeline_target`. A root answer published as a handoff keeps
+  one cold ticket and one reserved `Peer.events` seat for its private local
+  callable. Final payload release publishes a typed retirement event without
+  allocating. The FIFO orders retirement after accepted synthetic deliveries.
+  Events carry identifiers, so extracted events retain no Peer or Node pointer.
+
+  `ReservableQueue` adds one reservation counter only to the Event queue.
+  `Node.pipeline_projection` adds its optional callback and context once per
+  Node, with the inline footprint pinned by the Node table test.
+  `Event.Answer` shares mutually exclusive deliver and resolve identity storage,
+  keeping the private event arm within the existing Event size ceiling.
+- **Private forwarding actor**: `pipeline_target.Forwarder`. Host binds one
+  ordinary actor and unshared Port export per projected root answer, retaining
+  its canonical destination. Retirement removes the binding and releases the
+  retain. A discarded retirement event leaves that responsibility with Port
+  teardown. The actor's spawn root transfers to its Port binding.
+- **Canonical raw-route pin**: `Session.noteHostCapabilityHold` and
+  `ImportTable.Identity`. Copying a raw route into its canonical Host identity
+  uses one existing one-import release batch on the home Session. The identity
+  memo adds one optional batch pointer beside its three scalar fields, with
+  alignment included in `identity_budget_bytes`. It claims no caller wire
+  retain. Final canonical release or Session teardown readies the batch once.
+
+  Pins share the existing active-batch and retained-byte caps. Removing the pin
+  lets a raw caller's release invalidate an answer that still accepts calls.
 - **Projection anchors**: `pipeline.respondToProjection`. One dupe of the field name
   or tag, because the projection outlives the view that carried it. `op:index`
   dupes nothing. Bounded per answer by `max_listeners_per_target` (ADR-0004).
@@ -446,6 +472,12 @@ declaration under `src/`.
   original fixed reply buffer. Canceled observers discard wire occurrences. No
   child Call or resolver pair is created. Tests pin caller allocation count and
   terminal custody.
+
+  `foreign_forward.WireForward` keeps the original wire answer and both peer
+  handles in one destination-vow-owned box. Completion lifts the reply and
+  prepares its source-session projection in a temporary arena; the answer
+  store takes ownership before those projections commit. Either session's
+  cancellation releases the box and its pending operations.
 - **Ingress clone**: `Vat.send` / `Vat.tell`'s local arm, over
   `model.cloneArgumentSlice`. The far arm's contract inside one vat: a queued
   turn runs at a later `drive` whose first outermost turn resets the very arena

@@ -124,7 +124,9 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // The publication bearer table counts its removals in one word, so it
     // can rebuild before tombstones fill every free slot.
     // Borrowed reply resources add one cleanup head per Vat.
-    try std.testing.expectEqual(@as(usize, 2808), @sizeOf(Host));
+    // The Node's optional pipeline projection stores a context, callback,
+    // and presence tag (24 bytes), shared by all sessions.
+    try std.testing.expectEqual(@as(usize, 2832), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expectEqual(@as(usize, 88), @sizeOf(driver.core.HostAction));
 }

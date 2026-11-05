@@ -43,8 +43,7 @@ for an earlier one to start, not to finish. A plan marked as waiting for
 review needs that review before its first step.
 
 1. **Promise projection and forwarding.** Resolve pending local answer
-   forwarding, local-only vow capabilities, and remote pipelines whose target
-   settles on another session. Establish the required behavior from OCapN and
+   forwarding and local-only vow capabilities. Establish the required behavior from OCapN and
    independent messages before changing the owning runtime. Done when calls
    preserve their target, outcome, and required ordering through settlement,
    with cancellation and release coverage. A wire restriction needs its

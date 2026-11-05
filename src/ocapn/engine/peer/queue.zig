@@ -18,20 +18,35 @@ pub const steady_retain_bytes: usize = 4096;
 /// A FIFO with a drain cursor. Append/pop never shifts every row, and draining
 /// rewinds or frees burst capacity according to `steady_retain_bytes`.
 pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) type {
+    return QueueStorage(T, weightOf, false);
+}
+
+/// A FIFO which promises future seats before publishing their effects.
+/// Only callers with such obligations pay for the reservation count.
+pub fn ReservableQueue(comptime T: type) type {
+    return QueueStorage(T, null, true);
+}
+
+fn QueueStorage(comptime T: type, comptime weightOf: ?*const fn (*const T) usize, comptime reservable: bool) type {
     return struct {
         items: std.ArrayList(T) = .empty,
         head: usize = 0,
+        reservations: if (reservable) usize else void = if (reservable) 0 else {},
         queued_weight: if (weightOf != null) usize else void = if (weightOf != null) 0 else {},
 
         const Self = @This();
 
         pub fn push(self: *Self, allocator: std.mem.Allocator, value: T) !void {
-            if (self.items.items.len == self.items.capacity) fifo.compactHead(T, &self.items, &self.head);
-            try self.items.append(allocator, value);
+            try self.ensureUnusedCapacity(allocator, 1);
+            self.items.appendAssumeCapacity(value);
             self.addWeight(&value);
         }
 
-        pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, count: usize) !void {
+        pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, additional: usize) !void {
+            const count = if (reservable)
+                std.math.add(usize, additional, self.reservations) catch return error.OutOfMemory
+            else
+                additional;
             // Reserve room for `count` more rows. If the space already owned
             // is not enough, slide the live rows to the front first, so the
             // buffer is reused before it grows. A queue keeps its buffer
@@ -46,13 +61,34 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         /// weighed row is measured as it is pushed.
         pub fn pushUninit(self: *Self, allocator: std.mem.Allocator) !*T {
             comptime std.debug.assert(weightOf == null);
-            if (self.items.items.len == self.items.capacity) fifo.compactHead(T, &self.items, &self.head);
-            return self.items.addOne(allocator);
+            try self.ensureUnusedCapacity(allocator, 1);
+            return self.items.addOneAssumeCapacity();
         }
 
         pub fn pushAssumeCapacity(self: *Self, value: T) void {
             self.items.appendAssumeCapacity(value);
             self.addWeight(&value);
+        }
+
+        pub fn reserve(self: *Self, allocator: std.mem.Allocator) !void {
+            if (!reservable) @compileError("reservation requires a ReservableQueue");
+            try self.ensureUnusedCapacity(allocator, 1);
+            self.reservations += 1;
+        }
+
+        pub fn cancelReservation(self: *Self) void {
+            std.debug.assert(self.reservations != 0);
+            self.reservations -= 1;
+        }
+
+        pub fn pushReserved(self: *Self, value: T) void {
+            self.cancelReservation();
+            self.pushAssumeCapacity(value);
+        }
+
+        fn retainBytes(self: *const Self, ordinary: usize) usize {
+            if (reservable) if (self.reservations != 0) return fifo.retain_all;
+            return ordinary;
         }
 
         pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
@@ -61,7 +97,7 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
                 &self.items,
                 &self.head,
                 allocator,
-                steady_retain_bytes,
+                self.retainBytes(steady_retain_bytes),
             ) orelse return null;
             self.subtractWeight(&value);
             return value;
@@ -70,7 +106,7 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         /// Remove the front row `peek` lent the caller, which consumed it, and
         /// reclaim the backing at once when that drained the queue.
         pub fn consumeFront(self: *Self, allocator: std.mem.Allocator) T {
-            return consumeFrontBounded(self, allocator, steady_retain_bytes);
+            return consumeFrontBounded(self, allocator, self.retainBytes(steady_retain_bytes));
         }
 
         /// Consume the front row `peek` lent the caller while retaining backing
@@ -83,14 +119,14 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
 
         fn consumeFrontBounded(self: *Self, allocator: std.mem.Allocator, steady_bytes: usize) T {
             const value = self.pop(allocator) orelse unreachable;
-            if (self.isEmpty()) fifo.reclaimDrained(T, &self.items, &self.head, allocator, steady_bytes);
+            if (self.isEmpty()) fifo.reclaimDrained(T, &self.items, &self.head, allocator, self.retainBytes(steady_bytes));
             return value;
         }
 
         /// Return a drained queue's burst capacity above the steady bound.
         pub fn trimDrained(self: *Self, allocator: std.mem.Allocator) void {
             std.debug.assert(self.isEmpty());
-            fifo.reclaimDrained(T, &self.items, &self.head, allocator, steady_retain_bytes);
+            fifo.reclaimDrained(T, &self.items, &self.head, allocator, self.retainBytes(steady_retain_bytes));
         }
 
         /// Roll back the most-recent append without crossing the drain cursor.
@@ -145,6 +181,7 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            if (reservable) std.debug.assert(self.reservations == 0);
             self.items.deinit(allocator);
         }
     };

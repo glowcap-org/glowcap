@@ -1,4 +1,4 @@
-//! Local answer chains keep one result owner across actual foreign delivery.
+//! Foreign forwarding preserves the original local or wire answer owner.
 const std = @import("std");
 const driver = @import("glowcap").driver.core;
 const support = @import("../../support/core_host.zig");
@@ -19,9 +19,11 @@ const Echo = struct {
 const Hop = struct {
     target: driver.Capability,
     fail: bool = false,
+    finish: bool = false,
     pub fn handle(self: *Hop, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
         const arg_values = try args.values();
         defer turn.releaseValues(arg_values);
+        if (self.finish) turn.host.beginClose(.{ .finish = .unbounded }, 0);
         const result = try turn.forward(self.target, verb, arg_values);
         if (self.fail) return error.Refused;
         return result;
@@ -216,4 +218,211 @@ test "core host local foreign forwarding retracts third-party introductions on f
     gift_observed = false;
     try std.testing.expect(second.a.served.port.peer.session_state.foreignRouteIdFor(home.far.import_position) == null);
     try std.testing.expect(host.capabilities.retainCount(held) == null);
+}
+
+const WireResult = struct {
+    value: ?i64 = null,
+    broken: bool = false,
+    fn record(ctx: ?*anyopaque, resolution: @import("glowcap").actors.Resolution) void {
+        const self: *@This() = @ptrCast(@alignCast(ctx.?));
+        switch (resolution) {
+            .fulfilled => |value| if (value == .integer) {
+                self.value = value.integer;
+            },
+            .broken, .give => self.broken = true,
+        }
+    }
+};
+
+fn fetch(host: *driver.Host, pair: pairs.Pair, swiss: []const u8) !driver.Capability {
+    var found: capture.CapturedRef = .{};
+    try host.vowOn(try host.fetch(pair.a, swiss), .{ .ctx = &found, .func = capture.CapturedRef.record });
+    try pairs.pumpToQuiescence(&.{pair});
+    return host.liftCapability(pair.a, try found.require());
+}
+
+test "core host wire foreign forwarding owns both session lifetimes" {
+    for ([_]enum { ready, tell, fail, finish, source_cancel, queued_reply_cancel, destination_cancel, destination_finish, released_answer }{
+        .ready, .tell, .fail, .finish, .source_cancel, .queued_reply_cancel, .destination_cancel, .destination_finish, .released_answer,
+    }) |boundary| {
+        var client = support.init(a, @splat(0xa1), driver.Host.Options.withFrameCap(4096));
+        defer client.deinit();
+        var middle = support.init(a, @splat(0xa2), driver.Host.Options.withFrameCap(4096));
+        defer middle.deinit();
+        var exporter = support.init(a, @splat(0xa3), driver.Host.Options.withFrameCap(4096));
+        defer exporter.deinit();
+        var calls: usize = 0;
+        const target = try spawn(&exporter, Echo, .{ .calls = &calls });
+        defer exporter.releaseCapabilityTerminal(target, null);
+        const destination = try pairs.openPair(&middle, &exporter, "127.0.0.1:7941");
+        const target_swiss = try exporter.publishDurableCapability(@splat(0x61), target);
+        const imported = try fetch(&middle, destination, target_swiss.slice());
+        defer middle.releaseCapabilityTerminal(imported, null);
+        const hop = try spawn(&middle, Hop, .{ .target = imported, .fail = boundary == .fail, .finish = boundary == .finish });
+        defer middle.releaseCapabilityTerminal(hop, null);
+        const source = try pairs.openPair(&client, &middle, "127.0.0.1:7942");
+        const hop_swiss = try middle.publishDurableCapability(@splat(0x62), hop);
+        const remote = try fetch(&client, source, hop_swiss.slice());
+        defer client.releaseCapabilityTerminal(remote, null);
+        if (boundary == .destination_finish)
+            try middle.beginSessionClose(destination.a, .{ .finish = .unbounded }, 0);
+        var result: WireResult = .{};
+        var released_vow: ?u64 = null;
+        if (boundary == .tell) {
+            try client.tellValues(source.a, remote, "echo", &.{.{ .integer = 37 }}, a);
+        } else {
+            const vow = try client.sendValues(source.a, remote, "echo", &.{.{ .integer = 37 }}, a);
+            if (boundary == .released_answer) {
+                released_vow = vow;
+            } else try client.vowOn(vow, .{ .ctx = &result, .func = WireResult.record });
+        }
+        _ = try pairs.shuttle(source);
+        if (released_vow) |vow| {
+            try client.vowRelease(vow);
+            _ = try pairs.shuttle(source);
+        }
+        if (boundary == .queued_reply_cancel) {
+            while (try destination.a.takeOutbound()) |outbound| {
+                var frame = outbound;
+                defer frame.deinit();
+                try exporter.feed(destination.b, frame.view());
+            }
+            while (try destination.b.takeOutbound()) |frame|
+                try destination.a.served.port.peer.feedOwned(frame);
+            try destination.a.served.port.peer.stepToIdle();
+            try std.testing.expect(destination.a.served.port.peer.hasEvent());
+            try std.testing.expectEqual(@as(usize, 1), middle.vows.count());
+        }
+        if (boundary == .source_cancel or boundary == .queued_reply_cancel) {
+            try middle.releaseSession(source.b);
+            while (destination.a.served.port.peer.pollEvent()) |item| {
+                var event = item;
+                try middle.serveEvent(destination.a, &event);
+            }
+            try pairs.pumpToQuiescence(&.{destination});
+        } else if (boundary == .destination_cancel) {
+            try middle.releaseSession(destination.a);
+            try pairs.pumpToQuiescence(&.{source});
+        } else {
+            try pairs.pumpToQuiescence(&.{ source, destination });
+        }
+        switch (boundary) {
+            .ready, .finish => try std.testing.expectEqual(@as(?i64, 37), result.value),
+            .tell, .released_answer => try std.testing.expectEqual(@as(usize, 1), calls),
+            .fail, .destination_cancel, .destination_finish => try std.testing.expect(result.broken),
+            .source_cancel, .queued_reply_cancel => {},
+        }
+        if (boundary == .fail) try std.testing.expectEqual(@as(usize, 0), calls);
+        try std.testing.expectEqual(@as(usize, 0), middle.pending_operations);
+        try std.testing.expectEqual(@as(usize, 0), middle.pendingVowCount());
+        try std.testing.expectEqual(@as(usize, 0), middle.vows.count());
+    }
+}
+
+test "core host wire foreign forwarding preserves capability arguments and replies" {
+    try capabilityRoundtrip(true);
+    try capabilityRoundtrip(false);
+}
+
+fn capabilityRoundtrip(observe_reply: bool) !void {
+    const wire = @import("harness.zig");
+    var client = support.init(a, @splat(0xb1), wire.nextRouteOptions());
+    defer client.deinit();
+    var middle = support.init(a, @splat(0xb2), wire.nextRouteOptions());
+    defer middle.deinit();
+    var exporter = support.init(a, @splat(0xb3), wire.nextRouteOptions());
+    defer exporter.deinit();
+    var dials: std.ArrayList(wire.ParkedDial) = .empty;
+    defer wire.deinitParked(a, &dials);
+    try client.setAdvertisedLocator(wire.tcpLocator("127.0.0.1:7950"));
+    try middle.setAdvertisedLocator(wire.tcpLocator("127.0.0.1:7952"));
+    const destination = try wire.openPair(a, &middle, &exporter, "127.0.0.1:7951", &dials);
+    const source = try wire.openPair(a, &client, &middle, "127.0.0.1:7952", &dials);
+    const hosts = [_]*driver.Host{ &client, &middle, &exporter };
+    var calls: usize = 0;
+    const target = try spawn(&exporter, Echo, .{ .calls = &calls });
+    defer exporter.releaseCapabilityTerminal(target, null);
+    const target_name = try exporter.publishDurableCapability(@splat(0x71), target);
+    const imported = try fetch(&middle, destination, target_name.slice());
+    defer middle.releaseCapabilityTerminal(imported, null);
+    const hop = try spawn(&middle, Hop, .{ .target = imported });
+    defer middle.releaseCapabilityTerminal(hop, null);
+    const hop_name = try middle.publishDurableCapability(@splat(0x72), hop);
+    const remote = try fetch(&client, source, hop_name.slice());
+    defer client.releaseCapabilityTerminal(remote, null);
+    var local_calls: usize = 0;
+    const original = try spawn(&client, Echo, .{ .calls = &local_calls });
+    defer client.releaseCapabilityTerminal(original, null);
+    const call = try client.callCapability(a, source.a, remote, "echo", &.{.{ .list = &.{
+        .{ .capability = original }, .{ .capability = original },
+    } }}, 4096);
+    var call_live = true;
+    defer if (call_live) call.deinit();
+    try wire.pumpToQuiescence(a, &hosts, &.{ source, destination }, &dials);
+    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
+    if (!observe_reply) {
+        call.deinit();
+        call_live = false;
+        try wire.pumpToQuiescence(a, &hosts, &.{ source, destination }, &dials);
+    }
+    const dial = dials.orderedRemove(0);
+    try std.testing.expect(dial.host == &exporter);
+    try std.testing.expectEqualStrings("127.0.0.1:7950", dial.designator);
+    const pending = exporter.pendingDial(dial.ticket, dial.route_index) orelse return error.MissingPendingDial;
+    const accepted = try client.openAcceptedAdvertised("tcp");
+    const dialed = try exporter.openDialedLocator(pending.locator);
+    const direct: wire.Pair = .{ .ah = &exporter, .a = dialed, .bh = &client, .b = accepted };
+    var network: std.ArrayList(wire.Pair) = .empty;
+    defer network.deinit(a);
+    try network.appendSlice(a, &.{ source, destination, direct });
+    try wire.pumpToQuiescence(a, &hosts, network.items, &dials);
+    _ = try exporter.exporterDialed(dial.ticket, dial.route_index, dialed);
+    a.free(dial.designator);
+    try driveReturnedCapabilities(&client, &hosts, &network, &dials);
+    try std.testing.expectEqual(@as(usize, 0), dials.items.len);
+    try std.testing.expectEqual(@as(usize, 1), calls);
+    try std.testing.expectEqual(@as(usize, 0), middle.pending_operations);
+    try std.testing.expectEqual(@as(usize, 0), middle.vows.count());
+    try std.testing.expect(source.b.sessionOpen());
+    if (!observe_reply) {
+        try std.testing.expectEqual(@as(?u64, 1), client.capabilities.retainCount(original));
+        return;
+    }
+    try std.testing.expect(call.result() == .ready);
+    const returned = call.result().ready.list;
+    try std.testing.expectEqual(@as(usize, 2), returned.len);
+    // A redeemed handoff may keep its promise identity. Exercise both copies
+    // against the original actor instead of requiring identical opaque IDs.
+    for (returned, 0..) |value, index| {
+        var result: WireResult = .{};
+        const number: i64 = @intCast(43 + index);
+        const probe = try client.sendApplicationValues(value.capability, "echo", &.{.{ .integer = number }}, a);
+        try client.vowOn(probe, .{ .ctx = &result, .func = WireResult.record });
+        try driveReturnedCapabilities(&client, &hosts, &network, &dials);
+        try std.testing.expectEqual(@as(?i64, number), result.value);
+    }
+    try std.testing.expectEqual(@as(usize, 2), local_calls);
+}
+
+// Returned promises can require another introduction to the original client.
+// Honor each actual dial, including a self-connection, rather than assuming
+// an unauthenticated accepted connection can be reused in the opposite role.
+fn driveReturnedCapabilities(client: *driver.Host, hosts: []const *driver.Host, network: *std.ArrayList(pairs.Pair), dials: *std.ArrayList(@import("harness.zig").ParkedDial)) !void {
+    const wire = @import("harness.zig");
+    var opened: usize = 0;
+    while (true) {
+        try wire.pumpToQuiescence(a, hosts, network.items, dials);
+        if (dials.items.len == 0) return;
+        if (opened == 8) return error.TooManyRedemptionDials;
+        opened += 1;
+        const dial = dials.orderedRemove(0);
+        defer a.free(dial.designator);
+        try std.testing.expectEqualStrings("127.0.0.1:7950", dial.designator);
+        const pending = dial.host.pendingDial(dial.ticket, dial.route_index) orelse return error.MissingPendingDial;
+        const accepted = try client.openAcceptedAdvertised("tcp");
+        const dialed = try dial.host.openDialedLocator(pending.locator);
+        try network.append(a, .{ .ah = dial.host, .a = dialed, .bh = client, .b = accepted });
+        try wire.pumpToQuiescence(a, hosts, network.items, dials);
+        _ = try dial.host.exporterDialed(dial.ticket, dial.route_index, dialed);
+    }
 }

@@ -69,7 +69,7 @@ test "interceptFulfilledRoute claims only a foreign-home reply, entropy as an ef
         model.AnswerName.fromWire(.from(52)),
         action.fail.dest.served_answer.answer.name,
     );
-    try std.testing.expect(std.mem.startsWith(u8, action.fail.reason.bytes(), "handoff origination failed:"));
+    try std.testing.expectEqualStrings("NoRecipientKey", action.fail.reason.bytes());
 
     // A settled ticket is retired: answering it again is a no-op.
     try node.provideGiftId(ticket, &gift_id);

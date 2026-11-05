@@ -429,7 +429,7 @@ test "origination fails closed when the gift's home connection is gone" {
         model.AnswerName.fromWire(.from(61)),
         action.fail.dest.served_answer.answer.name,
     );
-    try std.testing.expect(std.mem.startsWith(u8, action.fail.reason.bytes(), "handoff origination failed:"));
+    try std.testing.expectEqualStrings("RouteNotLowerable", action.fail.reason.bytes());
 }
 
 test "recipient admission failure publishes no orphan deposit" {
@@ -500,7 +500,7 @@ test "gift-id entropy failure settles the claimed handoff instead of stranding i
         failed.fail.dest.served_answer.answer.name,
     );
     try std.testing.expectEqualStrings(
-        "handoff origination failed: gift-id entropy unavailable",
+        "GiftIdUnavailable",
         failed.fail.reason.bytes(),
     );
 

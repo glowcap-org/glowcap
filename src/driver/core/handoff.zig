@@ -81,6 +81,7 @@ fn resolveGifterSession(ctx: ?*anyopaque, gifter_side: [32]u8, session_name: []c
 /// callbacks are file-private, and `sessions.zig` calls this at mint. `pub` for
 /// the Host-core siblings, not for embedders. Host-core internal.
 pub fn wireNodeServices(self: *Host) void {
+    self.node.pipeline_projection = .{ .ctx = self, .prepare = @import("host/pipeline_target.zig").prepare };
     self.node.setLocalObjectProjection(.{
         .ctx = self,
         .resolve_fetch = @import("publication_lookup.zig").resolveFetch,

@@ -172,10 +172,7 @@ pub fn resolveLocal(host: *Host, name: []const u8, recipient: Recipient, admissi
         recipient.failedLocal(host, id, .broken, "unknown swissnum");
         return id;
     };
-    var lifetime = switch (admission) {
-        .application => try host.admitPendingWork(),
-        .retained => |parent| try parent.fork(),
-    };
+    var lifetime = try admission.retain(host);
     const fetch: Fetch = .{ .host = host, .destination = .{ .local = .{ .id = id, .recipient = recipient, .lifetime = lifetime } } };
     const admitted = admission: {
         const hold = host.callback_latch.hold();

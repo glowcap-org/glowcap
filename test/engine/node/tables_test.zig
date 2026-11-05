@@ -26,9 +26,10 @@ test "Node action extraction preserves the inline Node footprint" {
     // each carry the Node's table multiplier, one word apiece, so a peer's
     // wire positions hash under a secret there too. One more word counts the
     // seats promised to `promise_settled` actions, one per inbound answer a
-    // Host capability promise subscribes to (ADR-0068).
+    // Host capability promise subscribes to (ADR-0068). The optional callable
+    // projection adds two pointers and its tag, 24 bytes on this target.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 1048), @sizeOf(Node));
+    try std.testing.expectEqual(@as(usize, 1072), @sizeOf(Node));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));
 }
 

@@ -231,10 +231,7 @@ pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, target: 
     const source = try host.allocator.create(Producer);
     source.* = .{ .host = host };
     errdefer source.release();
-    source.lease = switch (admission) {
-        .application => try host.admitPendingWork(),
-        .retained => |lease| try lease.fork(),
-    };
+    source.lease = try admission.retain(host);
     const call = try owned.createLocal(host, allocator, reply_bytes, source);
     errdefer call.deinit();
     const row = try vows.reserveRow(host, null, .plain, .none, id);
