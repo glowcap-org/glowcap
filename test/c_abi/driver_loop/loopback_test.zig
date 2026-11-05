@@ -48,6 +48,7 @@ const newEmptyLoop = harness.newEmptyLoop;
 const newLoop = harness.newLoop;
 const newByteFedHost = harness.newByteFedHost;
 const Drained = harness.Drained;
+const connectAndFetch = harness.connectAndFetch;
 const serveBoth = harness.serveBoth;
 const drainEvents = harness.drainEvents;
 const awaitListenerReady = harness.awaitListenerReady;
@@ -358,83 +359,36 @@ test "stream provider failure chain reaches SESSION_CLOSED exactly" {
 }
 
 test "loop-owned session release refuses callback reentry before dropping the wire" {
-    const owned_server = try newLoop(0x5f);
-    defer owned_server.deinit();
-    const server = owned_server.raw;
-    const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
-    const locator = try readListenerLocator(server, listener);
-    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
-
-    var release = ReentrantSessionRelease{ .loop = server, .listener = listener };
+    const server = try newLoop(0x5f);
+    var release = ReentrantSessionRelease{ .loop = server.raw, .listener = 0 };
     try expectOk(cd.glowcap_host_publish(
-        owned_server.host,
+        server.host,
         "release-probe",
         "release-probe".len,
         reentrantSessionReleaseBehavior,
         &release,
         null,
     ));
+    var pair = try connectAndFetch(server, 0x60, "release-probe");
+    defer pair.deinit();
+    release.listener = pair.listener;
+    release.session = pair.server_seen.accepted_session;
 
-    const owned_client = try newLoop(0x60);
-    defer owned_client.deinit();
-    const client = owned_client.raw;
-    var operation: u64 = 0;
-    try expectOk(try dialParts(client, "tcp", locator.designator, "", &operation));
-
-    var client_seen = Drained{};
-    var server_seen = Drained{};
-    for (0..2_000) |_| {
-        try expectStep(cdrv.glowcap_driver_step(client, 5));
-        try drainEvents(client, &client_seen);
-        try expectStep(cdrv.glowcap_driver_step(server, 5));
-        try drainEvents(server, &server_seen);
-        if (client_seen.dialed_session != null and server_seen.accepted_session != null) break;
-    }
-    try std.testing.expect(client_seen.dialed_session != null);
-    try std.testing.expect(server_seen.accepted_session != null);
-    try serveBoth(client, client_seen.dialed_session, server, server_seen.accepted_session);
-    release.session = server_seen.accepted_session;
-
-    var fetch_vow: u64 = 0;
-    try expectOk(cd.glowcap_host_session_fetch(
-        client_seen.dialed_session,
-        "release-probe",
-        "release-probe".len,
-        &fetch_vow,
-    ));
-    for (0..2_000) |_| {
-        try expectStep(cdrv.glowcap_driver_step(client, 5));
-        try drainEvents(client, &client_seen);
-        try expectStep(cdrv.glowcap_driver_step(server, 5));
-        try drainEvents(server, &server_seen);
-        if (client_seen.settle_ticket == fetch_vow) break;
-    }
-    try std.testing.expectEqual(fetch_vow, client_seen.settle_ticket);
-    try std.testing.expect(client_seen.settled_reference.id != 0);
-
-    client_seen.settle_ticket = 0;
     var call_vow: u64 = 0;
     var callback: c.GlowcapReference = .{ .id = 0 };
-    try expectOk(cd.glowcap_host_spawn(owned_client.host, widgetBehavior, null, null, &callback));
-    defer _ = cd.glowcap_host_ref_release(owned_client.host, &callback, 1);
+    try expectOk(cd.glowcap_host_spawn(pair.client.host, widgetBehavior, null, null, &callback));
+    defer _ = cd.glowcap_host_ref_release(pair.client.host, &callback, 1);
     const args = [_]c.GlowcapArgument{@import("../../support/c_abi_args.zig").argRef(callback)};
     try expectOk(cd.glowcap_host_session_send(
-        client_seen.dialed_session,
-        &client_seen.settled_reference,
+        pair.client_seen.dialed_session,
+        &pair.client_seen.settled_reference,
         "probe",
         "probe".len,
         &args,
         args.len,
         &call_vow,
     ));
-    for (0..2_000) |_| {
-        try expectStep(cdrv.glowcap_driver_step(client, 5));
-        try drainEvents(client, &client_seen);
-        try expectStep(cdrv.glowcap_driver_step(server, 5));
-        try drainEvents(server, &server_seen);
-        if (client_seen.settle_ticket == call_vow) break;
-    }
+    try pair.settle(call_vow);
 
     try std.testing.expect(release.ran);
     try expectOk(release.exporter_result);
@@ -444,66 +398,30 @@ test "loop-owned session release refuses callback reentry before dropping the wi
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.result);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.readiness_result);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.restoration_result);
-    try std.testing.expectEqual(call_vow, client_seen.settle_ticket);
-    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
-    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
+    try pair.releaseSessions();
 }
 
 test "exporter claims succeed in a turn a Host verb tail runs outside step" {
-    const owned_server = try newLoop(0x69);
-    defer owned_server.deinit();
-    const server = owned_server.raw;
-    const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
-    const locator = try readListenerLocator(server, listener);
-    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
-    try expectOk(cd.glowcap_host_publish(owned_server.host, "widget", "widget".len, widgetBehavior, null, null));
-
-    const owned_client = try newLoop(0x6a);
-    defer owned_client.deinit();
-    const client = owned_client.raw;
-    var operation: u64 = 0;
-    try expectOk(try dialParts(client, "tcp", locator.designator, "", &operation));
-
-    var client_seen = Drained{};
-    var server_seen = Drained{};
-    for (0..2_000) |_| {
-        try expectStep(cdrv.glowcap_driver_step(client, 5));
-        try drainEvents(client, &client_seen);
-        try expectStep(cdrv.glowcap_driver_step(server, 5));
-        try drainEvents(server, &server_seen);
-        if (client_seen.dialed_session != null and server_seen.accepted_session != null) break;
-    }
-    try std.testing.expect(client_seen.dialed_session != null);
-    try std.testing.expect(server_seen.accepted_session != null);
-    try serveBoth(client, client_seen.dialed_session, server, server_seen.accepted_session);
-
-    var fetch_vow: u64 = 0;
-    try expectOk(cd.glowcap_host_session_fetch(client_seen.dialed_session, "widget", "widget".len, &fetch_vow));
-    for (0..2_000) |_| {
-        try expectStep(cdrv.glowcap_driver_step(client, 5));
-        try drainEvents(client, &client_seen);
-        try expectStep(cdrv.glowcap_driver_step(server, 5));
-        try drainEvents(server, &server_seen);
-        if (client_seen.settle_ticket == fetch_vow) break;
-    }
-    try std.testing.expectEqual(fetch_vow, client_seen.settle_ticket);
+    const server = try newLoop(0x69);
+    try expectOk(cd.glowcap_host_publish(server.host, "widget", "widget".len, widgetBehavior, null, null));
+    var pair = try connectAndFetch(server, 0x6a, "widget");
+    defer pair.deinit();
 
     // A local send only queues its turn. The next top-level verb that pumps,
     // here a session send, drains that turn inside its tail, so the behavior
     // runs under the callback latch while no step is on the stack.
-    var claim = ExporterClaim{ .loop = client };
+    var claim = ExporterClaim{ .loop = pair.client.raw };
     var claimer: c.GlowcapReference = .{ .id = 0 };
-    try expectOk(cd.glowcap_host_spawn(owned_client.host, exporterClaimBehavior, &claim, null, &claimer));
-    defer _ = cd.glowcap_host_ref_release(owned_client.host, &claimer, 1);
-    const args = [_]c.GlowcapArgument{@import("../../support/c_abi_args.zig").argRef(client_seen.settled_reference)};
+    try expectOk(cd.glowcap_host_spawn(pair.client.host, exporterClaimBehavior, &claim, null, &claimer));
+    defer _ = cd.glowcap_host_ref_release(pair.client.host, &claimer, 1);
+    const args = [_]c.GlowcapArgument{@import("../../support/c_abi_args.zig").argRef(pair.client_seen.settled_reference)};
     var claim_vow: u64 = 0;
-    try expectOk(cd.glowcap_host_send(owned_client.host, &claimer, "claim", "claim".len, &args, args.len, &claim_vow));
+    try expectOk(cd.glowcap_host_send(pair.client.host, &claimer, "claim", "claim".len, &args, args.len, &claim_vow));
     try std.testing.expect(!claim.ran);
     var poke_vow: u64 = 0;
     try expectOk(cd.glowcap_host_session_send(
-        client_seen.dialed_session,
-        &client_seen.settled_reference,
+        pair.client_seen.dialed_session,
+        &pair.client_seen.settled_reference,
         "poke",
         "poke".len,
         null,
@@ -513,94 +431,44 @@ test "exporter claims succeed in a turn a Host verb tail runs outside step" {
 
     try std.testing.expect(claim.ran);
     try expectOk(claim.exporter_result);
-    try std.testing.expectEqual(client_seen.dialed_session, claim.exporter);
+    try std.testing.expectEqual(pair.client_seen.dialed_session, claim.exporter);
     try expectOk(claim.claim_result);
-    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
-    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
+    try pair.releaseSessions();
 }
 
 test "driver retirement requested in a behavior defers listener effects until callback unwind" {
-    const owned_server = try newLoop(0x67);
-    defer owned_server.deinit();
-    const server = owned_server.raw;
-    const listener = try listenReady(server, "tcp", "127.0.0.1:0");
-    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
-    const locator = try readListenerLocator(server, listener);
-    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
-
-    var retirement = CallbackRetirement{ .loop = server };
+    const server = try newLoop(0x67);
+    var retirement = CallbackRetirement{ .loop = server.raw };
     try expectOk(cd.glowcap_host_publish(
-        owned_server.host,
+        server.host,
         "retirement-probe",
         "retirement-probe".len,
         callbackRetirementBehavior,
         &retirement,
         null,
     ));
+    var pair = try connectAndFetch(server, 0x68, "retirement-probe");
+    defer pair.deinit();
 
-    const owned_client = try newLoop(0x68);
-    defer owned_client.deinit();
-    const client = owned_client.raw;
-    var operation: u64 = 0;
-    try expectOk(try dialParts(client, "tcp", locator.designator, "", &operation));
-
-    var client_seen = Drained{};
-    var server_seen = Drained{};
-    for (0..2_000) |_| {
-        try expectStep(cdrv.glowcap_driver_step(client, 5));
-        try drainEvents(client, &client_seen);
-        try expectStep(cdrv.glowcap_driver_step(server, 5));
-        try drainEvents(server, &server_seen);
-        if (client_seen.dialed_session != null and server_seen.accepted_session != null) break;
-    }
-    try std.testing.expect(client_seen.dialed_session != null);
-    try std.testing.expect(server_seen.accepted_session != null);
-    try serveBoth(client, client_seen.dialed_session, server, server_seen.accepted_session);
-
-    var fetch_vow: u64 = 0;
-    try expectOk(cd.glowcap_host_session_fetch(
-        client_seen.dialed_session,
-        "retirement-probe",
-        "retirement-probe".len,
-        &fetch_vow,
-    ));
-    for (0..2_000) |_| {
-        try expectStep(cdrv.glowcap_driver_step(client, 5));
-        try drainEvents(client, &client_seen);
-        try expectStep(cdrv.glowcap_driver_step(server, 5));
-        try drainEvents(server, &server_seen);
-        if (client_seen.settle_ticket == fetch_vow) break;
-    }
-    try std.testing.expectEqual(fetch_vow, client_seen.settle_ticket);
-
-    client_seen.settle_ticket = 0;
     var call_vow: u64 = 0;
     try expectOk(cd.glowcap_host_session_send(
-        client_seen.dialed_session,
-        &client_seen.settled_reference,
+        pair.client_seen.dialed_session,
+        &pair.client_seen.settled_reference,
         "retire",
         "retire".len,
         null,
         0,
         &call_vow,
     ));
-    for (0..2_000) |_| {
-        try expectStep(cdrv.glowcap_driver_step(client, 5));
-        try drainEvents(client, &client_seen);
-        try expectStep(cdrv.glowcap_driver_step(server, 5));
-        try drainEvents(server, &server_seen);
-        if (client_seen.settle_ticket == call_vow) break;
-    }
+    try pair.settle(call_vow);
 
     try std.testing.expect(retirement.ran);
     try std.testing.expectEqual(c.GLOWCAP_OK, retirement.result);
-    try std.testing.expectEqual(call_vow, client_seen.settle_ticket);
     var stale_locator: cdrv.GlowcapLocatorView = undefined;
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_NOT_FOUND,
-        cdrv.glowcap_driver_listener_locator(server, listener, &stale_locator),
+        cdrv.glowcap_driver_listener_locator(pair.server.raw, pair.listener, &stale_locator),
     );
-
-    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
-    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(pair.server.raw, pair.server_seen.accepted_session));
+    try expectOk(cdrv.glowcap_driver_session_release(pair.client.raw, pair.client_seen.dialed_session));
 }
