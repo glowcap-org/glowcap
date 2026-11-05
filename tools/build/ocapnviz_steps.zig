@@ -73,6 +73,10 @@ pub fn register(
     ocapnviz_live_browser.has_side_effects = true;
     Binary.server.addEnv(ocapnviz_live_browser);
     ocapnviz_live_browser.addArgs(&.{ "deno", "task", "test:live-browser" });
+    // Its trace host loads the installed C ABI archives through the TypeScript
+    // binding, as the suite does, so a job that inherits no build state still
+    // installs them first.
+    ocapnviz_live_browser.step.dependOn(b.getInstallStep());
     ocapnviz_live_browser.step.dependOn(rooms_services_install);
     ocapnviz_live_browser.step.dependOn(wasm_driver_install_step);
     ocapnviz_live_browser.step.dependOn(browser_preflight_step);
