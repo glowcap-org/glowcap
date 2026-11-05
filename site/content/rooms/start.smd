@@ -13,11 +13,14 @@ another device.
 # Start Rooms
 
 Install the [CLI + Rooms product](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)
-for your machine from [GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
-Choose the `glowcap-vVERSION-ARCH-OS.tar.gz` download. It includes the services
-and prepared browser files, so it needs no compiler.
+and start Rooms. The installer verifies the release checksum, and the product
+includes the services and prepared browser files, so it needs no compiler. To
+install by hand, download `glowcap-vVERSION-ARCH-OS.tar.gz` from
+[GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
 
 ```sh
+curl -fsSL https://glowcap.org/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 

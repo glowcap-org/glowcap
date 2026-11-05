@@ -48,7 +48,8 @@ the CLI, Rooms, browser assets, and agent skills, in
 [installation guide](apps/rooms/host.md) covers verification and installation,
 and the [changelog](CHANGELOG.md) lists what each release changed.
 
-To open Rooms after installation:
+Rooms, the chat application built on glowcap, comes with the CLI. To open it
+after installation:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -143,8 +144,7 @@ checkout, run `./glowcap install`. It builds the product, checks its file
 list, and installs it outside the checkout. `zig build glowcap-install` stages
 the same files under `zig-out/product` without installing them.
 
-Rooms is a chat application built on glowcap, and
-[installing glowcap](apps/rooms/host.md) installs it too.
+[Installing glowcap](apps/rooms/host.md) installs Rooms too.
 `glowcap apps rooms serve` starts the browser app, and
 `glowcap apps rooms session join` joins a room over encrypted iroh.
 

@@ -554,7 +554,8 @@ pre code {
   }
 }
 
-/* Language choices stay in two columns on a phone, with full-tile targets.
+/* A short set of links a reader picks one from. Small tiles keep the choice
+   on one screen, two columns wide on a phone, and each tile is a full target.
    Authored as a `link-grid` block around a plain Markdown list. */
 .prose .link-grid ul {
   display: grid;

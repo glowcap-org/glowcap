@@ -33,8 +33,9 @@ The [CapTP CLI]($link.page('cli')) calls and hosts capabilities from your shell,
 with a REPL and MCP tools.
 
 One command installs the newest CLI and Rooms release after verifying its
-checksum. [GitHub Releases](https://github.com/glowcap-org/glowcap/releases)
-lists the downloads and their provenance:
+checksum, and the next two start Rooms.
+[GitHub Releases](https://github.com/glowcap-org/glowcap/releases) lists the
+downloads and their provenance.
 
 ```sh
 curl -fsSL https://glowcap.org/install.sh | sh

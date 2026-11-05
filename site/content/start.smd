@@ -19,9 +19,6 @@ If you prefer another language, choose its guide:
 > - [Racket]($link.page('bindings/racket'))
 > - [In the browser]($link.page('bindings/browser'))
 
-Pin a commit when you add glowcap to a project. The public API can still
-change.
-
 # [Run a complete example]($section.id('run-a-complete-example'))
 
 Follow [Get a working checkout](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#get-a-working-checkout)
@@ -49,7 +46,8 @@ then add a pinned checkout to your build:
 zig fetch --save git+https://github.com/glowcap-org/glowcap#COMMIT_SHA
 ```
 
-Replace `COMMIT_SHA` with the revision you want to pin.
+Replace `COMMIT_SHA` with the revision you want to pin. The public API can
+still change, so move the pin deliberately.
 
 ```zig
 const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimize });
@@ -356,9 +354,7 @@ to choose Noise over iroh, and how `noise-relay` seals a path through a relay.
 `handshake` limits each read while the connection opens, and `settle` limits
 each wait for an answer after that. `.ephemeral` is
 a throwaway keypair made for this one connection. The arena owns the memory for
-replies, and freeing it frees them. Chapter 01 on the
-[Examples]($link.page('examples')) page is this same fetch-and-call as a
-complete program.
+replies, and freeing it frees them.
 
 # Listen
 

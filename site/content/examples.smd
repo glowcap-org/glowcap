@@ -6,7 +6,8 @@
 .draft = false,
 ---
 
-Start with a complete Zig conversation, or try Rooms in your browser.
+Start with a complete Zig conversation, or try [Rooms]($link.page('rooms')) in
+your browser.
 [Start building]($link.page('start')) covers setup and explains the call.
 
 # Learn the Zig API
