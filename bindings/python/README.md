@@ -3,7 +3,9 @@
 The `glowcap` package connects a Python program to [OCapN](https://glowcap.org/protocol/) peers. It
 calls their objects, hosts objects of its own, and passes references between peers, with glowcap's
 C libraries doing the protocol work. It uses `ctypes`, `asyncio`, and the standard library, and
-needs the CPython version `pyproject.toml` declares on an LP64 (64-bit Unix) platform. The
+needs CPython on a 64-bit Unix platform. Its
+[package metadata](https://github.com/glowcap-org/glowcap/blob/main/bindings/python/pyproject.toml)
+declares the minimum Python version. The
 [Python guide](https://glowcap.org/bindings/python/) walks through the round trip, listening, and
 actors. Terms such as locator, vat, and sturdyref are defined in the
 [glossary](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md#glossary).
@@ -11,11 +13,12 @@ actors. Terms such as locator, vat, and sturdyref are defined in the
 ## Install
 
 ```sh
-pip install glowcap
+python -m pip install glowcap
 ```
 
-On first import the package downloads the C libraries of its version from the
-GitHub release and verifies them against its checksum file. Set
+On first import the package downloads the C libraries of its version from its
+[GitHub release](https://github.com/glowcap-org/glowcap/releases) and verifies
+them against its checksum file. Set
 `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/` directory to use a local copy.
 In a checkout of the repository, run `zig build` and make the tree's package
 importable instead:
@@ -25,6 +28,11 @@ export PYTHONPATH="$PWD/bindings/python${PYTHONPATH:+:$PYTHONPATH}"
 ```
 
 ## A first session
+
+Start a server that publishes `greeter` with a `greet` method, as in the
+[listening example](https://glowcap.org/bindings/python/). This client
+connects over encrypted Noise TCP to `127.0.0.1:9099`. Replace `peer_key` with
+the server's public key, save this as `client.py`, and run `python client.py`.
 
 ```python
 import asyncio
@@ -107,8 +115,8 @@ durable key and the rendezvous relay that partners dial.
 A handoff is how one peer gives you a reference to an object hosted by a third
 peer. With one Host shared across sessions, a handoff needs no extra code. The
 less common `send_redeeming` call returns both the answer and `via`, the
-session to the peer that hosts the object. Host a reply capability on `via`. A
-local reference is valid only in the session where it was exported.
+session to the peer that hosts the object. References belong to their Host
+and can be used through any session on that Host.
 
 ## Transports
 

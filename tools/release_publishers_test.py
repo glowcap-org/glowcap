@@ -178,7 +178,9 @@ class DerivationTest(unittest.TestCase):
             sorted(["abi", "runtime", "tcp", "iroh", "inproc", "onion", "web", "webrtc", "relay"]),
         )
         self.assertEqual((facts["crate"], facts["project"]), ("glowcap", "glowcap"))
-        self.assertEqual(MODULE.racket_source("o/r", "v1.2.3"), "https://github.com/o/r?path=bindings/racket#v1.2.3")
+        self.assertEqual(
+            MODULE.racket_source("o/r", "v1.2.3"), "https://github.com/o/r.git?path=bindings/racket#v1.2.3"
+        )
 
     def test_a_missing_manifest_or_field_is_refused(self):
         with tempfile.TemporaryDirectory() as temp:

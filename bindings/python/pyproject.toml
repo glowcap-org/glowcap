@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "glowcap"
 authors = [{name = "Glowcap LLC"}]
 version = "0.1.2"
-description = "Python ctypes binding for the glowcap C ABI archives (codec-neutral CapTP core for OCapN)."
+description = "Call and host OCapN objects with asyncio."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -38,4 +38,4 @@ glowcap = ["py.typed", "c-abi-resolve.json"]
 [project.urls]
 Repository = "https://github.com/glowcap-org/glowcap"
 Homepage = "https://glowcap.org"
-Documentation = "https://glowcap.org"
+Documentation = "https://glowcap.org/bindings/python/"

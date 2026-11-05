@@ -1,6 +1,6 @@
 # glowcap
 
-<img src="site/assets/glowcap-lit-256.png" alt="" align="left" width="140" />
+<img src="https://github.com/glowcap-org/glowcap/blob/main/site/assets/glowcap-lit-256.png?raw=true" alt="" align="left" width="140" />
 
 [![Zig](https://img.shields.io/badge/language-Zig-f7a41d.svg)](https://ziglang.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
@@ -9,26 +9,26 @@
 
 glowcap is a low-level Zig library for capability-based communication and
 durable application state. It combines [OCapN](https://github.com/ocapn/ocapn)
-and CapTP networking with [Loam](docs/loam.md), its transactional storage and
+and CapTP networking with [Loam](https://github.com/glowcap-org/glowcap/blob/main/docs/loam.md), its transactional storage and
 durable actor system. Applications control memory, I/O, and scheduling.
 
 **0.1.2 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
 change before 1.0. glowcap has not received an independent security audit.
-Read [what ships](docs/shipped.md) and the [known limitations](docs/boundaries.md)
+Read [what ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md) and the [known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md)
 before depending on it.
 
 A capability is a reference that gives its holder access to an object.
 OCapN lets programs pass those references and call methods across a network.
 Loam stores object state and relationships, wakes actors on demand, and
 provides durable names that peers can use after a restart. If capabilities
-are new to you, [the introduction](docs/capabilities.md) explains the model.
+are new to you, [the introduction](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md) explains the model.
 
 <br clear="left" />
 
 glowcap is built with AI coding assistants. The maintainer directs the work
-and is answerable for what lands. [How glowcap is built](PROVENANCE.md)
+and is answerable for what lands. [How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
 explains the assistance, verification, and upstream policies.
-[Contributions](CONTRIBUTING.md) are welcome with or without AI tools.
+[Contributions](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md) are welcome with or without AI tools.
 
 ## Downloads
 
@@ -44,9 +44,9 @@ To install by hand, download the **CLI + Rooms** product from
 [GitHub Releases](https://github.com/glowcap-org/glowcap/releases). It holds
 the CLI, Rooms, browser assets, and agent skills, in
 `glowcap-vVERSION-ARCH-OS.tar.gz`. The `glowcap-c-` archives are the separate
-[C SDK](docs/c-sdk.md) for building applications. The
-[installation guide](apps/rooms/host.md) covers verification and installation,
-and the [changelog](CHANGELOG.md) lists what each release changed.
+[C SDK](https://github.com/glowcap-org/glowcap/blob/main/docs/c-sdk.md) for building applications. The
+[installation guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md) covers verification and installation,
+and the [changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md) lists what each release changed.
 
 Rooms, the chat application built on glowcap, comes with the CLI. To open it
 after installation:
@@ -63,7 +63,7 @@ through joining a room and messaging another member directly.
 
 ### Try a local conversation
 
-From a [working checkout](CONTRIBUTING.md#get-a-working-checkout), run:
+From a [working checkout](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#get-a-working-checkout), run:
 
 ```sh
 zig build quick-start
@@ -72,7 +72,7 @@ zig build quick-start
 Chapter 01 starts both peers on your machine, publishes a greeter, connects
 over encrypted TCP, and checks its `Hello, world` reply. A line beginning
 `01: greeter fetched by name` confirms success.
-[The example guide](examples/README.md) continues with introductions between
+[The example guide](https://github.com/glowcap-org/glowcap/blob/main/examples/README.md) continues with introductions between
 three peers and objects that survive a restart.
 
 ### Use glowcap in your program
@@ -94,7 +94,7 @@ dependency's options, then import `glowcap_iroh` or `glowcap_webrtc`.
 Then dial a peer over `noise-tcp`, fetch a capability by name, and call it. The
 caller supplies `io`, `allocator`, the peer's public key, and its `host:port`
 address. The complete program is
-[`examples/zig/readme_quick_start.zig`](examples/zig/readme_quick_start.zig).
+[`examples/zig/readme_quick_start.zig`](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/readme_quick_start.zig).
 
 ```zig
 const std = @import("std");
@@ -138,23 +138,23 @@ listening side of this exchange and the same program in other languages.
 ### The command line and Rooms
 
 `zig build` puts the `glowcap` CLI in `zig-out/bin`.
-[`docs/cli.md`](docs/cli.md) covers its REPL, `--json` scripting, the MCP
+[`docs/cli.md`](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md) covers its REPL, `--json` scripting, the MCP
 server, and a cleartext round-trip for local experiments. To install from a
 checkout, run `./glowcap install`. It builds the product, checks its file
 list, and installs it outside the checkout. `zig build glowcap-install` stages
 the same files under `zig-out/product` without installing them.
 
-[Installing glowcap](apps/rooms/host.md) installs Rooms too.
+[Installing glowcap](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md) installs Rooms too.
 `glowcap apps rooms serve` starts the browser app, and
 `glowcap apps rooms session join` joins a room over encrypted iroh.
 
 ### Examples and other languages
 
-[`examples/README.md`](examples/README.md) starts with chapter 01, which is this
+[`examples/README.md`](https://github.com/glowcap-org/glowcap/blob/main/examples/README.md) starts with chapter 01, which is this
 fetch-and-call as a complete program. C consumers start at
-[`docs/consuming-from-c.md`](docs/consuming-from-c.md).
+[`docs/consuming-from-c.md`](https://github.com/glowcap-org/glowcap/blob/main/docs/consuming-from-c.md).
 The Rust, TypeScript, Python, and Racket bindings live in
-[`bindings/`](bindings/README.md).
+[`bindings/`](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md).
 
 ## How it fits
 
@@ -191,18 +191,18 @@ The baseline is CapTP 1.0 encoded in Syrup:
 zig build ocapn-conformance  # the upstream OCapN test suite, against a glowcap peer
 ```
 
-[Community review](docs/community-review.md) lists outside-peer checks, what
-each proves, and what each needs to run. [Stability](docs/stability.md) explains
+[Community review](https://github.com/glowcap-org/glowcap/blob/main/docs/community-review.md) lists outside-peer checks, what
+each proves, and what each needs to run. [Stability](https://github.com/glowcap-org/glowcap/blob/main/docs/stability.md) explains
 which checks run in CI.
 
 <p align="center">
-  <img src="site/assets/glowcap-goblin-512.png" alt="a purple goblin studying the glowcap mark" width="320" />
+  <img src="https://github.com/glowcap-org/glowcap/blob/main/site/assets/glowcap-goblin-512.png?raw=true" alt="a purple goblin studying the glowcap mark" width="320" />
 </p>
 
 ## Build
 
 The Zig version and every other toolchain are pinned, and
-[dependencies](docs/dependencies.md) lists them.
+[dependencies](https://github.com/glowcap-org/glowcap/blob/main/docs/dependencies.md) lists them.
 
 ```sh
 zig build          # C ABI archives + headers + the glowcap CLI
@@ -210,8 +210,8 @@ zig build check    # in-process tests, static checks, examples, fixtures, budget
 zig build runtime-check -Doptimize=ReleaseSafe # process, application, and language-workspace checks, matching CI
 ```
 
-To contribute, start with [a working checkout](CONTRIBUTING.md#get-a-working-checkout),
-then [make a change](CONTRIBUTING.md#make-a-change) and open a pull request.
+To contribute, start with [a working checkout](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#get-a-working-checkout),
+then [make a change](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#make-a-change) and open a pull request.
 
 ## Documentation
 
@@ -222,19 +222,19 @@ the address it prints. `zig build site` builds the whole site under
 
 Reference pages:
 
-- [What ships](docs/shipped.md) lists the usable APIs and transports.
-- [Known limitations](docs/boundaries.md) lists deployment and API constraints.
-- [Stability](docs/stability.md) lists what is checked for each area and what is still open.
-- [Threat model](docs/threat-model.md) says who glowcap defends against and how it handles untrusted input.
-- [Architecture](docs/architecture.md) explains the layers.
-- [Dependencies](docs/dependencies.md) lists what glowcap builds on.
-- [Capabilities](docs/capabilities.md) is the glossary when the ideas are new.
-- [The roadmap](docs/roadmap.md) lists the work that remains.
+- [What ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md) lists the usable APIs and transports.
+- [Known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md) lists deployment and API constraints.
+- [Stability](https://github.com/glowcap-org/glowcap/blob/main/docs/stability.md) lists what is checked for each area and what is still open.
+- [Threat model](https://github.com/glowcap-org/glowcap/blob/main/docs/threat-model.md) says who glowcap defends against and how it handles untrusted input.
+- [Architecture](https://github.com/glowcap-org/glowcap/blob/main/docs/architecture.md) explains the layers.
+- [Dependencies](https://github.com/glowcap-org/glowcap/blob/main/docs/dependencies.md) lists what glowcap builds on.
+- [Capabilities](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md) is the glossary when the ideas are new.
+- [The roadmap](https://github.com/glowcap-org/glowcap/blob/main/docs/roadmap.md) lists the work that remains.
 
-The [protocol diagrams](docs/protocol-diagrams/README.md) draw each message
-flow, and the [decision records](docs/decisions/README.md) explain why each
+The [protocol diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/README.md) draw each message
+flow, and the [decision records](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/README.md) explain why each
 design was chosen.
-[SECURITY.md](SECURITY.md) explains how to report a vulnerability.
+[SECURITY.md](https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md) explains how to report a vulnerability.
 
 ## Corporate sponsorship
 

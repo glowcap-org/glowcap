@@ -7,10 +7,13 @@ sources:
   - resource: /tools/build/release.zig
 ---
 
-# Use the C SDK
+# glowcap C SDK
 
-The `glowcap-c-vVERSION-ARCH-OS.tar.gz` download contains C headers and
-libraries for applications and language bindings. For the command line,
+Use glowcap from C to connect to OCapN peers, call their objects, and host
+objects of your own. The SDK contains the headers and libraries used by
+glowcap's language bindings.
+
+Download `glowcap-c-vVERSION-ARCH-OS.tar.gz` for the SDK. For the command line,
 Rooms, browser assets, and agent skills, choose the `glowcap-vVERSION-ARCH-OS.tar.gz`
 product instead. Both are on the [release page](https://github.com/glowcap-org/glowcap/releases).
 
@@ -27,6 +30,7 @@ The extracted SDK contains:
 | `include/` | Public C headers |
 | `lib/` | Static archives and shared libraries |
 | `share/glowcap/release.json` | Version, target, minimum runtime, and source revision |
+| `share/glowcap/DEPENDENCY-NOTICES.txt` | Bundled dependencies' license and attribution texts |
 | `PROVENANCE.md`, `LICENSE-*` | Project provenance and license terms |
 
 ## Compile a program

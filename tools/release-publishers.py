@@ -211,7 +211,7 @@ def derive(root, stages):
 
 
 def racket_source(slug, tag):
-    return f"https://github.com/{slug}?path=bindings/racket#{tag}"
+    return f"https://github.com/{slug}.git?path=bindings/racket#{tag}"
 
 
 class Context:

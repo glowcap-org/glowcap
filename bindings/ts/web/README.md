@@ -15,7 +15,9 @@ deno add jsr:@glowcap/web jsr:@glowcap/runtime jsr:@glowcap/relay
 
 The page also needs `glowcap_host.wasm`, the Wasm build of the protocol core. In a checkout of the
 [repository](https://github.com/glowcap-org/glowcap), `zig build wasm-host` writes it to
-`zig-out/wasm/`.
+`zig-out/wasm/`. The JSR package contains the TypeScript adapter, not the Wasm binary.
+Copy that binary into your web server's public files. Use the same glowcap version for the
+Wasm build and the packages.
 
 ## A first session
 
@@ -96,9 +98,11 @@ must not read the session.
 ## Shipping a page
 
 1. Serve `glowcap_host.wasm` from `zig-out/wasm/` after `zig build wasm-host`.
-2. Bundle this package with `@glowcap/runtime` and `@glowcap/abi`. Start from
-   the adapter-only [`browser-bundle.json`](browser-bundle.json) and add the
-   application's framework and data dependencies to it.
+2. Bundle this package with `@glowcap/runtime` and `@glowcap/abi`. In a glowcap checkout,
+   start from [`browser-bundle.json`](browser-bundle.json) and add the application's
+   framework and data dependencies to it. Its paths name sibling checkout directories.
+   When bundling installed packages, configure the equivalent aliases for their installed
+   paths instead of copying those relative paths.
 
 The browser mapping in `browser-bundle.json` points `@glowcap/runtime/ffi`, and the `runtime/ffi.ts`
 file the runtime's own loaders import by relative path, at the Wasm adapter, so the code that looks

@@ -14,6 +14,9 @@ deno add jsr:@glowcap/webrtc jsr:@glowcap/runtime
 
 In the browser, add [`@glowcap/web`](https://jsr.io/@glowcap/web). In Deno, the package loads the
 WebRTC C library on first use, which the runtime's C SDK download includes.
+Run a Deno application with `deno run --allow-all app.ts`. The
+[runtime installation instructions](https://jsr.io/@glowcap/runtime#install) explain the
+download tools and how to use a local SDK.
 
 ## Signaling
 
@@ -28,6 +31,10 @@ receive a `SignalingTarget` whose `designator` names the peer, and `candidate`
 takes only the id.
 
 ## Dial and listen in a browser
+
+These snippets compose with a Host initialized through
+[`@glowcap/web`](https://jsr.io/@glowcap/web). Your application supplies the signaling
+implementation, peer keys, and incoming offers described above.
 
 `connector(signaling, options?)` lets a `@glowcap/web` Runtime dial a `webrtc`
 locator. `listener(host, signaling, options?)` answers offers for a Host and

@@ -17,13 +17,18 @@ check, child deadlines bound hangs, and temporary installs are removed on exit.
 """
 
 import argparse
+import functools
+import http.server
 import json
 import os
+import platform
+import runpy
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import textwrap
+import threading
 import time
 import tomllib
 import zipfile
@@ -195,6 +200,20 @@ def rust_package(work, env, registry):
 
 def racket_package(work, env, registry):
     assert registry is None, "the Racket catalog entry is maintained by hand"
+    source = runpy.run_path(str(ROOT / "tools/release-publishers.py"))["racket_source"]("owner/project", "v1.2.3")
+    # Exercise the package manager's source inference and Git checkout parser,
+    # without fetching: a directory URL silently loses the subdirectory and tag.
+    expression = f"""(require pkg/name pkg/private/repo-path net/url)
+      (define source {json.dumps(source)})
+      (define-values (name type) (package-source->name+type source #f))
+      (unless (and (equal? name "racket") (memq type '(git git-url)))
+        (error 'catalog-source "expected a Git package, got ~s (~s) for ~a" name type source))
+      (define-values (transport host port repo tag subdir)
+        (split-git-or-hub-url (string->url source) #:type type))
+      (unless (equal? (list transport host (regexp-replace #rx"[.]git$" repo "") tag subdir)
+                      '(https "github.com" "owner/project" "v1.2.3" ("bindings" "racket")))
+        (error 'catalog-source "wrong repository, subdirectory, or tag for ~a" source))"""
+    run("racket", "-e", expression, cwd=work, env=env)
     run("raco", "pkg", "create", "--source", "--format", "zip", "--dest", str(work), str(ROOT / "bindings/racket"))
     verify_license(work / "racket.zip")
     scope = work / "racket-pkgs"
@@ -225,6 +244,57 @@ def racket_package(work, env, registry):
     run("racket", "-e", expression, cwd=work, env=env)
 
 
+def typescript_http_consumer(work, env):
+    """Exercise remote module URLs with the installed SDK in its versioned cache."""
+    consumer = work / "http-consumer"
+    packages = consumer / "packages"
+    manifests = {}
+    for name in ("runtime", "abi"):
+        source = ROOT / "bindings/ts" / name
+        manifests[name] = json.loads((source / "deno.json").read_text())
+        shutil.copytree(source, packages / name, ignore=shutil.ignore_patterns("test", "deno.json"))
+    contract = json.loads((packages / "runtime/internal/ffi/c-abi-resolve.json").read_text())
+    arch = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+    system = {"Darwin": "macos"}.get(platform.system(), platform.system().lower())
+    cache = consumer / "cache"
+    lib_dir = Path(
+        contract["cache_layout"].format(cache_base=cache, version=contract["abi_version"], target=f"{arch}-{system}")
+    )
+    lib_dir.parent.mkdir(parents=True)
+    lib_dir.symlink_to(Path(env["GLOWCAP_LIB_DIR"]).resolve(strict=True), target_is_directory=True)
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, ".ts": "application/typescript"}
+
+        def log_message(self, *_):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, directory=str(packages)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_port}"
+        imports = {
+            manifest["name"]: f"{base}/{name}/{manifest['exports']['.'].removeprefix('./')}"
+            for name, manifest in manifests.items()
+        }
+        (consumer / "deno.json").write_text(json.dumps({"imports": imports}))
+        (consumer / "smoke.ts").write_text(
+            'import { Runtime } from "@glowcap/runtime";\n'
+            "await using runtime = await Runtime.open({ providers: [] });\n"
+            'console.log("opened a Runtime from HTTP packages and the versioned SDK cache");\n'
+        )
+        remote_env = {key: value for key, value in env.items() if key != "GLOWCAP_LIB_DIR"}
+        remote_env.update(
+            DENO_DIR=str(consumer / "deno-cache"), GLOWCAP_CACHE_DIR=str(cache), GLOWCAP_SKIP_DOWNLOAD="1"
+        )
+        run("deno", "run", "--no-prompt", "--allow-all", "smoke.ts", cwd=consumer, env=remote_env)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
 def typescript_package(work, env, registry):
     if registry is None:
         for manifest in (ROOT / "bindings/ts").glob("*/deno.json"):
@@ -235,6 +305,7 @@ def typescript_package(work, env, registry):
         # actual publish include/exclude lists. --allow-dirty permits review edits;
         # --dry-run is unconditional, so this command never uploads anything.
         run("deno", "publish", "--dry-run", "--allow-dirty", cwd=ROOT / "bindings/ts", env=env)
+        typescript_http_consumer(work, env)
         return
     consumer = work / "deno-consumer"
     consumer.mkdir()

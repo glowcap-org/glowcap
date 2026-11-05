@@ -1,10 +1,10 @@
 [package]
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
-documentation = "https://glowcap.org"
+documentation = "https://docs.rs/glowcap/latest/glowcap/"
 name = "glowcap"
 authors = ["Glowcap LLC"]
-description = "Capability networking and Loam durable state through the glowcap C ABI."
+description = "Call and host OCapN objects, with async sessions and optional durable storage."
 readme = "README.md"
 version = "0.1.2"
 edition = "2024"

@@ -66,6 +66,12 @@ and storage formats before 1.0.
   throughput in task-board units.
 - Build-step documentation checks use the same reference graph regardless
   of the caller's optimization flags.
+- The Racket catalog setup uses a Git source URL, so the package manager
+  checks out the selected release and its binding directory instead of
+  treating the GitHub page as a package download directory.
+- TypeScript packages imported over HTTP load their bundled release settings
+  without treating the module URL as a local file path. Published JSR imports
+  can use the versioned SDK cache and automatic downloads.
 - Generated TypeScript calls support checked `await` while preserving raw
   pipelining. The export name `then` is refused, but a wire method can still be
   named `then`.
@@ -105,6 +111,8 @@ and storage formats before 1.0.
   the package only through absolute links, and keeps contributor checks in the
   repository. Every `@glowcap/*` package ships a README, and `source-check`
   holds both rules.
+  First-run examples name their server and runtime requirements. The Zig
+  package's README links work without a repository checkout.
 
 ## [0.1.1] - 2026-10-31
 

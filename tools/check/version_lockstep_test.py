@@ -76,10 +76,11 @@ class VersionLockstep(unittest.TestCase):
                     actual = package[field]
                     self.assertTrue(actual == expected or actual == {"workspace": True}, (field, actual))
                 urls = package.get("urls", package)
+                # Documentation belongs to each package's guide or API reference.
+                # Only the project homepage and repository are shared URLs.
                 for field, expected in (
                     ("repository", "https://github.com/glowcap-org/glowcap"),
                     ("homepage", "https://glowcap.org"),
-                    ("documentation", "https://glowcap.org"),
                 ):
                     actual = {key.lower(): value for key, value in urls.items()}[field]
                     self.assertTrue(actual == expected or actual == {"workspace": True}, (path, field, actual))
