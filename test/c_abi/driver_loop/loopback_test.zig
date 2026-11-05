@@ -66,6 +66,8 @@ const ReentrantSessionRelease = typed_resident.ReentrantSessionRelease;
 const CallbackRetirement = typed_resident.CallbackRetirement;
 const callbackRetirementBehavior = typed_resident.callbackRetirementBehavior;
 const reentrantSessionReleaseBehavior = typed_resident.reentrantSessionReleaseBehavior;
+const ExporterClaim = typed_resident.ExporterClaim;
+const exporterClaimBehavior = typed_resident.exporterClaimBehavior;
 
 /// The server embedder's whole life, shared with the test thread through
 /// atomics and one write-once designator buffer.
@@ -443,6 +445,76 @@ test "loop-owned session release refuses callback reentry before dropping the wi
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.readiness_result);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.restoration_result);
     try std.testing.expectEqual(call_vow, client_seen.settle_ticket);
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
+}
+
+test "exporter claims succeed in a turn a Host verb tail runs outside step" {
+    const owned_server = try newLoop(0x69);
+    defer owned_server.deinit();
+    const server = owned_server.raw;
+    const listener = try listenReady(server, "tcp", "127.0.0.1:0");
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
+    const locator = try readListenerLocator(server, listener);
+    defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
+    try expectOk(cd.glowcap_host_publish(owned_server.host, "widget", "widget".len, widgetBehavior, null, null));
+
+    const owned_client = try newLoop(0x6a);
+    defer owned_client.deinit();
+    const client = owned_client.raw;
+    var operation: u64 = 0;
+    try expectOk(try dialParts(client, "tcp", locator.designator, "", &operation));
+
+    var client_seen = Drained{};
+    var server_seen = Drained{};
+    for (0..2_000) |_| {
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
+        try drainEvents(client, &client_seen);
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
+        try drainEvents(server, &server_seen);
+        if (client_seen.dialed_session != null and server_seen.accepted_session != null) break;
+    }
+    try std.testing.expect(client_seen.dialed_session != null);
+    try std.testing.expect(server_seen.accepted_session != null);
+    try serveBoth(client, client_seen.dialed_session, server, server_seen.accepted_session);
+
+    var fetch_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_fetch(client_seen.dialed_session, "widget", "widget".len, &fetch_vow));
+    for (0..2_000) |_| {
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
+        try drainEvents(client, &client_seen);
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
+        try drainEvents(server, &server_seen);
+        if (client_seen.settle_ticket == fetch_vow) break;
+    }
+    try std.testing.expectEqual(fetch_vow, client_seen.settle_ticket);
+
+    // A local send only queues its turn. The next top-level verb that pumps,
+    // here a session send, drains that turn inside its tail, so the behavior
+    // runs under the callback latch while no step is on the stack.
+    var claim = ExporterClaim{ .loop = client };
+    var claimer: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_spawn(owned_client.host, exporterClaimBehavior, &claim, null, &claimer));
+    defer _ = cd.glowcap_host_ref_release(owned_client.host, &claimer, 1);
+    const args = [_]c.GlowcapArgument{@import("../../support/c_abi_args.zig").argRef(client_seen.settled_reference)};
+    var claim_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_send(owned_client.host, &claimer, "claim", "claim".len, &args, args.len, &claim_vow));
+    try std.testing.expect(!claim.ran);
+    var poke_vow: u64 = 0;
+    try expectOk(cd.glowcap_host_session_send(
+        client_seen.dialed_session,
+        &client_seen.settled_reference,
+        "poke",
+        "poke".len,
+        null,
+        0,
+        &poke_vow,
+    ));
+
+    try std.testing.expect(claim.ran);
+    try expectOk(claim.exporter_result);
+    try std.testing.expectEqual(client_seen.dialed_session, claim.exporter);
+    try expectOk(claim.claim_result);
     try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
     try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
 }

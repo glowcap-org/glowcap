@@ -12,6 +12,7 @@ const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 const instanceFrom = Internal.instanceFrom;
 const errToCode = Internal.errToCode;
 const reentrancyCode = @import("events.zig").reentrancyCode;
+const callbackSafeCode = @import("events.zig").callbackSafeCode;
 
 /// Resolve a live remote capability's exporter session and ensure that one
 /// loop-owned application handle claims it before the pointer is returned.
@@ -24,9 +25,7 @@ pub export fn glowcap_driver_claim_reference_exporter(
 ) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!(inst.stepping and inst.runtime.withinCallback())) {
-        if (reentrancyCode(inst, "claim_reference_exporter")) |code| return code;
-    }
+    if (callbackSafeCode(inst, "claim_reference_exporter")) |code| return code;
     const ref = reference orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
     const session = inst.runtime.claimReferenceExporter(ref.id) catch |err| return errToCode(err);
@@ -43,9 +42,7 @@ pub export fn glowcap_driver_claim_exporter_session(
 ) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!(inst.stepping and inst.runtime.withinCallback())) {
-        if (reentrancyCode(inst, "claim_exporter_session")) |code| return code;
-    }
+    if (callbackSafeCode(inst, "claim_exporter_session")) |code| return code;
     const hs = ch.embedding.sessionFrom(session) orelse return GLOWCAP_ERR_NULL_POINTER;
     inst.runtime.claimExporterSession(hs) catch |err| return errToCode(err);
     return GLOWCAP_OK;

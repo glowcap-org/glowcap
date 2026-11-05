@@ -112,6 +112,16 @@ pub fn reentrancyCode(inst: *Instance, operation: []const u8) ?i32 {
     return null;
 }
 
+/// Admission for an ownership operation that drives no I/O and dispatches no
+/// callback. Any Host callback or Vat turn may call it, whether `step` or a
+/// top-level Host verb's tail pump is running that turn, and the runtime
+/// operation checks the owning thread. Outside a callback it follows
+/// `reentrancyCode`.
+pub fn callbackSafeCode(inst: *Instance, operation: []const u8) ?i32 {
+    if (inst.runtime.withinCallback()) return null;
+    return reentrancyCode(inst, operation);
+}
+
 pub fn operationErrorCode(inst: *const Instance, err: anyerror) i32 {
     return failure_output.operationCode(&inst.runtime, err);
 }

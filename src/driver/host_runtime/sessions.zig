@@ -75,8 +75,8 @@ fn claimSessionHandleOwned(self: *HostRuntime, session: *driver_core.HostSession
 /// is idempotent. An internal redeem wire is admitted as application
 /// work and claimed before its pointer crosses an adapter.
 pub fn claimReferenceExporter(self: *HostRuntime, raw_ref: u64) AdmissionError!?*driver_core.HostSession {
-    self.enterDriver();
-    defer self.leaveDriver();
+    const entered = try enterOwnershipUpdate(self);
+    defer if (entered) self.leaveDriver();
 
     const session = (try self.core.capabilitySession(self.core.capabilityFromRaw(raw_ref))) orelse return null;
     claimExporterSessionOwned(self, session) catch |err| switch (err) {
@@ -90,9 +90,24 @@ pub fn claimReferenceExporter(self: *HostRuntime, raw_ref: u64) AdmissionError!?
 /// Safe inside a callback: this only checks admission and updates ownership.
 /// It never drives transport, dispatches callbacks, or releases the wire.
 pub fn claimExporterSession(self: *HostRuntime, session: *driver_core.HostSession) AdmissionError!void {
-    self.enterDriver();
-    defer self.leaveDriver();
+    const entered = try enterOwnershipUpdate(self);
+    defer if (entered) self.leaveDriver();
     try claimExporterSessionOwned(self, session);
+}
+
+/// Open a driver turn for an ownership update, unless a Host callback or Vat
+/// turn is running. That turn may come from `step` or from a Host verb's tail
+/// pump, and its outer boundary owns the flush and the thread claim, so the
+/// update only checks that it runs on the owning thread. Ending a turn of our
+/// own there would flush residents inside the callback. Returns whether the
+/// caller must `leaveDriver`.
+fn enterOwnershipUpdate(self: *HostRuntime) error{WrongThread}!bool {
+    if (self.withinCallback()) {
+        try self.core.claimOwner();
+        return false;
+    }
+    self.enterDriver();
+    return true;
 }
 
 fn claimExporterSessionOwned(self: *HostRuntime, session: *driver_core.HostSession) AdmissionError!void {
