@@ -43,9 +43,9 @@ flowchart TB
     Engine --> Browser[IndexedDB in the browser]
 ```
 
-An arrow points from a part to a part it relies on. A storage root keeps
-objects alive. It is not the access module's owner of a resource tree, or the
-directory an interface shows at the top.
+An arrow points from a part to a part it relies on. A storage root, the record
+that keeps objects alive, is a different thing from the access module's owner
+at the top of a resource tree and from the directory an interface shows first.
 
 | Part | What it owns |
 | --- | --- |

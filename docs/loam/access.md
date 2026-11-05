@@ -9,9 +9,11 @@ sources:
 
 # Managed access records
 
-Managed access in Zig gives you records, the use and control references people
-hold, hosted endpoints, and safe retries. Storage engines and
-attaching a Store to a Host are in the [store and actor guide](../loam.md).
+Managed access keeps track in Loam of who may use which resources, and lets
+the owner change that later. From Zig it offers its records, the use and
+control references people hold, hosted endpoints, and safe retries. Storage
+engines and attaching a Store to a Host are in the
+[store and actor guide](../loam.md).
 
 ## What managed access is for
 

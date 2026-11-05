@@ -327,8 +327,9 @@ failure results (`unsent` and `unknown`), cancellation, and recovery.
 `attachment.sleep(capability)` drops an actor's state from memory while its
 capability keeps working. `pin` returns a Store lease, and a pin or a waiting
 call keeps an actor awake. By default the cache keeps busy records and drops
-the least recently used ones it may. `sleep_policy = .every_turn` puts an
-actor to sleep after every call, which is useful in tests. Sleeping is neither
+the least recently used ones that are allowed to sleep.
+`sleep_policy = .every_turn` puts an actor to sleep after every call, which
+is useful in tests. Sleeping is neither
 deletion nor revocation. Once nobody holds a capability to an actor, the Vat
 frees its endpoint as usual, so stored objects alone take no endpoints.
 

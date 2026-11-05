@@ -61,8 +61,9 @@ Vat. Separate Hosts use the remote path, even in the same process.
 Saving a remote reference needs a sturdyref URI that already exists. The Host
 revives it and checks that it names the same capability you hold.
 
-- A name for a different role, use instead of control for example, fails
-  with `DurableReferenceMismatch` before any content is written.
+- A name for a different [managed access](access.md) role, such as use where
+  you hold control, fails with
+  `DurableReferenceMismatch` before any content is written.
 - `ready` means the identity matched. It does not promise the peer is
   reachable or that the capability still permits anything.
 - The URI you pass and the URI Loam stores are each at most
@@ -112,8 +113,9 @@ records these rules.
 
 ## Preparing and editing fields
 
-A managed `ContentBehavior.references` callback declares what a method needs
-before it runs. It returns `references.Request` entries:
+In [managed access](access.md), a content behavior's
+`ContentBehavior.references` callback declares what a method needs before it
+runs. It returns `references.Request` entries:
 
 - `.restore = field_index` loads one existing strong field.
 - `.save = .{ .capability = held, .uri = established_uri }` checks a new value
@@ -162,12 +164,16 @@ release it.
 
 ## Handing capabilities out
 
+A managed reply hands a saved capability to its caller in one of two ways,
+and it must declare which:
+
 - `discloseExact` hands over the saved capability as it is, in its original,
   use, or control role.
 - `discloseDependent` returns a new facet that keeps both the caller's
   endpoint and the exact target, so every call through it is checked against
   the caller's grant. It covers only the facet in this reply.
-- Saving or restoring a target never permits handing it out on its own.
+
+Saving or restoring a target never permits handing it out on its own.
 
 Targets in the same attachment under one owner use the shared managed
 permission check. Separate owners, even in one attachment, need the source
