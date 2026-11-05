@@ -1,0 +1,2 @@
+# Preserve the bytes checked by the upstream notice digests, including CRLF.
+/tools/gen/notices/licenses/** -text whitespace=cr-at-eol
