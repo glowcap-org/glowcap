@@ -494,7 +494,6 @@
 ;; ── Run + splice (effectful) ─────────────────────────────────────────────────
 ;; `system` returns #f on a non-zero exit without raising; check it so a failed
 ;; bench cannot leave the page half-freshened with a stale goblins/langs report.
-;; CapTP flake retries live in `bench/goblins/bench.rkt`, not here.
 ;; Start a bench only once the machine's one-minute load is under 2, the
 ;; same gate the bench README's repeated runs use, so a build running in
 ;; another checkout does not land in the page's figures. A machine without
@@ -572,7 +571,7 @@
     (error 'site-report "live-session reporting needs an isolated network namespace and descriptor limit 524288"))
   (printf "running benches in ReleaseFast (this takes a few minutes)...\n") (flush-output)
   ;; Goblins first: fail fast on the CapTP step before burning ReleaseFast
-  ;; minutes on the Zig benches. Retries for CapTP flakes are inside bench-goblins.
+  ;; minutes on the Zig benches.
   ;; Child builds do not inherit the report step's optimize mode. Name it on
   ;; every Zig command, including those that install the binding's archives.
   (run "zig build bench-goblins -Doptimize=ReleaseFast 2>&1")

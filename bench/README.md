@@ -117,6 +117,9 @@ The echo suite measures a single call. The registry, purse, and task-board
 suites measure operations spanning several calls. Keep variation across
 repeated runs beside every comparison.
 
+Any failed measurement stops the run without publishing a report. Investigate
+the failure before rerunning, rather than selecting a successful retry.
+
 ## Live sessions
 
 `zig build bench-peer-scaling -- --live` measures real loopback sockets at
