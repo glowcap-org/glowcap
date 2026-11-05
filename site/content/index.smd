@@ -42,7 +42,7 @@ export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 
-Open the URL it prints, then follow [Run Rooms]($link.page('rooms/start'))
+Open the `web ui` address it prints, then follow [Run Rooms]($link.page('rooms/start'))
 to join a room in a normal and a private window and send your first direct message.
 
 # Build with it

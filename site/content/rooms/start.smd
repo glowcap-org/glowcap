@@ -21,7 +21,7 @@ and prepared browser files, so it needs no compiler.
 glowcap apps rooms serve
 ```
 
-Open the browser URL it prints. Peers reach the directory over encrypted
+Open the `web ui` address it prints. Peers reach the directory over encrypted
 [iroh]($link.page('transports/iroh')). The web page listens on loopback by
 default. See the [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
 for Docker and public hosting, or [developing Rooms](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/developing.md)

@@ -52,7 +52,7 @@ conversations after a room introduces two members.
 zig build rooms-web
 ```
 
-Open the URL it prints after the build is ready. The
+Open the `web ui` address it prints once the build is ready. The
 [first-room walkthrough]($link.page('rooms/start')) continues from there, and
 the [Rooms section]($link.page('rooms')) covers the rest.
 
