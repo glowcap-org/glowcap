@@ -3,6 +3,14 @@
 glowcap's own code is licensed under Apache-2.0; see LICENSE-APACHE.
 Some files here are not glowcap's, and their notices travel with them.
 
+## Distributed Rust and JavaScript dependencies
+
+Release packages include `share/glowcap/DEPENDENCY-NOTICES.txt`, generated
+from their selected Cargo dependencies and the JavaScript packages in the
+browser bundle. It preserves original license texts and notices, with
+package-relative attribution. `tools/gen/notices/README.md` describes selection
+and the exact-version supplements for files omitted from published crates.
+
 ## `test/foundation/noise_vectors/cacophony_xk_25519_chachapoly_blake2s.json`
 
 This test fixture is one exact protocol entry extracted from the

@@ -127,6 +127,7 @@ pub fn add(b: *std.Build, target: std.Build.ResolvedTarget, version: std.Semanti
             \\if [ -n "$(git status --porcelain)" ]; then dirty=true; fi
             \\printf '{{"version":"{d}.{d}.{d}","target":"{s}-{s}","minimum_runtime":"{s} {d}.{d}.{d}","revision":"%s","dirty":%s,"browser":"%s","checkout_preparation":{s}}}\n' "$revision" "$dirty" "$browser" > "$stage/tree/share/glowcap/release.json"
             \\cp PROVENANCE.md LICENSE-APACHE LICENSE-THIRD-PARTY "$stage/tree/"
+            \\python3 tools/gen/dependency_notices.py "$stage/tree"
             \\if find "$stage/tree" ! -type d ! -type f -print | grep -q .; then
             \\  echo 'stage must contain only regular files and directories' >&2; exit 1
             \\fi

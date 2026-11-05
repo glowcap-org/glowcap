@@ -177,6 +177,8 @@ export default defineConfig(({ command }) => {
 			// Current Chrome and Firefox implement this floor or a newer one.
 			target: "safari26",
 			copyPublicDir: false,
+			// Release notices follow packages actually present in emitted chunks.
+			license: { fileName: "bundled-packages.json" },
 			emptyOutDir: true,
 			minify: "oxc",
 			modulePreload: { polyfill: false },

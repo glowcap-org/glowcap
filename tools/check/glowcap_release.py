@@ -248,6 +248,7 @@ def check_source_installation(root, launcher):
         # must not invoke the builder or depend on a running devcontainer.
         os.chdir(scratch)
         check_web(root, scratch, executable=launcher)
+        assert (root / "share/glowcap/DEPENDENCY-NOTICES.txt").stat().st_size > 0, "missing dependency notices"
         check_skills(root)
         check_completion(root)
         rooms_peer.main(launcher.parent, transport="iroh")
@@ -280,6 +281,7 @@ def main():
             assert os.access(root / "libexec" / name, os.X_OK), f"missing private executable {name}"
         for name in ("README.md", "PROVENANCE.md", "LICENSE-APACHE", "LICENSE-THIRD-PARTY"):
             assert (root / name).is_file(), f"missing {name}"
+        assert (root / "share/glowcap/DEPENDENCY-NOTICES.txt").stat().st_size > 0, "missing dependency notices"
         check_skills(root)
         # No compiler, package resolver, loader override, or repository env is
         # needed by a consumer. Python and the directory are test drivers only.

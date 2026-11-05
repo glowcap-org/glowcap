@@ -63,6 +63,11 @@ if ! cmp -s "$repo_root/PROVENANCE.md" "$workdir/PROVENANCE.md"; then
 	exit 1
 fi
 
+if [[ ! -s $workdir/share/glowcap/DEPENDENCY-NOTICES.txt ]]; then
+	printf 'c-sdk-pack-smoke: missing dependency notices\n' >&2
+	exit 1
+fi
+
 readonly include_dir=$workdir/include
 readonly lib_dir=$workdir/lib
 
