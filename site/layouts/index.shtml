@@ -16,7 +16,7 @@
 			<p class="hero-eyebrow">Capability networking and durable state in Zig</p>
 			<h1>glowcap</h1>
 			<p class="hero-tagline">Share objects between programs, with access that can be passed on or narrowed. glowcap carries the calls across the network, and Loam keeps object state across restarts.</p>
-			<p class="hero-kicker">0.1.0 alpha · Apache-2.0</p>
+			<p class="hero-kicker">Alpha · Apache-2.0</p>
 			<div class="hero-actions">
 				<a class="btn btn-primary" href="$site.page('start').link()">Start building <svg class="btn-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></a>
 				<a class="btn btn-secondary" href="$site.page('why').link()">Why OCapN</a>
@@ -62,7 +62,7 @@
 		</a>
 		<a class="card" href="$site.page('examples').link()">
 			<h2>Zig chapters and other apps</h2>
-			<p>The numbered walks, a C embedder, tasks, tools, and accountability.</p>
+			<p>Zig examples, a C embedder, and apps for tasks, tools, and accountability.</p>
 		</a>
 		<a class="card" href="$site.page('project').link()">
 			<h2>Project &amp; status</h2>

@@ -29,7 +29,7 @@ to build and run from a checkout.
 
 # Choose where your session lives
 
-Open the page. The first time, Rooms asks where to keep your session: the
+The first time you open Rooms, it asks where to keep your session: the
 rooms you join, your direct conversations, your drafts, and your history
 settings. Choose **Use this browser** to start.
 
@@ -37,10 +37,9 @@ settings. Choose **Use this browser** to start.
 
 [The first-run choice. Keep your session in this browser, or open one that another device or a server is already keeping.]($image.siteAsset('rooms-session-light.webp'))
 
-The choice is about who keeps your session, not what you can do with it. Keep
-it here and it lives on this device. Share it, and whoever runs it, this page
-or a server, keeps the one copy that every view opens. You can change your mind
-later in Settings.
+**Use this browser** keeps the session on this device. **Shared session**
+opens one already running in another browser or on a server. Both offer the
+same Rooms features. You can switch later in Settings.
 
 # Join a room
 

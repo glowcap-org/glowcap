@@ -12,39 +12,35 @@ communication and durable application state. It combines
 [Loam]($link.page('loam')), its transactional storage and durable actor system.
 Applications control memory, I/O, and scheduling.
 
+Peers pass references to objects and call them across a network. Loam keeps
+the objects' state and relationships on disk, wakes actors on demand, and
+provides durable names peers can use after a restart.
+
+[Their program hands yours a reference to an object called "greeter." Holding that reference is what lets you call it.]($image.siteAsset('diagram-capability.svg'))
+
+[Why OCapN]($link.page('why')) compares capabilities with bearer tokens and
+login tables. [What about identity?]($link.page('identity')) covers where
+people, bots, and AI agents fit, and what keys can and cannot answer.
+
 **0.1.2 alpha · Apache-2.0.** APIs, ABIs, and storage formats can change before
 1.0. Read [Project & status]($link.page('project')) before depending on it.
 
-To try the CLI and Rooms, one command installs the newest release after
-verifying its checksum, and the
-[releases](https://github.com/glowcap-org/glowcap/releases) list every
-download with its provenance:
+# Try it
+
+[Rooms]($link.page('rooms')) is a chat app built on glowcap. Pick a member in a
+room and press **Message *name* directly** to talk without the room in the middle.
+The [CapTP CLI]($link.page('cli')) calls and hosts capabilities from your shell,
+with a REPL and MCP tools.
+
+One command installs the newest CLI and Rooms release after verifying its
+checksum. [GitHub Releases](https://github.com/glowcap-org/glowcap/releases)
+lists the downloads and their provenance:
 
 ```sh
 curl -fsSL https://glowcap.org/install.sh | sh
 ```
 
-Peers exchange references to objects and call them across a network. Loam
-stores the objects' state and relationships, wakes actors on demand, and
-provides durable names peers can use after a restart. The design targets low
-overhead, with explicit ownership and checked allocation and copy budgets.
-[Performance]($link.page('performance')) reports measurements and their limits.
-
-glowcap is built with AI coding assistants. The maintainer directs the work
-and is answerable for what lands.
-[PROVENANCE.md](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
-records how.
-
-If capabilities are new to you, [Why OCapN]($link.page('why')) compares them
-with the bearer tokens and login tables you already use.
-[What about identity?]($link.page('identity')) covers where people, bots,
-and AI agents fit, and what keys can and cannot answer.
-
-[Their program hands yours a reference to an object called "greeter." Holding that reference is what lets you call it.]($image.siteAsset('diagram-capability.svg'))
-
-[Rooms]($link.page('rooms')) is a chat app built on this idea. Pick a member in a
-room and press **Message *name* directly**, and your messages go straight to
-that person instead of through the room.
+# Build with it
 
 A Zig program dials a peer over encrypted TCP, fetches a capability it published,
 and calls it:
@@ -72,25 +68,24 @@ defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 ```
 
-[Start building]($link.page('start')) shows the listening side, the other
-languages, and the other transports.
+[Start building]($link.page('start')) shows the listening side and the same
+call in other languages. Use glowcap as a Zig package, a C ABI, or a binding
+for Rust, TypeScript, Python, or Racket. The TypeScript binding also runs in
+the browser over WebAssembly. [Choose an API]($link.page('surfaces')) compares
+the entry points.
 
-Pin a commit, and expect the API to move.
-[What you can depend on]($link.page('stability')) separates checked behavior
-from areas that still need outside testing.
+The protocol core is a synchronous state machine with no I/O of its own, so
+sockets, threads, and scheduling stay in your program. Peers can connect over
+[iroh]($link.page('transports/iroh')), [Noise]($link.page('transports/noise')),
+[WebRTC]($link.page('transports/webrtc')), or [Tor]($link.page('transports/onion')),
+among other paths. [Choosing a transport]($link.page('transports/choosing'))
+compares reachability, encryption, and identity.
 
-The protocol core does no I/O of its own. It is a synchronous state machine you
-feed bytes into and drain bytes out of, so sockets, threads, and scheduling stay
-in your program. Peers can meet over encrypted discovery
-([iroh]($link.page('transports/iroh'))), sealed TCP
-([Noise]($link.page('transports/noise'))), a browser DataChannel
-([WebRTC]($link.page('transports/webrtc'))), or Tor
-([onion]($link.page('transports/onion'))), among other paths.
-[Choosing a transport]($link.page('transports/choosing')) is the decision table.
+[Performance]($link.page('performance')) reports measured costs and checked
+allocation and copy budgets. [What you can depend on]($link.page('stability'))
+explains which behavior is tested and where outside testing is still needed.
 
-Use the library as a Zig package, a plain C ABI, or a binding (Rust,
-TypeScript, Python, Racket). In the browser, the TypeScript binding calls the
-core compiled to WebAssembly. The [CapTP
-CLI]($link.page('cli')) provides shell commands, a REPL, and MCP tools. `zig build`
-puts the `glowcap` binary in `zig-out/bin`. [Choose an
-API]($link.page('surfaces')) compares all of these entry points.
+AI coding assistants help write glowcap. The maintainer directs the work
+and is answerable for what lands.
+[How glowcap is built](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
+records the process.

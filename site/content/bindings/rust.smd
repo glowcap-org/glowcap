@@ -11,7 +11,7 @@ The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and
 ([`lib.rs`](https://github.com/glowcap-org/glowcap/blob/main/bindings/rust/src/lib.rs)).
 The round-trip below leads with iroh. Enable the `iroh` Cargo feature for that
 tab. Start from the
-[checkout instructions]($link.page('bindings')).
+[installation options]($link.page('bindings').ref('install-a-binding')).
 
 # The same round-trip
 

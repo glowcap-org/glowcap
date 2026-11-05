@@ -9,12 +9,9 @@
 The TypeScript binding runs on Deno, Bun, and the browser from one source tree.
 `@glowcap/runtime`
 ([`mod.ts`](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/runtime/mod.ts))
-gives Deno the `Session` and `Host` API over the glowcap C ABI. Bun's synchronous FFI
-cannot host the C driver loop. Bun supports synchronous Host and locator calls
-and clients whose JavaScript supplies the bytes. Driver-based dialing and
-listening refuse.
-`Runtime.open` installs the transport providers and connectors once, and
-`runtime.connect` picks the one that matches the locator.
+provides the `Session` and `Host` API over the C ABI on Deno. `Runtime.open`
+installs transport providers and connectors, and `runtime.connect` chooses
+one for the peer's locator.
 
 - Transport packages such as `@glowcap/iroh` build their own locators and own
   their transport configuration.
@@ -29,15 +26,20 @@ or a registered relay route, without opening a listening socket.
 [In the browser]($link.page('bindings/browser')) covers how a page reaches its
 peers.
 
-To use it, pin a checkout, build the archives, and run from `bindings/ts` or
-point an import map at `bindings/ts/runtime/mod.ts`. Set `GLOWCAP_LIB_DIR` to
-load the archives from another directory. Deno needs
+Bun's synchronous FFI supports Host and locator calls and clients whose
+JavaScript supplies the bytes. It cannot run the C driver loop, so
+driver-based dialing and listening are unavailable.
+
+See [installation options]($link.page('bindings').ref('install-a-binding'))
+for released packages. From a checkout, build the archives and run from
+`bindings/ts` or point an import map at `bindings/ts/runtime/mod.ts`.
+Set `GLOWCAP_LIB_DIR` to use archives from another directory. Deno needs
 `--allow-ffi --allow-read --allow-net`, plus `--allow-env` when the library
 path comes from the environment.
 
 # The same round-trip
 
-This is the [Start building]($link.page('start')) round-trip in TypeScript.
+This is the [Start building]($link.page('start')) round-trip on Deno.
 `fetch` and `send` start the inbound loop on demand, so you only need `serve`
 when another task waits for the session to shut down.
 

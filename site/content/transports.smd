@@ -6,13 +6,10 @@
 .draft = false,
 ---
 
-A transport, or *netlayer*, is the byte path under a
-[CapTP]($link.page('concepts')) session, the connection that carries calls
-between two peers. CapTP handles calls, promises, and handoffs above that
-byte path.
-The transport decides how you name a peer and how the bytes get there: encrypted
-QUIC, a sealed TCP stream, a Tor circuit, a browser DataChannel, or a
-cleartext testing socket.
+[CapTP]($link.page('concepts')) handles calls, promises, and handoffs between
+two peers. A transport, or *netlayer*, carries its bytes and determines how
+you reach the peer: encrypted QUIC, a sealed TCP stream, a Tor circuit,
+a browser DataChannel, or a cleartext testing socket.
 
 # How a peer is named
 

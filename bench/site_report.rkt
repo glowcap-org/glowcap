@@ -424,7 +424,7 @@
    (html-table '("actors" "glowcap snapshot µs" "Goblins snapshot µs" "glowcap restore µs" "Goblins restore µs")
                (for/list ([pr (in-list p-obj)] [gr (in-list g-obj)])
                  (list (car pr) (r1 (us (cadr pr))) (r1 (us (cadr gr))) (r1 (us (caddr pr))) (r1 (us (caddr gr))))))
-   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. The runtimes differ, so their absolute times are not directly comparable. The shared O(objects) trend is the result. On restore, glowcap frees the rewound copies right away, and Goblins leaves that cleanup to its garbage collector.</p>"
+   (format "\n<p class=\"bench-note\">Both runtimes share each actor's state instead of copying it, so snapshot cost follows the number of actors, not their size. A glowcap snapshot takes ~a µs with ~a-byte actors and ~a µs with ~a-byte actors. The runtimes differ, so compare their trends, not their absolute times. On restore, glowcap frees rewound copies immediately, and Goblins leaves that cleanup to its garbage collector.</p>"
            (r1 (us (cadr small))) (car small)
            (r1 (us (cadr big))) (car big))))
 
