@@ -1,4 +1,4 @@
-# TypeScript binding
+# glowcap for TypeScript and JavaScript
 
 These packages let TypeScript and JavaScript connect to OCapN peers, call their
 objects, and host objects of their own. Deno supports the full session API,
@@ -15,6 +15,9 @@ the GitHub release and verifies them against its checksum file. Set
 Run your client with `deno run --allow-all client.ts`. In a checkout of the
 repository, run `zig build` and save the client in the repository root, where
 the checkout's `deno.json` maps the package names to the tree's sources.
+
+Start the [TCP greeter server](tcp/README.md#listen) in another terminal, then use its
+advertised peer key in the client below.
 
 ```ts
 import { Runtime } from "@glowcap/runtime";
@@ -35,13 +38,13 @@ console.log(await session.send(greeter, "greet", ["world"]));
 | --- | --- |
 | [`@glowcap/runtime`](runtime/README.md) | The `Session`, `Host`, OCapN values, and generic driver. |
 | [`@glowcap/iroh`](iroh/README.md) | Optional encrypted QUIC provider and listener. |
-| `@glowcap/onion` | Tor onion provider, listener, and raw transport handles. |
+| [`@glowcap/onion`](onion/README.md) | Tor onion provider, listener, and raw transport handles. |
 | [`@glowcap/relay`](relay/README.md) | A byte-transparent relay for browser peers that cannot open sockets. |
 | [`@glowcap/webrtc`](webrtc/README.md) | A WebRTC DataChannel opened through a signaling capability. `/driver` is the Deno provider and listener: it dials a `webrtc` locator and accepts offers on the driver loop. |
 | [`@glowcap/web`](web/README.md) | The same host and session API compiled to WebAssembly. |
-| `@glowcap/tcp` | TCP locators and listeners. `/transport` exposes provider installation and blocking frame handles. |
-| `@glowcap/inproc` | Socket-free in-process frame transport for tests and programs that keep every peer in one process. |
-| `@glowcap/abi` | Generated ABI constants used by the other packages. |
+| [`@glowcap/tcp`](tcp/README.md) | TCP locators and listeners. `/transport` exposes provider installation and blocking frame handles. |
+| [`@glowcap/inproc`](inproc/README.md) | Socket-free in-process frame transport for tests and programs that keep every peer in one process. |
+| [`@glowcap/abi`](abi/README.md) | Generated ABI constants used by the other packages. |
 
 Deno, Bun, and the browser each need their own way to call C library code and open
 sockets. The runtime picks the matching adapter when it loads.
@@ -68,3 +71,6 @@ zig build wasm-import-check
 
 `zig build bindings` runs the binding checks together. The
 [binding overview](../README.md) describes the shared session API.
+
+glowcap is built with AI coding assistants. The maintainer directs the work and is answerable for
+what lands, as [How glowcap is built](../../PROVENANCE.md) explains.

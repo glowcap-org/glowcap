@@ -20,6 +20,7 @@ import { archiveListingViolation } from "./archive_hygiene.ts";
 import { libFile } from "./surface.ts";
 import { sha256File } from "./release_checksum.ts";
 import { curlTransportArgs, failArchiveSecurity, HardFailError, requireSecureReleaseUrl } from "./release_security.ts";
+import releaseContract from "./c-abi-resolve.json" with { type: "json" };
 
 // The host built-ins the cascade rides. Static imports (not top-level await)
 // so this module ships no top-level await: a browser bundle flattens every
@@ -152,7 +153,9 @@ type Contract = {
 	require_checksum: boolean;
 };
 
-function packageDir(): string {
+function packageDir(): string | null {
+	// JSR modules keep their HTTP URL. Only file modules can belong to a checkout.
+	if (!import.meta.url.startsWith("file:")) return null;
 	return dirname(fileURLToPath(import.meta.url));
 }
 
@@ -170,8 +173,8 @@ function requireField<T>(
 
 function loadContract(): Contract {
 	if (cachedContract !== null) return cachedContract;
-	const path = join(packageDir(), "c-abi-resolve.json");
-	const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+	// Importing the packaged contract works for remote JSR modules and local files.
+	const raw: Record<string, unknown> = releaseContract;
 	cachedContract = {
 		abi_version: requireField(raw, "abi_version"),
 		default_release_base_url: requireField(raw, "default_release_base_url"),
@@ -503,24 +506,7 @@ function libDir(): string | null {
 	const override = envVar("GLOWCAP_LIB_DIR");
 	if (override !== null) return override;
 
-	let contract: Contract;
-	try {
-		contract = loadContract();
-	} catch (err) {
-		// Deno permission denial degrades to the next rung; a corrupt or
-		// incomplete contract is a hard failure (parity with Python/Racket).
-		const msg = err instanceof Error ? err.message : String(err);
-		if (
-			msg.includes("Requires") ||
-			msg.includes("PermissionDenied") ||
-			msg.includes("NotCapable") ||
-			msg.includes("permission")
-		) {
-			return null;
-		}
-		throw err;
-	}
-
+	const contract = loadContract();
 	const devRoot = findDevRoot();
 	const version = abiVersion(devRoot, contract);
 	const target = hostTargetTriple();

@@ -20,9 +20,14 @@ deno add jsr:@glowcap/tcp jsr:@glowcap/runtime
 ```
 
 The package loads the TCP C library on first use, which the runtime's C SDK download includes.
-Deno needs `--allow-ffi --allow-read --allow-net`.
+Save the dial example as `client.ts` and run `deno run --allow-all client.ts`.
+The [runtime installation instructions](https://jsr.io/@glowcap/runtime#install) explain the
+download tools and how to use a local SDK.
 
 ## Dial
+
+Run the [listener below](#listen) in another terminal first. Use the durable peer key from
+its printed URI in `peerKey`.
 
 ```ts
 import { Runtime } from "@glowcap/runtime";
@@ -36,6 +41,8 @@ console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
 ## Listen
+
+Save this example as `server.ts` and run `deno run --allow-all server.ts`.
 
 ```ts
 import type { Argument } from "@glowcap/runtime";

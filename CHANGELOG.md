@@ -9,7 +9,7 @@ and storage formats before 1.0.
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-11-04
+## [0.1.2] - 2026-11-05
 
 ### Added
 
@@ -28,9 +28,50 @@ and storage formats before 1.0.
 - Rust `Ref::retain_for` owns a capability independently of the original
   reference's explicit release. Prepared Rust calls retain their target and
   reference arguments before acquiring a mutation sequence.
+- Product and C SDK archives include the original license and attribution
+  texts for their bundled Rust and JavaScript dependencies.
+
+### Changed
+
+- Zig event consumers use `Event.kind()` instead of `Event.tag` and access
+  wire data only on wire events. For cross-session promise forwarding, custom
+  `Node` embeddings install `Node.pipeline_projection` and dispatch callable
+  deliveries and retirement events in FIFO order. `Host` handles both.
+- Zig driver callers replace `AcceptIdentity` with `Identity`. Keyed
+  identities use `.keyed = key` instead of a secret/designator struct. The
+  unused designator override and `dialedDesignator` helper are removed.
+  Caller-supplied iroh endpoints must share the Host's identity seed.
 
 ### Fixed
 
+- Calls queued on a promise keep working when it settles to an object on
+  another session. Forwarded capability replies retain their references until
+  their owners release them. If allocation failure prevents even a failure
+  reply, the source session closes rather than leaving the call pending.
+- Callbacks can claim a reference's session when an ordinary Host call drives
+  the callback outside `step`. A released session cannot be reclaimed while
+  its teardown is pending.
+- The Racket iroh connector uses its Host's identity for the endpoint. The
+  Goblins iroh adapter checks claimed locators against authenticated endpoints
+  even with tracing disabled.
+- The Goblins Rooms peer rejects calls and late introductions to a DM inbox
+  after its registration ends, including when someone reuses the nickname.
+- A refused TypeScript `Host.close` leaves the Host usable and keeps later
+  errors visible.
+- Rooms link previews reject non-public special-purpose IPv6 destinations
+  and the local-use NAT64 prefix.
+- Goblins comparison runs stop on failed or stalled children instead of
+  retrying failed samples or counting them as successful measurements. The
+  performance pages contain a complete fresh run and label language
+  throughput in task-board units.
+- Build-step documentation checks use the same reference graph regardless
+  of the caller's optimization flags.
+- The Racket catalog setup uses a Git source URL, so the package manager
+  checks out the selected release and its binding directory instead of
+  treating the GitHub page as a package download directory.
+- TypeScript packages imported over HTTP load their bundled release settings
+  without treating the module URL as a local file path. Published JSR imports
+  can use the versioned SDK cache and automatic downloads.
 - Generated TypeScript calls support checked `await` while preserving raw
   pipelining. The export name `then` is refused, but a wire method can still be
   named `then`.
@@ -58,7 +99,6 @@ and storage formats before 1.0.
   selection waits for directory registration before opening the session.
 - The TypeScript argument encoder rejects sparse arrays instead of silently
   converting missing slots into integer zero.
-
 - The C SDK archive ships the WebRTC transport's shared library and header
   beside the iroh one, so the Rust crate's `webrtc` feature links against the
   release SDK instead of failing to find `libglowcap_net_transport_webrtc`.
@@ -71,6 +111,8 @@ and storage formats before 1.0.
   the package only through absolute links, and keeps contributor checks in the
   repository. Every `@glowcap/*` package ships a README, and `source-check`
   holds both rules.
+  First-run examples name their server and runtime requirements. The Zig
+  package's README links work without a repository checkout.
 
 ## [0.1.1] - 2026-10-31
 

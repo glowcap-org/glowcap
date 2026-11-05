@@ -14,14 +14,22 @@ raco pkg install glowcap
 ```
 
 The package installs the `glowcap` collection. On first load it downloads the
-C libraries of its version from the GitHub release and verifies them against
-its checksum file. Set `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/`
+C libraries of its version from its
+[GitHub release](https://github.com/glowcap-org/glowcap/releases) and verifies
+them against its checksum file. Set `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/`
 directory to use a local copy. In a checkout of the repository, run `zig build`
 and `require` the modules from `bindings/racket/` by relative path instead.
 
 ## A first session
 
+Start a server that publishes `greeter` with a `greet` method, as in the
+[listening example](https://glowcap.org/bindings/racket/). This client
+connects over encrypted Noise TCP to `127.0.0.1:9099`. Replace `peer-key` with
+the server's public key, save this as `client.rkt`, and run `racket client.rkt`.
+
 ```racket
+#lang racket/base
+
 (require glowcap/glowcap
          glowcap/glowcap-tcp)
 
@@ -50,13 +58,13 @@ Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
 
 | Module | Purpose |
 | --- | --- |
-| [`glowcap.rkt`](glowcap.rkt) | Sessions, hosts, actors, generic connection management, locators, and values. |
-| [`glowcap-iroh.rkt`](glowcap-iroh.rkt) | Optional encrypted QUIC provider/connector and `listen-iroh`. |
-| [`glowcap-webrtc.rkt`](glowcap-webrtc.rkt) | Optional WebRTC dial and listen. See below. |
-| [`glowcap-onion.rkt`](glowcap-onion.rkt) | Tor-backed provider/connector, `listen-onion` / `connect-onion`, and raw onion netlayer handles. |
-| [`glowcap-relay.rkt`](glowcap-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers, managed listeners, and keyed byte connector. |
-| [`glowcap-tcp.rkt`](glowcap-tcp.rkt) | TCP locators, explicit provider/connector values, driver-backed listeners, and blocking netlayer handles. |
-| [`glowcap-inproc.rkt`](glowcap-inproc.rkt) | Explicit in-process byte connector and blocking connections. |
+| [`glowcap/glowcap`](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/glowcap.rkt) | Sessions, hosts, actors, locators, and values. |
+| [`glowcap/glowcap-iroh`](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/glowcap-iroh.rkt) | Encrypted QUIC connections and `listen-iroh`. |
+| [`glowcap/glowcap-webrtc`](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/glowcap-webrtc.rkt) | WebRTC dial and listen with signaling you supply. |
+| [`glowcap/glowcap-onion`](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/glowcap-onion.rkt) | Tor connections through a daemon you run, with `listen-onion` and `connect-onion`. |
+| [`glowcap/glowcap-relay`](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/glowcap-relay.rkt) | Keyed and Noise relay connections and listeners. |
+| [`glowcap/glowcap-tcp`](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/glowcap-tcp.rkt) | Noise, keyed, and plain TCP connections and listeners. |
+| [`glowcap/glowcap-inproc`](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/glowcap-inproc.rkt) | In-process connections. |
 
 WebRTC needs signaling you supply with `make-webrtc-signaling`, to carry each
 exchange's offer, answer, and candidates. `webrtc-provider` dials a `webrtc`

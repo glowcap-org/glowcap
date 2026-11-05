@@ -6,8 +6,14 @@ file is generated from the C library's declarations, so the packages agree with 
 they load.
 
 Applications install it through the package that needs it. [`@glowcap/runtime`](https://jsr.io/@glowcap/runtime)
-is the core package, and its page lists the transport packages. Import a constant directly when
-a configuration value should match the library's default:
+is the core package, and its page lists the transport packages. To import constants directly,
+add the package to your project:
+
+```sh
+deno add jsr:@glowcap/abi
+```
+
+Use a constant when a configuration value should match the library's default:
 
 ```ts
 import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@glowcap/abi";

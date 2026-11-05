@@ -12,11 +12,11 @@ and handoffs.
 deno add jsr:@glowcap/iroh jsr:@glowcap/runtime
 ```
 
-The package loads its own library, `libglowcap_net_transport_iroh`, a Rust library built around
-iroh that the runtime's C SDK download includes. That library exports only `glowcap_iroh_*`
-functions and shares no symbol with the core, so it loads next to `libglowcap_ocapn`. iroh lives
-in its own package because it follows iroh's release schedule, and an application that never uses
-iroh never loads the Rust library.
+The package loads `libglowcap_net_transport_iroh`, a Rust library built around iroh that the
+runtime's C SDK download includes. Save the example below as `client.ts` and run
+`deno run --allow-all client.ts`. The
+[runtime installation instructions](https://jsr.io/@glowcap/runtime#install) explain the
+download tools and how to use a local SDK.
 
 ## Connecting to a peer
 

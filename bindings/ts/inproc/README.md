@@ -13,7 +13,9 @@ deno add jsr:@glowcap/inproc jsr:@glowcap/runtime
 ```
 
 The package loads the in-process C library on first use, which the runtime's C SDK download
-includes. Deno needs `--allow-ffi --allow-read`.
+includes. Save the example below as `inproc.ts` and run `deno run --allow-all inproc.ts`.
+The [runtime installation instructions](https://jsr.io/@glowcap/runtime#install) explain the
+download tools and how to use a local SDK.
 
 ## Use
 
@@ -28,8 +30,10 @@ await using net = new Netlayer();
 await using listener = net.listen("rooms");
 await using client = await net.connect("rooms");
 await using server = await listener.accept();
+const frame = new TextEncoder().encode("hello");
 await client.writeFrame(frame);
 const got = await server.readFrame();
+console.log(new TextDecoder().decode(got!));
 ```
 
 `locator(designator)` builds the matching `inproc` locator for a Runtime. The raw methods are

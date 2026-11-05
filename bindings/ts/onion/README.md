@@ -17,7 +17,9 @@ deno add jsr:@glowcap/onion jsr:@glowcap/runtime
 ```
 
 The package loads the onion C library on first use, which the runtime's C SDK download includes.
-Deno needs `--allow-ffi --allow-read --allow-net` to reach the daemon.
+Save the example below as `client.ts` and run `deno run --allow-all client.ts`.
+The [runtime installation instructions](https://jsr.io/@glowcap/runtime#install) explain the
+download tools and how to use a local SDK.
 
 ## Dial and listen
 

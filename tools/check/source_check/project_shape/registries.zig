@@ -418,7 +418,7 @@ pub fn checkRepositoryUrl(
                 var stop: usize = 0;
                 while (stop < tail.len and !isUrlTerminator(tail[stop])) stop += 1;
                 var target = std.mem.trimEnd(u8, tail[0..stop], ".,;:)");
-                if (std.mem.indexOfScalar(u8, target, '#')) |frag| target = target[0..frag];
+                if (std.mem.indexOfAny(u8, target, "?#")) |suffix| target = target[0..suffix];
                 if (target.len == 0) continue;
                 const clean = std.mem.trimEnd(u8, target, "/");
                 if (clean.len == 0) continue;

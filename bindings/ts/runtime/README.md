@@ -19,8 +19,16 @@ deno add jsr:@glowcap/runtime jsr:@glowcap/tcp
 
 On first use outside a checkout, the package downloads the C libraries of its version from the
 GitHub release and verifies them against its checksum file. Set `GLOWCAP_LIB_DIR` to an extracted
-C SDK's `lib/` directory to use a local copy. Deno needs `--allow-ffi --allow-read` for the
-libraries, plus `--allow-net` for the download and the sockets.
+C SDK's `lib/` directory to use a local copy. Automatic downloads require `curl` and GNU or BSD `tar`.
+The loader reads environment settings, writes its cache, and runs those tools before loading
+the libraries through FFI. Save the example below as `client.ts` and run it with:
+
+```sh
+deno run --allow-all client.ts
+```
+
+For Bun's Host and byte-fed APIs, install with `bunx jsr add @glowcap/runtime` and run with
+`bun run`. The Deno session example below uses the driver loop, which Bun does not support.
 
 | Package | Adds |
 | --- | --- |
@@ -36,6 +44,10 @@ libraries, plus `--allow-net` for the download and the sockets.
 [Choosing a transport](https://glowcap.org/transports/choosing/) compares them.
 
 ## A first session
+
+The example expects a peer publishing `greeter` at `127.0.0.1:9099`. The
+[TCP listener example](https://jsr.io/@glowcap/tcp#listen) supplies that server.
+Use its advertised durable key for `peerKey`.
 
 A Runtime owns one Host (the object that owns your identity and published objects) and the
 providers or connectors you passed it. An application works with a `Session`:
@@ -119,7 +131,7 @@ retire their references without waiting for JavaScript collection.
 
 | Runtime                  | FFI                    | How it runs                               |
 | ------------------------ | ---------------------- | ----------------------------------------- |
-| [Deno](https://deno.com) | `Deno.dlopen`          | `deno run --allow-ffi --allow-read`       |
+| [Deno](https://deno.com) | `Deno.dlopen`          | `deno run --allow-all client.ts`          |
 | [Bun](https://bun.sh)    | `bun:ffi`              | `bun run`                                 |
 | Browser                  | WebAssembly            | `@glowcap/web` `init`                     |
 
@@ -129,8 +141,8 @@ refused at load with an error.
 
 ## The modules
 
-The public API is declared in [`deno.json`](deno.json)'s `exports` map (the JSR manifest, which
-Bun also reads). Each transport package maps to one C library and opens only that library, so an
+The public API is declared in [`deno.json`](deno.json)'s `exports` map. JSR uses it for Deno and
+its npm-compatible packages, which Bun installs. Each transport package opens its own C library, so an
 import loads only what it needs.
 
 | Import | File | Purpose |
@@ -171,6 +183,7 @@ await using net = new Netlayer();
 await using listener = net.listen("rooms");
 await using client = await net.connect("rooms");
 await using server = await listener.accept();
+const frame = new TextEncoder().encode("hello");
 await client.writeFrame(frame);
 const got = await server.readFrame();
 ```

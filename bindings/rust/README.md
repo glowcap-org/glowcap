@@ -9,14 +9,17 @@ actors. Terms such as locator, Host, and sturdyref are defined in the
 
 ## Install
 
-Add the crate with the `async` feature for the session API:
+Add the crate with the `async` feature for the session API, and Tokio to run
+the example below:
 
 ```sh
 cargo add glowcap --features async
+cargo add tokio --features rt,macros
 ```
 
-The build script downloads the C libraries of the crate's version from the
-GitHub release and verifies them against its checksum file. Set
+The build script downloads the C libraries of the crate's version from its
+[GitHub release](https://github.com/glowcap-org/glowcap/releases) and verifies
+them against its checksum file. Set
 `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/` directory to build against a
 local copy. In a checkout of the repository, run `zig build` and depend on the
 crate by path instead:
@@ -28,25 +31,35 @@ glowcap = { path = "/path/to/glowcap/bindings/rust", features = ["async"] }
 
 ## A first session
 
-The calling side of a session looks like this:
+Start a server that publishes `greeter` with a `greet` method, as in the
+[listening example](https://glowcap.org/bindings/rust/). This client
+connects over encrypted Noise TCP to `127.0.0.1:9099`. Replace `peer_key` with
+the server's public key, save this as `src/main.rs`, and run `cargo run`.
+Rust sessions stay on one thread, so the program runs inside a Tokio `LocalSet`.
 
 ```rust
 use glowcap::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
-let peer_key = "<64 lowercase hex characters from the server>";
-let partner = tcp::noise::locator(peer_key, "127.0.0.1", 9099);
-let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config::default())])).await?;
-let session = runtime.connect(&partner, ConnectOptions::default()).await?;
-let greeter = session.fetch("greeter").await?;
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> glowcap::Result<()> {
+    tokio::task::LocalSet::new().run_until(async {
+        let peer_key = "<64 lowercase hex characters from the server>";
+        let partner = tcp::noise::locator(peer_key, "127.0.0.1", 9099);
+        let config = RuntimeConfig::providers([tcp::provider(tcp::Config::default())]);
+        let runtime = Runtime::open(config).await?;
+        let session = runtime.connect(&partner, ConnectOptions::default()).await?;
+        let greeter = session.fetch("greeter").await?;
 
-match session.send(&greeter, "greet", &["world".into()]).await {
-    Ok(Argument::String(reply)) => println!("{reply}"),
-    Ok(other) => println!("unexpected reply: {other:?}"),
-    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+        match session.send(&greeter, "greet", &["world".into()]).await {
+            Ok(Argument::String(reply)) => println!("{reply}"),
+            Ok(other) => println!("unexpected reply: {other:?}"),
+            Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+        }
+
+        session.close(PendingWork::Cancel).await?;
+        runtime.close(PendingWork::Cancel).await
+    }).await
 }
-
-session.close(PendingWork::Cancel).await?;
-runtime.close(PendingWork::Cancel).await?;
 ```
 
 `Runtime` holds the Host (the object that owns your identity and published objects) and the
@@ -72,9 +85,6 @@ relay transport to the same loop. If your code feeds bytes itself, install conne
 `tcp::ListenOptions` selects the Host identity and the dialable
 `advertised_host` that a wildcard bind requires, because a bind address is not
 a reachable route.
-
-Rust sessions are `!Send`. Run them on one Tokio current-thread `LocalSet` and
-keep a session and its actors on that task.
 
 ## Sessions and actors
 
@@ -387,6 +397,7 @@ when compiled for Wasm. The lifecycle guide covers graph and owner views.
 
 ## Learn more
 
+- [API reference](https://docs.rs/glowcap/latest/glowcap/): types, methods, and feature flags.
 - [Rust guide](https://glowcap.org/bindings/rust/): the round trip, listening, async, and actors.
 - [Choosing a transport](https://glowcap.org/transports/choosing/), and the pages for
   [iroh](https://glowcap.org/transports/iroh/), [WebRTC](https://glowcap.org/transports/webrtc/),

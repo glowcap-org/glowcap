@@ -41,6 +41,17 @@ which work across JavaScript runtimes. Your application supplies the rest.
 
 ## Usage
 
+The server integration below also uses the ABI constants and iroh transport:
+
+```sh
+deno add jsr:@glowcap/abi jsr:@glowcap/iroh
+```
+
+Your HTTP server supplies `socket` after upgrading the request and validates the destination
+`locator` before opening it. Run a Deno server with `deno run --allow-all server.ts`.
+The [runtime installation instructions](https://jsr.io/@glowcap/runtime#install) cover loading
+the C libraries the iroh transport needs.
+
 ```ts
 import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@glowcap/abi";
 import { webSocketRelay } from "@glowcap/relay";
