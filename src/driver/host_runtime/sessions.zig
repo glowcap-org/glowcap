@@ -97,10 +97,12 @@ pub fn claimExporterSession(self: *HostRuntime, session: *driver_core.HostSessio
 
 /// Open a driver turn for an ownership update, unless a Host callback or Vat
 /// turn is running. That turn may come from `step` or from a Host verb's tail
-/// pump, and its outer boundary owns the flush and the thread claim, so the
-/// update only checks that it runs on the owning thread. Ending a turn of our
-/// own there would flush residents inside the callback. Returns whether the
-/// caller must `leaveDriver`.
+/// pump, and whichever started it already claimed the owning thread, so the
+/// update only checks that it runs there. The update queues no effect and needs
+/// no flush. Leaving a turn inside the callback would flush residents and
+/// release ownership while the callback still runs. Returns whether the caller
+/// must `leaveDriver`. The callback state is read once, so a caller's body must
+/// not pump or dispatch before its deferred leave.
 fn enterOwnershipUpdate(self: *HostRuntime) error{WrongThread}!bool {
     if (self.withinCallback()) {
         try self.core.claimOwner();
