@@ -11,11 +11,10 @@ sources:
 
 # The member archive
 
-Room history is kept by the room server when enabled. A member's archive
-stores the direct messages and room lines they choose to keep.
-
-So Rooms gives each member one ordinary OCapN object for what they kept. One
-Rust design implements it in three places:
+Room history is kept by the room server when enabled. A member's archive is
+separate: it stores the direct messages and room lines that member chose to
+keep, as one ordinary OCapN object the member holds. One Rust design
+implements that object in three places:
 
 - in the browser, over IndexedDB
 - in the archive service, over an append-only log on disk

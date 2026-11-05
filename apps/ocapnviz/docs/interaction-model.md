@@ -287,10 +287,9 @@ authoring transaction still moves its hit geometry immediately.
 
 ### 8.2 Wheel
 
-Wheel is a sibling pipeline. Listeners are non-passive because navigation must prevent page scroll. Stage vertical wheel
-zooms around the pointer. Timeline horizontal wheel or Shift-wheel pans time.
-Plain vertical wheel zooms. Wheel over the
-Scrubber gutter scrolls the row stack.
+Wheel is a sibling pipeline. Listeners are non-passive because navigation must prevent page scroll. On the Stage, a
+vertical wheel zooms around the pointer. On the Timeline, a horizontal wheel or Shift-wheel pans time and a plain
+vertical wheel zooms it, except over the Scrubber gutter, where the wheel scrolls the row stack.
 
 ### 8.3 Keyboard
 
