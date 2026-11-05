@@ -161,8 +161,8 @@ export abstract class HostLifecycle extends HostState {
 			return this._driverLoop.close(options);
 		}
 		if (this._releasePromise == null && this._raw !== NULL) {
-			this._releaseStarted = true;
 			checkHost(hostS.glowcap_host_close(this._raw, ab(encoded), monotonicNowMs()));
+			this._releaseStarted = true;
 			this.signalCloseActivity();
 			const begin = () => this._doClose();
 			this._releasePromise = insideTurn() ? Promise.resolve().then(begin) : begin();
