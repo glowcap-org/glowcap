@@ -1,6 +1,7 @@
 import { CLOSED, INTERNAL, INVALID_ARGUMENT } from "@glowcap/abi";
 import { FetchFailed, GlowcapError, secondaryFailures } from "../errors.ts";
 import { Host } from "../host.ts";
+import type { CloseOptions } from "../lifecycle.ts";
 import { awaitMinted, finishFetch, type PromiseFactoryHandle, promiseFor, RemotePromise } from "../promise.ts";
 import { type LoopChannel, Session } from "../session.ts";
 import { refFromId } from "../value.ts";
@@ -336,4 +337,27 @@ Deno.test("vow rejection waits for successful progress before escaping", async (
 	releaseProgress();
 	const [outcome] = await observed;
 	assert(outcome.status === "rejected" && outcome.reason === failure, "settlement failure identity changed");
+});
+
+Deno.test("an invalid Host close preserves background failure delivery", async () => {
+	const host = new Host();
+	const failure = new Error("background task failed after refused close");
+	let observed: unknown = null;
+	try {
+		const refused = await assertRejects(() => host.close({ pending: "finish" } as unknown as CloseOptions));
+		assert(refused instanceof GlowcapError && refused.code === INVALID_ARGUMENT, "invalid close was not refused");
+		host.recordBackgroundFailure(failure);
+		try {
+			host.drainGc();
+		} catch (error) {
+			observed = error;
+		}
+	} finally {
+		// A regression can defer this failure until close. Retire the native
+		// owner without letting cleanup obscure the delivery assertion.
+		await host.close().catch((error) => {
+			if (error !== failure) throw error;
+		});
+	}
+	assert(observed === failure, "refused close suppressed the active Host's background failure");
 });
