@@ -9,7 +9,9 @@ from pathlib import Path
 
 from workflows import ROOT
 
-PASS = {name: {"result": "success"} for name in ("plan", "image", "linux", "macos-runtime", "workflows")}
+PASS = {
+    name: {"result": "success"} for name in ("plan", "image", "linux", "macos-runtime", "workflows", "dependencies")
+}
 PASS["plan"]["outputs"] = {"full": "true"}
 
 
