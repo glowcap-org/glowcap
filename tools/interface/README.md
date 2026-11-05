@@ -1,10 +1,13 @@
 # Interface generation
 
-Tasks and callback generation use the complete authored text bundle, checked
-against independent Syrup fixtures. The
+`tools/interface/` turns an authored interface description into checked calls
+for Zig, Rust, and TypeScript. The `.interface` modules that `authored.zig`
+pins compile into one checked description. Everything generated from it,
+including the Tasks creation projections, the fixture callbacks, and the Rust
+message expectations, is checked against independent Syrup fixtures. The
 [roadmap](../../docs/roadmap.md) item on interface definitions owns scope and
-progress. The [proof suite](../../test/interface/README.md)
-owns executable qualification.
+progress, and the [proof suite](../../test/interface/README.md) owns
+executable qualification.
 
 | Source | Responsibility |
 | --- | --- |

@@ -1,10 +1,11 @@
 # ocapnviz: OCapN network topology visualizer
 
 ocapnviz draws CapTP sessions and messages on a timeline so you can watch a
-live Rooms server or replay a recorded run. Peers and sessions move on a
-playback clock, so a timeline plays the same way every time, and PixiJS draws
-them. Each peer records which implementation it runs (`goblins`, `glowcap`, and so on),
-and each session carries its codec, CapTP version, and lifecycle state.
+live Rooms server or replay a recorded run. PixiJS draws the peers and
+sessions, and they move on a playback clock, so a timeline plays the same way
+every time. Each peer records which implementation it runs (`goblins`,
+`glowcap`, and so on), and each session carries its codec, CapTP version, and
+lifecycle state.
 
 ocapnviz replays timelines that `glowcap griddle run` (the CLI's deterministic
 simulator) produces, converted by
@@ -20,6 +21,10 @@ From the repository root:
 ```bash
 zig build ocapnviz-dev   # vite dev server; open the printed URL
 ```
+
+Press **Play** to watch Alice introduce Bob to Carol. Bob runs Goblins, so the
+Bob-to-Carol session uses Syrup over CapTP 1.0 (`syrup/v1_0`). Each session
+negotiates its own codec and CapTP version.
 
 Inside `apps/ocapnviz/`, the same server is `bash dev.sh`, and the suite and
 type-check are `deno task test` and `deno task typecheck`.
@@ -38,10 +43,6 @@ The dev server defaults to <http://127.0.0.1:5173> and answers only localhost
 Host headers, so a laptop run is not a LAN service. The devcontainer binds
 `0.0.0.0` inside the container and answers any Host header, so Compose's
 host-loopback publish reaches Vite. Open that published port as localhost.
-
-Press **Play** to watch Alice introduce Bob to Carol. Bob runs Goblins, so the
-Bob-to-Carol session uses Syrup over CapTP 1.0 (`syrup/v1_0`). Each session
-negotiates its own codec and CapTP version.
 
 `dev.sh`, the body of `zig build ocapnviz-dev`, supervises vite so that Ctrl-C
 and closing the terminal stop the dev server. A bare `deno run -A npm:vite` can

@@ -24,11 +24,12 @@ composition in `rooms-browser::storage::Session` uses per-tab IndexedDB and an
 exclusive Web Lock. Neither loads every grant at startup or rebuilds storage
 from a summary.
 
-Use `Opened::workspace` and `Opened::management` for typed clients.
-`Opened::supervise_workspace` starts workspace-driven membership activity.
-Publication prepares reachability on demand. Local calls need no transport.
-Stop activity before closing the session. A failed close keeps everything
-it holds for a retry, and the Host stays alive until its barriers succeed.
+`Opened::workspace` and `Opened::management` give the embedder typed clients,
+and `Opened::supervise_workspace` starts the membership activity the workspace
+calls for. Publication prepares reachability on demand, so a local call needs
+no transport. Stop activity before closing the session: a failed close keeps
+everything it holds for a retry, and the Host stays alive until its barriers
+succeed.
 
 ## Runtime owners
 

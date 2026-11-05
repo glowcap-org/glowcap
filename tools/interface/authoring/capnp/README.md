@@ -1,7 +1,9 @@
 # Cap'n Proto authoring comparison
 
-This adapter reads the compiler's binary `CodeGeneratorRequest` through Rust's
-`capnp::schema_capnp` API and writes
+This adapter lets a Cap'n Proto schema author the same interface description
+the text modules do, so `zig build interface-authoring-check` can compare the
+two paths. It reads the compiler's binary `CodeGeneratorRequest`
+through Rust's `capnp::schema_capnp` API and writes
 [the shared canonical description](../../../../test/interface/authoring/comparison.syrup).
 The shared description reader and model validate it before emission. The
 adapter never parses Cap'n Proto source or a compiler text dump.
@@ -16,7 +18,8 @@ a passable promise without waiting for it.
 Only the comparison's shapes are supported. Inheritance, generic declarations
 and brands, copied structs, unions, groups, defaults, unsupported types, and
 unknown applied annotations are refused. This includes `throws`: the canonical
-method triple has no throws metadata. Runtime breaks remain open.
+method triple has no throws metadata. A method can still break its promise at
+runtime, and the description does not declare how.
 
 Requests and output each have a 1 MiB ceiling. Limits also cover 4,096 schema
 nodes, 256 parameters per method, 65,536 translation items, and bounded reader

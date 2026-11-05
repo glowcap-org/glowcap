@@ -25,8 +25,10 @@ cached launches, and when a delay needs investigation.
 
 `rooms-web` and `rooms-dev` use iroh by default. Select TCP or onion with
 `-Dtransport=tcp` or `-Dtransport=onion`. `rooms-dev` uses Vite Fast Refresh by
-default. `-Dhot-reload=false` serves compiled generations through the web front,
-using the same state and grants. It does not select a different production compiler.
+default. With `-Dhot-reload=false` it serves compiled generations through the
+web front instead, with the same state, grants, and transport: it recompiles
+changed sources on request and reloads the page. It does not select a
+different production compiler.
 
 | Command | Does | Needs |
 | --- | --- | --- |
@@ -124,10 +126,6 @@ Deno the required output names. To try `deno bundle`, replace the recipe with:
 to the selected compiler and to an isolated Deno build without Vite's
 dependencies. `zig build rooms-web-page` exercises the selected output in
 Chromium.
-
-`zig build rooms-dev -Dhot-reload=false` serves compiled generations in
-development with the same state, grants, and transport. It recompiles changed
-sources on request and reloads the page instead of using React Fast Refresh.
 
 To remove Vite entirely, keep the generation launch in
 `tools/build/rooms/browser_front.zig`, delete the Vite launch, the `web/dev.ts`
