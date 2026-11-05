@@ -88,12 +88,19 @@ class EventsTest(unittest.TestCase):
             with self.subTest(workflow=path):
                 self.assertEqual(workflow(path)["on"]["push"]["branches"], ["dev"])
 
-    def test_the_aggregate_requires_every_job_a_dev_push_runs(self):
+    def test_the_aggregate_requires_every_validation_job(self):
         found = jobs(CHECK)
         aggregate = found["gates"]
-        push = {"event_name": "push", "ref": "refs/heads/dev"}
-        running = [name for name, job in found.items() if name != "gates" and selected(job.get("if"), push)]
-        self.assertCountEqual(aggregate["needs"], running, "ci/report.py requires every need, so needs is the list")
+        for event in ("push", "pull_request", "schedule", "workflow_dispatch"):
+            context = {"event_name": event, "ref": "refs/heads/dev", "event": {"inputs": {"suite": "check"}}}
+            running = [
+                name
+                for name, job in found.items()
+                if name not in ("gates", "scheduled-fuzz") and selected(job.get("if"), context)
+            ]
+            with self.subTest(event=event):
+                self.assertCountEqual(aggregate["needs"], running)
+        self.assertCountEqual(PASS, aggregate["needs"], "exercise the actual required jobs")
         self.assertIn("always()", aggregate["if"])
         verdict = step(aggregate, "Summarize and require validation")
         self.assertEqual(verdict["env"]["VALIDATION_NEEDS"], "${{ toJSON(needs) }}")
@@ -102,6 +109,17 @@ class EventsTest(unittest.TestCase):
         for name in PASS:
             ran, _, _ = report_run({**PASS, name: {"result": "failure"}}, command=verdict["run"])
             self.assertNotEqual(ran.returncode, 0, name)
+
+    def test_dependency_comparison_runs_only_on_pull_requests(self):
+        review = jobs(CHECK)["dependencies"]
+        for event in ("push", "pull_request", "schedule", "workflow_dispatch"):
+            context = {"event_name": event, "event": {"inputs": {"suite": "check"}}}
+            with self.subTest(event=event):
+                self.assertTrue(selected(review.get("if"), context))
+                for action in review["steps"]:
+                    self.assertEqual(selected(action.get("if"), context), event == "pull_request")
+        fuzz = {"event_name": "workflow_dispatch", "event": {"inputs": {"suite": "fuzz"}}}
+        self.assertFalse(selected(review.get("if"), fuzz))
 
     def test_only_a_trusted_push_publishes_the_image(self):
         events = workflow(IMAGE)["on"]

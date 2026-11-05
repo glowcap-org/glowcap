@@ -107,20 +107,23 @@ jobs:
           test ! -s findings
 
   # A pull request that adds or moves a dependency is compared with the
-  # dependency graph: a known vulnerability at any severity, or a package
-  # under an unexpected license, fails the review before a person reads it.
+  # dependency graph: a known vulnerability at any severity fails the review.
   # The graph covers the Actions, Cargo, and Python manifests.
+  # Outside pull requests this job succeeds without a comparison, so the
+  # aggregate can require it without accepting skipped validation jobs.
   dependencies:
-    if: github.event_name == 'pull_request'
+    if: *check-suite
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        if: github.event_name == 'pull_request'
         with:
           fail-on-severity: low
           comment-summary-in-pr: never
@@ -129,7 +132,7 @@ jobs:
   # ci/report.py fails it unless every dependency succeeded.
   gates:
     name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}
-    needs: [plan, image, linux, macos-runtime, workflows]
+    needs: [plan, image, linux, macos-runtime, workflows, dependencies]
     if: >-
       always() && (
       github.event_name == 'push' || github.event_name == 'pull_request' ||
