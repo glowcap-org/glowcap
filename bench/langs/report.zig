@@ -51,8 +51,8 @@ pub fn report(ctx: *Ctx, rows: []const Row, skipped: []const Skip) !void {
     }
 
     if (rows.len != 0) {
-        try writeSvg(ctx, rows, stamp, "latency", "Latency p50 (ms, lower is better)", "ms", .p50, 2);
-        try writeSvg(ctx, rows, stamp, "throughput", "Throughput (req/s, higher is better)", "req/s", .rps, 0);
+        try writeSvg(ctx, rows, stamp, "latency", "Latency p50 (ms/unit, lower is better)", "ms/unit", .p50, 2);
+        try writeSvg(ctx, rows, stamp, "throughput", "Throughput (task-board units/s, higher is better)", "units/s", .rps, 0);
         try writeSvg(ctx, rows, stamp, "cold", "Cold start (ms, lower is better)", "ms", .cold_ms, 1);
     }
 
@@ -159,14 +159,15 @@ fn renderMarkdown(ctx: *Ctx, rows: []const Row, mode: []const u8, stamp: i64) ![
     try s.appendSlice(a, "# glowcap per-language consumer cost\n\n");
     try s.print(a, "Mode **{s}** \u{b7} latency n={d} \u{b7} throughput n={d} \u{b7} connections={d} \u{b7} cold-start samples={d} \u{b7} local n={d}. One native Zig host, the client language swapped per row, over real loopback TCP.\n\n", .{ mode, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples, ctx.local_n });
     try s.appendSlice(a, "> Each row is a whole consumer stack: runtime, that language's binding, the app rewritten in it, and its garbage collector, over one glowcap host. A faster row means that whole stack was faster on this one machine on this one day. Reproduce with `zig build bench-langs`, then read the [benchmark guide](../../bench/langs/README.md) and [methodology](../../bench/langs/methodology.md).\n\n");
+    try s.appendSlice(a, "One unit creates, assigns, completes, and checks a task. Latency awaits each call in sequence. Throughput pipelines the calls and awaits the final status.\n\n");
     try s.appendSlice(a, "## Results\n\n");
-    try s.appendSlice(a, "| client | runtime | p50 ms | p99 ms | p999 ms | mean ms | req/s | setup ms/conn | mem kB/conn | cold ms | local ns/turn | local p99 ns | via-host ns/turn | via-host p99 ns | via/local |\n");
+    try s.appendSlice(a, "| client | runtime | p50 ms/unit | p99 ms/unit | p999 ms/unit | mean ms/unit | units/s | setup ms/conn | mem kB/conn | cold ms | local ns/turn | local p99 ns | via-host ns/turn | via-host p99 ns | via/local |\n");
     try s.appendSlice(a, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
     for (rows) |r| {
         try s.print(a, "| {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} |\n", .{ r.name, r.runtime, r.p50, r.p99, r.p999, r.mean, r.rps, r.conn_ms, r.per_conn_kb, r.cold_ms, r.local_in_ns, r.local_in_p99_ns, r.local_via_ns, r.local_via_p99_ns, r.local_ratio });
     }
-    try s.print(a, "\n## Latency — p50, milliseconds (lower is better)\n\n![latency p50](langs-compare-{d}-latency.svg)\n", .{stamp});
-    try s.print(a, "\n## Throughput — requests/second (higher is better)\n\n![throughput](langs-compare-{d}-throughput.svg)\n", .{stamp});
+    try s.print(a, "\n## Latency — p50, milliseconds/unit (lower is better)\n\n![latency p50](langs-compare-{d}-latency.svg)\n", .{stamp});
+    try s.print(a, "\n## Throughput — task-board units/second (higher is better)\n\n![throughput](langs-compare-{d}-throughput.svg)\n", .{stamp});
     try s.print(a, "\n## Cold start — milliseconds, spawn through one completed task-board unit (lower is better)\n\n![cold start](langs-compare-{d}-cold.svg)\n\n", .{stamp});
     return s.items;
 }
