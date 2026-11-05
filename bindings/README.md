@@ -24,7 +24,10 @@ All four wrap the same C ABI and present the same application model:
 ## Shared API
 
 Names follow each language's conventions. Each binding README gives the
-concrete signature and how ownership is expressed.
+concrete signature and how ownership is expressed. Two CapTP versions appear
+below: `1.0`, the version Goblins speaks, and `glowcap-next`, glowcap's own
+newer version ([Profiles and limits](#profiles-and-limits) says how a Host
+picks one).
 
 | Operation | Purpose |
 | --- | --- |
@@ -41,10 +44,12 @@ concrete signature and how ownership is expressed.
 | `publishDurable(behavior, entropy?)` | Create a durable swiss name for a behavior. Omit the entropy to generate it locally. Keep it to restore the same name on a Host rebuilt from the same seed. |
 | `closed()` | Wait for the session to end, without closing it or starting inbound delivery. TypeScript has `onClose(listener)`, which runs a callback once when the session ends. Racket calls it `session-wait-closed`. |
 
-Rust, Python, and Racket load the Host and the driver, then install the
-transport archives you need ([Using glowcap from C](../docs/consuming-from-c.md)
-lists them). Wasm, browser WebRTC, and a bare relay locator drive the byte-fed
-Host directly instead. To listen on a wildcard interface (`0.0.0.0` or `::`),
+Every binding sits on the Host, the C library that holds the protocol state.
+Most also use the driver, an event loop that owns sockets and moves bytes for
+the Host. Rust, Python, and Racket load both, then install the transport archives
+you need ([Using glowcap from C](../docs/consuming-from-c.md) lists them).
+Wasm, browser WebRTC, and a bare relay locator skip the driver and feed bytes
+to the Host themselves. To listen on a wildcard interface (`0.0.0.0` or `::`),
 give an advertised host, because partners dial it and the bind address is only
 a local socket.
 
@@ -92,10 +97,13 @@ reports a scheduler or callback failure as itself, not as an invalid argument.
 
 ### Profiles and limits
 
-Each Host chooses the `glowcap` or `interop` profile as one setting. The binding
-looks the name up in generated ABI constants, so an application never pairs a
-codec with a CapTP version by hand. The individual codec and version selectors
-remain for protocol tests and peers with unusual preferences.
+Each Host chooses the `glowcap` or `interop` profile as one setting. `interop`
+is CapTP `1.0` over Syrup, the baseline every peer speaks and the one Goblins
+uses. `glowcap` offers `glowcap-next` over Cap'n Proto to a peer that offers
+it too. The binding looks the name up in generated ABI constants, so an
+application never pairs a codec with a CapTP version by hand. The individual
+codec and version selectors remain for protocol tests and peers with unusual
+preferences.
 
 Each Host also takes optional session limits as named arguments. Limits
 for accepted frames, queued pending answers, transient outbound bytes, and

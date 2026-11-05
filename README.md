@@ -39,9 +39,9 @@ format.
 For an encrypted session, use [iroh](https://www.iroh.computer/), which is
 QUIC with peer discovery, or `noise-tcp`, which is TCP that proves you reached
 the key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor onion services.
+Plain `tcp` is a testing transport, cleartext with no identity proof.
 [Choosing a transport](https://glowcap.org/transports/choosing/)
-lists the rest. Plain `tcp` is a testing transport, cleartext with no identity
-proof.
+lists the rest.
 
 Applications can opt into Loam to keep state in atomic records backed by
 SQLite, LMDB, or memory. Durable actors can sleep outside memory,
@@ -149,16 +149,15 @@ listening side of this exchange and the same program in other languages.
 
 `zig build` puts the `glowcap` CLI in `zig-out/bin`.
 [`docs/cli.md`](docs/cli.md) covers its REPL, `--json` scripting, the MCP
-server, and a cleartext round-trip for local experiments.
+server, and a cleartext round-trip for local experiments. To install from a
+checkout, run `./glowcap install`. It builds the product, checks its file
+list, and installs it outside the checkout. `zig build glowcap-install` stages
+the same files under `zig-out/product` without installing them.
 
 Rooms is a chat application built on glowcap, and
 [installing glowcap](apps/rooms/host.md) installs it too.
 `glowcap apps rooms serve` starts the browser app, and
 `glowcap apps rooms session join` joins a room over encrypted iroh.
-
-To install from a checkout, run `./glowcap install`. It builds the product,
-checks its file list, and installs it outside the checkout. `zig build glowcap-install` stages the same files under `zig-out/product`
-without installing them.
 
 ### Examples and other languages
 

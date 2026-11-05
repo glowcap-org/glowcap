@@ -49,8 +49,9 @@ sockets. The runtime picks the matching adapter when it loads.
 On Deno, TCP, iroh, onion, WebRTC, and relay connections run on glowcap's
 driver loop, an event loop in the C library that owns the sockets. Bun, the
 browser, and explicit keyed-relay channels use the byte-fed Host instead, where
-your JavaScript supplies the bytes. [Developing a binding](../DEVELOPING.md)
-explains both paths.
+your JavaScript supplies the bytes. In the browser, `@glowcap/web` supplies
+the channel, either a WebSocket relay or a WebRTC DataChannel.
+[Developing a binding](../DEVELOPING.md) explains both paths.
 
 ## Run the tests
 
@@ -67,6 +68,3 @@ zig build wasm-import-check
 
 `zig build bindings` runs the binding checks together. The
 [binding overview](../README.md) describes the shared session API.
-
-`@glowcap/web` uses the same byte-fed Host as Bun. JavaScript supplies
-the channel, either a WebSocket relay or a WebRTC DataChannel.
