@@ -16,7 +16,7 @@
 //   await board.leave();
 
 import * as tcp from "@glowcap/tcp";
-import { type Argument, type Ref, Runtime, type Session, Tagged } from "@glowcap/runtime";
+import { type Argument, type Ref, retainSecondaryFailure, Runtime, type Session, Tagged } from "@glowcap/runtime";
 
 export interface TaskList {
 	name: string;
@@ -58,7 +58,17 @@ export class Watcher {
 	}
 
 	static async start(session: Session, receiver: Ref, canceller: Ref): Promise<Watcher> {
-		return new Watcher(session, receiver, canceller, (await Watcher.#observe(session, receiver, [])).cursor);
+		try {
+			return new Watcher(session, receiver, canceller, (await Watcher.#observe(session, receiver, [])).cursor);
+		} catch (primary) {
+			// Observe committed a durable context; dropping its refs cannot cancel it.
+			try {
+				await Watcher.#cancel(session, canceller);
+			} catch (cleanup) {
+				retainSecondaryFailure(primary, cleanup);
+			}
+			throw primary;
+		}
 	}
 
 	static async #observe(
@@ -85,8 +95,12 @@ export class Watcher {
 	}
 
 	/** Close the board's observation context. Call it once when done watching. */
-	async stop(): Promise<void> {
-		const closed = await this.#session.send(this.#canceller, "cancel", []);
+	stop(): Promise<void> {
+		return Watcher.#cancel(this.#session, this.#canceller);
+	}
+
+	static async #cancel(session: Session, canceller: Ref): Promise<void> {
+		const closed = await session.send(canceller, "cancel", []);
 		if (typeof closed !== "boolean") throw new Error("cancelling the watcher returned no boolean");
 	}
 }
@@ -97,6 +111,9 @@ export class TaskBoard {
 	#board: Ref;
 	#todo: Ref;
 	#done: Ref;
+	// One tail per membership orders sequence acquisition through reply.
+	// Each mutation adds its operation/recovery reactions; reads keep no queue.
+	#mutations: Promise<void> = Promise.resolve();
 
 	private constructor(runtime: Runtime, session: Session, board: Ref, todo: Ref, done: Ref) {
 		this.#runtime = runtime;
@@ -121,9 +138,14 @@ export class TaskBoard {
 		}
 	}
 
-	async #mutate(target: Ref, ...args: Argument[]): Promise<unknown> {
-		const seq = integer(await this.#session.send(target, "mutation-sequence", []), "mutation sequence");
-		return await this.#session.send(target, "mutate", [seq, ...args]);
+	#mutate(target: Ref, ...args: Argument[]): Promise<unknown> {
+		const result = this.#mutations.then(async () => {
+			const seq = integer(await this.#session.send(target, "mutation-sequence", []), "mutation sequence");
+			return await this.#session.send(target, "mutate", [seq, ...args]);
+		});
+		// A refused action rejects its caller without refusing the next action.
+		this.#mutations = result.then(() => {}, () => {});
+		return result;
 	}
 
 	/** Add a task to "To do". Returns the new task. */

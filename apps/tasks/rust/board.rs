@@ -19,6 +19,7 @@
 
 use crate::interface;
 use std::rc::Rc;
+use tokio::sync::Mutex;
 
 use glowcap::{ConnectOptions, Locator, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp};
 
@@ -76,6 +77,9 @@ pub struct Board {
 	todo: Ref,
 	done: Ref,
 	runtime: Runtime,
+	/// One inline mutex orders mutations through their reply; reads stay independent.
+	/// Waiting futures own queue entries, so dropping one cannot wedge the gate.
+	mutations: Mutex<()>,
 }
 
 impl Board {
@@ -109,11 +113,13 @@ impl Board {
 			todo,
 			done,
 			runtime,
+			mutations: Mutex::new(()),
 		})
 	}
 
 	/// Add a task to "To do" and return the new task.
 	pub async fn add(&self, text: &str) -> Result<Task, String> {
+		let _mutation = self.mutations.lock().await;
 		interface::add(self.session.clone(), self.todo.clone(), text)
 			.await
 			.map(Task)
@@ -122,6 +128,7 @@ impl Board {
 
 	/// Move `task` from "To do" to the end of "Done".
 	pub async fn done(&self, task: &Task) -> Result<(), String> {
+		let _mutation = self.mutations.lock().await;
 		interface::move_task(
 			self.session.clone(),
 			self.todo.clone(),
@@ -135,10 +142,12 @@ impl Board {
 
 	/// Start watching the board for changes.
 	pub async fn watch(&self) -> Result<Watcher, String> {
+		let mutation = self.mutations.lock().await;
 		let interface::LoamRegistration(receiver, canceller) =
 			interface::observe(self.session.clone(), self.root.clone())
 				.await
 				.map_err(|error| format!("observe: {error}"))?;
+		drop(mutation);
 		let mut watcher = Watcher {
 			session: Rc::clone(&self.session),
 			receiver,

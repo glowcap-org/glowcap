@@ -104,6 +104,20 @@ Each binding presents the same calls in its own style:
 Adding returns the new task, and marking done takes that task. A watcher's
 `changed()` (`watcher-changed?` in Racket) says whether the board changed
 since its last look, and `stop()` (`watcher-stop`) cancels it.
+Once registration succeeds, failed startup attempts one cancellation. If cleanup
+also fails, the startup failure remains available together with that cleanup failure.
+Racket reports both through `exn:fail:watcher-start`, whose fields retain the original exceptions.
+
+Each Deno, Python, Racket, or Rust board client runs one change at a time,
+from asking for its sequence through receiving the reply. Calls on that client
+may overlap, and reads remain independent. A refused change leaves the client
+ready for another change. Where the language supports cancellation, cancelling
+a wait releases that place in line without retrying submitted work.
+
+Cancellation after submission can leave the result unknown. Separate clients
+holding the same endpoint still share its sequence and must coordinate changes
+across their connections, as [Loam's retry contract](../../docs/loam/access.md#retrying-mutations)
+requires. The board clients coordinate only their own calls.
 
 The server lives under [`zig/`](zig/), beside the Zig client. The other
 directories hold the matching Deno, Python, Racket, and Rust clients, and
@@ -115,3 +129,8 @@ change, and reopens the store to check that everything is still there. It also
 checks that shares keep working after a restart and stop at revocation, and
 that a watcher catches up on a change made while the server was down. It is
 part of `zig build check`.
+
+`zig build tasks-mutation-check` proves overlapping identical and distinct adds,
+refusal recovery, watcher startup cleanup, and Python cancellation through the Deno,
+Python, and Racket clients. `zig build interface-conversation-check` covers the
+same application ordering and Rust cancellation through the Rust board client.

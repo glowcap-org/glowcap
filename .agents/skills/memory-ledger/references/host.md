@@ -25,6 +25,22 @@ custody costs.
   to the existing outcome record until a late value can enter that same release
   queue. Successful waits add neither cost.
 
+- **Tasks application mutation ordering**: the
+  [TypeScript board](../../../../apps/tasks/deno/task_client.ts) keeps one
+  promise tail per membership, with operation and recovery reactions for each
+  change through its reply. The [Rust board](../../../../apps/tasks/rust/board.rs)
+  holds one inline Tokio mutex, while the
+  [Python](../../../../apps/tasks/python/task_client.py) and
+  [Racket](../../../../apps/tasks/racket/task-client.rkt) boards allocate one
+  lock or semaphore per membership. Contending calls use their runtime's
+  waiter storage until entry or cancellation. These application gates avoid
+  reusing a receipt sequence for distinct actions, copy no payloads, and leave
+  reads outside the gate.
+
+  Watcher startup rollback uses the existing error context of each language.
+  A double failure in Racket allocates one application exception that retains
+  both originals and the startup continuation marks until its caller drops it.
+
 - **Generated TypeScript reply work counter**: `emit` in
   `tools/interface/typescript_compounds.zig` emits one temporary DecodeBudget
   object per compound observation. Recursive helpers share it until return or

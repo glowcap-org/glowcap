@@ -68,6 +68,22 @@ pub fn register(
     tasks_app_test_step.dependOn(&run_tasks_board.step);
     check_step.dependOn(tasks_app_test_step);
 
+    const mutation_checks = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+        "deno", "run", "--allow-read", "--allow-write", "--allow-run", "--allow-env", "apps/tasks/mutation_test.ts",
+    });
+    mutation_checks.addArtifactArg(tasks_server_exe);
+    commands.setLibDir(mutation_checks, .host);
+    mutation_checks.has_side_effects = true;
+    const mutation_types = commands.addRootedSystemCommand(b, .build_tool, &.{ "deno", "check", "apps/tasks/deno/mutation_test.ts" });
+    mutation_checks.step.dependOn(&mutation_types.step);
+    const mutation_racket = commands.addRootedSystemCommand(b, .build_tool, &.{ "raco", "make", "apps/tasks/racket/mutation-test.rkt", "apps/tasks/racket/watcher-test.rkt" });
+    commands.setLibDir(mutation_racket, .host);
+    mutation_racket.step.dependOn(b.getInstallStep());
+    mutation_checks.step.dependOn(&mutation_racket.step);
+    const mutation_step = b.step("tasks-mutation-check", "Prove Tasks mutation ordering and watcher startup cleanup over TCP (needs deno + python3 + racket)");
+    mutation_step.dependOn(&mutation_checks.step);
+    runtime_gate.add(mutation_step);
+
     @import("interface.zig").registerRuntime(b, tasks_server_exe, runtime_gate, check_step, interface_checker);
 
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno

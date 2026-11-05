@@ -96,6 +96,9 @@ Both retain the target and reference arguments before sequence acquisition.
 Replay uses the prepared request without automatic retries.
 Opaque-value and compound receipt inputs remain unsupported.
 
+Tasks clients coordinate changes within one membership only. Separate clients
+sharing an endpoint must [coordinate its receipt sequence](../apps/tasks/README.md#try-every-binding).
+
 The text authoring parser supports rooted imports, lists, tuples, positional
 records and single-payload tagged values. String-keyed structs, maps, unions and
 recognized-failure syntax remain unsupported

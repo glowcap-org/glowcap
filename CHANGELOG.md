@@ -31,6 +31,18 @@ and storage formats before 1.0.
 
 ### Fixed
 
+- Generated TypeScript calls support checked `await` while preserving raw
+  pipelining. The export name `then` is refused, but a wire method can still be
+  named `then`.
+- The interface CLI refuses output paths that name an input or import, including
+  symlink aliases. It writes output atomically and preserves existing regular
+  file permissions. Invalid targets, selections and API names report contextual
+  errors without a Zig trace.
+- Tasks clients in Rust, TypeScript, Python and Racket order mutations per client
+  while allowing reads to proceed independently. Overlapping identical actions
+  no longer collapse into one receipt.
+- A failed first watcher poll in TypeScript, Python or Racket attempts
+  cancellation and preserves the original failure alongside any cleanup error.
 - Rust and TypeScript clean up discarded references in generated and internal
   replies, and after failed fetch/enliven calls, when automatic release is
   disabled. Successful manual results keep their existing release policy.
